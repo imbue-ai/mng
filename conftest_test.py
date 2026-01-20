@@ -1,4 +1,4 @@
-"""Tests for the global test locking mechanism in conftest.py."""
+"""Tests for conftest.py functionality including global test locking and test output file generation."""
 
 import concurrent.futures
 import fcntl
@@ -11,9 +11,12 @@ from uuid import uuid4
 
 import pytest
 
+from conftest import _ensure_test_outputs_dir
+from conftest import _generate_output_filename
 from conftest import acquire_global_test_lock
 from conftest import is_xdist_worker
 from conftest import print_lock_message
+from conftest import pytest_load_initial_conftests
 
 
 @pytest.fixture
@@ -191,3 +194,90 @@ print("LOCK_RELEASED", flush=True)
         if holder_process.stdin is not None:
             holder_process.stdin.close()
         holder_process.wait(timeout=5)
+
+
+# Tests for test output file generation functionality
+
+
+@pytest.fixture
+def test_outputs_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Override the test outputs directory to use a temp path."""
+    import conftest
+
+    test_dir = tmp_path / "tests_outputs"
+    monkeypatch.setattr(conftest, "_TEST_OUTPUTS_DIR", test_dir)
+    return test_dir
+
+
+def test_ensure_test_outputs_dir_creates_directory(test_outputs_dir: Path) -> None:
+    assert not test_outputs_dir.exists()
+    result = _ensure_test_outputs_dir()
+    assert result == test_outputs_dir
+    assert test_outputs_dir.exists()
+    assert test_outputs_dir.is_dir()
+
+
+def test_ensure_test_outputs_dir_is_idempotent(test_outputs_dir: Path) -> None:
+    _ensure_test_outputs_dir()
+    _ensure_test_outputs_dir()
+    assert test_outputs_dir.exists()
+
+
+def test_generate_output_filename_creates_unique_files(test_outputs_dir: Path) -> None:
+    file1 = _generate_output_filename("test", ".txt")
+    file2 = _generate_output_filename("test", ".txt")
+    assert file1 != file2
+    assert file1.parent == test_outputs_dir
+    assert file2.parent == test_outputs_dir
+    assert file1.name.startswith("test_")
+    assert file1.name.endswith(".txt")
+
+
+def test_generate_output_filename_uses_correct_prefix_and_extension(test_outputs_dir: Path) -> None:
+    file = _generate_output_filename("slow_tests", ".json")
+    assert file.name.startswith("slow_tests_")
+    assert file.name.endswith(".json")
+
+
+def test_pytest_load_initial_conftests_removes_term_missing_from_args() -> None:
+    """Test that --cov-report=term-missing is removed when --coverage-to-file is present."""
+    args = [
+        "-n",
+        "4",
+        "--cov-report=term-missing",
+        "--cov-report=html",
+        "--coverage-to-file",
+    ]
+    # The function only uses args, so we can pass None for unused parameters
+    pytest_load_initial_conftests(None, None, args)  # type: ignore[arg-type]
+
+    assert "--cov-report=term-missing" not in args
+    assert "--cov-report=html" in args
+    assert "--coverage-to-file" in args
+
+
+def test_pytest_load_initial_conftests_removes_term_from_args() -> None:
+    """Test that --cov-report=term is removed when --coverage-to-file is present."""
+    args = [
+        "--cov-report=term",
+        "--cov-report=xml",
+        "--coverage-to-file",
+    ]
+    pytest_load_initial_conftests(None, None, args)  # type: ignore[arg-type]
+
+    assert "--cov-report=term" not in args
+    assert "--cov-report=xml" in args
+
+
+def test_pytest_load_initial_conftests_does_nothing_without_coverage_to_file() -> None:
+    """Test that args are unchanged when --coverage-to-file is not present."""
+    args = [
+        "--cov-report=term-missing",
+        "--cov-report=html",
+    ]
+    original_args = args.copy()
+    pytest_load_initial_conftests(None, None, args)  # type: ignore[arg-type]
+
+    assert args == original_args
+
+

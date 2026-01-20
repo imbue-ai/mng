@@ -6,8 +6,13 @@ import time
 from pathlib import Path
 from typing import Final
 from typing import TextIO
+from uuid import uuid4
 
 import pytest
+from coverage.exceptions import CoverageException
+
+# Directory for test output files (slow tests, coverage summaries)
+_TEST_OUTPUTS_DIR: Final[Path] = Path(".claude/tests_outputs")
 
 # The lock file path - a constant location in /tmp so all pytest processes can find it
 _GLOBAL_TEST_LOCK_PATH: Final[Path] = Path("/tmp/pytest_global_test_lock")
@@ -129,3 +134,195 @@ def pytest_sessionfinish(session, exitstatus):
                 f"Test suite took {duration:.2f}s, exceeding the {max_duration}s limit",
                 returncode=1,
             )
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Add options for redirecting slow tests and coverage output to files."""
+    group = parser.getgroup("output-to-file", "Options for redirecting output to files")
+    group.addoption(
+        "--slow-tests-to-file",
+        action="store_true",
+        default=False,
+        help="Write slow tests report to a file instead of stdout",
+    )
+    group.addoption(
+        "--coverage-to-file",
+        action="store_true",
+        default=False,
+        help="Write coverage summary to a file instead of stdout",
+    )
+
+
+def _ensure_test_outputs_dir() -> Path:
+    """Ensure the test outputs directory exists and return its path."""
+    _TEST_OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+    return _TEST_OUTPUTS_DIR
+
+
+def _generate_output_filename(prefix: str, extension: str) -> Path:
+    """Generate a unique filename for test output."""
+    return _ensure_test_outputs_dir() / f"{prefix}_{uuid4().hex}{extension}"
+
+
+def pytest_load_initial_conftests(
+    early_config: pytest.Config,
+    parser: pytest.Parser,
+    args: list[str],
+) -> None:
+    """Modify coverage options early, before pytest-cov processes them."""
+    # Check if --coverage-to-file is in the args
+    if "--coverage-to-file" in args:
+        # Find and remove term-based coverage reports from the args
+        # We need to handle both explicit args and those from addopts
+        indices_to_remove: list[int] = []
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            # Handle --cov-report=term-missing form
+            if arg.startswith("--cov-report=term"):
+                indices_to_remove.append(i)
+            # Handle --cov-report term-missing form (two separate args)
+            elif arg == "--cov-report" and i + 1 < len(args) and args[i + 1].startswith("term"):
+                indices_to_remove.append(i)
+                indices_to_remove.append(i + 1)
+                i += 1
+            i += 1
+
+        # Remove in reverse order to preserve indices
+        for idx in reversed(indices_to_remove):
+            args.pop(idx)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config: pytest.Config) -> None:
+    """Store options on config for later use and suppress terminal output when redirecting to files."""
+    # Store the slow-tests-to-file option on config for use in hooks
+    slow_tests_to_file = config.getoption("--slow-tests-to-file", default=False)
+    coverage_to_file = config.getoption("--coverage-to-file", default=False)
+    setattr(config, "_slow_tests_to_file", slow_tests_to_file)
+    setattr(config, "_coverage_to_file", coverage_to_file)
+
+    # Save the original durations count for our custom reporting, then suppress terminal output
+    if slow_tests_to_file:
+        original_durations = config.getoption("durations", default=0)
+        setattr(config, "_original_durations", original_durations)
+        # Set durations to None to suppress pytest's built-in terminal output
+        # Note: durations=0 shows ALL durations, durations=None suppresses the output
+        config.option.durations = None
+
+    # Suppress coverage terminal output when redirecting to file
+    if coverage_to_file:
+        # Remove term-missing from cov_report options to suppress terminal output
+        # but keep html and xml reports
+        cov_report = getattr(config.option, "cov_report", None)
+        if cov_report is not None and isinstance(cov_report, dict):
+            cov_report.pop("term-missing", None)
+            cov_report.pop("term", None)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_terminal_summary(
+    terminalreporter: "pytest.TerminalReporter",
+    exitstatus: int,
+    config: pytest.Config,
+) -> None:
+    """Write slow tests to file if the option is enabled."""
+    # Only run on the controller process (not xdist workers)
+    if is_xdist_worker():
+        return
+
+    slow_tests_to_file = getattr(config, "_slow_tests_to_file", False)
+    coverage_to_file = getattr(config, "_coverage_to_file", False)
+
+    # Handle slow tests output
+    if slow_tests_to_file:
+        _write_slow_tests_to_file(terminalreporter, config)
+
+    # Handle coverage output
+    if coverage_to_file:
+        _write_coverage_summary_to_file(terminalreporter, config)
+
+
+def _write_slow_tests_to_file(
+    terminalreporter: "pytest.TerminalReporter",
+    config: pytest.Config,
+) -> None:
+    """Write the slow tests report to a file."""
+    # Get durations from the terminal reporter's stats (aggregated from all workers)
+    # This works with xdist because the controller aggregates results from workers
+    durations: list[tuple[float, str]] = []
+
+    # Collect durations from test reports in the stats
+    for reports in terminalreporter.stats.values():
+        for report in reports:
+            if hasattr(report, "duration") and hasattr(report, "nodeid"):
+                # Only count the "call" phase (not setup/teardown)
+                if getattr(report, "when", None) == "call":
+                    durations.append((report.duration, report.nodeid))
+
+    # Sort by duration (slowest first)
+    durations = sorted(durations, reverse=True)
+
+    # Get the original durations count (saved before we suppressed terminal output)
+    durations_count = getattr(config, "_original_durations", 0)
+    if durations_count and durations_count > 0:
+        durations = durations[:durations_count]
+
+    if not durations:
+        return
+
+    # Generate output file
+    output_file = _generate_output_filename("slow_tests", ".txt")
+
+    # Write the report
+    lines = [f"slowest {len(durations)} durations", ""]
+    for duration, nodeid in durations:
+        lines.append(f"{duration:.4f}s {nodeid}")
+
+    output_file.write_text("\n".join(lines))
+
+    # Print single line indicating where the file was saved
+    print_lock_message(f"Slow tests report saved to: {output_file}")
+
+
+def _write_coverage_summary_to_file(
+    terminalreporter: "pytest.TerminalReporter",
+    config: pytest.Config,
+) -> None:
+    """Write the coverage summary to a file.
+
+    This captures a summary of coverage including the existing HTML/XML reports
+    and writes a pointer to those locations.
+    """
+    # Check if coverage plugin is active
+    cov_plugin = config.pluginmanager.get_plugin("_cov")
+    if cov_plugin is None:
+        return
+
+    # Generate output file
+    output_file = _generate_output_filename("coverage_summary", ".txt")
+
+    lines = ["Coverage Summary", ""]
+
+    # Get the coverage object from pytest-cov
+    cov = getattr(cov_plugin, "cov_controller", None)
+    if cov is not None:
+        cov_obj = getattr(cov, "cov", None)
+        if cov_obj is not None:
+            try:
+                # Get total coverage percentage
+                total = cov_obj.report(file=None, show_missing=False)
+                lines.append(f"Total coverage: {total:.2f}%")
+            except CoverageException:
+                lines.append("Total coverage: (unable to calculate)")
+
+    # Add pointers to the detailed reports
+    lines.append("")
+    lines.append("Detailed reports:")
+    lines.append("  HTML report: htmlcov/index.html")
+    lines.append("  XML report: coverage.xml")
+
+    output_file.write_text("\n".join(lines))
+
+    # Print single line indicating where the file was saved
+    print_lock_message(f"Coverage summary saved to: {output_file}")
