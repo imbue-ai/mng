@@ -57,6 +57,10 @@ addopts = [
   "--max-worker-restart=0",
   # skip acceptance and release tests by default (they require network access)
   "-m not acceptance and not release",
+  # make the output more expected for claude--these custom flags suppress the terminal output for coverage and slow tests
+  # then it just outputs the path where the output can be found
+  "--slow-tests-to-file",
+  "--coverage-to-file",
 ]
 markers = [
   "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
