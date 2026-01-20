@@ -108,6 +108,12 @@ def pytest_sessionfinish(session, exitstatus):
     if hasattr(session, "start_time"):
         duration = time.time() - session.start_time
 
+        # There are 4 types of tests, each with different time limits in CI:
+        # - unit tests: fast, local, no network (run with integration tests)
+        # - integration tests: local, no network, used for coverage calculation
+        # - acceptance tests: run on all branches except main, have network/Modal/etc access
+        # - release tests: only run on main, comprehensive tests for release readiness
+
         # Allow explicit override via environment variable (useful for generating test timings)
         if "PYTEST_MAX_DURATION" in os.environ:
             max_duration = float(os.environ["PYTEST_MAX_DURATION"])
