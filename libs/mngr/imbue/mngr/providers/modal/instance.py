@@ -7,6 +7,8 @@ import argparse
 import json
 import socket
 import time
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Final
@@ -23,7 +25,7 @@ from pyinfra.api.inventory import Inventory
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
-from imbue.mngr.errors import SnapshotsNotSupportedError
+from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostResources
@@ -129,12 +131,9 @@ class ModalProviderInstance(BaseProviderInstance):
     default_cpu: float = Field(frozen=True, description="Default CPU cores")
     default_memory: float = Field(frozen=True, description="Default memory in GB")
 
-    # FIXME: actually, modal *does* support snapshots! calling sandbox.snapshot_filesystem() returns an image, which you can pull the ID off of.
-    #  In order to actually implement this correctly, we'll need to save the snapshot IDs into a label for now (since there are not yet any routes for listing snapshots from Modal)
-    #  They'll eventually add them, so for now it's fine to just make a label called "snapshots" that contains a comma-separated list of snapshot IDs.
     @property
     def supports_snapshots(self) -> bool:
-        return False
+        return True
 
     @property
     def supports_volumes(self) -> bool:
@@ -146,14 +145,16 @@ class ModalProviderInstance(BaseProviderInstance):
 
     @property
     def _keys_dir(self) -> Path:
-        """Get the directory for storing SSH keys."""
+        """Get the directory for storing SSH keys.
+
+        Uses a single directory shared across all modal provider instances for
+        simplicity. Modal sandboxes are ephemeral, so the security tradeoff of
+        sharing keys is acceptable.
+        """
         # Store keys under the mngr config directory (test-scoped when running tests)
         config_dir = self.mngr_ctx.config.default_host_dir.expanduser()
-        return config_dir / "providers" / "modal" / str(self.name)
+        return config_dir / "providers" / "modal"
 
-    # FIXME: we should simplify this--just have a *single* keypair for a given provider backend (it can be configured, but should be shared across all instances of the same backend)
-    #  Yes, this is less secure, but it's way simpler to manage, and Modal sandboxes are ephemeral anyway, and we can easily come back to this later.
-    #  Then we'll have a few less keys to keep track of.
     def _get_ssh_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH keypair for this provider instance."""
         return load_or_create_ssh_keypair(self._keys_dir)
@@ -172,29 +173,66 @@ class ModalProviderInstance(BaseProviderInstance):
         return self._keys_dir / "known_hosts"
 
     def _build_modal_image(self, base_image: str | None = None) -> modal.Image:
-        """Build a Modal image with SSH support.
+        """Build a Modal image.
 
         If base_image is provided (e.g., "python:3.11-slim"), uses that as the
         base. Otherwise uses debian:bookworm-slim.
+
+        SSH and tmux setup is handled at runtime in _start_sshd_in_sandbox to
+        allow warning if these tools are not pre-installed in the base image.
         """
         if base_image:
             image = modal.Image.from_registry(base_image)
         else:
             image = modal.Image.debian_slim()
 
-        # FIXME: all of these commands should be done at the _start_sshd_in_sandbox time instead of build time
-        #  The reason is that we want to warn if tmux or sshd was not already configured in the base image (and only install after warning)
+        return image
 
-        # Install SSH server and tmux
-        image = image.apt_install("openssh-server", "tmux")
+    def _check_and_install_packages(
+        self,
+        sandbox: modal.Sandbox,
+    ) -> None:
+        """Check for required packages and install if missing, with warnings.
 
-        # Create sshd run directory
-        image = image.run_commands(["mkdir -p /run/sshd"])
+        Checks for sshd and tmux. If either is missing, logs a warning and
+        installs via apt. This allows users to pre-configure their base images
+        for faster startup while supporting images without these tools.
+        """
+        # Check if sshd is installed
+        sshd_check = sandbox.exec("sh", "-c", "test -x /usr/sbin/sshd && echo yes || echo no")
+        is_sshd_installed = sshd_check.stdout.read().strip() == "yes"
+
+        # Check if tmux is installed
+        tmux_check = sandbox.exec("sh", "-c", "command -v tmux >/dev/null 2>&1 && echo yes || echo no")
+        is_tmux_installed = tmux_check.stdout.read().strip() == "yes"
+
+        # Determine which packages need installation
+        packages_to_install: list[str] = []
+        if not is_sshd_installed:
+            logger.warning(
+                "openssh-server is not pre-installed in the base image. "
+                "Installing at runtime. For faster startup, consider using an image with openssh-server pre-installed."
+            )
+            packages_to_install.append("openssh-server")
+
+        if not is_tmux_installed:
+            logger.warning(
+                "tmux is not pre-installed in the base image. "
+                "Installing at runtime. For faster startup, consider using an image with tmux pre-installed."
+            )
+            packages_to_install.append("tmux")
+
+        # Install missing packages
+        if packages_to_install:
+            logger.debug("Installing packages: {}", packages_to_install)
+            sandbox.exec("apt-get", "update", "-qq")
+            sandbox.exec("apt-get", "install", "-y", "-qq", *packages_to_install)
+
+        # Create sshd run directory (required for sshd to start)
+        sandbox.exec("mkdir", "-p", "/run/sshd")
 
         # Create mngr host directory
-        image = image.run_commands([f"mkdir -p {self.host_dir}"])
-
-        return image
+        sandbox.exec("mkdir", "-p", str(self.host_dir))
 
     def _start_sshd_in_sandbox(
         self,
@@ -203,7 +241,14 @@ class ModalProviderInstance(BaseProviderInstance):
         host_private_key: str,
         host_public_key: str,
     ) -> None:
-        """Set up SSH access and start sshd in the sandbox."""
+        """Set up SSH access and start sshd in the sandbox.
+
+        This method handles the complete SSH setup including package installation
+        (if needed), key configuration, and starting the sshd daemon.
+        """
+        # Check for required packages and install if missing
+        self._check_and_install_packages(sandbox)
+
         # Create .ssh directory
         sandbox.exec("mkdir", "-p", "/root/.ssh")
 
@@ -341,11 +386,15 @@ class ModalProviderInstance(BaseProviderInstance):
         host_public_key: str,
         config: SandboxConfig,
         user_tags: Mapping[str, str] | None,
+        snapshots: list[dict[str, Any]] | None = None,
     ) -> dict[str, str]:
         """Build the tags dict to store on a Modal sandbox.
 
         Uses only 3 mngr tags (host_id, host_name, host_record) to stay well
         under Modal's 10-tag limit, leaving 7 tags for user-defined tags.
+
+        Snapshots are stored as a list of dicts in the host_record JSON blob,
+        each containing: id, name, created_at (ISO format), and modal_image_id.
         """
         # Build the host record as a JSON blob containing all other metadata
         host_record: dict[str, Any] = {
@@ -359,6 +408,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 "gpu": config.gpu,
                 "image": config.image,
             },
+            "snapshots": snapshots if snapshots is not None else [],
         }
 
         tags: dict[str, str] = {
@@ -377,11 +427,12 @@ class ModalProviderInstance(BaseProviderInstance):
     def _parse_sandbox_tags(
         self,
         tags: dict[str, str],
-    ) -> tuple[HostId, HostName, str, int, str | None, SandboxConfig, dict[str, str]]:
+    ) -> tuple[HostId, HostName, str, int, str | None, SandboxConfig, dict[str, str], list[dict[str, Any]]]:
         """Parse tags from a Modal sandbox into structured data.
 
-        The returned tuple contains (host_id, name, ssh_host, ssh_port, host_public_key, config, user_tags).
+        The returned tuple contains (host_id, name, ssh_host, ssh_port, host_public_key, config, user_tags, snapshots).
         host_public_key may be None for sandboxes created before we started storing it in tags.
+        snapshots is a list of dicts containing snapshot metadata.
         """
         host_id = HostId(tags[TAG_HOST_ID])
         name = HostName(tags[TAG_HOST_NAME])
@@ -402,6 +453,9 @@ class ModalProviderInstance(BaseProviderInstance):
             timeout=int(config_data.get("timeout", self.default_timeout)),
         )
 
+        # Extract snapshots list from host record
+        snapshots: list[dict[str, Any]] = host_record.get("snapshots", [])
+
         # Extract user tags (those with the user prefix)
         user_tags: dict[str, str] = {}
         for key, value in tags.items():
@@ -409,7 +463,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 user_key = key[len(TAG_USER_PREFIX) :]
                 user_tags[user_key] = value
 
-        return host_id, name, ssh_host, ssh_port, host_public_key, config, user_tags
+        return host_id, name, ssh_host, ssh_port, host_public_key, config, user_tags, snapshots
 
     def _get_modal_app(self) -> modal.App:
         """Get or create the Modal app for this provider instance.
@@ -480,7 +534,9 @@ class ModalProviderInstance(BaseProviderInstance):
         (which happens for sandboxes created before we started storing the host public key).
         """
         tags = sandbox.get_tags()
-        host_id, name, ssh_host, ssh_port, host_public_key, config, user_tags = self._parse_sandbox_tags(tags)
+        host_id, name, ssh_host, ssh_port, host_public_key, config, user_tags, snapshots = self._parse_sandbox_tags(
+            tags
+        )
 
         if host_public_key is None:
             # Sandbox was created before we started storing the host public key.
@@ -752,28 +808,145 @@ class ModalProviderInstance(BaseProviderInstance):
         )
 
     # =========================================================================
-    # Snapshot Methods (not supported)
+    # Snapshot Methods
     # =========================================================================
+
+    def _update_sandbox_snapshots(
+        self,
+        sandbox: modal.Sandbox,
+        snapshots: list[dict[str, Any]],
+    ) -> None:
+        """Update the snapshots list in a sandbox's tags."""
+        tags = sandbox.get_tags()
+        host_record = json.loads(tags[TAG_HOST_RECORD])
+        host_record["snapshots"] = snapshots
+        tags[TAG_HOST_RECORD] = json.dumps(host_record)
+        sandbox.set_tags(tags)
 
     def create_snapshot(
         self,
         host: HostInterface | HostId,
         name: SnapshotName | None = None,
     ) -> SnapshotId:
-        raise SnapshotsNotSupportedError(self.name)
+        """Create a snapshot of a Modal sandbox's filesystem.
+
+        Uses Modal's sandbox.snapshot_filesystem() to create an incremental snapshot.
+        Snapshot metadata is stored in the sandbox's tags since Modal doesn't yet
+        provide a way to list snapshots via their API.
+        """
+        host_id = host.id if isinstance(host, HostInterface) else host
+        logger.debug("Creating snapshot for Modal sandbox: host_id={}", host_id)
+
+        sandbox = self._find_sandbox_by_host_id(host_id)
+        if sandbox is None:
+            raise HostNotFoundError(host_id)
+
+        # Create the filesystem snapshot
+        logger.debug("Calling snapshot_filesystem on sandbox")
+        modal_image = sandbox.snapshot_filesystem()
+        modal_image_id = modal_image.object_id
+
+        # Generate mngr snapshot ID and metadata
+        snapshot_id = SnapshotId.generate()
+        created_at = datetime.now(timezone.utc)
+        # Use last 8 characters of the snapshot ID as a short identifier for the default name
+        short_id = str(snapshot_id)[-8:]
+        snapshot_name = name if name is not None else SnapshotName(f"snapshot-{short_id}")
+
+        snapshot_data: dict[str, Any] = {
+            "id": str(snapshot_id),
+            "name": str(snapshot_name),
+            "created_at": created_at.isoformat(),
+            "modal_image_id": modal_image_id,
+        }
+
+        # Read existing snapshots and add the new one
+        tags = sandbox.get_tags()
+        _, _, _, _, _, _, _, existing_snapshots = self._parse_sandbox_tags(tags)
+        updated_snapshots = existing_snapshots + [snapshot_data]
+
+        # Update the sandbox tags with the new snapshot list
+        self._update_sandbox_snapshots(sandbox, updated_snapshots)
+
+        logger.info(
+            "Created snapshot: id={}, name={}, modal_image_id={}",
+            snapshot_id,
+            snapshot_name,
+            modal_image_id,
+        )
+        return snapshot_id
 
     def list_snapshots(
         self,
         host: HostInterface | HostId,
     ) -> list[SnapshotInfo]:
-        return []
+        """List all snapshots for a Modal sandbox.
+
+        Reads snapshot metadata from the sandbox's tags since Modal doesn't yet
+        provide a way to list snapshots via their API.
+        """
+        host_id = host.id if isinstance(host, HostInterface) else host
+
+        sandbox = self._find_sandbox_by_host_id(host_id)
+        if sandbox is None:
+            return []
+
+        tags = sandbox.get_tags()
+        try:
+            _, _, _, _, _, _, _, snapshots_data = self._parse_sandbox_tags(tags)
+        except (KeyError, ValueError):
+            return []
+
+        # Convert to SnapshotInfo objects, sorted by created_at (newest first)
+        snapshots: list[SnapshotInfo] = []
+        for idx, snap_data in enumerate(reversed(snapshots_data)):
+            created_at_str = snap_data.get("created_at")
+            created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now(timezone.utc)
+            snapshots.append(
+                SnapshotInfo(
+                    id=SnapshotId(snap_data["id"]),
+                    name=SnapshotName(snap_data.get("name", "")),
+                    created_at=created_at,
+                    size_bytes=None,
+                    recency_idx=idx,
+                )
+            )
+
+        return snapshots
 
     def delete_snapshot(
         self,
         host: HostInterface | HostId,
         snapshot_id: SnapshotId,
     ) -> None:
-        raise SnapshotsNotSupportedError(self.name)
+        """Delete a snapshot from a Modal sandbox.
+
+        Removes the snapshot metadata from the sandbox's tags. Note that the
+        underlying Modal image is not deleted since Modal doesn't yet provide
+        a way to delete images via their API; they will be garbage-collected
+        by Modal when no longer referenced.
+        """
+        host_id = host.id if isinstance(host, HostInterface) else host
+        logger.debug("Deleting snapshot {} from Modal sandbox: host_id={}", snapshot_id, host_id)
+
+        sandbox = self._find_sandbox_by_host_id(host_id)
+        if sandbox is None:
+            raise HostNotFoundError(host_id)
+
+        # Read existing snapshots
+        tags = sandbox.get_tags()
+        _, _, _, _, _, _, _, existing_snapshots = self._parse_sandbox_tags(tags)
+
+        # Find and remove the snapshot
+        snapshot_id_str = str(snapshot_id)
+        updated_snapshots = [s for s in existing_snapshots if s.get("id") != snapshot_id_str]
+
+        if len(updated_snapshots) == len(existing_snapshots):
+            raise SnapshotNotFoundError(snapshot_id)
+
+        # Update the sandbox tags
+        self._update_sandbox_snapshots(sandbox, updated_snapshots)
+        logger.info("Deleted snapshot: {}", snapshot_id)
 
     # =========================================================================
     # Volume Methods (not supported)
