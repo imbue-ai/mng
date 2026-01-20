@@ -380,6 +380,7 @@ class AgentEnvironmentOptions(FrozenModel):
         default=(),
         description="Files to load environment variables from",
     )
+    # FIXME: these really should have been read immediately when this object was constructed, and stuck into "evn_vars" (eg, this field should not exist)
     pass_env_vars: tuple[str, ...] = Field(
         default=(),
         description="Environment variable names to forward from current shell",
