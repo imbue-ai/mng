@@ -135,6 +135,6 @@ jobs:
         run: uv sync --all-packages
 
       - name: Run acceptance tests
-#        run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 60 --override-ini='addopts=-n 0 --durations=20 --durations-min=1.0' --no-cov -v --tb=short --splits 8 --group ${{ matrix.group }} --splitting-algorithm=least_duration
-#        unfortunately had to disable modal for now because we are spamming new apps
-        run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 60 --override-ini='addopts=-n 0 --durations=20 --durations-min=1.0 -m "not modal"' --no-cov -v --tb=short --splits 8 --group ${{ matrix.group }} --splitting-algorithm=least_duration
+        run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 --durations=20 --durations-min=1.0' --no-cov -v --tb=short --splits 8 --group ${{ matrix.group }} --splitting-algorithm=least_duration
+#        If you ever need to disable modal, can switch to this:
+#        run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 --durations=20 --durations-min=1.0 -m "not modal"' --no-cov -v --tb=short --splits 8 --group ${{ matrix.group }} --splitting-algorithm=least_duration
