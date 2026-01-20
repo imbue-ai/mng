@@ -281,3 +281,158 @@ def test_pytest_load_initial_conftests_does_nothing_without_coverage_to_file() -
     assert args == original_args
 
 
+# Integration tests for file output functionality
+
+
+def test_slow_tests_to_file_creates_output_file(tmp_path: Path) -> None:
+    """Integration test: --slow-tests-to-file creates a file with slow test durations."""
+    # Create a simple test file in the temp directory
+    test_file = tmp_path / "test_simple.py"
+    test_file.write_text(
+        """\
+import time
+
+def test_slow():
+    time.sleep(0.01)
+
+def test_fast():
+    pass
+"""
+    )
+
+    # Create a custom output directory in the temp path
+    output_dir = tmp_path / "tests_outputs"
+    # Use a unique lock path to avoid blocking on the parent pytest's lock
+    lock_path = tmp_path / "test_lock"
+
+    # Run pytest with --slow-tests-to-file from the main project directory
+    # Using a subprocess that explicitly registers conftest as a plugin
+    # Remove PYTEST_XDIST_WORKER from env so the subprocess doesn't think it's a worker
+    env = os.environ.copy()
+    env.pop("PYTEST_XDIST_WORKER", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"""
+import sys
+from pathlib import Path
+sys.path.insert(0, "{Path.cwd()}")
+
+import conftest
+conftest._TEST_OUTPUTS_DIR = Path("{output_dir}")
+conftest._GLOBAL_TEST_LOCK_PATH = Path("{lock_path}")
+
+import pytest
+sys.exit(pytest.main([
+    "{test_file}",
+    "--slow-tests-to-file",
+    "--durations=2",
+    "-p", "no:randomly",
+    "-p", "no:xdist",
+    "--no-cov",
+], plugins=[conftest]))
+""",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+    )
+
+    # The test should pass
+    assert result.returncode == 0, f"pytest failed: {result.stdout}\n{result.stderr}"
+
+    # Check that an output file was created
+    assert output_dir.exists(), (
+        f"Output directory not created.\n"
+        f"stdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    output_files = list(output_dir.glob("slow_tests_*.txt"))
+    assert len(output_files) == 1, f"Expected 1 slow_tests file, found {len(output_files)}"
+
+    # Verify the content
+    content = output_files[0].read_text()
+    assert "slowest" in content
+    assert "test_slow" in content or "test_fast" in content
+
+
+def test_coverage_to_file_creates_output_file(tmp_path: Path) -> None:
+    """Integration test: --coverage-to-file creates a file with coverage summary."""
+    # Create a simple module to test coverage on
+    module_file = tmp_path / "mymodule.py"
+    module_file.write_text(
+        """\
+def add(a, b):
+    return a + b
+"""
+    )
+
+    # Create a simple test file
+    test_file = tmp_path / "test_mymodule.py"
+    test_file.write_text(
+        """\
+from mymodule import add
+
+def test_add():
+    assert add(1, 2) == 3
+"""
+    )
+
+    # Create a custom output directory in the temp path
+    output_dir = tmp_path / "tests_outputs"
+    # Use a unique lock path to avoid blocking on the parent pytest's lock
+    lock_path = tmp_path / "test_lock"
+
+    # Run pytest with --coverage-to-file using a subprocess that registers conftest as plugin
+    # Remove PYTEST_XDIST_WORKER from env so the subprocess doesn't think it's a worker
+    env = os.environ.copy()
+    env.pop("PYTEST_XDIST_WORKER", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"""
+import sys
+from pathlib import Path
+sys.path.insert(0, "{Path.cwd()}")
+sys.path.insert(0, "{tmp_path}")
+
+import conftest
+conftest._TEST_OUTPUTS_DIR = Path("{output_dir}")
+conftest._GLOBAL_TEST_LOCK_PATH = Path("{lock_path}")
+
+import pytest
+sys.exit(pytest.main([
+    "{test_file}",
+    "--coverage-to-file",
+    "--cov={module_file}",
+    "--cov-report=",
+    "-p", "no:randomly",
+    "-p", "no:xdist",
+], plugins=[conftest]))
+""",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+    )
+
+    # The test should pass
+    assert result.returncode == 0, f"pytest failed: {result.stdout}\n{result.stderr}"
+
+    # Check that an output file was created
+    assert output_dir.exists(), f"Output directory not created. stderr: {result.stderr}"
+    output_files = list(output_dir.glob("coverage_summary_*.txt"))
+    assert len(output_files) == 1, f"Expected 1 coverage_summary file, found {len(output_files)}"
+
+    # Verify the content
+    content = output_files[0].read_text()
+    assert "Coverage Summary" in content
+    assert "Total coverage:" in content or "Detailed reports:" in content
+
+
