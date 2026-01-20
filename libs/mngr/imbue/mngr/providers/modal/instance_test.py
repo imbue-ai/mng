@@ -17,10 +17,12 @@ import pytest
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
-from imbue.mngr.errors import SnapshotsNotSupportedError
+from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.primitives import SnapshotId
+from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 
 # Skip all tests in this module if Modal is not available
@@ -57,9 +59,9 @@ def test_modal_provider_name(modal_provider: ModalProviderInstance) -> None:
     assert modal_provider.name == ProviderInstanceName("modal-test")
 
 
-def test_modal_provider_does_not_support_snapshots(modal_provider: ModalProviderInstance) -> None:
-    """Modal provider should not support snapshots."""
-    assert modal_provider.supports_snapshots is False
+def test_modal_provider_supports_snapshots(modal_provider: ModalProviderInstance) -> None:
+    """Modal provider should support snapshots via sandbox.snapshot_filesystem()."""
+    assert modal_provider.supports_snapshots is True
 
 
 def test_modal_provider_does_not_support_volumes(modal_provider: ModalProviderInstance) -> None:
@@ -306,14 +308,26 @@ def test_get_and_set_host_tags(modal_provider: ModalProviderInstance) -> None:
 
 @pytest.mark.modal
 @pytest.mark.timeout(180)
-def test_create_snapshot_raises_error(modal_provider: ModalProviderInstance) -> None:
-    """create_snapshot should raise SnapshotsNotSupportedError."""
+def test_create_and_list_snapshots(modal_provider: ModalProviderInstance) -> None:
+    """Should be able to create and list snapshots."""
     host = None
     try:
         host = modal_provider.create_host(HostName("test-host"))
 
-        with pytest.raises(SnapshotsNotSupportedError):
-            modal_provider.create_snapshot(host)
+        # Initially no snapshots
+        snapshots = modal_provider.list_snapshots(host)
+        assert snapshots == []
+
+        # Create a snapshot
+        snapshot_id = modal_provider.create_snapshot(host, SnapshotName("test-snapshot"))
+        assert snapshot_id is not None
+
+        # Verify it appears in the list
+        snapshots = modal_provider.list_snapshots(host)
+        assert len(snapshots) == 1
+        assert snapshots[0].id == snapshot_id
+        assert snapshots[0].name == SnapshotName("test-snapshot")
+        assert snapshots[0].recency_idx == 0
 
     finally:
         if host:
@@ -322,8 +336,8 @@ def test_create_snapshot_raises_error(modal_provider: ModalProviderInstance) -> 
 
 @pytest.mark.modal
 @pytest.mark.timeout(180)
-def test_list_snapshots_returns_empty(modal_provider: ModalProviderInstance) -> None:
-    """list_snapshots should return empty list."""
+def test_list_snapshots_returns_empty_initially(modal_provider: ModalProviderInstance) -> None:
+    """list_snapshots should return empty list for a new host."""
     host = None
     try:
         host = modal_provider.create_host(HostName("test-host"))
@@ -333,6 +347,90 @@ def test_list_snapshots_returns_empty(modal_provider: ModalProviderInstance) -> 
     finally:
         if host:
             modal_provider.destroy_host(host)
+
+
+@pytest.mark.modal
+@pytest.mark.timeout(180)
+def test_delete_snapshot(modal_provider: ModalProviderInstance) -> None:
+    """Should be able to delete a snapshot."""
+    host = None
+    try:
+        host = modal_provider.create_host(HostName("test-host"))
+
+        # Create a snapshot
+        snapshot_id = modal_provider.create_snapshot(host)
+        assert len(modal_provider.list_snapshots(host)) == 1
+
+        # Delete it
+        modal_provider.delete_snapshot(host, snapshot_id)
+        assert len(modal_provider.list_snapshots(host)) == 0
+
+    finally:
+        if host:
+            modal_provider.destroy_host(host)
+
+
+@pytest.mark.modal
+@pytest.mark.timeout(180)
+def test_delete_nonexistent_snapshot_raises_error(modal_provider: ModalProviderInstance) -> None:
+    """Deleting a nonexistent snapshot should raise SnapshotNotFoundError."""
+    host = None
+    try:
+        host = modal_provider.create_host(HostName("test-host"))
+
+        fake_id = SnapshotId.generate()
+        with pytest.raises(SnapshotNotFoundError):
+            modal_provider.delete_snapshot(host, fake_id)
+
+    finally:
+        if host:
+            modal_provider.destroy_host(host)
+
+
+@pytest.mark.modal
+@pytest.mark.timeout(300)
+def test_start_host_restores_from_snapshot(modal_provider: ModalProviderInstance) -> None:
+    """start_host with a snapshot_id should restore a terminated host from the snapshot."""
+    host = None
+    restored_host = None
+    try:
+        # Create a host and write a marker file
+        host = modal_provider.create_host(HostName("test-host"))
+        host_id = host.id
+
+        # Write a marker file to verify restoration
+        result = host.execute_command("echo 'snapshot-marker' > /tmp/marker.txt")
+        assert result.success
+
+        # Create a snapshot
+        snapshot_id = modal_provider.create_snapshot(host, SnapshotName("test-restore"))
+
+        # Verify snapshot exists
+        snapshots = modal_provider.list_snapshots(host)
+        assert len(snapshots) == 1
+        assert snapshots[0].id == snapshot_id
+
+        # Stop the host (terminates the sandbox)
+        modal_provider.stop_host(host)
+
+        # Restore from snapshot
+        restored_host = modal_provider.start_host(host_id, snapshot_id=snapshot_id)
+
+        # Verify the host was restored with the same ID
+        assert restored_host.id == host_id
+
+        # Verify the marker file exists (proving we restored from snapshot)
+        result = restored_host.execute_command("cat /tmp/marker.txt")
+        assert result.success
+        assert "snapshot-marker" in result.stdout
+
+    finally:
+        if restored_host:
+            modal_provider.destroy_host(restored_host)
+        elif host:
+            modal_provider.destroy_host(host)
+        else:
+            pass
 
 
 @pytest.mark.modal
