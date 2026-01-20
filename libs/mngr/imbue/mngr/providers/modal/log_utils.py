@@ -8,85 +8,100 @@ build failures).
 
 import contextlib
 from io import StringIO
-from types import TracebackType
 from typing import Any
 from typing import Generator
 from typing import Sequence
 
+import modal
 from loguru import logger
 from modal._output import OutputManager
 
 
-class _MultiWriter(StringIO):
-    """Writes to multiple file-like objects simultaneously."""
-
-    def __init__(self, files: Sequence[Any]) -> None:
-        super().__init__()
-        self._files = files
-
-    def write(self, s: str, /) -> int:  # type: ignore[override]
-        for file in self._files:
-            file.write(s)
-            file.flush()
-        return len(s)
-
-    def flush(self) -> None:
-        for file in self._files:
-            file.flush()
-
-    def close(self) -> None:
-        pass
-
-    def isatty(self) -> bool:
-        # Return False so rich.Console treats output as non-interactive.
-        # This prevents progress bars and other interactive elements.
-        return False
-
-    def __enter__(self) -> "_MultiWriter":
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        self.close()
+def _write_to_multiple_files(
+    files: Sequence[Any],
+    text: str,
+) -> int:
+    """Write text to multiple file-like objects and return the length."""
+    for file in files:
+        file.write(text)
+        file.flush()
+    return len(text)
 
 
 class _DeduplicatingWriter(StringIO):
-    """StringIO that deduplicates consecutive identical lines.
+    """StringIO buffer that deduplicates consecutive identical messages.
 
-    Modal often logs the same message multiple times in rapid succession.
-    This class filters out consecutive duplicates to reduce noise.
+    This is useful for Modal output which often repeats the same status messages.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._last_message = ""
+    _last_message: str = ""
 
-    def write(self, s: str, /) -> int:  # type: ignore[override]
-        stripped = s.strip()
+    def write(self, text: str) -> int:  # ty: ignore[invalid-method-override]
+        """Write text to the buffer, skipping consecutive duplicates."""
+        stripped = text.strip()
         if stripped == self._last_message or stripped == "":
-            return len(s)
+            return len(text)
         self._last_message = stripped
-        return super().write(s)
+        return super().write(text)
+
+
+def _create_deduplicating_writer() -> _DeduplicatingWriter:
+    """Create a new deduplicating writer instance."""
+    writer = _DeduplicatingWriter()
+    writer._last_message = ""
+    return writer
+
+
+class _MultiWriter:
+    """File-like object that writes to multiple destinations.
+
+    This is used to tee Modal output to multiple destinations (e.g., a buffer
+    for programmatic inspection and loguru for logging).
+    """
+
+    _files: Sequence[Any] = ()
+
+    def write(self, text: str) -> int:
+        """Write text to all configured file-like objects."""
+        return _write_to_multiple_files(self._files, text)
+
+    def flush(self) -> None:
+        """Flush all file-like objects."""
+        for file in self._files:
+            file.flush()
+
+    def isatty(self) -> bool:
+        """Report as not a tty to disable interactive features."""
+        return False
+
+    def __enter__(self) -> "_MultiWriter":
+        """Enter context."""
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        """Exit context."""
+        pass
+
+
+def _create_multi_writer(files: Sequence[Any]) -> _MultiWriter:
+    """Create a new multi-writer that writes to all provided files."""
+    writer = _MultiWriter()
+    writer._files = files
+    return writer
 
 
 class _ModalLoguruWriter:
-    """Routes Modal output to loguru logger with structured metadata.
+    """Writer that sends Modal output to loguru with structured metadata.
 
-    This class implements a file-like interface that forwards all writes to
-    loguru.debug() with source metadata, allowing Modal logs to be captured
-    in mngr's logging system.
+    Supports setting app_id and app_name for structured logging.
     """
 
-    def __init__(self) -> None:
-        self._last_message = ""
-        self.app_id: str | None = None
-        self.app_name: str | None = None
+    _last_message: str = ""
+    app_id: str | None = None
+    app_name: str | None = None
 
     def write(self, text: str) -> int:
+        """Write text to loguru, deduplicating consecutive identical messages."""
         stripped = text.strip()
         if stripped == self._last_message or stripped == "":
             return len(text)
@@ -100,19 +115,29 @@ class _ModalLoguruWriter:
         return len(text)
 
     def flush(self) -> None:
+        """Flush is a no-op for loguru."""
         pass
-
-    def close(self) -> None:
-        pass
-
-    def readable(self) -> bool:
-        return False
 
     def writable(self) -> bool:
+        """Report as writable."""
         return True
 
-    def seekable(self) -> bool:
+    def readable(self) -> bool:
+        """Report as not readable."""
         return False
+
+    def seekable(self) -> bool:
+        """Report as not seekable."""
+        return False
+
+
+def _create_modal_loguru_writer() -> _ModalLoguruWriter:
+    """Create a new Modal loguru writer instance."""
+    writer = _ModalLoguruWriter()
+    writer._last_message = ""
+    writer.app_id = None
+    writer.app_name = None
+    return writer
 
 
 class _QuietOutputManager(OutputManager):
@@ -125,13 +150,16 @@ class _QuietOutputManager(OutputManager):
 
     @contextlib.contextmanager
     def show_status_spinner(self) -> Generator[None, None, None]:
+        """Suppress the status spinner."""
         yield
 
     def update_app_page_url(self, app_page_url: str) -> None:
+        """Log the app page URL instead of displaying it."""
         logger.debug("Modal app page: {}", app_page_url)
         self._app_page_url = app_page_url
 
     def update_task_state(self, task_id: str, state: int) -> None:
+        """Suppress task state updates."""
         pass
 
 
@@ -141,53 +169,37 @@ def enable_modal_output_capture(
 ) -> Generator[tuple[StringIO, _ModalLoguruWriter | None], None, None]:
     """Context manager for capturing Modal app output.
 
-    This context manager intercepts Modal's output system and routes it to:
-    1. A StringIO buffer (always) - for programmatic inspection of logs
-    2. Loguru (optional) - for integration with mngr's logging system
+    Intercepts Modal's output system and routes it to a StringIO buffer (for
+    programmatic inspection) and optionally to loguru (for mngr's logging).
+    The buffer can be used to detect build failures by inspecting the captured
+    output after operations complete.
 
-    The StringIO buffer can be used to detect build failures or other issues
-    by inspecting the captured output after operations complete.
+    Set is_logging_to_loguru=False to disable routing to loguru.
 
-    Args:
-        is_logging_to_loguru: If True, also logs Modal output to loguru at DEBUG level
-
-    Yields:
-        A tuple of (output_buffer, loguru_writer):
-        - output_buffer: StringIO containing all Modal output
-        - loguru_writer: The loguru writer (or None if not logging to loguru)
-                        Can be used to set app_id and app_name for structured logging
-
-    Example:
-        with enable_modal_output_capture() as (output_buffer, loguru_writer):
-            if loguru_writer:
-                loguru_writer.app_id = app.app_id
-                loguru_writer.app_name = app.name
-            # ... perform modal operations ...
-            if "error" in output_buffer.getvalue().lower():
-                logger.warning("Potential error in Modal output")
+    Yields a tuple of (output_buffer, loguru_writer) where loguru_writer contains
+    app_id and app_name fields that can be set for structured logging, or is
+    None if is_logging_to_loguru is False.
     """
-    output_buffer = _DeduplicatingWriter()
+    output_buffer = _create_deduplicating_writer()
+    loguru_writer: _ModalLoguruWriter | None = (
+        _create_modal_loguru_writer() if is_logging_to_loguru else None
+    )
 
+    # Build list of writers to tee output to
     writers: list[Any] = [output_buffer]
-    loguru_writer: _ModalLoguruWriter | None = None
-
-    if is_logging_to_loguru:
-        loguru_writer = _ModalLoguruWriter()
+    if loguru_writer is not None:
         writers.append(loguru_writer)
+
+    multi_writer = _create_multi_writer(writers)
 
     logger.debug("Enabling Modal output capture")
 
-    with _MultiWriter(writers) as multi_writer:
-        with contextlib.suppress(Exception):
-            import modal
+    with contextlib.suppress(Exception):
+        with modal.enable_output(show_progress=True):
+            OutputManager._instance = _QuietOutputManager(status_spinner_text="Running...")
+            OutputManager._instance._stdout = multi_writer
 
-            with modal.enable_output(show_progress=True):
-                # Monkeypatch the OutputManager to use our quiet version
-                OutputManager._instance = _QuietOutputManager(status_spinner_text="Running...")
-                OutputManager._instance._stdout = multi_writer
+            yield output_buffer, loguru_writer
+            return
 
-                yield output_buffer, loguru_writer
-                return
-
-        # Fallback if modal.enable_output fails
-        yield output_buffer, loguru_writer
+    yield output_buffer, loguru_writer
