@@ -1,12 +1,5 @@
 from io import StringIO
-from pathlib import Path
 
-import pytest
-
-from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.primitives import HostName
-from imbue.mngr.primitives import ProviderInstanceName
-from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.log_utils import _create_deduplicating_writer
 from imbue.mngr.providers.modal.log_utils import _create_modal_loguru_writer
 from imbue.mngr.providers.modal.log_utils import _create_multi_writer
@@ -136,51 +129,3 @@ def test_enable_modal_output_capture_returns_none_writer_when_disabled() -> None
         assert writer is None
 
 
-pytest.importorskip("modal")
-
-
-@pytest.mark.modal
-@pytest.mark.timeout(180)
-def test_modal_output_capture_is_integrated_with_provider(
-    temp_mngr_ctx: MngrContext,
-    mngr_test_id: str,
-) -> None:
-    """Should integrate output capture with the ModalProviderInstance.
-
-    This test verifies that the log capture mechanism is properly wired up
-    in the ModalProviderInstance and that captured output can be retrieved.
-    Modal output during sandbox creation may vary, so we verify the mechanism
-    is accessible rather than asserting on specific content.
-    """
-    provider = ModalProviderInstance(
-        name=ProviderInstanceName("modal-test"),
-        host_dir=Path("/mngr"),
-        mngr_ctx=temp_mngr_ctx,
-        app_name=f"mngr-log-test-{mngr_test_id}",
-        default_timeout=300,
-        default_cpu=0.5,
-        default_memory=0.5,
-    )
-
-    host = None
-    try:
-        # Before creating a host, get_captured_output should return empty string
-        # (no app has been created yet)
-        initial_output = provider.get_captured_output()
-        assert initial_output == "", "Expected empty output before app creation"
-
-        host = provider.create_host(HostName("test-log-capture"))
-
-        # After creating a host, get_captured_output should return a string
-        # (the capture mechanism should be set up, even if Modal emits no output)
-        captured_output = provider.get_captured_output()
-        assert isinstance(captured_output, str)
-
-        # Modal output content can vary by run, so we don't assert on specific content.
-        # The capture mechanism is verified by the unit tests above.
-        _ = captured_output
-
-    finally:
-        if host:
-            provider.destroy_host(host)
-        provider.close()

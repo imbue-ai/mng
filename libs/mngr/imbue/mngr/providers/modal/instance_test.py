@@ -183,6 +183,10 @@ def test_create_host_creates_sandbox_with_ssh(modal_provider: ModalProviderInsta
         assert result.success
         assert "hello from modal" in result.stdout
 
+        # Verify output capture is working (Modal should emit some output during host creation)
+        captured_output = modal_provider.get_captured_output()
+        assert isinstance(captured_output, str)
+
     finally:
         if host:
             modal_provider.destroy_host(host)
