@@ -80,7 +80,12 @@ def acquire_global_test_lock(
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_sessionstart(session: pytest.Session) -> None:
-    """Acquire the global test lock and record the start time.
+    """Acquire the global test lock, record the start time, and finalize coverage suppression.
+
+    Coverage suppression is done here because pytest-cov's CovController is created
+    in pytest_configure, but conftest.py's pytest_configure runs after installed plugins.
+    By the time our pytest_configure runs, pytest-cov has already copied the cov_report options.
+    We modify the CovController here to ensure the terminal report is suppressed.
 
     The lock prevents multiple parallel pytest processes (e.g., from different worktrees)
     from running tests concurrently, which can cause timing-related flaky tests.
@@ -94,6 +99,20 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     IMPORTANT: The start_time is set AFTER the lock is acquired so that time spent
     waiting for the lock is not counted against the test suite time limit.
     """
+    # Suppress coverage terminal output if --coverage-to-file is enabled
+    # This needs to be done here because pytest-cov's CovController is created
+    # in pytest_configure, after conftest.py's hooks run
+    coverage_to_file = getattr(session.config, "_coverage_to_file", False)
+    if coverage_to_file:
+        cov_plugin = session.config.pluginmanager.get_plugin("_cov")
+        if cov_plugin is not None:
+            cov_controller = getattr(cov_plugin, "cov_controller", None)
+            if cov_controller is not None:
+                controller_cov_report = getattr(cov_controller, "cov_report", None)
+                if controller_cov_report is not None and isinstance(controller_cov_report, dict):
+                    controller_cov_report.pop("term-missing", None)
+                    controller_cov_report.pop("term", None)
+
     # xdist workers should not acquire the lock - only the controller does
     if is_xdist_worker():
         setattr(session, "start_time", time.time())
@@ -169,7 +188,12 @@ def pytest_load_initial_conftests(
     parser: pytest.Parser,
     args: list[str],
 ) -> None:
-    """Modify coverage options early, before pytest-cov processes them."""
+    """Modify coverage options early, before pytest-cov processes them.
+
+    Note: This hook runs before conftest.py is loaded, so it doesn't actually
+    execute from conftest.py. It's kept here for documentation purposes and
+    in case it's registered as a plugin.
+    """
     # Check if --coverage-to-file is in the args
     if "--coverage-to-file" in args:
         # Find and remove term-based coverage reports from the args
@@ -218,6 +242,17 @@ def pytest_configure(config: pytest.Config) -> None:
         if cov_report is not None and isinstance(cov_report, dict):
             cov_report.pop("term-missing", None)
             cov_report.pop("term", None)
+
+        # Also modify pytest-cov's internal CovController if it exists
+        # (it may have already copied the options)
+        cov_plugin = config.pluginmanager.get_plugin("_cov")
+        if cov_plugin is not None:
+            cov_controller = getattr(cov_plugin, "cov_controller", None)
+            if cov_controller is not None:
+                controller_cov_report = getattr(cov_controller, "cov_report", None)
+                if controller_cov_report is not None and isinstance(controller_cov_report, dict):
+                    controller_cov_report.pop("term-missing", None)
+                    controller_cov_report.pop("term", None)
 
 
 @pytest.hookimpl(trylast=True)
@@ -311,7 +346,11 @@ def _write_coverage_summary_to_file(
         if cov_obj is not None:
             try:
                 # Get total coverage percentage
-                total = cov_obj.report(file=None, show_missing=False)
+                # Use a StringIO to capture output and avoid printing to stdout
+                from io import StringIO
+
+                null_output = StringIO()
+                total = cov_obj.report(file=null_output, show_missing=False)
                 lines.append(f"Total coverage: {total:.2f}%")
             except CoverageException:
                 lines.append("Total coverage: (unable to calculate)")
