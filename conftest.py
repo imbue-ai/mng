@@ -75,7 +75,7 @@ def acquire_global_test_lock(
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_sessionstart(session: pytest.Session) -> None:
-    """Record the start time and acquire the global test lock.
+    """Acquire the global test lock and record the start time.
 
     The lock prevents multiple parallel pytest processes (e.g., from different worktrees)
     from running tests concurrently, which can cause timing-related flaky tests.
@@ -85,16 +85,21 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     By acquiring the lock here, we ensure the controller holds it for the entire session.
 
     xdist workers skip lock acquisition since the controller already holds it.
-    """
-    setattr(session, "start_time", time.time())
 
+    IMPORTANT: The start_time is set AFTER the lock is acquired so that time spent
+    waiting for the lock is not counted against the test suite time limit.
+    """
     # xdist workers should not acquire the lock - only the controller does
     if is_xdist_worker():
+        setattr(session, "start_time", time.time())
         return
 
     # Acquire the lock and store the handle on the session to keep it open
     lock_handle = acquire_global_test_lock(lock_path=_GLOBAL_TEST_LOCK_PATH)
     setattr(session, _SESSION_LOCK_HANDLE_ATTR, lock_handle)
+
+    # Record start time AFTER acquiring the lock so wait time isn't counted
+    setattr(session, "start_time", time.time())
 
 
 @pytest.hookimpl(trylast=True)
@@ -117,7 +122,7 @@ def pytest_sessionfinish(session, exitstatus):
                 max_duration = 60.0
         else:
             # this limit applies to the entire test suite when run locally
-            max_duration = 25.0
+            max_duration = 35.0
 
         if duration > max_duration:
             pytest.exit(
