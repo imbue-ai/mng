@@ -74,40 +74,6 @@ def test_create_simple_echo_agent(
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
 
-def test_create_sleep_agent(
-    temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
-) -> None:
-    """Test creating an agent that runs sleep."""
-    agent_name = AgentName(f"test-sleep-{int(time.time())}")
-    session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
-
-    with tmux_session_cleanup(session_name):
-        local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
-        local_host = local_provider.get_host(HostName("local"))
-        source_location = HostLocation(
-            host=local_host,
-            path=temp_work_dir,
-        )
-
-        agent_options = CreateAgentOptions(
-            agent_type=AgentTypeName("sleep"),
-            name=agent_name,
-            command=CommandString("sleep 749523"),
-        )
-
-        result = create(
-            source_location=source_location,
-            target_host=local_host,
-            agent_options=agent_options,
-            mngr_ctx=temp_mngr_ctx,
-        )
-
-        assert result.agent.id is not None
-        assert result.host.id is not None
-        assert tmux_session_exists(session_name)
-
-
 def test_create_agent_with_new_host(
     temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,

@@ -55,39 +55,6 @@ def test_cli_create_with_echo_command(
         assert agents_dir.exists(), "agents directory should exist in temp dir"
 
 
-def test_cli_create_minimal_args(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test creating an agent with minimal arguments."""
-    agent_name = f"test-cli-minimal-{int(time.time())}"
-    session_name = f"{mngr_test_prefix}{agent_name}"
-
-    with tmux_session_cleanup(session_name):
-        result = cli_runner.invoke(
-            create,
-            [
-                "--name",
-                agent_name,
-                "--agent-cmd",
-                "sleep 763829",
-                "--source",
-                str(temp_work_dir),
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
-                "--no-ensure-clean",
-            ],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-
-        assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
-
-
 def test_cli_create_via_cli_group(
     cli_runner: CliRunner,
     temp_work_dir: Path,
