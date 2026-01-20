@@ -1,11 +1,3 @@
-"""Utilities for capturing and routing Modal app output.
-
-Modal's output system uses rich console formatting which makes it difficult to capture
-logs programmatically. This module provides utilities to intercept Modal's output and
-route it to loguru while also capturing it in a buffer for inspection (e.g., to detect
-build failures).
-"""
-
 import contextlib
 from io import StringIO
 from typing import Any
@@ -111,7 +103,7 @@ class _ModalLoguruWriter:
             "app_id": self.app_id,
             "app_name": self.app_name,
         }
-        logger.debug("{}", stripped, **extra)
+        logger.bind(**extra).debug("{}", stripped)
         return len(text)
 
     def flush(self) -> None:
@@ -194,12 +186,8 @@ def enable_modal_output_capture(
 
     logger.debug("Enabling Modal output capture")
 
-    with contextlib.suppress(Exception):
-        with modal.enable_output(show_progress=True):
-            OutputManager._instance = _QuietOutputManager(status_spinner_text="Running...")
-            OutputManager._instance._stdout = multi_writer
+    with modal.enable_output(show_progress=True):
+        OutputManager._instance = _QuietOutputManager(status_spinner_text="Running...")
+        OutputManager._instance._stdout = multi_writer
 
-            yield output_buffer, loguru_writer
-            return
-
-    yield output_buffer, loguru_writer
+        yield output_buffer, loguru_writer
