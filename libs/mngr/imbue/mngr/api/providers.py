@@ -1,0 +1,116 @@
+import atexit
+
+from loguru import logger
+
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import MngrError
+from imbue.mngr.primitives import ProviderBackendName
+from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.base_provider import BaseProviderInstance
+from imbue.mngr.providers.registry import build_provider_instance
+from imbue.mngr.providers.registry import list_backends
+
+# Track all created provider instances for cleanup at exit
+_created_instances: list[BaseProviderInstance] = []
+_atexit_registered: dict[str, bool] = {"registered": False}
+
+
+def _close_all_provider_instances() -> None:
+    """Close all created provider instances.
+
+    Called via atexit to ensure proper cleanup of resources like Modal app contexts.
+    """
+    for instance in _created_instances:
+        try:
+            instance.close()
+        except (MngrError, OSError) as e:
+            logger.debug("Error closing provider instance {}: {}", instance.name, e)
+    _created_instances.clear()
+
+
+def _ensure_atexit_registered() -> None:
+    """Register the atexit handler if not already registered."""
+    if not _atexit_registered["registered"]:
+        atexit.register(_close_all_provider_instances)
+        _atexit_registered["registered"] = True
+
+
+def reset_provider_instances() -> None:
+    """Reset the provider instances tracking.
+
+    Closes all tracked provider instances and clears the tracking list.
+    This is primarily used for test isolation to ensure a clean state between tests.
+    """
+    _close_all_provider_instances()
+    _atexit_registered["registered"] = False
+
+
+def get_provider_instance(
+    name: ProviderInstanceName,
+    mngr_ctx: MngrContext,
+) -> BaseProviderInstance:
+    """Get or create a provider instance by name.
+
+    Resolution order: check config.providers, then try as backend name with defaults.
+    The returned instance is tracked for cleanup at process exit via atexit.
+    """
+    _ensure_atexit_registered()
+
+    # Check if there's a configured provider instance with this name
+    if name in mngr_ctx.config.providers:
+        provider_config = mngr_ctx.config.providers[name]
+        logger.trace("Building provider instance {} from config with backend {}", name, provider_config.backend)
+        instance = build_provider_instance(
+            instance_name=name,
+            backend_name=provider_config.backend,
+            instance_configuration=provider_config.model_dump(),
+            mngr_ctx=mngr_ctx,
+        )
+        _created_instances.append(instance)
+        return instance
+
+    # Otherwise, treat the name as a backend name and use defaults
+    # This supports the common case of just specifying "--in local" or "--in docker"
+    logger.trace("Building provider instance {} using backend name as default", name)
+    instance = build_provider_instance(
+        instance_name=name,
+        backend_name=ProviderBackendName(str(name)),
+        instance_configuration={},
+        mngr_ctx=mngr_ctx,
+    )
+    _created_instances.append(instance)
+    return instance
+
+
+def get_all_provider_instances(mngr_ctx: MngrContext) -> list[BaseProviderInstance]:
+    """Get all available provider instances.
+
+    Returns configured providers plus default instances for all registered backends,
+    excluding any backends that have been disabled via --disable-plugin.
+    """
+    providers: list[BaseProviderInstance] = []
+    seen_names: set[str] = set()
+    disabled = mngr_ctx.config.disabled_plugins
+
+    # First, add all configured providers (unless disabled)
+    logger.trace("Loading configured provider instances")
+    for name in mngr_ctx.config.providers:
+        if str(name) in disabled:
+            logger.trace("Skipping disabled provider {}", name)
+            continue
+        providers.append(get_provider_instance(name, mngr_ctx))
+        seen_names.add(str(name))
+
+    # Then, add default instances for backends not already configured (unless disabled)
+    logger.trace("Loading default provider instances for remaining backends")
+    for backend_name in list_backends():
+        if backend_name in disabled:
+            logger.trace("Skipping disabled backend {}", backend_name)
+            continue
+        if backend_name not in seen_names:
+            provider_name = ProviderInstanceName(backend_name)
+            providers.append(get_provider_instance(provider_name, mngr_ctx))
+            seen_names.add(backend_name)
+
+    logger.trace("Loaded {} total provider instances", len(providers))
+    return providers

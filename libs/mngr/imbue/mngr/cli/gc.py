@@ -1,0 +1,467 @@
+import time
+from typing import Any
+from typing import assert_never
+
+import click
+import deal
+from click_option_group import optgroup
+from loguru import logger
+
+from imbue.mngr.api.data_types import GcResourceTypes
+from imbue.mngr.api.data_types import GcResult
+from imbue.mngr.api.gc import gc as api_gc
+from imbue.mngr.api.providers import get_all_provider_instances
+from imbue.mngr.api.providers import get_provider_instance
+from imbue.mngr.cli.common_opts import CommonCliOptions
+from imbue.mngr.cli.common_opts import add_common_options
+from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.output_helpers import AbortError
+from imbue.mngr.cli.output_helpers import emit_event
+from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import emit_info
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.errors import MngrError
+from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
+from imbue.mngr.primitives import ErrorBehavior
+from imbue.mngr.primitives import OutputFormat
+from imbue.mngr.primitives import ProviderInstanceName
+
+
+class GcCliOptions(CommonCliOptions):
+    """Options passed from the CLI to the gc command.
+
+    This captures all the click parameters so we can pass them as a single object
+    to helper functions instead of passing dozens of individual parameters.
+
+    Inherits common options (output_format, quiet, verbose, etc.) from CommonCliOptions.
+
+    Note that this class VERY INTENTIONALLY DOES NOT use Field() decorators with descriptions, defaults, etc.
+    For that information, see the click.option() and click.argument() decorators on the gc() function itself.
+    """
+
+    all_agent_resources: bool
+    machines: bool
+    snapshots: bool
+    volumes: bool
+    work_dirs: bool
+    logs: bool
+    build_cache: bool
+    include: tuple[str, ...]
+    exclude: tuple[str, ...]
+    dry_run: bool
+    on_error: str
+    all_providers: bool
+    provider: tuple[str, ...]
+    watch: int | None
+
+
+@click.command(name="gc")
+@optgroup.group("What to Clean - Agent Resources")
+@optgroup.option(
+    "--all-agent-resources",
+    is_flag=True,
+    help="Clean all agent resource types (machines, snapshots, volumes, work dirs)",
+)
+@optgroup.option(
+    "--machines",
+    is_flag=True,
+    help="Remove unused containers, instances, and sandboxes",
+)
+@optgroup.option(
+    "--snapshots",
+    is_flag=True,
+    help="Remove unused snapshots",
+)
+@optgroup.option(
+    "--volumes",
+    is_flag=True,
+    help="Remove unused volumes",
+)
+@optgroup.option(
+    "--work-dirs",
+    is_flag=True,
+    help="Remove work directories (git worktrees/clones) not in use by any agent",
+)
+@optgroup.group("What to Clean - Mngr Resources")
+@optgroup.option(
+    "--logs",
+    is_flag=True,
+    help="Remove log files from destroyed agents/hosts",
+)
+@optgroup.option(
+    "--build-cache",
+    is_flag=True,
+    help="Remove build cache entries",
+)
+@optgroup.group("Filtering")
+@optgroup.option(
+    "--include",
+    multiple=True,
+    help="Only clean resources matching CEL filter (repeatable)",
+)
+@optgroup.option(
+    "--exclude",
+    multiple=True,
+    help="Exclude resources matching CEL filter (repeatable)",
+)
+@optgroup.group("Scope")
+@optgroup.option(
+    "--all-providers",
+    is_flag=True,
+    help="Clean resources across all providers",
+)
+@optgroup.option(
+    "--provider",
+    multiple=True,
+    help="Clean resources for a specific provider (repeatable)",
+)
+@optgroup.group("Safety")
+@optgroup.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be cleaned without actually cleaning",
+)
+@optgroup.option(
+    "--on-error",
+    type=click.Choice(["abort", "continue"], case_sensitive=False),
+    default="abort",
+    help="What to do when errors occur: abort (stop immediately) or continue (keep going)",
+)
+@optgroup.option(
+    "-w",
+    "--watch",
+    type=int,
+    help="Re-run garbage collection at the specified interval (seconds)",
+)
+@add_common_options
+@click.pass_context
+def gc(ctx: click.Context, **kwargs) -> None:
+    """Garbage collect unused resources.
+
+    Automatically removes unused resources from providers and mngr itself.
+
+    Examples:
+
+      mngr gc --work-dirs --dry-run
+
+      mngr gc --all-agent-resources
+
+      mngr gc --machines --snapshots --provider docker
+
+      mngr gc --logs --build-cache
+    """
+    try:
+        _gc_impl(ctx, **kwargs)
+    except AbortError as e:
+        # AbortError means we should exit immediately with an error
+        logger.error("Aborted: {}", e.message)
+        ctx.exit(1)
+
+
+def _gc_impl(ctx: click.Context, **kwargs) -> None:
+    """Implementation of gc command (extracted for exception handling)."""
+    # Setup command context (config, logging, output options)
+    # This loads the config, applies defaults, and creates the final options
+    mngr_ctx, output_opts, opts = setup_command_context(
+        ctx=ctx,
+        command_name="gc",
+        command_class=GcCliOptions,
+    )
+    logger.debug("Running gc command")
+
+    has_any_resource_type = (
+        opts.all_agent_resources
+        or opts.machines
+        or opts.snapshots
+        or opts.volumes
+        or opts.work_dirs
+        or opts.logs
+        or opts.build_cache
+    )
+
+    if not has_any_resource_type:
+        error_msg = "No resource types specified for cleanup. Use --all-agent-resources or specify individual types."
+        match output_opts.output_format:
+            case OutputFormat.JSON:
+                emit_final_json({"error": error_msg, "exit_code": 1})
+            case OutputFormat.JSONL:
+                emit_event("error", {"message": error_msg, "exit_code": 1}, OutputFormat.JSONL)
+            case OutputFormat.HUMAN:
+                logger.error(error_msg)
+            case _ as unreachable:
+                assert_never(unreachable)
+        ctx.exit(1)
+
+    # Watch mode: run gc repeatedly at the specified interval
+    if opts.watch:
+        logger.info("Starting watch mode: running gc every {} seconds", opts.watch)
+        logger.info("Press Ctrl+C to stop")
+        is_running = True
+        try:
+            while is_running:
+                # Note: AbortError (BaseException) will propagate out and stop watch mode
+                # Regular exceptions are logged but watch continues
+                try:
+                    _run_gc_iteration(mngr_ctx=mngr_ctx, opts=opts, output_opts=output_opts)
+                except MngrError as e:
+                    # Regular exceptions in CONTINUE mode are already logged by on_error
+                    # Just log here for watch mode context
+                    logger.error("Error in gc iteration (continuing): {}", e)
+                logger.info("\nWaiting {} seconds until next run...", opts.watch)
+                time.sleep(opts.watch)
+        except KeyboardInterrupt:
+            logger.info("\nWatch mode stopped")
+            return
+    else:
+        _run_gc_iteration(mngr_ctx=mngr_ctx, opts=opts, output_opts=output_opts)
+
+
+def _run_gc_iteration(mngr_ctx: MngrContext, opts: GcCliOptions, output_opts: OutputOptions) -> None:
+    """Run a single gc iteration."""
+    error_behavior = ErrorBehavior(opts.on_error.upper())
+
+    providers = _get_selected_providers(mngr_ctx=mngr_ctx, opts=opts)
+
+    # Expand all_agent_resources flag
+    is_machines = opts.machines or opts.all_agent_resources
+    is_snapshots = opts.snapshots or opts.all_agent_resources
+    is_volumes = opts.volumes or opts.all_agent_resources
+    is_work_dirs = opts.work_dirs or opts.all_agent_resources
+
+    # Build API types from CLI options
+    resource_types = GcResourceTypes(
+        is_machines=is_machines,
+        is_snapshots=is_snapshots,
+        is_volumes=is_volumes,
+        is_work_dirs=is_work_dirs,
+        is_logs=opts.logs,
+        is_build_cache=opts.build_cache,
+    )
+
+    # Emit info messages for each resource type
+    if is_work_dirs:
+        emit_info("Cleaning work directories...", output_opts.output_format)
+    if is_machines:
+        emit_info("Cleaning machines...", output_opts.output_format)
+    if is_snapshots:
+        emit_info("Cleaning snapshots...", output_opts.output_format)
+    if is_volumes:
+        emit_info("Cleaning volumes...", output_opts.output_format)
+    if opts.logs:
+        emit_info("Cleaning logs...", output_opts.output_format)
+    if opts.build_cache:
+        emit_info("Cleaning build cache...", output_opts.output_format)
+
+    # Call the API
+    result = api_gc(
+        mngr_ctx=mngr_ctx,
+        providers=providers,
+        resource_types=resource_types,
+        include_filters=opts.include,
+        exclude_filters=opts.exclude,
+        dry_run=opts.dry_run,
+        error_behavior=error_behavior,
+    )
+
+    # Emit destroyed events for CLI output
+    for work_dir in result.work_dirs_destroyed:
+        _emit_destroyed("work_dir", work_dir, output_opts.output_format, opts.dry_run)
+    for machine in result.machines_destroyed:
+        _emit_destroyed("machine", machine, output_opts.output_format, opts.dry_run)
+    for snapshot in result.snapshots_destroyed:
+        _emit_destroyed("snapshot", snapshot, output_opts.output_format, opts.dry_run)
+    for volume in result.volumes_destroyed:
+        _emit_destroyed("volume", volume, output_opts.output_format, opts.dry_run)
+    for log in result.logs_destroyed:
+        _emit_destroyed("log", log, output_opts.output_format, opts.dry_run)
+    for cache in result.build_cache_destroyed:
+        _emit_destroyed("build_cache", cache, output_opts.output_format, opts.dry_run)
+
+    # Emit final summary
+    _emit_final_summary(result=result, output_format=output_opts.output_format, dry_run=opts.dry_run)
+
+
+@deal.has()
+def _format_destroyed_message(resource_type: str, resource: Any, dry_run: bool) -> str:
+    """Format a human-readable message for a destroyed resource."""
+    action = "Would destroy" if dry_run else "Destroyed"
+    if resource_type == "work_dir":
+        return f"{action} work directory: {resource.path}"
+    if resource_type == "machine":
+        return f"{action} machine: {resource.name} ({resource.provider_name})"
+    if resource_type == "snapshot":
+        return f"{action} snapshot: {resource.name}"
+    if resource_type == "volume":
+        return f"{action} volume: {resource.name}"
+    if resource_type == "log":
+        return f"{action} log: {resource.path}"
+    if resource_type == "build_cache":
+        return f"{action} build cache: {resource.path}"
+    return f"{action} {resource_type}: {resource}"
+
+
+def _emit_destroyed(
+    resource_type: str,
+    resource: Any,
+    output_format: OutputFormat,
+    dry_run: bool,
+) -> None:
+    """Emit a destroyed resource event."""
+    # Emit event
+    event_data = {
+        "message": _format_destroyed_message(resource_type, resource, dry_run),
+        "resource_type": resource_type,
+        "resource": resource.model_dump(mode="json") if hasattr(resource, "model_dump") else str(resource),
+        "dry_run": dry_run,
+    }
+    emit_event("destroyed", event_data, output_format)
+
+
+def _emit_final_summary(result: GcResult, output_format: OutputFormat, dry_run: bool) -> None:
+    """Emit the final summary for GC results."""
+    match output_format:
+        case OutputFormat.JSON:
+            _emit_json_summary(result, dry_run)
+        case OutputFormat.HUMAN:
+            _emit_human_summary(result, dry_run)
+        case OutputFormat.JSONL:
+            _emit_jsonl_summary(result, dry_run)
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _emit_json_summary(result: GcResult, dry_run: bool) -> None:
+    """Emit JSON summary."""
+    output_data = {
+        "work_dirs_destroyed": [wd.model_dump(mode="json") for wd in result.work_dirs_destroyed],
+        "machines_destroyed": [m.model_dump(mode="json") for m in result.machines_destroyed],
+        "snapshots_destroyed": [s.model_dump(mode="json") for s in result.snapshots_destroyed],
+        "volumes_destroyed": [v.model_dump(mode="json") for v in result.volumes_destroyed],
+        "logs_destroyed": [log.model_dump(mode="json") for log in result.logs_destroyed],
+        "build_cache_destroyed": [cache.model_dump(mode="json") for cache in result.build_cache_destroyed],
+        "errors": result.errors,
+        "dry_run": dry_run,
+    }
+    emit_final_json(output_data)
+
+
+def _emit_human_summary(result: GcResult, dry_run: bool) -> None:
+    """Emit human-readable summary."""
+    logger.info("")
+    if dry_run:
+        logger.info("Garbage Collection (Dry Run)")
+    else:
+        logger.info("Garbage Collection Results")
+    logger.info("=" * 40)
+
+    total_count = 0
+
+    if result.work_dirs_destroyed:
+        local_work_dirs = [wd for wd in result.work_dirs_destroyed if wd.is_local]
+        local_count = len(local_work_dirs)
+        local_size = sum(wd.size_bytes for wd in local_work_dirs)
+        total_count_str = f"Work directories: {len(result.work_dirs_destroyed)}"
+        if local_count > 0:
+            total_count_str += f" ({local_count} local, freed {_format_size(local_size)})"
+        logger.info("\n{}", total_count_str)
+        total_count += len(result.work_dirs_destroyed)
+
+    if result.machines_destroyed:
+        logger.info("\nMachines: {}", len(result.machines_destroyed))
+        total_count += len(result.machines_destroyed)
+
+    if result.snapshots_destroyed:
+        logger.info("\nSnapshots: {}", len(result.snapshots_destroyed))
+        total_count += len(result.snapshots_destroyed)
+
+    if result.volumes_destroyed:
+        logger.info("\nVolumes: {}", len(result.volumes_destroyed))
+        total_count += len(result.volumes_destroyed)
+
+    if result.logs_destroyed:
+        logs_size_bytes = sum(log.size_bytes for log in result.logs_destroyed)
+        logger.info("\nLogs: {} (freed {})", len(result.logs_destroyed), _format_size(logs_size_bytes))
+        total_count += len(result.logs_destroyed)
+
+    if result.build_cache_destroyed:
+        build_cache_size_bytes = sum(cache.size_bytes for cache in result.build_cache_destroyed)
+        logger.info(
+            "\nBuild cache: {} (freed {})", len(result.build_cache_destroyed), _format_size(build_cache_size_bytes)
+        )
+        total_count += len(result.build_cache_destroyed)
+
+    if total_count == 0:
+        logger.info("\nNo resources found to destroy")
+    else:
+        action = "Would destroy" if dry_run else "Destroyed"
+        logger.info("\n{} {} resource(s) total", action, total_count)
+
+    if result.errors:
+        logger.info("\nErrors:")
+        for error in result.errors:
+            logger.info("  - {}", error)
+
+
+def _emit_jsonl_summary(result: GcResult, dry_run: bool) -> None:
+    """Emit JSONL summary event."""
+    work_dirs_size_bytes = sum(wd.size_bytes for wd in result.work_dirs_destroyed)
+    snapshots_size_bytes = sum(s.size_bytes for s in result.snapshots_destroyed if s.size_bytes is not None)
+    volumes_size_bytes = sum(v.size_bytes for v in result.volumes_destroyed)
+    logs_size_bytes = sum(log.size_bytes for log in result.logs_destroyed)
+    build_cache_size_bytes = sum(cache.size_bytes for cache in result.build_cache_destroyed)
+    total_size_bytes = (
+        work_dirs_size_bytes + snapshots_size_bytes + volumes_size_bytes + logs_size_bytes + build_cache_size_bytes
+    )
+    total_count = (
+        len(result.work_dirs_destroyed)
+        + len(result.machines_destroyed)
+        + len(result.snapshots_destroyed)
+        + len(result.volumes_destroyed)
+        + len(result.logs_destroyed)
+        + len(result.build_cache_destroyed)
+    )
+
+    event = {
+        "event": "summary",
+        "total_count": total_count,
+        "total_size_bytes": total_size_bytes,
+        "work_dirs_count": len(result.work_dirs_destroyed),
+        "machines_count": len(result.machines_destroyed),
+        "snapshots_count": len(result.snapshots_destroyed),
+        "volumes_count": len(result.volumes_destroyed),
+        "logs_count": len(result.logs_destroyed),
+        "build_cache_count": len(result.build_cache_destroyed),
+        "errors_count": len(result.errors),
+        "errors": result.errors,
+        "dry_run": dry_run,
+    }
+    emit_event("summary", event, OutputFormat.JSONL)
+
+
+@deal.has()
+def _format_size(size_bytes: int) -> str:
+    """Format bytes into human-readable size string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024**2:
+        return f"{size_bytes / 1024:.1f} KB"
+    if size_bytes < 1024**3:
+        return f"{size_bytes / 1024**2:.1f} MB"
+    if size_bytes < 1024**4:
+        return f"{size_bytes / 1024**3:.2f} GB"
+    return f"{size_bytes / 1024**4:.2f} TB"
+
+
+def _get_selected_providers(mngr_ctx: MngrContext, opts: GcCliOptions) -> list[ProviderInstanceInterface]:
+    """Get providers based on CLI options."""
+    if opts.all_providers:
+        return list(get_all_provider_instances(mngr_ctx))
+
+    if opts.provider:
+        providers = []
+        for provider_name in opts.provider:
+            providers.append(get_provider_instance(ProviderInstanceName(provider_name), mngr_ctx))
+        return providers
+
+    return list(get_all_provider_instances(mngr_ctx))

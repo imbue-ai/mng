@@ -1,0 +1,640 @@
+from __future__ import annotations
+
+from abc import ABC
+from abc import abstractmethod
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from typing import Iterator
+from typing import Mapping
+from typing import Sequence
+
+from pydantic import Field
+
+from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mngr.config.data_types import EnvVar
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import ParseSpecError
+from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.data_types import ActivityConfig
+from imbue.mngr.interfaces.data_types import CertifiedHostData
+from imbue.mngr.interfaces.data_types import CommandResult
+from imbue.mngr.interfaces.data_types import HostResources
+from imbue.mngr.interfaces.data_types import PyinfraConnector
+from imbue.mngr.interfaces.data_types import SnapshotInfo
+from imbue.mngr.primitives import ActivitySource
+from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentTypeName
+from imbue.mngr.primitives import CommandString
+from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostState
+from imbue.mngr.primitives import IdleMode
+from imbue.mngr.primitives import Permission
+from imbue.mngr.primitives import WorkDirCopyMode
+
+
+class HostInterface(MutableModel, ABC):
+    """Interface for host implementations."""
+
+    id: HostId = Field(frozen=True, description="Unique identifier for this host")
+    connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
+
+    @property
+    @abstractmethod
+    def is_local(self) -> bool:
+        """Return True if this host is the local machine, False for remote hosts."""
+        ...
+
+    @property
+    @abstractmethod
+    def host_dir(self) -> Path:
+        """Get the host state directory path."""
+        ...
+
+    # =========================================================================
+    # Core Primitives
+    # =========================================================================
+
+    @abstractmethod
+    def execute_command(
+        self,
+        command: str,
+        user: str | None = None,
+        cwd: Path | None = None,
+        env: Mapping[str, str] | None = None,
+        timeout_seconds: float | None = None,
+    ) -> CommandResult:
+        """Execute a shell command on this host and return the result."""
+        ...
+
+    @abstractmethod
+    def read_file(
+        self,
+        path: Path,
+    ) -> bytes:
+        """Read a file and return its contents as bytes."""
+        ...
+
+    @abstractmethod
+    def write_file(
+        self,
+        path: Path,
+        content: bytes,
+        mode: str | None = None,
+    ) -> None:
+        """Write bytes content to a file."""
+        ...
+
+    @abstractmethod
+    def read_text_file(
+        self,
+        path: Path,
+        encoding: str = "utf-8",
+    ) -> str:
+        """Read a file and return its contents as a string."""
+        ...
+
+    @abstractmethod
+    def write_text_file(
+        self,
+        path: Path,
+        content: str,
+        encoding: str = "utf-8",
+        mode: str | None = None,
+    ) -> None:
+        """Write string content to a file."""
+        ...
+
+    # =========================================================================
+    # Activity Configuration
+    # =========================================================================
+
+    @abstractmethod
+    def get_activity_config(self) -> ActivityConfig:
+        """Return the activity configuration for idle detection on this host."""
+        ...
+
+    @abstractmethod
+    def set_activity_config(self, config: ActivityConfig) -> None:
+        """Update the activity configuration for idle detection on this host."""
+        ...
+
+    # =========================================================================
+    # Activity Times (aggregated across all agents on this host)
+    # =========================================================================
+
+    @abstractmethod
+    def get_reported_activity_time(self, activity_type: ActivitySource) -> datetime | None:
+        """Return the last reported activity time for the given activity type, or None if unknown."""
+        ...
+
+    @abstractmethod
+    def record_activity(self, activity_type: ActivitySource) -> None:
+        """Record activity of the given type; only BOOT and CREATE are valid here."""
+        ...
+
+    @abstractmethod
+    def get_reported_activity_content(self, activity_type: ActivitySource) -> str | None:
+        """Return the content associated with the last activity of the given type, or None."""
+        ...
+
+    # =========================================================================
+    # Cooperative Locking
+    # =========================================================================
+
+    @abstractmethod
+    @contextmanager
+    def lock_cooperatively(self, timeout_seconds: float = 30.0) -> Iterator[None]:
+        """Context manager for acquiring and releasing the host lock."""
+        ...
+
+    @abstractmethod
+    def get_reported_lock_time(self) -> datetime | None:
+        """Return the last modification time of the host lock file, or None if not locked."""
+        ...
+
+    # =========================================================================
+    # Certified Data
+    # =========================================================================
+
+    @abstractmethod
+    def get_all_certified_data(self) -> CertifiedHostData:
+        """Return all certified (trustworthy) host data stored in data.json."""
+        ...
+
+    @abstractmethod
+    def get_plugin_data(self, plugin_name: str) -> dict[str, Any]:
+        """Return the certified plugin data for the given plugin name."""
+        ...
+
+    @abstractmethod
+    def set_plugin_data(self, plugin_name: str, data: dict[str, Any]) -> None:
+        """Update the certified plugin data for the given plugin name."""
+        ...
+
+    # =========================================================================
+    # Reported Plugin Data
+    # =========================================================================
+
+    @abstractmethod
+    def get_reported_plugin_state_file_data(self, plugin_name: str, filename: str) -> str:
+        """Return the content of a reported plugin state file."""
+        ...
+
+    @abstractmethod
+    def set_reported_plugin_state_file_data(
+        self,
+        plugin_name: str,
+        filename: str,
+        data: str,
+    ) -> None:
+        """Write content to a reported plugin state file."""
+        ...
+
+    @abstractmethod
+    def get_reported_plugin_state_files(self, plugin_name: str) -> list[str]:
+        """Return a list of all reported state file names for the given plugin."""
+        ...
+
+    # =========================================================================
+    # Environment
+    # =========================================================================
+
+    @abstractmethod
+    def get_env_vars(self) -> dict[str, str]:
+        """Return all environment variables configured for this host."""
+        ...
+
+    @abstractmethod
+    def set_env_vars(self, env: Mapping[str, str]) -> None:
+        """Replace all environment variables with the given mapping."""
+        ...
+
+    @abstractmethod
+    def get_env_var(self, key: str) -> str | None:
+        """Return the value of an environment variable, or None if not set."""
+        ...
+
+    @abstractmethod
+    def set_env_var(self, key: str, value: str) -> None:
+        """Set a single environment variable to the given value."""
+        ...
+
+    # =========================================================================
+    # Provider-Derived Information
+    # =========================================================================
+
+    @abstractmethod
+    def get_uptime_seconds(self) -> float:
+        """Return the number of seconds since this host was last started."""
+        ...
+
+    @abstractmethod
+    def get_provider_resources(self) -> HostResources:
+        """Return the resource allocation (CPU, memory, disk) for this host."""
+        ...
+
+    @abstractmethod
+    def get_snapshots(self) -> list[SnapshotInfo]:
+        """Return a list of all snapshots available for this host."""
+        ...
+
+    @abstractmethod
+    def get_image(self) -> str | None:
+        """Return the base image used for this host, or None if not applicable."""
+        ...
+
+    @abstractmethod
+    def get_tags(self) -> dict[str, str]:
+        """Return all metadata tags associated with this host."""
+        ...
+
+    @abstractmethod
+    def set_tags(self, tags: Mapping[str, str]) -> None:
+        """Replace all metadata tags with the given mapping."""
+        ...
+
+    @abstractmethod
+    def add_tags(self, tags: Mapping[str, str]) -> None:
+        """Add or update metadata tags from the given mapping."""
+        ...
+
+    @abstractmethod
+    def remove_tags(self, keys: Sequence[str]) -> None:
+        """Remove tags by key."""
+        ...
+
+    # =========================================================================
+    # Agent Information
+    # =========================================================================
+
+    @abstractmethod
+    def get_agents(self) -> list[AgentInterface]:
+        """Return a list of all agents running on this host."""
+        ...
+
+    @abstractmethod
+    def create_agent_work_dir(
+        self,
+        host: HostInterface,
+        path: Path,
+        options: CreateAgentOptions,
+    ) -> Path:
+        """Create and populate the work directory for a new agent."""
+        ...
+
+    @abstractmethod
+    def create_agent_state(
+        self,
+        work_dir_path: Path,
+        options: CreateAgentOptions,
+    ) -> AgentInterface:
+        """Create the state directory and metadata for a new agent."""
+        ...
+
+    @abstractmethod
+    def provision_agent(
+        self,
+        agent: AgentInterface,
+        options: CreateAgentOptions,
+        mngr_ctx: MngrContext,
+    ) -> None:
+        """Install packages, create config files, and set up an agent."""
+        ...
+
+    @abstractmethod
+    def destroy_agent(self, agent: AgentInterface) -> None:
+        """Remove an agent and all its associated state from this host."""
+        ...
+
+    @abstractmethod
+    def start_agents(self, agent_ids: Sequence[AgentId]) -> None:
+        """Start the specified agents by creating their tmux sessions and processes."""
+        ...
+
+    @abstractmethod
+    def stop_agents(self, agent_ids: Sequence[AgentId], timeout_seconds: float = 5.0) -> None:
+        """Stop the specified agents gracefully within the given timeout."""
+        ...
+
+    # =========================================================================
+    # Agent-Derived Information
+    # =========================================================================
+
+    @abstractmethod
+    def get_idle_seconds(self) -> float:
+        """Return the number of seconds since the host was last considered active."""
+        ...
+
+    @abstractmethod
+    def get_permissions(self) -> list[str]:
+        """Return the union of all permissions granted to agents on this host."""
+        ...
+
+    @abstractmethod
+    def get_state(self) -> HostState:
+        """Return the current lifecycle state of this host."""
+        ...
+
+
+class AgentGitOptions(FrozenModel):
+    """Git-related options for the agent work_dir."""
+
+    base_branch: str | None = Field(
+        default=None,
+        description="Starting branch for the agent (default: current branch)",
+    )
+    is_new_branch: bool = Field(
+        default=False,
+        description="Whether to create a new branch",
+    )
+    new_branch_name: str | None = Field(
+        default=None,
+        description="Name for the new branch (implies is_new_branch)",
+    )
+    new_branch_prefix: str = Field(
+        default="mngr/",
+        description="Prefix for auto-generated branch names",
+    )
+    depth: int | None = Field(
+        default=None,
+        description="Shallow clone depth (None for full clone)",
+    )
+    shallow_since: str | None = Field(
+        default=None,
+        description="Shallow clone since date",
+    )
+
+
+class AgentEnvironmentOptions(FrozenModel):
+    """Environment variable configuration for the agent."""
+
+    env_vars: tuple[EnvVar, ...] = Field(
+        default=(),
+        description="Environment variables to set (KEY=VALUE)",
+    )
+    env_files: tuple[Path, ...] = Field(
+        default=(),
+        description="Files to load environment variables from",
+    )
+    pass_env_vars: tuple[str, ...] = Field(
+        default=(),
+        description="Environment variable names to forward from current shell",
+    )
+
+
+class AgentLifecycleOptions(FrozenModel):
+    """Lifecycle and idle detection options for the agent."""
+
+    idle_timeout_seconds: int | None = Field(
+        default=None,
+        description="Shutdown after idle for N seconds (None for no timeout)",
+    )
+    idle_mode: IdleMode | None = Field(
+        default=None,
+        description="When to consider host idle (None for provider default)",
+    )
+    activity_sources: tuple[str, ...] | None = Field(
+        default=None,
+        description="Activity sources for idle detection",
+    )
+    is_start_on_boot: bool | None = Field(
+        default=None,
+        description="Whether to restart agent on host boot",
+    )
+
+
+class AgentPermissionsOptions(FrozenModel):
+    """Permissions options for the agent."""
+
+    granted_permissions: tuple[Permission, ...] = Field(
+        default=(),
+        description="Permissions to grant to the agent",
+    )
+
+
+class UploadFileSpec(FrozenModel):
+    """Specification for uploading a file: LOCAL:REMOTE."""
+
+    local_path: Path = Field(description="Local path to the file to upload")
+    remote_path: Path = Field(description="Remote path where the file should be placed")
+
+    @classmethod
+    def from_string(cls, s: str) -> "UploadFileSpec":
+        """Parse a LOCAL:REMOTE string into an UploadFileSpec."""
+        if ":" not in s:
+            raise ParseSpecError(f"Upload file must be in LOCAL:REMOTE format, got: {s}")
+        local, remote = s.split(":", 1)
+        return cls(local_path=Path(local.strip()), remote_path=Path(remote.strip()))
+
+
+class FileModificationSpec(FrozenModel):
+    """Specification for modifying a file: REMOTE:TEXT."""
+
+    remote_path: Path = Field(description="Remote path to the file")
+    text: str = Field(description="Text to append/prepend")
+
+    @classmethod
+    def from_string(cls, s: str) -> "FileModificationSpec":
+        """Parse a REMOTE:TEXT string into a FileModificationSpec."""
+        if ":" not in s:
+            raise ParseSpecError(f"File modification must be in REMOTE:TEXT format, got: {s}")
+        remote, text = s.split(":", 1)
+        return cls(remote_path=Path(remote.strip()), text=text)
+
+
+class AgentProvisioningOptions(FrozenModel):
+    """Simple provisioning options for the agent."""
+
+    user_commands: tuple[str, ...] = Field(
+        default=(),
+        description="Custom shell commands to run during provisioning",
+    )
+    sudo_commands: tuple[str, ...] = Field(
+        default=(),
+        description="Custom shell commands to run as root during provisioning",
+    )
+    upload_files: tuple[UploadFileSpec, ...] = Field(
+        default=(),
+        description="Files to upload (LOCAL:REMOTE pairs)",
+    )
+    append_to_files: tuple[FileModificationSpec, ...] = Field(
+        default=(),
+        description="Text to append to files (REMOTE:TEXT pairs)",
+    )
+    prepend_to_files: tuple[FileModificationSpec, ...] = Field(
+        default=(),
+        description="Text to prepend to files (REMOTE:TEXT pairs)",
+    )
+    create_directories: tuple[Path, ...] = Field(
+        default=(),
+        description="Directories to create on the remote",
+    )
+
+
+class NamedCommand(FrozenModel):
+    """A command with an optional window name for tmux."""
+
+    command: CommandString = Field(description="The command to run")
+    window_name: str | None = Field(
+        default=None,
+        description="Optional name for the tmux window (auto-generated if not provided)",
+    )
+
+    @classmethod
+    def from_string(cls, s: str) -> "NamedCommand":
+        """Parse a command string, optionally with a window name prefix.
+
+        Accepts two formats:
+        - "command string" -> NamedCommand(command="command string", window_name=None)
+        - 'name="command string"' -> NamedCommand(command="command string", window_name="name")
+        - 'name=command string' -> NamedCommand(command="command string", window_name="name")
+
+        Window names are distinguished from environment variables by case:
+        - Lowercase or mixed-case names (e.g., server, my_window) are treated as window names
+        - ALL_UPPERCASE names (e.g., FOO, MY_VAR) are treated as env var assignments
+        """
+        # Check if the string starts with a name= prefix
+        if "=" in s:
+            # Find the first = to split name from command
+            eq_idx = s.index("=")
+            potential_name = s[:eq_idx]
+            # Validate that the potential name looks like a valid window name
+            # (no spaces, quotes, or special characters that would indicate it's part of the command)
+            if potential_name and " " not in potential_name and '"' not in potential_name:
+                rest = s[eq_idx + 1 :]
+                # Check if the rest is quoted - if so, strip the quotes
+                if rest.startswith('"') and rest.endswith('"') and len(rest) > 1:
+                    command = rest[1:-1]
+                    return cls(command=CommandString(command), window_name=potential_name)
+                elif rest.startswith("'") and rest.endswith("'") and len(rest) > 1:
+                    command = rest[1:-1]
+                    return cls(command=CommandString(command), window_name=potential_name)
+                else:
+                    # Unquoted - use heuristic to distinguish window names from env vars
+                    # Environment variables are typically ALL_UPPERCASE
+                    # Window names are typically lowercase or mixed-case
+                    is_likely_env_var = potential_name.isupper() and potential_name.replace("_", "").isalnum()
+                    if is_likely_env_var:
+                        # Treat as plain command (env var assignment like FOO=bar cmd)
+                        return cls(command=CommandString(s), window_name=None)
+                    else:
+                        # Treat as named command
+                        return cls(command=CommandString(rest), window_name=potential_name)
+
+        # No name prefix or equals sign, just a plain command
+        return cls(command=CommandString(s), window_name=None)
+
+
+class SourceDataOptions(FrozenModel):
+    """Options for what data to include from the source."""
+
+    include_patterns: tuple[str, ...] = Field(
+        default=(),
+        description="Glob patterns for additional files to include",
+    )
+    exclude_patterns: tuple[str, ...] = Field(
+        default=(),
+        description="Glob patterns for files to exclude",
+    )
+    include_patterns_file: Path | None = Field(
+        default=None,
+        description="File containing include patterns (one per line)",
+    )
+    exclude_patterns_file: Path | None = Field(
+        default=None,
+        description="File containing exclude patterns (one per line)",
+    )
+    is_include_git: bool = Field(
+        default=True,
+        description="Whether to include the .git directory",
+    )
+    is_include_unclean: bool = Field(
+        # the default is true because we should not assume that git is even being used
+        default=True,
+        description="Whether to include uncommitted files",
+    )
+    is_include_gitignored: bool = Field(
+        default=False,
+        description="Whether to include files matching .gitignore",
+    )
+
+
+class CreateAgentOptions(FrozenModel):
+    """Complete options for creating a new agent.
+
+    Combines identity, environment, git, and lifecycle options.
+    """
+
+    agent_type: AgentTypeName | None = Field(
+        default=None,
+        description="Type of agent to run (claude, codex, etc.)",
+    )
+    name: AgentName | None = Field(
+        default=None,
+        description="Agent name (auto-generated if not specified)",
+    )
+    command: CommandString | None = Field(
+        default=None,
+        description="Override the agent command",
+    )
+    additional_commands: tuple[NamedCommand, ...] = Field(
+        default=(),
+        description="Extra commands to run in additional tmux windows",
+    )
+    agent_args: tuple[str, ...] = Field(
+        default=(),
+        description="Additional arguments passed to the agent",
+    )
+    user: str | None = Field(
+        default=None,
+        description="User to run the agent as",
+    )
+    target_path: Path | None = Field(
+        default=None,
+        description="Target path for the agent work_dir",
+    )
+    copy_mode: WorkDirCopyMode | None = Field(
+        default=None,
+        description="How to set up the work_dir: copy, clone, or worktree",
+    )
+    is_copy_immediate: bool = Field(
+        default=False,
+        description="Whether to copy the source data immediately (before building the host) or after",
+    )
+    initial_message: str | None = Field(
+        default=None,
+        description="Initial message to pipe to the agent on startup",
+    )
+    message_delay_seconds: float = Field(
+        default=1.0,
+        description="Delay in seconds before sending initial message (to allow agent startup)",
+    )
+    # FIXME: actually this should be optional, since not all agents are guaranteed to have a git repo
+    git: AgentGitOptions = Field(
+        default_factory=AgentGitOptions,
+        description="Git configuration for the work_dir",
+    )
+    data_options: SourceDataOptions = Field(
+        default_factory=SourceDataOptions,
+        description="Options for what data to include from the source",
+    )
+    environment: AgentEnvironmentOptions = Field(
+        default_factory=AgentEnvironmentOptions,
+        description="Environment variable configuration",
+    )
+    lifecycle: AgentLifecycleOptions = Field(
+        default_factory=AgentLifecycleOptions,
+        description="Lifecycle and idle detection options",
+    )
+    permissions: AgentPermissionsOptions = Field(
+        default_factory=AgentPermissionsOptions,
+        description="Permissions options",
+    )
+    provisioning: AgentProvisioningOptions = Field(
+        default_factory=AgentProvisioningOptions,
+        description="Simple provisioning options",
+    )

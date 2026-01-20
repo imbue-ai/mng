@@ -1,0 +1,462 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+from typing import Self
+from typing import TypeVar
+
+import deal
+import pluggy
+from pydantic import Field
+
+from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.mngr.errors import ConfigParseError
+from imbue.mngr.errors import ParseSpecError
+from imbue.mngr.primitives import AgentTypeName
+from imbue.mngr.primitives import CommandString
+from imbue.mngr.primitives import LifecycleHook
+from imbue.mngr.primitives import LogLevel
+from imbue.mngr.primitives import OutputFormat
+from imbue.mngr.primitives import Permission
+from imbue.mngr.primitives import PluginName
+from imbue.mngr.primitives import ProviderBackendName
+from imbue.mngr.primitives import ProviderInstanceName
+
+# === Helper Functions ===
+
+T = TypeVar("T")
+
+
+@deal.has()
+def merge_cli_args(base: str, override: str) -> str:
+    """Merge CLI arguments, concatenating if both present."""
+    if override:
+        if base:
+            return f"{base} {override}"
+        return override
+    return base
+
+
+@deal.has()
+def merge_list_fields(base: list[T], override: list[T] | None) -> list[T]:
+    """Merge list fields, concatenating if override is not None."""
+    if override is not None:
+        return list(base) + list(override)
+    return base
+
+
+# === Value Types ===
+
+
+class EnvVar(FrozenModel):
+    """Environment variable as KEY=VALUE."""
+
+    key: str = Field(description="The environment variable name")
+    value: str = Field(description="The environment variable value")
+
+    @classmethod
+    def from_string(cls, s: str) -> "EnvVar":
+        """Parse a KEY=VALUE string into an EnvVar."""
+        if "=" not in s:
+            raise ParseSpecError(f"Environment variable must be in KEY=VALUE format, got: {s}")
+        key, value = s.split("=", 1)
+        return cls(key=key.strip(), value=value.strip())
+
+
+class HookDefinition(FrozenModel):
+    """Lifecycle hook definition as NAME:COMMAND."""
+
+    hook: LifecycleHook = Field(description="The lifecycle hook name")
+    command: str = Field(description="The command to run")
+
+    @classmethod
+    def from_string(cls, s: str) -> "HookDefinition":
+        """Parse a NAME:COMMAND string into a HookDefinition."""
+        if ":" not in s:
+            raise ParseSpecError(f"Hook must be in NAME:COMMAND format, got: {s}")
+        name, command = s.split(":", 1)
+        # Normalize name: convert hyphens to underscores and uppercase
+        normalized_name = name.strip().upper().replace("-", "_")
+        try:
+            hook = LifecycleHook(normalized_name)
+        except ValueError:
+            valid = ", ".join(h.value.lower().replace("_", "-") for h in LifecycleHook)
+            raise ParseSpecError(f"Invalid hook name '{name}'. Valid hooks: {valid}") from None
+        return cls(hook=hook, command=command.strip())
+
+
+# === Config Types ===
+
+
+class AgentTypeConfig(FrozenModel):
+    """Defines a custom agent type that inherits from an existing type."""
+
+    parent_type: AgentTypeName | None = Field(
+        default=None,
+        description="Base type to inherit from (must be a plugin-provided or command type, not another custom type)",
+    )
+    command: CommandString | None = Field(
+        default=None,
+        description="Command to run for this agent type",
+    )
+    cli_args: str = Field(
+        default="",
+        description="Additional CLI arguments to pass to the agent",
+    )
+    permissions: list[Permission] = Field(
+        default_factory=list,
+        description="Explicit list of permissions (overrides parent type permissions)",
+    )
+
+    def merge_with(self, override: Self) -> Self:
+        """Merge this config with an override config.
+
+        Scalar fields: override wins if not None
+        Lists: concatenate both lists
+        """
+        # Ensure override is same type or subclass of self's type
+        if not isinstance(override, self.__class__):
+            raise ConfigParseError(f"Cannot merge {self.__class__.__name__} with different agent config type")
+
+        # Merge parent_type (scalar - override wins if not None)
+        merged_parent_type = override.parent_type if override.parent_type is not None else self.parent_type
+
+        # Merge command (scalar - override wins if not None)
+        merged_command = override.command if override.command is not None else self.command
+
+        # Merge cli_args (concatenate both with space separator)
+        merged_cli_args = merge_cli_args(self.cli_args, override.cli_args)
+
+        # Merge permissions (list - concatenate if override is not None)
+        merged_permissions = merge_list_fields(self.permissions, override.permissions)
+
+        return self.__class__(
+            parent_type=merged_parent_type,
+            command=merged_command,
+            cli_args=merged_cli_args,
+            permissions=merged_permissions,
+        )
+
+
+class ProviderInstanceConfig(FrozenModel):
+    """Defines a custom provider instance."""
+
+    backend: ProviderBackendName = Field(
+        description="Provider backend to use (e.g., 'docker', 'modal', 'aws')",
+    )
+
+    def merge_with(self, override: "ProviderInstanceConfig") -> "ProviderInstanceConfig":
+        """Merge this config with an override config.
+
+        Scalar fields: override wins if not None
+        """
+        # Ensure override is same type as self
+        if not isinstance(override, self.__class__):
+            raise ConfigParseError(f"Cannot merge {self.__class__.__name__} with different provider config type")
+
+        # Merge all fields: for each field, use override value if not None, else use self value
+        # Backend always comes from override
+        merged_values: dict[str, Any] = {}
+        for field_name in self.__class__.model_fields:
+            if field_name == "backend":
+                merged_values[field_name] = override.backend
+            else:
+                override_value = getattr(override, field_name)
+                if override_value is not None:
+                    # FIXME: we probably want to merge different here depending on if this is a list, dict, or other (see how it works for agent configs)
+                    merged_values[field_name] = override_value
+                else:
+                    merged_values[field_name] = getattr(self, field_name)
+        return self.__class__(**merged_values)
+
+
+class PluginConfig(FrozenModel):
+    """Base configuration for a plugin."""
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether this plugin is enabled",
+    )
+
+    def merge_with(self, override: "PluginConfig") -> "PluginConfig":
+        """Merge this config with an override config.
+
+        Scalar fields: override wins if not None
+        """
+        merged_enabled = override.enabled if override.enabled is not None else self.enabled
+        return self.__class__(enabled=merged_enabled)
+
+
+class LoggingConfig(FrozenModel):
+    """Logging configuration for mngr."""
+
+    file_level: LogLevel = Field(
+        default=LogLevel.DEBUG,
+        description="Log level for file logging",
+    )
+    log_dir: Path = Field(
+        default=Path("logs"),
+        description="Directory for log files (relative to data root if relative)",
+    )
+    max_log_files: int = Field(
+        default=1000,
+        description="Maximum number of log files to keep",
+    )
+    max_log_size_mb: int = Field(
+        default=10,
+        description="Maximum size of each log file in MB",
+    )
+    console_level: LogLevel = Field(
+        default=LogLevel.INFO,
+        description="Log level for console output",
+    )
+    is_logging_commands: bool = Field(
+        default=True,
+        description="Log what commands were executed",
+    )
+    is_logging_command_output: bool = Field(
+        default=False,
+        description="Log stdout/stderr from executed commands",
+    )
+    is_logging_env_vars: bool = Field(
+        default=False,
+        description="Log environment variables (security risk)",
+    )
+
+    def merge_with(self, override: "LoggingConfig") -> "LoggingConfig":
+        """Merge this config with an override config.
+
+        Scalar fields: override wins if not None
+        """
+        return LoggingConfig(
+            file_level=override.file_level if override.file_level is not None else self.file_level,
+            log_dir=override.log_dir if override.log_dir is not None else self.log_dir,
+            max_log_files=override.max_log_files if override.max_log_files is not None else self.max_log_files,
+            max_log_size_mb=override.max_log_size_mb if override.max_log_size_mb is not None else self.max_log_size_mb,
+            console_level=override.console_level if override.console_level is not None else self.console_level,
+            is_logging_commands=override.is_logging_commands
+            if override.is_logging_commands is not None
+            else self.is_logging_commands,
+            is_logging_command_output=override.is_logging_command_output
+            if override.is_logging_command_output is not None
+            else self.is_logging_command_output,
+            is_logging_env_vars=override.is_logging_env_vars
+            if override.is_logging_env_vars is not None
+            else self.is_logging_env_vars,
+        )
+
+
+class CommandDefaults(FrozenModel):
+    """Default values for CLI command parameters.
+
+    This allows config files to override default values for CLI arguments.
+    Only parameters that were not explicitly set by the user will use these defaults.
+    Field names should match the CLI parameter names (after click's conversion).
+    """
+
+    # Store as a flexible dict since we don't know all possible CLI parameters ahead of time
+    defaults: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Map of parameter name to default value",
+    )
+
+    def merge_with(self, override: Self) -> Self:
+        """Merge this config with an override config.
+
+        For command defaults, later configs completely override earlier ones.
+        """
+        merged_defaults = {**self.defaults, **override.defaults}
+        return self.__class__(defaults=merged_defaults)
+
+
+class MngrConfig(FrozenModel):
+    """Root configuration model for mngr."""
+
+    prefix: str = Field(
+        default="mngr-",
+        description="Prefix for naming resources (tmux sessions, containers, etc.)",
+    )
+    default_host_dir: Path = Field(
+        default=Path("~/.mngr"),
+        description="Default base directory for mngr data on hosts (can be overridden per provider instance)",
+    )
+    unset_vars: list[str] = Field(
+        # these are necessary to prevent tmux from accidentally sticking test data in history files
+        default_factory=lambda: list(("HISTFILE", "PROFILE", "VIRTUAL_ENV")),
+        description="Environment variables to unset when creating agent tmux sessions",
+    )
+    pager: str | None = Field(
+        default=None,
+        description="Pager command for help output (e.g., 'less'). If None, uses PAGER env var or 'less' as fallback.",
+    )
+    agent_types: dict[AgentTypeName, AgentTypeConfig] = Field(
+        default_factory=dict,
+        description="Custom agent type definitions",
+    )
+    providers: dict[ProviderInstanceName, ProviderInstanceConfig] = Field(
+        default_factory=dict,
+        description="Custom provider instance definitions",
+    )
+    plugins: dict[PluginName, PluginConfig] = Field(
+        default_factory=dict,
+        description="Plugin configurations",
+    )
+    disabled_plugins: frozenset[str] = Field(
+        default_factory=frozenset,
+        description="Set of plugin names that were explicitly disabled (used to filter backends)",
+    )
+    commands: dict[str, CommandDefaults] = Field(
+        default_factory=dict,
+        description="Default values for CLI command parameters (e.g., 'commands.create')",
+    )
+    logging: LoggingConfig = Field(
+        default_factory=LoggingConfig,
+        description="Logging configuration",
+    )
+
+    def merge_with(self, override: Self) -> Self:
+        """Merge this config with an override config.
+
+        Scalar fields: override wins if not None
+        Dicts: merge keys, with per-key merge for nested config objects
+        Lists: concatenate both lists
+        """
+        # Merge prefix (scalar - override wins if not None)
+        merged_prefix = self.prefix
+        if override.prefix is not None:
+            merged_prefix = override.prefix
+
+        # Merge default_host_dir (scalar - override wins if not None)
+        merged_default_host_dir = self.default_host_dir
+        if override.default_host_dir is not None:
+            merged_default_host_dir = override.default_host_dir
+
+        # Merge pager (scalar - override wins if not None)
+        merged_pager = override.pager if override.pager is not None else self.pager
+
+        # Merge unset_vars (list - concatenate)
+        merged_unset_vars = list(self.unset_vars) + list(override.unset_vars)
+
+        # Merge agent_types (dict - merge keys, with per-key merge)
+        merged_agent_types: dict[AgentTypeName, AgentTypeConfig] = {}
+        all_type_keys = set(self.agent_types.keys()) | set(override.agent_types.keys())
+        for key in all_type_keys:
+            if key in self.agent_types and key in override.agent_types:
+                # Both have this key - merge the configs
+                merged_agent_types[key] = self.agent_types[key].merge_with(override.agent_types[key])
+            elif key in override.agent_types:
+                # Only override has this key
+                merged_agent_types[key] = override.agent_types[key]
+            else:
+                # Only base has this key
+                merged_agent_types[key] = self.agent_types[key]
+
+        # Merge providers (dict - merge keys, with per-key merge)
+        merged_providers: dict[ProviderInstanceName, ProviderInstanceConfig] = {}
+        all_provider_keys = set(self.providers.keys()) | set(override.providers.keys())
+        for key in all_provider_keys:
+            if key in self.providers and key in override.providers:
+                # Both have this key - merge the configs
+                merged_providers[key] = self.providers[key].merge_with(override.providers[key])
+            elif key in override.providers:
+                # Only override has this key
+                merged_providers[key] = override.providers[key]
+            else:
+                # Only base has this key
+                merged_providers[key] = self.providers[key]
+
+        # Merge plugins (dict - merge keys, with per-key merge)
+        merged_plugins: dict[PluginName, PluginConfig] = {}
+        all_plugin_keys = set(self.plugins.keys()) | set(override.plugins.keys())
+        for key in all_plugin_keys:
+            if key in self.plugins and key in override.plugins:
+                # Both have this key - merge the configs
+                merged_plugins[key] = self.plugins[key].merge_with(override.plugins[key])
+            elif key in override.plugins:
+                # Only override has this key
+                merged_plugins[key] = override.plugins[key]
+            else:
+                # Only base has this key
+                merged_plugins[key] = self.plugins[key]
+
+        # Merge disabled_plugins (union of both sets)
+        merged_disabled_plugins = self.disabled_plugins | override.disabled_plugins
+
+        # Merge commands (dict - merge keys, with per-key merge)
+        merged_commands: dict[str, CommandDefaults] = {}
+        all_command_keys = set(self.commands.keys()) | set(override.commands.keys())
+        for key in all_command_keys:
+            if key in self.commands and key in override.commands:
+                # Both have this key - merge the configs
+                merged_commands[key] = self.commands[key].merge_with(override.commands[key])
+            elif key in override.commands:
+                # Only override has this key
+                merged_commands[key] = override.commands[key]
+            else:
+                # Only base has this key
+                merged_commands[key] = self.commands[key]
+
+        # Merge logging (nested config - use merge_with if override.logging is not None)
+        merged_logging = self.logging
+        if override.logging is not None:
+            merged_logging = self.logging.merge_with(override.logging)
+
+        return self.__class__(
+            prefix=merged_prefix,
+            default_host_dir=merged_default_host_dir,
+            pager=merged_pager,
+            unset_vars=merged_unset_vars,
+            agent_types=merged_agent_types,
+            providers=merged_providers,
+            plugins=merged_plugins,
+            disabled_plugins=merged_disabled_plugins,
+            commands=merged_commands,
+            logging=merged_logging,
+        )
+
+
+class MngrContext(FrozenModel):
+    """Context object containing configuration and plugin manager.
+
+    This combines MngrConfig and PluginManager into a single object
+    that can be passed through the application, providing access to
+    both configuration and plugin hooks.
+    """
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    config: MngrConfig = Field(
+        description="Configuration for mngr",
+    )
+    pm: pluggy.PluginManager = Field(
+        description="Plugin manager for hooks and backends",
+    )
+
+
+class OutputOptions(FrozenModel):
+    """Options for command output formatting and logging."""
+
+    output_format: OutputFormat = Field(
+        default=OutputFormat.HUMAN,
+        description="Output format for command results",
+    )
+    console_level: LogLevel = Field(
+        default=LogLevel.INFO,
+        description="Log level for console output",
+    )
+    log_level: LogLevel = Field(
+        default=LogLevel.NONE,
+        description="Log level for outputting to stderr",
+    )
+    is_log_commands: bool = Field(
+        default=True,
+        description="Log what commands were executed",
+    )
+    is_log_command_output: bool = Field(
+        default=False,
+        description="Log stdout/stderr from executed commands",
+    )
+    is_log_env_vars: bool = Field(
+        default=False,
+        description="Log environment variables (security risk)",
+    )

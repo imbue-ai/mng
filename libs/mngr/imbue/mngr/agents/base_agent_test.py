@@ -1,0 +1,330 @@
+"""Tests for BaseAgent lifecycle state detection."""
+
+import json
+import uuid
+from datetime import datetime
+from datetime import timezone
+from pathlib import Path
+
+import pluggy
+
+from imbue.mngr.agents.base_agent import BaseAgent
+from imbue.mngr.config.data_types import AgentTypeConfig
+from imbue.mngr.config.data_types import MngrConfig
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.hosts.host import Host
+from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentTypeName
+from imbue.mngr.primitives import CommandString
+from imbue.mngr.primitives import HostName
+from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.utils.testing import wait_for
+
+
+def create_test_agent(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> BaseAgent:
+    """Create a test agent for lifecycle state testing with unique name."""
+    host = local_provider.create_host(HostName("test"))
+    assert isinstance(host, Host)
+
+    agent_id = AgentId.generate()
+    # Use unique agent name to avoid conflicts in parallel tests
+    agent_name = AgentName(f"test-agent-{uuid.uuid4().hex[:8]}")
+    agent_type = AgentTypeName("test")
+
+    # Create agent directory and data.json
+    agent_dir = temp_host_dir / "agents" / str(agent_id)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+
+    agent_config = AgentTypeConfig(
+        command=CommandString("sleep 1000"),
+    )
+
+    # Create the data.json file with the agent's command
+    data = {
+        "id": str(agent_id),
+        "name": str(agent_name),
+        "type": str(agent_type),
+        "command": "sleep 1000",
+        "work_dir": str(temp_work_dir),
+        "create_time": datetime.now(timezone.utc).isoformat(),
+        "start_on_boot": False,
+    }
+    data_path = agent_dir / "data.json"
+    data_path.write_text(json.dumps(data, indent=2))
+
+    mngr_ctx = MngrContext(config=temp_config, pm=plugin_manager)
+    agent = BaseAgent(
+        id=agent_id,
+        name=agent_name,
+        agent_type=agent_type,
+        work_dir=temp_work_dir,
+        create_time=datetime.now(timezone.utc),
+        host_id=host.id,
+        host=host,
+        mngr_ctx=mngr_ctx,
+        agent_config=agent_config,
+    )
+
+    return agent
+
+
+def test_lifecycle_state_stopped_when_no_tmux_session(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that agent is STOPPED when there is no tmux session."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    state = test_agent.get_lifecycle_state()
+    assert state == AgentLifecycleState.STOPPED
+
+
+def test_lifecycle_state_running_when_expected_process_exists(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that agent is RUNNING when tmux session exists with expected process."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
+
+    # Create a tmux session and run the expected command
+    test_agent.host.execute_command(
+        f"tmux new-session -d -s '{session_name}' 'sleep 1000'",
+        timeout_seconds=5.0,
+    )
+
+    try:
+        # Poll for up to 5 seconds for the state to become RUNNING
+        # There's a race condition where the process might not be fully started yet
+        wait_for(
+            lambda: test_agent.get_lifecycle_state() == AgentLifecycleState.RUNNING,
+            error_message="Expected agent lifecycle state to be RUNNING",
+        )
+    finally:
+        # Clean up tmux session
+        test_agent.host.execute_command(
+            f"tmux kill-session -t '{session_name}' 2>/dev/null",
+            timeout_seconds=5.0,
+        )
+
+
+def test_lifecycle_state_replaced_when_different_process_exists(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that agent is REPLACED when tmux session exists with different process."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
+
+    # Create a tmux session with a different command (cat waits for input indefinitely)
+    test_agent.host.execute_command(
+        f"tmux new-session -d -s '{session_name}' 'cat'",
+        timeout_seconds=5.0,
+    )
+
+    try:
+        # Poll for up to 5 seconds for the state to become REPLACED
+        # There's a race condition where tmux spawns a shell first, then execs the command.
+        # During that brief window, pane_current_command shows the shell, giving DONE.
+        wait_for(
+            lambda: test_agent.get_lifecycle_state() == AgentLifecycleState.REPLACED,
+            error_message="Expected agent lifecycle state to be REPLACED",
+        )
+    finally:
+        # Clean up tmux session
+        test_agent.host.execute_command(
+            f"tmux kill-session -t '{session_name}' 2>/dev/null",
+            timeout_seconds=5.0,
+        )
+
+
+def test_lifecycle_state_done_when_no_process_in_pane(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that agent is DONE when tmux session exists but no process is running."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
+
+    # Create a tmux session, then manually stop the process inside it
+    # First create it with a long-running command
+    test_agent.host.execute_command(
+        f"tmux new-session -d -s '{session_name}'",
+        timeout_seconds=5.0,
+    )
+
+    # The tmux session now has a shell with no child processes (DONE state)
+    try:
+        # Poll for up to 5 seconds for the state to become DONE
+        # There's a race condition where tmux may have brief child processes during init
+        wait_for(
+            lambda: test_agent.get_lifecycle_state() == AgentLifecycleState.DONE,
+            error_message="Expected agent lifecycle state to be DONE",
+        )
+    finally:
+        # Clean up tmux session
+        test_agent.host.execute_command(
+            f"tmux kill-session -t '{session_name}' 2>/dev/null",
+            timeout_seconds=5.0,
+        )
+
+
+def test_get_reported_status_returns_none_when_no_status_files(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that get_reported_status returns None when no status files exist."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    status = test_agent.get_reported_status()
+    assert status is None
+
+
+def test_get_reported_status_returns_status_with_markdown_only(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that get_reported_status returns AgentStatus with markdown content."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    status_dir = agent_dir / "status"
+    status_dir.mkdir(parents=True, exist_ok=True)
+
+    markdown_content = "Agent is running\nProcessing task 123"
+    (status_dir / "status.md").write_text(markdown_content)
+
+    status = test_agent.get_reported_status()
+    assert status is not None
+    assert status.line == "Agent is running"
+    assert status.full == markdown_content
+    assert status.html is None
+
+
+def test_get_reported_status_returns_status_with_html_and_markdown(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that get_reported_status returns AgentStatus with both markdown and html."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    status_dir = agent_dir / "status"
+    status_dir.mkdir(parents=True, exist_ok=True)
+
+    markdown_content = "Agent is running\nProcessing task 123"
+    html_content = "<html><body><h1>Agent is running</h1><p>Processing task 123</p></body></html>"
+    (status_dir / "status.md").write_text(markdown_content)
+    (status_dir / "status.html").write_text(html_content)
+
+    status = test_agent.get_reported_status()
+    assert status is not None
+    assert status.line == "Agent is running"
+    assert status.full == markdown_content
+    assert status.html == html_content
+
+
+def test_lifecycle_state_waiting_when_waiting_file_exists(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that agent is WAITING when tmux session exists with expected process and waiting file exists."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
+
+    # Create a tmux session and run the expected command
+    test_agent.host.execute_command(
+        f"tmux new-session -d -s '{session_name}' 'sleep 1000'",
+        timeout_seconds=5.0,
+    )
+
+    # Create the waiting file in the agent's state directory
+    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    waiting_file = agent_dir / "waiting"
+    waiting_file.write_text("")
+
+    try:
+        # Poll for up to 5 seconds for the state to become WAITING
+        wait_for(
+            lambda: test_agent.get_lifecycle_state() == AgentLifecycleState.WAITING,
+            error_message="Expected agent lifecycle state to be WAITING",
+        )
+    finally:
+        # Clean up tmux session
+        test_agent.host.execute_command(
+            f"tmux kill-session -t '{session_name}' 2>/dev/null",
+            timeout_seconds=5.0,
+        )
+
+
+def test_lifecycle_state_running_when_waiting_file_removed(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that agent transitions from WAITING to RUNNING when waiting file is removed."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
+
+    # Create a tmux session and run the expected command
+    test_agent.host.execute_command(
+        f"tmux new-session -d -s '{session_name}' 'sleep 1000'",
+        timeout_seconds=5.0,
+    )
+
+    # Create the waiting file in the agent's state directory
+    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    waiting_file = agent_dir / "waiting"
+    waiting_file.write_text("")
+
+    try:
+        # First verify it's in WAITING state
+        wait_for(
+            lambda: test_agent.get_lifecycle_state() == AgentLifecycleState.WAITING,
+            error_message="Expected agent lifecycle state to be WAITING",
+        )
+
+        # Remove the waiting file
+        waiting_file.unlink()
+
+        # Now verify it's in RUNNING state
+        wait_for(
+            lambda: test_agent.get_lifecycle_state() == AgentLifecycleState.RUNNING,
+            error_message="Expected agent lifecycle state to be RUNNING after removing waiting file",
+        )
+    finally:
+        # Clean up tmux session
+        test_agent.host.execute_command(
+            f"tmux kill-session -t '{session_name}' 2>/dev/null",
+            timeout_seconds=5.0,
+        )

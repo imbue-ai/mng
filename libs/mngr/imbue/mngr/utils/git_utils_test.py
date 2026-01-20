@@ -1,0 +1,139 @@
+"""Tests for git utilities."""
+
+import subprocess
+from pathlib import Path
+
+from imbue.mngr.utils.git_utils import _parse_project_name_from_url
+from imbue.mngr.utils.git_utils import derive_project_name_from_path
+from imbue.mngr.utils.git_utils import find_git_worktree_root
+
+
+def test_github_https_url() -> None:
+    """Test parsing a GitHub HTTPS URL."""
+    url = "https://github.com/owner/my-project.git"
+    assert _parse_project_name_from_url(url) == "my-project"
+
+
+def test_github_https_url_without_git_suffix() -> None:
+    """Test parsing a GitHub HTTPS URL without .git suffix."""
+    url = "https://github.com/owner/my-project"
+    assert _parse_project_name_from_url(url) == "my-project"
+
+
+def test_github_ssh_url() -> None:
+    """Test parsing a GitHub SSH URL."""
+    url = "git@github.com:owner/my-project.git"
+    assert _parse_project_name_from_url(url) == "my-project"
+
+
+def test_github_ssh_url_without_git_suffix() -> None:
+    """Test parsing a GitHub SSH URL without .git suffix."""
+    url = "git@github.com:owner/my-project"
+    assert _parse_project_name_from_url(url) == "my-project"
+
+
+def test_gitlab_https_url() -> None:
+    """Test parsing a GitLab HTTPS URL."""
+    url = "https://gitlab.com/owner/my-project.git"
+    assert _parse_project_name_from_url(url) == "my-project"
+
+
+def test_gitlab_ssh_url() -> None:
+    """Test parsing a GitLab SSH URL."""
+    url = "git@gitlab.com:owner/my-project.git"
+    assert _parse_project_name_from_url(url) == "my-project"
+
+
+def test_nested_project_path() -> None:
+    """Test parsing a URL with nested project path."""
+    url = "https://github.com/org/group/subgroup/my-project.git"
+    assert _parse_project_name_from_url(url) == "my-project"
+
+
+def test_invalid_url() -> None:
+    """Test parsing an invalid URL returns None."""
+    url = "not-a-valid-url"
+    assert _parse_project_name_from_url(url) is None
+
+
+def test_empty_url() -> None:
+    """Test parsing an empty URL returns None."""
+    url = ""
+    assert _parse_project_name_from_url(url) is None
+
+
+def test_derive_from_folder_name_when_no_git(tmp_path: Path) -> None:
+    """Test deriving project name from folder name when there's no git repo."""
+    project_dir = tmp_path / "my-project"
+    project_dir.mkdir()
+
+    assert derive_project_name_from_path(project_dir) == "my-project"
+
+
+def test_derive_from_folder_name_when_git_has_no_remote(tmp_path: Path) -> None:
+    """Test deriving project name from folder name when git has no remote."""
+    project_dir = tmp_path / "my-project"
+    project_dir.mkdir()
+
+    # Initialize git but don't add a remote
+    subprocess.run(["git", "init"], cwd=project_dir, check=True, capture_output=True)
+
+    assert derive_project_name_from_path(project_dir) == "my-project"
+
+
+def test_derive_from_git_remote_github(tmp_path: Path) -> None:
+    """Test deriving project name from GitHub git remote."""
+    project_dir = tmp_path / "local-folder"
+    project_dir.mkdir()
+
+    # Initialize git and add a GitHub remote
+    subprocess.run(["git", "init"], cwd=project_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/owner/remote-project.git"],
+        cwd=project_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    # Should use the remote project name, not the folder name
+    assert derive_project_name_from_path(project_dir) == "remote-project"
+
+
+def test_derive_from_git_remote_ssh(tmp_path: Path) -> None:
+    """Test deriving project name from SSH git remote."""
+    project_dir = tmp_path / "local-folder"
+    project_dir.mkdir()
+
+    # Initialize git and add an SSH remote
+    subprocess.run(["git", "init"], cwd=project_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "git@github.com:owner/remote-project.git"],
+        cwd=project_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    # Should use the remote project name, not the folder name
+    assert derive_project_name_from_path(project_dir) == "remote-project"
+
+
+def test_find_git_worktree_root_returns_none_when_not_in_git(tmp_path: Path) -> None:
+    """Test that find_git_worktree_root returns None when not in a git repo."""
+    non_git_dir = tmp_path / "not-a-repo"
+    non_git_dir.mkdir()
+
+    result = find_git_worktree_root(non_git_dir)
+    assert result is None
+
+
+def test_find_git_worktree_root_returns_root_when_in_git(tmp_path: Path) -> None:
+    """Test that find_git_worktree_root returns the root when in a git repo."""
+    git_dir = tmp_path / "my-repo"
+    git_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=git_dir, check=True, capture_output=True)
+
+    subdir = git_dir / "some" / "nested" / "path"
+    subdir.mkdir(parents=True)
+
+    result = find_git_worktree_root(subdir)
+    assert result == git_dir

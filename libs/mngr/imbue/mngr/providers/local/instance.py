@@ -1,0 +1,386 @@
+import json
+import os
+from pathlib import Path
+from typing import Final
+from typing import Mapping
+from typing import Sequence
+
+import psutil
+from loguru import logger
+from pyinfra.api import Host as PyinfraHost
+from pyinfra.api import State
+from pyinfra.api.inventory import Inventory
+
+from imbue.mngr.errors import HostNotFoundError
+from imbue.mngr.errors import LocalHostNotDestroyableError
+from imbue.mngr.errors import LocalHostNotStoppableError
+from imbue.mngr.errors import SnapshotsNotSupportedError
+from imbue.mngr.hosts.host import Host
+from imbue.mngr.interfaces.data_types import CpuResources
+from imbue.mngr.interfaces.data_types import HostResources
+from imbue.mngr.interfaces.data_types import PyinfraConnector
+from imbue.mngr.interfaces.data_types import SnapshotInfo
+from imbue.mngr.interfaces.data_types import VolumeInfo
+from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import ImageReference
+from imbue.mngr.primitives import SnapshotId
+from imbue.mngr.primitives import SnapshotName
+from imbue.mngr.primitives import VolumeId
+from imbue.mngr.providers.base_provider import BaseProviderInstance
+
+LOCAL_PROVIDER_DATA_DIR: Final[str] = "providers/local"
+HOST_ID_FILENAME: Final[str] = "host_id"
+TAGS_FILENAME: Final[str] = "labels.json"
+
+
+class LocalProviderInstance(BaseProviderInstance):
+    """Provider instance for managing the local computer as a host.
+
+    The local provider represents your local machine as a host. It has special
+    semantics: the host cannot be stopped or destroyed, and snapshots are not
+    supported. The host ID is persistent (generated once and saved to disk).
+    """
+
+    @property
+    def supports_snapshots(self) -> bool:
+        return False
+
+    @property
+    def supports_volumes(self) -> bool:
+        return False
+
+    @property
+    def supports_mutable_tags(self) -> bool:
+        return True
+
+    @property
+    def _provider_data_dir(self) -> Path:
+        """Get the provider data directory path."""
+        base_dir = Path(os.path.expanduser(self.host_dir))
+        return base_dir / LOCAL_PROVIDER_DATA_DIR
+
+    def _ensure_provider_data_dir(self) -> None:
+        """Ensure the provider data directory exists."""
+        self._provider_data_dir.mkdir(parents=True, exist_ok=True)
+
+    def _get_or_create_host_id(self) -> HostId:
+        """Get the persistent host ID, creating it if it doesn't exist."""
+        self._ensure_provider_data_dir()
+        host_id_path = self._provider_data_dir / HOST_ID_FILENAME
+
+        if host_id_path.exists():
+            host_id = HostId(host_id_path.read_text().strip())
+            logger.trace("Loaded existing local host id={}", host_id)
+            return host_id
+
+        new_host_id = HostId.generate()
+        host_id_path.write_text(new_host_id)
+        logger.debug("Generated new local host id={}", new_host_id)
+        return new_host_id
+
+    def _get_tags_path(self) -> Path:
+        """Get the path to the tags file."""
+        return self._provider_data_dir / TAGS_FILENAME
+
+    def _load_tags(self) -> dict[str, str]:
+        """Load tags from the tags file."""
+        tags_path = self._get_tags_path()
+        if not tags_path.exists():
+            return {}
+
+        content = tags_path.read_text()
+        if not content.strip():
+            return {}
+
+        data = json.loads(content)
+        return {item["key"]: item["value"] for item in data}
+
+    def _save_tags(self, tags: Mapping[str, str]) -> None:
+        """Save tags to the tags file."""
+        self._ensure_provider_data_dir()
+        tags_path = self._get_tags_path()
+        data = [{"key": key, "value": value} for key, value in tags.items()]
+        tags_path.write_text(json.dumps(data, indent=2))
+
+    def _create_local_pyinfra_host(self) -> PyinfraHost:
+        """Create a pyinfra host for local execution.
+
+        When the host name starts with '@', pyinfra automatically uses the
+        LocalConnector, which executes commands locally without SSH.
+        The host must be initialized with a State for connection to work.
+        """
+        names_data = (["@local"], {})
+        inventory = Inventory(names_data)
+        state = State(inventory=inventory)
+        pyinfra_host = inventory.get_host("@local")
+        pyinfra_host.init(state)
+        return pyinfra_host
+
+    def _create_host(self, name: HostName, tags: Mapping[str, str] | None = None) -> Host:
+        """Create a Host object for the local machine."""
+        host_id = self._get_or_create_host_id()
+        pyinfra_host = self._create_local_pyinfra_host()
+        connector = PyinfraConnector(pyinfra_host)
+
+        if tags is not None:
+            self._save_tags(tags)
+
+        return Host(
+            id=host_id,
+            connector=connector,
+            provider_instance=self,
+            mngr_ctx=self.mngr_ctx,
+        )
+
+    # =========================================================================
+    # Core Lifecycle Methods
+    # =========================================================================
+
+    def create_host(
+        self,
+        name: HostName,
+        image: ImageReference | None = None,
+        tags: Mapping[str, str] | None = None,
+        build_args: Sequence[str] | None = None,
+        start_args: Sequence[str] | None = None,
+    ) -> Host:
+        """Create (or return) the local host.
+
+        For the local provider, this always returns the same host representing
+        the local computer. The name and image parameters are ignored since
+        the local host is always the same machine.
+        """
+        logger.debug("Creating local host (provider={})", self.name)
+        host = self._create_host(name, tags)
+        logger.trace("Local host created: id={}", host.id)
+        return host
+
+    def stop_host(
+        self,
+        host: HostInterface | HostId,
+        create_snapshot: bool = True,
+        timeout_seconds: float = 60.0,
+    ) -> None:
+        """Stop the host.
+
+        Always raises LocalHostNotStoppableError because the local computer
+        cannot be stopped by mngr.
+        """
+        raise LocalHostNotStoppableError()
+
+    def start_host(
+        self,
+        host: HostInterface | HostId,
+        snapshot_id: SnapshotId | None = None,
+    ) -> Host:
+        """Start the host.
+
+        For the local provider, this simply returns the local host since it
+        is always running.
+        """
+        return self._create_host(HostName("local"))
+
+    def destroy_host(
+        self,
+        host: HostInterface | HostId,
+        delete_snapshots: bool = True,
+    ) -> None:
+        """Destroy the host.
+
+        Always raises LocalHostNotDestroyableError because the local computer
+        cannot be destroyed by mngr.
+        """
+        raise LocalHostNotDestroyableError()
+
+    # =========================================================================
+    # Discovery Methods
+    # =========================================================================
+
+    def get_host(
+        self,
+        host: HostId | HostName,
+    ) -> Host:
+        """Get the local host by ID or name.
+
+        For the local provider, this always returns the same host if the ID
+        matches, or raises HostNotFoundError if it doesn't match.
+        """
+        logger.trace("Getting local host (ref={})", host)
+        host_id = self._get_or_create_host_id()
+
+        if isinstance(host, HostId):
+            if host != host_id:
+                logger.trace("Host id={} not found (local host id={})", host, host_id)
+                raise HostNotFoundError(host)
+        # For HostName, we accept "local" or any name since there's only one host
+
+        return self._create_host(HostName("local"))
+
+    def list_hosts(
+        self,
+        include_destroyed: bool = False,
+    ) -> list[HostInterface]:
+        """List all hosts managed by this provider.
+
+        For the local provider, this always returns a single-element list
+        containing the local host.
+        """
+        logger.trace("Listing hosts for local provider {}", self.name)
+        return [self._create_host(HostName("local"))]
+
+    # =========================================================================
+    # Snapshot Methods
+    # =========================================================================
+
+    def create_snapshot(
+        self,
+        host: HostInterface | HostId,
+        name: SnapshotName | None = None,
+    ) -> SnapshotId:
+        """Create a snapshot.
+
+        Always raises SnapshotsNotSupportedError because the local provider
+        does not support snapshots.
+        """
+        raise SnapshotsNotSupportedError(self.name)
+
+    def list_snapshots(
+        self,
+        host: HostInterface | HostId,
+    ) -> list[SnapshotInfo]:
+        """List snapshots for a host.
+
+        Always returns an empty list because the local provider does not
+        support snapshots.
+        """
+        return []
+
+    def delete_snapshot(
+        self,
+        host: HostInterface | HostId,
+        snapshot_id: SnapshotId,
+    ) -> None:
+        """Delete a snapshot.
+
+        Always raises SnapshotsNotSupportedError because the local provider
+        does not support snapshots.
+        """
+        raise SnapshotsNotSupportedError(self.name)
+
+    # =========================================================================
+    # Volume Methods
+    # =========================================================================
+
+    def list_volumes(self) -> list[VolumeInfo]:
+        """List all volumes managed by this provider.
+
+        Always returns empty list because the local provider does not support volumes.
+        """
+        return []
+
+    def delete_volume(self, volume_id: VolumeId) -> None:
+        """Delete a volume.
+
+        Always raises NotImplementedError because the local provider does not support volumes.
+        """
+        raise NotImplementedError("Local provider does not support volumes")
+
+    # =========================================================================
+    # Host Mutation Methods
+    # =========================================================================
+
+    def get_host_tags(
+        self,
+        host: HostInterface | HostId,
+    ) -> dict[str, str]:
+        """Get tags for the local host."""
+        return self._load_tags()
+
+    def set_host_tags(
+        self,
+        host: HostInterface | HostId,
+        tags: Mapping[str, str],
+    ) -> None:
+        """Set tags for the local host."""
+        logger.trace("Setting {} tag(s) on local host", len(tags))
+        self._save_tags(tags)
+
+    def add_tags_to_host(
+        self,
+        host: HostInterface | HostId,
+        tags: Mapping[str, str],
+    ) -> None:
+        """Add tags to the local host."""
+        logger.trace("Adding {} tag(s) to local host", len(tags))
+        existing_tags = self._load_tags()
+        existing_tags.update(tags)
+        self._save_tags(existing_tags)
+
+    def remove_tags_from_host(
+        self,
+        host: HostInterface | HostId,
+        keys: Sequence[str],
+    ) -> None:
+        """Remove tags by key from the local host."""
+        logger.trace("Removing {} tag(s) from local host", len(keys))
+        existing_tags = self._load_tags()
+        keys_to_remove = set(keys)
+        filtered_tags = {k: v for k, v in existing_tags.items() if k not in keys_to_remove}
+        self._save_tags(filtered_tags)
+
+    def rename_host(
+        self,
+        host: HostInterface | HostId,
+        name: HostName,
+    ) -> Host:
+        """Rename the local host.
+
+        For the local provider, this is a no-op since the host name is always
+        effectively "local". Returns the host unchanged.
+        """
+        return self._create_host(name)
+
+    # =========================================================================
+    # Connector Method
+    # =========================================================================
+
+    def get_connector(
+        self,
+        host: HostInterface | HostId,
+    ) -> PyinfraHost:
+        """Get the pyinfra connector for the local host."""
+        return self._create_local_pyinfra_host()
+
+    # =========================================================================
+    # Resource Methods (used by Host)
+    # =========================================================================
+
+    def get_host_resources(self, host: HostInterface) -> HostResources:
+        """Get resource information for the local host.
+
+        Uses psutil for cross-platform compatibility when available.
+        """
+        # Get CPU count and frequency
+        cpu_count = psutil.cpu_count(logical=True) or 1
+        cpu_freq = psutil.cpu_freq() if hasattr(psutil, "cpu_freq") else None
+        cpu_freq_ghz = cpu_freq.current / 1000 if cpu_freq else None
+
+        # Get memory in GB
+        memory = psutil.virtual_memory()
+        memory_gb = memory.total / (1024**3)
+
+        # Get disk space in GB (for root partition)
+        try:
+            disk = psutil.disk_usage("/")
+            disk_gb = disk.total / (1024**3)
+        except OSError:
+            disk_gb = None
+
+        return HostResources(
+            cpu=CpuResources(count=cpu_count, frequency_ghz=cpu_freq_ghz),
+            memory_gb=memory_gb,
+            disk_gb=disk_gb,
+            gpu=None,
+        )

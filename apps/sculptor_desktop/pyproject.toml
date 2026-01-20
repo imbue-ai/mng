@@ -1,0 +1,21 @@
+[project]
+name = "sculptor-desktop"
+version = "0.1.0"
+description = "Desktop CLI for managing AI coding agents"
+requires-python = ">=3.11"
+dependencies = [
+    "mngr",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+mngr = { workspace = true }
+
+[tool.pyright]
+venvPath = "../.."
+venv = ".venv"
+pythonVersion = "3.11"
+strict = ["**/*.py"]

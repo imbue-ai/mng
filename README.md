@@ -1,2 +1,6 @@
-# mngr
-CLI for managing agents
+# Imube
+
+This is a monorepo that contains all of our projects, including:
+
+- [mngr](./libs/mngr/README.md): a CLI for managing AI coding agents across different hosts (local, Docker, Modal)
+- [imbue_common](./libs/imbue_common/README.md): core libraries that are shared across all of our projects

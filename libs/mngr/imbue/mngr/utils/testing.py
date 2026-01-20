@@ -1,0 +1,91 @@
+import subprocess
+import time
+from collections.abc import Callable
+from collections.abc import Generator
+from contextlib import contextmanager
+from pathlib import Path
+
+import pluggy
+
+from imbue.mngr.config.data_types import MngrConfig
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.local.instance import LocalProviderInstance
+
+
+def cleanup_tmux_session(session_name: str) -> None:
+    """Clean up a tmux session if it exists."""
+    subprocess.run(
+        ["tmux", "kill-session", "-t", session_name],
+        capture_output=True,
+    )
+
+
+@contextmanager
+def tmux_session_cleanup(session_name: str) -> Generator[str, None, None]:
+    """Context manager that cleans up a tmux session on exit."""
+    try:
+        yield session_name
+    finally:
+        cleanup_tmux_session(session_name)
+
+
+def capture_tmux_pane_contents(session_name: str) -> str:
+    """Capture the contents of a tmux session's pane and return as a string."""
+    result = subprocess.run(
+        ["tmux", "capture-pane", "-t", session_name, "-p"],
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout
+
+
+def tmux_session_exists(session_name: str) -> bool:
+    """Check if a tmux session exists."""
+    result = subprocess.run(
+        ["tmux", "has-session", "-t", session_name],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def wait_for(
+    condition: Callable[[], bool],
+    timeout: float = 5.0,
+    poll_interval: float = 0.1,
+    error_message: str = "Condition not met within timeout",
+) -> None:
+    """Wait for a condition to become true, polling at regular intervals.
+
+    Raises TimeoutError if the condition is not met within the timeout period.
+    """
+    start_time = time.time()
+    elapsed_time = 0.0
+    while elapsed_time < timeout:
+        if condition():
+            return
+        time.sleep(poll_interval)
+        elapsed_time = time.time() - start_time
+    raise TimeoutError(error_message)
+
+
+def make_local_provider(
+    host_dir: Path,
+    config: MngrConfig,
+    name: str = "local",
+) -> LocalProviderInstance:
+    """Create a LocalProviderInstance with the given host_dir and config."""
+    pm = pluggy.PluginManager("mngr")
+    mngr_ctx = MngrContext(config=config, pm=pm)
+    return LocalProviderInstance(
+        name=ProviderInstanceName(name),
+        host_dir=host_dir,
+        mngr_ctx=mngr_ctx,
+    )
+
+
+def make_mngr_ctx(default_host_dir: Path, prefix: str) -> MngrContext:
+    """Create a MngrContext with the given default_host_dir, prefix, and a basic plugin manager."""
+    config = MngrConfig(default_host_dir=default_host_dir, prefix=prefix)
+    pm = pluggy.PluginManager("mngr")
+    return MngrContext(config=config, pm=pm)

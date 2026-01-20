@@ -1,0 +1,89 @@
+"""Unit tests for provider registry and configuration."""
+
+import pytest
+
+from imbue.mngr.api.providers import get_all_provider_instances
+from imbue.mngr.api.providers import get_provider_instance
+from imbue.mngr.config.data_types import MngrConfig
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.provider_registry import LocalProviderConfig
+from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
+from imbue.mngr.primitives import ProviderBackendName
+from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.providers.registry import UnknownBackendError
+from imbue.mngr.providers.registry import get_backend
+from imbue.mngr.providers.registry import list_backends
+
+
+def test_local_backend_is_registered() -> None:
+    """Test that the local backend is automatically registered."""
+    backends = list_backends()
+    assert "local" in backends
+
+
+def test_get_local_backend() -> None:
+    """Test getting the local backend."""
+    backend_class = get_backend("local")
+    assert backend_class.get_name() == LOCAL_PROVIDER_NAME
+
+
+def test_get_unknown_backend_raises() -> None:
+    """Test that requesting an unknown backend raises an error."""
+    with pytest.raises(UnknownBackendError) as exc_info:
+        get_backend("nonexistent")
+    assert "nonexistent" in str(exc_info.value)
+
+
+def test_get_local_provider_instance(temp_mngr_ctx: MngrContext) -> None:
+    """Test getting a local provider instance."""
+    provider = get_provider_instance(LOCAL_PROVIDER_NAME, temp_mngr_ctx)
+    assert isinstance(provider, LocalProviderInstance)
+    assert provider.name == LOCAL_PROVIDER_NAME
+
+
+def test_get_configured_provider_instance(temp_mngr_ctx: MngrContext, mngr_test_prefix: str) -> None:
+    """Test getting a configured provider instance."""
+    custom_name = ProviderInstanceName("my-local")
+    config = MngrConfig(
+        default_host_dir=temp_mngr_ctx.config.default_host_dir,
+        prefix=mngr_test_prefix,
+        providers={
+            custom_name: LocalProviderConfig(
+                backend=ProviderBackendName("local"),
+            ),
+        },
+    )
+    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm)
+    provider = get_provider_instance(custom_name, mngr_ctx)
+    assert isinstance(provider, LocalProviderInstance)
+    assert provider.name == custom_name
+
+
+def test_get_all_provider_instances_with_configured_providers(
+    temp_mngr_ctx: MngrContext, mngr_test_prefix: str
+) -> None:
+    """Test get_all_provider_instances includes configured providers."""
+    custom_name = ProviderInstanceName("my-custom-local")
+    config = MngrConfig(
+        default_host_dir=temp_mngr_ctx.config.default_host_dir,
+        prefix=mngr_test_prefix,
+        providers={
+            custom_name: LocalProviderConfig(
+                backend=ProviderBackendName("local"),
+            ),
+        },
+    )
+    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm)
+    providers = get_all_provider_instances(mngr_ctx)
+
+    provider_names = [p.name for p in providers]
+    assert custom_name in provider_names
+
+
+def test_get_all_provider_instances_includes_default_backends(temp_mngr_ctx: MngrContext) -> None:
+    """Test get_all_provider_instances includes default backends."""
+    providers = get_all_provider_instances(temp_mngr_ctx)
+
+    provider_names = [str(p.name) for p in providers]
+    assert "local" in provider_names

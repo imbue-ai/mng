@@ -1,0 +1,161 @@
+[project]
+name = "imbue"
+version = "0.1.0"
+description = "Monorepo for Imbue projects"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pytest-xdist>=3.8.0",
+    "ty>=0.0.8",
+    "click>=8.0.0",
+]
+
+[tool.uv.workspace]
+members = ["libs/*", "apps/*"]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+    "ruff~=0.12.8",
+    "pytest>=7.0",
+    "pytest-cov>=7.0.0",
+    "pytest-timeout>=2.3.0",
+    "pytest-split>=0.9.0",
+    # really just for debugging slow tests
+    "pytest-profiling",
+    "line-profiler",
+    "import-linter>=2.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "apps/*",
+  "libs/*"
+]
+testpaths = [
+  "apps/*",
+  "libs/*",
+]
+addopts = [
+  "-n 4",
+  "--cov=imbue.mngr",
+  "--cov=imbue.imbue_common",
+  "--cov=imbue.mngr_opencode",
+  "--cov-report=term-missing",
+  "--cov-report=html",
+  "--cov-report=xml",
+  "--cov-fail-under=80",
+  "--durations=20",
+  "--durations-min=1.0",
+  "--timeout=5",
+  "--timeout-method=thread",
+  "--ignore-glob=*/tests",
+  # to hopefully see why a worker crashes, rather than just trying to re-run it
+  "--max-worker-restart=0",
+  # skip modal tests by default (they require network access)
+  "-m not modal",
+]
+markers = [
+  "modal: marks tests as requiring Modal credentials and network access",
+]
+
+[tool.ruff]
+line-length = 119
+exclude = [
+    "**/__snapshots__/**",
+    "scripts/style_guide.py",
+    "frpc_test",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "B",
+#    "T",
+#    "SIM",
+]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint.isort]
+force-single-line = true
+case-sensitive = true
+order-by-type = false
+known-first-party = [
+    "imbue",
+    "imbue_common",
+    "mngr",
+    "sculptor_desktop",
+]
+
+[tool.inline-snapshot]
+default-flags=["report"]
+default-flags-tui=["report"]
+default-flags-ide=["report"]
+format-command="uv run ruff format --force-exclude --config pyproject.toml --stdin-filename {filename}"
+
+[tool.ty.src]
+exclude = ["scripts/style_guide.py", "contrib/"]
+
+[tool.coverage.run]
+source = ["imbue"]
+parallel = true
+concurrency = ["multiprocessing"]
+omit = [
+    "*_test.py",
+    "test_*.py",
+    "*/tests/*",
+    "*/conftest.py",
+    "libs/imbue_common/imbue/imbue_common/ratchet_testing/ratchets.py",
+    # Modal provider requires network access for testing
+    "libs/mngr/imbue/mngr/providers/modal/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+    "^\\s*\\.\\.\\.$",  # Matches lines containing only "..."
+]
+skip_empty = true
+precision = 2
+sort = "Cover"
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.importlinter]
+root_package = "imbue"
+
+[[tool.importlinter.contracts]]
+name = "mngr layers contract"
+type = "layers"
+layers = [
+    "imbue.mngr.main",
+    "imbue.mngr.cli",
+    "imbue.mngr.api",
+    "imbue.mngr.agents",
+    "imbue.mngr.providers",
+    "imbue.mngr.hosts",
+    "imbue.mngr.interfaces",
+    "imbue.mngr.config",
+    "imbue.mngr.utils",
+    "imbue.mngr.errors",
+    "imbue.mngr.primitives",
+]
+ignore_imports = [
+    "imbue.mngr.hosts.test_host -> imbue.mngr.providers.local.instance",
+    "imbue.mngr.cli.test_create -> imbue.mngr.main",
+    "imbue.mngr.utils.logging_test -> imbue.mngr.config.data_types",
+    "imbue.mngr.utils.testing -> imbue.mngr.providers.local.instance",
+    "imbue.mngr.utils.testing -> imbue.mngr.config.data_types",
+]

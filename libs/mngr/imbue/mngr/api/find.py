@@ -1,0 +1,294 @@
+from pathlib import Path
+
+import deal
+from loguru import logger
+from pydantic import Field
+
+from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.mngr.api.providers import get_all_provider_instances
+from imbue.mngr.api.providers import get_provider_instance
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import UserInputError
+from imbue.mngr.hosts.host import HostLocation
+from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentReference
+from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostReference
+from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
+from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.utils.logging import log_call
+
+
+class ParsedSourceLocation(FrozenModel):
+    """Parsed components of a source location string."""
+
+    agent: str | None = Field(description="Agent ID or name")
+    host: str | None = Field(description="Host ID or name")
+    path: str | None = Field(description="File path")
+
+
+@deal.has()
+def parse_source_string(
+    source: str | None,
+    source_agent: str | None = None,
+    source_host: str | None = None,
+    source_path: str | None = None,
+) -> ParsedSourceLocation:
+    """Parse source location string into components.
+
+    source format: [AGENT | AGENT.HOST[.PROVIDER] | AGENT.HOST[.PROVIDER]:PATH | HOST[.PROVIDER]:PATH | PATH]
+
+    Everything after the first ':' is treated as the path (to handle colons in paths).
+    HOST can optionally include .PROVIDER suffix (e.g., myhost.docker).
+
+    Raises UserInputError if both source and individual parameters are specified.
+    """
+    if source is not None:
+        if source_agent is not None or source_path is not None or source_host is not None:
+            raise UserInputError("Specify either --source or the individual source parameters, not both.")
+
+        parsed_agent: str | None = None
+        parsed_host: str | None = None
+        parsed_path: str | None = None
+
+        if ":" in source:
+            prefix, path_part = source.split(":", 1)
+            parsed_path = path_part
+            if "." in prefix:
+                agent_part, host_part = prefix.split(".", 1)
+                parsed_agent = agent_part
+                parsed_host = host_part
+            elif prefix:
+                parsed_host = prefix
+            else:
+                # Empty prefix before colon (e.g., ":path") - no agent or host
+                pass
+        else:
+            if source.startswith(("/", "./", "~/", "../")):
+                parsed_path = source
+            elif "." in source:
+                agent_part, host_part = source.split(".", 1)
+                parsed_agent = agent_part
+                parsed_host = host_part
+            else:
+                parsed_agent = source
+
+        source_agent = parsed_agent
+        source_host = parsed_host
+        source_path = parsed_path
+
+    return ParsedSourceLocation(
+        agent=source_agent,
+        host=source_host,
+        path=source_path,
+    )
+
+
+@deal.has()
+def determine_resolved_path(
+    parsed_path: str | None,
+    resolved_agent: AgentReference | None,
+    agent_work_dir_if_available: Path | None,
+) -> Path:
+    """Determine the final path from parsed components.
+
+    Pure function that determines which path to use based on what's available.
+    Raises UserInputError if path cannot be determined.
+    """
+    if parsed_path is not None:
+        return Path(parsed_path)
+    if resolved_agent is not None and agent_work_dir_if_available is not None:
+        return agent_work_dir_if_available
+    if resolved_agent is not None:
+        raise UserInputError(f"Could not find agent {resolved_agent.agent_id} on host")
+    raise UserInputError("Must specify a path if no agent is specified")
+
+
+@deal.has()
+def resolve_host_reference(
+    host_identifier: str | None,
+    all_hosts: list[HostReference],
+) -> HostReference | None:
+    """Resolve a host identifier (ID or name) to a HostReference.
+
+    Returns None if host_identifier is None.
+    Raises UserInputError if host cannot be found or multiple hosts match the name.
+    """
+    if host_identifier is None:
+        return None
+
+    try:
+        host_id = HostId(host_identifier)
+        resolved_host = get_host_from_list_by_id(host_id, all_hosts)
+    except ValueError:
+        host_name = HostName(host_identifier)
+        resolved_host = get_unique_host_from_list_by_name(host_name, all_hosts)
+
+    if resolved_host is None:
+        raise UserInputError(f"Could not find host with ID or name: {host_identifier}")
+
+    return resolved_host
+
+
+@deal.has()
+def resolve_agent_reference(
+    agent_identifier: str | None,
+    resolved_host: HostReference | None,
+    agents_by_host: dict[HostReference, list[AgentReference]],
+) -> tuple[HostReference, AgentReference] | None:
+    """Resolve an agent identifier (ID or name) to host and agent references.
+
+    Returns None if agent_identifier is None.
+    Raises UserInputError if agent cannot be found or multiple agents match.
+    """
+    if agent_identifier is None:
+        return None
+
+    matching_agents: list[tuple[HostReference, AgentReference]] = []
+
+    for host_ref, agent_refs in agents_by_host.items():
+        if resolved_host is not None and host_ref.host_id != resolved_host.host_id:
+            continue
+
+        for agent_ref in agent_refs:
+            try:
+                agent_id = AgentId(agent_identifier)
+                if agent_ref.agent_id == agent_id:
+                    matching_agents.append((host_ref, agent_ref))
+            except ValueError:
+                agent_name = AgentName(agent_identifier)
+                if agent_ref.agent_name == agent_name:
+                    matching_agents.append((host_ref, agent_ref))
+
+    if len(matching_agents) == 0:
+        raise UserInputError(f"Could not find agent with ID or name: {agent_identifier}")
+    elif len(matching_agents) > 1:
+        raise UserInputError(f"Multiple agents found with ID or name: {agent_identifier}")
+    else:
+        return matching_agents[0]
+
+
+@log_call
+def resolve_source_location(
+    source: str | None,
+    source_agent: str | None,
+    source_host: str | None,
+    source_path: str | None,
+    agents_by_host: dict[HostReference, list[AgentReference]],
+    mngr_ctx: MngrContext,
+) -> HostLocation:
+    """Parse and resolve source location to a concrete host and path.
+
+    source format: [AGENT | AGENT.HOST[.PROVIDER] | AGENT.HOST[.PROVIDER]:PATH | HOST[.PROVIDER]:PATH | PATH]
+
+    Everything after the first ':' is treated as the path (to handle colons in paths).
+    HOST can optionally include .PROVIDER suffix (e.g., myhost.docker).
+
+    This is useful because it allows the user to specify the source agent / location in a maximally flexible way.
+    This is important for making the CLI easy to use in a variety of scenarios.
+    """
+    # Parse the source string into components
+    logger.debug("Parsing source location")
+    parsed = parse_source_string(source, source_agent, source_host, source_path)
+    logger.trace("Parsed source: agent={} host={} path={}", parsed.agent, parsed.host, parsed.path)
+
+    # Resolve host and agent references from the parsed components
+    all_hosts = list(agents_by_host.keys())
+    logger.debug("Resolving host reference")
+    resolved_host = resolve_host_reference(parsed.host, all_hosts)
+    logger.debug("Resolving agent reference")
+    agent_result = resolve_agent_reference(parsed.agent, resolved_host, agents_by_host)
+
+    # Extract resolved agent if found
+    resolved_agent: AgentReference | None = None
+    if agent_result is not None:
+        resolved_host, resolved_agent = agent_result
+
+    # Get the host interface from the provider
+    logger.debug("Getting host interface from provider")
+    if resolved_host is None:
+        provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), mngr_ctx)
+        host_interface = provider.get_host(HostName("local"))
+    else:
+        provider = get_provider_instance(resolved_host.provider_name, mngr_ctx)
+        host_interface = provider.get_host(resolved_host.host_id)
+    logger.trace("Resolved to host id={}", host_interface.id)
+
+    # Resolve the final path
+    agent_work_dir: Path | None = None
+    if resolved_agent is not None:
+        for agent in host_interface.get_agents():
+            if agent.id == resolved_agent.agent_id:
+                agent_work_dir = agent.work_dir
+                break
+
+    resolved_path = determine_resolved_path(
+        parsed_path=parsed.path,
+        resolved_agent=resolved_agent,
+        agent_work_dir_if_available=agent_work_dir,
+    )
+
+    return HostLocation(
+        host=host_interface,
+        path=resolved_path,
+    )
+
+
+@deal.has()
+def get_host_from_list_by_id(host_id: HostId, all_hosts: list[HostReference]) -> HostReference | None:
+    for host in all_hosts:
+        if host.host_id == host_id:
+            return host
+    return None
+
+
+@deal.has()
+def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostReference]) -> HostReference | None:
+    matching_hosts = [host for host in all_hosts if host.host_name == host_name]
+    if len(matching_hosts) == 1:
+        return matching_hosts[0]
+    elif len(matching_hosts) > 1:
+        raise UserInputError(f"Multiple hosts found with name: {host_name}")
+    else:
+        return None
+
+
+@log_call
+def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference, list[AgentReference]]:
+    """Load all agents from all providers, grouped by their host.
+
+    Loops through all providers, gets all hosts from each provider, and then gets all agents for each host.
+    """
+    agents_by_host: dict[HostReference, list[AgentReference]] = {}
+
+    logger.debug("Loading all agents from all providers")
+    providers = get_all_provider_instances(mngr_ctx)
+    logger.trace("Found {} provider instances", len(providers))
+
+    for provider in providers:
+        logger.trace("Loading hosts from provider {}", provider.name)
+        hosts = provider.list_hosts(include_destroyed=False)
+
+        for host in hosts:
+            host_ref = HostReference(
+                host_id=host.id,
+                host_name=HostName(host.connector.name),
+                provider_name=provider.name,
+            )
+
+            agents = host.get_agents()
+            agent_refs = [
+                AgentReference(
+                    host_id=host.id,
+                    agent_id=agent.id,
+                    agent_name=agent.name,
+                    provider_name=provider.name,
+                )
+                for agent in agents
+            ]
+
+            agents_by_host[host_ref] = agent_refs
+
+    return agents_by_host

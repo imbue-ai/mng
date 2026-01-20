@@ -1,0 +1,481 @@
+import os
+import sys
+import time
+from typing import Any
+
+import click
+import deal
+from click_option_group import optgroup
+from loguru import logger
+from pydantic import ConfigDict
+from urwid.display.raw import Screen
+from urwid.event_loop.abstract_loop import ExitMainLoop
+from urwid.event_loop.main_loop import MainLoop
+from urwid.widget.attr_map import AttrMap
+from urwid.widget.divider import Divider
+from urwid.widget.frame import Frame
+from urwid.widget.listbox import ListBox
+from urwid.widget.listbox import SimpleFocusListWalker
+from urwid.widget.pile import Pile
+from urwid.widget.text import Text
+from urwid.widget.wimp import SelectableIcon
+
+from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mngr.api.find import load_all_agents_grouped_by_host
+from imbue.mngr.api.list import AgentInfo
+from imbue.mngr.api.list import list_agents
+from imbue.mngr.api.providers import get_provider_instance
+from imbue.mngr.cli.common_opts import CommonCliOptions
+from imbue.mngr.cli.common_opts import add_common_options
+from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import AgentNotFoundError
+from imbue.mngr.errors import UserInputError
+from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentReference
+from imbue.mngr.primitives import HostReference
+
+
+class ConnectCliOptions(CommonCliOptions):
+    """Options passed from the CLI to the connect command.
+
+    Inherits common options (output_format, quiet, verbose, etc.) from CommonCliOptions.
+    """
+
+    agent: str | None
+    start: bool
+    reconnect: bool
+    message: str | None
+    message_file: str | None
+    message_delay: float
+    retry: int
+    retry_delay: str
+    attach_command: str | None
+
+
+@deal.has()
+def filter_agents(
+    agents: list[AgentInfo],
+    hide_stopped: bool,
+    search_query: str,
+) -> list[AgentInfo]:
+    """Filter agents by stopped state and search query."""
+    result = agents
+
+    if hide_stopped:
+        result = [a for a in result if a.lifecycle_state != AgentLifecycleState.STOPPED]
+
+    if search_query:
+        query_lower = search_query.lower()
+        result = [a for a in result if query_lower in str(a.name).lower()]
+
+    return result
+
+
+def build_status_text(
+    search_query: str,
+    hide_stopped: bool,
+) -> str:
+    """Build the status bar text for the agent selector."""
+    parts = ["Status: Ready"]
+
+    if search_query:
+        parts.append(f"Search: {search_query}")
+    else:
+        parts.append("Type to search")
+
+    if hide_stopped:
+        parts.append("Filter: Hiding stopped")
+    else:
+        parts.append("Filter: All agents")
+
+    return " | ".join(parts)
+
+
+def handle_search_key(
+    key: str,
+    is_printable: bool,
+    character: str | None,
+    current_query: str,
+) -> tuple[str, bool]:
+    """Handle a key press for typeahead search. Returns (new_query, should_refresh)."""
+    if key == "backspace":
+        if current_query:
+            return current_query[:-1], True
+        else:
+            return current_query, False
+    elif is_printable and character:
+        return current_query + character, True
+    else:
+        return current_query, False
+
+
+def _create_selectable_agent_item(agent: AgentInfo, name_width: int, state_width: int) -> AttrMap:
+    """Create a selectable list item representing an agent as a table row.
+
+    Uses SelectableIcon instead of Text so that ListBox can navigate between items.
+    urwid.Text is not selectable, which prevents ListBox arrow key navigation.
+    """
+    # Pad the name and state to their column widths for proper alignment
+    name_padded = str(agent.name).ljust(name_width)
+    state_padded = agent.lifecycle_state.value.lower().ljust(state_width)
+    host_str = str(agent.host.name)
+
+    # Create a single SelectableIcon with the full formatted row
+    # This ensures the entire row is selectable as one unit
+    display_text = f"{name_padded}  {state_padded}  {host_str}"
+    selectable_item = SelectableIcon(display_text, cursor_position=0)
+
+    return AttrMap(selectable_item, None, focus_map="reversed")
+
+
+class AgentSelectorState(MutableModel):
+    """Mutable state for the agent selector UI."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    agents: list[AgentInfo]
+    filtered_agents: list[AgentInfo] = []
+    list_walker: Any
+    status_text: Any
+    result: AgentInfo | None = None
+    hide_stopped: bool = False
+    search_query: str = ""
+    last_ctrl_c_time: float = 0.0
+    name_width: int = 0
+    state_width: int = 0
+
+
+def _refresh_agent_list(state: AgentSelectorState) -> None:
+    """Refresh the agent list view with current filter settings."""
+    state.filtered_agents = filter_agents(state.agents, state.hide_stopped, state.search_query)
+
+    state.list_walker.clear()
+    for agent in state.filtered_agents:
+        state.list_walker.append(_create_selectable_agent_item(agent, state.name_width, state.state_width))
+
+    if state.list_walker:
+        state.list_walker.set_focus(0)
+
+    state.status_text.set_text(build_status_text(state.search_query, state.hide_stopped))
+
+
+def _handle_selector_input(state: AgentSelectorState, key: str) -> bool:
+    """Handle keyboard input for the agent selector. Returns True if handled, False to pass through."""
+    if key == "ctrl r":
+        state.hide_stopped = not state.hide_stopped
+        _refresh_agent_list(state)
+        return True
+
+    if key == "ctrl c":
+        current_time = time.time()
+        if state.search_query:
+            # First Ctrl-c clears the search query
+            state.search_query = ""
+            state.last_ctrl_c_time = current_time
+            _refresh_agent_list(state)
+            return True
+        elif current_time - state.last_ctrl_c_time < 0.5:
+            # Second Ctrl-c within 500ms exits
+            raise ExitMainLoop()
+        else:
+            # Single Ctrl-c with no query - record time and wait for potential second
+            state.last_ctrl_c_time = current_time
+            return True
+
+    if key == "enter":
+        if state.list_walker and state.filtered_agents:
+            _, focus_index = state.list_walker.get_focus()
+            if focus_index is not None and 0 <= focus_index < len(state.filtered_agents):
+                state.result = state.filtered_agents[focus_index]
+        raise ExitMainLoop()
+
+    # Let arrow keys pass through to the ListBox for navigation
+    if key in ("up", "down", "page up", "page down", "home", "end"):
+        return False
+
+    is_printable = len(key) == 1 and key.isprintable()
+    character = key if is_printable else None
+
+    new_query, should_refresh = handle_search_key(
+        key=key,
+        is_printable=is_printable,
+        character=character,
+        current_query=state.search_query,
+    )
+
+    if should_refresh:
+        state.search_query = new_query
+        _refresh_agent_list(state)
+        return True
+
+    return False
+
+
+class SelectorInputHandler(MutableModel):
+    """Callable input handler for urwid MainLoop."""
+
+    state: AgentSelectorState
+
+    def __call__(self, key: str | tuple[str, int, int, int]) -> bool | None:
+        """Handle keyboard input. Returns True if handled, None to pass through."""
+        if isinstance(key, tuple):
+            return None
+        handled = _handle_selector_input(self.state, key)
+        return True if handled else None
+
+
+def _run_agent_selector(agents: list[AgentInfo]) -> AgentInfo | None:
+    """Run the agent selector UI and return the selected agent, or None if cancelled."""
+    # Calculate column widths based on content
+    name_width = max((len(str(a.name)) for a in agents), default=10)
+    state_width = max((len(a.lifecycle_state.value) for a in agents), default=7)
+
+    # Cap widths at reasonable maximums
+    name_width = min(name_width, 40)
+    state_width = min(state_width, 15)
+
+    list_walker: SimpleFocusListWalker[AttrMap] = SimpleFocusListWalker([])
+    listbox = ListBox(list_walker)
+
+    status_text = Text(build_status_text("", False))
+    status_bar = AttrMap(status_text, "status")
+
+    state = AgentSelectorState(
+        agents=agents,
+        list_walker=list_walker,
+        status_text=status_text,
+        name_width=name_width,
+        state_width=state_width,
+    )
+
+    instructions_text = (
+        "Instructions:\n"
+        "  Type - Search agents by name\n"
+        "  Up/Down - Navigate the list\n"
+        "  Enter - Select an agent\n"
+        "  Backspace - Clear search character\n"
+        "  Ctrl+C - Clear search (twice to quit)\n"
+        "  Ctrl+R - Toggle hiding stopped agents"
+    )
+    instructions = Text(instructions_text)
+
+    # Create table header matching the SelectableIcon format in list items
+    header_text = f"{'NAME'.ljust(name_width)}  {'STATE'.ljust(state_width)}  HOST"
+    header_row = AttrMap(Text(("table_header", header_text)), "table_header")
+
+    _refresh_agent_list(state)
+
+    header = Pile(
+        [
+            AttrMap(Text("Agent Selector", align="center"), "header"),
+            Divider(),
+            instructions,
+            Divider(),
+            header_row,
+            Divider("-"),
+        ]
+    )
+
+    footer = Pile(
+        [
+            Divider(),
+            status_bar,
+        ]
+    )
+
+    frame = Frame(
+        body=listbox,
+        header=header,
+        footer=footer,
+    )
+
+    palette = [
+        ("header", "white", "dark blue"),
+        ("status", "white", "dark blue"),
+        ("reversed", "standout", ""),
+        ("table_header", "bold", ""),
+    ]
+
+    input_handler = SelectorInputHandler(state=state)
+
+    # Create screen and disable Ctrl-c SIGINT mapping so we can handle it as a key
+    screen = Screen()
+    screen.tty_signal_keys(intr="undefined")
+
+    loop = MainLoop(
+        frame,
+        palette=palette,
+        unhandled_input=input_handler,
+        screen=screen,
+    )
+    loop.run()
+
+    return state.result
+
+
+def select_agent_interactively(agents: list[AgentInfo]) -> AgentInfo | None:
+    """Show an interactive UI to select an agent. Returns None if cancelled."""
+    if not agents:
+        return None
+
+    return _run_agent_selector(agents)
+
+
+def _find_agent_by_name_or_id(
+    agent_str: str,
+    agents_by_host: dict[HostReference, list[AgentReference]],
+    mngr_ctx: MngrContext,
+) -> tuple[AgentInterface, HostInterface]:
+    """Find an agent by name or ID. Returns tuple of (agent, host) or raises error."""
+    try:
+        agent_id = AgentId(agent_str)
+        for host_ref, agent_refs in agents_by_host.items():
+            for agent_ref in agent_refs:
+                if agent_ref.agent_id == agent_id:
+                    provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
+                    host = provider.get_host(host_ref.host_id)
+                    for agent in host.get_agents():
+                        if agent.id == agent_id:
+                            return agent, host
+        raise AgentNotFoundError(agent_id)
+    except ValueError:
+        pass
+
+    agent_name = AgentName(agent_str)
+    matching: list[tuple[AgentInterface, HostInterface]] = []
+
+    for host_ref, agent_refs in agents_by_host.items():
+        for agent_ref in agent_refs:
+            if agent_ref.agent_name == agent_name:
+                provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
+                host = provider.get_host(host_ref.host_id)
+                for agent in host.get_agents():
+                    if agent.name == agent_name:
+                        matching.append((agent, host))
+
+    if not matching:
+        raise UserInputError(f"No agent found with name or ID: {agent_str}")
+
+    if len(matching) > 1:
+        raise UserInputError(
+            f"Multiple agents found with name '{agent_str}'. Please use the agent ID instead, or specify the host."
+        )
+
+    return matching[0]
+
+
+def _connect_to_local_agent(
+    agent: AgentInterface,
+    mngr_ctx: MngrContext,
+) -> None:
+    """Connect to a local agent by replacing the current process with tmux attach."""
+    session_name = f"{mngr_ctx.config.prefix}{agent.name}"
+    os.execvp("tmux", ["tmux", "attach", "-t", session_name])
+
+
+@click.command()
+@click.argument("agent", default=None, required=False)
+@optgroup.group("General")
+@optgroup.option("--agent", "agent", help="The agent to connect to (by name or ID)")
+@optgroup.option(
+    "--start/--no-start",
+    default=True,
+    show_default=True,
+    help="Automatically start the agent if stopped",
+)
+@optgroup.group("Options")
+@optgroup.option(
+    "--reconnect/--no-reconnect",
+    default=True,
+    show_default=True,
+    help="Automatically reconnect if dropped",
+)
+@optgroup.option("--message", help="Initial message to send after connecting")
+@optgroup.option("--message-file", type=click.Path(exists=True), help="File containing initial message to send")
+@optgroup.option(
+    "--message-delay",
+    type=float,
+    default=1.0,
+    show_default=True,
+    help="Seconds to wait before sending initial message",
+)
+@optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
+@optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries")
+@optgroup.option("--attach-command", help="Command to run instead of attaching to main session")
+@add_common_options
+@click.pass_context
+def connect(ctx: click.Context, **kwargs: Any) -> None:
+    """Connect to an existing agent via the terminal.
+
+    Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
+    the agent's machine and attaching to the tmux session. Use `mngr open` to
+    open an agent's URLs in a web browser instead.
+
+    If no agent is specified, shows an interactive selector to choose from
+    available agents.
+
+    \b
+    Alias: conn
+    """
+    mngr_ctx, output_opts, opts = setup_command_context(
+        ctx=ctx,
+        command_name="connect",
+        command_class=ConnectCliOptions,
+    )
+    logger.debug("Running connect command")
+
+    if not opts.start:
+        raise NotImplementedError("--no-start is not implemented yet")
+
+    if opts.message is not None:
+        raise NotImplementedError("--message is not implemented yet")
+
+    if opts.message_file is not None:
+        raise NotImplementedError("--message-file is not implemented yet")
+
+    if opts.message_delay != 1.0:
+        raise NotImplementedError("--message-delay with non-default value is not implemented yet")
+
+    if opts.retry != 3:
+        raise NotImplementedError("--retry with non-default value is not implemented yet")
+
+    if opts.retry_delay != "5s":
+        raise NotImplementedError("--retry-delay with non-default value is not implemented yet")
+
+    if opts.attach_command is not None:
+        raise NotImplementedError("--attach-command is not implemented yet")
+
+    if not opts.reconnect:
+        raise NotImplementedError("--no-reconnect is not implemented yet")
+
+    agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
+
+    agent: AgentInterface
+    host: HostInterface
+
+    if opts.agent is not None:
+        agent, host = _find_agent_by_name_or_id(opts.agent, agents_by_host, mngr_ctx)
+    elif not sys.stdin.isatty():
+        raise UserInputError("No agent specified and not running in interactive mode")
+    else:
+        list_result = list_agents(mngr_ctx)
+        if not list_result.agents:
+            raise UserInputError("No agents found")
+
+        selected = select_agent_interactively(list_result.agents)
+        if selected is None:
+            logger.info("No agent selected")
+            return
+
+        agent, host = _find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx)
+
+    if not host.is_local:
+        raise NotImplementedError("Connecting to remote agents is not implemented yet")
+
+    logger.info("Connecting to agent: {}", agent.name)
+    _connect_to_local_agent(agent, mngr_ctx)

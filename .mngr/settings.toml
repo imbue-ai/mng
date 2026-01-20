@@ -1,0 +1,2 @@
+[commands.create]
+add_command = ["reviewer_0=claude --dangerously-skip-permissions"]

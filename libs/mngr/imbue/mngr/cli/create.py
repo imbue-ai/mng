@@ -1,0 +1,1172 @@
+import os
+import sys
+from collections.abc import Callable
+from functools import lru_cache
+from pathlib import Path
+from typing import assert_never
+
+import click
+import deal
+from click_option_group import optgroup
+from loguru import logger
+from pydantic import Field
+
+from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.mngr.api.create import create as api_create
+from imbue.mngr.api.data_types import ConnectionOptions
+from imbue.mngr.api.data_types import CreateAgentResult
+from imbue.mngr.api.data_types import NewHostBuildOptions
+from imbue.mngr.api.data_types import NewHostEnvironmentOptions
+from imbue.mngr.api.data_types import NewHostOptions
+from imbue.mngr.api.data_types import SourceLocation
+from imbue.mngr.api.find import get_host_from_list_by_id
+from imbue.mngr.api.find import get_unique_host_from_list_by_name
+from imbue.mngr.api.find import load_all_agents_grouped_by_host
+from imbue.mngr.api.find import resolve_source_location
+from imbue.mngr.api.providers import get_provider_instance
+from imbue.mngr.cli.common_opts import CommonCliOptions
+from imbue.mngr.cli.common_opts import add_common_options
+from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
+from imbue.mngr.cli.output_helpers import emit_event
+from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.config.data_types import EnvVar
+from imbue.mngr.config.data_types import HookDefinition
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.errors import AgentNotFoundError
+from imbue.mngr.errors import MngrError
+from imbue.mngr.errors import UserInputError
+from imbue.mngr.hosts.host import HostLocation
+from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import AgentEnvironmentOptions
+from imbue.mngr.interfaces.host import AgentGitOptions
+from imbue.mngr.interfaces.host import AgentLifecycleOptions
+from imbue.mngr.interfaces.host import AgentPermissionsOptions
+from imbue.mngr.interfaces.host import AgentProvisioningOptions
+from imbue.mngr.interfaces.host import CreateAgentOptions
+from imbue.mngr.interfaces.host import FileModificationSpec
+from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import NamedCommand
+from imbue.mngr.interfaces.host import SourceDataOptions
+from imbue.mngr.interfaces.host import UploadFileSpec
+from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentNameStyle
+from imbue.mngr.primitives import AgentReference
+from imbue.mngr.primitives import AgentTypeName
+from imbue.mngr.primitives import CommandString
+from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostNameStyle
+from imbue.mngr.primitives import HostReference
+from imbue.mngr.primitives import IdleMode
+from imbue.mngr.primitives import ImageReference
+from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
+from imbue.mngr.primitives import LogLevel
+from imbue.mngr.primitives import OutputFormat
+from imbue.mngr.primitives import Permission
+from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.primitives import SnapshotName
+from imbue.mngr.primitives import WorkDirCopyMode
+from imbue.mngr.utils.git_utils import derive_project_name_from_path
+from imbue.mngr.utils.git_utils import find_git_worktree_root
+from imbue.mngr.utils.git_utils import get_current_git_branch
+from imbue.mngr.utils.name_generator import generate_agent_name
+from imbue.mngr.utils.name_generator import generate_host_name
+
+
+@deal.has()
+def _make_name_style_choices() -> list[str]:
+    """Get lowercase name style choices."""
+    return [s.value.lower() for s in AgentNameStyle]
+
+
+@deal.has()
+def _make_host_name_style_choices() -> list[str]:
+    """Get lowercase host name style choices."""
+    return [s.value.lower() for s in HostNameStyle]
+
+
+@deal.has()
+def _make_log_level_choices() -> list[str]:
+    """Get log level choices."""
+    return [level.value for level in LogLevel]
+
+
+@deal.has()
+def _make_idle_mode_choices() -> list[str]:
+    """Get lowercase idle mode choices."""
+    return [m.value.lower() for m in IdleMode]
+
+
+@deal.has()
+def _make_output_format_choices() -> list[str]:
+    """Get lowercase output format choices."""
+    return [f.value.lower() for f in OutputFormat]
+
+
+class CreateCliOptions(CommonCliOptions):
+    """Options passed from the CLI to the create command.
+
+    This captures all the click parameters so we can pass them as a single object
+    to helper functions instead of passing dozens of individual parameters.
+
+    Inherits common options (output_format, quiet, verbose, etc.) from CommonCliOptions.
+
+    Note that this class VERY INTENTIONALLY DOES NOT use Field() decorators with descriptions, defaults, etc.
+    For that information, see the click.option() and click.argument() decorators on the create() function itself.
+    """
+
+    positional_name: str | None
+    positional_agent_type: str | None
+    agent_args: tuple[str, ...]
+    agent_type: str | None
+    connect: bool
+    await_ready: bool | None
+    copy_work_dir: bool | None
+    ensure_clean: bool
+    snapshot_source: bool | None
+    name: str | None
+    name_style: str
+    agent_command: str | None
+    add_command: tuple[str, ...]
+    user: str | None
+    source: str | None
+    source_agent: str | None
+    source_host: str | None
+    source_path: str | None
+    target: str | None
+    target_host: str | None
+    target_path: str | None
+    in_place: bool
+    copy_source: bool
+    clone: bool
+    worktree: bool
+    include: tuple[str, ...]
+    exclude: tuple[str, ...]
+    include_file: str | None
+    exclude_file: str | None
+    include_git: bool
+    include_unclean: bool | None
+    include_gitignored: bool
+    base_branch: str | None
+    new_branch: str | None
+    new_branch_prefix: str
+    depth: int | None
+    shallow_since: str | None
+    agent_env: tuple[str, ...]
+    agent_env_file: tuple[str, ...]
+    pass_agent_env: tuple[str, ...]
+    host: str | None
+    new_host: str | None
+    host_name: str | None
+    host_name_style: str
+    tag: tuple[str, ...]
+    project: str | None
+    host_env: tuple[str, ...]
+    host_env_file: tuple[str, ...]
+    pass_host_env: tuple[str, ...]
+    snapshot: str | None
+    image: str | None
+    devcontainer: str | None
+    dockerfile: str | None
+    hook: tuple[str, ...]
+    build_arg: tuple[str, ...]
+    build_args: str | None
+    start_arg: tuple[str, ...]
+    start_args: str | None
+    reconnect: bool
+    interactive: bool | None
+    message: str | None
+    message_file: str | None
+    retry: int
+    retry_delay: str
+    attach_command: str | None
+    idle_timeout: int | None
+    idle_mode: str | None
+    activity_sources: str | None
+    start_on_boot: bool | None
+    grant: tuple[str, ...]
+    user_command: tuple[str, ...]
+    sudo_command: tuple[str, ...]
+    upload_file: tuple[str, ...]
+    append_to_file: tuple[str, ...]
+    prepend_to_file: tuple[str, ...]
+    create_directory: tuple[str, ...]
+    message_delay: float
+
+
+@click.command()
+@click.argument("positional_name", default=None, required=False)
+@click.argument("positional_agent_type", default=None, required=False)
+@click.argument("agent_args", nargs=-1, type=click.UNPROCESSED)
+@optgroup.group("Agent Options")
+@optgroup.option("-n", "--name", help="Agent name (alternative to positional argument) [default: auto-generated]")
+@optgroup.option(
+    "--name-style",
+    type=click.Choice(_make_name_style_choices(), case_sensitive=False),
+    default="english",
+    show_default=True,
+    help="Auto-generated name style",
+)
+@optgroup.option("--agent-type", help="Which type of agent to run [default: claude]")
+@optgroup.option("--agent-cmd", "--agent-command", "agent_command", help="Set (or override) the agent command")
+@optgroup.option(
+    "-c",
+    "--add-cmd",
+    "--add-command",
+    "add_command",
+    multiple=True,
+    help='Run extra command in additional window. Use name="command" to set window name',
+)
+@optgroup.option("--user", help="Override which user to run the agent as")
+@optgroup.group("Host Options")
+@optgroup.option("--in", "--new-host", "new_host", help="Create a new host using provider (docker, modal, ...)")
+@optgroup.option("--host", help="Use an existing host (by name or ID) [default: local]")
+# FIXME: you can get yourself in a bit of a screwy situation if you DONT specify --project and you DO use a remote source (which comes from a different project)
+#   currently we have this assumption that your local dir and source are for the same project
+#   we should at least validate that, for remote sources, they end up having the exact same project inferred as locally
+#   and if not, raise an error to require that the user clarify
+@optgroup.option(
+    "--project",
+    help="Project name for the agent [default: derived from git remote origin or folder name]",
+)
+@optgroup.option("--tag", multiple=True, help="Metadata tag KEY=VALUE [repeatable]")
+@optgroup.option("--host-name", help="Name for the new host")
+@optgroup.option(
+    "--host-name-style",
+    type=click.Choice(_make_host_name_style_choices(), case_sensitive=False),
+    default="astronomy",
+    show_default=True,
+    help="Auto-generated host name style",
+)
+@optgroup.group("Behavior")
+@optgroup.option("--connect/--no-connect", default=True, help="Connect to the agent after creation [default: connect]")
+@optgroup.option(
+    "--await-ready/--no-await-ready",
+    "await_ready",
+    default=None,
+    help="Wait until agent is ready before returning [default: no-await-ready if --no-connect]",
+)
+@optgroup.option(
+    "--ensure-clean/--no-ensure-clean", default=True, show_default=True, help="Abort if working tree is dirty"
+)
+@optgroup.option(
+    "--snapshot-source/--no-snapshot-source",
+    "snapshot_source",
+    default=None,
+    help="Snapshot source agent first [default: yes if --source-agent and not local]",
+)
+@optgroup.option(
+    "--copy-work-dir/--no-copy-work-dir",
+    "copy_work_dir",
+    default=None,
+    help="Copy source work_dir immediately [default: copy if --no-connect]",
+)
+@optgroup.group("Agent Work Dir")
+@optgroup.option(
+    "--from",
+    "--source",
+    "source",
+    help="Directory to use as work_dir root [AGENT | AGENT.HOST | AGENT.HOST:PATH | HOST:PATH]. Defaults to current dir if no other source args are given",
+)
+@optgroup.option("--source-agent", "--from-agent", "source_agent", help="Source agent for cloning work_dir")
+@optgroup.option("--source-host", help="Source host")
+@optgroup.option("--source-path", help="Source path")
+@optgroup.option("--target", help="Target [HOST][:PATH]. Defaults to current dir if no other target args are given")
+@optgroup.option("--target-host", "--in-host", "target_host", help="Target host")
+@optgroup.option("--target-path", help="Directory to mount source inside agent host")
+@optgroup.option(
+    "--in-place", "in_place", is_flag=True, help="Run directly in source directory (no copy/clone/worktree)"
+)
+@optgroup.option("--copy", "copy_source", is_flag=True, help="Copy source to isolated directory before running")
+@optgroup.option("--clone", is_flag=True, help="Create a git clone that just shares objects with original repo")
+@optgroup.option(
+    "--worktree", is_flag=True, help="Create a git worktree that shares objects and index with original repo"
+)
+@optgroup.option("--include", multiple=True, help="Include additional files matching glob pattern [repeatable]")
+@optgroup.option("--exclude", multiple=True, help="Exclude files matching glob pattern [repeatable]")
+@optgroup.option("--include-file", type=click.Path(exists=True), help="Read include patterns from file")
+@optgroup.option("--exclude-file", type=click.Path(exists=True), help="Read exclude patterns from file")
+@optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
+@optgroup.option(
+    "--include-unclean/--exclude-unclean",
+    "include_unclean",
+    default=None,
+    help="Include uncommitted files [default: include if --no-ensure-clean]",
+)
+@optgroup.option(
+    "--include-gitignored/--no-include-gitignored",
+    default=False,
+    show_default=True,
+    help="Include gitignored files",
+)
+@optgroup.group("Agent Git Configuration")
+@optgroup.option("--base-branch", help="The starting point for the agent [default: current branch]")
+@optgroup.option(
+    "--new-branch",
+    "new_branch",
+    is_flag=False,
+    flag_value="",
+    default=None,
+    help="Create a fresh branch (named TEXT if provided, otherwise auto-generated) [default: no new branch]",
+)
+@optgroup.option("--no-new-branch", "new_branch", flag_value=None, is_flag=True, hidden=True)
+@optgroup.option(
+    "--new-branch-prefix", default="mngr/", show_default=True, help="Prefix for auto-generated branch names"
+)
+@optgroup.option("--depth", type=int, help="Shallow clone depth [default: full]")
+@optgroup.option("--shallow-since", help="Shallow clone since date")
+@optgroup.group("Agent Environment Variables")
+@optgroup.option("--env", "--agent-env", "agent_env", multiple=True, help="Set environment variable KEY=VALUE")
+@optgroup.option(
+    "--env-file",
+    "--agent-env-file",
+    "agent_env_file",
+    type=click.Path(exists=True),
+    multiple=True,
+    help="Load env",
+)
+@optgroup.option("--pass-env", "--pass-agent-env", "pass_agent_env", multiple=True, help="Forward variable from shell")
+@optgroup.group("Agent Provisioning")
+@optgroup.option("--grant", "grant", multiple=True, help="Grant a permission to the agent [repeatable]")
+@optgroup.option(
+    "--user-command", "user_command", multiple=True, help="Run custom shell command during provisioning [repeatable]"
+)
+@optgroup.option(
+    "--sudo-command",
+    "sudo_command",
+    multiple=True,
+    help="Run custom shell command as root during provisioning [repeatable]",
+)
+@optgroup.option("--upload-file", "upload_file", multiple=True, help="Upload LOCAL:REMOTE file pair [repeatable]")
+@optgroup.option("--append-to-file", "append_to_file", multiple=True, help="Append REMOTE:TEXT to file [repeatable]")
+@optgroup.option(
+    "--prepend-to-file", "prepend_to_file", multiple=True, help="Prepend REMOTE:TEXT to file [repeatable]"
+)
+@optgroup.option(
+    "--create-directory", "create_directory", multiple=True, help="Create directory on remote [repeatable]"
+)
+@optgroup.group("New Host Environment Variables")
+@optgroup.option("--host-env", multiple=True, help="Set environment variable KEY=VALUE for host [repeatable]")
+@optgroup.option(
+    "--host-env-file", type=click.Path(exists=True), multiple=True, help="Load env file for host [repeatable]"
+)
+@optgroup.option("--pass-host-env", multiple=True, help="Forward variable from shell for host [repeatable]")
+@optgroup.group("New Host Build")
+@optgroup.option("--snapshot", help="Use existing snapshot instead of building")
+@optgroup.option("--image", help="Use existing image instead of building")
+@optgroup.option("--devcontainer", help="Build from devcontainer.json [default: .devcontainer/devcontainer.json]")
+@optgroup.option("--dockerfile", help="Build from Dockerfile [default: Dockerfile if no devcontainer]")
+@optgroup.option("--hook", multiple=True, help="Add lifecycle hook NAME:COMMAND [repeatable]")
+@optgroup.option(
+    "-b",
+    "--build",
+    "--build-arg",
+    "build_arg",
+    multiple=True,
+    help="Build argument as key=value or --key=value (e.g., -b gpu=h100 -b cpu=2) [repeatable]",
+)
+@optgroup.option("--build-args", help="Space-separated build arguments (e.g., 'gpu=h100 cpu=2')")
+@optgroup.option("-s", "--start", "--start-arg", "start_arg", multiple=True, help="Argument for start [repeatable]")
+@optgroup.option("--start-args", help="Space-separated start arguments (alternative to -s)")
+@optgroup.group("New Host Lifecycle")
+@optgroup.option("--idle-timeout", type=int, help="Shutdown after idle for N seconds [default: none]")
+@optgroup.option(
+    "--idle-mode",
+    type=click.Choice(_make_idle_mode_choices(), case_sensitive=False),
+    help="When to consider host idle [default: io if remote, disabled if local]",
+)
+@optgroup.option("--activity-sources", help="Activity sources for idle detection (comma-separated)")
+@optgroup.option(
+    "--start-on-boot/--no-start-on-boot", "start_on_boot", default=None, help="Restart on host boot [default: no]"
+)
+@optgroup.group("Connection Options")
+@optgroup.option(
+    "--reconnect/--no-reconnect", default=True, show_default=True, help="Automatically reconnect if dropped"
+)
+@optgroup.option(
+    "--interactive/--no-interactive",
+    "interactive",
+    default=None,
+    help="Enable interactive mode [default: yes if TTY]",
+)
+@optgroup.option("--message", help="Initial message to send after the agent starts")
+@optgroup.option("--message-file", type=click.Path(exists=True), help="File containing initial message to send")
+@optgroup.option(
+    "--message-delay",
+    type=float,
+    default=1.0,
+    show_default=True,
+    help="Seconds to wait before sending initial message",
+)
+@optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
+@optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries (e.g., 5s, 1m)")
+@optgroup.option("--attach-command", help="Command to run instead of attaching to main session")
+@add_common_options
+@click.pass_context
+def create(ctx: click.Context, **kwargs) -> None:
+    """Create and run an agent.
+
+    Sets up the agent's work_dir, optionally provisions a new host (or uses
+    an existing one), runs the specified agent, and connects to it (by default).
+
+    \b
+    Alias: c
+    """
+    # Setup command context (config, logging, output options)
+    # This loads the config, applies defaults, and creates the final options
+    mngr_ctx, output_opts, opts = setup_command_context(
+        ctx=ctx,
+        command_name="create",
+        command_class=CreateCliOptions,
+    )
+    logger.debug("Running create command")
+
+    # immediately bail for the options that are just obviously not used yet
+    if opts.target is not None or opts.target_host is not None:
+        raise NotImplementedError("Implement these options when we get a chance")
+
+    # Validate that both --message and --message-file are not provided
+    if opts.message is not None and opts.message_file is not None:
+        raise UserInputError("Cannot provide both --message and --message-file")
+
+    # Read message from file if --message-file is provided
+    initial_message: str | None
+    if opts.message_file is not None:
+        message_file_path = Path(opts.message_file)
+        initial_message = message_file_path.read_text()
+    elif opts.message is not None:
+        initial_message = opts.message
+    else:
+        initial_message = None
+
+    # Create a lazy loader for agents grouped by host (only loads if needed)
+    @lru_cache
+    def agent_and_host_loader() -> dict[HostReference, list[AgentReference]]:
+        """Lazily load all agents grouped by host, caching the result."""
+        return load_all_agents_grouped_by_host(mngr_ctx)
+
+    # figure out where the source data is coming from
+    source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx)
+
+    # figure out the project label, in case we need that
+    project_name = _parse_project_name(source_location, opts)
+
+    # Parse target host (existing or new)
+    target_host = _parse_target_host(
+        opts=opts,
+        project_name=project_name,
+        agent_and_host_loader=agent_and_host_loader,
+    )
+
+    # Parse agent options
+    agent_opts = _parse_agent_opts(opts=opts, initial_message=initial_message, source_location=source_location)
+
+    # parse the connection options
+    connection_opts = ConnectionOptions(
+        is_reconnect=opts.reconnect,
+        is_interactive=opts.interactive,
+        message=None,
+        retry_count=opts.retry,
+        retry_delay=opts.retry_delay,
+        attach_command=opts.attach_command,
+    )
+
+    # at this point, all options are parsed, and we can actually start the executing the command
+
+    # If ensure-clean is set, verify the source work_dir is clean
+    if opts.ensure_clean:
+        _ensure_clean_work_dir(source_location)
+
+    # figure out the target host (if we just have a reference)
+    resolved_target_host = _resolve_target_host(target_host, mngr_ctx)
+
+    # figure out the source (this may snapshot the source agent if needed)
+    snapshot = _snapshot_if_required(
+        mngr_ctx=mngr_ctx,
+        snapshot_source=opts.snapshot_source,
+        source_location=source_location,
+    )
+
+    # create work_dir immediately (if necessary)
+    # note that this only matters if we're NOT using a snapshot, otherwise it's already "copied"
+    # and obviously only matters if we're not creating a new host
+    final_source_location: HostLocation
+    is_work_dir_created: bool
+    if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, HostInterface):
+        work_dir_path = resolved_target_host.create_agent_work_dir(
+            source_location.host, source_location.path, agent_opts
+        )
+        final_source_location = HostLocation(
+            host=source_location.host,
+            path=work_dir_path,
+        )
+        is_work_dir_created = True
+    else:
+        final_source_location = source_location
+        if snapshot is None:
+            is_work_dir_created = False
+        else:
+            is_work_dir_created = True
+
+    # Determine whether to wait for agent to be ready
+    # Default: --no-await-ready when --no-connect, --await-ready when --connect
+    should_await_ready = opts.await_ready
+    if should_await_ready is None:
+        should_await_ready = opts.connect
+
+    # If --no-connect and --no-await-ready, run api_create in background
+    if not opts.connect and not should_await_ready:
+        _create_agent_in_background(
+            final_source_location,
+            resolved_target_host,
+            agent_opts,
+            mngr_ctx,
+            is_work_dir_created,
+            output_opts,
+        )
+        return
+
+    # Call the API create function (synchronously)
+    create_result = api_create(
+        source_location=final_source_location,
+        target_host=resolved_target_host,
+        agent_options=agent_opts,
+        mngr_ctx=mngr_ctx,
+        create_work_dir=not is_work_dir_created,
+    )
+
+    # If --connect is set, connect to the agent
+    if opts.connect:
+        _connect_to_agent(create_result.agent, create_result.host, mngr_ctx, connection_opts)
+
+    # Output result
+    _output_result(create_result, output_opts)
+
+
+def _create_agent_in_background(
+    source_location: HostLocation,
+    target_host: HostInterface | NewHostOptions,
+    agent_options: CreateAgentOptions,
+    mngr_ctx: MngrContext,
+    is_work_dir_created: bool,
+    output_opts: OutputOptions,
+) -> None:
+    """Create an agent in a background process that continues after parent exits.
+
+    This function forks the current process. The parent exits immediately while
+    the child process continues to run api_create() in the background.
+    """
+    pid = os.fork()
+
+    if pid > 0:
+        # Parent process: output message and exit immediately
+        logger.info("Agent creation started in background (PID: {})", pid)
+        logger.info("Agent name: {}", agent_options.name)
+        return
+
+    # Child process: detach from parent and continue
+    try:
+        # Create a new session to detach from parent's terminal
+        os.setsid()
+
+        # Call the API create function
+        create_result = api_create(
+            source_location=source_location,
+            target_host=target_host,
+            agent_options=agent_options,
+            mngr_ctx=mngr_ctx,
+            create_work_dir=not is_work_dir_created,
+        )
+
+        # Output result
+        _output_result(create_result, output_opts)
+
+        # Exit the child process
+        os._exit(0)
+    except MngrError as e:
+        # Log the error and exit with non-zero status
+        logger.error("Failed to create agent in background: {}", e)
+        os._exit(1)
+
+
+def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions) -> str:
+    if opts.project:
+        return opts.project
+
+    if not source_location.host.is_local:
+        raise NotImplementedError(
+            "Have to re-implement the below function so that it works via HostInterface calls instead!"
+        )
+
+    return derive_project_name_from_path(source_location.path)
+
+
+def _resolve_source_location(
+    opts: CreateCliOptions,
+    agent_and_host_loader: Callable[[], dict[HostReference, list[AgentReference]]],
+    mngr_ctx: MngrContext,
+) -> HostLocation:
+    # figure out the agent source data
+    if opts.source is None and opts.source_agent is None and opts.source_host is None:
+        # easy, source location is on current host
+        source_path = opts.source_path
+        if source_path is None:
+            git_root = find_git_worktree_root()
+            source_path = str(git_root) if git_root is not None else os.getcwd()
+        provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
+        source_location = HostLocation(
+            host=provider.get_host(HostName("local")),
+            path=Path(source_path),
+        )
+    else:
+        # more complicated, have to figure out where the source is coming from
+        agents_by_host = agent_and_host_loader()
+        source_location = resolve_source_location(
+            opts.source, opts.source_agent, opts.source_host, opts.source_path, agents_by_host, mngr_ctx
+        )
+    return source_location
+
+
+def _resolve_target_host(
+    target_host: HostReference | NewHostOptions | None, mngr_ctx: MngrContext
+) -> HostInterface | NewHostOptions:
+    resolved_target_host: HostInterface | NewHostOptions
+    if target_host is None:
+        # No host specified, use the local provider's default host
+        provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
+        resolved_target_host = provider.get_host(HostName("local"))
+    elif isinstance(target_host, HostReference):
+        provider = get_provider_instance(target_host.provider_name, mngr_ctx)
+        resolved_target_host = provider.get_host(target_host.host_id)
+    else:
+        resolved_target_host = target_host
+    return resolved_target_host
+
+
+def _find_source_location(
+    source: str | None, source_agent: str | None, source_host: str | None, source_path: str | None
+) -> SourceLocation:
+    # Assemble source - parse the unified --source string if provided
+    parsed_source_path: Path | None = None
+    parsed_source_agent = source_agent
+    parsed_source_host = source_host
+
+    if source:
+        # Parse [AGENT[.HOST]]:PATH format
+        parsed = _parse_source_string(source)
+        parsed_source_path = parsed.path
+        parsed_source_agent = parsed.agent_name
+        parsed_source_host = parsed.host_name
+
+    # Override with explicit options if provided
+    if source_path:
+        parsed_source_path = Path(source_path)
+
+    # Build location first so we can use it for validation
+    source_location = SourceLocation(
+        path=parsed_source_path,
+        agent_name=AgentName(parsed_source_agent) if parsed_source_agent else None,
+        host_name=HostName(parsed_source_host) if parsed_source_host else None,
+    )
+    return source_location
+
+
+def _snapshot_if_required(
+    mngr_ctx: MngrContext,
+    snapshot_source: bool | None,
+    source_location: HostLocation,
+) -> str | None:
+    # Determine if we need to snapshot the source agent
+    snapshot_name: str | None = None
+    should_snapshot = snapshot_source
+    # Default to snapshotting if:
+    # 1. source is a remote agent
+    # 2. whose provider can snapshot
+    # 3. and the user didn't explicitly disable
+    is_remote_agent = not source_location.host.is_local
+    is_provider_able_to_snapshot = source_location.host.provider_instance.supports_snapshots
+    is_snapshot_behavior_specified_by_user = should_snapshot is not None
+    if is_remote_agent and is_provider_able_to_snapshot and not is_snapshot_behavior_specified_by_user:
+        should_snapshot = True
+
+    # create the snapshot, if necessary
+    if should_snapshot and not source_location.host.is_local:
+        snapshot_name = _snapshot_source_agent(source_location, mngr_ctx)
+
+    return snapshot_name
+
+
+def _get_current_git_branch(source_location: HostLocation) -> str | None:
+    if not source_location.host.is_local:
+        raise NotImplementedError(
+            "Have to re-implement this function so that it works via HostInterface calls instead!"
+        )
+
+    return get_current_git_branch(source_location.path)
+
+
+@deal.has()
+def _is_git_repo(path: Path) -> bool:
+    """Check if the given path is inside a git repository."""
+    return find_git_worktree_root(path) is not None
+
+
+@deal.has()
+def _was_value_after_double_dash(value: str) -> bool:
+    """Check if a value appears after -- in sys.argv.
+
+    This helps detect when click incorrectly assigns a value that was meant
+    to be part of agent_args (after --) to an optional positional argument.
+    """
+    if "--" not in sys.argv:
+        return False
+    dash_index = sys.argv.index("--")
+    args_after_dash = sys.argv[dash_index + 1 :]
+    return value in args_after_dash
+
+
+def _parse_agent_opts(
+    opts: CreateCliOptions, initial_message: str | None, source_location: HostLocation
+) -> CreateAgentOptions:
+    # Get agent name from positional argument or --name flag, otherwise auto-generate
+    parsed_agent_name: AgentName
+    if opts.positional_name:
+        parsed_agent_name = AgentName(opts.positional_name)
+    elif opts.name:
+        parsed_agent_name = AgentName(opts.name)
+    else:
+        parsed_name_style = AgentNameStyle(opts.name_style.upper())
+        parsed_agent_name = generate_agent_name(parsed_name_style)
+
+    # Determine copy_mode from CLI flags
+    # Priority: explicit flags > default behavior
+    # Default: worktree for local git repos, copy for non-git repos or remote hosts
+    copy_mode: WorkDirCopyMode | None
+    # None means "in-place" (no copy/clone/worktree)
+    if opts.in_place:
+        copy_mode = None
+    elif opts.worktree:
+        copy_mode = WorkDirCopyMode.WORKTREE
+    elif opts.clone:
+        copy_mode = WorkDirCopyMode.CLONE
+    elif opts.copy_source:
+        copy_mode = WorkDirCopyMode.COPY
+    else:
+        # No explicit flag, apply defaults based on context
+        # When creating a new remote host (--in/--new-host), always use COPY
+        # since WORKTREE only works when source and target are on the same host
+        is_creating_remote_host = opts.new_host is not None and opts.new_host.lower() != LOCAL_PROVIDER_NAME
+        if is_creating_remote_host:
+            copy_mode = WorkDirCopyMode.COPY
+        elif source_location.host.is_local:
+            is_git_repo = _is_git_repo(source_location.path)
+            if is_git_repo:
+                copy_mode = WorkDirCopyMode.WORKTREE
+            else:
+                copy_mode = WorkDirCopyMode.COPY
+        else:
+            copy_mode = WorkDirCopyMode.COPY
+
+    # Parse git options
+    # new_branch: None = no new branch, "" = auto-generate name, "name" = use specified name
+    is_new_branch = opts.new_branch is not None
+
+    # --worktree implies --new-branch
+    if copy_mode == WorkDirCopyMode.WORKTREE and not is_new_branch:
+        is_new_branch = True
+        new_branch = ""
+    else:
+        new_branch = opts.new_branch
+
+    git = AgentGitOptions(
+        base_branch=opts.base_branch or _get_current_git_branch(source_location),
+        is_new_branch=is_new_branch,
+        new_branch_name=new_branch if new_branch else None,
+        new_branch_prefix=opts.new_branch_prefix,
+        depth=opts.depth,
+        shallow_since=opts.shallow_since,
+    )
+
+    # if the user didn't specify whether to include unclea, then infer from ensure_clean,
+    if opts.include_unclean is None:
+        is_include_unclean = False if opts.ensure_clean else True
+    else:
+        is_include_unclean = opts.include_unclean
+
+    # parse source data options
+    data_options = SourceDataOptions(
+        include_patterns=opts.include,
+        exclude_patterns=opts.exclude,
+        include_patterns_file=Path(opts.include_file) if opts.include_file else None,
+        exclude_patterns_file=Path(opts.exclude_file) if opts.exclude_file else None,
+        is_include_git=opts.include_git,
+        is_include_unclean=is_include_unclean,
+        is_include_gitignored=opts.include_gitignored,
+    )
+
+    # Parse environment options
+    env_vars = tuple(EnvVar.from_string(e) for e in opts.agent_env)
+    env_files = tuple(Path(f) for f in opts.agent_env_file)
+
+    environment = AgentEnvironmentOptions(
+        env_vars=env_vars,
+        env_files=env_files,
+        pass_env_vars=opts.pass_agent_env,
+    )
+
+    # Parse lifecycle options
+    parsed_idle_mode = IdleMode(opts.idle_mode.upper()) if opts.idle_mode else None
+
+    parsed_activity_sources = tuple(opts.activity_sources.split(",")) if opts.activity_sources else None
+
+    lifecycle = AgentLifecycleOptions(
+        idle_timeout_seconds=opts.idle_timeout,
+        idle_mode=parsed_idle_mode,
+        activity_sources=parsed_activity_sources,
+        is_start_on_boot=opts.start_on_boot,
+    )
+
+    # Parse permissions options
+    permissions = AgentPermissionsOptions(
+        granted_permissions=tuple(Permission(p) for p in opts.grant),
+    )
+
+    # Parse provisioning options
+    provisioning = AgentProvisioningOptions(
+        user_commands=opts.user_command,
+        sudo_commands=opts.sudo_command,
+        upload_files=tuple(UploadFileSpec.from_string(f) for f in opts.upload_file),
+        append_to_files=tuple(FileModificationSpec.from_string(f) for f in opts.append_to_file),
+        prepend_to_files=tuple(FileModificationSpec.from_string(f) for f in opts.prepend_to_file),
+        create_directories=tuple(Path(d) for d in opts.create_directory),
+    )
+
+    # Parse target_path if provided
+    parsed_target_path = Path(opts.target_path) if opts.target_path else None
+
+    # Determine if we should copy work_dir before building (default: copy if --no-connect)
+    should_copy = opts.copy_work_dir
+    if should_copy is None:
+        should_copy = not opts.connect
+
+    # Determine agent type: --agent-type takes priority, then positional argument
+    # However, click may incorrectly assign values after -- to positional_agent_type
+    # instead of agent_args. We detect this by checking if the value appears after
+    # -- in sys.argv and move it to agent_args if so.
+    resolved_agent_type = opts.agent_type
+    resolved_agent_args = opts.agent_args
+
+    if opts.positional_agent_type:
+        # Check if -- was used and positional_agent_type came from after it
+        was_after_separator = _was_value_after_double_dash(opts.positional_agent_type)
+        if was_after_separator:
+            # This was meant to be an agent arg, not an agent type
+            resolved_agent_args = (opts.positional_agent_type,) + resolved_agent_args
+        elif resolved_agent_type is None:
+            # Use it as the agent type
+            resolved_agent_type = opts.positional_agent_type
+        else:
+            # --agent-type was already specified, ignore the positional (could warn here)
+            pass
+
+    agent_opts = CreateAgentOptions(
+        agent_type=AgentTypeName(resolved_agent_type) if resolved_agent_type else None,
+        name=parsed_agent_name,
+        command=CommandString(opts.agent_command) if opts.agent_command else None,
+        additional_commands=tuple(NamedCommand.from_string(c) for c in opts.add_command),
+        agent_args=resolved_agent_args,
+        user=opts.user,
+        target_path=parsed_target_path,
+        copy_mode=copy_mode,
+        is_copy_immediate=should_copy,
+        initial_message=initial_message,
+        message_delay_seconds=opts.message_delay,
+        data_options=data_options,
+        git=git,
+        environment=environment,
+        lifecycle=lifecycle,
+        permissions=permissions,
+        provisioning=provisioning,
+    )
+    return agent_opts
+
+
+def _parse_target_host(
+    opts: CreateCliOptions,
+    project_name: str | None,
+    agent_and_host_loader: Callable[[], dict[HostReference, list[AgentReference]]],
+) -> HostReference | NewHostOptions | None:
+    parsed_target_host: HostReference | NewHostOptions | None
+    if opts.host:
+        # Targeting an existing host
+        agents_by_host = agent_and_host_loader()
+        all_hosts = list(agents_by_host.keys())
+        try:
+            host_id = HostId(opts.host)
+            host_ref = get_host_from_list_by_id(host_id, all_hosts)
+        except ValueError:
+            host_name = HostName(opts.host)
+            host_ref = get_unique_host_from_list_by_name(host_name, all_hosts)
+        if host_ref is None:
+            raise UserInputError(f"Could not find host with ID or name: {opts.host}")
+        parsed_target_host = host_ref
+    elif opts.new_host:
+        # Creating a new host
+        parsed_host_name: HostName
+        if opts.host_name:
+            parsed_host_name = HostName(opts.host_name)
+        else:
+            parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
+            parsed_host_name = generate_host_name(parsed_host_name_style)
+
+        # Parse tags and add the project tag
+        tags_dict: dict[str, str] = {}
+        for tag_string in opts.tag:
+            if "=" not in tag_string:
+                raise UserInputError(f"Tag must be in KEY=VALUE format, got: {tag_string}")
+            key, value = tag_string.split("=", 1)
+            tags_dict[key.strip()] = value.strip()
+
+        if project_name:
+            tags_dict["project"] = project_name
+
+        tags = tags_dict
+
+        # Parse host environment
+        host_env_vars = tuple(EnvVar.from_string(e) for e in opts.host_env)
+        host_env_files = tuple(Path(f) for f in opts.host_env_file)
+
+        # Parse hooks
+        hooks = tuple(HookDefinition.from_string(h) for h in opts.hook)
+
+        # Combine build args from both individual (-b) and bulk (--build-args) options
+        combined_build_args = list(opts.build_arg)
+        if opts.build_args:
+            combined_build_args.extend(opts.build_args.split())
+
+        # Combine start args from both individual (-s) and bulk (--start-args) options
+        combined_start_args = list(opts.start_arg)
+        if opts.start_args:
+            combined_start_args.extend(opts.start_args.split())
+
+        # Parse build options
+        build_options = NewHostBuildOptions(
+            snapshot=SnapshotName(opts.snapshot) if opts.snapshot else None,
+            image=ImageReference(opts.image) if opts.image else None,
+            context_path=Path(opts.project_context_path) if opts.project_context_path else None,
+            devcontainer=Path(opts.devcontainer) if opts.devcontainer else None,
+            dockerfile=Path(opts.dockerfile) if opts.dockerfile else None,
+            hooks=hooks,
+            build_args=tuple(combined_build_args),
+            start_args=tuple(combined_start_args),
+        )
+
+        parsed_target_host = NewHostOptions(
+            provider=ProviderInstanceName(opts.new_host),
+            name=parsed_host_name,
+            tags=tags,
+            build=build_options,
+            environment=NewHostEnvironmentOptions(
+                env_vars=host_env_vars,
+                env_files=host_env_files,
+                pass_env_vars=opts.pass_host_env,
+            ),
+        )
+    else:
+        # Default: local host
+        parsed_target_host = None
+    return parsed_target_host
+
+
+# === Parsing Functions ===
+
+
+class ParsedSourceString(FrozenModel):
+    """Result of parsing a source string in [AGENT[.HOST]]:PATH format."""
+
+    path: Path | None = Field(description="Path component")
+    agent_name: str | None = Field(description="Agent name component")
+    host_name: str | None = Field(description="Host name component")
+
+
+@deal.has()
+def _parse_source_string(source_str: str) -> ParsedSourceString:
+    """Parse [AGENT[.HOST]]:PATH format into components."""
+    if ":" not in source_str:
+        # Just a path
+        return ParsedSourceString(path=Path(source_str), agent_name=None, host_name=None)
+
+    prefix, path_str = source_str.rsplit(":", 1)
+    path = Path(path_str) if path_str else None
+
+    if "." in prefix:
+        agent, host = prefix.split(".", 1)
+        return ParsedSourceString(path=path, agent_name=agent or None, host_name=host or None)
+
+    return ParsedSourceString(path=path, agent_name=prefix or None, host_name=None)
+
+
+# === Helper Functions (stubs) ===
+
+
+def _ensure_clean_work_dir(location: HostLocation) -> None:
+    """Verify the source work_dir has no uncommitted changes."""
+    result = location.host.execute_command("git status --porcelain", cwd=location.path)
+    if not result.success:
+        # Not a git repo or git command failed, skip the check
+        logger.debug("Could not check git status: {}", result.stderr)
+        return
+
+    if result.stdout.strip():
+        raise UserInputError(
+            f"Working tree at {location.path} has uncommitted changes. "
+            "Use --no-ensure-clean to proceed anyway, or commit/stash your changes first."
+        )
+
+
+def _snapshot_source_agent(location: HostLocation, mngr_ctx: MngrContext) -> str:
+    """Snapshot the source agent before cloning."""
+    raise NotImplementedError("_snapshot_source_agent not yet implemented")
+
+
+def _assemble_result(
+    agent_id: AgentId,
+    host_id: HostId,
+) -> tuple[AgentId, HostId]:
+    """Assemble the result for output."""
+    return (agent_id, host_id)
+
+
+def _connect_to_agent(
+    agent: AgentInterface,
+    host: HostInterface,
+    mngr_ctx: MngrContext,
+    connection_opts: ConnectionOptions,
+) -> None:
+    """Connect to the created agent by replacing the current process with tmux attach.
+
+    For local agents, executes: tmux attach -t <session_name>
+    For remote agents, executes: ssh <host> tmux attach -t <session_name>
+
+    This function does not return - it replaces the current process.
+    """
+
+    session_name = f"{mngr_ctx.config.prefix}{agent.name}"
+
+    if host.is_local:
+        os.execvp("tmux", ["tmux", "attach", "-t", session_name])
+    else:
+        pyinfra_host = host.connector.host
+        ssh_host = pyinfra_host.name
+        ssh_user = pyinfra_host.data.get("ssh_user")
+        ssh_port = pyinfra_host.data.get("ssh_port")
+        ssh_key = pyinfra_host.data.get("ssh_key")
+        ssh_known_hosts_file = pyinfra_host.data.get("ssh_known_hosts_file")
+
+        ssh_args = ["ssh"]
+
+        if ssh_key:
+            ssh_args.extend(["-i", str(ssh_key)])
+
+        if ssh_port:
+            ssh_args.extend(["-p", str(ssh_port)])
+
+        # Use the known_hosts file if provided (for pre-trusted host keys)
+        if ssh_known_hosts_file and ssh_known_hosts_file != "/dev/null":
+            ssh_args.extend(["-o", f"UserKnownHostsFile={ssh_known_hosts_file}"])
+            ssh_args.extend(["-o", "StrictHostKeyChecking=yes"])
+        elif connection_opts.is_unknown_host_allowed:
+            # Fall back to disabling host key checking if no known_hosts file
+            ssh_args.extend(["-o", "StrictHostKeyChecking=no"])
+            ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
+        else:
+            raise MngrError("You must specify a known_hosts file to connect to this host securely.")
+
+        if ssh_user:
+            ssh_args.append(f"{ssh_user}@{ssh_host}")
+        else:
+            ssh_args.append(ssh_host)
+
+        ssh_args.extend(["-t", "tmux", "attach", "-t", session_name])
+
+        os.execvp("ssh", ssh_args)
+
+
+def _find_agent_in_host(host: HostInterface, agent_id: AgentId) -> AgentInterface:
+    """Find an agent by ID in a host."""
+    for agent in host.get_agents():
+        if agent.id == agent_id:
+            return agent
+
+    raise AgentNotFoundError(agent_id=agent_id)
+
+
+def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
+    """Output the create result according to output options."""
+    if opts.console_level == LogLevel.NONE:
+        return
+
+    result_data = {"agent_id": str(result.agent.id), "host_id": str(result.host.id)}
+    match opts.output_format:
+        case OutputFormat.JSON:
+            emit_final_json(result_data)
+        case OutputFormat.JSONL:
+            emit_event("created", result_data, OutputFormat.JSONL)
+        case OutputFormat.HUMAN:
+            logger.info("Created agent: {}", result.agent.id)
+            logger.info("  Host: {}", result.host.id)
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+# Register help metadata for git-style help formatting
+_CREATE_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-create",
+    one_line_description="Create and run an agent",
+    synopsis="""mngr create [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND] 
+    [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree] 
+    [--include <PATTERN>] [--exclude <PATTERN>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
+    [--dockerfile <PATH>] [--image <NAME>] [--snapshot <ID>] [--devcontainer <PATH>] [-b <BUILD_ARG>] [-s <START_ARG>]
+    [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
+    [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot]
+    [--] [<AGENT_ARGS>...]""",
+    description="""Create a new agent and optionally connect to it.
+
+This command sets up an agent's working directory, optionally provisions a
+new host (or uses an existing one), runs the specified agent process, and
+connects to it by default.
+
+By default, agents run locally in a new git worktree (for git repositories)
+or a copy of the current directory. Use --in to create a new remote host,
+or --host to use an existing host.
+
+The agent type defaults to 'claude' if not specified. Any command in your
+PATH can also be used as an agent type. Arguments after -- are passed
+directly to the agent command.
+
+For local agents, mngr creates a git worktree that shares objects with your
+original repository, allowing efficient branch management. For remote agents,
+the working directory is copied to the remote host.""",
+    examples=(
+        ("Create an agent locally in a new git worktree (default)", "mngr create my-agent"),
+        ("Create an agent in a Docker container", "mngr create my-agent --in docker"),
+        ("Create an agent in a Modal sandbox", "mngr create my-agent --in modal"),
+        ("Create a codex agent instead of claude", "mngr create my-agent codex"),
+        ("Pass arguments to the agent", "mngr create my-agent -- --model opus"),
+        ("Create on an existing host", "mngr create my-agent --host my-dev-box"),
+        ("Clone from an existing agent", "mngr create new-agent --source other-agent"),
+        ("Run directly in-place (no worktree)", "mngr create my-agent --in-place"),
+        ("Create without connecting", "mngr create my-agent --no-connect"),
+        ("Add extra tmux windows", 'mngr create my-agent -c server="npm run dev"'),
+    ),
+)
+
+register_help_metadata("create", _CREATE_HELP_METADATA)
+
+# Add pager-enabled help option to the create command
+add_pager_help_option(create)

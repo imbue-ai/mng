@@ -1,0 +1,185 @@
+from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostState
+from imbue.mngr.primitives import ImageReference
+from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.primitives import SnapshotId
+
+
+class MngrError(Exception):
+    """Base exception for all mngr errors."""
+
+
+class UserInputError(MngrError):
+    """Raised when user input is invalid."""
+
+
+class ParseSpecError(MngrError, ValueError):
+    """Raised when parsing a specification string fails."""
+
+
+class HostError(MngrError):
+    """Base class for host-related errors."""
+
+
+class InvalidActivityTypeError(HostError, ValueError):
+    """Raised when an invalid activity type is used."""
+
+
+class HostConnectionError(HostError):
+    """Raised when unable to connect to a host."""
+
+
+class CommandTimeoutError(HostError):
+    """Raised when a command execution times out."""
+
+
+class LockNotHeldError(HostError):
+    """Raised when attempting to use a lock that is not held."""
+
+
+class AgentError(MngrError):
+    """Base class for agent-related errors."""
+
+
+class NoCommandDefinedError(AgentError, ValueError):
+    """Raised when no command is defined for an agent type."""
+
+
+class AgentNotFoundError(AgentError):
+    """No agent with this ID exists."""
+
+    def __init__(self, agent_id: AgentId) -> None:
+        self.agent_id = agent_id
+        super().__init__(f"Agent not found: {agent_id}")
+
+
+class AgentNotFoundOnHostError(AgentError):
+    """No agent with this ID exists on the specified host."""
+
+    def __init__(self, agent_id: AgentId, host_id: HostId) -> None:
+        self.agent_id = agent_id
+        self.host_id = host_id
+        super().__init__(f"Agent {agent_id} not found on host {host_id}")
+
+
+class ProviderError(MngrError):
+    """Base class for all provider-related errors."""
+
+
+class ProviderInstanceNotFoundError(ProviderError):
+    """No provider instance with this name exists."""
+
+    def __init__(self, provider_name: ProviderInstanceName) -> None:
+        self.provider_name = provider_name
+        super().__init__(f"Provider {provider_name} not found")
+
+
+class HostNotFoundError(ProviderError):
+    """No host with this ID or name exists."""
+
+    def __init__(self, host: HostId | HostName) -> None:
+        self.host = host
+        super().__init__(f"Host not found: {host}")
+
+
+class HostCreationError(ProviderError):
+    """Failed to create a host."""
+
+
+class ImageNotFoundError(HostCreationError):
+    """The specified image does not exist or is invalid."""
+
+    def __init__(self, image: ImageReference) -> None:
+        self.image = image
+        super().__init__(f"Image not found: {image}")
+
+
+class ResourceAllocationError(HostCreationError):
+    """Failed to allocate resources for the host."""
+
+
+class HostNameConflictError(ProviderError):
+    """A host with this name already exists."""
+
+    def __init__(self, name: HostName) -> None:
+        self.name = name
+        super().__init__(f"Host name already exists: {name}")
+
+
+class HostNotRunningError(ProviderError):
+    """Host is not in RUNNING state."""
+
+    def __init__(self, host_id: HostId, state: HostState) -> None:
+        self.host_id = host_id
+        self.state = state
+        super().__init__(f"Host {host_id} is not running (state: {state})")
+
+
+class HostNotStoppedError(ProviderError):
+    """Host is not in STOPPED state."""
+
+    def __init__(self, host_id: HostId, state: HostState) -> None:
+        self.host_id = host_id
+        self.state = state
+        super().__init__(f"Host {host_id} is not stopped (state: {state})")
+
+
+class SnapshotError(ProviderError):
+    """Base class for snapshot-related errors."""
+
+
+class SnapshotNotFoundError(SnapshotError):
+    """No snapshot with this ID exists."""
+
+    def __init__(self, snapshot_id: SnapshotId) -> None:
+        self.snapshot_id = snapshot_id
+        super().__init__(f"Snapshot not found: {snapshot_id}")
+
+
+class SnapshotsNotSupportedError(SnapshotError):
+    """Provider does not support snapshots."""
+
+    def __init__(self, provider_name: ProviderInstanceName) -> None:
+        self.provider_name = provider_name
+        super().__init__(f"Provider {provider_name} does not support snapshots")
+
+
+class TagLimitExceededError(ProviderError):
+    """Tags exceed provider's storage limit."""
+
+    def __init__(self, limit: int, actual: int) -> None:
+        self.limit = limit
+        self.actual = actual
+        super().__init__(f"Tag limit exceeded: {actual} tags (limit: {limit})")
+
+
+class LocalHostNotStoppableError(ProviderError):
+    """Raised when attempting to stop the local host."""
+
+    def __init__(self) -> None:
+        super().__init__("Cannot stop the local host - it is your local computer")
+
+
+class LocalHostNotDestroyableError(ProviderError):
+    """Raised when attempting to destroy the local host."""
+
+    def __init__(self) -> None:
+        super().__init__("Cannot destroy the local host - it is your local computer")
+
+
+class ConfigError(MngrError):
+    """Base class for config errors."""
+
+
+class ConfigNotFoundError(ConfigError):
+    """Config file not found."""
+
+
+class ConfigParseError(ConfigError):
+    """Failed to parse config file."""
+
+
+class UnknownBackendError(ConfigError):
+    """Unknown provider backend."""

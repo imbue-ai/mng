@@ -1,0 +1,389 @@
+"""Tests for config data types."""
+
+from pathlib import Path
+
+import pytest
+
+from imbue.mngr.config.data_types import AgentTypeConfig
+from imbue.mngr.config.data_types import CommandDefaults
+from imbue.mngr.config.data_types import EnvVar
+from imbue.mngr.config.data_types import HookDefinition
+from imbue.mngr.config.data_types import LoggingConfig
+from imbue.mngr.config.data_types import MngrConfig
+from imbue.mngr.config.data_types import PluginConfig
+from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.config.data_types import merge_cli_args
+from imbue.mngr.config.data_types import merge_list_fields
+from imbue.mngr.primitives import AgentTypeName
+from imbue.mngr.primitives import CommandString
+from imbue.mngr.primitives import LifecycleHook
+from imbue.mngr.primitives import LogLevel
+from imbue.mngr.primitives import Permission
+from imbue.mngr.primitives import PluginName
+from imbue.mngr.primitives import ProviderBackendName
+from imbue.mngr.primitives import ProviderInstanceName
+
+
+def test_logging_config_merge_overrides_all_fields() -> None:
+    """Merging LoggingConfig should override all fields from override."""
+    base = LoggingConfig()
+    override = LoggingConfig(
+        file_level=LogLevel.TRACE,
+        log_dir=Path("/custom/logs"),
+        max_log_files=500,
+        max_log_size_mb=20,
+        console_level=LogLevel.DEBUG,
+        is_logging_commands=False,
+        is_logging_command_output=True,
+    )
+
+    merged = base.merge_with(override)
+
+    assert merged.file_level == LogLevel.TRACE
+    assert merged.log_dir == Path("/custom/logs")
+    assert merged.max_log_files == 500
+    assert merged.max_log_size_mb == 20
+    assert merged.console_level == LogLevel.DEBUG
+    assert merged.is_logging_commands is False
+    assert merged.is_logging_command_output is True
+
+
+def test_env_var_from_string_parses_simple_pair() -> None:
+    """EnvVar.from_string should parse KEY=value format."""
+    env_var = EnvVar.from_string("KEY=value")
+    assert env_var.key == "KEY"
+    assert env_var.value == "value"
+
+
+def test_env_var_from_string_handles_equals_in_value() -> None:
+    """EnvVar.from_string should handle equals signs in value."""
+    env_var = EnvVar.from_string("KEY=val=ue")
+    assert env_var.key == "KEY"
+    assert env_var.value == "val=ue"
+
+
+def test_env_var_from_string_strips_whitespace() -> None:
+    """EnvVar.from_string should strip whitespace from key and value."""
+    env_var = EnvVar.from_string("  KEY  =  value  ")
+    assert env_var.key == "KEY"
+    assert env_var.value == "value"
+
+
+def test_env_var_from_string_raises_on_missing_equals() -> None:
+    """EnvVar.from_string should raise ValueError when no equals sign."""
+    with pytest.raises(ValueError, match="must be in KEY=VALUE format"):
+        EnvVar.from_string("INVALID")
+
+
+def test_env_var_from_string_handles_empty_value() -> None:
+    """EnvVar.from_string should handle empty value after equals."""
+    env_var = EnvVar.from_string("KEY=")
+    assert env_var.key == "KEY"
+    assert env_var.value == ""
+
+
+def test_hook_definition_from_string_parses_valid_hook() -> None:
+    """HookDefinition.from_string should parse valid hook definition."""
+    hook_def = HookDefinition.from_string("initialize:echo 'hello'")
+    assert hook_def.hook == LifecycleHook.INITIALIZE
+    assert hook_def.command == "echo 'hello'"
+
+
+def test_hook_definition_from_string_normalizes_hyphens_to_underscores() -> None:
+    """HookDefinition.from_string should normalize hyphens to underscores."""
+    hook_def = HookDefinition.from_string("on-create:cmd")
+    assert hook_def.hook == LifecycleHook.ON_CREATE
+
+
+def test_hook_definition_from_string_handles_colons_in_command() -> None:
+    """HookDefinition.from_string should handle colons in command."""
+    hook_def = HookDefinition.from_string("initialize:echo a:b:c")
+    assert hook_def.command == "echo a:b:c"
+
+
+def test_hook_definition_from_string_raises_on_invalid_hook_name() -> None:
+    """HookDefinition.from_string should raise ValueError for invalid hook."""
+    with pytest.raises(ValueError, match="Invalid hook name"):
+        HookDefinition.from_string("invalid-hook:cmd")
+
+
+def test_hook_definition_from_string_raises_on_missing_colon() -> None:
+    """HookDefinition.from_string should raise ValueError when no colon."""
+    with pytest.raises(ValueError, match="must be in NAME:COMMAND format"):
+        HookDefinition.from_string("invalid")
+
+
+def test_agent_type_config_merge_with_overrides_parent_type() -> None:
+    """AgentTypeConfig.merge_with should override parent type."""
+    base = AgentTypeConfig(parent_type=AgentTypeName("claude"))
+    override = AgentTypeConfig(parent_type=AgentTypeName("codex"))
+    merged = base.merge_with(override)
+    assert merged.parent_type == AgentTypeName("codex")
+
+
+def test_agent_type_config_merge_with_overrides_command() -> None:
+    """AgentTypeConfig.merge_with should override command."""
+    base = AgentTypeConfig(command=CommandString("cmd1"))
+    override = AgentTypeConfig(command=CommandString("cmd2"))
+    merged = base.merge_with(override)
+    assert merged.command == CommandString("cmd2")
+
+
+def test_agent_type_config_merge_with_concatenates_cli_args() -> None:
+    """AgentTypeConfig.merge_with should concatenate cli_args."""
+    base = AgentTypeConfig(cli_args="--arg1")
+    override = AgentTypeConfig(cli_args="--arg2")
+    merged = base.merge_with(override)
+    assert merged.cli_args == "--arg1 --arg2"
+
+
+def test_agent_type_config_merge_with_handles_empty_base_cli_args() -> None:
+    """AgentTypeConfig.merge_with should handle empty base cli_args."""
+    base = AgentTypeConfig(cli_args="")
+    override = AgentTypeConfig(cli_args="--arg")
+    merged = base.merge_with(override)
+    assert merged.cli_args == "--arg"
+
+
+def test_agent_type_config_merge_with_handles_empty_override_cli_args() -> None:
+    """AgentTypeConfig.merge_with should keep base when override is empty."""
+    base = AgentTypeConfig(cli_args="--arg")
+    override = AgentTypeConfig(cli_args="")
+    merged = base.merge_with(override)
+    assert merged.cli_args == "--arg"
+
+
+def test_agent_type_config_merge_with_concatenates_permissions() -> None:
+    """AgentTypeConfig.merge_with should concatenate permissions."""
+    base = AgentTypeConfig(permissions=[Permission("read")])
+    override = AgentTypeConfig(permissions=[Permission("write")])
+    merged = base.merge_with(override)
+    assert merged.permissions == [Permission("read"), Permission("write")]
+
+
+def test_merge_cli_args_concatenates_both_when_present() -> None:
+    """merge_cli_args should concatenate when both present."""
+    result = merge_cli_args("--arg1", "--arg2")
+    assert result == "--arg1 --arg2"
+
+
+def test_merge_cli_args_returns_override_when_base_empty() -> None:
+    """merge_cli_args should return override when base is empty."""
+    result = merge_cli_args("", "--arg")
+    assert result == "--arg"
+
+
+def test_merge_cli_args_returns_base_when_override_empty() -> None:
+    """merge_cli_args should return base when override is empty."""
+    result = merge_cli_args("--arg", "")
+    assert result == "--arg"
+
+
+def test_merge_cli_args_returns_empty_when_both_empty() -> None:
+    """merge_cli_args should return empty when both empty."""
+    result = merge_cli_args("", "")
+    assert result == ""
+
+
+def test_merge_list_fields_concatenates_when_override_not_none() -> None:
+    """merge_list_fields should concatenate when override is not None."""
+    result = merge_list_fields([1, 2], [3, 4])
+    assert result == [1, 2, 3, 4]
+
+
+def test_merge_list_fields_returns_base_when_override_none() -> None:
+    """merge_list_fields should return base when override is None."""
+    result = merge_list_fields([1, 2], None)
+    assert result == [1, 2]
+
+
+def test_merge_list_fields_concatenates_empty_override() -> None:
+    """merge_list_fields should handle empty override list."""
+    result = merge_list_fields([1, 2], [])
+    assert result == [1, 2]
+
+
+# =============================================================================
+# Tests for ProviderInstanceConfig
+# =============================================================================
+
+
+def test_provider_instance_config_merge_with_returns_override_backend() -> None:
+    """ProviderInstanceConfig.merge_with should return override's backend."""
+    base = ProviderInstanceConfig(backend=ProviderBackendName("local"))
+    override = ProviderInstanceConfig(backend=ProviderBackendName("docker"))
+    merged = base.merge_with(override)
+    assert merged.backend == ProviderBackendName("docker")
+
+
+# =============================================================================
+# Tests for PluginConfig
+# =============================================================================
+
+
+def test_plugin_config_merge_with_overrides_enabled() -> None:
+    """PluginConfig.merge_with should override enabled field."""
+    base = PluginConfig(enabled=True)
+    override = PluginConfig(enabled=False)
+    merged = base.merge_with(override)
+    assert merged.enabled is False
+
+
+def test_plugin_config_merge_with_keeps_base_when_override_none() -> None:
+    """PluginConfig.merge_with should keep base when override is None-ish."""
+    base = PluginConfig(enabled=True)
+    # model_construct bypasses validation, allowing us to test None behavior
+    override = PluginConfig.model_construct(enabled=None)
+    merged = base.merge_with(override)
+    assert merged.enabled is True
+
+
+# =============================================================================
+# Tests for MngrConfig.merge_with
+# =============================================================================
+
+
+def test_mngr_config_merge_with_overrides_prefix(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should override prefix."""
+    base = MngrConfig(prefix=f"{mngr_test_prefix}base-")
+    override = MngrConfig(prefix=f"{mngr_test_prefix}override-")
+    merged = base.merge_with(override)
+    assert merged.prefix == f"{mngr_test_prefix}override-"
+
+
+def test_mngr_config_merge_with_overrides_default_host_dir(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should override default_host_dir."""
+    base = MngrConfig(prefix=mngr_test_prefix, default_host_dir=Path("/base"))
+    override = MngrConfig(prefix=mngr_test_prefix, default_host_dir=Path("/override"))
+    merged = base.merge_with(override)
+    assert merged.default_host_dir == Path("/override")
+
+
+def test_mngr_config_merge_with_concatenates_unset_vars(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should concatenate unset_vars."""
+    base = MngrConfig(prefix=mngr_test_prefix, unset_vars=["VAR1", "VAR2"])
+    override = MngrConfig(prefix=mngr_test_prefix, unset_vars=["VAR3"])
+    merged = base.merge_with(override)
+    assert "VAR1" in merged.unset_vars
+    assert "VAR2" in merged.unset_vars
+    assert "VAR3" in merged.unset_vars
+
+
+def test_mngr_config_merge_with_merges_agent_types(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should merge agent_types dicts."""
+    base = MngrConfig(
+        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args="--base")}
+    )
+    override = MngrConfig(
+        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args="--override")}
+    )
+    merged = base.merge_with(override)
+    # cli_args should be concatenated
+    assert merged.agent_types[AgentTypeName("claude")].cli_args == "--base --override"
+
+
+def test_mngr_config_merge_with_adds_new_agent_types(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should add new agent types from override."""
+    base = MngrConfig(
+        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args="--base")}
+    )
+    override = MngrConfig(
+        prefix=mngr_test_prefix, agent_types={AgentTypeName("codex"): AgentTypeConfig(cli_args="--codex")}
+    )
+    merged = base.merge_with(override)
+    assert AgentTypeName("claude") in merged.agent_types
+    assert AgentTypeName("codex") in merged.agent_types
+
+
+def test_mngr_config_merge_with_merges_providers(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should merge providers dicts."""
+    base = MngrConfig(
+        prefix=mngr_test_prefix,
+        providers={
+            ProviderInstanceName("local"): ProviderInstanceConfig(backend=ProviderBackendName("local")),
+        },
+    )
+    override = MngrConfig(
+        prefix=mngr_test_prefix,
+        providers={
+            ProviderInstanceName("docker"): ProviderInstanceConfig(backend=ProviderBackendName("docker")),
+        },
+    )
+    merged = base.merge_with(override)
+    assert ProviderInstanceName("local") in merged.providers
+    assert ProviderInstanceName("docker") in merged.providers
+
+
+def test_mngr_config_merge_with_merges_same_provider_key(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should merge configs when both have the same provider key."""
+    base = MngrConfig(
+        prefix=mngr_test_prefix,
+        providers={
+            ProviderInstanceName("my-docker"): ProviderInstanceConfig(backend=ProviderBackendName("docker")),
+        },
+    )
+    override = MngrConfig(
+        prefix=mngr_test_prefix,
+        providers={
+            ProviderInstanceName("my-docker"): ProviderInstanceConfig(backend=ProviderBackendName("modal")),
+        },
+    )
+    merged = base.merge_with(override)
+    assert ProviderInstanceName("my-docker") in merged.providers
+    assert merged.providers[ProviderInstanceName("my-docker")].backend == ProviderBackendName("modal")
+
+
+def test_mngr_config_merge_with_merges_plugins(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should merge plugins dicts."""
+    base = MngrConfig(prefix=mngr_test_prefix, plugins={PluginName("plugin1"): PluginConfig(enabled=True)})
+    override = MngrConfig(prefix=mngr_test_prefix, plugins={PluginName("plugin1"): PluginConfig(enabled=False)})
+    merged = base.merge_with(override)
+    assert merged.plugins[PluginName("plugin1")].enabled is False
+
+
+def test_mngr_config_merge_with_adds_new_plugins(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should add new plugins from override."""
+    base = MngrConfig(prefix=mngr_test_prefix, plugins={PluginName("plugin1"): PluginConfig(enabled=True)})
+    override = MngrConfig(prefix=mngr_test_prefix, plugins={PluginName("plugin2"): PluginConfig(enabled=True)})
+    merged = base.merge_with(override)
+    assert PluginName("plugin1") in merged.plugins
+    assert PluginName("plugin2") in merged.plugins
+
+
+def test_mngr_config_merge_with_merges_commands(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should merge commands dicts."""
+    base = MngrConfig(prefix=mngr_test_prefix, commands={"create": CommandDefaults(defaults={"name": "base"})})
+    override = MngrConfig(prefix=mngr_test_prefix, commands={"create": CommandDefaults(defaults={"name": "override"})})
+    merged = base.merge_with(override)
+    assert merged.commands["create"].defaults["name"] == "override"
+
+
+def test_mngr_config_merge_with_adds_new_commands(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should add new commands from override."""
+    base = MngrConfig(prefix=mngr_test_prefix, commands={"create": CommandDefaults(defaults={"name": "base"})})
+    override = MngrConfig(prefix=mngr_test_prefix, commands={"list": CommandDefaults(defaults={"format": "json"})})
+    merged = base.merge_with(override)
+    assert "create" in merged.commands
+    assert "list" in merged.commands
+
+
+def test_mngr_config_merge_with_merges_logging(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should merge logging config."""
+    base = MngrConfig(prefix=mngr_test_prefix, logging=LoggingConfig(file_level=LogLevel.DEBUG))
+    override = MngrConfig(prefix=mngr_test_prefix, logging=LoggingConfig(file_level=LogLevel.TRACE))
+    merged = base.merge_with(override)
+    assert merged.logging.file_level == LogLevel.TRACE
+
+
+# =============================================================================
+# Tests for CommandDefaults.merge_with
+# =============================================================================
+
+
+def test_command_defaults_merge_with_combines_defaults() -> None:
+    """CommandDefaults.merge_with should combine defaults from both configs."""
+    base = CommandDefaults(defaults={"name": "base", "other": "base_value"})
+    override = CommandDefaults(defaults={"name": "override"})
+    merged = base.merge_with(override)
+    assert merged.defaults["name"] == "override"
+    assert merged.defaults["other"] == "base_value"
