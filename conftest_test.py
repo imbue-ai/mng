@@ -409,7 +409,7 @@ import pytest
 sys.exit(pytest.main([
     "{test_file}",
     "--coverage-to-file",
-    "--cov={module_file}",
+    "--cov=mymodule",
     "--cov-report=",
     "-p", "no:randomly",
     "-p", "no:xdist",
@@ -427,12 +427,12 @@ sys.exit(pytest.main([
 
     # Check that an output file was created
     assert output_dir.exists(), f"Output directory not created. stderr: {result.stderr}"
-    output_files = list(output_dir.glob("coverage_summary_*.txt"))
-    assert len(output_files) == 1, f"Expected 1 coverage_summary file, found {len(output_files)}"
+    output_files = list(output_dir.glob("coverage_*.txt"))
+    assert len(output_files) == 1, f"Expected 1 coverage file, found {len(output_files)}"
 
-    # Verify the content
+    # Verify the content contains the term-missing format report
     content = output_files[0].read_text()
-    assert "Coverage Summary" in content
-    assert "Total coverage:" in content or "Detailed reports:" in content
+    assert "Name" in content and "Stmts" in content and "Miss" in content
+    assert "mymodule" in content  # The module we're testing should be in the report
 
 

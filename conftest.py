@@ -324,44 +324,39 @@ def _write_coverage_summary_to_file(
     terminalreporter: "pytest.TerminalReporter",
     config: pytest.Config,
 ) -> None:
-    """Write the coverage summary to a file.
+    """Write the full coverage report (term-missing format) to a file.
 
-    This captures a summary of coverage including the existing HTML/XML reports
-    and writes a pointer to those locations.
+    This captures the same output that would be printed to terminal with
+    --cov-report=term-missing and writes it to a file instead.
     """
+    from io import StringIO
+
     # Check if coverage plugin is active
     cov_plugin = config.pluginmanager.get_plugin("_cov")
     if cov_plugin is None:
         return
 
-    # Generate output file
-    output_file = _generate_output_filename("coverage_summary", ".txt")
-
-    lines = ["Coverage Summary", ""]
-
     # Get the coverage object from pytest-cov
-    cov = getattr(cov_plugin, "cov_controller", None)
-    if cov is not None:
-        cov_obj = getattr(cov, "cov", None)
-        if cov_obj is not None:
-            try:
-                # Get total coverage percentage
-                # Use a StringIO to capture output and avoid printing to stdout
-                from io import StringIO
+    cov_controller = getattr(cov_plugin, "cov_controller", None)
+    if cov_controller is None:
+        return
 
-                null_output = StringIO()
-                total = cov_obj.report(file=null_output, show_missing=False)
-                lines.append(f"Total coverage: {total:.2f}%")
-            except CoverageException:
-                lines.append("Total coverage: (unable to calculate)")
+    cov_obj = getattr(cov_controller, "cov", None)
+    if cov_obj is None:
+        return
 
-    # Add pointers to the detailed reports
-    lines.append("")
-    lines.append("Detailed reports:")
-    lines.append("  HTML report: htmlcov/index.html")
-    lines.append("  XML report: coverage.xml")
+    # Generate output file
+    output_file = _generate_output_filename("coverage", ".txt")
 
-    output_file.write_text("\n".join(lines))
+    try:
+        # Capture the full term-missing report to a StringIO
+        report_output = StringIO()
+        cov_obj.report(file=report_output, show_missing=True)
+        report_content = report_output.getvalue()
 
-    # Print single line indicating where the file was saved
-    print_lock_message(f"Coverage summary saved to: {output_file}")
+        if report_content:
+            output_file.write_text(report_content)
+            print_lock_message(f"Coverage report saved to: {output_file}")
+    except CoverageException:
+        # If we can't generate the report, don't create an empty file
+        pass
