@@ -223,7 +223,11 @@ class ModalProviderInstance(BaseProviderInstance):
             file_path.unlink()
 
     def _list_snapshots_locally(self, host_id: HostId) -> list[dict[str, Any]]:
-        """List all snapshots for a host from local storage."""
+        """List all snapshots for a host from local storage.
+
+        Returns snapshots sorted by created_at (oldest first) to match the order
+        used when snapshots are stored in sandbox tags.
+        """
         host_snapshots_dir = self._snapshots_dir / str(host_id)
         if not host_snapshots_dir.exists():
             return []
@@ -235,7 +239,30 @@ class ModalProviderInstance(BaseProviderInstance):
                 snapshots.append(data["snapshot"])
             except (json.JSONDecodeError, KeyError):
                 continue
+
+        # Sort by created_at timestamp (oldest first) to match sandbox tag ordering
+        snapshots.sort(key=lambda s: s.get("created_at", ""))
         return snapshots
+
+    def _delete_all_snapshots_locally(self, host_id: HostId) -> None:
+        """Delete all local snapshot files for a host."""
+        host_snapshots_dir = self._snapshots_dir / str(host_id)
+        if not host_snapshots_dir.exists():
+            return
+
+        # Delete all snapshot files
+        for file_path in host_snapshots_dir.glob("*.json"):
+            try:
+                file_path.unlink()
+            except OSError:
+                logger.debug("Failed to delete snapshot file: {}", file_path)
+
+        # Remove the host directory if empty
+        try:
+            host_snapshots_dir.rmdir()
+        except OSError:
+            # Directory not empty or other error - ignore
+            pass
 
     def _build_modal_image(self, base_image: str | None = None) -> modal.Image:
         """Build a Modal image.
@@ -900,8 +927,15 @@ class ModalProviderInstance(BaseProviderInstance):
         host: HostInterface | HostId,
         delete_snapshots: bool = True,
     ) -> None:
-        """Destroy a Modal sandbox permanently."""
+        """Destroy a Modal sandbox permanently.
+
+        If delete_snapshots is True, also deletes local snapshot metadata files.
+        """
+        host_id = host.id if isinstance(host, HostInterface) else host
         self.stop_host(host)
+
+        if delete_snapshots:
+            self._delete_all_snapshots_locally(host_id)
 
     # =========================================================================
     # Discovery Methods

@@ -388,6 +388,52 @@ def test_delete_nonexistent_snapshot_raises_error(modal_provider: ModalProviderI
 
 
 @pytest.mark.modal
+@pytest.mark.timeout(300)
+def test_start_host_restores_from_snapshot(modal_provider: ModalProviderInstance) -> None:
+    """start_host with a snapshot_id should restore a terminated host from the snapshot."""
+    host = None
+    restored_host = None
+    try:
+        # Create a host and write a marker file
+        host = modal_provider.create_host(HostName("test-host"))
+        host_id = host.id
+
+        # Write a marker file to verify restoration
+        result = host.execute_command("echo 'snapshot-marker' > /tmp/marker.txt")
+        assert result.success
+
+        # Create a snapshot
+        snapshot_id = modal_provider.create_snapshot(host, SnapshotName("test-restore"))
+
+        # Verify snapshot exists
+        snapshots = modal_provider.list_snapshots(host)
+        assert len(snapshots) == 1
+        assert snapshots[0].id == snapshot_id
+
+        # Stop the host (terminates the sandbox)
+        modal_provider.stop_host(host)
+
+        # Restore from snapshot
+        restored_host = modal_provider.start_host(host_id, snapshot_id=snapshot_id)
+
+        # Verify the host was restored with the same ID
+        assert restored_host.id == host_id
+
+        # Verify the marker file exists (proving we restored from snapshot)
+        result = restored_host.execute_command("cat /tmp/marker.txt")
+        assert result.success
+        assert "snapshot-marker" in result.stdout
+
+    finally:
+        if restored_host:
+            modal_provider.destroy_host(restored_host)
+        elif host:
+            modal_provider.destroy_host(host)
+        else:
+            pass
+
+
+@pytest.mark.modal
 @pytest.mark.timeout(180)
 def test_start_host_on_running_host(modal_provider: ModalProviderInstance) -> None:
     """start_host on a running host should return the same host."""
