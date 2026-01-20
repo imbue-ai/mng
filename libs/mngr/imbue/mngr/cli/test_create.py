@@ -10,7 +10,6 @@ import pluggy
 from click.testing import CliRunner
 
 from imbue.mngr.cli.create import create
-from imbue.mngr.main import cli
 from imbue.mngr.utils.testing import capture_tmux_pane_contents
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
@@ -53,38 +52,6 @@ def test_cli_create_with_echo_command(
 
         agents_dir = temp_host_dir / "agents"
         assert agents_dir.exists(), "agents directory should exist in temp dir"
-
-
-def test_cli_create_via_cli_group(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
-) -> None:
-    """Test calling create through the main CLI group."""
-    agent_name = f"test-cli-group-{int(time.time())}"
-    session_name = f"{mngr_test_prefix}{agent_name}"
-
-    with tmux_session_cleanup(session_name):
-        result = cli_runner.invoke(
-            cli,
-            [
-                "create",
-                "--name",
-                agent_name,
-                "--agent-cmd",
-                "sleep 482913",
-                "--source",
-                str(temp_work_dir),
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
-                "--no-ensure-clean",
-            ],
-            catch_exceptions=False,
-        )
-
-        assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
 
 def test_cli_create_via_subprocess(
