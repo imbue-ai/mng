@@ -46,7 +46,6 @@ addopts = [
   "--cov-report=xml",
   "--cov-fail-under=80",
   "--durations=20",
-  "--durations-min=1.0",
   "--timeout=5",
   "--timeout-method=thread",
   "--ignore-glob=*/tests",
