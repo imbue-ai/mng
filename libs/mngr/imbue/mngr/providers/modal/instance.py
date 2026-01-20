@@ -22,6 +22,7 @@ from pydantic import Field
 from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
+from pyinfra.connectors.sshuserclient.client import get_host_keys
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.errors import HostNotFoundError
@@ -317,14 +318,16 @@ class ModalProviderInstance(BaseProviderInstance):
         # Install missing packages
         if packages_to_install:
             logger.debug("Installing packages: {}", packages_to_install)
-            sandbox.exec("apt-get", "update", "-qq")
-            sandbox.exec("apt-get", "install", "-y", "-qq", *packages_to_install)
+            # Wait for apt-get commands to complete by calling .wait() on the result
+            sandbox.exec("apt-get", "update", "-qq").wait()
+            sandbox.exec("apt-get", "install", "-y", "-qq", *packages_to_install).wait()
 
         # Create sshd run directory (required for sshd to start)
-        sandbox.exec("mkdir", "-p", "/run/sshd")
+        # Wait for the command to complete before proceeding
+        sandbox.exec("mkdir", "-p", "/run/sshd").wait()
 
         # Create mngr host directory
-        sandbox.exec("mkdir", "-p", str(self.host_dir))
+        sandbox.exec("mkdir", "-p", str(self.host_dir)).wait()
 
     def _start_sshd_in_sandbox(
         self,
@@ -342,11 +345,15 @@ class ModalProviderInstance(BaseProviderInstance):
         self._check_and_install_packages(sandbox)
 
         # Create .ssh directory
-        sandbox.exec("mkdir", "-p", "/root/.ssh")
+        sandbox.exec("mkdir", "-p", "/root/.ssh").wait()
 
         # Write the authorized_keys file (for client authentication)
         with sandbox.open("/root/.ssh/authorized_keys", "wb") as f:
             f.write(client_public_key.encode("utf-8"))
+
+        # Remove any existing host keys first to ensure we use our key
+        # This is important for restored sandboxes which may have old keys from the snapshot
+        sandbox.exec("rm", "-f", "/etc/ssh/ssh_host_*").wait()
 
         # Install the host key (for host identification)
         # This ensures all Modal sandboxes use the same host key that we control
@@ -357,8 +364,8 @@ class ModalProviderInstance(BaseProviderInstance):
             f.write(host_public_key.encode("utf-8"))
 
         # Set correct permissions on host key
-        sandbox.exec("chmod", "600", "/etc/ssh/ssh_host_ed25519_key")
-        sandbox.exec("chmod", "644", "/etc/ssh/ssh_host_ed25519_key.pub")
+        sandbox.exec("chmod", "600", "/etc/ssh/ssh_host_ed25519_key").wait()
+        sandbox.exec("chmod", "644", "/etc/ssh/ssh_host_ed25519_key.pub").wait()
 
         # Start sshd (-D: don't detach, -e: print errors to stdout)
         sandbox.exec("/usr/sbin/sshd", "-D", "-e")
@@ -393,11 +400,19 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _create_pyinfra_host(self, hostname: str, port: int, private_key_path: Path) -> PyinfraHost:
         """Create a pyinfra host with SSH connector."""
+        # Clear pyinfra's memoized known_hosts cache to ensure fresh reads.
+        # pyinfra caches known_hosts by filename, but we add new entries dynamically,
+        # so we need to clear the cache to pick up new entries.
+        known_hosts_path_str = str(self._known_hosts_path)
+        cache_key = f"('{known_hosts_path_str}',){{}}"
+        if cache_key in get_host_keys.cache:
+            del get_host_keys.cache[cache_key]
+
         host_data = {
             "ssh_user": "root",
             "ssh_port": port,
             "ssh_key": str(private_key_path),
-            "ssh_known_hosts_file": str(self._known_hosts_path),
+            "ssh_known_hosts_file": known_hosts_path_str,
             "ssh_strict_host_key_checking": "yes",
         }
 

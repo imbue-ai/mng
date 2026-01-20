@@ -14,6 +14,7 @@ from click.testing import CliRunner
 from urwid.widget.listbox import SimpleFocusListWalker
 
 import imbue.mngr.main
+from imbue.mngr.providers.modal.instance import reset_modal_app_registry
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -199,6 +200,9 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     # Reset after the test as well
     imbue.mngr.main.reset_plugin_manager()
     reset_backend_registry()
+
+    # Clean up Modal app contexts to prevent async cleanup errors
+    reset_modal_app_registry()
 
 
 # =============================================================================

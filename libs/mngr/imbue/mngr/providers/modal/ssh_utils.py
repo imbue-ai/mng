@@ -4,6 +4,7 @@ Handles SSH key generation and management for Modal sandbox access.
 """
 
 import fcntl
+import os
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
@@ -164,5 +165,10 @@ def add_host_to_known_hosts(
                 f.seek(0)
                 f.truncate()
                 f.writelines(new_lines)
+
+            # Ensure the file is flushed to disk before we return
+            # This prevents race conditions where paramiko reads a stale version
+            f.flush()
+            os.fsync(f.fileno())
         finally:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
