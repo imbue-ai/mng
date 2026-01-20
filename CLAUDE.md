@@ -46,15 +46,20 @@ Only after doing all of the above should you begin writing code.
 - Code quality is extremely important. Do not compromise on quality to deliver a result--if you don't know a good way to do something, ask.
 - Follow the style guide!
 - Use the power of the type system to constrain your code and provide some assurance of correctness. If some required property can't be guaranteed by the type system, it should be runtime checked (i.e. explode if it fails).
-- You may write inline imports during your first pass, but during your reflection, be sure to go back and move any *that you created* to the top of the file instead.
 - Avoid using the `TYPE_CHECKING` guard. Do not add it to files that do not already contain it, and never put imports inside of it yourself--you MUST ask for explicit permission to do this (it's generally a sign of bad architecture that should be fixed some other way).
 - Do NOT write code in `__init__.py`--leave them completely blank (the only exception is for a line like "hookimpl = pluggy.HookimplMarker("mngr")", which should go at the very root __init__.py of a library).
 - Do NOT make constructs like module-level usage of `__all__`
-- Before finishing your response, ensure that you have run ALL tests in the project(s) you modified, and that they all pass. DO NOT just run a subset of the tests!
+- Before finishing your response, if you have made any changes, then you must ensure that you have run ALL tests in the project(s) you modified, and that they all pass. DO NOT just run a subset of the tests!
 - Use this command **from the root of the git checkout** to run all tests: "uv run pytest". Never change directories to run tests! Just run the command from the root of the git checkout.
+- Running pytest in this way will produce files in .claude/tests_outputs/ (and tell you about their paths) for things like slow tests and coverage failure.
+- Note that "uv run pytest" defaults to running all "unit" and "integration" tests, but the "acceptance" tests also run in CI. Do *not* run the acceptance tests locally--always allow CI to run them (it's faster than running them locally)
+- If you need to run a specific acceptance test to fix it, iterate on that specific test locally by calling "just test <full_path>::<test_name>" from the root of the git checkout. Do this rather than re-running all tests in CI.
+- Note that tasks are *not* be allowed to finish without A) all tests passing in CI, and B) fixing all MAJOR and CRITICAL issues (flagged by a separate reviewer agent).
+- A PR will be made automatically for you when you finish your reply--do NOT create one yourself.
 - **Never change diretories**. It's just a good way to get yourself confused.
 - To help verify that you ran the tests, report the exact command you used to run the tests, as well as the total number of tests that passed and failed (and the number that failed had better be 0).
 - If tests fail because of a lack of coverage, you should add tests for the new code that you wrote.
+- When adding tests, consider whether it should be a unit test (in a _test.py file) or an integration/acceptance/release test (in a test_*.py file, and marked with @pytest.mark.acceptance or @pytest.mark.release, no marks needed for integration).  See the style_guide.md for exact details on the types of tests. In general, most slow tests of all functionality should be release tests, and only important / core functionality should be acceptance tests.
 - If you see a flaky test, YOU MUST HIGHLIGHT THIS IN YOUR RESPONSE. Flaky tests must be fixed as soon as possible. Ideally you should finish your task, then if you are allowed to commit, commit, and try to fix the flaky test in a separate commit.
 - To reiterate: code correctness and quality is the most important concern when writing code.
 
