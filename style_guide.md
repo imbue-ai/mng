@@ -1595,7 +1595,7 @@ There are 4 types of tests: unit tests, integration tests, acceptance tests, and
 
 1. unit tests: put them in `(src)/**/*_test.py`. They test small, isolated pieces of functionality (ex: a single function or method). They answer the question: "is this code mostly working?" Run locally and are super fast.
 2. integration tests: put them in `(src)/**/test_*.py`. They answer the question: "does our program behave in the way that we want?" by testing "end to end" functionality. Run locally with no network access, don't take too long, and are used for calculating coverage.
-3. acceptance tests: put them in `(src)/**/test_*.py` and mark with `@pytest.mark.acceptance`. They answer the question: "does the application work under realistic conditions?" by testing with real dependencies (network access, Modal credentials, etc). Run on all branches in CI.
+3. acceptance tests: put them in `(src)/**/test_*.py` and mark with `@pytest.mark.acceptance`. They answer the question: "does the application work under realistic conditions?" by testing with real dependencies (network access, credentials, etc). Run on all branches in CI.
 4. release tests: put them in `(src)/**/test_*.py` and mark with `@pytest.mark.release`. They answer the question: "is the application ready for release?" These are more comprehensive acceptance-style tests that only run when pushing to main. The idea is to have them fixed up overnight/before release rather than as a precondition for merging PRs.
 
 ### Unit Tests
@@ -1695,7 +1695,7 @@ Always make sure each integration test is not too slow (< 60 seconds)
 
 ### Acceptance Tests
 
-Acceptance tests verify that the application works under realistic conditions with real dependencies. They can make live web requests, access Modal, and do basically anything necessary to confirm that the application works as expected.
+Acceptance tests verify that the application works under realistic conditions with real dependencies. They can make live web requests, use test credentials, and do basically anything necessary to confirm that the application works as expected.
 
 Create acceptance tests in the source package folder, using files that start with "test_" (same location as integration tests).
 
@@ -1735,7 +1735,7 @@ def test_full_end_to_end_workflow_with_all_providers() -> None:
     ...
 ```
 
-Release tests are a superset of acceptance tests. When pushing to main, both acceptance and release tests are run. The idea is to have any failures fixed up overnight or before release, rather than blocking every PR merge.
+The full release testing suite is a superset of acceptance tests. When pushing to main, both acceptance and release tests are run. The idea is to have any failures fixed up overnight or before release, rather than blocking every PR merge.
 
 Release tests can sometimes be flaky. This is ok. Make it possible to easily retry and re-run them if they fail.
 
