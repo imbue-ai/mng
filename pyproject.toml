@@ -36,6 +36,11 @@ testpaths = [
   "apps/*",
   "libs/*",
 ]
+filterwarnings = [
+  # Suppress grpclib warning that occurs during garbage collection when Channel.__del__ is called
+  # after the connection's transport has already been cleaned up. This is a known issue in grpclib.
+  "ignore:Exception ignored in.*Channel.__del__.*:pytest.PytestUnraisableExceptionWarning",
+]
 addopts = [
   "-n 4",
   "--cov=imbue.mngr",
