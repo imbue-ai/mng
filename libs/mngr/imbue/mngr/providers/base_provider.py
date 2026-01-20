@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Mapping
 from typing import Sequence
 
@@ -24,6 +25,7 @@ class BaseProviderInstance(ProviderInstanceInterface):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
+        dockerfile: Path | None = None,
     ) -> Host:
         raise NotImplementedError()
 

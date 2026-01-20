@@ -125,8 +125,9 @@ def resolve_target_host(
         logger.debug("Creating new host '{}' using provider '{}'", target_host.name, target_host.provider)
         provider = get_provider_instance(target_host.provider, mngr_ctx)
         logger.trace(
-            "Creating host with image={} tags={} build_args={} start_args={}",
+            "Creating host with image={} dockerfile={} tags={} build_args={} start_args={}",
             target_host.build.image,
+            target_host.build.dockerfile,
             target_host.tags,
             target_host.build.build_args,
             target_host.build.start_args,
@@ -137,6 +138,7 @@ def resolve_target_host(
             tags=target_host.tags,
             build_args=target_host.build.build_args,
             start_args=target_host.build.start_args,
+            dockerfile=target_host.build.dockerfile,
         )
     else:
         # already have the host

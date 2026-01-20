@@ -131,6 +131,7 @@ class SandboxConfig(FrozenModel):
     cpu: float = 1.0
     memory: float = 1.0
     image: str | None = None
+    dockerfile: str | None = None
     timeout: int = DEFAULT_SANDBOX_TIMEOUT
 
 
@@ -283,16 +284,23 @@ class ModalProviderInstance(BaseProviderInstance):
             # Directory not empty or other error - ignore
             pass
 
-    def _build_modal_image(self, base_image: str | None = None) -> modal.Image:
+    def _build_modal_image(
+        self,
+        base_image: str | None = None,
+        dockerfile: Path | None = None,
+    ) -> modal.Image:
         """Build a Modal image.
 
-        If base_image is provided (e.g., "python:3.11-slim"), uses that as the
+        If dockerfile is provided, builds from that Dockerfile.
+        Elif base_image is provided (e.g., "python:3.11-slim"), uses that as the
         base. Otherwise uses debian:bookworm-slim.
 
         SSH and tmux setup is handled at runtime in _start_sshd_in_sandbox to
         allow warning if these tools are not pre-installed in the base image.
         """
-        if base_image:
+        if dockerfile is not None:
+            image = modal.Image.from_dockerfile(str(dockerfile))
+        elif base_image:
             image = modal.Image.from_registry(base_image)
         else:
             image = modal.Image.debian_slim()
@@ -443,7 +451,11 @@ class ModalProviderInstance(BaseProviderInstance):
 
         return pyinfra_host
 
-    def _parse_build_args(self, build_args: Sequence[str] | None) -> SandboxConfig:
+    def _parse_build_args(
+        self,
+        build_args: Sequence[str] | None,
+        dockerfile: Path | None = None,
+    ) -> SandboxConfig:
         """Parse build arguments into sandbox configuration.
 
         Accepts arguments in two formats:
@@ -458,6 +470,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 cpu=self.default_cpu,
                 memory=self.default_memory,
                 image=None,
+                dockerfile=str(dockerfile) if dockerfile else None,
                 timeout=self.default_timeout,
             )
 
@@ -495,6 +508,7 @@ class ModalProviderInstance(BaseProviderInstance):
             cpu=parsed.cpu,
             memory=parsed.memory,
             image=parsed.image,
+            dockerfile=str(dockerfile) if dockerfile else None,
             timeout=parsed.timeout,
         )
 
@@ -532,6 +546,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 "timeout": config.timeout,
                 "gpu": config.gpu,
                 "image": config.image,
+                "dockerfile": config.dockerfile,
             },
             "snapshots": snapshots if snapshots is not None else [],
         }
@@ -575,6 +590,7 @@ class ModalProviderInstance(BaseProviderInstance):
             memory=float(config_data.get("memory", self.default_memory)),
             gpu=config_data.get("gpu"),
             image=config_data.get("image"),
+            dockerfile=config_data.get("dockerfile"),
             timeout=int(config_data.get("timeout", self.default_timeout)),
         )
 
@@ -730,13 +746,15 @@ class ModalProviderInstance(BaseProviderInstance):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
+        dockerfile: Path | None = None,
     ) -> Host:
         """Create a new Modal sandbox host."""
         logger.info("Creating Modal sandbox host: name={}", name)
 
         # Parse build arguments
-        config = self._parse_build_args(build_args)
+        config = self._parse_build_args(build_args, dockerfile)
         base_image = str(image) if image else config.image
+        dockerfile_path = dockerfile if dockerfile else (Path(config.dockerfile) if config.dockerfile else None)
 
         # Get SSH client keypair (for authentication)
         private_key_path, client_public_key = self._get_ssh_keypair()
@@ -749,7 +767,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Build the Modal image
         logger.debug("Building Modal image...")
-        modal_image = self._build_modal_image(base_image)
+        modal_image = self._build_modal_image(base_image, dockerfile_path)
 
         # Get or create the Modal app (uses singleton pattern with context manager)
         logger.debug("Getting Modal app: {}", self.app_name)
@@ -1157,6 +1175,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 "timeout": config.timeout,
                 "gpu": config.gpu,
                 "image": config.image,
+                "dockerfile": config.dockerfile,
             },
             "user_tags": user_tags,
         }

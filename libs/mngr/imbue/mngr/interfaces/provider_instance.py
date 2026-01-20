@@ -71,6 +71,7 @@ class ProviderInstanceInterface(MutableModel, ABC):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
+        dockerfile: Path | None = None,
     ) -> HostInterface:
         """Create and start a new host with the given name and configuration."""
         ...
