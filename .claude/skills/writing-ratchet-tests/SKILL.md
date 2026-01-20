@@ -34,11 +34,11 @@ First, clarify what pattern needs to be tracked by answering these questions for
 - What regex or detection method will identify it?
 - Does the regex need multiline support?
 
-### 2. Locate or Create tests/test_ratchets.py
+### 2. Locate or Create test_ratchets.py
 
-Check if the project has a `tests/test_ratchets.py` file:
+Check if the project has a `test_ratchets.py` file in the source package (e.g., `libs/<project>/imbue/<project>/utils/test_ratchets.py`):
 - If it exists, add the new test to the existing file
-- If it doesn't exist, create it with the necessary imports
+- If it doesn't exist, create it in an appropriate location within the source package (commonly in a `utils/` folder)
 
 The file should import:
 
@@ -58,10 +58,10 @@ from imbue.imbue_common.ratchet_testing.core import RegexPattern
 If this is the first ratchet test in the file, create a helper to get the source directory:
 ```python
 def _get_<project>_source_dir() -> Path:
-    return Path(__file__).parent.parent / "imbue" / "<project>"
+    return Path(__file__).parent.parent
 ```
 
-Replace `<project>` with the actual project name (e.g., "mngr").
+This assumes the test file is in a subfolder (like `utils/`) of the main source package. Adjust the path navigation as needed based on where your test file is located. Replace `<project>` with the actual project name (e.g., "mngr").
 
 ### 4. Write the Test Function
 
@@ -87,9 +87,9 @@ Key points:
 
 ### 5. Run the Test to Create Snapshot
 
-Run the test with inline-snapshot create mode:
+Run the test with inline-snapshot create mode (use the actual path to your test file):
 ```bash
-uv run pytest tests/test_ratchets.py::test_prevent_<name> --inline-snapshot=create -v
+uv run pytest libs/<project>/imbue/<project>/utils/test_ratchets.py::test_prevent_<name> --inline-snapshot=create -v
 ```
 
 This will:
@@ -101,7 +101,7 @@ This will:
 
 Run the test normally to ensure it passes:
 ```bash
-uv run pytest tests/test_ratchets.py -v
+uv run pytest libs/<project>/imbue/<project>/utils/test_ratchets.py -v
 ```
 
 ## Best Practices
@@ -112,7 +112,7 @@ uv run pytest tests/test_ratchets.py -v
 - Start with `snapshot()` empty - let the test fill it in
 - Use `multiline=True` when your regex uses `^` to match line starts
 - Group related ratchets in the same file
-- Run all ratchet tests together: `uv run pytest tests/test_ratchets.py -v`
+- Run all ratchet tests together: `uv run pytest libs/<project>/imbue/<project>/utils/test_ratchets.py -v`
 
 ## Troubleshooting
 
