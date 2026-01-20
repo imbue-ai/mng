@@ -25,9 +25,6 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 
-# Skip all tests in this module if Modal is not available
-pytest.importorskip("modal")
-
 
 def make_modal_provider(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
     """Create a ModalProviderInstance for testing."""

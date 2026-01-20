@@ -18,9 +18,6 @@ from uuid import uuid4
 
 import pytest
 
-# Skip all tests in this module if Modal is not available
-pytest.importorskip("modal")
-
 
 @pytest.fixture
 def temp_source_dir() -> Generator[Path, None, None]:
