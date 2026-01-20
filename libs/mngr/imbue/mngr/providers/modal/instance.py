@@ -936,6 +936,7 @@ class ModalProviderInstance(BaseProviderInstance):
             timeout=int(config_data.get("timeout", self.default_timeout)),
             gpu=config_data.get("gpu"),
             image=config_data.get("image"),
+            dockerfile=config_data.get("dockerfile"),
         )
         host_name = HostName(host_metadata.get("host_name", f"restored-{str(host_id)[-8:]}"))
         user_tags: dict[str, str] = host_metadata.get("user_tags", {})
