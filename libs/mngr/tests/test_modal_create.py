@@ -1,7 +1,7 @@
 """Acceptance tests for creating agents on Modal.
 
 These tests require Modal credentials and network access to run. They are marked
-with @pytest.mark.modal and are skipped by default. To run them:
+with @pytest.mark.acceptance and are skipped by default. To run them:
 
     pytest -m modal --timeout=300
 
@@ -29,7 +29,7 @@ def temp_source_dir() -> Generator[Path, None, None]:
         yield source_dir
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_mngr_create_echo_command_on_modal(temp_source_dir: Path) -> None:
     """Test creating an agent with echo command on Modal using the CLI.
@@ -75,7 +75,7 @@ def test_mngr_create_echo_command_on_modal(temp_source_dir: Path) -> None:
     assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_mngr_create_with_worktree_flag_on_modal_raises_error(temp_source_dir: Path) -> None:
     """Test that explicitly requesting --worktree on modal raises an error.
@@ -116,7 +116,7 @@ def test_mngr_create_with_worktree_flag_on_modal_raises_error(temp_source_dir: P
     )
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_mngr_create_with_build_args_on_modal(temp_source_dir: Path) -> None:
     """Test creating an agent on Modal with custom build args (cpu, memory).

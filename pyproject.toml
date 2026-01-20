@@ -56,11 +56,12 @@ addopts = [
   "--ignore-glob=*/tests",
   # to hopefully see why a worker crashes, rather than just trying to re-run it
   "--max-worker-restart=0",
-  # skip modal tests by default (they require network access)
-  "-m not modal",
+  # skip acceptance tests by default (they require network access)
+  "-m not acceptance and not release",
 ]
 markers = [
-  "modal: marks tests as requiring Modal credentials and network access",
+  "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
+  "release: marks tests as being required for release (but not for merging PRs)",
 ]
 
 [tool.ruff]

@@ -1,7 +1,7 @@
 """Tests for the ModalProviderInstance.
 
 These tests require Modal credentials and network access to run. They are marked
-with @pytest.mark.modal and are skipped by default. To run them:
+with @pytest.mark.acceptance and are skipped by default. To run them:
 
     pytest -m modal --timeout=180
 
@@ -160,7 +160,7 @@ def test_parse_build_args_value_with_equals(modal_provider: ModalProviderInstanc
 # =============================================================================
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_create_host_creates_sandbox_with_ssh(modal_provider: ModalProviderInstance) -> None:
     """Creating a host should create a Modal sandbox with SSH access."""
@@ -189,7 +189,7 @@ def test_create_host_creates_sandbox_with_ssh(modal_provider: ModalProviderInsta
             modal_provider.destroy_host(host)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_get_host_by_id(modal_provider: ModalProviderInstance) -> None:
     """Should be able to get a host by its ID."""
@@ -207,7 +207,7 @@ def test_get_host_by_id(modal_provider: ModalProviderInstance) -> None:
             modal_provider.destroy_host(host)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_get_host_by_name(modal_provider: ModalProviderInstance) -> None:
     """Should be able to get a host by its name."""
@@ -225,7 +225,7 @@ def test_get_host_by_name(modal_provider: ModalProviderInstance) -> None:
             modal_provider.destroy_host(host)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_list_hosts_includes_created_host(modal_provider: ModalProviderInstance) -> None:
     """Created host should appear in list_hosts."""
@@ -242,7 +242,7 @@ def test_list_hosts_includes_created_host(modal_provider: ModalProviderInstance)
             modal_provider.destroy_host(host)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_destroy_host_removes_sandbox(modal_provider: ModalProviderInstance) -> None:
     """Destroying a host should remove it from the provider."""
@@ -256,7 +256,7 @@ def test_destroy_host_removes_sandbox(modal_provider: ModalProviderInstance) -> 
         modal_provider.get_host(host_id)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_get_host_resources(modal_provider: ModalProviderInstance) -> None:
     """Should be able to get resource information for a host."""
@@ -273,7 +273,7 @@ def test_get_host_resources(modal_provider: ModalProviderInstance) -> None:
             modal_provider.destroy_host(host)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_get_and_set_host_tags(modal_provider: ModalProviderInstance) -> None:
     """Should be able to get and set tags on a host."""
@@ -307,7 +307,7 @@ def test_get_and_set_host_tags(modal_provider: ModalProviderInstance) -> None:
             modal_provider.destroy_host(host)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_create_and_list_snapshots(modal_provider: ModalProviderInstance) -> None:
     """Should be able to create and list snapshots."""
@@ -335,7 +335,7 @@ def test_create_and_list_snapshots(modal_provider: ModalProviderInstance) -> Non
             modal_provider.destroy_host(host)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_list_snapshots_returns_empty_initially(modal_provider: ModalProviderInstance) -> None:
     """list_snapshots should return empty list for a new host."""
@@ -350,7 +350,7 @@ def test_list_snapshots_returns_empty_initially(modal_provider: ModalProviderIns
             modal_provider.destroy_host(host)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_delete_snapshot(modal_provider: ModalProviderInstance) -> None:
     """Should be able to delete a snapshot."""
@@ -371,7 +371,7 @@ def test_delete_snapshot(modal_provider: ModalProviderInstance) -> None:
             modal_provider.destroy_host(host)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_delete_nonexistent_snapshot_raises_error(modal_provider: ModalProviderInstance) -> None:
     """Deleting a nonexistent snapshot should raise SnapshotNotFoundError."""
@@ -388,7 +388,7 @@ def test_delete_nonexistent_snapshot_raises_error(modal_provider: ModalProviderI
             modal_provider.destroy_host(host)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_start_host_restores_from_snapshot(modal_provider: ModalProviderInstance) -> None:
     """start_host with a snapshot_id should restore a terminated host from the snapshot."""
@@ -434,7 +434,7 @@ def test_start_host_restores_from_snapshot(modal_provider: ModalProviderInstance
             pass
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_start_host_on_running_host(modal_provider: ModalProviderInstance) -> None:
     """start_host on a running host should return the same host."""
@@ -452,7 +452,7 @@ def test_start_host_on_running_host(modal_provider: ModalProviderInstance) -> No
             modal_provider.destroy_host(host)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_start_host_on_stopped_host_raises_error(modal_provider: ModalProviderInstance) -> None:
     """start_host on a terminated host should raise an error."""
@@ -467,7 +467,7 @@ def test_start_host_on_stopped_host_raises_error(modal_provider: ModalProviderIn
         modal_provider.start_host(host_id)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 def test_get_host_not_found_raises_error(modal_provider: ModalProviderInstance) -> None:
     """Getting a non-existent host should raise HostNotFoundError."""
     fake_id = HostId.generate()
@@ -475,7 +475,7 @@ def test_get_host_not_found_raises_error(modal_provider: ModalProviderInstance) 
         modal_provider.get_host(fake_id)
 
 
-@pytest.mark.modal
+@pytest.mark.acceptance
 def test_get_host_by_name_not_found_raises_error(modal_provider: ModalProviderInstance) -> None:
     """Getting a non-existent host by name should raise HostNotFoundError."""
     with pytest.raises(HostNotFoundError):
