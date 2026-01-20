@@ -21,7 +21,7 @@ Then take a look at the other code directories, and based on the task, determine
 
 Do NOT read files that end with "_test.py" during this first pass as they contain unit tests (unless you are explicitly instructed to read the unit tests).
 
-Do NOT read files in the "tests/" folder either, as they contain integration and acceptance tests (again, unless you are explicitly instructed to read the existing tests).
+Do NOT read files in the "tests/" folder either, as they contain acceptance and release tests (again, unless you are explicitly instructed to read the existing tests).
 
 Only after doing all of the above should you begin writing code.
 
