@@ -1595,8 +1595,8 @@ There are 4 types of tests: unit tests, integration tests, acceptance tests, and
 
 1. unit tests: put them in `(src)/**/*_test.py`. They test small, isolated pieces of functionality (ex: a single function or method). They answer the question: "is this code mostly working?" Run locally and are super fast.
 2. integration tests: put them in `(src)/**/test_*.py`. They answer the question: "does our program behave in the way that we want?" by testing "end to end" functionality. Run locally with no network access, don't take too long, and are used for calculating coverage.
-3. acceptance tests: put them in `tests/test_*.py` and mark with `@pytest.mark.acceptance`. They answer the question: "does the application work under realistic conditions?" by testing with real dependencies (network access, Modal credentials, etc). Run on all branches in CI.
-4. release tests: put them in `tests/test_*.py` and mark with `@pytest.mark.release`. They answer the question: "is the application ready for release?" These are more comprehensive acceptance-style tests that only run when pushing to main. The idea is to have them fixed up overnight/before release rather than as a precondition for merging PRs.
+3. acceptance tests: put them in `(src)/**/test_*.py` and mark with `@pytest.mark.acceptance`. They answer the question: "does the application work under realistic conditions?" by testing with real dependencies (network access, Modal credentials, etc). Run on all branches in CI.
+4. release tests: put them in `(src)/**/test_*.py` and mark with `@pytest.mark.release`. They answer the question: "is the application ready for release?" These are more comprehensive acceptance-style tests that only run when pushing to main. The idea is to have them fixed up overnight/before release rather than as a precondition for merging PRs.
 
 ### Unit Tests
 
@@ -1697,9 +1697,7 @@ Always make sure each integration test is not too slow (< 60 seconds)
 
 Acceptance tests verify that the application works under realistic conditions with real dependencies. They can make live web requests, access Modal, and do basically anything necessary to confirm that the application works as expected.
 
-Always create acceptance tests somewhere within the "tests/" folder for an application
-
-Always prefix acceptance test files with "test_"
+Create acceptance tests in the source package folder, using files that start with "test_" (same location as integration tests).
 
 Always mark acceptance tests with `@pytest.mark.acceptance`
 
@@ -1722,9 +1720,7 @@ Acceptance tests can sometimes be flaky. This is ok. Make it possible to easily 
 
 Release tests are comprehensive tests that only run when pushing to main. They verify the application is ready for release and may include slower, more thorough tests that would be too time-consuming to run on every PR.
 
-Always create release tests somewhere within the "tests/" folder for an application
-
-Always prefix release test files with "test_"
+Create release tests in the source package folder, using files that start with "test_" (same location as integration tests).
 
 Always mark release tests with `@pytest.mark.release`
 
