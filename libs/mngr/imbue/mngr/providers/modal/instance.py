@@ -14,6 +14,7 @@ from typing import Any
 from typing import Final
 from typing import Mapping
 from typing import Sequence
+from typing import cast
 
 import modal
 from loguru import logger
@@ -171,6 +172,70 @@ class ModalProviderInstance(BaseProviderInstance):
     def _known_hosts_path(self) -> Path:
         """Get the path to the known_hosts file for this provider instance."""
         return self._keys_dir / "known_hosts"
+
+    @property
+    def _snapshots_dir(self) -> Path:
+        """Get the directory for storing snapshot metadata persistently.
+
+        Snapshots need to be stored locally because Modal sandbox tags are lost
+        when the sandbox is terminated. This allows restoration from snapshots
+        even after the original sandbox is gone.
+        """
+        return self._keys_dir / "snapshots"
+
+    def _get_snapshot_file_path(self, host_id: HostId, snapshot_id: SnapshotId) -> Path:
+        """Get the file path for a specific snapshot's metadata."""
+        return self._snapshots_dir / str(host_id) / f"{snapshot_id}.json"
+
+    def _save_snapshot_locally(
+        self,
+        host_id: HostId,
+        snapshot_data: dict[str, Any],
+        host_metadata: dict[str, Any],
+    ) -> None:
+        """Save snapshot metadata to local storage for persistence across sandbox termination."""
+        snapshot_id = SnapshotId(snapshot_data["id"])
+        file_path = self._get_snapshot_file_path(host_id, snapshot_id)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Combine snapshot data with host metadata for restoration
+        full_data = {
+            "snapshot": snapshot_data,
+            "host": host_metadata,
+        }
+        file_path.write_text(json.dumps(full_data, indent=2))
+
+    def _load_snapshot_locally(
+        self,
+        host_id: HostId,
+        snapshot_id: SnapshotId,
+    ) -> dict[str, Any] | None:
+        """Load snapshot metadata from local storage."""
+        file_path = self._get_snapshot_file_path(host_id, snapshot_id)
+        if not file_path.exists():
+            return None
+        return json.loads(file_path.read_text())
+
+    def _delete_snapshot_locally(self, host_id: HostId, snapshot_id: SnapshotId) -> None:
+        """Delete snapshot metadata from local storage."""
+        file_path = self._get_snapshot_file_path(host_id, snapshot_id)
+        if file_path.exists():
+            file_path.unlink()
+
+    def _list_snapshots_locally(self, host_id: HostId) -> list[dict[str, Any]]:
+        """List all snapshots for a host from local storage."""
+        host_snapshots_dir = self._snapshots_dir / str(host_id)
+        if not host_snapshots_dir.exists():
+            return []
+
+        snapshots: list[dict[str, Any]] = []
+        for file_path in host_snapshots_dir.glob("*.json"):
+            try:
+                data = json.loads(file_path.read_text())
+                snapshots.append(data["snapshot"])
+            except (json.JSONDecodeError, KeyError):
+                continue
+        return snapshots
 
     def _build_modal_image(self, base_image: str | None = None) -> modal.Image:
         """Build a Modal image.
@@ -701,25 +766,134 @@ class ModalProviderInstance(BaseProviderInstance):
         host: HostInterface | HostId,
         snapshot_id: SnapshotId | None = None,
     ) -> Host:
-        """Start a stopped host.
+        """Start a stopped host, optionally restoring from a snapshot.
 
-        Note: Modal sandboxes cannot be restarted once terminated. This will
-        raise an error if the sandbox is not currently running.
+        If the sandbox is still running, returns the existing host. If the
+        sandbox has been terminated and a snapshot_id is provided, creates
+        a new sandbox from the snapshot image. Without a snapshot_id, a
+        terminated sandbox cannot be restarted.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
 
+        # If sandbox is still running, return it
         sandbox = self._find_sandbox_by_host_id(host_id)
-        if sandbox is None:
+        if sandbox is not None:
+            host_obj = self._create_host_from_sandbox(sandbox)
+            if host_obj is not None:
+                if snapshot_id is not None:
+                    logger.warning(
+                        "Sandbox {} is still running; ignoring snapshot_id parameter. "
+                        "Stop the host first to restore from a snapshot.",
+                        host_id,
+                    )
+                return host_obj
+
+        # Sandbox is not running - try to restore from snapshot if provided
+        if snapshot_id is None:
             raise MngrError(
-                f"Modal sandbox {host_id} is not running and cannot be restarted. Create a new host instead."
+                f"Modal sandbox {host_id} is not running and cannot be restarted. "
+                "Provide a snapshot_id to restore from a snapshot, or create a new host."
             )
 
-        host_obj = self._create_host_from_sandbox(sandbox)
-        if host_obj is None:
-            raise MngrError(
-                f"Modal sandbox {host_id} is missing required metadata and cannot be reconnected. Create a new host instead."
+        # Load snapshot data from local storage
+        snapshot_full_data = self._load_snapshot_locally(host_id, snapshot_id)
+        if snapshot_full_data is None:
+            raise SnapshotNotFoundError(snapshot_id)
+
+        snapshot_data = snapshot_full_data["snapshot"]
+        host_metadata = snapshot_full_data["host"]
+        modal_image_id = snapshot_data.get("modal_image_id")
+
+        if not modal_image_id:
+            raise MngrError(f"Snapshot {snapshot_id} does not contain a Modal image ID for restoration.")
+
+        logger.info("Restoring Modal sandbox from snapshot: host_id={}, snapshot_id={}", host_id, snapshot_id)
+
+        # Get SSH keypairs
+        private_key_path, client_public_key = self._get_ssh_keypair()
+        host_key_path, host_public_key = self._get_host_keypair()
+        host_private_key = host_key_path.read_text()
+
+        # Restore sandbox configuration from snapshot metadata
+        config_data = host_metadata.get("config", {})
+        config = SandboxConfig(
+            cpu=float(config_data.get("cpu", self.default_cpu)),
+            memory=float(config_data.get("memory", self.default_memory)),
+            timeout=int(config_data.get("timeout", self.default_timeout)),
+            gpu=config_data.get("gpu"),
+            image=config_data.get("image"),
+        )
+        host_name = HostName(host_metadata.get("host_name", f"restored-{str(host_id)[-8:]}"))
+        user_tags: dict[str, str] = host_metadata.get("user_tags", {})
+
+        # Create the image reference from the snapshot
+        logger.debug("Creating sandbox from snapshot image: {}", modal_image_id)
+        # Cast needed because modal.Image.from_id returns Self which the type checker can't resolve
+        modal_image = cast(modal.Image, modal.Image.from_id(modal_image_id))
+
+        # Get or create the Modal app
+        app = self._get_modal_app()
+
+        # Create the sandbox from the snapshot image
+        memory_mb = int(config.memory * 1024)
+        if config.gpu:
+            new_sandbox = modal.Sandbox.create(
+                image=modal_image,
+                app=app,
+                timeout=config.timeout,
+                cpu=config.cpu,
+                memory=memory_mb,
+                unencrypted_ports=[CONTAINER_SSH_PORT],
+                gpu=config.gpu,
             )
-        return host_obj
+        else:
+            new_sandbox = modal.Sandbox.create(
+                image=modal_image,
+                app=app,
+                timeout=config.timeout,
+                cpu=config.cpu,
+                memory=memory_mb,
+                unencrypted_ports=[CONTAINER_SSH_PORT],
+            )
+        logger.info("Created sandbox from snapshot: {}", new_sandbox.object_id)
+
+        # Start sshd
+        self._start_sshd_in_sandbox(new_sandbox, client_public_key, host_private_key, host_public_key)
+
+        # Get SSH connection info
+        ssh_host, ssh_port = self._get_ssh_info_from_sandbox(new_sandbox)
+
+        # Add to known hosts
+        add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
+
+        # Wait for sshd
+        self._wait_for_sshd(ssh_host, ssh_port)
+
+        # Store metadata as tags (preserving the original host_id)
+        sandbox_tags = self._build_sandbox_tags(
+            host_id=host_id,
+            name=host_name,
+            ssh_host=ssh_host,
+            ssh_port=ssh_port,
+            host_public_key=host_public_key,
+            config=config,
+            user_tags=user_tags,
+        )
+        new_sandbox.set_tags(sandbox_tags)
+
+        # Create pyinfra host and return
+        pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
+        connector = PyinfraConnector(pyinfra_host)
+
+        restored_host = Host(
+            id=host_id,
+            connector=connector,
+            provider_instance=self,
+            mngr_ctx=self.mngr_ctx,
+        )
+
+        logger.info("Restored Modal host from snapshot: id={}, name={}", host_id, host_name)
+        return restored_host
 
     def destroy_host(
         self,
@@ -831,8 +1005,8 @@ class ModalProviderInstance(BaseProviderInstance):
         """Create a snapshot of a Modal sandbox's filesystem.
 
         Uses Modal's sandbox.snapshot_filesystem() to create an incremental snapshot.
-        Snapshot metadata is stored in the sandbox's tags since Modal doesn't yet
-        provide a way to list snapshots via their API.
+        Snapshot metadata is stored both in the sandbox's tags and locally on disk.
+        Local storage allows restoration even after the original sandbox is terminated.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
         logger.debug("Creating snapshot for Modal sandbox: host_id={}", host_id)
@@ -860,13 +1034,30 @@ class ModalProviderInstance(BaseProviderInstance):
             "modal_image_id": modal_image_id,
         }
 
-        # Read existing snapshots and add the new one
+        # Read existing snapshots and host metadata for local storage
         tags = sandbox.get_tags()
-        _, _, _, _, _, _, _, existing_snapshots = self._parse_sandbox_tags(tags)
+        parsed_host_id, host_name, ssh_host, ssh_port, host_public_key, config, user_tags, existing_snapshots = (
+            self._parse_sandbox_tags(tags)
+        )
         updated_snapshots = existing_snapshots + [snapshot_data]
 
         # Update the sandbox tags with the new snapshot list
         self._update_sandbox_snapshots(sandbox, updated_snapshots)
+
+        # Save snapshot locally with host metadata for restoration after termination
+        host_metadata: dict[str, Any] = {
+            "host_id": str(host_id),
+            "host_name": str(host_name),
+            "config": {
+                "cpu": config.cpu,
+                "memory": config.memory,
+                "timeout": config.timeout,
+                "gpu": config.gpu,
+                "image": config.image,
+            },
+            "user_tags": user_tags,
+        }
+        self._save_snapshot_locally(host_id, snapshot_data, host_metadata)
 
         logger.info(
             "Created snapshot: id={}, name={}, modal_image_id={}",
@@ -882,20 +1073,24 @@ class ModalProviderInstance(BaseProviderInstance):
     ) -> list[SnapshotInfo]:
         """List all snapshots for a Modal sandbox.
 
-        Reads snapshot metadata from the sandbox's tags since Modal doesn't yet
-        provide a way to list snapshots via their API.
+        Reads snapshot metadata from sandbox tags if the sandbox is running,
+        or from local storage if the sandbox has been terminated.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
 
+        # Try to get snapshots from sandbox tags first
+        snapshots_data: list[dict[str, Any]] = []
         sandbox = self._find_sandbox_by_host_id(host_id)
-        if sandbox is None:
-            return []
+        if sandbox is not None:
+            tags = sandbox.get_tags()
+            try:
+                _, _, _, _, _, _, _, snapshots_data = self._parse_sandbox_tags(tags)
+            except (KeyError, ValueError):
+                pass
 
-        tags = sandbox.get_tags()
-        try:
-            _, _, _, _, _, _, _, snapshots_data = self._parse_sandbox_tags(tags)
-        except (KeyError, ValueError):
-            return []
+        # Fall back to local storage if sandbox is gone or has no snapshots
+        if not snapshots_data:
+            snapshots_data = self._list_snapshots_locally(host_id)
 
         # Convert to SnapshotInfo objects, sorted by created_at (newest first)
         snapshots: list[SnapshotInfo] = []
@@ -921,31 +1116,40 @@ class ModalProviderInstance(BaseProviderInstance):
     ) -> None:
         """Delete a snapshot from a Modal sandbox.
 
-        Removes the snapshot metadata from the sandbox's tags. Note that the
-        underlying Modal image is not deleted since Modal doesn't yet provide
-        a way to delete images via their API; they will be garbage-collected
-        by Modal when no longer referenced.
+        Removes the snapshot metadata from both sandbox tags (if running) and
+        local storage. Note that the underlying Modal image is not deleted
+        since Modal doesn't yet provide a way to delete images via their API;
+        they will be garbage-collected by Modal when no longer referenced.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
         logger.debug("Deleting snapshot {} from Modal sandbox: host_id={}", snapshot_id, host_id)
 
+        found = False
+
+        # Try to remove from sandbox tags if sandbox is still running
         sandbox = self._find_sandbox_by_host_id(host_id)
-        if sandbox is None:
-            raise HostNotFoundError(host_id)
+        if sandbox is not None:
+            tags = sandbox.get_tags()
+            try:
+                _, _, _, _, _, _, _, existing_snapshots = self._parse_sandbox_tags(tags)
+                snapshot_id_str = str(snapshot_id)
+                updated_snapshots = [s for s in existing_snapshots if s.get("id") != snapshot_id_str]
 
-        # Read existing snapshots
-        tags = sandbox.get_tags()
-        _, _, _, _, _, _, _, existing_snapshots = self._parse_sandbox_tags(tags)
+                if len(updated_snapshots) < len(existing_snapshots):
+                    found = True
+                    self._update_sandbox_snapshots(sandbox, updated_snapshots)
+            except (KeyError, ValueError):
+                pass
 
-        # Find and remove the snapshot
-        snapshot_id_str = str(snapshot_id)
-        updated_snapshots = [s for s in existing_snapshots if s.get("id") != snapshot_id_str]
+        # Also remove from local storage
+        local_snapshot = self._load_snapshot_locally(host_id, snapshot_id)
+        if local_snapshot is not None:
+            found = True
+            self._delete_snapshot_locally(host_id, snapshot_id)
 
-        if len(updated_snapshots) == len(existing_snapshots):
+        if not found:
             raise SnapshotNotFoundError(snapshot_id)
 
-        # Update the sandbox tags
-        self._update_sandbox_snapshots(sandbox, updated_snapshots)
         logger.info("Deleted snapshot: {}", snapshot_id)
 
     # =========================================================================
