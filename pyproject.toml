@@ -53,10 +53,9 @@ addopts = [
   "--durations=20",
   "--timeout=5",
   "--timeout-method=thread",
-  "--ignore-glob=*/tests",
   # to hopefully see why a worker crashes, rather than just trying to re-run it
   "--max-worker-restart=0",
-  # skip acceptance tests by default (they require network access)
+  # skip acceptance and release tests by default (they require network access)
   "-m not acceptance and not release",
 ]
 markers = [

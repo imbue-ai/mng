@@ -28,9 +28,23 @@ test-unit:
 test-integration:
   uv run pytest
 
-test-acceptance:
-  uv run pytest --override-ini='addopts=-n 4 --durations=20 --durations-min=1.0' --no-cov
+# can run without coverage to make things slightly faster when checking locally
+test-quick:
+  uv run pytest --no-cov --cov-fail-under=0
 
-# Generate test timings for pytest-split (run periodically to keep timings up to date. Runs all acceptance tests as well)
+test-acceptance:
+  # when running these locally, we set the max duration super high just so that we don't fail (which makes it harder to see the errors)
+  PYTEST_MAX_DURATION=600 uv run pytest --override-ini='' --no-cov --cov-fail-under=0 -n 4 -m "no release"
+
+test-release:
+  # when running these locally, we set the max duration super high just so that we don't fail (which makes it harder to see the errors)
+  PYTEST_MAX_DURATION=1200 1 uv run pytest --override-ini='' --no-cov --cov-fail-under=0 -n 4
+
+# Generate test timings for pytest-split (run periodically to keep timings up to date. Runs all acceptance and release)
 test-timings:
-  PYTEST_MAX_DURATION=600 uv run pytest -n 0 --store-durations --no-cov --cov-fail-under=0 --override-ini='addopts=-n 0 --durations=20 --durations-min=15.0'
+  # when running these locally, we set the max duration super high just so that we don't fail (which makes it harder to see the errors)
+  PYTEST_MAX_DURATION=6000 uv run pytest --override-ini='' --no-cov --cov-fail-under=0 -n 0 --store-durations
+
+# useful for running against a single test, regardless of how it is marked
+test target:
+  PYTEST_MAX_DURATION=600 uv run pytest --override-ini='' --no-cov --cov-fail-under=0 -n 0 "{{target}}"

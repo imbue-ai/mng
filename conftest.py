@@ -111,23 +111,23 @@ def pytest_sessionfinish(session, exitstatus):
         # Allow explicit override via environment variable (useful for generating test timings)
         if "PYTEST_MAX_DURATION" in os.environ:
             max_duration = float(os.environ["PYTEST_MAX_DURATION"])
-        elif "CI" in os.environ:
-            # release tests have the highest limit, since there can be many more of them, and they can take a really long time
-            if os.environ.get("IS_RELEASE", "0") == "1":
-                # this limit applies to the test suite that runs against "main" in GitHub CI
-                max_duration = 10 * 60.0
-            # acceptance tests have a somewhat higher limit (than integration and unit)
-            elif os.environ.get("IS_ACCEPTANCE", "0") == "1":
-                # this limit applies to the test suite that runs against all branches *except* "main" in GitHub CI (and has access to network, Modal, etc)
-                max_duration = 5 * 60.0
-            # integration tests have a lower limit
-            else:
+        # release tests have the highest limit, since there can be many more of them, and they can take a really long time
+        elif os.environ.get("IS_RELEASE", "0") == "1":
+            # this limit applies to the test suite that runs against "main" in GitHub CI
+            max_duration = 10 * 60.0
+        # acceptance tests have a somewhat higher limit (than integration and unit)
+        elif os.environ.get("IS_ACCEPTANCE", "0") == "1":
+            # this limit applies to the test suite that runs against all branches *except* "main" in GitHub CI (and has access to network, Modal, etc)
+            max_duration = 5 * 60.0
+        # integration tests have a lower limit
+        else:
+            if "CI" in os.environ:
                 # this limit applies to the test suite that runs against all branches *except* "main" in GitHub CI (and which is basically just used for calculating coverage)
                 # typically integration tests and unit tests are run locally, so we want them to be fast
                 max_duration = 60.0
-        else:
-            # this limit applies to the entire test suite when run locally
-            max_duration = 35.0
+            else:
+                # this limit applies to the entire test suite when run locally
+                max_duration = 35.0
 
         if duration > max_duration:
             pytest.exit(
