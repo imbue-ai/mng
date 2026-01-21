@@ -177,6 +177,66 @@ def test_destroy_nonexistent_agent(
     assert result.exit_code != 0
 
 
+def test_destroy_fails_if_any_identifier_not_found(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that destroy fails if any specified identifier doesn't match an agent.
+
+    When multiple agents are specified and some don't exist, the command should:
+    1. Fail without destroying any agents
+    2. Include all missing identifiers in the error message
+    """
+    agent_name = f"test-destroy-partial-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+    nonexistent_name1 = "nonexistent-agent-897231"
+    nonexistent_name2 = "nonexistent-agent-643892"
+
+    with tmux_session_cleanup(session_name):
+        # Create one real agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 782341",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+        assert tmux_session_exists(session_name)
+
+        # Try to destroy the real agent plus two non-existent ones
+        destroy_result = cli_runner.invoke(
+            destroy,
+            [agent_name, nonexistent_name1, nonexistent_name2, "--force"],
+            obj=plugin_manager,
+            catch_exceptions=True,
+        )
+
+        # Command should fail
+        assert destroy_result.exit_code != 0
+        assert isinstance(destroy_result.exception, UserInputError)
+
+        # Error message should include both missing agent names
+        error_message = str(destroy_result.exception)
+        assert nonexistent_name1 in error_message
+        assert nonexistent_name2 in error_message
+
+        # The existing agent should NOT have been destroyed
+        assert tmux_session_exists(session_name), "Existing agent should not be destroyed when some identifiers fail"
+
+
 def test_destroy_dry_run(
     cli_runner: CliRunner,
     temp_work_dir: Path,
