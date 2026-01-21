@@ -9,13 +9,17 @@ import json
 import socket
 import tempfile
 import time
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone
+from functools import wraps
 from pathlib import Path
 from typing import Any
 from typing import Final
 from typing import Mapping
+from typing import ParamSpec
 from typing import Sequence
+from typing import TypeVar
 from typing import cast
 
 import modal
@@ -51,6 +55,27 @@ from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+
+def handle_modal_auth_error(func: Callable[P, T]) -> Callable[P, T]:
+    """Decorator to convert modal.exception.AuthError to ModalAuthError.
+
+    Wraps provider methods to catch Modal authentication errors at the boundary
+    and convert them to our ModalAuthError with a helpful message.
+    """
+
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        try:
+            return func(*args, **kwargs)
+        except modal.exception.AuthError as e:
+            raise ModalAuthError() from e
+
+    return wrapper
+
 
 # Module-level registry of app contexts by app name
 # This ensures we only create one app per unique app_name, even if multiple
@@ -143,34 +168,28 @@ def build_image_from_dockerfile_contents(
         if initial_image is None:
             assert last_from_index is not None, "Dockerfile must have a FROM instruction"
             instructions = dfp.structure[last_from_index + 1 :]
-            try:
-                modal_image = modal.Image.from_registry(dfp.baseimage)
-            except modal.exception.AuthError as e:
-                raise ModalAuthError() from e
+            modal_image = modal.Image.from_registry(dfp.baseimage)
         else:
             assert last_from_index is None, "If initial_image is provided, Dockerfile cannot have a FROM instruction"
             instructions = list(dfp.structure)
             modal_image = initial_image
 
         if len(instructions) > 0:
-            try:
-                if is_each_layer_cached:
-                    for instr in instructions:
-                        if instr["instruction"] == "COMMENT":
-                            continue
-                        modal_image = modal_image.dockerfile_commands(
-                            [instr["content"]],
-                            context_dir=context_dir,
-                        )
-                else:
-                    # The downside of doing them all at once is that if any one fails,
-                    # Modal will re-run all of them
+            if is_each_layer_cached:
+                for instr in instructions:
+                    if instr["instruction"] == "COMMENT":
+                        continue
                     modal_image = modal_image.dockerfile_commands(
-                        [x["content"] for x in instructions if x["instruction"] != "COMMENT"],
+                        [instr["content"]],
                         context_dir=context_dir,
                     )
-            except modal.exception.AuthError as e:
-                raise ModalAuthError() from e
+            else:
+                # The downside of doing them all at once is that if any one fails,
+                # Modal will re-run all of them
+                modal_image = modal_image.dockerfile_commands(
+                    [x["content"] for x in instructions if x["instruction"] != "COMMENT"],
+                    context_dir=context_dir,
+                )
 
         return modal_image
 
@@ -369,21 +388,18 @@ class ModalProviderInstance(BaseProviderInstance):
         SSH and tmux setup is handled at runtime in _start_sshd_in_sandbox to
         allow warning if these tools are not pre-installed in the base image.
         """
-        try:
-            if dockerfile is not None:
-                dockerfile_contents = dockerfile.read_text()
-                context_dir = dockerfile.parent
-                image = build_image_from_dockerfile_contents(
-                    dockerfile_contents,
-                    context_dir=context_dir,
-                    is_each_layer_cached=True,
-                )
-            elif base_image:
-                image = modal.Image.from_registry(base_image)
-            else:
-                image = modal.Image.debian_slim()
-        except modal.exception.AuthError as e:
-            raise ModalAuthError() from e
+        if dockerfile is not None:
+            dockerfile_contents = dockerfile.read_text()
+            context_dir = dockerfile.parent
+            image = build_image_from_dockerfile_contents(
+                dockerfile_contents,
+                context_dir=context_dir,
+                is_each_layer_cached=True,
+            )
+        elif base_image:
+            image = modal.Image.from_registry(base_image)
+        else:
+            image = modal.Image.debian_slim()
 
         return image
 
@@ -720,10 +736,7 @@ class ModalProviderInstance(BaseProviderInstance):
         # Enter the app.run() context manager manually so we can return the app
         # while keeping the context active until close() is called
         run_context = app.run()
-        try:
-            run_context.__enter__()
-        except modal.exception.AuthError as e:
-            raise ModalAuthError() from e
+        run_context.__enter__()
 
         # Set app metadata on the loguru writer for structured logging
         if loguru_writer is not None:
@@ -822,6 +835,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # Core Lifecycle Methods
     # =========================================================================
 
+    @handle_modal_auth_error
     def create_host(
         self,
         name: HostName,
@@ -934,6 +948,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.info("Modal host created: id={}, name={}, ssh={}:{}", host_id, name, ssh_host, ssh_port)
         return host
 
+    @handle_modal_auth_error
     def stop_host(
         self,
         host: HostInterface | HostId,
@@ -957,6 +972,7 @@ class ModalProviderInstance(BaseProviderInstance):
         else:
             logger.debug("No sandbox found with host_id={}, may already be terminated", host_id)
 
+    @handle_modal_auth_error
     def start_host(
         self,
         host: HostInterface | HostId,
@@ -1026,10 +1042,7 @@ class ModalProviderInstance(BaseProviderInstance):
         # Create the image reference from the snapshot
         logger.debug("Creating sandbox from snapshot image: {}", modal_image_id)
         # Cast needed because modal.Image.from_id returns Self which the type checker can't resolve
-        try:
-            modal_image = cast(modal.Image, modal.Image.from_id(modal_image_id))
-        except modal.exception.AuthError as e:
-            raise ModalAuthError() from e
+        modal_image = cast(modal.Image, modal.Image.from_id(modal_image_id))
 
         # Get or create the Modal app
         app = self._get_modal_app()
@@ -1095,6 +1108,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.info("Restored Modal host from snapshot: id={}, name={}", host_id, host_name)
         return restored_host
 
+    @handle_modal_auth_error
     def destroy_host(
         self,
         host: HostInterface | HostId,
@@ -1114,6 +1128,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # Discovery Methods
     # =========================================================================
 
+    @handle_modal_auth_error
     def get_host(
         self,
         host: HostId | HostName,
@@ -1137,6 +1152,7 @@ class ModalProviderInstance(BaseProviderInstance):
             raise HostNotFoundError(host)
         return host_obj
 
+    @handle_modal_auth_error
     def list_hosts(
         self,
         include_destroyed: bool = False,
@@ -1204,6 +1220,7 @@ class ModalProviderInstance(BaseProviderInstance):
         tags[TAG_HOST_RECORD] = json.dumps(host_record)
         sandbox.set_tags(tags)
 
+    @handle_modal_auth_error
     def create_snapshot(
         self,
         host: HostInterface | HostId,
