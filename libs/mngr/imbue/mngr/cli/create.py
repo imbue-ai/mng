@@ -139,7 +139,6 @@ class CreateCliOptions(CommonCliOptions):
     source_host: str | None
     source_path: str | None
     target: str | None
-    target_host: str | None
     target_path: str | None
     in_place: bool
     copy_source: bool
