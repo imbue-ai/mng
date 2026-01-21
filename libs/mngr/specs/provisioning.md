@@ -2,6 +2,69 @@
 
 This document describes implementation details for the provisioning system. For user-facing documentation, see [provisioning concepts](../docs/concepts/provisioning.md).
 
+## Pre-Provisioning Validation Hook
+
+Before any provisioning steps run, mngr invokes the `before_provision_agent` hook. This hook allows plugins to validate that required preconditions are met before any actual provisioning work begins. This is the appropriate place to check for:
+
+- Required environment variables (e.g., API keys, credentials)
+- Required local files or directories
+- Network connectivity to required services
+- Proper authentication/authorization state
+
+If a plugin's validation fails, it should raise a `FatalMngrError` with a clear message explaining what is missing and how to fix it. This ensures that provisioning fails fast with actionable error messages rather than failing partway through after already making changes.
+
+**Important**: The `before_provision_agent` hook runs *before* any file transfers or package installations. It should only perform read-only validation checks, not make any changes to the host.
+
+Example validations a plugin might perform:
+- Check that `ANTHROPIC_API_KEY` is set for the claude plugin
+- Check that required SSH keys exist locally
+- Verify that a config file template exists at the expected path
+
+## File Transfer Collection
+
+Plugins can declare files and folders that need to be transferred from the local machine to the remote host during provisioning. This is done via a `get_provision_file_transfers` hook that returns a list of transfer specifications.
+
+Each transfer specification includes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `local_path` | `Path` | Path to the file or directory on the local machine |
+| `remote_path` | `Path` | Destination path on the remote host |
+| `is_required` | `bool` | If `True`, provisioning fails if the local file doesn't exist. If `False`, the transfer is skipped if the file is missing. |
+
+```python
+class FileTransferSpec(FrozenModel):
+    """Specification for a file to transfer during provisioning."""
+
+    local_path: Path = Field(description="Path to the file/directory on the local machine")
+    remote_path: Path = Field(description="Destination path on the remote host")
+    is_required: bool = Field(
+        default=True,
+        description="Whether provisioning should fail if the local file doesn't exist",
+    )
+```
+
+### Collection and Execution Order
+
+1. **Collection phase**: Before provisioning begins, mngr calls `get_provision_file_transfers()` on each enabled plugin to collect all file transfer requests.
+
+2. **Validation phase**: For each transfer where `is_required=True`, mngr verifies that `local_path` exists. If any required file is missing, provisioning fails with a clear error listing all missing files.
+
+3. **Transfer phase**: All collected transfers are executed, with optional transfers (where `is_required=False`) skipped if their source doesn't exist. Transfers happen *before* package installation and other provisioning steps.
+
+### Use Cases
+
+- **Config files**: Transfer local config files like `~/.anthropic/config.json` or `~/.npmrc`
+- **Credentials**: Transfer credential files (subject to permission checks)
+- **Project-specific files**: Transfer files referenced in `.mngr/settings.toml` that aren't part of the work_dir
+- **Plugin state**: Transfer plugin-specific state that needs to be present for the agent to function
+
+### Deduplication
+
+If multiple plugins request the same `remote_path`, mngr should detect this and either:
+- Error if the `local_path` values differ (conflicting transfers)
+- Deduplicate if the `local_path` values are identical (same transfer requested multiple times)
+
 ## Package Version Requirements
 
 Plugins should check both for the presence of required packages AND for minimum version requirements. This ensures that provisioning fails early with clear errors rather than allowing agents to start with incompatible package versions.

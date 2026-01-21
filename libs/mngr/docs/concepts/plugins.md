@@ -77,18 +77,20 @@ Note that we cannot have callbacks for most host lifecycle events because they c
 
 These hooks can be used to customize behavior when interacting with individual agents:
 
-| Hook                                | Description                                                              |
-|-------------------------------------|--------------------------------------------------------------------------|
-| `on_agent_collected`                | Called once per agent (per command where we collect this agent.)         |
-| `on_before_agent_create`            | Before creating an agent                                                 |
-| `on_after_agent_create`             | After all steps have been completed to create an agent and it is started |
-| `on_agent_state_dir_created`        | When creating the agent's state directory                                |
-| `on_before_apply_agent_permissions` | Before applying permissions to an agent                                  |
-| `on_after_apply_agent_permissions`  | After applying permissions to an agent                                   |
-| `on_before_agent_provisioning`      | Before provisioning an agent                                             |
-| `on_after_agent_provisioning`       | After provisioning an agent                                              |
-| `on_before_agent_destroy`           | Before destroying an agent                                               |
-| `on_after_agent_destroy`            | After destroying an agent                                                |
+| Hook                                | Description                                                                                           |
+|-------------------------------------|-------------------------------------------------------------------------------------------------------|
+| `on_agent_collected`                | Called once per agent (per command where we collect this agent.)                                      |
+| `on_before_agent_create`            | Before creating an agent                                                                              |
+| `on_after_agent_create`             | After all steps have been completed to create an agent and it is started                              |
+| `on_agent_state_dir_created`        | When creating the agent's state directory                                                             |
+| `on_before_apply_agent_permissions` | Before applying permissions to an agent                                                               |
+| `on_after_apply_agent_permissions`  | After applying permissions to an agent                                                                |
+| `before_provision_agent`            | Validate preconditions before provisioning (env vars, required files). Should raise on failure.       |
+| `get_provision_file_transfers`      | Return file transfer specs (local_path, remote_path, is_required) for files to copy during provision. |
+| `on_before_agent_provisioning`      | Before provisioning an agent                                                                          |
+| `on_after_agent_provisioning`       | After provisioning an agent                                                                           |
+| `on_before_agent_destroy`           | Before destroying an agent                                                                            |
+| `on_after_agent_destroy`            | After destroying an agent                                                                             |
 
 If you want to run scripts *whenever* an agent is started (not just the first time), you can put a script in the following hook directory:
 
