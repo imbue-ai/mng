@@ -15,7 +15,6 @@ from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
 from imbue.mngr.errors import SnapshotsNotSupportedError
-from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostResources
@@ -146,7 +145,6 @@ class LocalProviderInstance(BaseProviderInstance):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
-        dockerfile: Path | None = None,
     ) -> Host:
         """Create (or return) the local host.
 
@@ -154,8 +152,6 @@ class LocalProviderInstance(BaseProviderInstance):
         the local computer. The name and image parameters are ignored since
         the local host is always the same machine.
         """
-        if dockerfile is not None:
-            raise UserInputError("The local provider does not support building from Dockerfiles")
         logger.debug("Creating local host (provider={})", self.name)
         host = self._create_host(name, tags)
         logger.trace("Local host created: id={}", host.id)

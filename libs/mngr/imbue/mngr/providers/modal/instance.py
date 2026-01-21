@@ -454,7 +454,6 @@ class ModalProviderInstance(BaseProviderInstance):
     def _parse_build_args(
         self,
         build_args: Sequence[str] | None,
-        dockerfile: Path | None = None,
     ) -> SandboxConfig:
         """Parse build arguments into sandbox configuration.
 
@@ -470,7 +469,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 cpu=self.default_cpu,
                 memory=self.default_memory,
                 image=None,
-                dockerfile=str(dockerfile) if dockerfile else None,
+                dockerfile=None,
                 timeout=self.default_timeout,
             )
 
@@ -493,6 +492,7 @@ class ModalProviderInstance(BaseProviderInstance):
         parser.add_argument("--cpu", type=float, default=self.default_cpu)
         parser.add_argument("--memory", type=float, default=self.default_memory)
         parser.add_argument("--image", type=str, default=None)
+        parser.add_argument("--dockerfile", type=str, default=None)
         parser.add_argument("--timeout", type=int, default=self.default_timeout)
 
         try:
@@ -508,7 +508,7 @@ class ModalProviderInstance(BaseProviderInstance):
             cpu=parsed.cpu,
             memory=parsed.memory,
             image=parsed.image,
-            dockerfile=str(dockerfile) if dockerfile else None,
+            dockerfile=parsed.dockerfile,
             timeout=parsed.timeout,
         )
 
@@ -746,15 +746,14 @@ class ModalProviderInstance(BaseProviderInstance):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
-        dockerfile: Path | None = None,
     ) -> Host:
         """Create a new Modal sandbox host."""
         logger.info("Creating Modal sandbox host: name={}", name)
 
-        # Parse build arguments
-        config = self._parse_build_args(build_args, dockerfile)
+        # Parse build arguments (including --dockerfile if specified)
+        config = self._parse_build_args(build_args)
         base_image = str(image) if image else config.image
-        dockerfile_path = dockerfile if dockerfile else (Path(config.dockerfile) if config.dockerfile else None)
+        dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
 
         # Get SSH client keypair (for authentication)
         private_key_path, client_public_key = self._get_ssh_keypair()
