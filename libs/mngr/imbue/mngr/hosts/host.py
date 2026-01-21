@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import io
 import json
+import platform
 import shlex
 import sys
 import time
@@ -56,6 +57,12 @@ from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
 
 LOCAL_CONNECTOR_NAME: Final[str] = "LocalConnector"
+
+
+@deal.has()
+def _is_macos() -> bool:
+    """Check if the current system is macOS (Darwin)."""
+    return platform.system() == "Darwin"
 
 
 class HostLocation(FrozenModel):
@@ -537,10 +544,24 @@ class Host(HostInterface):
 
     def get_uptime_seconds(self) -> float:
         """Get host uptime in seconds."""
-        result = self.execute_command("cat /proc/uptime 2>/dev/null")
-        if result.success:
-            uptime_str = result.stdout.split()[0]
-            return float(uptime_str)
+        if _is_macos():
+            # macOS: use sysctl kern.boottime
+            result = self.execute_command(
+                "sysctl -n kern.boottime 2>/dev/null | sed 's/.*sec = \\([0-9]*\\).*/\\1/' && date +%s"
+            )
+            if result.success:
+                output_lines = result.stdout.strip().split("\n")
+                if len(output_lines) == 2:
+                    boot_time = int(output_lines[0])
+                    current_time = int(output_lines[1])
+                    return float(current_time - boot_time)
+        else:
+            # Linux: use /proc/uptime
+            result = self.execute_command("cat /proc/uptime 2>/dev/null")
+            if result.success:
+                uptime_str = result.stdout.split()[0]
+                return float(uptime_str)
+
         return 0.0
 
     def get_provider_resources(self) -> HostResources:
