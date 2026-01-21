@@ -87,21 +87,6 @@ def on_host_destroyed(host: HostInterface) -> None:
 
 
 @hookspec
-def on_after_apply_agent_permissions(
-    agent: AgentInterface,
-    host: HostInterface,
-    options: CreateAgentOptions,
-    mngr_ctx: MngrContext,
-) -> None:
-    """Called after permissions have been applied to an agent.
-
-    This hook is called after the agent's permissions have been set up,
-    allowing plugins to perform actions that depend on the agent having
-    the correct permissions configured.
-    """
-
-
-@hookspec
 def on_before_agent_provisioning(
     agent: AgentInterface,
     host: HostInterface,

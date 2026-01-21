@@ -18,9 +18,13 @@ from imbue.mngr.api.data_types import NewHostOptions
 from imbue.mngr.api.data_types import OnBeforeCreateArgs
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import MngrError
 from imbue.mngr.hosts.host import HostLocation
+from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
+from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
@@ -29,10 +33,6 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import WorkDirCopyMode
-from imbue.mngr.errors import MngrError
-from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.data_types import FileTransferSpec
-from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
 
@@ -848,17 +848,6 @@ class ProvisioningHookTracker:
         self.agents_seen: list[str] = []
 
     @hookimpl
-    def on_after_apply_agent_permissions(
-        self,
-        agent: AgentInterface,
-        host: HostInterface,
-        options: CreateAgentOptions,
-        mngr_ctx: MngrContext,
-    ) -> None:
-        self.calls.append("on_after_apply_agent_permissions")
-        self.agents_seen.append(str(agent.name))
-
-    @hookimpl
     def on_before_agent_provisioning(
         self,
         agent: AgentInterface,
@@ -940,7 +929,6 @@ def test_provisioning_hooks_called_in_correct_order(
 
     # Verify hooks were called in the correct order
     expected_order = [
-        "on_after_apply_agent_permissions",
         "on_before_agent_provisioning",
         "get_provision_file_transfers",
         "provision_agent",
@@ -982,13 +970,15 @@ def test_file_transfer_plugin_copies_files(
     local_file.write_text("test configuration content")
 
     # Set up plugin that transfers the file
-    plugin = FileTransferPlugin([
-        FileTransferSpec(
-            local_path=local_file,
-            remote_path=Path("transferred_config.txt"),
-            is_required=True,
-        )
-    ])
+    plugin = FileTransferPlugin(
+        [
+            FileTransferSpec(
+                local_path=local_file,
+                remote_path=Path("transferred_config.txt"),
+                is_required=True,
+            )
+        ]
+    )
 
     pm = pluggy.PluginManager("mngr")
     pm.add_hookspecs(hookspecs)
@@ -1035,13 +1025,15 @@ def test_file_transfer_missing_required_file_raises_error(
 
     # Set up plugin that tries to transfer a non-existent file
     nonexistent_file = tmp_path / "does_not_exist.txt"
-    plugin = FileTransferPlugin([
-        FileTransferSpec(
-            local_path=nonexistent_file,
-            remote_path=Path("config.txt"),
-            is_required=True,
-        )
-    ])
+    plugin = FileTransferPlugin(
+        [
+            FileTransferSpec(
+                local_path=nonexistent_file,
+                remote_path=Path("config.txt"),
+                is_required=True,
+            )
+        ]
+    )
 
     pm = pluggy.PluginManager("mngr")
     pm.add_hookspecs(hookspecs)
@@ -1085,13 +1077,15 @@ def test_file_transfer_optional_file_skipped_when_missing(
 
     # Set up plugin that tries to transfer a non-existent optional file
     nonexistent_file = tmp_path / "optional_config.txt"
-    plugin = FileTransferPlugin([
-        FileTransferSpec(
-            local_path=nonexistent_file,
-            remote_path=Path("config.txt"),
-            is_required=False,
-        )
-    ])
+    plugin = FileTransferPlugin(
+        [
+            FileTransferSpec(
+                local_path=nonexistent_file,
+                remote_path=Path("config.txt"),
+                is_required=False,
+            )
+        ]
+    )
 
     pm = pluggy.PluginManager("mngr")
     pm.add_hookspecs(hookspecs)
