@@ -86,7 +86,7 @@ def on_host_destroyed(host: HostInterface) -> None:
 
 
 @hookspec
-def on_provision_agent(
+def provision_agent(
     agent: AgentInterface,
     host: HostInterface,
     options: CreateAgentOptions,

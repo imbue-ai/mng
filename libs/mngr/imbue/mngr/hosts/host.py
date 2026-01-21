@@ -876,8 +876,8 @@ class Host(HostInterface):
         7. Run user commands (user-level setup, with env vars sourced)
         """
         # Call plugin hooks before CLI-defined provisioning options
-        logger.debug("Calling on_provision_agent hooks for agent {}", agent.name)
-        mngr_ctx.pm.hook.on_provision_agent(
+        logger.debug("Calling provision_agent hooks for agent {}", agent.name)
+        mngr_ctx.pm.hook.provision_agent(
             agent=agent,
             host=self,
             options=options,
