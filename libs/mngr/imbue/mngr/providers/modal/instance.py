@@ -31,7 +31,7 @@ from pyinfra.connectors.sshuserclient.client import get_host_keys
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
-from imbue.mngr.errors import PluginMngrError
+from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import CpuResources
@@ -146,12 +146,7 @@ def build_image_from_dockerfile_contents(
             try:
                 modal_image = modal.Image.from_registry(dfp.baseimage)
             except modal.exception.AuthError as e:
-                raise PluginMngrError(
-                    "Modal authentication failed. Token missing or invalid. "
-                    "You can disable the modal plugin by passing --disable-plugin modal "
-                    "to mngr commands, or configure modal credentials as described at "
-                    "https://modal.com/docs/reference/modal.config"
-                ) from e
+                raise ModalAuthError() from e
         else:
             assert last_from_index is None, "If initial_image is provided, Dockerfile cannot have a FROM instruction"
             instructions = list(dfp.structure)
@@ -175,12 +170,7 @@ def build_image_from_dockerfile_contents(
                         context_dir=context_dir,
                     )
             except modal.exception.AuthError as e:
-                raise PluginMngrError(
-                    "Modal authentication failed. Token missing or invalid. "
-                    "You can disable the modal plugin by passing --disable-plugin modal "
-                    "to mngr commands, or configure modal credentials as described at "
-                    "https://modal.com/docs/reference/modal.config"
-                ) from e
+                raise ModalAuthError() from e
 
         return modal_image
 
@@ -393,12 +383,7 @@ class ModalProviderInstance(BaseProviderInstance):
             else:
                 image = modal.Image.debian_slim()
         except modal.exception.AuthError as e:
-            raise PluginMngrError(
-                "Modal authentication failed. Token missing or invalid. "
-                "You can disable the modal plugin by passing --disable-plugin modal "
-                "to mngr commands, or configure modal credentials as described at "
-                "https://modal.com/docs/reference/modal.config"
-            ) from e
+            raise ModalAuthError() from e
 
         return image
 
@@ -738,12 +723,7 @@ class ModalProviderInstance(BaseProviderInstance):
         try:
             run_context.__enter__()
         except modal.exception.AuthError as e:
-            raise PluginMngrError(
-                "Modal authentication failed. Token missing or invalid. "
-                "You can disable the modal plugin by passing --disable-plugin modal "
-                "to mngr commands, or configure modal credentials as described at "
-                "https://modal.com/docs/reference/modal.config"
-            ) from e
+            raise ModalAuthError() from e
 
         # Set app metadata on the loguru writer for structured logging
         if loguru_writer is not None:
@@ -1049,12 +1029,7 @@ class ModalProviderInstance(BaseProviderInstance):
         try:
             modal_image = cast(modal.Image, modal.Image.from_id(modal_image_id))
         except modal.exception.AuthError as e:
-            raise PluginMngrError(
-                "Modal authentication failed. Token missing or invalid. "
-                "You can disable the modal plugin by passing --disable-plugin modal "
-                "to mngr commands, or configure modal credentials as described at "
-                "https://modal.com/docs/reference/modal.config"
-            ) from e
+            raise ModalAuthError() from e
 
         # Get or create the Modal app
         app = self._get_modal_app()
