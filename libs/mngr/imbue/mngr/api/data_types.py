@@ -8,7 +8,6 @@ from pydantic import computed_field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.config.data_types import EnvVar
-from imbue.mngr.config.data_types import HookDefinition
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import BuildCacheInfo
 from imbue.mngr.interfaces.data_types import HostInfo
@@ -22,7 +21,6 @@ from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
-from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotName
 
@@ -76,25 +74,9 @@ class NewHostBuildOptions(FrozenModel):
         default=None,
         description="Use existing snapshot instead of building",
     )
-    image: ImageReference | None = Field(
-        default=None,
-        description="Use existing image instead of building",
-    )
     context_path: Path | None = Field(
         default=None,
         description="Build context directory [default: local .git root]",
-    )
-    devcontainer: Path | None = Field(
-        default=None,
-        description="Build from devcontainer.json",
-    )
-    dockerfile: Path | None = Field(
-        default=None,
-        description="Build from Dockerfile",
-    )
-    hooks: tuple[HookDefinition, ...] = Field(
-        default=(),
-        description="Lifecycle hooks (NAME:COMMAND)",
     )
     build_args: tuple[str, ...] = Field(
         default=(),
