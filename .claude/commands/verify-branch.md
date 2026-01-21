@@ -39,6 +39,8 @@ Also be sure to:
 - Understand the existing codebase patterns around the changed files
 - Read any relevant instruction files (CLAUDE.md, style_guide.md) that might apply to the changed code
 
+Consider the user's request--if they did not ask for any changes and no changes were made (ex: they just asked a question), you can exit immediately. Otherwise, proceed to the next step.
+
 ### 2. Create Initial Issue List
 
 Go through the diff and create a comprehensive list of ALL potential issues you notice. Be thorough at this stage--it's better to identify more potential issues initially than to miss something.
@@ -75,6 +77,8 @@ When finished with all issues, touch this file:
     .reviews/final_issue_json/!`tmux display-message -t "$TMUX_PANE" -p '#W' || echo reviewer_0`.json.done
 
 !`rm -rf .reviews/final_issue_json/$(tmux display-message -t "$TMUX_PANE" -p '#W' || echo reviewer_0).json.done`
+
+As you are doing your analysis, do *not* run the tests--just focus on the code review itself. CI will prevent failing tests.
 
 ---
 
@@ -151,6 +155,8 @@ The diff should follow existing architectural and organizational patterns in the
 - If the codebase uses a modular structure with separate files for classes/components, new classes should follow the same pattern
 - If the codebase organizes code in specific directories (e.g., src/, components/, utils/), new code should be placed accordingly
 - If the codebase uses specific import/export patterns (e.g., relative vs. absolute imports), new code should use the same patterns
+- Tests should be given the correct decorators (ex: @pytest.mark.acceptance for tests that require network access/credentials and @pytest.mark.release for end-to-end tests that are not "core", eg, test rarer cases)
+- Tests should be placed in the correctly named file (ex: *_test.py for unit tests, test_*.py for integration/acceptance/release tests)
 
 The diff should integrate functionally with existing code by adding invocations, updating invocations, replacing code with newly defined functions or variables, removing duplicate code when a new piece replaces it, etc.
 
@@ -228,7 +234,9 @@ Note: we don't impose any minimal or maximal length on a class or file. Classes 
 - If the diff changes the behavior of existing functionality that is covered by automated tests, those tests should be updated to reflect the new behavior
 - If the diff contains a bug fix, and the code base has existing unit and/or integration tests, a regression test should be added for the bug
 
-**Exceptions:** Syntactical or logical issues in tests will be raised in other issue types and do not belong in this category.
+**Exceptions:** 
+- Syntactical or logical issues in tests will be raised in other issue types and do not belong in this category.
+- Changes *to the test code itself* (ex: to a conftest.py, testing_utils.py, test_*.py or *_test.py file) do not require test coverage (they will be executed when the tests run).
 
 ---
 

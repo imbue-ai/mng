@@ -62,6 +62,11 @@ log_info() {
 
 # Send the review command to the tmux window
 log_info "Triggering review in $SESSION:$WINDOW..."
+tmux send-keys -t "$SESSION:$WINDOW" "/clear"
+# see below note
+sleep 1.0
+tmux send-keys -t "$SESSION:$WINDOW" Enter
+sleep 2.0
 tmux send-keys -t "$SESSION:$WINDOW" "/verify-branch"
 # These have to be separate - otherwise it's treated as a bracketed paste
 # and irritatingly, we *do* require the sleep :(  I've seen claude fail without this (though even with zero sleep it only fails about 1 in 10 times for me)
