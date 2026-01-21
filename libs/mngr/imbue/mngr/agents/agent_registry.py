@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from pydantic import Field
-
-from imbue.mngr import hookimpl
 from imbue.mngr.agents.base_agent import BaseAgent
+from imbue.mngr.agents.default_plugins import claude_agent
+from imbue.mngr.agents.default_plugins import codex_agent
 from imbue.mngr.config.data_types import AgentTypeConfig
-from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.primitives import AgentTypeName
-from imbue.mngr.primitives import CommandString
 
 # =============================================================================
 # Agent Registry
@@ -26,8 +23,8 @@ def load_agents_from_plugins(pm) -> None:
         return
 
     # Register built-in agent type classes (each has a hookimpl static method)
-    pm.register(ClaudeAgentConfig)
-    pm.register(CodexAgentConfig)
+    pm.register(claude_agent)
+    pm.register(codex_agent)
 
     # Call the hook to get all agent type registrations
     # Each implementation returns a single tuple
@@ -103,90 +100,3 @@ def register_agent_config(
     For plugins, prefer using the @hookimpl decorator with register_agent_type().
     """
     _register_agent(agent_type, config_class=config_class)
-
-
-# =============================================================================
-# Built-in Agent Classes
-# =============================================================================
-
-
-class ClaudeAgent(BaseAgent):
-    """Agent implementation for Claude with session resumption support."""
-
-    def assemble_command(
-        self,
-        agent_args: tuple[str, ...],
-        command_override: CommandString | None,
-    ) -> CommandString:
-        """Assemble command with --resume || --session-id format for session resumption.
-
-        The command format is: 'claude --resume UUID args || claude --session-id UUID args'
-        This allows users to hit 'up' and 'enter' in tmux to resume the session (--resume)
-        or create it with that ID (--session-id).
-        """
-        if command_override is not None:
-            base = str(command_override)
-        elif self.agent_config.command is not None:
-            base = str(self.agent_config.command)
-        else:
-            raise NoCommandDefinedError(f"No command defined for agent type '{self.agent_type}'")
-
-        # Use the agent ID as the stable UUID for session identification
-        agent_uuid = str(self.id.get_uuid())
-
-        # Build the additional arguments (cli_args + agent_args)
-        additional_args = []
-        if self.agent_config.cli_args:
-            additional_args.append(self.agent_config.cli_args)
-        if agent_args:
-            additional_args.extend(agent_args)
-
-        # Join additional args
-        args_str = " ".join(additional_args) if additional_args else ""
-
-        # Build both command variants
-        resume_cmd = f"find ~/.claude/ -name '{agent_uuid}' && {base} --resume {agent_uuid}"
-        create_cmd = f"{base} --session-id {agent_uuid}"
-
-        # Append additional args to both commands if present
-        if args_str:
-            resume_cmd = f"{resume_cmd} {args_str}"
-            create_cmd = f"{create_cmd} {args_str}"
-
-        # Combine with || fallback
-        return CommandString(f"export CLAUDE_SESSION_ID={agent_uuid} && ( {resume_cmd} ) || {create_cmd}")
-
-
-# =============================================================================
-# Built-in Agent Config Classes
-# =============================================================================
-
-
-class ClaudeAgentConfig(AgentTypeConfig):
-    """Config for the claude agent type."""
-
-    command: CommandString = Field(
-        default=CommandString("claude"),
-        description="Command to run claude agent",
-    )
-
-    @staticmethod
-    @hookimpl
-    def register_agent_type() -> tuple[str, type[AgentInterface] | None, type[AgentTypeConfig]]:
-        """Register the claude agent type."""
-        return ("claude", ClaudeAgent, ClaudeAgentConfig)
-
-
-class CodexAgentConfig(AgentTypeConfig):
-    """Config for the codex agent type."""
-
-    command: CommandString = Field(
-        default=CommandString("codex"),
-        description="Command to run codex agent",
-    )
-
-    @staticmethod
-    @hookimpl
-    def register_agent_type() -> tuple[str, type[AgentInterface] | None, type[AgentTypeConfig]]:
-        """Register the codex agent type."""
-        return ("codex", None, CodexAgentConfig)

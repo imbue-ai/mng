@@ -503,6 +503,13 @@ def test_unset_vars_applied_during_agent_start(
 
     session_name = f"{mngr_test_prefix}{agent.name}"
 
+    # Wait for the tmux session to be fully ready before sending keys
+    def session_ready() -> bool:
+        result = host.execute_command(f"tmux has-session -t '{session_name}'")
+        return result.success
+
+    wait_for(session_ready, error_message="tmux session not ready")
+
     host.execute_command(f"tmux send-keys -t '{session_name}' 'echo HISTFILE_VALUE=${{HISTFILE:-UNSET}}' Enter")
     host.execute_command(f"tmux send-keys -t '{session_name}' 'echo PROFILE_VALUE=${{PROFILE:-UNSET}}' Enter")
 
@@ -1200,7 +1207,7 @@ class _ProvisionHookTracker:
         self.agent_names: list[str] = []
 
     @hookimpl
-    def on_provision_agent(
+    def provision_agent(
         self,
         agent: AgentInterface,
         host: "Host",
@@ -1218,7 +1225,7 @@ class _ProvisionHookTracker:
 def test_provision_agent_calls_hook(
     temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
 ) -> None:
-    """Test that provision_agent calls the on_provision_agent hook."""
+    """Test that provision_agent calls the provision_agent hook."""
     marker_path = temp_host_dir / "hook_marker.txt"
     hook_tracker = _ProvisionHookTracker(marker_path)
     plugin_manager.register(hook_tracker)
@@ -1266,7 +1273,7 @@ def test_provision_agent_calls_hook(
 def test_provision_agent_hook_called_before_cli_options(
     temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
 ) -> None:
-    """Test that on_provision_agent hook is called before CLI options are applied."""
+    """Test that provision_agent hook is called before CLI options are applied."""
     # This marker file will be created by CLI user_commands
     cli_marker_path = temp_host_dir / "provision_test" / "cli_marker.txt"
     hook_marker_path = temp_host_dir / "hook_order_marker.txt"
@@ -1278,7 +1285,7 @@ def test_provision_agent_hook_called_before_cli_options(
             self.cli_marker_existed_when_hook_ran: bool | None = None
 
         @hookimpl
-        def on_provision_agent(
+        def provision_agent(
             self,
             agent: AgentInterface,
             host: "Host",

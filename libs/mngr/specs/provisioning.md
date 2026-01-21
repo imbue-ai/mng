@@ -1,48 +1,73 @@
 # Provisioning Spec
 
-This document describes implementation details for the provisioning system. For user-facing documentation, see [provisioning concepts](../docs/concepts/provisioning.md).
+This document describes implementation details for the plugin provisioning system. For user-facing documentation, see [provisioning concepts](../docs/concepts/provisioning.md).
 
-## Package Version Requirements
+## Pre-Provisioning Validation Hook
 
-Plugins should check both for the presence of required packages AND for minimum version requirements. This ensures that provisioning fails early with clear errors rather than allowing agents to start with incompatible package versions.
+Before any provisioning steps run, mngr invokes the `on_before_agent_provisioning` hook. This hook allows plugins to validate that required preconditions are met before any actual provisioning work begins.
 
-Version checks should happen before any installation attempts, and error messages should clearly indicate:
-- Which package is missing or too old
-- The minimum required version
-- The currently installed version (if any)
+Example validations a plugin might perform:
+- Check that `ANTHROPIC_API_KEY` is set for the claude plugin
+- Check that required SSH keys exist locally
+- Verify that a config file template exists at the expected path
 
-## Cross-Platform Package Installation
+If a plugin's validation fails, it should raise a `PluginMngrError` with a clear message explaining what is missing and how to fix it. This ensures that provisioning fails fast with actionable error messages rather than failing partway through after already making changes.
 
-mngr should provide helper functions for cross-platform package installation that plugins can use. These helpers should:
+**Important**: The `on_before_agent_provisioning` hook runs *before* any file transfers or package installations. It should only perform read-only validation checks, not make any changes to the host.
 
-1. **Detect the platform**: Identify whether the host is using apt, yum, brew, etc.
-2. **Batch package operations**: Collect all package requests from all plugins before executing any installations
-3. **Handle conflicts intelligently**: Detect version conflicts between plugins and resolve or error appropriately
-4. **Make suggestions for local hosts**: On local hosts, suggest commands to the user rather than attempting installation
+## File Transfer Collection
 
-### Batched Installation
+The next hook to be called is the `get_provision_file_transfers` hook.
 
-Rather than each plugin defining all pyinfra operations itself, plugins should be given a chance to declare their basic requirements (packages, versions, etc.) first. mngr can then:
+Plugins can declare files and folders that need to be transferred from the local machine to the remote host during provisioning by returning a list of transfer specifications.
 
-1. Collect all requirements from all plugins
-2. Resolve version constraints
-3. Batch installation commands (e.g., a single `apt-get install` with all packages)
-4. Execute the batched operations in parallel where possible
+Each transfer specification includes:
 
-This approach handles the 80/20 case efficiently and avoids:
-- Sequential installation of packages (slow)
-- Package manager conflicts from multiple concurrent operations
-- Redundant invocations of package managers
+| Field | Type | Description |
+|-------|------|-------------|
+| `local_path` | `Path` | Path to the file or directory on the local machine |
+| `remote_path` | `Path` | Destination path on the remote host. Relative paths will be relative to the agent's work_dir |
+| `is_required` | `bool` | If `True`, provisioning fails if the local file doesn't exist. If `False`, the transfer is skipped if the file is missing. |
 
-### Serial Agent Provisioning
+### Collection and Execution Order
 
-Beyond the basic package installation helpers, agents and their plugins must be provisioned serially on a given machine to avoid race conditions. This is necessary because:
-- Plugins may modify shared system state
-- Multiple plugins may need to configure the same service (e.g., nginx)
-- File writes to shared locations must be coordinated
+1. **Collection phase**: Before provisioning begins, mngr calls `get_provision_file_transfers()` on each enabled plugin to collect all file transfer requests.
+2. **Validation phase**: For each transfer where `is_required=True`, mngr verifies that `local_path` exists. If any required file is missing, provisioning fails with a clear error listing all missing files.
+3. **Transfer phase**: All collected transfers are executed, with optional transfers (where `is_required=False`) skipped if their source doesn't exist. Transfers happen *before* package installation and other provisioning steps.
 
-**Open Question**: Could we have a `get_provisioning_dependencies()` hook that allows plugins to declare their dependencies on each other? This would enable some parallelization while maintaining correctness. (This relates to the plugin ordering question discussed in the plugin spec.)
+### Use Cases
 
-## Interaction with the Local Provider
+- **Config files**: Transfer local config files like `~/.anthropic/config.json` or `~/.npmrc`
+- **Credentials**: Transfer credential files (subject to permission checks)
+- **Project-specific files**: Transfer files referenced in `.mngr/settings.toml` that aren't part of the work_dir
+- **Plugin state**: Transfer plugin-specific state that needs to be present for the agent to function
 
-When running locally, plugins should detect whether the required packages are present, and if they are not, simply error. They can suggest some commands for installing the packages (and versions) that they want, but they should not install any dependencies automatically on your local machine (it generally requires sudo anyway).
+Plugins should provide configuration options for selecting which files to transfer.
+
+### Deduplication
+
+If multiple plugins request the same `remote_path`, the later plugin wins.
+
+## Agent provisioning
+
+The next hook called is the main `provision_agent` hook.
+
+This is where plugins should check both for the presence of required packages and, ideally, minimum version requirements (which helps prevent downstream failures that are harder to debug).
+
+If a package is missing (or too old), plugins should emit a warning, and then:
+
+1. For remote hosts: attempt to install it
+2. For local hosts: present the user with a command that can be run to either install it (if possible), or that they can run to install it themselves (if, eg, root access is required)
+
+Plugins should generally allow configuration for:
+
+1. Disabling any kind of checking for packages (eg, assume they are properly installed)
+2. Disabling automatic installation of missing packages (eg, just emit a message and the install command and fail)
+
+The default behavior is intended to make `mngr` more usable--this way if something fails, the plugin can automatically fix it (rather than forcing the user to debug missing dependencies themselves).
+
+Plugins can use pyinfra's built-in package management support to handle cross-platform installation of packages, or just do it themselves.
+
+## Post-Provisioning Hook
+
+After all provisioning steps have completed, mngr invokes the `on_after_agent_provisioning` hook. This hook allows plugins to perform any finalization or verification steps after provisioning is done.

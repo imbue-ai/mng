@@ -40,6 +40,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CommandResult
+from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.host import CreateAgentOptions
@@ -866,18 +867,38 @@ class Host(HostInterface):
         """Provision an agent (install packages, configure, etc.).
 
         Applies all provisioning in a logical order:
-        0. Call plugin hooks (plugins can set up their dependencies first)
-        1. Create directories (so paths exist for uploads)
-        2. Upload files (files exist before modifications)
-        3. Append text to files
-        4. Prepend text to files
-        5. Write environment variables to agent env file
-        6. Run sudo commands (system-level setup, with env vars sourced)
-        7. Run user commands (user-level setup, with env vars sourced)
+        1. Call on_before_agent_provisioning hook (validation only)
+        2. Call get_provision_file_transfers hook to collect plugin file transfers
+        3. Validate required files exist, execute file transfers
+        4. Call provision_agent hook (plugin-specific provisioning)
+        5. Create directories (so paths exist for uploads)
+        6. Upload files (files exist before modifications)
+        7. Append text to files
+        8. Prepend text to files
+        9. Write environment variables to agent env file
+        10. Run sudo commands (system-level setup, with env vars sourced)
+        11. Run user commands (user-level setup, with env vars sourced)
+        12. Call on_after_agent_provisioning hook (finalization)
         """
-        # Call plugin hooks before CLI-defined provisioning options
-        logger.debug("Calling on_provision_agent hooks for agent {}", agent.name)
-        mngr_ctx.pm.hook.on_provision_agent(
+        # 1. Call pre-provisioning validation hook
+        logger.debug("Calling on_before_agent_provisioning hooks for agent {}", agent.name)
+        mngr_ctx.pm.hook.on_before_agent_provisioning(
+            agent=agent,
+            host=self,
+            options=options,
+            mngr_ctx=mngr_ctx,
+        )
+
+        # 2. Collect file transfers from plugins
+        logger.debug("Collecting file transfers from plugins for agent {}", agent.name)
+        all_file_transfers = self._collect_plugin_file_transfers(agent, options, mngr_ctx)
+
+        # 3. Validate required files exist and execute transfers
+        self._execute_plugin_file_transfers(agent, all_file_transfers)
+
+        # 4. Call provision_agent hook for plugin-specific provisioning
+        logger.debug("Calling provision_agent hooks for agent {}", agent.name)
+        mngr_ctx.pm.hook.provision_agent(
             agent=agent,
             host=self,
             options=options,
@@ -886,7 +907,7 @@ class Host(HostInterface):
 
         provisioning = options.provisioning
         logger.debug(
-            "Provisioning agent {}: {} dirs, {} uploads, {} appends, {} prepends, {} sudo cmds, {} user cmds",
+            "Provisioning agent {} with user commands: {} dirs, {} uploads, {} appends, {} prepends, {} sudo cmds, {} user cmds",
             agent.name,
             len(provisioning.create_directories),
             len(provisioning.upload_files),
@@ -896,48 +917,123 @@ class Host(HostInterface):
             len(provisioning.user_commands),
         )
 
-        # 1. Create directories
+        # 5. Create directories
         for directory in provisioning.create_directories:
             logger.trace("Creating directory: {}", directory)
             self._mkdir(directory)
 
-        # 2. Upload files (read from local filesystem, write to host)
+        # 6. Upload files (read from local filesystem, write to host)
         for upload_spec in provisioning.upload_files:
             logger.trace("Uploading file: {} -> {}", upload_spec.local_path, upload_spec.remote_path)
             # Read from local filesystem (not via host primitives)
             local_content = upload_spec.local_path.read_bytes()
             self.write_file(upload_spec.remote_path, local_content)
 
-        # 3. Append text to files
+        # 7. Append text to files
         for append_spec in provisioning.append_to_files:
             logger.trace("Appending to file: {}", append_spec.remote_path)
             self._append_to_file(append_spec.remote_path, append_spec.text)
 
-        # 4. Prepend text to files
+        # 8. Prepend text to files
         for prepend_spec in provisioning.prepend_to_files:
             logger.trace("Prepending to file: {}", prepend_spec.remote_path)
             self._prepend_to_file(prepend_spec.remote_path, prepend_spec.text)
 
-        # 5. Write environment variables to agent env file
+        # 9. Write environment variables to agent env file
         env_vars = self._collect_agent_env_vars(agent, options)
         self._write_agent_env_file(agent, env_vars)
 
         # Build the source prefix for commands (sources host env, then agent env)
         source_prefix = self._build_source_env_prefix(agent)
 
-        # 6. Run sudo commands (with env vars sourced)
+        # 10. Run sudo commands (with env vars sourced)
         for cmd in provisioning.sudo_commands:
             logger.trace("Running sudo command: {}", cmd)
             result = self._run_sudo_command(source_prefix + cmd)
             if not result.success:
                 raise MngrError(f"Sudo command failed: {cmd}\nstderr: {result.stderr}")
 
-        # 7. Run user commands (with env vars sourced)
+        # 11. Run user commands (with env vars sourced)
         for cmd in provisioning.user_commands:
             logger.trace("Running user command: {}", cmd)
             result = self.execute_command(source_prefix + cmd, cwd=agent.work_dir)
             if not result.success:
                 raise MngrError(f"User command failed: {cmd}\nstderr: {result.stderr}")
+
+        # 12. Call post-provisioning hook
+        logger.debug("Calling on_after_agent_provisioning hooks for agent {}", agent.name)
+        mngr_ctx.pm.hook.on_after_agent_provisioning(
+            agent=agent,
+            host=self,
+            options=options,
+            mngr_ctx=mngr_ctx,
+        )
+
+    def _collect_plugin_file_transfers(
+        self,
+        agent: AgentInterface,
+        options: CreateAgentOptions,
+        mngr_ctx: MngrContext,
+    ) -> list[FileTransferSpec]:
+        """Collect file transfer specifications from all plugins.
+
+        Later plugins override earlier ones if they specify the same remote_path.
+        """
+        transfer_by_remote_path: dict[Path, FileTransferSpec] = {}
+
+        # Collect from all plugins - hook returns a list of (possibly None) results
+        all_results = mngr_ctx.pm.hook.get_provision_file_transfers(
+            agent=agent,
+            host=self,
+            options=options,
+            mngr_ctx=mngr_ctx,
+        )
+
+        for plugin_transfers in all_results:
+            if plugin_transfers is not None:
+                for transfer in plugin_transfers:
+                    # Later plugins override earlier ones for the same remote_path
+                    transfer_by_remote_path[transfer.remote_path] = transfer
+
+        return list(transfer_by_remote_path.values())
+
+    def _execute_plugin_file_transfers(
+        self,
+        agent: AgentInterface,
+        transfers: list[FileTransferSpec],
+    ) -> None:
+        """Validate and execute file transfers from plugins.
+
+        First validates that all required files exist, then executes transfers.
+        """
+        if not transfers:
+            return
+
+        # Validate required files first
+        missing_required: list[Path] = []
+        for transfer in transfers:
+            if transfer.is_required and not transfer.local_path.exists():
+                missing_required.append(transfer.local_path)
+
+        if missing_required:
+            missing_str = ", ".join(str(p) for p in missing_required)
+            raise MngrError(f"Required files for provisioning not found: {missing_str}")
+
+        # Execute transfers
+        for transfer in transfers:
+            if not transfer.local_path.exists():
+                # Optional file doesn't exist, skip it
+                logger.trace("Skipping optional file transfer (file not found): {}", transfer.local_path)
+                continue
+
+            # Resolve relative remote paths to work_dir
+            remote_path = transfer.remote_path
+            if not remote_path.is_absolute():
+                remote_path = agent.work_dir / remote_path
+
+            logger.trace("Plugin file transfer: {} -> {}", transfer.local_path, remote_path)
+            local_content = transfer.local_path.read_bytes()
+            self.write_file(remote_path, local_content)
 
     def _append_to_file(self, path: Path, text: str) -> None:
         """Append text to a file, creating it if it doesn't exist."""

@@ -161,6 +161,9 @@ BUILTIN_COMMANDS: list[click.Command] = [connect, create, destroy, gc, list_comm
 for cmd in BUILTIN_COMMANDS:
     cli.add_command(cmd)
 
+# Add command aliases ("c" is a shorthand for "create")
+cli.add_command(create, name="c")
+
 # Register plugin commands after built-in commands but before applying CLI options.
 # This ordering allows plugins to add CLI options to other plugin commands.
 PLUGIN_COMMANDS = _register_plugin_commands()

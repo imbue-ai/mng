@@ -9,13 +9,13 @@ import pluggy
 import pytest
 from pydantic import Field
 
-from imbue.mngr.agents.agent_registry import ClaudeAgent
-from imbue.mngr.agents.agent_registry import ClaudeAgentConfig
-from imbue.mngr.agents.agent_registry import CodexAgentConfig
 from imbue.mngr.agents.agent_registry import get_agent_class
 from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.agents.agent_registry import list_registered_agent_types
 from imbue.mngr.agents.agent_registry import register_agent_config
+from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
+from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mngr.agents.default_plugins.codex_agent import CodexAgentConfig
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext

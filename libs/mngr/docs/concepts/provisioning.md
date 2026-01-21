@@ -15,7 +15,7 @@ Provisioning steps come from three sources, executed in order:
 2. **User commands**: Flags like `--user-command`, `--upload-file`, etc. for the `mngr create` and `mngr provision` commands
 3. **Devcontainer hooks**: If using a devcontainer, its lifecycle hooks (`onCreateCommand`, etc.) run as part of provisioning
 
-## Custom Steps
+## Custom steps
 
 Add your own provisioning steps when creating an agent:
 
@@ -29,12 +29,12 @@ These run after plugin defaults but before the agent starts.
 
 See [`mngr provision`](../commands/secondary/provision.md) for all options.
 
-## Re-running Provisioning
+## Re-running provisioning
 
 You can re-run provisioning on an existing agent with `mngr provision`. This is useful for syncing configuration changes or installing additional packages.
 
 Provisioning is designed to be idempotent--the underlying tool ([pyinfra](https://pyinfra.com/)) and built-in plugins can safely run multiple times without breaking anything.
 
-## Implementation Details
+## Plugin provisioning implementation details
 
 For implementation details about package version checking, cross-platform installation, and plugin ordering during provisioning, see the [provisioning spec](../../specs/provisioning.md).
