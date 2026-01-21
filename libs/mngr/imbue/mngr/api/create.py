@@ -92,6 +92,16 @@ def create(
     agent = host.create_agent_state(work_dir_path, agent_options)
     logger.trace("Created agent id={} name={} type={}", agent.id, agent.name, agent.agent_type)
 
+    # Call on_after_apply_agent_permissions hook (called after agent state is created,
+    # which is where permissions are currently stored/configured)
+    logger.debug("Calling on_after_apply_agent_permissions hooks for agent {}", agent.name)
+    mngr_ctx.pm.hook.on_after_apply_agent_permissions(
+        agent=agent,
+        host=host,
+        options=agent_options,
+        mngr_ctx=mngr_ctx,
+    )
+
     # Run provisioning for the agent (hooks, dependency installation, etc.)
     logger.debug("Provisioning agent {}", agent.name)
     host.provision_agent(agent, agent_options, mngr_ctx)

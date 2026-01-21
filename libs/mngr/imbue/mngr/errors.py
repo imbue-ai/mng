@@ -169,6 +169,19 @@ class LocalHostNotDestroyableError(ProviderError):
         super().__init__("Cannot destroy the local host - it is your local computer")
 
 
+class PluginError(MngrError):
+    """Base class for plugin-related errors."""
+
+
+class PluginValidationError(PluginError):
+    """Raised when a plugin validation fails during provisioning.
+
+    Plugins should raise this error in the on_before_agent_provisioning hook
+    when preconditions are not met (e.g., missing environment variables,
+    missing required files).
+    """
+
+
 class ConfigError(MngrError):
     """Base class for config errors."""
 

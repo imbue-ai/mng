@@ -256,3 +256,19 @@ class HostInfo(FrozenModel):
     id: HostId = Field(description="Host ID")
     name: str = Field(description="Host name")
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
+
+
+class FileTransferSpec(FrozenModel):
+    """Specification for a file transfer during agent provisioning.
+
+    Used by plugins to declare files that should be copied from the local machine
+    to the remote host before other provisioning steps run.
+    """
+
+    local_path: Path = Field(description="Path to the file or directory on the local machine")
+    remote_path: Path = Field(
+        description="Destination path on the remote host. Relative paths are relative to work_dir"
+    )
+    is_required: bool = Field(
+        description="If True, provisioning fails if local file doesn't exist. If False, skipped if missing."
+    )
