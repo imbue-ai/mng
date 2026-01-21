@@ -225,7 +225,9 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--user", help="Override which user to run the agent as")
 @optgroup.group("Host Options")
 @optgroup.option("--in", "--new-host", "new_host", help="Create a new host using provider (docker, modal, ...)")
-@optgroup.option("--host", help="Use an existing host (by name or ID) [default: local]")
+@optgroup.option("--host", "--target-host", help="Use an existing host (by name or ID) [default: local]")
+@optgroup.option("--target", help="Target [HOST][:PATH]. Defaults to current dir if no other target args are given")
+@optgroup.option("--target-path", help="Directory to mount source inside agent host")
 # FIXME: you can get yourself in a bit of a screwy situation if you DONT specify --project and you DO use a remote source (which comes from a different project)
 #   currently we have this assumption that your local dir and source are for the same project
 #   we should at least validate that, for remote sources, they end up having the exact same project inferred as locally
@@ -276,9 +278,6 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--source-agent", "--from-agent", "source_agent", help="Source agent for cloning work_dir")
 @optgroup.option("--source-host", help="Source host")
 @optgroup.option("--source-path", help="Source path")
-@optgroup.option("--target", help="Target [HOST][:PATH]. Defaults to current dir if no other target args are given")
-@optgroup.option("--target-host", "--in-host", "target_host", help="Target host")
-@optgroup.option("--target-path", help="Directory to mount source inside agent host")
 @optgroup.option(
     "--in-place", "in_place", is_flag=True, help="Run directly in source directory (no copy/clone/worktree)"
 )
@@ -425,10 +424,6 @@ def create(ctx: click.Context, **kwargs) -> None:
         command_class=CreateCliOptions,
     )
     logger.debug("Running create command")
-
-    # immediately bail for the options that are just obviously not used yet
-    if opts.target is not None or opts.target_host is not None:
-        raise NotImplementedError("Implement these options when we get a chance")
 
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
