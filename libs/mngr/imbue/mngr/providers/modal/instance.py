@@ -19,6 +19,7 @@ from typing import Sequence
 from typing import cast
 
 import modal
+import modal.exception
 from dockerfile_parse import DockerfileParser
 from loguru import logger
 from pydantic import Field
@@ -30,6 +31,7 @@ from pyinfra.connectors.sshuserclient.client import get_host_keys
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
+from imbue.mngr.errors import PluginMngrError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import CpuResources
@@ -709,7 +711,15 @@ class ModalProviderInstance(BaseProviderInstance):
         # Enter the app.run() context manager manually so we can return the app
         # while keeping the context active until close() is called
         run_context = app.run()
-        run_context.__enter__()
+        try:
+            run_context.__enter__()
+        except modal.exception.AuthError as e:
+            raise PluginMngrError(
+                "Modal authentication failed. Token missing or invalid. "
+                "You can disable the modal plugin by passing --disable-plugin modal "
+                "to mngr commands, or configure modal credentials as described at "
+                "https://modal.com/docs/reference/modal.config"
+            ) from e
 
         # Set app metadata on the loguru writer for structured logging
         if loguru_writer is not None:
