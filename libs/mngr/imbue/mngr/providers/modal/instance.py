@@ -143,28 +143,44 @@ def build_image_from_dockerfile_contents(
         if initial_image is None:
             assert last_from_index is not None, "Dockerfile must have a FROM instruction"
             instructions = dfp.structure[last_from_index + 1 :]
-            modal_image = modal.Image.from_registry(dfp.baseimage)
+            try:
+                modal_image = modal.Image.from_registry(dfp.baseimage)
+            except modal.exception.AuthError as e:
+                raise PluginMngrError(
+                    "Modal authentication failed. Token missing or invalid. "
+                    "You can disable the modal plugin by passing --disable-plugin modal "
+                    "to mngr commands, or configure modal credentials as described at "
+                    "https://modal.com/docs/reference/modal.config"
+                ) from e
         else:
             assert last_from_index is None, "If initial_image is provided, Dockerfile cannot have a FROM instruction"
             instructions = list(dfp.structure)
             modal_image = initial_image
 
         if len(instructions) > 0:
-            if is_each_layer_cached:
-                for instr in instructions:
-                    if instr["instruction"] == "COMMENT":
-                        continue
+            try:
+                if is_each_layer_cached:
+                    for instr in instructions:
+                        if instr["instruction"] == "COMMENT":
+                            continue
+                        modal_image = modal_image.dockerfile_commands(
+                            [instr["content"]],
+                            context_dir=context_dir,
+                        )
+                else:
+                    # The downside of doing them all at once is that if any one fails,
+                    # Modal will re-run all of them
                     modal_image = modal_image.dockerfile_commands(
-                        [instr["content"]],
+                        [x["content"] for x in instructions if x["instruction"] != "COMMENT"],
                         context_dir=context_dir,
                     )
-            else:
-                # The downside of doing them all at once is that if any one fails,
-                # Modal will re-run all of them
-                modal_image = modal_image.dockerfile_commands(
-                    [x["content"] for x in instructions if x["instruction"] != "COMMENT"],
-                    context_dir=context_dir,
-                )
+            except modal.exception.AuthError as e:
+                raise PluginMngrError(
+                    "Modal authentication failed. Token missing or invalid. "
+                    "You can disable the modal plugin by passing --disable-plugin modal "
+                    "to mngr commands, or configure modal credentials as described at "
+                    "https://modal.com/docs/reference/modal.config"
+                ) from e
 
         return modal_image
 
@@ -363,18 +379,26 @@ class ModalProviderInstance(BaseProviderInstance):
         SSH and tmux setup is handled at runtime in _start_sshd_in_sandbox to
         allow warning if these tools are not pre-installed in the base image.
         """
-        if dockerfile is not None:
-            dockerfile_contents = dockerfile.read_text()
-            context_dir = dockerfile.parent
-            image = build_image_from_dockerfile_contents(
-                dockerfile_contents,
-                context_dir=context_dir,
-                is_each_layer_cached=True,
-            )
-        elif base_image:
-            image = modal.Image.from_registry(base_image)
-        else:
-            image = modal.Image.debian_slim()
+        try:
+            if dockerfile is not None:
+                dockerfile_contents = dockerfile.read_text()
+                context_dir = dockerfile.parent
+                image = build_image_from_dockerfile_contents(
+                    dockerfile_contents,
+                    context_dir=context_dir,
+                    is_each_layer_cached=True,
+                )
+            elif base_image:
+                image = modal.Image.from_registry(base_image)
+            else:
+                image = modal.Image.debian_slim()
+        except modal.exception.AuthError as e:
+            raise PluginMngrError(
+                "Modal authentication failed. Token missing or invalid. "
+                "You can disable the modal plugin by passing --disable-plugin modal "
+                "to mngr commands, or configure modal credentials as described at "
+                "https://modal.com/docs/reference/modal.config"
+            ) from e
 
         return image
 
@@ -1022,7 +1046,15 @@ class ModalProviderInstance(BaseProviderInstance):
         # Create the image reference from the snapshot
         logger.debug("Creating sandbox from snapshot image: {}", modal_image_id)
         # Cast needed because modal.Image.from_id returns Self which the type checker can't resolve
-        modal_image = cast(modal.Image, modal.Image.from_id(modal_image_id))
+        try:
+            modal_image = cast(modal.Image, modal.Image.from_id(modal_image_id))
+        except modal.exception.AuthError as e:
+            raise PluginMngrError(
+                "Modal authentication failed. Token missing or invalid. "
+                "You can disable the modal plugin by passing --disable-plugin modal "
+                "to mngr commands, or configure modal credentials as described at "
+                "https://modal.com/docs/reference/modal.config"
+            ) from e
 
         # Get or create the Modal app
         app = self._get_modal_app()
