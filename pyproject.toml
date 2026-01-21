@@ -40,6 +40,9 @@ filterwarnings = [
   # Suppress grpclib warning that occurs during garbage collection when Channel.__del__ is called
   # after the connection's transport has already been cleaned up. This is a known issue in grpclib.
   "ignore:Exception ignored in.*Channel.__del__.*:pytest.PytestUnraisableExceptionWarning",
+  # Suppress coverage warning about modules being imported before coverage starts measuring.
+  # This happens because pytest collects tests (importing modules) before coverage.py starts.
+  "ignore:Module imbue\\..* was previously imported, but not measured:coverage.exceptions.CoverageWarning",
 ]
 addopts = [
   "-n 4",
