@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import json
 import socket
+import tempfile
 import time
 from datetime import datetime
 from datetime import timezone
@@ -18,6 +19,7 @@ from typing import Sequence
 from typing import cast
 
 import modal
+from dockerfile_parse import DockerfileParser
 from loguru import logger
 from pydantic import Field
 from pyinfra.api import Host as PyinfraHost
@@ -105,6 +107,64 @@ def reset_modal_app_registry() -> None:
         except modal.exception.Error as e:
             logger.debug("Modal error closing app {} during reset: {}", app_name, e)
     _app_registry.clear()
+
+
+def build_image_from_dockerfile_contents(
+    dockerfile_contents: str,
+    # build context directory for COPY/ADD instructions
+    context_dir: Path | None = None,
+    # starting image; if not provided, uses FROM instruction in the dockerfile
+    initial_image: modal.Image | None = None,
+    # if True, apply each instruction separately for per-layer caching; if False, apply
+    # all instructions at once (faster but no intermediate caching on failure)
+    is_each_layer_cached: bool = True,
+) -> modal.Image:
+    """Build a Modal image from Dockerfile contents with optional per-layer caching.
+
+    When is_each_layer_cached=True (the default), each instruction is applied separately,
+    allowing Modal to cache intermediate layers. This means if a build fails at step N,
+    steps 1 through N-1 don't need to be re-run. Multistage dockerfiles are not supported.
+    """
+    # DockerfileParser writes to a file, so use a temp directory to avoid conflicts
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpfile = Path(tmpdir) / "Dockerfile"
+        dfp = DockerfileParser(str(tmpfile))
+        dfp.content = dockerfile_contents
+
+        assert not dfp.is_multistage, "Multistage Dockerfiles are not supported yet"
+
+        last_from_index = None
+        for i, instr in enumerate(dfp.structure):
+            if instr["instruction"] == "FROM":
+                last_from_index = i
+
+        if initial_image is None:
+            assert last_from_index is not None, "Dockerfile must have a FROM instruction"
+            instructions = dfp.structure[last_from_index + 1 :]
+            modal_image = modal.Image.from_registry(dfp.baseimage)
+        else:
+            assert last_from_index is None, "If initial_image is provided, Dockerfile cannot have a FROM instruction"
+            instructions = list(dfp.structure)
+            modal_image = initial_image
+
+        if len(instructions) > 0:
+            if is_each_layer_cached:
+                for instr in instructions:
+                    if instr["instruction"] == "COMMENT":
+                        continue
+                    modal_image = modal_image.dockerfile_commands(
+                        [instr["content"]],
+                        context_dir=context_dir,
+                    )
+            else:
+                # The downside of doing them all at once is that if any one fails,
+                # Modal will re-run all of them
+                modal_image = modal_image.dockerfile_commands(
+                    [x["content"] for x in instructions],
+                    context_dir=context_dir,
+                )
+
+        return modal_image
 
 
 # Constants
@@ -291,7 +351,10 @@ class ModalProviderInstance(BaseProviderInstance):
     ) -> modal.Image:
         """Build a Modal image.
 
-        If dockerfile is provided, builds from that Dockerfile.
+        If dockerfile is provided, builds from that Dockerfile with per-layer caching.
+        Each instruction is applied separately, so if a build fails at step N,
+        steps 1 through N-1 are cached and don't need to be re-run.
+
         Elif base_image is provided (e.g., "python:3.11-slim"), uses that as the
         base. Otherwise uses debian:bookworm-slim.
 
@@ -299,7 +362,13 @@ class ModalProviderInstance(BaseProviderInstance):
         allow warning if these tools are not pre-installed in the base image.
         """
         if dockerfile is not None:
-            image = modal.Image.from_dockerfile(str(dockerfile))
+            dockerfile_contents = dockerfile.read_text()
+            context_dir = dockerfile.parent
+            image = build_image_from_dockerfile_contents(
+                dockerfile_contents,
+                context_dir=context_dir,
+                is_each_layer_cached=True,
+            )
         elif base_image:
             image = modal.Image.from_registry(base_image)
         else:
