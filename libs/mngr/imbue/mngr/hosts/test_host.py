@@ -503,6 +503,13 @@ def test_unset_vars_applied_during_agent_start(
 
     session_name = f"{mngr_test_prefix}{agent.name}"
 
+    # Wait for the tmux session to be fully ready before sending keys
+    def session_ready() -> bool:
+        result = host.execute_command(f"tmux has-session -t '{session_name}'")
+        return result.success
+
+    wait_for(session_ready, error_message="tmux session not ready")
+
     host.execute_command(f"tmux send-keys -t '{session_name}' 'echo HISTFILE_VALUE=${{HISTFILE:-UNSET}}' Enter")
     host.execute_command(f"tmux send-keys -t '{session_name}' 'echo PROFILE_VALUE=${{PROFILE:-UNSET}}' Enter")
 

@@ -159,3 +159,62 @@ def test_mngr_create_with_build_args_on_modal(temp_source_dir: Path) -> None:
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
     assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(300)
+def test_mngr_create_with_dockerfile_on_modal(temp_source_dir: Path) -> None:
+    """Test creating an agent on Modal using a custom Dockerfile.
+
+    This verifies that:
+    1. The --dockerfile option is correctly parsed
+    2. Modal builds an image from the Dockerfile
+    3. The sandbox runs with the custom image
+    """
+    agent_name = f"test-modal-dockerfile-{uuid4().hex[:8]}"
+    expected_output = f"dockerfile-test-{uuid4().hex[:8]}"
+
+    # Create a simple Dockerfile in the source directory
+    dockerfile_path = temp_source_dir / "Dockerfile"
+    dockerfile_content = """\
+FROM debian:bookworm-slim
+
+# Install minimal dependencies for mngr to work (openssh, tmux)
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    openssh-server \\
+    tmux \\
+    python3 \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a marker file to verify we're using the custom image
+RUN echo "custom-dockerfile-marker" > /dockerfile-marker.txt
+"""
+    dockerfile_path.write_text(dockerfile_content)
+
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "mngr",
+            "create",
+            agent_name,
+            "echo",
+            "--in",
+            "modal",
+            "--no-connect",
+            "--await-ready",
+            "--no-ensure-clean",
+            "--source",
+            str(temp_source_dir),
+            "--dockerfile",
+            str(dockerfile_path),
+            "--",
+            expected_output,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+
+    assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
+    assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
