@@ -168,8 +168,11 @@ def on_before_agent_provisioning(
 ) -> None:
     """Validate that claude is available or can be installed.
 
+    This hook performs read-only validation only. Actual installation
+    happens in provision_agent.
+
     For remote hosts: warn and proceed (installation happens in provision_agent)
-    For local hosts: warn and prompt user for installation
+    For local hosts: warn and prompt user for consent (installation happens in provision_agent)
     """
     if not _is_claude_agent(agent):
         return
@@ -194,10 +197,9 @@ def on_before_agent_provisioning(
     logger.warning("Claude is not installed on the host")
 
     if host.is_local:
-        # For local hosts, prompt the user
-        if _prompt_user_for_installation():
-            _install_claude(host)
-        else:
+        # For local hosts, prompt the user for consent
+        # Actual installation happens in provision_agent
+        if not _prompt_user_for_installation():
             raise PluginMngrError(
                 "Claude is not installed. Please install it manually with:\n"
                 "  curl -fsSL https://claude.ai/install.sh | bash"
@@ -293,7 +295,11 @@ def provision_agent(
     options: CreateAgentOptions,
     mngr_ctx: MngrContext,
 ) -> None:
-    """Install claude on remote hosts if needed."""
+    """Install claude if needed.
+
+    For local hosts: user consent was already obtained in on_before_agent_provisioning
+    For remote hosts: installation is automatic
+    """
     if not _is_claude_agent(agent):
         return
 
@@ -305,14 +311,10 @@ def provision_agent(
     if options.command is not None:
         return
 
-    # Only auto-install on remote hosts (local was handled in on_before_agent_provisioning)
-    if host.is_local:
-        return
-
     is_installed = _check_claude_installed(host)
     if is_installed:
         return
 
-    # Install on remote host
-    logger.info("Installing claude on remote host...")
+    # Install claude
+    logger.info("Installing claude...")
     _install_claude(host)
