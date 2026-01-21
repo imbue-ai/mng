@@ -183,3 +183,7 @@ class ConfigParseError(ConfigError):
 
 class UnknownBackendError(ConfigError):
     """Unknown provider backend."""
+
+
+class PluginMngrError(MngrError):
+    """Base class for plugin-related errors that should disable the plugin."""
