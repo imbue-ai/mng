@@ -886,7 +886,7 @@ class Host(HostInterface):
 
         provisioning = options.provisioning
         logger.debug(
-            "Provisioning agent {}: {} dirs, {} uploads, {} appends, {} prepends, {} sudo cmds, {} user cmds",
+            "Provisioning agent {} with user commands: {} dirs, {} uploads, {} appends, {} prepends, {} sudo cmds, {} user cmds",
             agent.name,
             len(provisioning.create_directories),
             len(provisioning.upload_files),

@@ -85,9 +85,9 @@ These hooks can be used to customize behavior when interacting with individual a
 | `on_agent_state_dir_created`        | When creating the agent's state directory                                                             |
 | `on_before_apply_agent_permissions` | Before applying permissions to an agent                                                               |
 | `on_after_apply_agent_permissions`  | After applying permissions to an agent                                                                |
-| `before_provision_agent`            | Validate preconditions before provisioning (env vars, required files). Should raise on failure.       |
+| `on_before_agent_provisioning`      | Before provisioning an agent. Validate preconditions (env vars, required files). Raise on failure.    |
 | `get_provision_file_transfers`      | Return file transfer specs (local_path, remote_path, is_required) for files to copy during provision. |
-| `on_before_agent_provisioning`      | Before provisioning an agent                                                                          |
+| `provision_agent`                   | Actually provision an agent for this plugin                                                           |
 | `on_after_agent_provisioning`       | After provisioning an agent                                                                           |
 | `on_before_agent_destroy`           | Before destroying an agent                                                                            |
 | `on_after_agent_destroy`            | After destroying an agent                                                                             |
