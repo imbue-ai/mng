@@ -134,13 +134,15 @@ def get_provision_file_transfers(
 ) -> Sequence[FileTransferSpec] | None:
     """Return file transfer specifications for provisioning.
 
-    Plugins can declare files and directories that need to be transferred
-    from the local machine to the remote host during provisioning.
+    Plugins can declare files that need to be transferred from the local
+    machine to the remote host during provisioning.
 
     Returns a sequence of FileTransferSpec objects, each specifying:
-    - local_path: Path to the file/directory on the local machine
+    - local_path: Path to the file on the local machine
     - remote_path: Destination path on the remote host (relative to work_dir if relative)
     - is_required: If True, provisioning fails if the local file doesn't exist
+
+    Note: Currently only supports individual files, not directories.
 
     Return None or an empty sequence if no files need to be transferred.
 

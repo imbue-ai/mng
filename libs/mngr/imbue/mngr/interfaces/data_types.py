@@ -263,9 +263,11 @@ class FileTransferSpec(FrozenModel):
 
     Used by plugins to declare files that should be copied from the local machine
     to the remote host before other provisioning steps run.
+
+    Note: Currently only supports individual files, not directories.
     """
 
-    local_path: Path = Field(description="Path to the file or directory on the local machine")
+    local_path: Path = Field(description="Path to the file on the local machine")
     remote_path: Path = Field(
         description="Destination path on the remote host. Relative paths are relative to work_dir"
     )
