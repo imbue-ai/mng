@@ -1,4 +1,4 @@
-# Imube
+# Imbue
 
 This is a monorepo that contains all of our projects, including:
 
