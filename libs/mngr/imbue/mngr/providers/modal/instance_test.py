@@ -11,12 +11,15 @@ Or to run all tests including Modal tests:
 """
 
 from pathlib import Path
+from unittest.mock import patch
 
+import modal.exception
 import pytest
 
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
+from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -75,6 +78,28 @@ def test_list_volumes_returns_empty_list(modal_provider: ModalProviderInstance) 
     """Modal provider should return empty list for volumes."""
     volumes = modal_provider.list_volumes()
     assert volumes == []
+
+
+def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_error(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """The @handle_modal_auth_error decorator should convert modal.exception.AuthError to ModalAuthError."""
+    # Mock the _get_modal_app method to raise an AuthError
+    with patch.object(modal_provider, "_get_modal_app") as mock_get_app:
+        mock_get_app.side_effect = modal.exception.AuthError("Token missing")
+
+        # list_hosts is decorated with @handle_modal_auth_error
+        with pytest.raises(ModalAuthError) as exc_info:
+            modal_provider.list_hosts()
+
+        # Verify the error message contains helpful information
+        error_message = str(exc_info.value)
+        assert "Modal authentication failed" in error_message
+        assert "--disable-plugin modal" in error_message
+        assert "https://modal.com/docs/reference/modal.config" in error_message
+
+        # Verify the original AuthError is chained
+        assert isinstance(exc_info.value.__cause__, modal.exception.AuthError)
 
 
 # =============================================================================
