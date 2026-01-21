@@ -9,13 +9,17 @@ import json
 import socket
 import tempfile
 import time
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone
+from functools import wraps
 from pathlib import Path
 from typing import Any
 from typing import Final
 from typing import Mapping
+from typing import ParamSpec
 from typing import Sequence
+from typing import TypeVar
 from typing import cast
 
 import modal
@@ -31,7 +35,7 @@ from pyinfra.connectors.sshuserclient.client import get_host_keys
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
-from imbue.mngr.errors import PluginMngrError
+from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import CpuResources
@@ -51,6 +55,27 @@ from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+
+def handle_modal_auth_error(func: Callable[P, T]) -> Callable[P, T]:
+    """Decorator to convert modal.exception.AuthError to ModalAuthError.
+
+    Wraps provider methods to catch Modal authentication errors at the boundary
+    and convert them to our ModalAuthError with a helpful message.
+    """
+
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        try:
+            return func(*args, **kwargs)
+        except modal.exception.AuthError as e:
+            raise ModalAuthError() from e
+
+    return wrapper
+
 
 # Module-level registry of app contexts by app name
 # This ensures we only create one app per unique app_name, even if multiple
@@ -711,15 +736,7 @@ class ModalProviderInstance(BaseProviderInstance):
         # Enter the app.run() context manager manually so we can return the app
         # while keeping the context active until close() is called
         run_context = app.run()
-        try:
-            run_context.__enter__()
-        except modal.exception.AuthError as e:
-            raise PluginMngrError(
-                "Modal authentication failed. Token missing or invalid. "
-                "You can disable the modal plugin by passing --disable-plugin modal "
-                "to mngr commands, or configure modal credentials as described at "
-                "https://modal.com/docs/reference/modal.config"
-            ) from e
+        run_context.__enter__()
 
         # Set app metadata on the loguru writer for structured logging
         if loguru_writer is not None:
@@ -818,6 +835,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # Core Lifecycle Methods
     # =========================================================================
 
+    @handle_modal_auth_error
     def create_host(
         self,
         name: HostName,
@@ -930,6 +948,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.info("Modal host created: id={}, name={}, ssh={}:{}", host_id, name, ssh_host, ssh_port)
         return host
 
+    @handle_modal_auth_error
     def stop_host(
         self,
         host: HostInterface | HostId,
@@ -953,6 +972,7 @@ class ModalProviderInstance(BaseProviderInstance):
         else:
             logger.debug("No sandbox found with host_id={}, may already be terminated", host_id)
 
+    @handle_modal_auth_error
     def start_host(
         self,
         host: HostInterface | HostId,
@@ -1088,6 +1108,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.info("Restored Modal host from snapshot: id={}, name={}", host_id, host_name)
         return restored_host
 
+    @handle_modal_auth_error
     def destroy_host(
         self,
         host: HostInterface | HostId,
@@ -1107,6 +1128,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # Discovery Methods
     # =========================================================================
 
+    @handle_modal_auth_error
     def get_host(
         self,
         host: HostId | HostName,
@@ -1130,6 +1152,7 @@ class ModalProviderInstance(BaseProviderInstance):
             raise HostNotFoundError(host)
         return host_obj
 
+    @handle_modal_auth_error
     def list_hosts(
         self,
         include_destroyed: bool = False,
@@ -1197,6 +1220,7 @@ class ModalProviderInstance(BaseProviderInstance):
         tags[TAG_HOST_RECORD] = json.dumps(host_record)
         sandbox.set_tags(tags)
 
+    @handle_modal_auth_error
     def create_snapshot(
         self,
         host: HostInterface | HostId,
