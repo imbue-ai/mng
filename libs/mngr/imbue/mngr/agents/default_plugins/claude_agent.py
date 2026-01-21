@@ -179,6 +179,12 @@ def on_before_agent_provisioning(
         logger.debug("Skipping claude installation check (skip_installation_check=True)")
         return
 
+    # Skip installation check if user provided a command override
+    # (they're not actually using claude)
+    if options.command is not None:
+        logger.debug("Skipping claude installation check (command override provided)")
+        return
+
     is_installed = _check_claude_installed(host)
 
     if is_installed:
@@ -293,6 +299,10 @@ def provision_agent(
 
     config = _get_claude_config(agent)
     if config.skip_installation_check:
+        return
+
+    # Skip installation if user provided a command override (they're not actually using claude)
+    if options.command is not None:
         return
 
     # Only auto-install on remote hosts (local was handled in on_before_agent_provisioning)

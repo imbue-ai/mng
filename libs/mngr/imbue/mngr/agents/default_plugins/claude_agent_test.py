@@ -33,7 +33,7 @@ def mock_agent() -> MagicMock:
     agent.agent_type = AgentTypeName("claude")
     agent.agent_config = ClaudeAgentConfig()
     agent.work_dir = Path("/tmp/test-work-dir")
-    agent.id = AgentId()  # Generate a random AgentId
+    agent.id = AgentId()
     agent.name = AgentName("test-agent")
     return agent
 
@@ -153,6 +153,21 @@ class TestOnBeforeAgentProvisioning:
         on_before_agent_provisioning(mock_agent, mock_host, mock_options, mock_mngr_ctx)
         mock_host.execute_command.assert_not_called()
 
+    def test_skips_when_command_override_provided(
+        self,
+        mock_agent: MagicMock,
+        mock_host: MagicMock,
+        mock_mngr_ctx: MngrContext,
+        tmp_path: Path,
+    ) -> None:
+        """Test that installation check is skipped when command override is provided."""
+        options_with_command = CreateAgentOptions(
+            target_path=tmp_path,
+            command=CommandString("sleep 1000"),
+        )
+        on_before_agent_provisioning(mock_agent, mock_host, options_with_command, mock_mngr_ctx)
+        mock_host.execute_command.assert_not_called()
+
     def test_passes_when_claude_is_installed(
         self,
         mock_agent: MagicMock,
@@ -179,8 +194,8 @@ class TestOnBeforeAgentProvisioning:
         # First call: check if installed (returns False)
         # Second call: install (if user confirms)
         mock_host.execute_command.side_effect = [
-            CommandResult(success=False, stdout="", stderr=""),  # not installed
-            CommandResult(success=True, stdout="", stderr=""),  # install succeeds
+            CommandResult(success=False, stdout="", stderr=""),
+            CommandResult(success=True, stdout="", stderr=""),
         ]
 
         with patch(
@@ -390,6 +405,21 @@ class TestProvisionAgent:
         provision_agent(mock_agent, mock_remote_host, mock_options, mock_mngr_ctx)
         mock_remote_host.execute_command.assert_not_called()
 
+    def test_skips_when_command_override_provided(
+        self,
+        mock_agent: MagicMock,
+        mock_remote_host: MagicMock,
+        mock_mngr_ctx: MngrContext,
+        tmp_path: Path,
+    ) -> None:
+        """Test that installation is skipped when command override is provided."""
+        options_with_command = CreateAgentOptions(
+            target_path=tmp_path,
+            command=CommandString("sleep 1000"),
+        )
+        provision_agent(mock_agent, mock_remote_host, options_with_command, mock_mngr_ctx)
+        mock_remote_host.execute_command.assert_not_called()
+
     def test_skips_local_hosts(
         self,
         mock_agent: MagicMock,
@@ -428,8 +458,8 @@ class TestProvisionAgent:
         # First call: check if installed (returns False)
         # Second call: install command
         mock_remote_host.execute_command.side_effect = [
-            CommandResult(success=False, stdout="", stderr=""),  # not installed
-            CommandResult(success=True, stdout="", stderr=""),  # install succeeds
+            CommandResult(success=False, stdout="", stderr=""),
+            CommandResult(success=True, stdout="", stderr=""),
         ]
 
         provision_agent(mock_agent, mock_remote_host, mock_options, mock_mngr_ctx)
@@ -449,8 +479,8 @@ class TestProvisionAgent:
     ) -> None:
         """Test that error is raised when installation fails on remote host."""
         mock_remote_host.execute_command.side_effect = [
-            CommandResult(success=False, stdout="", stderr=""),  # not installed
-            CommandResult(success=False, stdout="", stderr="install failed"),  # install fails
+            CommandResult(success=False, stdout="", stderr=""),
+            CommandResult(success=False, stdout="", stderr="install failed"),
         ]
 
         with pytest.raises(PluginMngrError, match="Failed to install claude"):
