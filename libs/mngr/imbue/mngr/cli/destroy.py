@@ -14,12 +14,10 @@ from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
-from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
-from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
@@ -247,7 +245,7 @@ def _find_agents_to_destroy(
                     agents_to_destroy.append((agent, host))
 
     if agent_identifiers and not agents_to_destroy:
-        raise AgentNotFoundError(agent_id=AgentId(agent_identifiers[0]))
+        raise UserInputError(f"No agent found matching '{agent_identifiers[0]}'")
 
     return agents_to_destroy
 
