@@ -8,8 +8,6 @@ import pytest
 
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
-from imbue.mngr.agents.default_plugins.claude_agent import _get_claude_config
-from imbue.mngr.agents.default_plugins.claude_agent import _is_claude_agent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -223,46 +221,6 @@ def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> N
     assert merged.cli_args == "--verbose"
 
 
-def test_is_claude_agent_returns_true_for_claude_type(mngr_test_prefix: str) -> None:
-    """_is_claude_agent should return True for agents with 'claude' type."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
-        agent_config=ClaudeAgentConfig(),
-        host=Mock(),
-    )
-
-    assert _is_claude_agent(agent) is True
-
-
-def test_is_claude_agent_returns_false_for_other_type(mngr_test_prefix: str) -> None:
-    """_is_claude_agent should return False for agents with non-claude type."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("codex"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
-        agent_config=AgentTypeConfig(),
-        host=Mock(),
-    )
-
-    assert _is_claude_agent(agent) is False
-
-
 def test_get_claude_config_returns_config_when_claude_agent_config(mngr_test_prefix: str) -> None:
     """_get_claude_config should return the config when it is a ClaudeAgentConfig."""
     pm = pluggy.PluginManager("mngr")
@@ -281,7 +239,7 @@ def test_get_claude_config_returns_config_when_claude_agent_config(mngr_test_pre
         host=Mock(),
     )
 
-    result = _get_claude_config(agent)
+    result = agent._get_claude_config()
 
     assert result is config
     assert result.cli_args == "--verbose"
@@ -304,7 +262,7 @@ def test_get_claude_config_returns_default_when_not_claude_agent_config(mngr_tes
         host=Mock(),
     )
 
-    result = _get_claude_config(agent)
+    result = agent._get_claude_config()
 
     assert isinstance(result, ClaudeAgentConfig)
     assert result.command == CommandString("claude")
