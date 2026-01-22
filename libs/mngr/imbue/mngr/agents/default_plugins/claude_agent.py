@@ -68,10 +68,14 @@ class ClaudeAgent(BaseAgent):
             resume_cmd = f"{resume_cmd} {args_str}"
             create_cmd = f"{create_cmd} {args_str}"
 
+        # Build the environment exports
+        # IS_SANDBOX is only set for remote hosts (not local)
+        env_exports = f"export MAIN_CLAUDE_SESSION_ID={agent_uuid}"
+        if not host.is_local:
+            env_exports = f"export IS_SANDBOX=1 && {env_exports}"
+
         # Combine with || fallback
-        return CommandString(
-            f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={agent_uuid} && ( {resume_cmd} ) || {create_cmd}"
-        )
+        return CommandString(f"{env_exports} && ( {resume_cmd} ) || {create_cmd}")
 
 
 class ClaudeAgentConfig(AgentTypeConfig):

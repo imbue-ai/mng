@@ -52,6 +52,7 @@ def test_claude_agent_assemble_command_with_no_args(mngr_test_prefix: str) -> No
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
     mock_host = Mock()
+    mock_host.is_local = True
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -68,8 +69,9 @@ def test_claude_agent_assemble_command_with_no_args(mngr_test_prefix: str) -> No
     command = agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
 
     uuid = agent_id.get_uuid()
+    # Local hosts should NOT have IS_SANDBOX set
     assert command == CommandString(
-        f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} ) || claude --session-id {uuid}"
+        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} ) || claude --session-id {uuid}"
     )
 
 
@@ -79,6 +81,7 @@ def test_claude_agent_assemble_command_with_agent_args(mngr_test_prefix: str) ->
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
     mock_host = Mock()
+    mock_host.is_local = True
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -96,7 +99,7 @@ def test_claude_agent_assemble_command_with_agent_args(mngr_test_prefix: str) ->
 
     uuid = agent_id.get_uuid()
     assert command == CommandString(
-        f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
+        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
     )
 
 
@@ -105,6 +108,7 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(mngr_test_pr
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
     mock_host = Mock()
+    mock_host.is_local = True
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -122,7 +126,7 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(mngr_test_pr
 
     uuid = agent_id.get_uuid()
     assert command == CommandString(
-        f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus"
+        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus"
     )
 
 
@@ -131,6 +135,7 @@ def test_claude_agent_assemble_command_with_command_override(mngr_test_prefix: s
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
     mock_host = Mock()
+    mock_host.is_local = True
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -152,7 +157,7 @@ def test_claude_agent_assemble_command_with_command_override(mngr_test_prefix: s
 
     uuid = agent_id.get_uuid()
     assert command == CommandString(
-        f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
+        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
     )
 
 
@@ -161,6 +166,7 @@ def test_claude_agent_assemble_command_raises_when_no_command(mngr_test_prefix: 
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
     mock_host = Mock()
+    mock_host.is_local = True
 
     # Create agent with no command configured
     agent = ClaudeAgent.model_construct(
@@ -177,6 +183,34 @@ def test_claude_agent_assemble_command_raises_when_no_command(mngr_test_prefix: 
 
     with pytest.raises(NoCommandDefinedError, match="No command defined"):
         agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
+
+
+def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(mngr_test_prefix: str) -> None:
+    """ClaudeAgent should set IS_SANDBOX=1 only for remote (non-local) hosts."""
+    pm = pluggy.PluginManager("mngr")
+    agent_id = AgentId.generate()
+    mock_host = Mock()
+    mock_host.is_local = False
+
+    agent = ClaudeAgent.model_construct(
+        id=agent_id,
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=Path("/tmp/work"),
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
+        agent_config=ClaudeAgentConfig(),
+        host=mock_host,
+    )
+
+    command = agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
+
+    uuid = agent_id.get_uuid()
+    # Remote hosts SHOULD have IS_SANDBOX set
+    assert command == CommandString(
+        f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} ) || claude --session-id {uuid}"
+    )
 
 
 def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> None:
