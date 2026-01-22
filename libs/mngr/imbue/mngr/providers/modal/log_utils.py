@@ -135,9 +135,9 @@ def _create_modal_loguru_writer() -> _ModalLoguruWriter:
 class _QuietOutputManager(OutputManager):
     """Modal OutputManager that suppresses interactive spinners and status updates.
 
-    Modal's default OutputManager displays spinners and progress bars which don't
-    work well when capturing output programmatically. This subclass disables those
-    features while preserving the ability to capture log output.
+    Modal's default OutputManager displays spinners, progress bars, and completion
+    messages which don't work well when capturing output programmatically. This
+    subclass disables those features while logging to loguru at debug level.
     """
 
     @contextlib.contextmanager
@@ -154,6 +154,34 @@ class _QuietOutputManager(OutputManager):
         """Suppress task state updates."""
         pass
 
+    def print(self, renderable) -> None:  # ty: ignore[invalid-method-override]
+        """Log print messages to loguru instead of console."""
+        if renderable is None:
+            return
+        # Modal passes Rich objects (like Tree) as well as strings
+        # Convert to string for logging
+        message_str = str(renderable).strip() if hasattr(renderable, "__str__") else ""
+        if message_str:
+            logger.debug("Modal: {}", message_str)
+
+    @contextlib.contextmanager
+    def step_progress(self, message: str) -> Generator[None, None, None]:
+        """Suppress step progress spinner, log to debug."""
+        logger.debug("Modal step: {}", message)
+        yield
+
+    def step_completed(self, message: str, is_substep: bool = False) -> str:
+        """Log step completion to debug instead of console, return empty string."""
+        logger.debug("Modal completed: {}", message)
+        # Return empty string since Modal may pass this to print()
+        return ""
+
+    def substep_completed(self, message: str) -> str:
+        """Log substep completion to debug instead of console, return empty string."""
+        logger.debug("Modal substep: {}", message)
+        # Return empty string since Modal may pass this to print()
+        return ""
+
 
 @contextlib.contextmanager
 def enable_modal_output_capture(
@@ -165,6 +193,10 @@ def enable_modal_output_capture(
     programmatic inspection) and optionally to loguru (for mngr's logging).
     The buffer can be used to detect build failures by inspecting the captured
     output after operations complete.
+
+    Modal's console output (progress messages like "Initialized", "Created objects",
+    etc.) is suppressed by using show_progress=False. These messages are still
+    captured and logged at debug level via loguru if is_logging_to_loguru=True.
 
     Set is_logging_to_loguru=False to disable routing to loguru.
 
@@ -186,7 +218,9 @@ def enable_modal_output_capture(
 
     logger.debug("Enabling Modal output capture")
 
-    with modal.enable_output(show_progress=True):
+    # Use show_progress=False to suppress console output ("Initialized", "Created
+    # objects", etc). Output is still captured and logged to loguru at debug level.
+    with modal.enable_output(show_progress=False):
         OutputManager._instance = _QuietOutputManager(status_spinner_text="Running...")
         OutputManager._instance._stdout = multi_writer
 

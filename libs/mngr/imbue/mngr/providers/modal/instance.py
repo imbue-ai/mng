@@ -5,8 +5,10 @@ Manages Modal sandboxes as hosts with SSH access via pyinfra.
 
 import argparse
 import contextlib
+import io
 import json
 import socket
+import sys
 import tempfile
 import time
 from datetime import datetime
@@ -83,11 +85,22 @@ def _exit_modal_app_context(handle: _ModalAppContextHandle) -> None:
     if captured_output:
         logger.trace("Modal output captured ({} chars): {}", len(captured_output), captured_output[:500])
 
-    # Exit the app context first
+    # Exit the app context first, redirecting stdout to suppress "Stopping app" message.
+    # Modal prints directly to stdout during context exit, bypassing OutputManager.
+    exit_capture = io.StringIO()
+    original_stdout = sys.stdout
     try:
+        sys.stdout = exit_capture
         handle.run_context.__exit__(None, None, None)
     except modal.exception.Error as e:
         logger.warning("Modal error exiting app context {}: {}", handle.app_name, e)
+    finally:
+        sys.stdout = original_stdout
+
+    # Log any exit messages that were captured
+    exit_output = exit_capture.getvalue()
+    if exit_output.strip():
+        logger.debug("Modal exit: {}", exit_output.strip())
 
     # Exit the output capture context - this is a cleanup operation so we just
     # suppress any errors
