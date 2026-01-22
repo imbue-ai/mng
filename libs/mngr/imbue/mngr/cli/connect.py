@@ -429,9 +429,6 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     )
     logger.debug("Running connect command")
 
-    if not opts.start:
-        raise NotImplementedError("--no-start is not implemented yet")
-
     if opts.message is not None:
         raise NotImplementedError("--message is not implemented yet")
 
@@ -476,6 +473,18 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 
     if not host.is_local:
         raise NotImplementedError("Connecting to remote agents is not implemented yet")
+
+    # Check if the agent's tmux session exists and start it if needed
+    lifecycle_state = agent.get_lifecycle_state()
+    if lifecycle_state == AgentLifecycleState.STOPPED:
+        if opts.start:
+            logger.info("Agent {} is stopped, starting it", agent.name)
+            host.start_agents([agent.id])
+        else:
+            raise UserInputError(
+                f"Agent '{agent.name}' is stopped and --no-start was specified. "
+                "Use --start to automatically start the agent."
+            )
 
     logger.info("Connecting to agent: {}", agent.name)
     _connect_to_local_agent(agent, mngr_ctx)
