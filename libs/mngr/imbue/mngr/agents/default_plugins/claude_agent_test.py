@@ -6,10 +6,10 @@ from unittest.mock import Mock
 import pluggy
 import pytest
 
-from imbue.mngr.agents.default_plugins.claude_agent import _get_claude_config
-from imbue.mngr.agents.default_plugins.claude_agent import _is_claude_agent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mngr.agents.default_plugins.claude_agent import _get_claude_config
+from imbue.mngr.agents.default_plugins.claude_agent import _is_claude_agent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -73,6 +73,7 @@ def test_claude_agent_assemble_command_with_no_args(mngr_test_prefix: str) -> No
     )
 
 
+# FIXME: many of these tests contain duplicated code. Please factor it out into fixtures and/or helpers.
 def test_claude_agent_assemble_command_with_agent_args(mngr_test_prefix: str) -> None:
     """ClaudeAgent should append agent args to both command variants."""
     pm = pluggy.PluginManager("mngr")
