@@ -171,6 +171,11 @@ def on_before_agent_provisioning(
         logger.debug("Skipping claude installation check (check_installation=False)")
         return
 
+    # Skip installation check if user provided a command override (they're not actually using claude)
+    if options.command is not None:
+        logger.debug("Skipping claude installation check (command override provided)")
+        return
+
     # FIXME: check that we either have an API key in the env, or that it is configured locally and credentials will be synced
 
 
@@ -223,6 +228,10 @@ def provision_agent(
         return
 
     config = _get_claude_config(agent)
+
+    # Skip installation if user provided a command override (they're not actually using claude)
+    if options.command is not None:
+        return
 
     # ensure that claude is installed
     if config.check_installation:
