@@ -394,6 +394,10 @@ class ModalProviderInstance(BaseProviderInstance):
         tmux_check = sandbox.exec("sh", "-c", "command -v tmux >/dev/null 2>&1 && echo yes || echo no")
         is_tmux_installed = tmux_check.stdout.read().strip() == "yes"
 
+        # Check if curl is installed
+        curl_check = sandbox.exec("sh", "-c", "command -v curl >/dev/null 2>&1 && echo yes || echo no")
+        is_curl_installed = curl_check.stdout.read().strip() == "yes"
+
         # Determine which packages need installation
         packages_to_install: list[str] = []
         if not is_sshd_installed:
@@ -409,6 +413,13 @@ class ModalProviderInstance(BaseProviderInstance):
                 "Installing at runtime. For faster startup, consider using an image with tmux pre-installed."
             )
             packages_to_install.append("tmux")
+
+        if not is_curl_installed:
+            logger.warning(
+                "curl is not pre-installed in the base image. "
+                "Installing at runtime. For faster startup, consider using an image with curl pre-installed."
+            )
+            packages_to_install.append("curl")
 
         # Install missing packages
         if packages_to_install:

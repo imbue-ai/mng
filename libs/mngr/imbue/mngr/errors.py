@@ -28,6 +28,14 @@ class ParseSpecError(MngrError, ValueError):
     """Raised when parsing a specification string fails."""
 
 
+class InvalidRelativePathError(MngrError, ValueError):
+    """Raised when a path that should be relative is actually absolute."""
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        super().__init__(f"Path must be relative, got absolute path: {path}")
+
+
 class HostError(MngrError):
     """Base class for host-related errors."""
 
@@ -197,6 +205,15 @@ class LocalHostNotDestroyableError(ProviderError):
 
     def __init__(self) -> None:
         super().__init__("Cannot destroy the local host - it is your local computer")
+
+
+class PluginMngrError(MngrError):
+    """Raised when a plugin encounters an error during provisioning.
+
+    Plugins should raise this error in the on_before_agent_provisioning hook
+    when preconditions are not met (e.g., missing environment variables,
+    missing required files).
+    """
 
 
 class ConfigError(MngrError):

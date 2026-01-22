@@ -111,16 +111,6 @@ By default, `mngr create` uses the "local" host. Use these options to change tha
 ### New Host Build
 
 - `--snapshot TEXT`: Use existing snapshot instead of building
-- `--image TEXT`: Use existing image instead of building
-- `--devcontainer TEXT`: Build from devcontainer.json [default: `(local .git root)/.devcontainer/devcontainer.json`]
-- `--dockerfile TEXT`: Build from Dockerfile [default: `Dockerfile` if no devcontainer is found]
-- `--hook NAME:COMMAND`: Add a lifecycle hook [repeatable]. Available hooks:
-  - `initialize` - Run during host initialization
-  - `on-create` - Run once when host is created
-  - `update-content` - Run when content is updated
-  - `post-create` - Run after host setup completes
-  - `post-start` - Run any time a host starts
-  - `post-attach` - Run after attaching to the host
 - `-b, --build, --build-arg TEXT`: Argument for calling "build" on the provider (e.g. passed to `docker build`) [repeatable]
 - `--build-args TEXT`: Space-separated build arguments (alternative to -b for convenience)
 - `-s, --start, --start-arg TEXT`: Argument for calling "start" on the provider (e.g. passed to `docker run`) [repeatable]

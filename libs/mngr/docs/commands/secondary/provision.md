@@ -19,7 +19,6 @@ mngr provision [[--agent] agent]
 
 - `--bootstrap / --bootstrap-and-warn / --no-bootstrap`: Whether to auto-install any required tools that are missing [default: `--bootstrap-and-warn` on remote hosts, `--no-bootstrap` on local]
 - `--[no-]destroy-on-fail`: Destroy the host if provisioning fails [default: no]
-- `--dry-run`: Show what would be provisioned without actually provisioning
 
 ## Simple configuration
 

@@ -167,7 +167,7 @@ def test_mngr_create_with_dockerfile_on_modal(temp_source_dir: Path) -> None:
     """Test creating an agent on Modal using a custom Dockerfile.
 
     This verifies that:
-    1. The --dockerfile option is correctly parsed
+    1. The --dockerfile build arg is correctly parsed by the modal provider
     2. Modal builds an image from the Dockerfile
     3. The sandbox runs with the custom image
     """
@@ -206,8 +206,8 @@ RUN echo "custom-dockerfile-marker" > /dockerfile-marker.txt
             "--no-ensure-clean",
             "--source",
             str(temp_source_dir),
-            "--dockerfile",
-            str(dockerfile_path),
+            "-b",
+            f"--dockerfile={dockerfile_path}",
             "--",
             expected_output,
         ],
