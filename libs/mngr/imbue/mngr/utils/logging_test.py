@@ -10,10 +10,13 @@ from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.primitives import LogLevel
 from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.utils.logging import _format_arg_value
+from imbue.mngr.utils.logging import _format_user_message
 from imbue.mngr.utils.logging import _resolve_log_dir
 from imbue.mngr.utils.logging import _rotate_old_logs
 from imbue.mngr.utils.logging import log_call
+from imbue.mngr.utils.logging import RESET_COLOR
 from imbue.mngr.utils.logging import setup_logging
+from imbue.mngr.utils.logging import WARNING_COLOR
 
 
 def test_resolve_log_dir_uses_absolute_path(mngr_test_prefix: str) -> None:
@@ -177,3 +180,52 @@ def test_log_call_handles_kwargs() -> None:
 
     result = greet("World", greeting="Hi")
     assert result == "Hi, World!"
+
+
+# =============================================================================
+# Tests for _format_user_message
+# =============================================================================
+
+
+def test_format_user_message_adds_warning_prefix_for_warnings() -> None:
+    """_format_user_message should add colored WARNING prefix for warning level."""
+    # Mock a loguru record with WARNING level
+    record = {"level": type("Level", (), {"name": "WARNING"})()}
+
+    result = _format_user_message(record)
+
+    assert "WARNING:" in result
+    assert "{message}" in result
+    assert WARNING_COLOR in result
+    assert RESET_COLOR in result
+
+
+def test_format_user_message_returns_plain_message_for_info() -> None:
+    """_format_user_message should return plain message for INFO level."""
+    record = {"level": type("Level", (), {"name": "INFO"})()}
+
+    result = _format_user_message(record)
+
+    assert result == "{message}\n"
+    assert "WARNING" not in result
+    assert WARNING_COLOR not in result
+
+
+def test_format_user_message_returns_plain_message_for_debug() -> None:
+    """_format_user_message should return plain message for DEBUG level."""
+    record = {"level": type("Level", (), {"name": "DEBUG"})()}
+
+    result = _format_user_message(record)
+
+    assert result == "{message}\n"
+    assert "WARNING" not in result
+
+
+def test_format_user_message_returns_plain_message_for_error() -> None:
+    """_format_user_message should return plain message for ERROR level."""
+    record = {"level": type("Level", (), {"name": "ERROR"})()}
+
+    result = _format_user_message(record)
+
+    assert result == "{message}\n"
+    assert "WARNING" not in result
