@@ -259,8 +259,11 @@ class Host(HostInterface):
         if self.is_local:
             path.write_bytes(content)
         else:
-            if not self._put_file(io.BytesIO(content), str(path)):
+            is_success = self._put_file(io.BytesIO(content), str(path))
+            if not is_success:
                 raise MngrError(f"Failed to write file '{str(path)}' on host {self.id}'")
+            else:
+                pass
         if mode is not None:
             self.execute_command(f"chmod {mode} '{str(path)}'")
 
