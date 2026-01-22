@@ -19,6 +19,14 @@ class ParseSpecError(MngrError, ValueError):
     """Raised when parsing a specification string fails."""
 
 
+class InvalidRelativePathError(MngrError, ValueError):
+    """Raised when a path that should be relative is actually absolute."""
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        super().__init__(f"Path must be relative, got absolute path: {path}")
+
+
 class HostError(MngrError):
     """Base class for host-related errors."""
 

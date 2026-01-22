@@ -19,14 +19,14 @@ If a plugin's validation fails, it should raise a `PluginMngrError` with a clear
 
 The next hook to be called is the `get_provision_file_transfers` hook.
 
-Plugins can declare files and folders that need to be transferred from the local machine to the remote host during provisioning by returning a list of transfer specifications.
+Plugins can declare files and folders that need to be transferred from the local machine to the agent during provisioning by returning a list of transfer specifications.
 
 Each transfer specification includes:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `local_path` | `Path` | Path to the file or directory on the local machine |
-| `remote_path` | `Path` | Destination path on the remote host. Relative paths will be relative to the agent's work_dir |
+| `agent_path` | `Path` | Destination path on the agent host. Must be a relative path (relative to work_dir) |
 | `is_required` | `bool` | If `True`, provisioning fails if the local file doesn't exist. If `False`, the transfer is skipped if the file is missing. |
 
 ### Collection and Execution Order
@@ -44,9 +44,11 @@ Each transfer specification includes:
 
 Plugins should provide configuration options for selecting which files to transfer.
 
+Note that if a plugin needs to write files to the *host* (not the agent), it should do so as part of the normal provisioning steps, not via this file transfer mechanism (this is just a convenience for the common case).
+
 ### Deduplication
 
-If multiple plugins request the same `remote_path`, the later plugin wins.
+If multiple plugins request the same `agent_path`, the later plugin wins.
 
 ## Agent provisioning
 
@@ -56,8 +58,8 @@ This is where plugins should check both for the presence of required packages an
 
 If a package is missing (or too old), plugins should emit a warning, and then:
 
-1. For remote hosts: attempt to install it
-2. For local hosts: present the user with a command that can be run to either install it (if possible), or that they can run to install it themselves (if, eg, root access is required)
+1. For remote hosts: attempt to install it (if allowed / configured), or fail with a clear message about what is missing and how to fix it
+2. For local hosts: if running in interactive mode, present the user with a command that can be run to either install it (if possible), or that they can run to install it themselves (if, eg, root access is required). If non-interactive, just fail with a clear message about what is missing and how to fix it.
 
 Plugins should generally allow configuration for:
 
