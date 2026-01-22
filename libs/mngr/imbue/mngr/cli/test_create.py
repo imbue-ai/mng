@@ -76,6 +76,8 @@ def test_cli_create_via_subprocess(
                 "create",
                 "--name",
                 agent_name,
+                "--agent-type",
+                "generic",
                 "--agent-cmd",
                 "sleep 651472",
                 "--source",
