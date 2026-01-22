@@ -18,21 +18,27 @@ from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.primitives import LogLevel
 
 
-# ANSI color code for yellow/orange that works well on both light and dark backgrounds.
-# Using 178 (gold/orange) from the 256-color palette, with bold for better visibility.
+# ANSI color codes that work well on both light and dark backgrounds.
+# Using 256-color palette codes with bold for better visibility.
 # Falls back gracefully in terminals that don't support 256 colors.
+# WARNING_COLOR: Bold gold/orange (256-color code 178)
+# ERROR_COLOR: Bold red (256-color code 196)
 WARNING_COLOR = "\x1b[1;38;5;178m"
+ERROR_COLOR = "\x1b[1;38;5;196m"
 RESET_COLOR = "\x1b[0m"
 
 
 def _format_user_message(record: Any) -> str:
-    """Format user-facing log messages, adding WARNING prefix with color for warnings.
+    """Format user-facing log messages, adding colored prefixes for warnings and errors.
 
     The record parameter is a loguru Record TypedDict, but the type is only available
     in type stubs so we use Any here.
     """
-    if record["level"].name == "WARNING":
+    level_name = record["level"].name
+    if level_name == "WARNING":
         return f"{WARNING_COLOR}WARNING: {{message}}{RESET_COLOR}\n"
+    if level_name == "ERROR":
+        return f"{ERROR_COLOR}ERROR: {{message}}{RESET_COLOR}\n"
     return "{message}\n"
 
 

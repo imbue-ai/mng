@@ -13,6 +13,7 @@ from imbue.mngr.utils.logging import _format_arg_value
 from imbue.mngr.utils.logging import _format_user_message
 from imbue.mngr.utils.logging import _resolve_log_dir
 from imbue.mngr.utils.logging import _rotate_old_logs
+from imbue.mngr.utils.logging import ERROR_COLOR
 from imbue.mngr.utils.logging import log_call
 from imbue.mngr.utils.logging import RESET_COLOR
 from imbue.mngr.utils.logging import setup_logging
@@ -221,11 +222,14 @@ def test_format_user_message_returns_plain_message_for_debug() -> None:
     assert "WARNING" not in result
 
 
-def test_format_user_message_returns_plain_message_for_error() -> None:
-    """_format_user_message should return plain message for ERROR level."""
+def test_format_user_message_adds_error_prefix_for_errors() -> None:
+    """_format_user_message should add colored ERROR prefix for error level."""
     record = {"level": type("Level", (), {"name": "ERROR"})()}
 
     result = _format_user_message(record)
 
-    assert result == "{message}\n"
+    assert "ERROR:" in result
+    assert "{message}" in result
+    assert ERROR_COLOR in result
+    assert RESET_COLOR in result
     assert "WARNING" not in result
