@@ -206,7 +206,12 @@ class CreateCliOptions(CommonCliOptions):
     help="Auto-generated name style",
 )
 @optgroup.option("--agent-type", help="Which type of agent to run [default: claude]")
-@optgroup.option("--agent-cmd", "--agent-command", "agent_command", help="Set (or override) the agent command")
+@optgroup.option(
+    "--agent-cmd",
+    "--agent-command",
+    "agent_command",
+    help="Run a literal command using the generic agent type (mutually exclusive with --agent-type)",
+)
 @optgroup.option(
     "-c",
     "--add-cmd",
@@ -842,6 +847,10 @@ def _parse_agent_opts(
     # However, click may incorrectly assign values after -- to positional_agent_type
     # instead of agent_args. We detect this by checking if the value appears after
     # -- in sys.argv and move it to agent_args if so.
+    #
+    # Special case: --agent-cmd implies using the "generic" agent type, which simply
+    # runs the provided command. If --agent-type is also specified to something other
+    # than "generic", that's an error (they are mutually exclusive).
     resolved_agent_type = opts.agent_type
     resolved_agent_args = opts.agent_args
 
@@ -857,6 +866,17 @@ def _parse_agent_opts(
         else:
             # --agent-type was already specified, ignore the positional (could warn here)
             pass
+
+    # Handle --agent-cmd: it implies using the "generic" agent type
+    if opts.agent_command:
+        if resolved_agent_type is not None and resolved_agent_type != "generic":
+            raise UserInputError(
+                f"--agent-cmd and --agent-type are mutually exclusive. "
+                f"Use --agent-cmd to run a literal command (implicitly uses 'generic' agent type), "
+                f"or use --agent-type to specify an agent type like '{resolved_agent_type}'."
+            )
+        # Automatically use the "generic" agent type when --agent-cmd is provided
+        resolved_agent_type = "generic"
 
     agent_opts = CreateAgentOptions(
         agent_type=AgentTypeName(resolved_agent_type) if resolved_agent_type else None,
