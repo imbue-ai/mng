@@ -6,6 +6,7 @@ from imbue.mngr.cli.common_opts import TCommand
 from imbue.mngr.cli.common_opts import create_group_title_option
 from imbue.mngr.cli.common_opts import find_last_option_index_in_group
 from imbue.mngr.cli.common_opts import find_option_group
+from imbue.mngr.cli.config import config
 from imbue.mngr.cli.connect import connect
 from imbue.mngr.cli.create import create
 from imbue.mngr.cli.destroy import destroy
@@ -156,13 +157,14 @@ def reset_plugin_manager() -> None:
 
 
 # Add built-in commands to the CLI group
-BUILTIN_COMMANDS: list[click.Command] = [connect, create, destroy, gc, list_command, pull]
+BUILTIN_COMMANDS: list[click.Command] = [config, connect, create, destroy, gc, list_command, pull]
 
 for cmd in BUILTIN_COMMANDS:
     cli.add_command(cmd)
 
-# Add command aliases ("c" is a shorthand for "create")
+# Add command aliases ("c" is a shorthand for "create", "cfg" for "config")
 cli.add_command(create, name="c")
+cli.add_command(config, name="cfg")
 
 # Register plugin commands after built-in commands but before applying CLI options.
 # This ordering allows plugins to add CLI options to other plugin commands.
