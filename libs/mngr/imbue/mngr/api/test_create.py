@@ -22,6 +22,7 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import FileTransferSpec
+from imbue.mngr.interfaces.data_types import RelativePath
 from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import HostInterface
@@ -974,7 +975,7 @@ def test_file_transfer_plugin_copies_files(
         [
             FileTransferSpec(
                 local_path=local_file,
-                remote_path=Path("transferred_config.txt"),
+                agent_path=RelativePath("transferred_config.txt"),
                 is_required=True,
             )
         ]
@@ -1029,7 +1030,7 @@ def test_file_transfer_missing_required_file_raises_error(
         [
             FileTransferSpec(
                 local_path=nonexistent_file,
-                remote_path=Path("config.txt"),
+                agent_path=RelativePath("config.txt"),
                 is_required=True,
             )
         ]
@@ -1081,7 +1082,7 @@ def test_file_transfer_optional_file_skipped_when_missing(
         [
             FileTransferSpec(
                 local_path=nonexistent_file,
-                remote_path=Path("config.txt"),
+                agent_path=RelativePath("config.txt"),
                 is_required=False,
             )
         ]

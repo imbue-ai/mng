@@ -124,7 +124,7 @@ def get_provision_file_transfers(
 
     Returns a sequence of FileTransferSpec objects, each specifying:
     - local_path: Path to the file on the local machine
-    - remote_path: Destination path on the remote host (relative to work_dir if relative)
+    - agent_path: Destination path on the remote host (relative to work_dir if relative)
     - is_required: If True, provisioning fails if the local file doesn't exist
 
     Note: Currently only supports individual files, not directories.
@@ -133,7 +133,7 @@ def get_provision_file_transfers(
 
     All collected file transfers are executed before package installation
     and other provisioning steps. If multiple plugins request the same
-    remote_path, later plugins override earlier ones.
+    agent_path, later plugins override earlier ones.
 
     Use cases:
     - Transfer config files (e.g., ~/.anthropic/config.json, ~/.npmrc)

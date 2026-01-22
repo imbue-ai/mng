@@ -258,18 +258,28 @@ class HostInfo(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
 
 
+class RelativePath(Path):
+    """A Path that must be relative (not absolute)."""
+
+    def __new__(cls, *args, **kwargs):
+        path = super().__new__(cls, *args, **kwargs)
+        if path.is_absolute():
+            raise ValueError(f"Path must be relative, got absolute path: {path}")
+        return path
+
+
 class FileTransferSpec(FrozenModel):
     """Specification for a file transfer during agent provisioning.
 
     Used by plugins to declare files that should be copied from the local machine
-    to the remote host before other provisioning steps run.
+    to the agent work_dir before other provisioning steps run.
 
     Note: Currently only supports individual files, not directories.
     """
 
     local_path: Path = Field(description="Path to the file on the local machine")
-    remote_path: Path = Field(
-        description="Destination path on the remote host. Relative paths are relative to work_dir"
+    agent_path: RelativePath = Field(
+        description="Destination path on the agent host. Must be a relative path (relative to work_dir)"
     )
     is_required: bool = Field(
         description="If True, provisioning fails if local file doesn't exist. If False, skipped if missing."

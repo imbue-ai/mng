@@ -20,18 +20,7 @@ from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 
-# Files from ~/.claude/ that should be transferred (these are the user's settings)
-_HOME_CLAUDE_SETTINGS_FILES: tuple[str, ...] = (
-    "settings.json",
-    "statsig/statsig_metadata.json",
-)
-
-# Files from .claude/ in the repo that should be transferred (unversioned settings)
-_REPO_CLAUDE_SETTINGS_FILES: tuple[str, ...] = (
-    "settings.local.json",
-)
-
-_CLAUDE_TYPE_NAME = AgentTypeName("claude")
+_TYPE_NAME = AgentTypeName("claude")
 
 
 class ClaudeAgent(BaseAgent):
@@ -88,27 +77,30 @@ class ClaudeAgentConfig(AgentTypeConfig):
         default=CommandString("claude"),
         description="Command to run claude agent",
     )
-    sync_home_claude_settings: bool = Field(
+    sync_home_settings: bool = Field(
         default=True,
-        description="Whether to sync Claude settings from ~/.claude/ to the remote host",
+        description="Whether to sync Claude settings from ~/.claude/ to a remote host",
     )
-    sync_repo_claude_settings: bool = Field(
+    sync_claude_json: bool = Field(
         default=True,
-        description="Whether to sync unversioned .claude/ settings from the repo to the remote",
+        description="Whether to sync the local ~/.claude.json to a remote host (useful for API key settings and permissions)",
     )
-    extra_home_claude_folder: Path | None = Field(
+    sync_claude_credentials: bool = Field(
+        default=True,
+        description="Whether to sync the local ~/.claude/.credentials.json to a remote host",
+    )
+    sync_repo_settings: bool = Field(
+        default=True,
+        description="Whether to sync unversioned .claude/ settings from the repo to the agent work_dir",
+    )
+    override_settings_folder: Path | None = Field(
         default=None,
-        description="Extra folder to sync to the home dir ~/.claude/ folder on the remote "
+        description="Extra folder to sync to the repo .claude/ folder in the agent work_dir."
         "(files are transferred after user settings, so they can override)",
     )
-    extra_repo_claude_folder: Path | None = Field(
-        default=None,
-        description="Extra folder to sync to the repo .claude/ folder on the remote "
-        "(files are transferred after repo settings, so they can override)",
-    )
-    skip_installation_check: bool = Field(
-        default=False,
-        description="Skip checking if claude is installed (assume it is already present)",
+    check_installation: bool = Field(
+        default=True,
+        description="Check if claude is installed (if False, assumes it is already present)",
     )
 
 
@@ -120,7 +112,7 @@ def register_agent_type() -> tuple[str, type[AgentInterface] | None, type[AgentT
 
 def _is_claude_agent(agent: AgentInterface) -> bool:
     """Check if the agent is a claude agent."""
-    return agent.agent_type == _CLAUDE_TYPE_NAME
+    return agent.agent_type == _TYPE_NAME
 
 
 def _get_claude_config(agent: AgentInterface) -> ClaudeAgentConfig:
@@ -139,14 +131,10 @@ def _check_claude_installed(host: HostInterface) -> bool:
 
 def _install_claude(host: HostInterface) -> None:
     """Install claude on the host using the official installer."""
-    logger.info("Installing claude...")
     install_command = "curl -fsSL https://claude.ai/install.sh | bash"
     result = host.execute_command(install_command, timeout_seconds=300.0)
     if not result.success:
-        raise PluginMngrError(
-            f"Failed to install claude. stderr: {result.stderr}"
-        )
-    logger.info("Claude installed successfully")
+        raise PluginMngrError(f"Failed to install claude. stderr: {result.stderr}")
 
 
 def _prompt_user_for_installation() -> bool:
@@ -178,33 +166,11 @@ def on_before_agent_provisioning(
         return
 
     config = _get_claude_config(agent)
-    if config.skip_installation_check:
-        logger.debug("Skipping claude installation check (skip_installation_check=True)")
+    if not config.check_installation:
+        logger.debug("Skipping claude installation check (check_installation=False)")
         return
 
-    # Skip installation check if user provided a command override
-    # (they're not actually using claude)
-    if options.command is not None:
-        logger.debug("Skipping claude installation check (command override provided)")
-        return
-
-    is_installed = _check_claude_installed(host)
-
-    if is_installed:
-        logger.debug("Claude is already installed on the host")
-        return
-
-    logger.warning("Claude is not installed on the host")
-
-    if host.is_local:
-        # For local hosts, prompt the user for consent
-        # Actual installation happens in provision_agent
-        if not _prompt_user_for_installation():
-            raise PluginMngrError(
-                "Claude is not installed. Please install it manually with:\n"
-                "  curl -fsSL https://claude.ai/install.sh | bash"
-            )
-    # For remote hosts, we just warn here and install in provision_agent
+    # FIXME: check that we either have an API key in the env, or that it is configured locally and credentials will be synced
 
 
 @hookimpl
@@ -221,41 +187,16 @@ def get_provision_file_transfers(
     config = _get_claude_config(agent)
     transfers: list[FileTransferSpec] = []
 
-    # Transfer home dir claude settings
-    if config.sync_home_claude_settings:
-        home_claude_dir = Path.home() / ".claude"
-        for filename in _HOME_CLAUDE_SETTINGS_FILES:
-            local_path = home_claude_dir / filename
-            # Remote path should be in the user's home dir on the remote
-            remote_path = Path("~/.claude") / filename
-            transfers.append(
-                FileTransferSpec(
-                    local_path=local_path,
-                    remote_path=remote_path,
-                    is_required=False,
-                )
-            )
-
     # Transfer repo-local claude settings
-    if config.sync_repo_claude_settings:
-        # Use the source work_dir from options.target_path or current directory
-        source_dir = options.target_path if options.target_path else Path.cwd()
-        repo_claude_dir = source_dir / ".claude"
-        for filename in _REPO_CLAUDE_SETTINGS_FILES:
-            local_path = repo_claude_dir / filename
-            # Remote path should be in the agent's work_dir
-            remote_path = agent.work_dir / ".claude" / filename
+    if config.sync_repo_settings:
+        for file_path in extra_folder.rglob("*.local.*"):
             transfers.append(
-                FileTransferSpec(
-                    local_path=local_path,
-                    remote_path=remote_path,
-                    is_required=False,
-                )
+                FileTransferSpec(local_path=file_path, agent_path=RelativePath(file_path), is_required=True)
             )
 
-    # Transfer extra home claude folder contents
-    if config.extra_home_claude_folder is not None:
-        extra_folder = config.extra_home_claude_folder
+    # Transfer override folder contents
+    if config.override_settings_folder is not None:
+        extra_folder = config.override_settings_folder
         if extra_folder.is_dir():
             for file_path in extra_folder.rglob("*"):
                 if file_path.is_file():
@@ -264,23 +205,7 @@ def get_provision_file_transfers(
                     transfers.append(
                         FileTransferSpec(
                             local_path=file_path,
-                            remote_path=remote_path,
-                            is_required=False,
-                        )
-                    )
-
-    # Transfer extra repo claude folder contents
-    if config.extra_repo_claude_folder is not None:
-        extra_folder = config.extra_repo_claude_folder
-        if extra_folder.is_dir():
-            for file_path in extra_folder.rglob("*"):
-                if file_path.is_file():
-                    relative_path = file_path.relative_to(extra_folder)
-                    remote_path = agent.work_dir / ".claude" / relative_path
-                    transfers.append(
-                        FileTransferSpec(
-                            local_path=file_path,
-                            remote_path=remote_path,
+                            agent_path=RelativePath(remote_path),
                             is_required=False,
                         )
                     )
@@ -304,17 +229,63 @@ def provision_agent(
         return
 
     config = _get_claude_config(agent)
-    if config.skip_installation_check:
-        return
 
-    # Skip installation if user provided a command override (they're not actually using claude)
-    if options.command is not None:
-        return
+    # ensure that claude is installed
+    if config.check_installation:
+        is_installed = _check_claude_installed(host)
+        if is_installed:
+            logger.debug("Claude is already installed on the host")
+        else:
+            logger.warning("Claude is not installed on the host")
 
-    is_installed = _check_claude_installed(host)
-    if is_installed:
-        return
+            if host.is_local:
+                # For local hosts, prompt the user for consent
+                # FIXME: this needs to understand whether we're running in interactive mode or not, should be part of MngrContext
+                if not _prompt_user_for_installation():
+                    raise PluginMngrError(
+                        "Claude is not installed. Please install it manually with:\n"
+                        "  curl -fsSL https://claude.ai/install.sh | bash"
+                    )
+            else:
+                # FIXME: for remote hosts, we need to check whether the user has configured automatic installation
+                #  and if not, raise an error here
+                pass
 
-    # Install claude
-    logger.info("Installing claude...")
-    _install_claude(host)
+            # Install claude
+            logger.info("Installing claude...")
+            _install_claude(host)
+            logger.info("Claude installed successfully")
+
+    # transfer some extra files to remote hosts (if configured):
+    if not host.is_local:
+        if config.sync_home_settings:
+            logger.info("Transferring claude home directory settings to remote host...")
+            # transfer anything in ~/.claude/skills/, ~/.claude/agents/, and ~/.claude/commands/:
+            for local_folder in [
+                Path.home() / ".claude" / "skills",
+                Path.home() / ".claude" / "agents",
+                Path.home() / ".claude" / "commands",
+            ]:
+                if local_folder.is_dir():
+                    for file_path in local_folder.rglob("*"):
+                        if file_path.is_file():
+                            relative_path = file_path.relative_to(Path.home() / ".claude")
+                            remote_path = Path.home() / ".claude" / relative_path
+                            host.write_text_file(
+                                remote_path,
+                                file_path.read_text(),
+                            )
+
+        if config.sync_claude_json:
+            logger.info("Transferring ~/.claude.json to remote host...")
+            host.write_text_file(
+                Path.home() / ".claude.json",
+                (Path.home() / ".claude.json").read_text(),
+            )
+
+        if config.sync_claude_credentials:
+            logger.info("Transferring ~/.claude/.credentials.json to remote host...")
+            host.write_text_file(
+                Path.home() / ".claude" / ".credentials.json",
+                (Path.home() / ".claude" / ".credentials.json").read_text(),
+            )
