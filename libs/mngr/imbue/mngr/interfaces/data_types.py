@@ -11,6 +11,7 @@ from pyinfra.api import Host as PyinfraHost
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.primitives import NonNegativeInt
+from imbue.mngr.errors import InvalidRelativePathError
 from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
@@ -258,14 +259,35 @@ class HostInfo(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
 
 
-class RelativePath(Path):
-    """A Path that must be relative (not absolute)."""
+class RelativePath(str):
+    """A string representing a relative path (not absolute).
 
-    def __new__(cls, *args, **kwargs):
-        path = super().__new__(cls, *args, **kwargs)
+    This is a string subclass that validates the path is relative and provides
+    a method to convert to a Path object when needed.
+    """
+
+    def __new__(cls, value: str | Path) -> "RelativePath":
+        str_value = str(value)
+        path = Path(str_value)
         if path.is_absolute():
-            raise ValueError(f"Path must be relative, got absolute path: {path}")
-        return path
+            raise InvalidRelativePathError(str_value)
+        return super().__new__(cls, str_value)
+
+    def to_path(self) -> Path:
+        """Convert to a Path object."""
+        return Path(self)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
+        return core_schema.no_info_after_validator_function(
+            cls,
+            core_schema.str_schema(),
+            serialization=core_schema.to_string_ser_schema(),
+        )
 
 
 class FileTransferSpec(FrozenModel):

@@ -15,6 +15,7 @@ from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import PluginMngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import FileTransferSpec
+from imbue.mngr.interfaces.data_types import RelativePath
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import AgentTypeName
@@ -187,21 +188,14 @@ def get_provision_file_transfers(
     config = _get_claude_config(agent)
     transfers: list[FileTransferSpec] = []
 
-    # Transfer repo-local claude settings
-    if config.sync_repo_settings:
-        for file_path in extra_folder.rglob("*.local.*"):
-            transfers.append(
-                FileTransferSpec(local_path=file_path, agent_path=RelativePath(file_path), is_required=True)
-            )
-
     # Transfer override folder contents
     if config.override_settings_folder is not None:
-        extra_folder = config.override_settings_folder
-        if extra_folder.is_dir():
-            for file_path in extra_folder.rglob("*"):
+        override_folder = config.override_settings_folder
+        if override_folder.is_dir():
+            for file_path in override_folder.rglob("*"):
                 if file_path.is_file():
-                    relative_path = file_path.relative_to(extra_folder)
-                    remote_path = Path("~/.claude") / relative_path
+                    relative_path = file_path.relative_to(override_folder)
+                    remote_path = Path(".claude") / relative_path
                     transfers.append(
                         FileTransferSpec(
                             local_path=file_path,
@@ -277,15 +271,23 @@ def provision_agent(
                             )
 
         if config.sync_claude_json:
-            logger.info("Transferring ~/.claude.json to remote host...")
-            host.write_text_file(
-                Path.home() / ".claude.json",
-                (Path.home() / ".claude.json").read_text(),
-            )
+            claude_json_path = Path.home() / ".claude.json"
+            if claude_json_path.exists():
+                logger.info("Transferring ~/.claude.json to remote host...")
+                host.write_text_file(
+                    Path.home() / ".claude.json",
+                    claude_json_path.read_text(),
+                )
+            else:
+                logger.debug("Skipping ~/.claude.json (file does not exist)")
 
         if config.sync_claude_credentials:
-            logger.info("Transferring ~/.claude/.credentials.json to remote host...")
-            host.write_text_file(
-                Path.home() / ".claude" / ".credentials.json",
-                (Path.home() / ".claude" / ".credentials.json").read_text(),
-            )
+            credentials_path = Path.home() / ".claude" / ".credentials.json"
+            if credentials_path.exists():
+                logger.info("Transferring ~/.claude/.credentials.json to remote host...")
+                host.write_text_file(
+                    Path.home() / ".claude" / ".credentials.json",
+                    credentials_path.read_text(),
+                )
+            else:
+                logger.debug("Skipping ~/.claude/.credentials.json (file does not exist)")
