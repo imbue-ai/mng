@@ -11,6 +11,7 @@ from pyinfra.api import Host as PyinfraHost
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.primitives import NonNegativeInt
+from imbue.mngr.errors import InvalidRelativePathError
 from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
@@ -258,18 +259,50 @@ class HostInfo(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
 
 
+# FIXME: this is dumb--we should inherit from Path (it is a path, after all), and there should be no reason for the .to_path() method
+class RelativePath(str):
+    """A string representing a relative path (not absolute).
+
+    This is a string subclass that validates the path is relative and provides
+    a method to convert to a Path object when needed.
+    """
+
+    def __new__(cls, value: str | Path) -> "RelativePath":
+        str_value = str(value)
+        path = Path(str_value)
+        if path.is_absolute():
+            raise InvalidRelativePathError(str_value)
+        return super().__new__(cls, str_value)
+
+    def to_path(self) -> Path:
+        """Convert to a Path object."""
+        return Path(self)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
+        return core_schema.no_info_after_validator_function(
+            cls,
+            core_schema.str_schema(),
+            serialization=core_schema.to_string_ser_schema(),
+        )
+
+
 class FileTransferSpec(FrozenModel):
     """Specification for a file transfer during agent provisioning.
 
     Used by plugins to declare files that should be copied from the local machine
-    to the remote host before other provisioning steps run.
+    to the agent work_dir before other provisioning steps run.
 
     Note: Currently only supports individual files, not directories.
     """
 
     local_path: Path = Field(description="Path to the file on the local machine")
-    remote_path: Path = Field(
-        description="Destination path on the remote host. Relative paths are relative to work_dir"
+    agent_path: RelativePath = Field(
+        description="Destination path on the agent host. Must be a relative path (relative to work_dir)"
     )
     is_required: bool = Field(
         description="If True, provisioning fails if local file doesn't exist. If False, skipped if missing."

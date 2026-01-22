@@ -256,12 +256,20 @@ class Host(HostInterface):
     def write_file(self, path: Path, content: bytes, mode: str | None = None) -> None:
         """Write bytes content to a file, creating parent directories as needed."""
         parent_dir = str(path.parent)
-        self.execute_command(f"mkdir -p '{parent_dir}'")
+        result = self.execute_command(f"mkdir -p '{parent_dir}'")
+        if not result.success:
+            raise MngrError(
+                f"Failed to create parent directory '{parent_dir}' on host {self.id} because: {result.stderr}"
+            )
         # this shortcut reduces the number of file descriptors opened on local hosts and speeds things up considerably
         if self.is_local:
             path.write_bytes(content)
         else:
-            self._put_file(io.BytesIO(content), str(path))
+            is_success = self._put_file(io.BytesIO(content), str(path))
+            if not is_success:
+                raise MngrError(f"Failed to write file '{str(path)}' on host {self.id}'")
+            else:
+                pass
         if mode is not None:
             self.execute_command(f"chmod {mode} '{str(path)}'")
 
@@ -997,7 +1005,7 @@ class Host(HostInterface):
     ) -> list[FileTransferSpec]:
         """Collect file transfer specifications from all plugins.
 
-        Later plugins override earlier ones if they specify the same remote_path.
+        Later plugins override earlier ones if they specify the same agent_path.
         """
         transfer_by_remote_path: dict[Path, FileTransferSpec] = {}
 
@@ -1012,8 +1020,8 @@ class Host(HostInterface):
         for plugin_transfers in all_results:
             if plugin_transfers is not None:
                 for transfer in plugin_transfers:
-                    # Later plugins override earlier ones for the same remote_path
-                    transfer_by_remote_path[transfer.remote_path] = transfer
+                    # Later plugins override earlier ones for the same agent_path
+                    transfer_by_remote_path[transfer.agent_path] = transfer
 
         return list(transfer_by_remote_path.values())
 
@@ -1047,9 +1055,7 @@ class Host(HostInterface):
                 continue
 
             # Resolve relative remote paths to work_dir
-            remote_path = transfer.remote_path
-            if not remote_path.is_absolute():
-                remote_path = agent.work_dir / remote_path
+            remote_path = agent.work_dir / transfer.agent_path
 
             logger.trace("Plugin file transfer: {} -> {}", transfer.local_path, remote_path)
             local_content = transfer.local_path.read_bytes()

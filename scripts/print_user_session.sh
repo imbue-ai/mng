@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-cat `find ~/.claude/projects/ -name "$CLAUDE_SESSION_ID.jsonl"` | \
+cat `find ~/.claude/projects/ -name "$MAIN_CLAUDE_SESSION_ID.jsonl"` | \
   grep -v "tool_use_id" | \
   grep -v 'content":"<' | \
   grep -v '"type":"progress"' | \

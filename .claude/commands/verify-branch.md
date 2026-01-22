@@ -19,11 +19,11 @@ This is the transcript of the user's conversation, which should help you underst
 
 ---
 
-!`export CLAUDE_SESSION_ID=$(cat .claude/sessionid) && ./scripts/print_user_session.sh`
+!`export MAIN_CLAUDE_SESSION_ID=$(cat .claude/sessionid) && ./scripts/print_user_session.sh`
 
 ---
 
-(if the above is empty, run this yourself: `export CLAUDE_SESSION_ID=$(cat .claude/sessionid) && ./scripts/print_user_session.sh` )
+(if the above is empty, run this yourself: `export MAIN_CLAUDE_SESSION_ID=$(cat .claude/sessionid) && ./scripts/print_user_session.sh` )
 
 This is the diff of the changes that resulted (between the current code and the target, eg, where we want to merge it to, eg, the output of git diff !`echo $GIT_BASE_BRANCH`..HEAD):
 

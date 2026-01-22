@@ -33,7 +33,6 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import EnvVar
-from imbue.mngr.config.data_types import HookDefinition
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundError
@@ -63,7 +62,6 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostNameStyle
 from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import IdleMode
-from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
 from imbue.mngr.primitives import LogLevel
 from imbue.mngr.primitives import OutputFormat
@@ -169,10 +167,6 @@ class CreateCliOptions(CommonCliOptions):
     host_env_file: tuple[str, ...]
     pass_host_env: tuple[str, ...]
     snapshot: str | None
-    image: str | None
-    devcontainer: str | None
-    dockerfile: str | None
-    hook: tuple[str, ...]
     build_arg: tuple[str, ...]
     build_args: str | None
     start_arg: tuple[str, ...]
@@ -356,10 +350,6 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--pass-host-env", multiple=True, help="Forward variable from shell for host [repeatable]")
 @optgroup.group("New Host Build")
 @optgroup.option("--snapshot", help="Use existing snapshot instead of building")
-@optgroup.option("--image", help="Use existing image instead of building")
-@optgroup.option("--devcontainer", help="Build from devcontainer.json [default: .devcontainer/devcontainer.json]")
-@optgroup.option("--dockerfile", help="Build from Dockerfile [default: Dockerfile if no devcontainer]")
-@optgroup.option("--hook", multiple=True, help="Add lifecycle hook NAME:COMMAND [repeatable]")
 @optgroup.option(
     "-b",
     "--build",
@@ -935,9 +925,6 @@ def _parse_target_host(
         host_env_vars = tuple(EnvVar.from_string(e) for e in opts.host_env)
         host_env_files = tuple(Path(f) for f in opts.host_env_file)
 
-        # Parse hooks
-        hooks = tuple(HookDefinition.from_string(h) for h in opts.hook)
-
         # Combine build args from both individual (-b) and bulk (--build-args) options
         combined_build_args = list(opts.build_arg)
         if opts.build_args:
@@ -951,11 +938,7 @@ def _parse_target_host(
         # Parse build options
         build_options = NewHostBuildOptions(
             snapshot=SnapshotName(opts.snapshot) if opts.snapshot else None,
-            image=ImageReference(opts.image) if opts.image else None,
             context_path=Path(opts.project_context_path) if opts.project_context_path else None,
-            devcontainer=Path(opts.devcontainer) if opts.devcontainer else None,
-            dockerfile=Path(opts.dockerfile) if opts.dockerfile else None,
-            hooks=hooks,
             build_args=tuple(combined_build_args),
             start_args=tuple(combined_start_args),
         )
@@ -1122,10 +1105,10 @@ def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
 _CREATE_HELP_METADATA = CommandHelpMetadata(
     name="mngr-create",
     one_line_description="Create and run an agent",
-    synopsis="""mngr create [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND] 
-    [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree] 
+    synopsis="""mngr create [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
+    [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
     [--include <PATTERN>] [--exclude <PATTERN>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
-    [--dockerfile <PATH>] [--image <NAME>] [--snapshot <ID>] [--devcontainer <PATH>] [-b <BUILD_ARG>] [-s <START_ARG>]
+    [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot]
     [--] [<AGENT_ARGS>...]""",
