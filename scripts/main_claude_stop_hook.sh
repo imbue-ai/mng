@@ -20,13 +20,13 @@ if [ -z "${TMUX:-}" ]; then
 fi
 
 # Make sure we're the main claude session
-if [ -z "${CLAUDE_SESSION_ID:-}" ]; then
+if [ -z "${MAIN_CLAUDE_SESSION_ID:-}" ]; then
     # if not, this is a reviewer or some other random claude
     exit 0
 fi
 
 # make the session id accessible to the reviewers
-echo $CLAUDE_SESSION_ID > .claude/sessionid
+echo $MAIN_CLAUDE_SESSION_ID > .claude/sessionid
 
 # Track the commit hash we're reviewing (to detect stuck agents)
 mkdir -p .claude

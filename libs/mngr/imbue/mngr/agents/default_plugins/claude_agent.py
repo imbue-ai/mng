@@ -54,7 +54,7 @@ class ClaudeAgent(BaseAgent):
             create_cmd = f"{create_cmd} {args_str}"
 
         # Combine with || fallback
-        return CommandString(f"export CLAUDE_SESSION_ID={agent_uuid} && ( {resume_cmd} ) || {create_cmd}")
+        return CommandString(f"export MAIN_CLAUDE_SESSION_ID={agent_uuid} && ( {resume_cmd} ) || {create_cmd}")
 
 
 class ClaudeAgentConfig(AgentTypeConfig):
