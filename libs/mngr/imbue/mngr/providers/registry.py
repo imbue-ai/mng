@@ -1,5 +1,6 @@
 from typing import Any
 
+import imbue.mngr.providers.docker.backend as docker_backend_module
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
@@ -72,6 +73,7 @@ def load_backends_from_plugins(pm) -> None:
 
     pm.register(local_backend_module)
     pm.register(modal_backend_module)
+    pm.register(docker_backend_module)
     backends = pm.hook.register_provider_backend()
 
     for backend_class in backends:
