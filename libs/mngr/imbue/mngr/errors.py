@@ -202,5 +202,17 @@ class ConfigParseError(ConfigError):
     """Failed to parse config file."""
 
 
+class ConfigKeyNotFoundError(ConfigError, KeyError):
+    """Configuration key not found."""
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+        super().__init__(f"Key not found: {key}")
+
+
+class ConfigStructureError(ConfigError, TypeError):
+    """Invalid configuration structure."""
+
+
 class UnknownBackendError(ConfigError):
     """Unknown provider backend."""
