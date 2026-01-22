@@ -68,7 +68,9 @@ class ClaudeAgent(BaseAgent):
             create_cmd = f"{create_cmd} {args_str}"
 
         # Combine with || fallback
-        return CommandString(f"export MAIN_CLAUDE_SESSION_ID={agent_uuid} && ( {resume_cmd} ) || {create_cmd}")
+        return CommandString(
+            f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={agent_uuid} && ( {resume_cmd} ) || {create_cmd}"
+        )
 
 
 class ClaudeAgentConfig(AgentTypeConfig):
@@ -85,6 +87,10 @@ class ClaudeAgentConfig(AgentTypeConfig):
     sync_claude_json: bool = Field(
         default=True,
         description="Whether to sync the local ~/.claude.json to a remote host (useful for API key settings and permissions)",
+    )
+    sync_repo_settings: bool = Field(
+        default=True,
+        description="Whether to sync unversioned .claude/ settings from the repo to the agent work_dir",
     )
     sync_claude_credentials: bool = Field(
         default=True,
@@ -128,7 +134,7 @@ def _check_claude_installed(host: HostInterface) -> bool:
 
 def _install_claude(host: HostInterface) -> None:
     """Install claude on the host using the official installer."""
-    install_command = "curl -fsSL https://claude.ai/install.sh | bash"
+    install_command = """curl --version && ( curl -fsSL https://claude.ai/install.sh | bash ) && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc"""
     result = host.execute_command(install_command, timeout_seconds=300.0)
     if not result.success:
         raise PluginMngrError(f"Failed to install claude. stderr: {result.stderr}")
@@ -167,11 +173,6 @@ def on_before_agent_provisioning(
         logger.debug("Skipping claude installation check (check_installation=False)")
         return
 
-    # Skip installation check if user provided a command override (they're not actually using claude)
-    if options.command is not None:
-        logger.debug("Skipping claude installation check (command override provided)")
-        return
-
     # FIXME: check that we either have an API key in the env, or that it is configured locally and credentials will be synced
 
 
@@ -188,6 +189,13 @@ def get_provision_file_transfers(
 
     config = _get_claude_config(agent)
     transfers: list[FileTransferSpec] = []
+
+    # Transfer repo-local claude settings
+    if config.sync_repo_settings:
+        for file_path in Path(".claude").rglob("*.local.*"):
+            transfers.append(
+                FileTransferSpec(local_path=file_path, agent_path=RelativePath(file_path), is_required=True)
+            )
 
     # Transfer override folder contents
     if config.override_settings_folder is not None:
@@ -225,10 +233,6 @@ def provision_agent(
 
     config = _get_claude_config(agent)
 
-    # Skip installation if user provided a command override (they're not actually using claude)
-    if options.command is not None:
-        return
-
     # ensure that claude is installed
     if config.check_installation:
         is_installed = _check_claude_installed(host)
@@ -261,31 +265,29 @@ def provision_agent(
             logger.info("Transferring claude home directory settings to remote host...")
             # transfer anything in ~/.claude/skills/, ~/.claude/agents/, and ~/.claude/commands/:
             local_claude_dir = Path.home() / ".claude"
-            for local_folder in [
+            for local_config_path in [
+                local_claude_dir / "settings.json",
                 local_claude_dir / "skills",
                 local_claude_dir / "agents",
                 local_claude_dir / "commands",
             ]:
-                if local_folder.is_dir():
-                    for file_path in local_folder.rglob("*"):
-                        if file_path.is_file():
-                            relative_path = file_path.relative_to(local_claude_dir)
-                            # Use ~ for remote path so it expands to the remote user's home
-                            remote_path = Path("~/.claude") / relative_path
-                            host.write_text_file(
-                                remote_path,
-                                file_path.read_text(),
-                            )
+                if local_config_path.exists():
+                    if local_config_path.is_dir():
+                        for file_path in local_config_path.rglob("*"):
+                            if file_path.is_file():
+                                relative_path = file_path.relative_to(local_claude_dir)
+                                remote_path = Path(".claude") / relative_path
+                                host.write_text_file(remote_path, file_path.read_text())
+                    else:
+                        relative_path = local_config_path.relative_to(local_claude_dir)
+                        remote_path = Path(".claude") / relative_path
+                        host.write_text_file(remote_path, local_config_path.read_text())
 
         if config.sync_claude_json:
             claude_json_path = Path.home() / ".claude.json"
             if claude_json_path.exists():
                 logger.info("Transferring ~/.claude.json to remote host...")
-                # Use ~ for remote path so it expands to the remote user's home
-                host.write_text_file(
-                    Path("~/.claude.json"),
-                    claude_json_path.read_text(),
-                )
+                host.write_text_file(Path(".claude.json"), claude_json_path.read_text())
             else:
                 logger.debug("Skipping ~/.claude.json (file does not exist)")
 
@@ -293,10 +295,6 @@ def provision_agent(
             credentials_path = Path.home() / ".claude" / ".credentials.json"
             if credentials_path.exists():
                 logger.info("Transferring ~/.claude/.credentials.json to remote host...")
-                # Use ~ for remote path so it expands to the remote user's home
-                host.write_text_file(
-                    Path("~/.claude/.credentials.json"),
-                    credentials_path.read_text(),
-                )
+                host.write_text_file(Path(".claude/.credentials.json"), credentials_path.read_text())
             else:
                 logger.debug("Skipping ~/.claude/.credentials.json (file does not exist)")

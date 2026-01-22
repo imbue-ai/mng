@@ -250,12 +250,17 @@ class Host(HostInterface):
     def write_file(self, path: Path, content: bytes, mode: str | None = None) -> None:
         """Write bytes content to a file, creating parent directories as needed."""
         parent_dir = str(path.parent)
-        self.execute_command(f"mkdir -p '{parent_dir}'")
+        result = self.execute_command(f"mkdir -p '{parent_dir}'")
+        if not result.success:
+            raise MngrError(
+                f"Failed to create parent directory '{parent_dir}' on host {self.id} because: {result.stderr}"
+            )
         # this shortcut reduces the number of file descriptors opened on local hosts and speeds things up considerably
         if self.is_local:
             path.write_bytes(content)
         else:
-            self._put_file(io.BytesIO(content), str(path))
+            if not self._put_file(io.BytesIO(content), str(path)):
+                raise MngrError(f"Failed to write file '{str(path)}' on host {self.id}'")
         if mode is not None:
             self.execute_command(f"chmod {mode} '{str(path)}'")
 
