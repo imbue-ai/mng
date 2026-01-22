@@ -90,10 +90,6 @@ class ClaudeAgentConfig(AgentTypeConfig):
         default=True,
         description="Whether to sync the local ~/.claude/.credentials.json to a remote host",
     )
-    sync_repo_settings: bool = Field(
-        default=True,
-        description="Whether to sync unversioned .claude/ settings from the repo to the agent work_dir",
-    )
     override_settings_folder: Path | None = Field(
         default=None,
         description="Extra folder to sync to the repo .claude/ folder in the agent work_dir."
@@ -264,16 +260,18 @@ def provision_agent(
         if config.sync_home_settings:
             logger.info("Transferring claude home directory settings to remote host...")
             # transfer anything in ~/.claude/skills/, ~/.claude/agents/, and ~/.claude/commands/:
+            local_claude_dir = Path.home() / ".claude"
             for local_folder in [
-                Path.home() / ".claude" / "skills",
-                Path.home() / ".claude" / "agents",
-                Path.home() / ".claude" / "commands",
+                local_claude_dir / "skills",
+                local_claude_dir / "agents",
+                local_claude_dir / "commands",
             ]:
                 if local_folder.is_dir():
                     for file_path in local_folder.rglob("*"):
                         if file_path.is_file():
-                            relative_path = file_path.relative_to(Path.home() / ".claude")
-                            remote_path = Path.home() / ".claude" / relative_path
+                            relative_path = file_path.relative_to(local_claude_dir)
+                            # Use ~ for remote path so it expands to the remote user's home
+                            remote_path = Path("~/.claude") / relative_path
                             host.write_text_file(
                                 remote_path,
                                 file_path.read_text(),
@@ -283,8 +281,9 @@ def provision_agent(
             claude_json_path = Path.home() / ".claude.json"
             if claude_json_path.exists():
                 logger.info("Transferring ~/.claude.json to remote host...")
+                # Use ~ for remote path so it expands to the remote user's home
                 host.write_text_file(
-                    Path.home() / ".claude.json",
+                    Path("~/.claude.json"),
                     claude_json_path.read_text(),
                 )
             else:
@@ -294,8 +293,9 @@ def provision_agent(
             credentials_path = Path.home() / ".claude" / ".credentials.json"
             if credentials_path.exists():
                 logger.info("Transferring ~/.claude/.credentials.json to remote host...")
+                # Use ~ for remote path so it expands to the remote user's home
                 host.write_text_file(
-                    Path.home() / ".claude" / ".credentials.json",
+                    Path("~/.claude/.credentials.json"),
                     credentials_path.read_text(),
                 )
             else:
