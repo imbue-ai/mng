@@ -29,6 +29,7 @@ class ClaudeAgent(BaseAgent):
 
     def assemble_command(
         self,
+        host: HostInterface,
         agent_args: tuple[str, ...],
         command_override: CommandString | None,
     ) -> CommandString:

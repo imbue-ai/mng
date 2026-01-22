@@ -32,11 +32,12 @@ class BaseAgent(AgentInterface):
 
     def assemble_command(
         self,
+        host: HostInterface,
         agent_args: tuple[str, ...],
         command_override: CommandString | None,
     ) -> CommandString:
         """Default: command_override or config.command, then append cli_args and agent_args."""
-        logger.trace("Assembling command for agent {} (type={})", self.name, self.agent_type)
+        logger.trace("Assembling command for agent {} (type={}) on host {}", self.name, self.agent_type, host.id)
         if command_override is not None:
             base = str(command_override)
         elif self.agent_config.command is not None:

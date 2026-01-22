@@ -750,6 +750,7 @@ class Host(HostInterface):
         # FIXME: this whole block of code is nonsense. Agents MUST have a a command--they literally ARE commands. assemble_command() should be changed to require a non-None return type.
         if options.command is not None or agent_config.command is not None:
             command = agent.assemble_command(
+                host=self,
                 agent_args=options.agent_args,
                 command_override=options.command,
             )

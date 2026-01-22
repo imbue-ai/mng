@@ -57,6 +57,7 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def assemble_command(
         self,
+        host: HostInterface,
         agent_args: tuple[str, ...],
         command_override: CommandString | None,
     ) -> CommandString | None:

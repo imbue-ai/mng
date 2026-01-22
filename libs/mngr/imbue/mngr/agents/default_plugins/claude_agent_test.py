@@ -51,6 +51,7 @@ def test_claude_agent_assemble_command_with_no_args(mngr_test_prefix: str) -> No
     """ClaudeAgent should generate resume/session-id command format with no args."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
+    mock_host = Mock()
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -61,10 +62,10 @@ def test_claude_agent_assemble_command_with_no_args(mngr_test_prefix: str) -> No
         host_id=HostId.generate(),
         mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
         agent_config=ClaudeAgentConfig(),
-        host=Mock(),
+        host=mock_host,
     )
 
-    command = agent.assemble_command(agent_args=(), command_override=None)
+    command = agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
 
     uuid = agent_id.get_uuid()
     assert command == CommandString(
@@ -76,6 +77,7 @@ def test_claude_agent_assemble_command_with_agent_args(mngr_test_prefix: str) ->
     """ClaudeAgent should append agent args to both command variants."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
+    mock_host = Mock()
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -86,10 +88,10 @@ def test_claude_agent_assemble_command_with_agent_args(mngr_test_prefix: str) ->
         host_id=HostId.generate(),
         mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
         agent_config=ClaudeAgentConfig(),
-        host=Mock(),
+        host=mock_host,
     )
 
-    command = agent.assemble_command(agent_args=("--model", "opus"), command_override=None)
+    command = agent.assemble_command(host=mock_host, agent_args=("--model", "opus"), command_override=None)
 
     uuid = agent_id.get_uuid()
     assert command == CommandString(
@@ -101,6 +103,7 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(mngr_test_pr
     """ClaudeAgent should append both cli_args and agent_args to both command variants."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
+    mock_host = Mock()
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -111,10 +114,10 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(mngr_test_pr
         host_id=HostId.generate(),
         mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
         agent_config=ClaudeAgentConfig(cli_args="--verbose"),
-        host=Mock(),
+        host=mock_host,
     )
 
-    command = agent.assemble_command(agent_args=("--model", "opus"), command_override=None)
+    command = agent.assemble_command(host=mock_host, agent_args=("--model", "opus"), command_override=None)
 
     uuid = agent_id.get_uuid()
     assert command == CommandString(
@@ -126,6 +129,7 @@ def test_claude_agent_assemble_command_with_command_override(mngr_test_prefix: s
     """ClaudeAgent should use command override when provided."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
+    mock_host = Mock()
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -136,10 +140,11 @@ def test_claude_agent_assemble_command_with_command_override(mngr_test_prefix: s
         host_id=HostId.generate(),
         mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
         agent_config=ClaudeAgentConfig(),
-        host=Mock(),
+        host=mock_host,
     )
 
     command = agent.assemble_command(
+        host=mock_host,
         agent_args=("--model", "opus"),
         command_override=CommandString("custom-claude"),
     )
@@ -154,6 +159,7 @@ def test_claude_agent_assemble_command_raises_when_no_command(mngr_test_prefix: 
     """ClaudeAgent should raise NoCommandDefinedError when no command defined."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
+    mock_host = Mock()
 
     # Create agent with no command configured
     agent = ClaudeAgent.model_construct(
@@ -165,11 +171,11 @@ def test_claude_agent_assemble_command_raises_when_no_command(mngr_test_prefix: 
         host_id=HostId.generate(),
         mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
         agent_config=AgentTypeConfig(),
-        host=Mock(),
+        host=mock_host,
     )
 
     with pytest.raises(NoCommandDefinedError, match="No command defined"):
-        agent.assemble_command(agent_args=(), command_override=None)
+        agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
 
 
 def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> None:
