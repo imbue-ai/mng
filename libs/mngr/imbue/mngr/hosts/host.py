@@ -5,7 +5,6 @@ import io
 import json
 import platform
 import shlex
-import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -1194,16 +1193,11 @@ class Host(HostInterface):
             # Create a tmux session with a shell that has env vars sourced
             # The shell-command argument makes tmux start with our custom bash
             # that sources the env files before becoming an interactive shell
-            # Start tmux in its own process group, making it easier to kill all processes in the session later
-            # We use a Python one-liner instead of setsid because setsid is not installed by default on macOS
-            # The one-liner forks (parent exits, child calls setsid then execs), mimicking the setsid command
-            # For local hosts, use the currently running Python; for remote hosts, use python3
             # The -f flag specifies our custom tmux config with the exit hotkey binding
             # Note: env_shell_cmd must be quoted so it's passed as a single argument to tmux
-            python_exe = shlex.quote(sys.executable) if self.is_local else "python3"
-            python_setsid = f'{python_exe} -c "import os,sys;(os.fork()>0 and os._exit(0)) or (os.setsid(),os.execvp(sys.argv[1],sys.argv[1:]))"'
+            # The -d flag creates a detached session; tmux returns after the session is created
             self.execute_command(
-                f"{unset_env_args}{python_setsid} tmux -f {shlex.quote(str(tmux_config_path))} new-session -d -s '{session_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
+                f"{unset_env_args}tmux -f {shlex.quote(str(tmux_config_path))} new-session -d -s '{session_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
             )
 
             # Set the session's default-command so any new window/pane created
