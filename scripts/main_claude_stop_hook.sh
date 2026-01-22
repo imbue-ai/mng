@@ -67,7 +67,7 @@ for window in $(tmux list-windows -t "$session" -F '#W' 2>/dev/null | grep '^rev
 done
 
 # convert jsonl conversation transcript to html
-uv run --project contrib/claude-code-transcripts/ claude-code-transcripts json -o /tmp/transcript/$CLAUDE_SESSION_ID `find ~/.claude/projects/ -name "$CLAUDE_SESSION_ID.jsonl"`
+uv run --project contrib/claude-code-transcripts/ claude-code-transcripts json -o /tmp/transcript/$MAIN_CLAUDE_SESSION_ID `find ~/.claude/projects/ -name "$MAIN_CLAUDE_SESSION_ID.jsonl"`
 
 # Colors for output (disabled if not a terminal)
 if [[ -t 2 ]]; then
@@ -120,7 +120,7 @@ retry_command() {
 }
 
 # Store HTML transcript in git LFS
-HTML_TRANSCRIPT="/tmp/transcript/$CLAUDE_SESSION_ID/page-001.html"
+HTML_TRANSCRIPT="/tmp/transcript/$MAIN_CLAUDE_SESSION_ID/page-001.html"
 HTML_RAW_URL=""
 HTML_WEB_URL=""
 if [[ -f "$HTML_TRANSCRIPT" ]]; then
@@ -143,7 +143,7 @@ else
 fi
 
 # Store JSON transcript in git LFS
-JSON_TRANSCRIPT=$(find ~/.claude/projects/ -name "$CLAUDE_SESSION_ID.jsonl" 2>/dev/null | head -1)
+JSON_TRANSCRIPT=$(find ~/.claude/projects/ -name "$MAIN_CLAUDE_SESSION_ID.jsonl" 2>/dev/null | head -1)
 JSON_RAW_URL=""
 if [[ -n "$JSON_TRANSCRIPT" && -f "$JSON_TRANSCRIPT" ]]; then
     log_info "Storing JSON transcript in git LFS..."
