@@ -184,9 +184,10 @@ class ModalAuthError(PluginMngrError):
     def __init__(self) -> None:
         super().__init__(
             "Modal authentication failed. Token missing or invalid. "
-            "You can disable the modal plugin by passing --disable-plugin modal "
-            "to mngr commands, or configure modal credentials as described at "
-            "https://modal.com/docs/reference/modal.config"
+            "You can disable the modal plugin by running "
+            "'mngr config set plugins.modal.enabled false', "
+            "or by passing --disable-plugin modal to individual commands. "
+            "To configure modal credentials, see https://modal.com/docs/reference/modal.config"
         )
 
 

@@ -15,8 +15,11 @@ mngr plugin remove <name>     # Uninstall a plugin
 Plugins can be enabled/disabled without uninstalling:
 
 ```bash
-mngr config set plugins.disabled claude-plugin
-mngr create --disable-plugin claude-plugin ...
+# Disable permanently via config
+mngr config set plugins.modal.enabled false
+
+# Or disable for a single command
+mngr create --disable-plugin modal ...
 ```
 
 ## Hooks
