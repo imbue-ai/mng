@@ -84,6 +84,9 @@ def test_cli_create_via_subprocess(
                 "--await-ready",
                 "--no-copy-work-dir",
                 "--no-ensure-clean",
+                # Use generic agent type to avoid Claude installation check in CI
+                "--agent-type",
+                "test",
                 # Disable modal to avoid auth errors in CI
                 "--disable-plugin",
                 "modal",
