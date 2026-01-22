@@ -170,7 +170,7 @@ def build_image_from_dockerfile_contents(
 # Constants
 CONTAINER_SSH_PORT = 22
 # 2 minutes default sandbox lifetime (so that we don't just leave tons of them running--we're not doing a good job of cleaning them up yet)
-DEFAULT_SANDBOX_TIMEOUT = 10 * 60
+DEFAULT_SANDBOX_TIMEOUT = 2 * 60
 # Seconds to wait for sshd to be ready
 SSH_CONNECT_TIMEOUT = 60
 
