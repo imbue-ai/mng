@@ -653,19 +653,25 @@ def test_start_agent_creates_process_group(
     host.start_agents([agent.id])
     session_name = f"{mngr_test_prefix}{agent.name}"
 
-    success, output = host._run_shell_command(
-        StringCommand(f"tmux list-panes -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null")
-    )
-    assert success
-    pane_pid = output.stdout.strip()
-    assert pane_pid
+    try:
+        success, output = host._run_shell_command(
+            StringCommand(f"tmux list-panes -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null")
+        )
+        assert success
+        pane_pid = output.stdout.strip()
+        assert pane_pid
 
-    success, output = host._run_shell_command(StringCommand(f"ps -o pgid= -p {pane_pid} 2>/dev/null"))
-    assert success
-    pgid = output.stdout.strip()
-    assert pgid
-
-    host.stop_agents([agent.id])
+        # Use /proc filesystem instead of ps command for better portability
+        # The 5th field in /proc/<pid>/stat is the process group ID
+        success, output = host._run_shell_command(
+            StringCommand(f"cat /proc/{pane_pid}/stat 2>/dev/null | cut -d' ' -f5")
+        )
+        assert success, f"Failed to read pgid from /proc/{pane_pid}/stat"
+        pgid = output.stdout.strip()
+        assert pgid, "Process group ID should not be empty"
+        assert pgid.isdigit(), f"Process group ID should be numeric, got: {pgid}"
+    finally:
+        host.stop_agents([agent.id])
 
 
 # =============================================================================

@@ -355,7 +355,17 @@ def test_config_without_subcommand_shows_help(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test config without a subcommand shows help."""
+    """Test config without a subcommand shows help.
+
+    TODO: This test is intermittently failing because the implementation uses
+    logger.info() to output the help text, but Click's test runner only captures
+    stdout in result.output, not logger output. The logger output may or may not
+    be captured depending on how the test environment is configured. To fix this
+    properly, we need to either:
+    1. Configure the test to capture logger output
+    2. Use a different mechanism for showing help that writes to stdout
+    3. Skip this test and test help display manually
+    """
     result = cli_runner.invoke(
         config,
         [],
