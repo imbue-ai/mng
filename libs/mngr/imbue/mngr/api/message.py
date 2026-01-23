@@ -150,10 +150,10 @@ def _send_message_to_agent(
     """Send a message to a single agent."""
     agent_name = str(agent.name)
 
-    # Check if agent is running
+    # Check if agent has a tmux session (only STOPPED agents cannot receive messages)
     lifecycle_state = agent.get_lifecycle_state()
-    if lifecycle_state != AgentLifecycleState.RUNNING:
-        error_msg = f"Agent is not running (state: {lifecycle_state.value})"
+    if lifecycle_state == AgentLifecycleState.STOPPED:
+        error_msg = f"Agent has no tmux session (state: {lifecycle_state.value})"
         if error_behavior == ErrorBehavior.ABORT:
             raise MngrError(f"Cannot send message to {agent_name}: {error_msg}")
         result.failed_agents.append((agent_name, error_msg))

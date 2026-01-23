@@ -209,10 +209,83 @@ def test_send_message_to_agents_fails_for_stopped_agent(
     # Clean up
     host.destroy_agent(agent)
 
-    # Should have failed because agent is not running
+    # Should have failed because agent has no tmux session
     assert len(result.failed_agents) == 1
     assert result.failed_agents[0][0] == "stopped-test"
-    assert "not running" in result.failed_agents[0][1]
+    assert "no tmux session" in result.failed_agents[0][1]
+
+
+def test_send_message_to_replaced_agent_succeeds(
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
+) -> None:
+    """Test that _send_message_to_agent succeeds for REPLACED agents."""
+    import time
+    from unittest.mock import MagicMock
+
+    from imbue.mngr.api.create import CreateAgentOptions
+    from imbue.mngr.api.message import _send_message_to_agent
+    from imbue.mngr.hosts.host import Host
+
+    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    provider = LocalProviderInstance(
+        name=ProviderInstanceName("local"),
+        host_dir=temp_host_dir,
+        mngr_ctx=mngr_ctx,
+    )
+    host = provider.create_host(HostName("test-replaced"))
+    assert isinstance(host, Host)
+
+    agent = host.create_agent_state(
+        work_dir_path=temp_work_dir,
+        options=CreateAgentOptions(
+            name=AgentName("replaced-test"),
+            agent_type=AgentTypeName("generic"),
+            command=CommandString("sleep 847268"),
+        ),
+    )
+
+    # Start the agent
+    host.start_agents([agent.id])
+
+    # Mock the agent to return REPLACED state
+    mock_agent = MagicMock()
+    mock_agent.name = agent.name
+    mock_agent.get_lifecycle_state.return_value = AgentLifecycleState.REPLACED
+    mock_agent.send_message = agent.send_message
+
+    # Send a unique message
+    test_message = f"test_message_{time.time()}"
+    result = MessageResult()
+    _send_message_to_agent(
+        agent=mock_agent,
+        message_content=test_message,
+        result=result,
+        error_behavior=ErrorBehavior.CONTINUE,
+        on_success=None,
+        on_error=None,
+    )
+
+    # Verify the message was actually sent by checking tmux pane content
+    session_name = f"{mngr_test_prefix}replaced-test"
+    capture_result = host.execute_command(
+        f"tmux capture-pane -t '{session_name}' -p",
+        timeout_seconds=5.0,
+    )
+
+    # Clean up
+    host.destroy_agent(agent)
+
+    # Should succeed because tmux session exists even if state is REPLACED
+    assert str(agent.name) in result.successful_agents
+    assert len(result.failed_agents) == 0
+
+    # Verify the message was actually delivered to the tmux pane
+    assert capture_result.success, "Failed to capture tmux pane content"
+    assert test_message in capture_result.stdout, f"Message '{test_message}' not found in tmux pane output"
 
 
 def test_send_message_to_agents_with_include_filter(
