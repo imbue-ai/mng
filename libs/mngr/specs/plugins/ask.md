@@ -14,3 +14,13 @@ mngr ask [query]
 ## General
 
 - `query`: Query to ask mngr for help with (if omitted, shows general help)
+
+## TODO
+
+**Status: Not implemented**
+
+- Basic `mngr ask` command structure
+- Query parameter handling
+- AI/LLM integration to interpret queries and generate CLI commands
+- General help display when query is omitted
+- Command execution mode (backtick usage pattern)

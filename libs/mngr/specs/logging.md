@@ -125,4 +125,7 @@ Command output logging (`is_logging_command_output`) is also disabled by default
 
 The following features are specified but not yet implemented:
 
-- **Sensitive data redaction logic**: The config fields (`is_logging_commands`, `is_logging_command_output`, `is_logging_env_vars`) and CLI flags (`--[no-]log-commands`, `--[no-]log-command-output`, `--[no-]log-env-vars`) exist and are parsed, but the actual conditional logging/redaction logic is not implemented. Commands, command output, and environment variables are currently logged without checking these flags.
+- **Command execution logging**: The `is_logging_commands` flag is defined but not used. No code actually logs what commands are executed during mngr operations.
+- **Command output logging**: The `is_logging_command_output` flag is defined but not used. Command stdout/stderr is not captured or logged to files.
+- **Environment variable logging**: The `is_logging_env_vars` flag is defined but not used. Environment variables passed to commands are not logged.
+- **Sensitive data redaction**: No code exists to mask/redact API keys, tokens, passwords, or other credentials in logs.
