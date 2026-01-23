@@ -22,11 +22,11 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 
 
-def test_agent_not_found_error_sets_agent_id() -> None:
-    """AgentNotFoundError should set agent_id attribute."""
+def test_agent_not_found_error_sets_agent_identifier() -> None:
+    """AgentNotFoundError should set agent_identifier attribute."""
     agent_id = AgentId.generate()
-    error = AgentNotFoundError(agent_id)
-    assert error.agent_identifier == agent_id
+    error = AgentNotFoundError(str(agent_id))
+    assert error.agent_identifier == str(agent_id)
     assert str(agent_id) in str(error)
 
 
@@ -141,7 +141,7 @@ def test_user_input_error_has_user_help_text() -> None:
 def test_agent_not_found_error_has_user_help_text() -> None:
     """AgentNotFoundError should have user_help_text for listing agents."""
     agent_id = AgentId.generate()
-    error = AgentNotFoundError(agent_id)
+    error = AgentNotFoundError(str(agent_id))
     assert error.user_help_text is not None
     assert "mngr list" in error.user_help_text
 

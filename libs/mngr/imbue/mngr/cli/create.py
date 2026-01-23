@@ -1100,7 +1100,7 @@ def _find_agent_in_host(host: HostInterface, agent_id: AgentId) -> AgentInterfac
         if agent.id == agent_id:
             return agent
 
-    raise AgentNotFoundError(agent_id=agent_id)
+    raise AgentNotFoundError(str(agent_id))
 
 
 def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
