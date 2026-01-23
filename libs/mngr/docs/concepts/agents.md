@@ -24,10 +24,18 @@ You can override plugin defaults:
 
 ```bash
 mngr create my-agent claude --idle-timeout 1h      # Override timeout
-mngr create my-agent codex --agent-cmd my-codex    # Use different binary
 ```
 
-The `--agent-cmd` flag sets the command explicitly, bypassing the plugin's default.
+## Running a Custom Command
+
+Use `--agent-cmd` (or `--agent-command`) to run a literal command instead of using an agent type:
+
+```bash
+mngr create my-agent --agent-cmd "sleep 1000"      # Run a simple command
+mngr create my-agent --agent-cmd "./my-script.sh"  # Run a custom script
+```
+
+The `--agent-cmd` flag implicitly uses the "generic" agent type, which simply runs the provided command without any special handling. This means `--agent-cmd` and `--agent-type` are mutually exclusive: you either specify an agent type (like `claude` or `codex`), or you provide a literal command to run.
 
 See [`mngr create`](../commands/primary/create.md) for all available options.
 

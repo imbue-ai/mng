@@ -7,10 +7,7 @@ import pluggy
 
 from imbue.mngr.api.data_types import OnBeforeCreateArgs
 from imbue.mngr.cli.data_types import OptionStackItem
-from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.data_types import FileTransferSpec
-from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 
@@ -83,104 +80,6 @@ def on_host_destroyed(host: HostInterface) -> None:
 
     This hook is called before a host is destroyed.
     Plugins can use this to perform cleanup or logging.
-    """
-
-
-@hookspec
-def on_before_agent_provisioning(
-    agent: AgentInterface,
-    host: HostInterface,
-    options: CreateAgentOptions,
-    mngr_ctx: MngrContext,
-) -> None:
-    """Called before any provisioning steps run, for validation.
-
-    This hook runs before any file transfers or package installations.
-    Plugins should use this to validate preconditions:
-    - Check that required environment variables are set (e.g., ANTHROPIC_API_KEY)
-    - Verify that required local files exist (e.g., SSH keys, config templates)
-    - Validate any plugin-specific configuration
-
-    If validation fails, raise a PluginMngrError with a clear message
-    explaining what is missing and how to fix it. This ensures provisioning
-    fails fast with actionable error messages.
-
-    IMPORTANT: This hook should only perform read-only validation checks.
-    Do not make any changes to the host in this hook.
-    """
-
-
-@hookspec
-def get_provision_file_transfers(
-    agent: AgentInterface,
-    host: HostInterface,
-    options: CreateAgentOptions,
-    mngr_ctx: MngrContext,
-) -> Sequence[FileTransferSpec] | None:
-    """Return file transfer specifications for provisioning.
-
-    Plugins can declare files that need to be transferred from the local
-    machine to the remote host during provisioning.
-
-    Returns a sequence of FileTransferSpec objects, each specifying:
-    - local_path: Path to the file on the local machine
-    - agent_path: Destination path on the remote host (relative to work_dir if relative)
-    - is_required: If True, provisioning fails if the local file doesn't exist
-
-    Note: Currently only supports individual files, not directories.
-
-    Return None or an empty sequence if no files need to be transferred.
-
-    All collected file transfers are executed before package installation
-    and other provisioning steps. If multiple plugins request the same
-    agent_path, later plugins override earlier ones.
-
-    Use cases:
-    - Transfer config files (e.g., ~/.anthropic/config.json, ~/.npmrc)
-    - Transfer credential files (subject to permission checks)
-    - Transfer plugin-specific state needed for the agent to function
-    """
-
-
-@hookspec
-def provision_agent(
-    agent: AgentInterface,
-    host: HostInterface,
-    options: CreateAgentOptions,
-    mngr_ctx: MngrContext,
-) -> None:
-    """Called during agent provisioning, after file transfers but before CLI options.
-
-    This hook is called after on_before_agent_provisioning validation and
-    after get_provision_file_transfers files have been copied, but before any
-    of the CLI-defined provisioning options (create_directories, upload_files,
-    append_to_files, prepend_to_files, sudo_commands, user_commands) are
-    processed.
-
-    Use this hook to perform plugin-specific provisioning that should happen
-    before user-defined provisioning steps. Plugins can install packages,
-    create config files, or perform other setup tasks.
-    """
-
-
-@hookspec
-def on_after_agent_provisioning(
-    agent: AgentInterface,
-    host: HostInterface,
-    options: CreateAgentOptions,
-    mngr_ctx: MngrContext,
-) -> None:
-    """Called after all provisioning steps have completed.
-
-    This hook is called after all provisioning has finished, including:
-    - Plugin file transfers
-    - Plugin provisioning (provision_agent hook)
-    - CLI-defined provisioning options (directories, uploads, commands, etc.)
-
-    Use this hook to perform finalization or verification steps, such as:
-    - Verify that provisioning completed successfully
-    - Perform final configuration that depends on other provisioning
-    - Log or report provisioning status
     """
 
 

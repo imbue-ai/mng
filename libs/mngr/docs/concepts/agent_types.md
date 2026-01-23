@@ -8,6 +8,14 @@ mngr create my-agent codex         # "codex" is the agent type
 mngr create my-agent ./my-script   # any command can be an agent type
 ```
 
+Alternatively, you can use `--agent-cmd` to run a literal command directly without specifying an agent type:
+
+```bash
+mngr create my-agent --agent-cmd "sleep 1000"   # run a literal command
+```
+
+Using `--agent-cmd` implicitly uses the "generic" agent type, which simply runs the provided command. This means `--agent-cmd` and `--agent-type` are mutually exclusive.
+
 Agent types include any program in your PATH, as well as types registered by [plugins](./plugins.md), which can also specify:
 
 - Command to run (e.g., `claude`, `codex`)

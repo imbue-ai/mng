@@ -218,3 +218,69 @@ RUN echo "custom-dockerfile-marker" > /dockerfile-marker.txt
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
     assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(300)
+def test_mngr_create_with_failing_dockerfile_shows_build_failure(temp_source_dir: Path) -> None:
+    """Test that a failing Dockerfile command shows the build failure in output.
+
+    When a Dockerfile has a command that fails during the build process, mngr should:
+    1. Return a non-zero exit code
+    2. Show the failure message in the output so the user can see what went wrong
+
+    This is important for debuggability - users need to see why their build failed.
+    """
+    agent_name = f"test-modal-dockerfile-fail-{uuid4().hex[:8]}"
+
+    # Create a Dockerfile with a command that will definitely fail
+    dockerfile_path = temp_source_dir / "Dockerfile"
+    # Use a unique marker so we can verify the actual failing command is shown in output
+    unique_failure_marker = f"intentional-fail-{uuid4().hex[:8]}"
+    dockerfile_content = f"""\
+FROM debian:bookworm-slim
+
+# This command will fail intentionally
+RUN echo "About to fail with marker: {unique_failure_marker}" && exit 1
+"""
+    dockerfile_path.write_text(dockerfile_content)
+
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "mngr",
+            "create",
+            agent_name,
+            "echo",
+            "--in",
+            "modal",
+            "--no-connect",
+            "--await-ready",
+            "--no-ensure-clean",
+            "--source",
+            str(temp_source_dir),
+            "-b",
+            f"--dockerfile={dockerfile_path}",
+            "--",
+            "should-not-reach-here",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+
+    # The command should fail because the Dockerfile build fails
+    assert result.returncode != 0, (
+        f"Expected mngr create to fail when Dockerfile has failing command, "
+        f"but got returncode {result.returncode}.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+    # The combined output should contain the unique marker from the failing command
+    # so the user can see what actually failed in the build
+    combined_output = result.stdout + result.stderr
+    assert unique_failure_marker in combined_output, (
+        f"Expected the failing build command's output to be visible in mngr output. "
+        f"Looking for unique marker '{unique_failure_marker}' in output.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )

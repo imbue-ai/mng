@@ -259,6 +259,7 @@ class HostInfo(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
 
 
+# FIXME: this is dumb--we should inherit from Path (it is a path, after all), and there should be no reason for the .to_path() method
 class RelativePath(str):
     """A string representing a relative path (not absolute).
 
