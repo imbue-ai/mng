@@ -80,9 +80,3 @@ If instructed not to commit:
 If you get a failure in `test_no_type_errors` that seems spurious, try running `uv sync --all-packages` and then re-running the tests. If that doesn't work, the error is probably real, and should be fixed.
 
 If you get a failure when trying to commit the first time, just try committing again (the pre-commit hook returns a non-zero exit code when ruff reformats files).
-
-# TODOs
-
-All functionality described in this document is implemented. The following are minor items noted during review:
-
-- None: all workflows (pytest outputs, CI, reviewer agent, automatic PR creation) are fully functional.
