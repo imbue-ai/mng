@@ -1,5 +1,3 @@
-import sys
-
 import click
 import pluggy
 from click_option_group import OptionGroup
@@ -13,9 +11,7 @@ from imbue.mngr.cli.create import create
 from imbue.mngr.cli.destroy import destroy
 from imbue.mngr.cli.gc import gc
 from imbue.mngr.cli.list import list_command
-from imbue.mngr.cli.output_helpers import format_mngr_error_for_cli
 from imbue.mngr.cli.pull import pull
-from imbue.mngr.errors import MngrError
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.providers.registry import load_all_registries
 
@@ -174,19 +170,3 @@ PLUGIN_COMMANDS = _register_plugin_commands()
 
 for cmd in BUILTIN_COMMANDS + PLUGIN_COMMANDS:
     apply_plugin_cli_options(cmd)
-
-
-def main() -> None:
-    """Entry point for the mngr CLI that handles errors gracefully.
-
-    This function wraps the click CLI to catch MngrError exceptions and display
-    them without a stack trace, providing a better user experience.
-    """
-    try:
-        cli()
-    except MngrError as e:
-        # Get user_help_text from the error instance or class
-        help_text = getattr(e, "user_help_text", None)
-        error_message = format_mngr_error_for_cli(e, help_text)
-        sys.stderr.write(error_message + "\n")
-        sys.exit(1)

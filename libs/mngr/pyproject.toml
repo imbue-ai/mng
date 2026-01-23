@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mngr = "imbue.mngr.main:main"
+mngr = "imbue.mngr.main:cli"
 
 [build-system]
 requires = ["hatchling"]

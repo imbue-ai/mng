@@ -1,3 +1,6 @@
+from click import ClickException
+
+from imbue.mngr.cli.output_helpers import format_mngr_error_for_cli
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -7,7 +10,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 
 
-class MngrError(Exception):
+class MngrError(ClickException):
     """Base exception for all mngr errors.
 
     All MngrError subclasses can provide a user_help_text attribute that contains
@@ -16,6 +19,10 @@ class MngrError(Exception):
     """
 
     user_help_text: str | None = None
+
+    def format_message(self) -> str:
+        error_message = format_mngr_error_for_cli(self, self.user_help_text)
+        return error_message
 
 
 class UserInputError(MngrError):
@@ -69,9 +76,9 @@ class AgentNotFoundError(AgentError):
 
     user_help_text = "Use 'mngr list' to see available agents."
 
-    def __init__(self, agent_id: AgentId) -> None:
-        self.agent_id = agent_id
-        super().__init__(f"Agent not found: {agent_id}")
+    def __init__(self, agent_identifier: str) -> None:
+        self.agent_identifier = agent_identifier
+        super().__init__(f"Agent not found: {agent_identifier}")
 
 
 class AgentNotFoundOnHostError(AgentError):
@@ -177,7 +184,9 @@ class SnapshotNotFoundError(SnapshotError):
 class SnapshotsNotSupportedError(SnapshotError):
     """Provider does not support snapshots."""
 
-    user_help_text = "Snapshots are only available for cloud providers like Modal. The local provider does not support snapshots."
+    user_help_text = (
+        "Snapshots are only available for cloud providers like Modal. The local provider does not support snapshots."
+    )
 
     def __init__(self, provider_name: ProviderInstanceName) -> None:
         self.provider_name = provider_name

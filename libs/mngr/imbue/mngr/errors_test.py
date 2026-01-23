@@ -26,7 +26,7 @@ def test_agent_not_found_error_sets_agent_id() -> None:
     """AgentNotFoundError should set agent_id attribute."""
     agent_id = AgentId.generate()
     error = AgentNotFoundError(agent_id)
-    assert error.agent_id == agent_id
+    assert error.agent_identifier == agent_id
     assert str(agent_id) in str(error)
 
 
