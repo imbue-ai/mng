@@ -155,11 +155,11 @@ Contributions are welcome! Please see [`CONTRIBUTING.md`](/CONTRIBUTING.md) for 
 
 ## TODOs
 
-**Missing commands:**
+**Not implemented (commands in README but no code):**
 - `open` - Open agent URLs in browser
-- `stop` - Stop running agents
-- `start` - Start stopped agents
-- `snapshot` - Create/list/delete snapshots (backend exists, needs CLI)
+- `stop` - Stop running agents (backend exists, no CLI)
+- `start` - Start stopped agents (backend exists, no CLI)
+- `snapshot` - Create/list/delete snapshots (backend exists, no CLI)
 - `clone` - Clone existing agents
 - `migrate` - Move agents between hosts
 - `limit` - Set resource limits
@@ -167,10 +167,13 @@ Contributions are welcome! Please see [`CONTRIBUTING.md`](/CONTRIBUTING.md) for 
 - `pair` - Continuous sync with agents
 - `provision` - Re-run provisioning (as standalone command)
 - `ask` - Chat with mngr for help
-- `plugin` - Manage plugins (system exists, needs CLI)
+- `plugin` - Manage plugins (system exists, no CLI)
 
 **Partial implementations:**
-- `list` - Custom formats, field selection, watch mode, filter aliases, sorting, limiting
-- `connect` - Remote agent connections, message flags, attach-command option
-- `pull` - Remote agent support, state/full sync modes, exclude patterns
-- `create` - Snapshot source agent functionality
+- `list` - Missing --running, --stopped, --local, --remote convenience flags, watch mode, custom field selection
+- `connect` - Local agents only; missing remote agent support, --message flags, --attach-command option
+- `pull` - Local agents only; missing remote support, --exclude patterns, state/full sync modes (only files mode works)
+- `create` - Missing --snapshot source agent functionality
+
+**Providers:**
+- Docker provider - Spec exists but no implementation
