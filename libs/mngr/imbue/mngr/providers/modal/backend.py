@@ -1,14 +1,7 @@
-import contextlib
 from pathlib import Path
 from typing import Any
-from typing import ClassVar
 from uuid import uuid4
 
-import modal
-from loguru import logger
-from pydantic import Field
-
-from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
@@ -19,42 +12,6 @@ from imbue.mngr.providers.modal.instance import ModalProviderInstance
 
 MODAL_BACKEND_NAME = ProviderBackendName("modal")
 USER_ID_FILENAME = "user_id"
-
-
-class ModalAppContextHandle(FrozenModel):
-    """Handle for managing a Modal app context lifecycle with output capture.
-
-    This class captures a Modal app's run context along with the output capture
-    context. The output buffer can be inspected to detect build failures and
-    other issues in the Modal logs.
-    """
-
-    run_context: Any = Field(description="The Modal app.run() context manager")
-    app_name: str = Field(description="The name of the Modal app")
-    output_capture_context: Any = Field(description="The output capture context manager")
-    output_buffer: Any = Field(description="StringIO buffer containing captured Modal output")
-    loguru_writer: Any = Field(description="Loguru writer for structured logging (or None)")
-
-
-def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
-    """Exit a Modal app context and its output capture context."""
-    logger.debug("Exiting Modal app context: {}", handle.app_name)
-
-    # Log any captured output for debugging
-    captured_output = handle.output_buffer.getvalue()
-    if captured_output:
-        logger.trace("Modal output captured ({} chars): {}", len(captured_output), captured_output[:500])
-
-    # Exit the app context first
-    try:
-        handle.run_context.__exit__(None, None, None)
-    except modal.exception.Error as e:
-        logger.warning("Modal error exiting app context {}: {}", handle.app_name, e)
-
-    # Exit the output capture context - this is a cleanup operation so we just
-    # suppress any errors
-    with contextlib.suppress(OSError, RuntimeError):
-        handle.output_capture_context.__exit__(None, None, None)
 
 
 def _get_or_create_user_id(mngr_ctx: MngrContext) -> str:
@@ -84,51 +41,7 @@ class ModalProviderBackend(ProviderBackendInterface):
 
     The Modal provider backend creates provider instances that manage Modal sandboxes
     as hosts. Each sandbox runs sshd and is accessed via SSH/pyinfra.
-
-    This class maintains a class-level registry of Modal app contexts by app name.
-    This ensures we only create one app per unique app_name, even if multiple
-    ModalProviderInstance objects are created with the same app_name.
     """
-
-    # Class-level registry of app contexts by app name.
-    # Maps app_name -> (modal.App, ModalAppContextHandle)
-    _app_registry: ClassVar[dict[str, tuple[modal.App, ModalAppContextHandle]]] = {}
-
-    @classmethod
-    def get_app_from_registry(cls, app_name: str) -> tuple[modal.App, ModalAppContextHandle] | None:
-        """Get an app and its context handle from the registry if it exists."""
-        return cls._app_registry.get(app_name)
-
-    @classmethod
-    def register_app(
-        cls,
-        app_name: str,
-        app: modal.App,
-        context_handle: ModalAppContextHandle,
-    ) -> None:
-        """Register an app and its context handle in the registry."""
-        cls._app_registry[app_name] = (app, context_handle)
-
-    @classmethod
-    def exit_and_remove_app(cls, app_name: str) -> None:
-        """Exit and remove an app context from the registry."""
-        if app_name in cls._app_registry:
-            _, context_handle = cls._app_registry.pop(app_name)
-            _exit_modal_app_context(context_handle)
-
-    @classmethod
-    def reset_app_registry(cls) -> None:
-        """Reset the modal app registry.
-
-        Closes all open app contexts and clears the registry. This is primarily used
-        for test isolation to ensure a clean state between tests.
-        """
-        for app_name, (_, context_handle) in list(cls._app_registry.items()):
-            try:
-                _exit_modal_app_context(context_handle)
-            except modal.exception.Error as e:
-                logger.debug("Modal error closing app {} during reset: {}", app_name, e)
-        cls._app_registry.clear()
 
     @staticmethod
     def get_name() -> ProviderBackendName:
