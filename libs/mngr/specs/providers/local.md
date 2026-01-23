@@ -30,3 +30,12 @@ mngr discovers local hosts by:
 ## Snapshots
 
 Local snapshots are directory copies. Not supported for in-place mode; only available for copy/clone modes.
+
+## TODOs
+
+The following features from this spec are not yet implemented:
+
+- Agent metadata storage with `agent_id`, `agent_name`, `agent_type`, `created_at`, `work_dir` fields
+- Host discovery via tmux sessions matching `mngr-*` prefix
+- Host discovery via reading metadata files from `~/.local/share/mngr/agents/`
+- Snapshots functionality (directory copies)
