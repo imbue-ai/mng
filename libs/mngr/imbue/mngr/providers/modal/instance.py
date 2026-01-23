@@ -4,7 +4,6 @@ Manages Modal sandboxes as hosts with SSH access via pyinfra.
 """
 
 import argparse
-import contextlib
 import json
 import socket
 import tempfile
@@ -17,6 +16,8 @@ from typing import Final
 from typing import Mapping
 from typing import Sequence
 from typing import cast
+
+from pydantic import ConfigDict
 
 import modal
 from dockerfile_parse import DockerfileParser
@@ -45,73 +46,9 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
-from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
-
-# FIXME: this _app_registry data should live as a class-level variable on the ModalProviderBackend class instead of at module level!
-#  that's kinda the whole point of the ModalProviderBackend class...
-#  Obviously all of the associated functions should move to backend.py as well.
-
-# Module-level registry of app contexts by app name
-# This ensures we only create one app per unique app_name, even if multiple
-# ModalProviderInstance objects are created with the same app_name
-_app_registry: dict[str, tuple[modal.App, "_ModalAppContextHandle"]] = {}
-
-
-class _ModalAppContextHandle(FrozenModel):
-    """Handle for managing a Modal app context lifecycle with output capture.
-
-    This class captures a Modal app's run context along with the output capture
-    context. The output buffer can be inspected to detect build failures and
-    other issues in the Modal logs.
-    """
-
-    run_context: Any = Field(description="The Modal app.run() context manager")
-    app_name: str = Field(description="The name of the Modal app")
-    output_capture_context: Any = Field(description="The output capture context manager")
-    output_buffer: Any = Field(description="StringIO buffer containing captured Modal output")
-    loguru_writer: Any = Field(description="Loguru writer for structured logging (or None)")
-
-
-def _exit_modal_app_context(handle: _ModalAppContextHandle) -> None:
-    """Exit a Modal app context and its output capture context.
-
-    This is a module-level function instead of a method to avoid inline functions.
-    """
-    logger.debug("Exiting Modal app context: {}", handle.app_name)
-
-    # Log any captured output for debugging
-    captured_output = handle.output_buffer.getvalue()
-    if captured_output:
-        logger.trace("Modal output captured ({} chars): {}", len(captured_output), captured_output[:500])
-
-    # Exit the app context first
-    try:
-        handle.run_context.__exit__(None, None, None)
-    except modal.exception.Error as e:
-        logger.warning("Modal error exiting app context {}: {}", handle.app_name, e)
-
-    # Exit the output capture context - this is a cleanup operation so we just
-    # suppress any errors
-    with contextlib.suppress(OSError, RuntimeError):
-        handle.output_capture_context.__exit__(None, None, None)
-
-
-def reset_modal_app_registry() -> None:
-    """Reset the modal app registry.
-
-    Closes all open app contexts and clears the registry. This is primarily used
-    for test isolation to ensure a clean state between tests.
-    """
-    for app_name, (_, context_handle) in list(_app_registry.items()):
-        try:
-            _exit_modal_app_context(context_handle)
-        except modal.exception.Error as e:
-            logger.debug("Modal error closing app {} during reset: {}", app_name, e)
-    _app_registry.clear()
-
 
 # Constants
 CONTAINER_SSH_PORT = 22
@@ -153,10 +90,16 @@ class ModalProviderInstance(BaseProviderInstance):
     Modal's Sandbox.list() API.
     """
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     app_name: str = Field(frozen=True, description="Modal app name for sandboxes")
     default_timeout: int = Field(frozen=True, description="Default sandbox timeout in seconds")
     default_cpu: float = Field(frozen=True, description="Default CPU cores")
     default_memory: float = Field(frozen=True, description="Default memory in GB")
+    # The Modal app instance, provided by the backend
+    app: modal.App = Field(frozen=True, description="Modal app instance")
+    # Reference to the backend class for calling its methods (typed as Any to avoid circular import)
+    backend_cls: Any = Field(frozen=True, description="Backend class reference")
 
     @property
     def supports_snapshots(self) -> bool:
@@ -634,57 +577,13 @@ class ModalProviderInstance(BaseProviderInstance):
 
         return host_id, name, ssh_host, ssh_port, host_public_key, config, user_tags, snapshots
 
-    # FIXME: this should have been handled at the ModalProviderBackend level instead of here (ie, the provider instance should be passed an App)
     def _get_modal_app(self) -> modal.App:
-        """Get or create the Modal app for this provider instance with output capture.
+        """Get the Modal app for this provider instance.
 
-        Creates an ephemeral app with `modal.App(name)` and enters its `app.run()`
-        context manager. The app is cached in a module-level registry by name, so
-        multiple ModalProviderInstance objects with the same app_name will share
-        the same app instance.
-
-        Modal output is captured via enable_modal_output_capture(), which routes
-        all Modal logs to both a StringIO buffer (for inspection) and to loguru
-        (for mngr's logging system). This enables detection of build failures and
-        other issues that would otherwise be difficult to identify.
-
-        The context is exited when `close()` is called, making the app ephemeral
-        and preventing accumulation of apps (which can hit Modal's limits).
-
-        Raises modal.exception.AuthError if Modal credentials are not configured.
+        The app is created by the backend and passed to this instance during
+        construction. Modal output is captured at the backend level.
         """
-        if self.app_name in _app_registry:
-            app, _ = _app_registry[self.app_name]
-            return app
-
-        logger.debug("Creating ephemeral Modal app with output capture: {}", self.app_name)
-
-        # Enter the output capture context first
-        output_capture_context = enable_modal_output_capture(is_logging_to_loguru=True)
-        output_buffer, loguru_writer = output_capture_context.__enter__()
-
-        # Create the Modal app
-        app = modal.App(self.app_name)
-
-        # Enter the app.run() context manager manually so we can return the app
-        # while keeping the context active until close() is called
-        run_context = app.run()
-        run_context.__enter__()
-
-        # Set app metadata on the loguru writer for structured logging
-        if loguru_writer is not None:
-            loguru_writer.app_id = app.app_id
-            loguru_writer.app_name = app.name
-
-        context_handle = _ModalAppContextHandle(
-            run_context=run_context,
-            app_name=self.app_name,
-            output_capture_context=output_capture_context,
-            output_buffer=output_buffer,
-            loguru_writer=loguru_writer,
-        )
-        _app_registry[self.app_name] = (app, context_handle)
-        return app
+        return self.app
 
     def get_captured_output(self) -> str:
         """Get all captured Modal output for this provider instance.
@@ -695,10 +594,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
         Returns an empty string if no app has been created yet.
         """
-        if self.app_name not in _app_registry:
-            return ""
-        _, context_handle = _app_registry[self.app_name]
-        return context_handle.output_buffer.getvalue()
+        return self.backend_cls.get_captured_output_for_app(self.app_name)
 
     def _find_sandbox_by_host_id(self, host_id: HostId) -> modal.Sandbox | None:
         """Find a Modal sandbox by its mngr host_id tag."""
@@ -1451,9 +1347,7 @@ class ModalProviderInstance(BaseProviderInstance):
         Exits the app.run() context manager if one was created for this app_name.
         This makes the app ephemeral and prevents accumulation.
         """
-        if self.app_name in _app_registry:
-            _, context_handle = _app_registry.pop(self.app_name)
-            _exit_modal_app_context(context_handle)
+        self.backend_cls.close_app(self.app_name)
 
 
 def _build_image_from_dockerfile_contents(
