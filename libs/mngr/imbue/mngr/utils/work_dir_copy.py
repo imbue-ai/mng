@@ -357,12 +357,15 @@ def _copy_with_rsync(
         executing_host = source_host
         rsync_shell_opt = None
     elif source_is_local and not target_is_local:
-        # Local to remote
-        ssh_user_host = _get_ssh_user_host(target_host)
-        source_spec = str(source_path) + "/"
-        dest_spec = f"{ssh_user_host}:{target_path}/"
-        executing_host = source_host
-        rsync_shell_opt = _build_rsync_ssh_option(target_host)
+        # Local to remote - use tar over ssh (doesn't require rsync on remote)
+        _copy_local_to_remote_with_tar(
+            source_host=source_host,
+            source_path=source_path,
+            target_host=target_host,
+            target_path=target_path,
+            data_options=data_options,
+        )
+        return
     elif not source_is_local and target_is_local:
         # Remote to local
         ssh_user_host = _get_ssh_user_host(source_host)
@@ -406,3 +409,52 @@ def _build_rsync_ssh_option(remote_host: HostInterface) -> str:
         return "ssh"
 
     return "ssh " + " ".join(shlex.quote(opt) for opt in ssh_options)
+
+
+def _copy_local_to_remote_with_tar(
+    source_host: HostInterface,
+    source_path: Path,
+    target_host: HostInterface,
+    target_path: Path,
+    data_options: SourceDataOptions,
+) -> None:
+    """Copy files from local to remote using tar over ssh.
+
+    This method doesn't require rsync on the remote host, only tar and ssh.
+    """
+    logger.debug(
+        "Copying with tar+ssh from local:{} to remote:{}",
+        source_path,
+        target_path,
+    )
+
+    # Build exclude args for tar
+    exclude_args: list[str] = []
+    for pattern in data_options.exclude_patterns:
+        exclude_args.extend(["--exclude", pattern])
+    if not data_options.is_include_git:
+        exclude_args.extend(["--exclude", ".git"])
+
+    # Build the SSH command
+    ssh_user_host = _get_ssh_user_host(target_host)
+    ssh_options = _get_ssh_options(target_host)
+    ssh_cmd_parts = ["ssh"]
+    ssh_cmd_parts.extend(ssh_options)
+    ssh_cmd_parts.append(shlex.quote(str(ssh_user_host)))
+
+    # Build the tar create command (runs locally)
+    tar_create = ["tar", "-C", shlex.quote(str(source_path)), "-cz"]
+    tar_create.extend(shlex.quote(arg) for arg in exclude_args)
+    tar_create.append(".")
+
+    # Build the remote command: mkdir + tar extract
+    remote_cmd = f"mkdir -p {shlex.quote(str(target_path))} && tar -C {shlex.quote(str(target_path))} -xz"
+
+    # Combine: tar cz | ssh remote "mkdir -p target && tar xz"
+    full_cmd = " ".join(tar_create) + " | " + " ".join(ssh_cmd_parts) + " " + shlex.quote(remote_cmd)
+
+    logger.debug("Running tar+ssh: {}", full_cmd)
+
+    result = source_host.execute_command(full_cmd)
+    if not result.success:
+        raise MngrError(f"Tar+ssh copy failed: {result.stderr}")
