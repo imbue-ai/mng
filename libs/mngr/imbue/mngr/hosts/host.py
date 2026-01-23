@@ -650,28 +650,16 @@ class Host(HostInterface):
         # Check if source and target are on the same host
         source_is_same_host = host.id == self.id
 
-        # Determine the target work directory path
-        if options.target_path:
-            work_dir_path = options.target_path
-        elif source_is_same_host and options.copy_mode is None:
-            # Same host with no explicit target and no copy mode - use source path (in-place)
-            work_dir_path = path
-        else:
-            # Different host or copy mode specified - generate a path
-            agent_id = AgentId.generate()
-            work_dir_path = self.host_dir / "worktrees" / str(agent_id)
+        # Handle COPY and CLONE modes
+        if options.copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE):
+            # Determine the target work directory path
+            if options.target_path:
+                work_dir_path = options.target_path
+            else:
+                # Generate a new path for the copy
+                agent_id = AgentId.generate()
+                work_dir_path = self.host_dir / "worktrees" / str(agent_id)
 
-        # Determine if this is a generated work dir (needs tracking for cleanup)
-        is_generated_work_dir = not (source_is_same_host and path == work_dir_path)
-
-        # Handle in-place case (same host, same path)
-        if source_is_same_host and path == work_dir_path:
-            logger.debug("Using in-place work directory at {}", work_dir_path)
-            self._mkdir(work_dir_path)
-            return work_dir_path
-
-        # Handle copy mode
-        if options.copy_mode == WorkDirCopyMode.COPY:
             logger.debug("Copying work directory from {} to {}", path, work_dir_path)
             self._mkdir(work_dir_path.parent)
 
@@ -684,23 +672,25 @@ class Host(HostInterface):
                 git_options=options.git,
                 data_options=options.data_options,
             )
-        elif options.copy_mode == WorkDirCopyMode.CLONE:
-            # Clone mode - similar to copy but using git clone semantics
-            logger.debug("Cloning work directory from {} to {}", path, work_dir_path)
-            self._mkdir(work_dir_path.parent)
 
-            copy_work_dir(
-                source_host=host,
-                source_path=path,
-                target_host=self,
-                target_path=work_dir_path,
-                git_options=options.git,
-                data_options=options.data_options,
-            )
+            # Track generated work directories at the host level
+            is_generated_work_dir = not (source_is_same_host and path == work_dir_path)
+            if is_generated_work_dir:
+                self._add_generated_work_dir(work_dir_path)
+
+            return work_dir_path
+
+        # For None copy_mode: use source path directly (original behavior)
+        # If target path is specified, use it; otherwise use source path
+        if options.target_path:
+            work_dir_path = options.target_path
+            is_generated_work_dir = not (source_is_same_host and path == work_dir_path)
         else:
-            # None (in-place) or unknown - just create the directory
-            logger.debug("Creating work directory at {}", work_dir_path)
-            self._mkdir(work_dir_path)
+            # No target path specified, use source path directly (in-place if same host)
+            work_dir_path = path
+            is_generated_work_dir = not source_is_same_host
+
+        self._mkdir(work_dir_path)
 
         # Track generated work directories at the host level
         if is_generated_work_dir:
