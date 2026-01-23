@@ -120,3 +120,9 @@ To include environment variables in logs (e.g., for debugging), use `--log-env-v
 ### Command Output Logging
 
 Command output logging (`is_logging_command_output`) is also disabled by default to prevent accidental leakage of sensitive data that might appear in stdout/stderr.
+
+## TODOs
+
+The following features are specified but not yet implemented:
+
+- **Sensitive data redaction logic**: The config fields (`is_logging_commands`, `is_logging_command_output`, `is_logging_env_vars`) and CLI flags (`--[no-]log-commands`, `--[no-]log-command-output`, `--[no-]log-env-vars`) exist and are parsed, but the actual conditional logging/redaction logic is not implemented. Commands, command output, and environment variables are currently logged without checking these flags.

@@ -61,3 +61,14 @@ This mechanism provides:
 - Automatic recovery from crashed deployments (via timeout)
 - Clear indication when a host is unavailable due to ongoing deployment
 
+## TODO
+
+The following features from this specification are not yet implemented:
+
+- [ ] Deployment locking mechanism (writing timestamps to `$MNGR_HOST_DIR/deploy_lock/timestamp`)
+- [ ] Idle detection coordination (rmdir-based checking of deploy_lock folder)
+- [ ] Apply cooperative locking to state-modifying commands (create, start, stop, destroy, provision, etc.)
+- [ ] Retry-until-locked error behavior for multi-target operations
+- [ ] Crash recovery timeout mechanism (2-4 hour timeout for stale lock files)
+- [ ] Register lock files as activity source for idle shutdown detection
+

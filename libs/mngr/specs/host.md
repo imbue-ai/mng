@@ -50,3 +50,13 @@ Note that this includes many of the underlying fields required for idle detectio
 | `plugin.*`            | Plugin-specific (reported) host state                                                   | `plugin/<plugin>/*`                     |
 
 **Important:** All access to host data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_provider` vs `get_reported_idle_mode`).
+
+## TODOs
+
+- **SSH configuration**: `ssh.*` fields - no SSH config derivation or management
+- **Docker provider**: Only Local and Modal providers implemented
+- **`boot_time` field**: Not exposed as dedicated accessor method
+- **`FAILED` state**: Not in HostState enum (spec lists it as valid state)
+- **`CUSTOM` idle mode**: Not in IdleMode enum
+- **Remote host locking**: Cooperative locking only works for local hosts
+- **Direct provider accessors**: No `get_provider()`, `get_name()` methods per naming convention

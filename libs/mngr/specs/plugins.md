@@ -33,3 +33,9 @@ Plugins CAN use tools other than pyinfra for setting up their dependencies, but 
 - Reduces the benefits of pyinfra's idempotent operations
 
 **pyinfra should only be used for provisioning.** It should not be used for other operations like file syncing, command execution during normal operation, etc. Those operations should use direct SSH or other appropriate mechanisms.
+
+## TODOs
+
+- **Plugin dependency/stacking system**: No formal mechanism for plugins to declare dependencies on other plugins or control execution order (beyond registration order)
+- **offline_mngr_state plugin**: Plugin infrastructure exists (get_plugin_data/set_plugin_data) but the actual offline_mngr_state plugin is not implemented
+- **Pre-create auth verification**: While on_before_provisioning hook exists for validation, Claude agent has incomplete credential check (see FIXME in claude_agent.py:181)
