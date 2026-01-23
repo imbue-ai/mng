@@ -1,10 +1,15 @@
 """Modal provider instance implementation.
 
 Manages Modal sandboxes as hosts with SSH access via pyinfra.
+
+Host metadata (SSH info, config, snapshots) is stored on a Modal Volume rather
+than in sandbox tags. This allows multiple mngr instances to share state and
+enables restoration from snapshots even after the original sandbox is gone.
+Only host_id and host_name are stored as sandbox tags for discovery purposes.
 """
 
 import argparse
-import json
+import io
 import socket
 import tempfile
 import time
@@ -56,13 +61,11 @@ DEFAULT_SANDBOX_TIMEOUT = 2 * 60
 # Seconds to wait for sshd to be ready
 SSH_CONNECT_TIMEOUT = 60
 
-# Tag key constants for sandbox metadata stored in Modal tags
-# Modal has a limit of 10 tags per sandbox, so we use only 3 for mngr metadata
-# (leaving 7 for user tags with the TAG_USER_PREFIX)
+# Tag key constants for sandbox metadata stored in Modal tags.
+# Only host_id and host_name are stored as tags (for discovery). All other
+# metadata is stored on the Modal Volume for persistence and sharing.
 TAG_HOST_ID: Final[str] = "mngr_host_id"
 TAG_HOST_NAME: Final[str] = "mngr_host_name"
-# TAG_HOST_RECORD contains a JSON blob with SSH info and sandbox config
-TAG_HOST_RECORD: Final[str] = "mngr_host_record"
 TAG_USER_PREFIX: Final[str] = "mngr_user_"
 
 
@@ -77,6 +80,32 @@ class SandboxConfig(FrozenModel):
     timeout: int = DEFAULT_SANDBOX_TIMEOUT
 
 
+class SnapshotRecord(FrozenModel):
+    """Snapshot metadata stored in the host record on the volume."""
+
+    id: str = Field(description="Unique identifier for the snapshot")
+    name: str = Field(description="Human-readable name")
+    created_at: str = Field(description="ISO format timestamp")
+    modal_image_id: str = Field(description="Modal image ID for restoration")
+
+
+class HostRecord(FrozenModel):
+    """Host metadata stored on the Modal Volume.
+
+    This record contains all information needed to connect to and restore a host.
+    It is stored at /<host_id>.json on the volume.
+    """
+
+    host_id: str = Field(description="Unique identifier for the host")
+    host_name: str = Field(description="Human-readable name")
+    ssh_host: str = Field(description="SSH hostname for connecting to the sandbox")
+    ssh_port: int = Field(description="SSH port number")
+    ssh_host_public_key: str = Field(description="SSH host public key for verification")
+    config: SandboxConfig = Field(description="Sandbox configuration")
+    user_tags: dict[str, str] = Field(default_factory=dict, description="User-defined tags")
+    snapshots: list[SnapshotRecord] = Field(default_factory=list, description="List of snapshots")
+
+
 class ModalProviderInstance(BaseProviderInstance):
     """Provider instance for managing Modal sandboxes as hosts.
 
@@ -84,9 +113,9 @@ class ModalProviderInstance(BaseProviderInstance):
     Sandboxes have a maximum lifetime (timeout) after which they are automatically
     terminated by Modal.
 
-    Sandbox metadata (host_id, name, SSH info, config) is stored in Modal tags,
-    allowing the provider to rediscover sandboxes across program restarts using
-    Modal's Sandbox.list() API.
+    Host metadata (SSH info, config, snapshots) is stored on a Modal Volume
+    for persistence and sharing between mngr instances. Only host_id, host_name,
+    and user tags are stored as sandbox tags for discovery via Sandbox.list().
     """
 
     app_name: str = Field(frozen=True, description="Modal app name for sandboxes")
@@ -131,99 +160,61 @@ class ModalProviderInstance(BaseProviderInstance):
         """Get the path to the known_hosts file for this provider instance."""
         return self._keys_dir / "known_hosts"
 
-    # FIXME: unfortunately, no--this should be using a Modal *Volume* for storing this data instead.
-    #  Otherwise the data will only be accessible locally, and if you have another mngr instance that wants to understand the snapshots, it won't be able to.
-    #  A Volume is effectively just a filesystem, so the core logic should mostly transfer. We can use a single volume that is given a named based on our globally unique user_id (which would be known by any other associated mngr instance)
-    #  Someday Modal will make it easier to track images (and snapshots), but the support isn't there yet
-    @property
-    def _snapshots_dir(self) -> Path:
-        """Get the directory for storing snapshot metadata persistently.
+    # =========================================================================
+    # Volume-based Host Record Methods
+    # =========================================================================
 
-        Snapshots need to be stored locally because Modal sandbox tags are lost
-        when the sandbox is terminated. This allows restoration from snapshots
-        even after the original sandbox is gone.
+    def _get_volume(self) -> modal.Volume:
+        """Get the Modal volume for state storage.
+
+        The volume is used to persist host records (including snapshots) across
+        sandbox termination. This allows multiple mngr instances to share state.
         """
-        return self._keys_dir / "snapshots"
+        return self.backend_cls.get_volume_for_app(self.app_name)
 
-    def _get_snapshot_file_path(self, host_id: HostId, snapshot_id: SnapshotId) -> Path:
-        """Get the file path for a specific snapshot's metadata."""
-        return self._snapshots_dir / str(host_id) / f"{snapshot_id}.json"
+    def _get_host_record_path(self, host_id: HostId) -> str:
+        """Get the path for a host record on the volume."""
+        return f"/{host_id}.json"
 
-    def _save_snapshot_locally(
-        self,
-        host_id: HostId,
-        snapshot_data: dict[str, Any],
-        host_metadata: dict[str, Any],
-    ) -> None:
-        """Save snapshot metadata to local storage for persistence across sandbox termination."""
-        snapshot_id = SnapshotId(snapshot_data["id"])
-        file_path = self._get_snapshot_file_path(host_id, snapshot_id)
-        file_path.parent.mkdir(parents=True, exist_ok=True)
+    def _write_host_record(self, host_record: HostRecord) -> None:
+        """Write a host record to the volume."""
+        volume = self._get_volume()
+        path = self._get_host_record_path(HostId(host_record.host_id))
+        data = host_record.model_dump_json(indent=2)
+        logger.trace("Writing host record to volume: {}", path)
 
-        # Combine snapshot data with host metadata for restoration
-        full_data = {
-            "snapshot": snapshot_data,
-            "host": host_metadata,
-        }
-        file_path.write_text(json.dumps(full_data, indent=2))
+        # Upload the data as a file-like object
+        with volume.batch_upload(force=True) as batch:
+            batch.put_file(io.BytesIO(data.encode("utf-8")), path)
 
-    def _load_snapshot_locally(
-        self,
-        host_id: HostId,
-        snapshot_id: SnapshotId,
-    ) -> dict[str, Any] | None:
-        """Load snapshot metadata from local storage."""
-        file_path = self._get_snapshot_file_path(host_id, snapshot_id)
-        if not file_path.exists():
-            return None
-        return json.loads(file_path.read_text())
+    def _read_host_record(self, host_id: HostId) -> HostRecord | None:
+        """Read a host record from the volume.
 
-    def _delete_snapshot_locally(self, host_id: HostId, snapshot_id: SnapshotId) -> None:
-        """Delete snapshot metadata from local storage."""
-        file_path = self._get_snapshot_file_path(host_id, snapshot_id)
-        if file_path.exists():
-            file_path.unlink()
-
-    def _list_snapshots_locally(self, host_id: HostId) -> list[dict[str, Any]]:
-        """List all snapshots for a host from local storage.
-
-        Returns snapshots sorted by created_at (oldest first) to match the order
-        used when snapshots are stored in sandbox tags.
+        Returns None if the host record doesn't exist.
         """
-        host_snapshots_dir = self._snapshots_dir / str(host_id)
-        if not host_snapshots_dir.exists():
-            return []
+        volume = self._get_volume()
+        path = self._get_host_record_path(host_id)
+        logger.trace("Reading host record from volume: {}", path)
 
-        snapshots: list[dict[str, Any]] = []
-        for file_path in host_snapshots_dir.glob("*.json"):
-            try:
-                data = json.loads(file_path.read_text())
-                snapshots.append(data["snapshot"])
-            except (json.JSONDecodeError, KeyError):
-                continue
-
-        # Sort by created_at timestamp (oldest first) to match sandbox tag ordering
-        snapshots.sort(key=lambda s: s.get("created_at", ""))
-        return snapshots
-
-    def _delete_all_snapshots_locally(self, host_id: HostId) -> None:
-        """Delete all local snapshot files for a host."""
-        host_snapshots_dir = self._snapshots_dir / str(host_id)
-        if not host_snapshots_dir.exists():
-            return
-
-        # Delete all snapshot files
-        for file_path in host_snapshots_dir.glob("*.json"):
-            try:
-                file_path.unlink()
-            except OSError:
-                logger.debug("Failed to delete snapshot file: {}", file_path)
-
-        # Remove the host directory if empty
         try:
-            host_snapshots_dir.rmdir()
-        except OSError:
-            # Directory not empty or other error - ignore
+            # Read file returns a generator that yields bytes chunks
+            chunks: list[bytes] = []
+            for chunk in volume.read_file(path):
+                chunks.append(chunk)
+            data = b"".join(chunks)
+            return HostRecord.model_validate_json(data)
+        except FileNotFoundError:
+            return None
+
+    def _delete_host_record(self, host_id: HostId) -> None:
+        """Delete a host record from the volume."""
+        volume = self._get_volume()
+        path = self._get_host_record_path(host_id)
+        logger.trace("Deleting host record from volume: {}", path)
+
+        try:
+            volume.remove_file(path)
+        except FileNotFoundError:
             pass
 
     def _build_modal_image(
@@ -483,44 +474,16 @@ class ModalProviderInstance(BaseProviderInstance):
         self,
         host_id: HostId,
         name: HostName,
-        ssh_host: str,
-        ssh_port: int,
-        host_public_key: str,
-        config: SandboxConfig,
         user_tags: Mapping[str, str] | None,
-        snapshots: list[dict[str, Any]] | None = None,
     ) -> dict[str, str]:
         """Build the tags dict to store on a Modal sandbox.
 
-        Uses only 3 mngr tags (host_id, host_name, host_record) to stay well
-        under Modal's 10-tag limit, leaving 7 tags for user-defined tags.
-
-        Snapshots are stored as a list of dicts in the host_record JSON blob,
-        each containing: id, name, created_at (ISO format), and modal_image_id.
+        Only stores host_id, host_name, and user tags. All other metadata
+        (SSH info, config, snapshots) is stored on the Modal Volume.
         """
-        # Build the host record as a JSON blob containing all other metadata
-        host_record: dict[str, Any] = {
-            "ssh_host": ssh_host,
-            "ssh_port": ssh_port,
-            "ssh_host_public_key": host_public_key,
-            "config": {
-                "cpu": config.cpu,
-                "memory": config.memory,
-                "timeout": config.timeout,
-                "gpu": config.gpu,
-                "image": config.image,
-                "dockerfile": config.dockerfile,
-            },
-            # FIXME: snapshots should not be getting stored here--they need to be stored in the volume, per the above FIXME
-            #  realistically, that means that the whole host record probably should be stored in the volume as well, so that it's just stored in one place (which is always accessible)
-            #  the TAG_HOST_ID and TAG_HOST_NAME are fine to stay as tags, because we need to search that way sometimes
-            "snapshots": snapshots if snapshots is not None else [],
-        }
-
         tags: dict[str, str] = {
             TAG_HOST_ID: str(host_id),
             TAG_HOST_NAME: str(name),
-            TAG_HOST_RECORD: json.dumps(host_record),
         }
 
         # Store user tags with a prefix to separate them from mngr tags
@@ -533,35 +496,13 @@ class ModalProviderInstance(BaseProviderInstance):
     def _parse_sandbox_tags(
         self,
         tags: dict[str, str],
-    ) -> tuple[HostId, HostName, str, int, str | None, SandboxConfig, dict[str, str], list[dict[str, Any]]]:
+    ) -> tuple[HostId, HostName, dict[str, str]]:
         """Parse tags from a Modal sandbox into structured data.
 
-        The returned tuple contains (host_id, name, ssh_host, ssh_port, host_public_key, config, user_tags, snapshots).
-        host_public_key may be None for sandboxes created before we started storing it in tags.
-        snapshots is a list of dicts containing snapshot metadata.
+        Returns (host_id, name, user_tags). All other metadata is read from the volume.
         """
         host_id = HostId(tags[TAG_HOST_ID])
         name = HostName(tags[TAG_HOST_NAME])
-
-        # Parse the host record JSON blob (required for new sandboxes)
-        # Accessing tags[TAG_HOST_RECORD] will raise KeyError if missing,
-        # which is caught by callers like list_hosts to skip old sandboxes
-        host_record = json.loads(tags[TAG_HOST_RECORD])
-        ssh_host = host_record["ssh_host"]
-        ssh_port = host_record["ssh_port"]
-        host_public_key = host_record.get("ssh_host_public_key")
-        config_data = host_record.get("config", {})
-        config = SandboxConfig(
-            cpu=float(config_data.get("cpu", self.default_cpu)),
-            memory=float(config_data.get("memory", self.default_memory)),
-            gpu=config_data.get("gpu"),
-            image=config_data.get("image"),
-            dockerfile=config_data.get("dockerfile"),
-            timeout=int(config_data.get("timeout", self.default_timeout)),
-        )
-
-        # Extract snapshots list from host record
-        snapshots: list[dict[str, Any]] = host_record.get("snapshots", [])
 
         # Extract user tags (those with the user prefix)
         user_tags: dict[str, str] = {}
@@ -570,7 +511,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 user_key = key[len(TAG_USER_PREFIX) :]
                 user_tags[user_key] = value
 
-        return host_id, name, ssh_host, ssh_port, host_public_key, config, user_tags, snapshots
+        return host_id, name, user_tags
 
     def _get_modal_app(self) -> modal.App:
         """Get or create the Modal app for this provider instance.
@@ -629,28 +570,35 @@ class ModalProviderInstance(BaseProviderInstance):
     ) -> Host | None:
         """Create a Host object from a Modal sandbox.
 
-        This adds the host key to known_hosts for the sandbox's SSH endpoint,
-        enabling SSH connections to succeed without host key verification prompts.
+        This reads host metadata from the volume and adds the host key to
+        known_hosts for the sandbox's SSH endpoint, enabling SSH connections
+        to succeed without host key verification prompts.
 
-        Returns None if the sandbox doesn't have the required metadata stored in tags
-        (which happens for sandboxes created before we started storing the host public key).
+        Returns None if the host record doesn't exist on the volume.
         """
         tags = sandbox.get_tags()
-        host_id, name, ssh_host, ssh_port, host_public_key, config, user_tags, snapshots = self._parse_sandbox_tags(
-            tags
-        )
+        host_id, name, user_tags = self._parse_sandbox_tags(tags)
 
-        if host_public_key is None:
-            # Sandbox was created before we started storing the host public key.
-            # We can't connect to it because we don't know its host key.
-            logger.debug("Skipping sandbox {} - no host public key in tags", sandbox.object_id)
+        # Read host metadata from the volume
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            logger.debug("Skipping sandbox {} - no host record on volume", sandbox.object_id)
             return None
 
         # Add the sandbox's host key to known_hosts so SSH connections will work
-        add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
+        add_host_to_known_hosts(
+            self._known_hosts_path,
+            host_record.ssh_host,
+            host_record.ssh_port,
+            host_record.ssh_host_public_key,
+        )
 
         private_key_path, _ = self._get_ssh_keypair()
-        pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
+        pyinfra_host = self._create_pyinfra_host(
+            host_record.ssh_host,
+            host_record.ssh_port,
+            private_key_path,
+        )
         connector = PyinfraConnector(pyinfra_host)
 
         return Host(
@@ -741,18 +689,28 @@ class ModalProviderInstance(BaseProviderInstance):
         # Generate host ID
         host_id = HostId.generate()
 
-        # Store metadata as tags on the sandbox (enables discovery across restarts)
+        # Store only host_id, host_name, and user tags on the sandbox
         sandbox_tags = self._build_sandbox_tags(
             host_id=host_id,
             name=name,
-            ssh_host=ssh_host,
-            ssh_port=ssh_port,
-            host_public_key=host_public_key,
-            config=config,
             user_tags=tags,
         )
         logger.debug("Setting sandbox tags: {}", list(sandbox_tags.keys()))
         sandbox.set_tags(sandbox_tags)
+
+        # Store full host metadata on the volume for persistence
+        host_record = HostRecord(
+            host_id=str(host_id),
+            host_name=str(name),
+            ssh_host=ssh_host,
+            ssh_port=ssh_port,
+            ssh_host_public_key=host_public_key,
+            config=config,
+            user_tags=dict(tags) if tags else {},
+            snapshots=[],
+        )
+        logger.debug("Writing host record to volume for host_id={}", host_id)
+        self._write_host_record(host_record)
 
         # Create pyinfra host
         pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
@@ -826,15 +784,22 @@ class ModalProviderInstance(BaseProviderInstance):
                 "Provide a snapshot_id to restore from a snapshot, or create a new host."
             )
 
-        # Load snapshot data from local storage
-        snapshot_full_data = self._load_snapshot_locally(host_id, snapshot_id)
-        if snapshot_full_data is None:
+        # Load host record from volume
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            raise HostNotFoundError(host_id)
+
+        # Find the snapshot in the host record
+        snapshot_data: SnapshotRecord | None = None
+        for snap in host_record.snapshots:
+            if snap.id == str(snapshot_id):
+                snapshot_data = snap
+                break
+
+        if snapshot_data is None:
             raise SnapshotNotFoundError(snapshot_id)
 
-        snapshot_data = snapshot_full_data["snapshot"]
-        host_metadata = snapshot_full_data["host"]
-        modal_image_id = snapshot_data.get("modal_image_id")
-
+        modal_image_id = snapshot_data.modal_image_id
         if not modal_image_id:
             raise MngrError(f"Snapshot {snapshot_id} does not contain a Modal image ID for restoration.")
 
@@ -845,18 +810,10 @@ class ModalProviderInstance(BaseProviderInstance):
         host_key_path, host_public_key = self._get_host_keypair()
         host_private_key = host_key_path.read_text()
 
-        # Restore sandbox configuration from snapshot metadata
-        config_data = host_metadata.get("config", {})
-        config = SandboxConfig(
-            cpu=float(config_data.get("cpu", self.default_cpu)),
-            memory=float(config_data.get("memory", self.default_memory)),
-            timeout=int(config_data.get("timeout", self.default_timeout)),
-            gpu=config_data.get("gpu"),
-            image=config_data.get("image"),
-            dockerfile=config_data.get("dockerfile"),
-        )
-        host_name = HostName(host_metadata.get("host_name", f"restored-{str(host_id)[-8:]}"))
-        user_tags: dict[str, str] = host_metadata.get("user_tags", {})
+        # Use configuration from host record
+        config = host_record.config
+        host_name = HostName(host_record.host_name)
+        user_tags = host_record.user_tags
 
         # Create the image reference from the snapshot
         logger.debug("Creating sandbox from snapshot image: {}", modal_image_id)
@@ -901,17 +858,23 @@ class ModalProviderInstance(BaseProviderInstance):
         # Wait for sshd
         self._wait_for_sshd(ssh_host, ssh_port)
 
-        # Store metadata as tags (preserving the original host_id)
+        # Store only host_id and host_name as tags
         sandbox_tags = self._build_sandbox_tags(
             host_id=host_id,
             name=host_name,
-            ssh_host=ssh_host,
-            ssh_port=ssh_port,
-            host_public_key=host_public_key,
-            config=config,
             user_tags=user_tags,
         )
         new_sandbox.set_tags(sandbox_tags)
+
+        # Update host record on volume with new SSH info
+        updated_host_record = host_record.model_copy(
+            update={
+                "ssh_host": ssh_host,
+                "ssh_port": ssh_port,
+                "ssh_host_public_key": host_public_key,
+            }
+        )
+        self._write_host_record(updated_host_record)
 
         # Create pyinfra host and return
         pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
@@ -934,13 +897,13 @@ class ModalProviderInstance(BaseProviderInstance):
     ) -> None:
         """Destroy a Modal sandbox permanently.
 
-        If delete_snapshots is True, also deletes local snapshot metadata files.
+        If delete_snapshots is True, also deletes the host record from the volume.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
         self.stop_host(host)
 
         if delete_snapshots:
-            self._delete_all_snapshots_locally(host_id)
+            self._delete_host_record(host_id)
 
     # =========================================================================
     # Discovery Methods
@@ -988,8 +951,9 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def get_host_resources(self, host: HostInterface) -> HostResources:
         """Get resource information for a Modal sandbox."""
-        sandbox = self._find_sandbox_by_host_id(host.id)
-        if sandbox is None:
+        # Read host record from volume
+        host_record = self._read_host_record(host.id)
+        if host_record is None:
             return HostResources(
                 cpu=CpuResources(count=1, frequency_ghz=None),
                 memory_gb=1.0,
@@ -997,20 +961,8 @@ class ModalProviderInstance(BaseProviderInstance):
                 gpu=None,
             )
 
-        tags = sandbox.get_tags()
-        host_record_json = tags.get(TAG_HOST_RECORD)
-        if not host_record_json:
-            return HostResources(
-                cpu=CpuResources(count=1, frequency_ghz=None),
-                memory_gb=1.0,
-                disk_gb=None,
-                gpu=None,
-            )
-
-        host_record = json.loads(host_record_json)
-        config_data = host_record.get("config", {})
-        cpu = float(config_data.get("cpu", self.default_cpu))
-        memory = float(config_data.get("memory", self.default_memory))
+        cpu = host_record.config.cpu
+        memory = host_record.config.memory
 
         return HostResources(
             # Modal allows fractional CPUs (e.g., 0.5), but count must be at least 1
@@ -1024,18 +976,6 @@ class ModalProviderInstance(BaseProviderInstance):
     # Snapshot Methods
     # =========================================================================
 
-    def _update_sandbox_snapshots(
-        self,
-        sandbox: modal.Sandbox,
-        snapshots: list[dict[str, Any]],
-    ) -> None:
-        """Update the snapshots list in a sandbox's tags."""
-        tags = sandbox.get_tags()
-        host_record = json.loads(tags[TAG_HOST_RECORD])
-        host_record["snapshots"] = snapshots
-        tags[TAG_HOST_RECORD] = json.dumps(host_record)
-        sandbox.set_tags(tags)
-
     def create_snapshot(
         self,
         host: HostInterface | HostId,
@@ -1044,14 +984,19 @@ class ModalProviderInstance(BaseProviderInstance):
         """Create a snapshot of a Modal sandbox's filesystem.
 
         Uses Modal's sandbox.snapshot_filesystem() to create an incremental snapshot.
-        Snapshot metadata is stored both in the sandbox's tags and locally on disk.
-        Local storage allows restoration even after the original sandbox is terminated.
+        Snapshot metadata is stored on the Modal Volume for persistence across
+        sandbox termination and sharing between mngr instances.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
         logger.debug("Creating snapshot for Modal sandbox: host_id={}", host_id)
 
         sandbox = self._find_sandbox_by_host_id(host_id)
         if sandbox is None:
+            raise HostNotFoundError(host_id)
+
+        # Read existing host record from volume
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
             raise HostNotFoundError(host_id)
 
         # Create the filesystem snapshot
@@ -1066,38 +1011,18 @@ class ModalProviderInstance(BaseProviderInstance):
         short_id = str(snapshot_id)[-8:]
         snapshot_name = name if name is not None else SnapshotName(f"snapshot-{short_id}")
 
-        snapshot_data: dict[str, Any] = {
-            "id": str(snapshot_id),
-            "name": str(snapshot_name),
-            "created_at": created_at.isoformat(),
-            "modal_image_id": modal_image_id,
-        }
-
-        # Read existing snapshots and host metadata for local storage
-        tags = sandbox.get_tags()
-        parsed_host_id, host_name, ssh_host, ssh_port, host_public_key, config, user_tags, existing_snapshots = (
-            self._parse_sandbox_tags(tags)
+        new_snapshot = SnapshotRecord(
+            id=str(snapshot_id),
+            name=str(snapshot_name),
+            created_at=created_at.isoformat(),
+            modal_image_id=modal_image_id,
         )
-        updated_snapshots = existing_snapshots + [snapshot_data]
 
-        # Update the sandbox tags with the new snapshot list
-        self._update_sandbox_snapshots(sandbox, updated_snapshots)
-
-        # Save snapshot locally with host metadata for restoration after termination
-        host_metadata: dict[str, Any] = {
-            "host_id": str(host_id),
-            "host_name": str(host_name),
-            "config": {
-                "cpu": config.cpu,
-                "memory": config.memory,
-                "timeout": config.timeout,
-                "gpu": config.gpu,
-                "image": config.image,
-                "dockerfile": config.dockerfile,
-            },
-            "user_tags": user_tags,
-        }
-        self._save_snapshot_locally(host_id, snapshot_data, host_metadata)
+        # Update host record with new snapshot and write to volume
+        updated_host_record = host_record.model_copy(
+            update={"snapshots": list(host_record.snapshots) + [new_snapshot]}
+        )
+        self._write_host_record(updated_host_record)
 
         logger.info(
             "Created snapshot: id={}, name={}, modal_image_id={}",
@@ -1113,34 +1038,26 @@ class ModalProviderInstance(BaseProviderInstance):
     ) -> list[SnapshotInfo]:
         """List all snapshots for a Modal sandbox.
 
-        Reads snapshot metadata from sandbox tags if the sandbox is running,
-        or from local storage if the sandbox has been terminated.
+        Reads snapshot metadata from the Modal Volume, which persists even
+        after the sandbox has been terminated.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
 
-        # Try to get snapshots from sandbox tags first
-        snapshots_data: list[dict[str, Any]] = []
-        sandbox = self._find_sandbox_by_host_id(host_id)
-        if sandbox is not None:
-            tags = sandbox.get_tags()
-            try:
-                _, _, _, _, _, _, _, snapshots_data = self._parse_sandbox_tags(tags)
-            except (KeyError, ValueError):
-                pass
-
-        # Fall back to local storage if sandbox is gone or has no snapshots
-        if not snapshots_data:
-            snapshots_data = self._list_snapshots_locally(host_id)
+        # Read host record from volume
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            return []
 
         # Convert to SnapshotInfo objects, sorted by created_at (newest first)
         snapshots: list[SnapshotInfo] = []
-        for idx, snap_data in enumerate(reversed(snapshots_data)):
-            created_at_str = snap_data.get("created_at")
+        sorted_snapshots = sorted(host_record.snapshots, key=lambda s: s.created_at, reverse=True)
+        for idx, snap_record in enumerate(sorted_snapshots):
+            created_at_str = snap_record.created_at
             created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now(timezone.utc)
             snapshots.append(
                 SnapshotInfo(
-                    id=SnapshotId(snap_data["id"]),
-                    name=SnapshotName(snap_data.get("name", "")),
+                    id=SnapshotId(snap_record.id),
+                    name=SnapshotName(snap_record.name),
                     created_at=created_at,
                     size_bytes=None,
                     recency_idx=idx,
@@ -1156,39 +1073,29 @@ class ModalProviderInstance(BaseProviderInstance):
     ) -> None:
         """Delete a snapshot from a Modal sandbox.
 
-        Removes the snapshot metadata from both sandbox tags (if running) and
-        local storage. Note that the underlying Modal image is not deleted
-        since Modal doesn't yet provide a way to delete images via their API;
-        they will be garbage-collected by Modal when no longer referenced.
+        Removes the snapshot metadata from the Modal Volume. Note that the
+        underlying Modal image is not deleted since Modal doesn't yet provide
+        a way to delete images via their API; they will be garbage-collected
+        by Modal when no longer referenced.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
         logger.debug("Deleting snapshot {} from Modal sandbox: host_id={}", snapshot_id, host_id)
 
-        found = False
+        # Read host record from volume
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            raise HostNotFoundError(host_id)
 
-        # Try to remove from sandbox tags if sandbox is still running
-        sandbox = self._find_sandbox_by_host_id(host_id)
-        if sandbox is not None:
-            tags = sandbox.get_tags()
-            try:
-                _, _, _, _, _, _, _, existing_snapshots = self._parse_sandbox_tags(tags)
-                snapshot_id_str = str(snapshot_id)
-                updated_snapshots = [s for s in existing_snapshots if s.get("id") != snapshot_id_str]
+        # Find and remove the snapshot
+        snapshot_id_str = str(snapshot_id)
+        updated_snapshots = [s for s in host_record.snapshots if s.id != snapshot_id_str]
 
-                if len(updated_snapshots) < len(existing_snapshots):
-                    found = True
-                    self._update_sandbox_snapshots(sandbox, updated_snapshots)
-            except (KeyError, ValueError):
-                pass
-
-        # Also remove from local storage
-        local_snapshot = self._load_snapshot_locally(host_id, snapshot_id)
-        if local_snapshot is not None:
-            found = True
-            self._delete_snapshot_locally(host_id, snapshot_id)
-
-        if not found:
+        if len(updated_snapshots) == len(host_record.snapshots):
             raise SnapshotNotFoundError(snapshot_id)
+
+        # Update host record on volume
+        updated_host_record = host_record.model_copy(update={"snapshots": updated_snapshots})
+        self._write_host_record(updated_host_record)
 
         logger.info("Deleted snapshot: {}", snapshot_id)
 
@@ -1210,14 +1117,24 @@ class ModalProviderInstance(BaseProviderInstance):
         self,
         host: HostInterface | HostId,
     ) -> dict[str, str]:
-        """Get user-defined tags for a host (excludes internal mngr tags)."""
+        """Get user-defined tags for a host (excludes internal mngr tags).
+
+        Reads from the volume, which persists even after sandbox termination.
+        Falls back to sandbox tags if volume record doesn't exist yet.
+        """
         host_id = host.id if isinstance(host, HostInterface) else host
+
+        # Try to read from volume first (source of truth)
+        host_record = self._read_host_record(host_id)
+        if host_record is not None:
+            return dict(host_record.user_tags)
+
+        # Fall back to sandbox tags
         sandbox = self._find_sandbox_by_host_id(host_id)
         if sandbox is None:
             return {}
 
         tags = sandbox.get_tags()
-        # Extract only user tags (those with the user prefix)
         user_tags: dict[str, str] = {}
         for key, value in tags.items():
             if key.startswith(TAG_USER_PREFIX):
@@ -1230,73 +1147,111 @@ class ModalProviderInstance(BaseProviderInstance):
         host: HostInterface | HostId,
         tags: Mapping[str, str],
     ) -> None:
-        """Replace all user-defined tags on a host."""
+        """Replace all user-defined tags on a host.
+
+        Updates both sandbox tags (for quick access) and volume (for persistence).
+        """
         host_id = host.id if isinstance(host, HostInterface) else host
+
+        # Update sandbox tags if sandbox is running
         sandbox = self._find_sandbox_by_host_id(host_id)
-        if sandbox is None:
-            return
+        if sandbox is not None:
+            current_tags = sandbox.get_tags()
+            new_tags: dict[str, str] = {}
+            for key, value in current_tags.items():
+                if not key.startswith(TAG_USER_PREFIX):
+                    new_tags[key] = value
+            for key, value in tags.items():
+                new_tags[TAG_USER_PREFIX + key] = value
+            sandbox.set_tags(new_tags)
 
-        # Get current tags and preserve mngr tags
-        current_tags = sandbox.get_tags()
-        new_tags: dict[str, str] = {}
-        for key, value in current_tags.items():
-            if not key.startswith(TAG_USER_PREFIX):
-                new_tags[key] = value
-
-        # Add new user tags
-        for key, value in tags.items():
-            new_tags[TAG_USER_PREFIX + key] = value
-
-        sandbox.set_tags(new_tags)
+        # Update volume record
+        host_record = self._read_host_record(host_id)
+        if host_record is not None:
+            updated_host_record = host_record.model_copy(update={"user_tags": dict(tags)})
+            self._write_host_record(updated_host_record)
 
     def add_tags_to_host(
         self,
         host: HostInterface | HostId,
         tags: Mapping[str, str],
     ) -> None:
-        """Add or update tags on a host."""
-        host_id = host.id if isinstance(host, HostInterface) else host
-        sandbox = self._find_sandbox_by_host_id(host_id)
-        if sandbox is None:
-            return
+        """Add or update tags on a host.
 
-        current_tags = sandbox.get_tags()
-        new_tags = dict(current_tags)
-        for key, value in tags.items():
-            new_tags[TAG_USER_PREFIX + key] = value
-        sandbox.set_tags(new_tags)
+        Updates both sandbox tags (for quick access) and volume (for persistence).
+        """
+        host_id = host.id if isinstance(host, HostInterface) else host
+
+        # Update sandbox tags if sandbox is running
+        sandbox = self._find_sandbox_by_host_id(host_id)
+        if sandbox is not None:
+            current_tags = sandbox.get_tags()
+            new_tags = dict(current_tags)
+            for key, value in tags.items():
+                new_tags[TAG_USER_PREFIX + key] = value
+            sandbox.set_tags(new_tags)
+
+        # Update volume record
+        host_record = self._read_host_record(host_id)
+        if host_record is not None:
+            merged_tags = dict(host_record.user_tags)
+            merged_tags.update(tags)
+            updated_host_record = host_record.model_copy(update={"user_tags": merged_tags})
+            self._write_host_record(updated_host_record)
 
     def remove_tags_from_host(
         self,
         host: HostInterface | HostId,
         keys: Sequence[str],
     ) -> None:
-        """Remove tags from a host by key."""
-        host_id = host.id if isinstance(host, HostInterface) else host
-        sandbox = self._find_sandbox_by_host_id(host_id)
-        if sandbox is None:
-            return
+        """Remove tags from a host by key.
 
-        current_tags = sandbox.get_tags()
-        new_tags: dict[str, str] = {}
-        keys_to_remove = {TAG_USER_PREFIX + k for k in keys}
-        for key, value in current_tags.items():
-            if key not in keys_to_remove:
-                new_tags[key] = value
-        sandbox.set_tags(new_tags)
+        Updates both sandbox tags (for quick access) and volume (for persistence).
+        """
+        host_id = host.id if isinstance(host, HostInterface) else host
+
+        # Update sandbox tags if sandbox is running
+        sandbox = self._find_sandbox_by_host_id(host_id)
+        if sandbox is not None:
+            current_tags = sandbox.get_tags()
+            new_tags: dict[str, str] = {}
+            keys_to_remove = {TAG_USER_PREFIX + k for k in keys}
+            for key, value in current_tags.items():
+                if key not in keys_to_remove:
+                    new_tags[key] = value
+            sandbox.set_tags(new_tags)
+
+        # Update volume record
+        host_record = self._read_host_record(host_id)
+        if host_record is not None:
+            updated_tags = {k: v for k, v in host_record.user_tags.items() if k not in keys}
+            updated_host_record = host_record.model_copy(update={"user_tags": updated_tags})
+            self._write_host_record(updated_host_record)
 
     def rename_host(
         self,
         host: HostInterface | HostId,
         name: HostName,
     ) -> Host:
-        """Rename a host."""
+        """Rename a host.
+
+        Updates both sandbox tags (for quick access) and volume (for persistence).
+        """
         host_id = host.id if isinstance(host, HostInterface) else host
+
+        # Update sandbox tags if sandbox is running
         sandbox = self._find_sandbox_by_host_id(host_id)
         if sandbox is not None:
             current_tags = sandbox.get_tags()
             current_tags[TAG_HOST_NAME] = str(name)
             sandbox.set_tags(current_tags)
+
+        # Update volume record
+        host_record = self._read_host_record(host_id)
+        if host_record is not None:
+            updated_host_record = host_record.model_copy(update={"host_name": str(name)})
+            self._write_host_record(updated_host_record)
+
         return self.get_host(host_id)
 
     # =========================================================================
@@ -1309,31 +1264,24 @@ class ModalProviderInstance(BaseProviderInstance):
     ) -> PyinfraHost:
         """Get a pyinfra connector for the host."""
         host_id = host.id if isinstance(host, HostInterface) else host
-        sandbox = self._find_sandbox_by_host_id(host_id)
-        if sandbox is None:
-            raise HostNotFoundError(host_id)
 
-        tags = sandbox.get_tags()
-        host_record_json = tags.get(TAG_HOST_RECORD)
-        if not host_record_json:
-            raise HostNotFoundError(host_id)
-
-        host_record = json.loads(host_record_json)
-        ssh_host = host_record.get("ssh_host")
-        ssh_port = host_record.get("ssh_port")
-        host_public_key = host_record.get("ssh_host_public_key")
-
-        if ssh_host is None or ssh_port is None:
+        # Read host record from volume
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
             raise HostNotFoundError(host_id)
 
         # Add the host key to known_hosts so SSH connections will work
-        if host_public_key is not None:
-            add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
+        add_host_to_known_hosts(
+            self._known_hosts_path,
+            host_record.ssh_host,
+            host_record.ssh_port,
+            host_record.ssh_host_public_key,
+        )
 
         private_key_path, _ = self._get_ssh_keypair()
         return self._create_pyinfra_host(
-            ssh_host,
-            ssh_port,
+            host_record.ssh_host,
+            host_record.ssh_port,
             private_key_path,
         )
 

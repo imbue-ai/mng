@@ -11,6 +11,7 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
@@ -20,6 +21,7 @@ from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 
 MODAL_BACKEND_NAME = ProviderBackendName("modal")
 USER_ID_FILENAME = "user_id"
+STATE_VOLUME_SUFFIX = "-state"
 
 
 class ModalAppContextHandle(FrozenModel):
@@ -28,6 +30,9 @@ class ModalAppContextHandle(FrozenModel):
     This class captures a Modal app's run context along with the output capture
     context. The output buffer can be inspected to detect build failures and
     other issues in the Modal logs.
+
+    Also manages the state volume for persisting host records across sandbox
+    termination. The volume is created lazily when first accessed.
     """
 
     run_context: Any = Field(description="The Modal app.run() context manager")
@@ -35,6 +40,8 @@ class ModalAppContextHandle(FrozenModel):
     output_capture_context: Any = Field(description="The output capture context manager")
     output_buffer: Any = Field(description="StringIO buffer containing captured Modal output")
     loguru_writer: Any = Field(description="Loguru writer for structured logging (or None)")
+    volume_name: str = Field(description="Name of the state volume for persisting host records")
+    volume: Any = Field(default=None, description="The Modal volume for state storage (lazily created)")
 
 
 def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
@@ -107,6 +114,9 @@ class ModalProviderBackend(ProviderBackendInterface):
         all Modal logs to both a StringIO buffer (for inspection) and to loguru
         (for mngr's logging system).
 
+        Also prepares the volume name for state storage. The volume is created
+        lazily when first accessed via get_volume_for_app().
+
         Raises modal.exception.AuthError if Modal credentials are not configured.
         """
         if app_name in cls._app_registry:
@@ -131,12 +141,17 @@ class ModalProviderBackend(ProviderBackendInterface):
             loguru_writer.app_id = app.app_id
             loguru_writer.app_name = app.name
 
+        # Create the volume name for state storage (volume created lazily)
+        volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
+
         context_handle = ModalAppContextHandle(
             run_context=run_context,
             app_name=app_name,
             output_capture_context=output_capture_context,
             output_buffer=output_buffer,
             loguru_writer=loguru_writer,
+            volume_name=volume_name,
+            volume=None,
         )
         cls._app_registry[app_name] = (app, context_handle)
         return app, context_handle
@@ -155,6 +170,49 @@ class ModalProviderBackend(ProviderBackendInterface):
             return ""
         _, context_handle = cls._app_registry[app_name]
         return context_handle.output_buffer.getvalue()
+
+    @classmethod
+    def get_volume_for_app(cls, app_name: str) -> modal.Volume:
+        """Get or create the state volume for an app.
+
+        The volume is used to persist host records (including snapshots) across
+        sandbox termination. This allows multiple mngr instances to share state
+        and enables restoration from snapshots even after the original sandbox
+        is gone.
+
+        The volume is created lazily on first access and cached in the context
+        handle for subsequent calls.
+
+        Raises MngrError if the app has not been created yet.
+        """
+        if app_name not in cls._app_registry:
+            raise MngrError(f"App {app_name} not found in registry")
+
+        _, context_handle = cls._app_registry[app_name]
+
+        # Return cached volume if already created
+        if context_handle.volume is not None:
+            return context_handle.volume
+
+        # Create or get the volume
+        logger.debug("Creating/getting state volume: {}", context_handle.volume_name)
+        volume = modal.Volume.from_name(context_handle.volume_name, create_if_missing=True)
+
+        # Cache the volume in the context handle (need to update the registry entry)
+        # Since FrozenModel is immutable, we need to create a new handle
+        updated_handle = ModalAppContextHandle(
+            run_context=context_handle.run_context,
+            app_name=context_handle.app_name,
+            output_capture_context=context_handle.output_capture_context,
+            output_buffer=context_handle.output_buffer,
+            loguru_writer=context_handle.loguru_writer,
+            volume_name=context_handle.volume_name,
+            volume=volume,
+        )
+        app, _ = cls._app_registry[app_name]
+        cls._app_registry[app_name] = (app, updated_handle)
+
+        return volume
 
     @classmethod
     def close_app(cls, app_name: str) -> None:
