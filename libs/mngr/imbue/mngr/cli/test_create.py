@@ -252,8 +252,7 @@ def test_message_and_message_file_both_provided_raises_error(
     )
 
     assert result.exit_code != 0
-    assert result.exception is not None
-    assert "Cannot provide both --message and --message-file" in str(result.exception)
+    assert "Cannot provide both --message and --message-file" in result.output
 
 
 def test_multiline_message_creates_file_and_pipes(
@@ -508,8 +507,7 @@ def test_agent_cmd_and_agent_type_are_mutually_exclusive(
     )
 
     assert result.exit_code != 0
-    assert result.exception is not None
-    assert "--agent-cmd and --agent-type are mutually exclusive" in str(result.exception)
+    assert "--agent-cmd and --agent-type are mutually exclusive" in result.output
 
 
 def test_agent_cmd_with_generic_type_is_allowed(

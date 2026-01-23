@@ -14,6 +14,7 @@ from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -218,7 +219,7 @@ def _find_agents_to_destroy(
     """Find all agents to destroy.
 
     Returns a list of (agent, host) tuples.
-    Raises UserInputError if any specified identifier does not match an agent.
+    Raises AgentNotFoundError if any specified identifier does not match an agent.
     """
     agents_to_destroy: list[tuple[AgentInterface, HostInterface]] = []
     matched_identifiers: set[str] = set()
@@ -251,7 +252,7 @@ def _find_agents_to_destroy(
         unmatched_identifiers = set(agent_identifiers) - matched_identifiers
         if unmatched_identifiers:
             unmatched_list = ", ".join(sorted(unmatched_identifiers))
-            raise UserInputError(f"No agent(s) found matching: {unmatched_list}")
+            raise AgentNotFoundError(f"No agent(s) found matching: {unmatched_list}")
 
     return agents_to_destroy
 
