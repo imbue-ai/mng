@@ -137,7 +137,7 @@ class _QuietOutputManager(OutputManager):
 
     Modal's default OutputManager displays spinners and progress bars which don't
     work well when capturing output programmatically. This subclass disables those
-    features while preserving the ability to capture log output.
+    features while preserving the ability to capture log output via _stdout.
     """
 
     @contextlib.contextmanager
@@ -161,12 +161,12 @@ def enable_modal_output_capture(
 ) -> Generator[tuple[StringIO, _ModalLoguruWriter | None], None, None]:
     """Context manager for capturing Modal app output.
 
-    Intercepts Modal's output system and routes it to a StringIO buffer (for
-    programmatic inspection) and optionally to loguru (for mngr's logging).
-    The buffer can be used to detect build failures by inspecting the captured
-    output after operations complete.
+    Intercepts Modal's output system and routes it to a StringIO buffer for
+    programmatic inspection. The buffer can be used to detect build failures
+    by inspecting the captured output after operations complete.
 
-    Set is_logging_to_loguru=False to disable routing to loguru.
+    When is_logging_to_loguru is True (default), Modal output is also logged
+    to loguru with deduplication to avoid spam from repeated status messages.
 
     Yields a tuple of (output_buffer, loguru_writer) where loguru_writer contains
     app_id and app_name fields that can be set for structured logging, or is
@@ -187,7 +187,10 @@ def enable_modal_output_capture(
     logger.debug("Enabling Modal output capture")
 
     with modal.enable_output(show_progress=True):
-        OutputManager._instance = _QuietOutputManager(status_spinner_text="Running...")
-        OutputManager._instance._stdout = multi_writer
+        output_manager = _QuietOutputManager(status_spinner_text="Running...")
+        # Set _stdout to capture Modal's output (build logs, status messages, etc.)
+        # This only captures what Modal writes to its OutputManager, not all stdout/stderr
+        output_manager._stdout = multi_writer
+        OutputManager._instance = output_manager
 
         yield output_buffer, loguru_writer

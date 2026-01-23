@@ -50,7 +50,7 @@ from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
 
-# FIXME: this _app_registry data should live as a class-level variable on the ModalProviderBackend class instead of as a module-level global here!
+# FIXME: this _app_registry data should live as a class-level variable on the ModalProviderBackend class instead of at module level!
 #  that's kinda the whole point of the ModalProviderBackend class...
 #  Obviously all of the associated functions should move to backend.py as well.
 
