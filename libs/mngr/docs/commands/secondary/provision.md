@@ -30,3 +30,11 @@ mngr provision [[--agent] agent]
 - `--append-to-file REMOTE:TEXT`: Append TEXT to a file on the agent at the specified remote path [repeatable]
 - `--prepend-to-file REMOTE:TEXT`: Prepend TEXT to a file on the agent at the specified remote path [repeatable]
 - `--create-directory REMOTE`: Create a directory on the agent at the specified remote path [repeatable]
+
+## TODO
+
+The following documented features are not yet implemented:
+
+- `--bootstrap` / `--bootstrap-and-warn` / `--no-bootstrap`: Bootstrap options for auto-installing missing tools
+- `--[no-]destroy-on-fail`: Option to destroy host on provisioning failure
+- Standalone `mngr provision` command (provisioning options currently only available via `mngr create`)

@@ -84,3 +84,9 @@ You can also run [`mngr list --help`](../commands/primary/list.md#available-fiel
 ## Interface
 
 See [`imbue/mngr/interfaces/agent.py`](../../imbue/mngr/interfaces/agent.py) for the agent data structures.
+
+## TODOs
+
+- **ttyd plugin**: Spec exists but plugin implementation not complete (for automatic web terminal URLs)
+- **recursive_mngr plugin**: Spec exists but not implemented (for remote/untrusted child agents with full security model)
+- **mngr list enhancements**: Missing `--fields`, `--format-template`, `--watch`, `--limit`, convenience filters (`--running`, `--stopped`), and custom sorting
