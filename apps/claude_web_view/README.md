@@ -56,3 +56,8 @@ uv run claudewebview --transcript ~/.claude/projects/my-project/session.jsonl --
 # Run on a specific port without opening browser
 uv run claudewebview --transcript session.jsonl --port 8080 --no-browser
 ```
+
+## TODOs
+
+- Frontend build output (`frontend-dist/`) - requires running initial build per setup instructions
+- Interactive chat input - UI component exists but backend `/api/send` endpoint only logs to console (note: `docs/requirements.md` specifies no interactive features should be included)
