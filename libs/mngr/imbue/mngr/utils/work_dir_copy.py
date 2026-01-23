@@ -422,6 +422,13 @@ def _copy_local_to_remote_with_tar(
 
     This method doesn't require rsync on the remote host, only tar and ssh.
     """
+    # Check for unsupported options
+    if data_options.include_patterns:
+        raise MngrError(
+            "Include patterns are not supported for local-to-remote copies via tar. "
+            "This feature requires rsync on the remote host."
+        )
+
     logger.debug(
         "Copying with tar+ssh from local:{} to remote:{}",
         source_path,
