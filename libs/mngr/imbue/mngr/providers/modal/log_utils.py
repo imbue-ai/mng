@@ -121,6 +121,8 @@ class _QuietOutputManager(OutputManager):
     emits the same log line multiple times during image builds.
     """
 
+    _timestamps: set[float]
+
     @contextlib.contextmanager
     def show_status_spinner(self) -> Generator[None, None, None]:
         """Suppress the status spinner."""
