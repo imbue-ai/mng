@@ -150,3 +150,12 @@ mngr create my-agent --source other-agent.my-host:/my/code/dir
 # Run additional commands in named tmux windows
 mngr create my-agent -c server="npm run dev" -c tests="npm test --watch"
 ```
+
+## TODOs
+
+The following features are documented but not fully implemented:
+
+- `--snapshot-source`: Backend function raises `NotImplementedError`
+- `--snapshot`: CLI option parsed but not passed to provider's `create_host()` method
+- `--host-env`, `--host-env-file`, `--pass-host-env`: Parsed in CLI but not passed to provider (host environment variables are unused)
+- Remote source support: Project name derivation and git branch detection fail for remote hosts

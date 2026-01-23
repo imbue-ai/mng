@@ -122,3 +122,21 @@ The following fields can be used with `--fields` and `--format`.
 ## Notes
 
 Fields which are lists can be sliced using standard Python list slicing syntax, e.g. `machine.snapshots[0]` for the most recent snapshot, or `machine.snapshots[:3]` for the three most recent snapshots.
+
+---
+
+## TODOs
+
+The following features are documented but not yet implemented:
+
+- `--watch, -w`: Continuous watch mode
+- `--running`, `--stopped`, `--local`, `--remote`: Convenience filter aliases
+- `--provider`: Provider-based filtering
+- `--format`: Custom format templates
+- `--fields`: Field selection
+- `--sort`: Sorting by fields other than `create_time`
+- `--limit`: Result limiting
+- Host resource fields: `host.resource.*` (CPU, memory, disk details)
+- Host state/image: `host.state`, `host.image`
+- SSH access details: `host.ssh.*`
+- Snapshot information: `host.snapshots`

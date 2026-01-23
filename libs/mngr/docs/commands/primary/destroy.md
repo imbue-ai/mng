@@ -37,3 +37,13 @@ mngr destroy --agent my-agent --agent another-agent
 ## Resource Cleanup
 
 See [resource cleanup options](../generic/resource_cleanup.md) to control which associated resources are also destroyed (defaults to all).
+
+## TODOs
+
+The following documented features are not yet implemented:
+
+- `rm` alias - not registered in CLI
+- `--include FILTER` - filter option not exposed
+- `--exclude FILTER` - filter option not exposed
+- `--stdin` - stdin reading not implemented
+- Resource cleanup options (`--keep-*` flags) - not exposed, GC is currently hardcoded
