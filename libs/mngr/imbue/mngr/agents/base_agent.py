@@ -12,6 +12,7 @@ from pydantic import Field
 
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import NoCommandDefinedError
+from imbue.mngr.errors import SendMessageError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.host import HostInterface
@@ -262,10 +263,17 @@ class BaseAgent(AgentInterface):
         """Send a message to the running agent."""
         logger.debug("Sending message to agent {} (length={})", self.name, len(message))
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
+
         send_msg_cmd = f"tmux send-keys -t '{session_name}' -l {shlex.quote(message)}"
-        self.host.execute_command(send_msg_cmd)
+        result = self.host.execute_command(send_msg_cmd)
+        if not result.success:
+            raise SendMessageError(str(self.name), f"tmux send-keys failed: {result.stderr or result.stdout}")
+
         send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
-        self.host.execute_command(send_enter_cmd)
+        result = self.host.execute_command(send_enter_cmd)
+        if not result.success:
+            raise SendMessageError(str(self.name), f"tmux send-keys Enter failed: {result.stderr or result.stdout}")
+
         logger.trace("Message sent to agent {}", self.name)
 
     # =========================================================================

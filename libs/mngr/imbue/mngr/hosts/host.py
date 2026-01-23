@@ -1169,6 +1169,9 @@ class Host(HostInterface):
         - Sources the user's default ~/.tmux.conf if it exists
         - Adds a Ctrl-q binding to detach and destroy the current agent
         """
+        # FIXME: The execute_command calls in this method do not check for success.
+        # If tmux new-session fails, the code continues trying to send keys to a
+        # non-existent session. Should check result.success and raise an error.
         logger.debug("Starting {} agent(s)", len(agent_ids))
 
         # Create the host-level tmux config (shared by all agents on this host)

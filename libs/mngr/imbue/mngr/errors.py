@@ -72,6 +72,15 @@ class AgentNotFoundOnHostError(AgentError):
         super().__init__(f"Agent {agent_id} not found on host {host_id}")
 
 
+class SendMessageError(AgentError):
+    """Failed to send a message to an agent."""
+
+    def __init__(self, agent_name: str, reason: str) -> None:
+        self.agent_name = agent_name
+        self.reason = reason
+        super().__init__(f"Failed to send message to agent {agent_name}: {reason}")
+
+
 class ProviderError(MngrError):
     """Base class for all provider-related errors."""
 
