@@ -1,12 +1,17 @@
+import time
 from pathlib import Path
+from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pluggy
 import pytest
 
+from imbue.mngr.api.create import CreateAgentOptions
 from imbue.mngr.api.message import MessageResult
 from imbue.mngr.api.message import _agent_to_cel_context
+from imbue.mngr.api.message import _send_message_to_agent
 from imbue.mngr.api.message import send_message_to_agents
+from imbue.mngr.hosts.host import Host
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.primitives import AgentId
@@ -63,8 +68,6 @@ def test_message_result_can_add_failed_agent() -> None:
 
 def test_agent_to_cel_context_returns_expected_fields() -> None:
     """Test that _agent_to_cel_context returns the expected fields."""
-    from unittest.mock import MagicMock
-
     mock_agent = MagicMock()
     mock_agent.id = AgentId.generate()
     mock_agent.name = AgentName("test-agent")
@@ -83,8 +86,6 @@ def test_agent_to_cel_context_returns_expected_fields() -> None:
 
 def test_agent_to_cel_context_handles_stopped_state() -> None:
     """Test that _agent_to_cel_context handles stopped state correctly."""
-    from unittest.mock import MagicMock
-
     mock_agent = MagicMock()
     mock_agent.id = AgentId.generate()
     mock_agent.name = AgentName("stopped-agent")
@@ -125,9 +126,6 @@ def test_send_message_to_agents_calls_success_callback(
     mngr_test_prefix: str,
 ) -> None:
     """Test that send_message calls the success callback when message is sent."""
-    from imbue.mngr.api.create import CreateAgentOptions
-    from imbue.mngr.hosts.host import Host
-
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
     mngr_ctx = MngrContext(config=config, pm=plugin_manager)
     provider = LocalProviderInstance(
@@ -175,9 +173,6 @@ def test_send_message_to_agents_fails_for_stopped_agent(
     mngr_test_prefix: str,
 ) -> None:
     """Test that sending message to stopped agent fails."""
-    from imbue.mngr.api.create import CreateAgentOptions
-    from imbue.mngr.hosts.host import Host
-
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
     mngr_ctx = MngrContext(config=config, pm=plugin_manager)
     provider = LocalProviderInstance(
@@ -222,13 +217,6 @@ def test_send_message_to_replaced_agent_succeeds(
     mngr_test_prefix: str,
 ) -> None:
     """Test that _send_message_to_agent succeeds for REPLACED agents."""
-    import time
-    from unittest.mock import MagicMock
-
-    from imbue.mngr.api.create import CreateAgentOptions
-    from imbue.mngr.api.message import _send_message_to_agent
-    from imbue.mngr.hosts.host import Host
-
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
     mngr_ctx = MngrContext(config=config, pm=plugin_manager)
     provider = LocalProviderInstance(
@@ -295,9 +283,6 @@ def test_send_message_to_agents_with_include_filter(
     mngr_test_prefix: str,
 ) -> None:
     """Test that send_message respects include filters."""
-    from imbue.mngr.api.create import CreateAgentOptions
-    from imbue.mngr.hosts.host import Host
-
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
     mngr_ctx = MngrContext(config=config, pm=plugin_manager)
     provider = LocalProviderInstance(
