@@ -8,11 +8,20 @@ from imbue.mngr.primitives import SnapshotId
 
 
 class MngrError(Exception):
-    """Base exception for all mngr errors."""
+    """Base exception for all mngr errors.
+
+    All MngrError subclasses can provide a user_help_text attribute that contains
+    additional context to help the user understand and resolve the error.
+    This help text is displayed by the CLI when the error is raised.
+    """
+
+    user_help_text: str | None = None
 
 
 class UserInputError(MngrError):
     """Raised when user input is invalid."""
+
+    user_help_text = "Check the command syntax with 'mngr --help' or 'mngr <command> --help'."
 
 
 class ParseSpecError(MngrError, ValueError):
@@ -58,6 +67,8 @@ class NoCommandDefinedError(AgentError, ValueError):
 class AgentNotFoundError(AgentError):
     """No agent with this ID exists."""
 
+    user_help_text = "Use 'mngr list' to see available agents."
+
     def __init__(self, agent_id: AgentId) -> None:
         self.agent_id = agent_id
         super().__init__(f"Agent not found: {agent_id}")
@@ -65,6 +76,8 @@ class AgentNotFoundError(AgentError):
 
 class AgentNotFoundOnHostError(AgentError):
     """No agent with this ID exists on the specified host."""
+
+    user_help_text = "Use 'mngr list' to see all agents and their host assignments."
 
     def __init__(self, agent_id: AgentId, host_id: HostId) -> None:
         self.agent_id = agent_id
@@ -79,6 +92,11 @@ class ProviderError(MngrError):
 class ProviderInstanceNotFoundError(ProviderError):
     """No provider instance with this name exists."""
 
+    user_help_text = (
+        "Check your mngr configuration for available providers.\n"
+        "Built-in providers include 'local' and 'local_docker'."
+    )
+
     def __init__(self, provider_name: ProviderInstanceName) -> None:
         self.provider_name = provider_name
         super().__init__(f"Provider {provider_name} not found")
@@ -86,6 +104,8 @@ class ProviderInstanceNotFoundError(ProviderError):
 
 class HostNotFoundError(ProviderError):
     """No host with this ID or name exists."""
+
+    user_help_text = "Use 'mngr list' to see available hosts and agents."
 
     def __init__(self, host: HostId | HostName) -> None:
         self.host = host
@@ -111,6 +131,8 @@ class ResourceAllocationError(HostCreationError):
 class HostNameConflictError(ProviderError):
     """A host with this name already exists."""
 
+    user_help_text = "Choose a different host name, or destroy the existing host first with 'mngr destroy'."
+
     def __init__(self, name: HostName) -> None:
         self.name = name
         super().__init__(f"Host name already exists: {name}")
@@ -118,6 +140,8 @@ class HostNameConflictError(ProviderError):
 
 class HostNotRunningError(ProviderError):
     """Host is not in RUNNING state."""
+
+    user_help_text = "Start the host first with 'mngr start <host>'."
 
     def __init__(self, host_id: HostId, state: HostState) -> None:
         self.host_id = host_id
@@ -127,6 +151,8 @@ class HostNotRunningError(ProviderError):
 
 class HostNotStoppedError(ProviderError):
     """Host is not in STOPPED state."""
+
+    user_help_text = "Stop the host first with 'mngr stop <host>'."
 
     def __init__(self, host_id: HostId, state: HostState) -> None:
         self.host_id = host_id
@@ -141,6 +167,8 @@ class SnapshotError(ProviderError):
 class SnapshotNotFoundError(SnapshotError):
     """No snapshot with this ID exists."""
 
+    user_help_text = "Use 'mngr snapshot list <host>' to see available snapshots."
+
     def __init__(self, snapshot_id: SnapshotId) -> None:
         self.snapshot_id = snapshot_id
         super().__init__(f"Snapshot not found: {snapshot_id}")
@@ -148,6 +176,8 @@ class SnapshotNotFoundError(SnapshotError):
 
 class SnapshotsNotSupportedError(SnapshotError):
     """Provider does not support snapshots."""
+
+    user_help_text = "Snapshots are only available for cloud providers like Modal. The local provider does not support snapshots."
 
     def __init__(self, provider_name: ProviderInstanceName) -> None:
         self.provider_name = provider_name
