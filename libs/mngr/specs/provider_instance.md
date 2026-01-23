@@ -87,3 +87,14 @@ This cache enables several important behaviors:
 3. **Performance**: Avoids repeatedly querying slow provider APIs
 
 The cache should persist for a configurable amount of time (e.g., 24-48 hours by default). After this time, missing hosts are removed from the cache to avoid showing stale destroyed hosts indefinitely.
+
+## TODO
+
+The following features from this spec are not yet implemented:
+
+- **Build State Tracking**: Failed build records not persisted to `~/.mngr/providers/<provider_name>/`
+- **Host Listing Cache**: No caching of host listings with timestamps and provider config
+- **Destroyed Host Detection**: No comparison between cached and live hosts to detect destroyed hosts
+- **Offline Operation**: No fallback to cached results when provider is unreachable
+- **Quick Failure for Offline Providers**: No timeout mechanism or connectivity checks for fast failure
+- **Configurable Cache Persistence**: No configurable TTL for cache entries (24-48 hour default)

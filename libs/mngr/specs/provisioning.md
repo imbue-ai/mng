@@ -89,3 +89,12 @@ To implement provisioning for a custom agent type:
 3. Register the agent type using the `register_agent_type` hook
 
 See `ClaudeAgent` in `agents/default_plugins/claude_agent.py` for a complete example.
+
+## TODOs
+
+Features from this spec that are not yet fully implemented:
+
+- **Minimum version checking**: The spec mentions "ideally, minimum version requirements" for package validation. Currently `ClaudeAgent` only checks if claude is installed, not the version (`claude_agent.py:215`).
+- **API key validation**: Pre-provisioning validation should check that API key is available in environment or that credentials will be synced (`claude_agent.py:161`).
+- **Interactive mode detection**: System needs to detect whether running in interactive mode to properly handle user prompts for local installations. Should be part of `MngrContext` (`claude_agent.py:223`).
+- **Remote auto-install configuration**: Missing configuration option to control whether automatic installation is allowed on remote hosts (`claude_agent.py:230-232`).

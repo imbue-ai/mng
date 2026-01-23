@@ -1812,3 +1812,15 @@ uv run python scripts/style_guide.py
 ```
 
 If this command runs without errors, all examples in the style guide are syntactically correct and compatible with each other.
+
+# TODOs - Features Not Yet Implemented
+
+The following features are described in this style guide but not yet used in the actual codebase:
+
+1. **SecretStr for secrets** - Style guide shows using `SecretStr` from pydantic for API keys, passwords, and encryption keys, but no secrets are currently handled in the codebase
+2. **Decimal for currency** - Style guide mandates using `Decimal` for monetary values, but no currency handling exists in the codebase
+3. **Tenacity for retries** - Style guide shows `@retry` decorator with exponential backoff using tenacity library, but tenacity is not used in actual code
+4. **httpx for web requests** - Style guide mandates httpx for all web requests, but it's only used in contrib/ (not in core mngr library)
+5. **Polars data library** - Style guide states "prefer polars instead of pandas" but polars is not used anywhere in the codebase
+6. **Release tests** - `@pytest.mark.release` marker is defined but no actual release tests exist (only acceptance tests are implemented)
+7. **TodoApp examples** - All Todo-related code examples (TodoItem, TodoList, TodoReminder, etc.) are purely illustrative and not actual functionality

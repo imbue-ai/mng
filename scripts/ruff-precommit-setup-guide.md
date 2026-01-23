@@ -167,3 +167,9 @@ uv run pre-commit run --all-files
 ### pre-commit not found by uv
 - Run `uv sync` to install dependencies
 - Ensure pre-commit is in your pyproject.toml dependencies
+
+## TODOs
+
+- **Pre-push hook script**: `.pre-commit-config.yaml` specifies `pre-push` in `default_install_hook_types`, but `scripts/githooks/pre-push` doesn't exist
+- **Install script for pre-push**: `scripts/githooks/install.sh` only creates symlink for pre-commit hook, not pre-push
+- **Hooks not installed**: Run `./scripts/githooks/install.sh` to actually install the hooks in `.git/hooks/`

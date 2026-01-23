@@ -35,7 +35,6 @@ Local snapshots are directory copies. Not supported for in-place mode; only avai
 
 The following features from this spec are not yet implemented:
 
-- Agent metadata storage with `agent_id`, `agent_name`, `agent_type`, `created_at`, `work_dir` fields
+- Metadata storage: Uses `data.json` instead of `metadata.json`; missing `tags` field; uses `{host_dir}/agents/` instead of `~/.local/share/mngr/agents/`
 - Host discovery via tmux sessions matching `mngr-*` prefix
-- Host discovery via reading metadata files from `~/.local/share/mngr/agents/`
-- Snapshots functionality (directory copies)
+- Snapshots functionality (directory copies for clone/copy modes)
