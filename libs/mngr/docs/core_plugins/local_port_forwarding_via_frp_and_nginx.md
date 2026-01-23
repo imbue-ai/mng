@@ -57,3 +57,16 @@ This plugin requires:
 
 - **frp** - Install via your package manager or download from [GitHub](https://github.com/fatedier/frp/releases)
 - **nginx** - On remote hosts (installed automatically during provisioning)
+
+## TODOs
+
+The following features are not yet implemented:
+
+- `forward-service` command (add/list/remove subcommands)
+- `mngr auth` command for browser authentication
+- FRP server (frps) startup and configuration
+- FRP client (frpc) configuration generation and management
+- Nginx configuration generation and service startup on remote hosts
+- SSH tunnel management with autossh
+- Authentication endpoint for cookie/header validation
+- Plugin implementation to orchestrate provisioning and lifecycle hooks
