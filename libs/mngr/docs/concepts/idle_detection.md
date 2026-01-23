@@ -58,3 +58,16 @@ This mechanism is necessary in practice because you really don't want an agent t
 Most agents should be configured to write to the special file `$MNGR_HOST_DIR/activity/agent` whenever they produce output or are thinking.
 
 You can modify this file yourself in scripts if you want to signal agent activity.
+
+## TODOs
+
+The following features are documented above but not yet implemented:
+
+- **Automatic host stopping**: No logic monitors idle time or stops hosts when timeout is exceeded
+- **`mngr limit` command**: Command to configure idle detection settings
+- **`mngr enforce` command**: Command to check and enforce idle timeouts
+- **`mngr open` command**: Command to open agent URLs in browser with activity tracking
+- **User activity tracking**: Neither terminal keystroke tracking (`mngr connect`) nor web-based tracking (`user_activity_tracking_via_web` plugin) are implemented
+- **SSH connection tracking**: No monitoring of active SSH connections
+- **Agent process monitoring**: `ActivitySource.PROCESS` is not checked
+- **Lifecycle options application**: `--idle-mode`, `--idle-timeout`, and `--activity-sources` flags in `mngr create` are parsed but never applied to the host

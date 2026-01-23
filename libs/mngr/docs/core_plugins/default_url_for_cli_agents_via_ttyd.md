@@ -41,3 +41,17 @@ This plugin requires:
 ### Missing Forwarding Plugin
 
 If no forwarding plugin is available, remote agent creation fails with an error explaining which plugins to install or how to disable web terminal access (local agents work fine without forwarding plugins).
+
+## TODOs
+
+The following features are not yet implemented:
+
+- Plugin Python implementation (hook handlers for `on_after_agent_create`, `on_before_agent_destroy`, `agent_field_generators`)
+- Token generation and storage in agent state directory
+- ttyd process lifecycle management (start/stop, PID tracking)
+- `/usr/local/bin/mngr-ttyd-wrapper` authentication script
+- Port allocation from configurable range (default: 7680-7780)
+- URL creation with embedded security token
+- `mngr open` command integration with URL types
+- Requirements validation (ttyd, tmux, forwarding plugin availability)
+- Error handling for missing forwarding plugins on remote agents

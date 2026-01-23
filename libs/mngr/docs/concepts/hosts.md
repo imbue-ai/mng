@@ -135,3 +135,13 @@ See [host spec](../../specs/host.md) for the properties of hosts and their stora
 ## Interface
 
 See [`imbue/mngr/interfaces/host.py`](../../imbue/mngr/interfaces/host.py) for the host data structures.
+
+## TODOs
+
+The following features described above are not yet implemented:
+
+- **Lifecycle state transitions**: States `building`, `starting`, `stopping`, and `failed` are defined but not actively managed. Only `running` and `stopped` states are currently checked.
+- **Devcontainer lifecycle hooks**: The `initializeCommand`, `onCreateCommand`, `updateContentsCommand`, `postCreateCommand`, and `postStartCommand` hooks are documented but not implemented.
+- **Automatic stopping mechanisms**: The injected script that periodically checks for idleness and the `mngr enforce` command are not implemented. Only manual stopping via `stop_agents()` works.
+- **Host-level services**: Only `sshd` is implemented (Modal only). The `nginx`, `frpc`, and `ttyd` services mentioned in the docs are not started.
+- **FAILED state**: Documented in the lifecycle but not defined in the `HostState` enum.
