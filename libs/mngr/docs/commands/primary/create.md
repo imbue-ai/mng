@@ -35,7 +35,7 @@ See [connect options](./connect.md) (only applies if `--connect` is specified)
 - `--agent-type TEXT`: Which type of agent to run [default: `claude`]
 - `-n, --name TEXT`: Agent name (alternative to positional argument) [default: auto-generated]
 - `--name-style STYLE`: Auto-generated name style [choices: `english`, `fantasy`, `scifi`, `painters`, `authors`, `artists`, `musicians`, `animals`, `scientists`, `demons`]
-- `--agent-cmd, --agent-command TEXT`: Set (or override) the agent command (ex: `claude`)
+- `--agent-cmd, --agent-command TEXT`: Run a literal command using the generic agent type. Mutually exclusive with `--agent-type` (ex: `--agent-cmd "sleep 1000"`)
 - `-c, --add-cmd, --add-command TEXT`: Run an extra command in additional tmux window [repeatable]. Use `name=command` syntax to set window name (e.g., `-c server="npm run dev"` or `-c reviewer_1=claude`). Note: ALL_UPPERCASE names are treated as env var assignments, not window names
 - `--user TEXT`: Override which user to run the agent as [default: if local, current user. if remote, as defined in the provider, or `root` if not specified]
 

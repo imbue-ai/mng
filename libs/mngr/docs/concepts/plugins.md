@@ -88,12 +88,21 @@ These hooks can be used to customize behavior when interacting with individual a
 | `on_agent_state_dir_created`        | When creating the agent's state directory                                                             |
 | `on_before_apply_agent_permissions` | Before applying permissions to an agent                                                               |
 | `on_after_apply_agent_permissions`  | After applying permissions to an agent                                                                |
-| `on_before_agent_provisioning`      | Before provisioning an agent. Validate preconditions (env vars, required files). Raise on failure.    |
-| `get_provision_file_transfers`      | Return file transfer specs (local_path, remote_path, is_required) for files to copy during provision. |
-| `provision_agent`                   | Actually provision an agent for this plugin                                                           |
-| `on_after_agent_provisioning`       | After provisioning an agent                                                                           |
 | `on_before_agent_destroy`           | Before destroying an agent                                                                            |
 | `on_after_agent_destroy`            | After destroying an agent                                                                             |
+
+### Agent Provisioning Methods
+
+Agent provisioning is handled through methods on the agent class itself, not hooks. This allows agent types to define their own provisioning behavior through inheritance:
+
+| Method                        | Description                                                                                           |
+|-------------------------------|-------------------------------------------------------------------------------------------------------|
+| `on_before_provisioning()`    | Called before provisioning. Validate preconditions (env vars, required files). Raise on failure.      |
+| `get_provision_file_transfers()` | Return file transfer specs (local_path, remote_path, is_required) for files to copy during provision. |
+| `provision()`                 | Perform agent-type-specific provisioning (install packages, create configs, etc.)                     |
+| `on_after_provisioning()`     | Called after all provisioning completes. Finalization and verification.                               |
+
+To customize provisioning for a new agent type, subclass `BaseAgent` and override these methods. The `ClaudeAgent` class demonstrates this pattern.
 
 If you want to run scripts *whenever* an agent is started (not just the first time), you can put a script in the following hook directory:
 

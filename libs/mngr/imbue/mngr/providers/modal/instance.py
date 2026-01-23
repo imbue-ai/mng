@@ -77,6 +77,10 @@ def handle_modal_auth_error(func: Callable[P, T]) -> Callable[P, T]:
     return wrapper
 
 
+# FIXME: this _app_registry data should live as a class-level variable on the ModalProviderBackend class instead of as a module-level global here!
+#  that's kinda the whole point of the ModalProviderBackend class...
+#  Obviously all of the associated functions should move to backend.py as well.
+
 # Module-level registry of app contexts by app name
 # This ensures we only create one app per unique app_name, even if multiple
 # ModalProviderInstance objects are created with the same app_name
@@ -134,64 +138,6 @@ def reset_modal_app_registry() -> None:
         except modal.exception.Error as e:
             logger.debug("Modal error closing app {} during reset: {}", app_name, e)
     _app_registry.clear()
-
-
-def build_image_from_dockerfile_contents(
-    dockerfile_contents: str,
-    # build context directory for COPY/ADD instructions
-    context_dir: Path | None = None,
-    # starting image; if not provided, uses FROM instruction in the dockerfile
-    initial_image: modal.Image | None = None,
-    # if True, apply each instruction separately for per-layer caching; if False, apply
-    # all instructions at once (faster but no intermediate caching on failure)
-    is_each_layer_cached: bool = True,
-) -> modal.Image:
-    """Build a Modal image from Dockerfile contents with optional per-layer caching.
-
-    When is_each_layer_cached=True (the default), each instruction is applied separately,
-    allowing Modal to cache intermediate layers. This means if a build fails at step N,
-    steps 1 through N-1 don't need to be re-run. Multistage dockerfiles are not supported.
-    """
-    # DockerfileParser writes to a file, so use a temp directory to avoid conflicts
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpfile = Path(tmpdir) / "Dockerfile"
-        dfp = DockerfileParser(str(tmpfile))
-        dfp.content = dockerfile_contents
-
-        assert not dfp.is_multistage, "Multistage Dockerfiles are not supported yet"
-
-        last_from_index = None
-        for i, instr in enumerate(dfp.structure):
-            if instr["instruction"] == "FROM":
-                last_from_index = i
-
-        if initial_image is None:
-            assert last_from_index is not None, "Dockerfile must have a FROM instruction"
-            instructions = dfp.structure[last_from_index + 1 :]
-            modal_image = modal.Image.from_registry(dfp.baseimage)
-        else:
-            assert last_from_index is None, "If initial_image is provided, Dockerfile cannot have a FROM instruction"
-            instructions = list(dfp.structure)
-            modal_image = initial_image
-
-        if len(instructions) > 0:
-            if is_each_layer_cached:
-                for instr in instructions:
-                    if instr["instruction"] == "COMMENT":
-                        continue
-                    modal_image = modal_image.dockerfile_commands(
-                        [instr["content"]],
-                        context_dir=context_dir,
-                    )
-            else:
-                # The downside of doing them all at once is that if any one fails,
-                # Modal will re-run all of them
-                modal_image = modal_image.dockerfile_commands(
-                    [x["content"] for x in instructions if x["instruction"] != "COMMENT"],
-                    context_dir=context_dir,
-                )
-
-        return modal_image
 
 
 # Constants
@@ -253,16 +199,10 @@ class ModalProviderInstance(BaseProviderInstance):
 
     @property
     def _keys_dir(self) -> Path:
-        """Get the directory for storing SSH keys.
-
-        Uses a single directory shared across all modal provider instances for
-        simplicity. Modal sandboxes are ephemeral, so the security tradeoff of
-        sharing keys is acceptable.
-        """
-        # Store keys under the mngr config directory (test-scoped when running tests)
         config_dir = self.mngr_ctx.config.default_host_dir.expanduser()
         return config_dir / "providers" / "modal"
 
+    # FIXME: this is strange--we should at least have a key for the client and the host. This appears to be using the same key for both this function and _get_host_keypair?
     def _get_ssh_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH keypair for this provider instance."""
         return load_or_create_ssh_keypair(self._keys_dir)
@@ -280,6 +220,10 @@ class ModalProviderInstance(BaseProviderInstance):
         """Get the path to the known_hosts file for this provider instance."""
         return self._keys_dir / "known_hosts"
 
+    # FIXME: unfortunately, no--this should be using a Modal *Volume* for storing this data instead.
+    #  Otherwise the data will only be accessible locally, and if you have another mngr instance that wants to understand the snapshots, it won't be able to.
+    #  A Volume is effectively just a filesystem, so the core logic should mostly transfer. We can use a single volume that is given a named based on our globally unique user_id (which would be known by any other associated mngr instance)
+    #  Someday Modal will make it easier to track images (and snapshots), but the support isn't there yet
     @property
     def _snapshots_dir(self) -> Path:
         """Get the directory for storing snapshot metadata persistently.
@@ -391,7 +335,7 @@ class ModalProviderInstance(BaseProviderInstance):
         if dockerfile is not None:
             dockerfile_contents = dockerfile.read_text()
             context_dir = dockerfile.parent
-            image = build_image_from_dockerfile_contents(
+            image = _build_image_from_dockerfile_contents(
                 dockerfile_contents,
                 context_dir=context_dir,
                 is_each_layer_cached=True,
@@ -413,6 +357,7 @@ class ModalProviderInstance(BaseProviderInstance):
         installs via apt. This allows users to pre-configure their base images
         for faster startup while supporting images without these tools.
         """
+        # FIXME: consolidate this duplicated logic that is checking for packages into a shared utility function or more sensible for loop over the expected packages and the commands to test for them
         # Check if sshd is installed
         sshd_check = sandbox.exec("sh", "-c", "test -x /usr/sbin/sshd && echo yes || echo no")
         is_sshd_installed = sshd_check.stdout.read().strip() == "yes"
@@ -655,6 +600,9 @@ class ModalProviderInstance(BaseProviderInstance):
                 "image": config.image,
                 "dockerfile": config.dockerfile,
             },
+            # FIXME: snapshots should not be getting stored here--they need to be stored in the volume, per the above FIXME
+            #  realistically, that means that the whole host record probably should be stored in the volume as well, so that it's just stored in one place (which is always accessible)
+            #  the TAG_HOST_ID and TAG_HOST_NAME are fine to stay as tags, because we need to search that way sometimes
             "snapshots": snapshots if snapshots is not None else [],
         }
 
@@ -713,6 +661,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
         return host_id, name, ssh_host, ssh_port, host_public_key, config, user_tags, snapshots
 
+    # FIXME: this should have been handled at the ModalProviderBackend level instead of here (ie, the provider instance should be passed an App)
     def _get_modal_app(self) -> modal.App:
         """Get or create the Modal app for this provider instance with output capture.
 
@@ -794,7 +743,7 @@ class ModalProviderInstance(BaseProviderInstance):
             return sandbox
         return None
 
-    def _list_mngr_sandboxes(self) -> list[modal.Sandbox]:
+    def _list_sandboxes(self) -> list[modal.Sandbox]:
         """List all Modal sandboxes managed by this mngr provider instance."""
         logger.trace("Listing all mngr sandboxes for app={}", self.app_name)
         app = self._get_modal_app()
@@ -1170,7 +1119,7 @@ class ModalProviderInstance(BaseProviderInstance):
     ) -> list[HostInterface]:
         """List all active Modal sandbox hosts."""
         hosts: list[HostInterface] = []
-        for sandbox in self._list_mngr_sandboxes():
+        for sandbox in self._list_sandboxes():
             try:
                 host_obj = self._create_host_from_sandbox(sandbox)
                 if host_obj is not None:
@@ -1546,3 +1495,61 @@ class ModalProviderInstance(BaseProviderInstance):
         if self.app_name in _app_registry:
             _, context_handle = _app_registry.pop(self.app_name)
             _exit_modal_app_context(context_handle)
+
+
+def _build_image_from_dockerfile_contents(
+    dockerfile_contents: str,
+    # build context directory for COPY/ADD instructions
+    context_dir: Path | None = None,
+    # starting image; if not provided, uses FROM instruction in the dockerfile
+    initial_image: modal.Image | None = None,
+    # if True, apply each instruction separately for per-layer caching; if False, apply
+    # all instructions at once (faster but no intermediate caching on failure)
+    is_each_layer_cached: bool = True,
+) -> modal.Image:
+    """Build a Modal image from Dockerfile contents with optional per-layer caching.
+
+    When is_each_layer_cached=True (the default), each instruction is applied separately,
+    allowing Modal to cache intermediate layers. This means if a build fails at step N,
+    steps 1 through N-1 don't need to be re-run. Multistage dockerfiles are not supported.
+    """
+    # DockerfileParser writes to a file, so use a temp directory to avoid conflicts
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpfile = Path(tmpdir) / "Dockerfile"
+        dfp = DockerfileParser(str(tmpfile))
+        dfp.content = dockerfile_contents
+
+        assert not dfp.is_multistage, "Multistage Dockerfiles are not supported yet"
+
+        last_from_index = None
+        for i, instr in enumerate(dfp.structure):
+            if instr["instruction"] == "FROM":
+                last_from_index = i
+
+        if initial_image is None:
+            assert last_from_index is not None, "Dockerfile must have a FROM instruction"
+            instructions = dfp.structure[last_from_index + 1 :]
+            modal_image = modal.Image.from_registry(dfp.baseimage)
+        else:
+            assert last_from_index is None, "If initial_image is provided, Dockerfile cannot have a FROM instruction"
+            instructions = list(dfp.structure)
+            modal_image = initial_image
+
+        if len(instructions) > 0:
+            if is_each_layer_cached:
+                for instr in instructions:
+                    if instr["instruction"] == "COMMENT":
+                        continue
+                    modal_image = modal_image.dockerfile_commands(
+                        [instr["content"]],
+                        context_dir=context_dir,
+                    )
+            else:
+                # The downside of doing them all at once is that if any one fails,
+                # Modal will re-run all of them
+                modal_image = modal_image.dockerfile_commands(
+                    [x["content"] for x in instructions if x["instruction"] != "COMMENT"],
+                    context_dir=context_dir,
+                )
+
+        return modal_image

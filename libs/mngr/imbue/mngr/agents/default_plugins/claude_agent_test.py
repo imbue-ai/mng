@@ -8,8 +8,6 @@ import pytest
 
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
-from imbue.mngr.agents.default_plugins.claude_agent import _get_claude_config
-from imbue.mngr.agents.default_plugins.claude_agent import _is_claude_agent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -51,6 +49,8 @@ def test_claude_agent_assemble_command_with_no_args(mngr_test_prefix: str) -> No
     """ClaudeAgent should generate resume/session-id command format with no args."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
+    mock_host = Mock()
+    mock_host.is_local = True
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -61,14 +61,15 @@ def test_claude_agent_assemble_command_with_no_args(mngr_test_prefix: str) -> No
         host_id=HostId.generate(),
         mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
         agent_config=ClaudeAgentConfig(),
-        host=Mock(),
+        host=mock_host,
     )
 
-    command = agent.assemble_command(agent_args=(), command_override=None)
+    command = agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
 
     uuid = agent_id.get_uuid()
+    # Local hosts should NOT have IS_SANDBOX set
     assert command == CommandString(
-        f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} ) || claude --session-id {uuid}"
+        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} ) || claude --session-id {uuid}"
     )
 
 
@@ -77,6 +78,8 @@ def test_claude_agent_assemble_command_with_agent_args(mngr_test_prefix: str) ->
     """ClaudeAgent should append agent args to both command variants."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
+    mock_host = Mock()
+    mock_host.is_local = True
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -87,14 +90,14 @@ def test_claude_agent_assemble_command_with_agent_args(mngr_test_prefix: str) ->
         host_id=HostId.generate(),
         mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
         agent_config=ClaudeAgentConfig(),
-        host=Mock(),
+        host=mock_host,
     )
 
-    command = agent.assemble_command(agent_args=("--model", "opus"), command_override=None)
+    command = agent.assemble_command(host=mock_host, agent_args=("--model", "opus"), command_override=None)
 
     uuid = agent_id.get_uuid()
     assert command == CommandString(
-        f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
+        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
     )
 
 
@@ -102,6 +105,8 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(mngr_test_pr
     """ClaudeAgent should append both cli_args and agent_args to both command variants."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
+    mock_host = Mock()
+    mock_host.is_local = True
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -112,14 +117,14 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(mngr_test_pr
         host_id=HostId.generate(),
         mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
         agent_config=ClaudeAgentConfig(cli_args="--verbose"),
-        host=Mock(),
+        host=mock_host,
     )
 
-    command = agent.assemble_command(agent_args=("--model", "opus"), command_override=None)
+    command = agent.assemble_command(host=mock_host, agent_args=("--model", "opus"), command_override=None)
 
     uuid = agent_id.get_uuid()
     assert command == CommandString(
-        f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus"
+        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus"
     )
 
 
@@ -127,6 +132,8 @@ def test_claude_agent_assemble_command_with_command_override(mngr_test_prefix: s
     """ClaudeAgent should use command override when provided."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
+    mock_host = Mock()
+    mock_host.is_local = True
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -137,17 +144,18 @@ def test_claude_agent_assemble_command_with_command_override(mngr_test_prefix: s
         host_id=HostId.generate(),
         mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
         agent_config=ClaudeAgentConfig(),
-        host=Mock(),
+        host=mock_host,
     )
 
     command = agent.assemble_command(
+        host=mock_host,
         agent_args=("--model", "opus"),
         command_override=CommandString("custom-claude"),
     )
 
     uuid = agent_id.get_uuid()
     assert command == CommandString(
-        f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
+        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
     )
 
 
@@ -155,6 +163,8 @@ def test_claude_agent_assemble_command_raises_when_no_command(mngr_test_prefix: 
     """ClaudeAgent should raise NoCommandDefinedError when no command defined."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
+    mock_host = Mock()
+    mock_host.is_local = True
 
     # Create agent with no command configured
     agent = ClaudeAgent.model_construct(
@@ -166,27 +176,19 @@ def test_claude_agent_assemble_command_raises_when_no_command(mngr_test_prefix: 
         host_id=HostId.generate(),
         mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
         agent_config=AgentTypeConfig(),
-        host=Mock(),
+        host=mock_host,
     )
 
     with pytest.raises(NoCommandDefinedError, match="No command defined"):
-        agent.assemble_command(agent_args=(), command_override=None)
+        agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
 
 
-def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> None:
-    """ClaudeAgentConfig merge should use override cli_args when base is empty."""
-    base = ClaudeAgentConfig()
-    override = ClaudeAgentConfig(cli_args="--verbose")
-
-    merged = base.merge_with(override)
-
-    assert merged.cli_args == "--verbose"
-
-
-def test_is_claude_agent_returns_true_for_claude_type(mngr_test_prefix: str) -> None:
-    """_is_claude_agent should return True for agents with 'claude' type."""
+def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(mngr_test_prefix: str) -> None:
+    """ClaudeAgent should set IS_SANDBOX=1 only for remote (non-local) hosts."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
+    mock_host = Mock()
+    mock_host.is_local = False
 
     agent = ClaudeAgent.model_construct(
         id=agent_id,
@@ -197,30 +199,26 @@ def test_is_claude_agent_returns_true_for_claude_type(mngr_test_prefix: str) -> 
         host_id=HostId.generate(),
         mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
         agent_config=ClaudeAgentConfig(),
-        host=Mock(),
+        host=mock_host,
     )
 
-    assert _is_claude_agent(agent) is True
+    command = agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
 
-
-def test_is_claude_agent_returns_false_for_other_type(mngr_test_prefix: str) -> None:
-    """_is_claude_agent should return False for agents with non-claude type."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("codex"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm),
-        agent_config=AgentTypeConfig(),
-        host=Mock(),
+    uuid = agent_id.get_uuid()
+    # Remote hosts SHOULD have IS_SANDBOX set
+    assert command == CommandString(
+        f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( find ~/.claude/ -name '{uuid}' && claude --resume {uuid} ) || claude --session-id {uuid}"
     )
 
-    assert _is_claude_agent(agent) is False
+
+def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> None:
+    """ClaudeAgentConfig merge should use override cli_args when base is empty."""
+    base = ClaudeAgentConfig()
+    override = ClaudeAgentConfig(cli_args="--verbose")
+
+    merged = base.merge_with(override)
+
+    assert merged.cli_args == "--verbose"
 
 
 def test_get_claude_config_returns_config_when_claude_agent_config(mngr_test_prefix: str) -> None:
@@ -241,7 +239,7 @@ def test_get_claude_config_returns_config_when_claude_agent_config(mngr_test_pre
         host=Mock(),
     )
 
-    result = _get_claude_config(agent)
+    result = agent._get_claude_config()
 
     assert result is config
     assert result.cli_args == "--verbose"
@@ -264,7 +262,163 @@ def test_get_claude_config_returns_default_when_not_claude_agent_config(mngr_tes
         host=Mock(),
     )
 
-    result = _get_claude_config(agent)
+    result = agent._get_claude_config()
 
     assert isinstance(result, ClaudeAgentConfig)
     assert result.command == CommandString("claude")
+
+
+# =============================================================================
+# Provisioning Lifecycle Tests
+# =============================================================================
+
+
+def test_on_before_provisioning_skips_check_when_disabled(mngr_test_prefix: str) -> None:
+    """on_before_provisioning should skip installation check when check_installation=False."""
+    pm = pluggy.PluginManager("mngr")
+    agent_id = AgentId.generate()
+    mock_host = Mock()
+    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm)
+
+    agent = ClaudeAgent.model_construct(
+        id=agent_id,
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=Path("/tmp/work"),
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mngr_ctx=mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False),
+        host=mock_host,
+    )
+
+    options = Mock()
+
+    # Should not raise and should complete without error
+    agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+
+def test_get_provision_file_transfers_returns_empty_when_no_local_settings(
+    mngr_test_prefix: str, tmp_path: Path
+) -> None:
+    """get_provision_file_transfers should return empty list when no .claude/ settings exist."""
+    pm = pluggy.PluginManager("mngr")
+    agent_id = AgentId.generate()
+    mock_host = Mock()
+    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm)
+
+    # Create agent with sync_repo_settings=True but no .claude/ directory exists
+    agent = ClaudeAgent.model_construct(
+        id=agent_id,
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=tmp_path,
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mngr_ctx=mngr_ctx,
+        agent_config=ClaudeAgentConfig(sync_repo_settings=True),
+        host=mock_host,
+    )
+
+    options = Mock()
+
+    transfers = agent.get_provision_file_transfers(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    assert list(transfers) == []
+
+
+def test_get_provision_file_transfers_returns_override_folder_files(
+    mngr_test_prefix: str, tmp_path: Path
+) -> None:
+    """get_provision_file_transfers should return files from override_settings_folder."""
+    pm = pluggy.PluginManager("mngr")
+    agent_id = AgentId.generate()
+    mock_host = Mock()
+    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm)
+
+    # Create override folder with a test file
+    override_folder = tmp_path / "override_settings"
+    override_folder.mkdir()
+    test_file = override_folder / "test_config.json"
+    test_file.write_text('{"test": true}')
+
+    agent = ClaudeAgent.model_construct(
+        id=agent_id,
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=tmp_path,
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mngr_ctx=mngr_ctx,
+        # Disable sync_repo_settings to test override folder only
+        agent_config=ClaudeAgentConfig(
+            sync_repo_settings=False,
+            override_settings_folder=override_folder,
+        ),
+        host=mock_host,
+    )
+
+    options = Mock()
+
+    transfers = list(agent.get_provision_file_transfers(host=mock_host, options=options, mngr_ctx=mngr_ctx))
+
+    assert len(transfers) == 1
+    assert transfers[0].local_path == test_file
+    assert str(transfers[0].agent_path) == ".claude/test_config.json"
+    assert transfers[0].is_required is False
+
+
+def test_get_provision_file_transfers_with_sync_repo_settings_disabled(mngr_test_prefix: str, tmp_path: Path) -> None:
+    """get_provision_file_transfers should skip repo settings when sync_repo_settings=False."""
+    pm = pluggy.PluginManager("mngr")
+    agent_id = AgentId.generate()
+    mock_host = Mock()
+    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm)
+
+    agent = ClaudeAgent.model_construct(
+        id=agent_id,
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=tmp_path,
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mngr_ctx=mngr_ctx,
+        agent_config=ClaudeAgentConfig(sync_repo_settings=False),
+        host=mock_host,
+    )
+
+    options = Mock()
+
+    transfers = list(agent.get_provision_file_transfers(host=mock_host, options=options, mngr_ctx=mngr_ctx))
+
+    # Should return empty since sync_repo_settings=False and no override folder
+    assert transfers == []
+
+
+def test_provision_skips_installation_check_when_disabled(mngr_test_prefix: str) -> None:
+    """provision should skip claude installation check when check_installation=False."""
+    pm = pluggy.PluginManager("mngr")
+    agent_id = AgentId.generate()
+    mock_host = Mock()
+    mock_host.is_local = True
+    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm)
+
+    agent = ClaudeAgent.model_construct(
+        id=agent_id,
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=Path("/tmp/work"),
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mngr_ctx=mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False),
+        host=mock_host,
+    )
+
+    options = Mock()
+
+    # Should not call execute_command to check installation
+    agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    # execute_command should not be called since check_installation=False
+    mock_host.execute_command.assert_not_called()

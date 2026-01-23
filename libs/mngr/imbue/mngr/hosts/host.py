@@ -770,6 +770,7 @@ class Host(HostInterface):
         # FIXME: this whole block of code is nonsense. Agents MUST have a a command--they literally ARE commands. assemble_command() should be changed to require a non-None return type.
         if options.command is not None or agent_config.command is not None:
             command = agent.assemble_command(
+                host=self,
                 agent_args=options.agent_args,
                 command_override=options.command,
             )
@@ -895,10 +896,10 @@ class Host(HostInterface):
         """Provision an agent (install packages, configure, etc.).
 
         Applies all provisioning in a logical order:
-        1. Call on_before_agent_provisioning hook (validation only)
-        2. Call get_provision_file_transfers hook to collect plugin file transfers
+        1. Call agent.on_before_provisioning() (validation only)
+        2. Call agent.get_provision_file_transfers() to collect file transfers
         3. Validate required files exist, execute file transfers
-        4. Call provision_agent hook (plugin-specific provisioning)
+        4. Call agent.provision() (agent-type-specific provisioning)
         5. Create directories (so paths exist for uploads)
         6. Upload files (files exist before modifications)
         7. Append text to files
@@ -906,32 +907,22 @@ class Host(HostInterface):
         9. Write environment variables to agent env file
         10. Run sudo commands (system-level setup, with env vars sourced)
         11. Run user commands (user-level setup, with env vars sourced)
-        12. Call on_after_agent_provisioning hook (finalization)
+        12. Call agent.on_after_provisioning() (finalization)
         """
-        # 1. Call pre-provisioning validation hook
-        logger.debug("Calling on_before_agent_provisioning hooks for agent {}", agent.name)
-        mngr_ctx.pm.hook.on_before_agent_provisioning(
-            agent=agent,
-            host=self,
-            options=options,
-            mngr_ctx=mngr_ctx,
-        )
+        # 1. Call pre-provisioning validation on agent
+        logger.debug("Calling on_before_provisioning for agent {}", agent.name)
+        agent.on_before_provisioning(host=self, options=options, mngr_ctx=mngr_ctx)
 
-        # 2. Collect file transfers from plugins
-        logger.debug("Collecting file transfers from plugins for agent {}", agent.name)
-        all_file_transfers = self._collect_plugin_file_transfers(agent, options, mngr_ctx)
+        # 2. Collect file transfers from agent
+        logger.debug("Collecting file transfers for agent {}", agent.name)
+        all_file_transfers = list(agent.get_provision_file_transfers(host=self, options=options, mngr_ctx=mngr_ctx))
 
         # 3. Validate required files exist and execute transfers
-        self._execute_plugin_file_transfers(agent, all_file_transfers)
+        self._execute_agent_file_transfers(agent, all_file_transfers)
 
-        # 4. Call provision_agent hook for plugin-specific provisioning
-        logger.debug("Calling provision_agent hooks for agent {}", agent.name)
-        mngr_ctx.pm.hook.provision_agent(
-            agent=agent,
-            host=self,
-            options=options,
-            mngr_ctx=mngr_ctx,
-        )
+        # 4. Call agent.provision() for agent-type-specific provisioning
+        logger.debug("Calling provision for agent {}", agent.name)
+        agent.provision(host=self, options=options, mngr_ctx=mngr_ctx)
 
         provisioning = options.provisioning
         logger.debug(
@@ -988,49 +979,16 @@ class Host(HostInterface):
             if not result.success:
                 raise MngrError(f"User command failed: {cmd}\nstderr: {result.stderr}")
 
-        # 12. Call post-provisioning hook
-        logger.debug("Calling on_after_agent_provisioning hooks for agent {}", agent.name)
-        mngr_ctx.pm.hook.on_after_agent_provisioning(
-            agent=agent,
-            host=self,
-            options=options,
-            mngr_ctx=mngr_ctx,
-        )
+        # 12. Call post-provisioning on agent
+        logger.debug("Calling on_after_provisioning for agent {}", agent.name)
+        agent.on_after_provisioning(host=self, options=options, mngr_ctx=mngr_ctx)
 
-    def _collect_plugin_file_transfers(
-        self,
-        agent: AgentInterface,
-        options: CreateAgentOptions,
-        mngr_ctx: MngrContext,
-    ) -> list[FileTransferSpec]:
-        """Collect file transfer specifications from all plugins.
-
-        Later plugins override earlier ones if they specify the same agent_path.
-        """
-        transfer_by_remote_path: dict[Path, FileTransferSpec] = {}
-
-        # Collect from all plugins - hook returns a list of (possibly None) results
-        all_results = mngr_ctx.pm.hook.get_provision_file_transfers(
-            agent=agent,
-            host=self,
-            options=options,
-            mngr_ctx=mngr_ctx,
-        )
-
-        for plugin_transfers in all_results:
-            if plugin_transfers is not None:
-                for transfer in plugin_transfers:
-                    # Later plugins override earlier ones for the same agent_path
-                    transfer_by_remote_path[transfer.agent_path] = transfer
-
-        return list(transfer_by_remote_path.values())
-
-    def _execute_plugin_file_transfers(
+    def _execute_agent_file_transfers(
         self,
         agent: AgentInterface,
         transfers: list[FileTransferSpec],
     ) -> None:
-        """Validate and execute file transfers from plugins.
+        """Validate and execute file transfers from the agent.
 
         First validates that all required files exist, then executes transfers.
         """
@@ -1057,7 +1015,7 @@ class Host(HostInterface):
             # Resolve relative remote paths to work_dir
             remote_path = agent.work_dir / transfer.agent_path
 
-            logger.trace("Plugin file transfer: {} -> {}", transfer.local_path, remote_path)
+            logger.trace("Agent file transfer: {} -> {}", transfer.local_path, remote_path)
             local_content = transfer.local_path.read_bytes()
             self.write_file(remote_path, local_content)
 
