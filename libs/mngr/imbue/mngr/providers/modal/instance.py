@@ -13,17 +13,21 @@ import io
 import socket
 import tempfile
 import time
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone
+from functools import wraps
 from pathlib import Path
 from typing import Any
 from typing import Final
 from typing import Mapping
+from typing import ParamSpec
 from typing import Sequence
+from typing import TypeVar
 from typing import cast
 
-
 import modal
+import modal.exception
 from dockerfile_parse import DockerfileParser
 from loguru import logger
 from pydantic import Field
@@ -35,6 +39,7 @@ from pyinfra.connectors.sshuserclient.client import get_host_keys
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
+from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import CpuResources
@@ -67,6 +72,26 @@ SSH_CONNECT_TIMEOUT = 60
 TAG_HOST_ID: Final[str] = "mngr_host_id"
 TAG_HOST_NAME: Final[str] = "mngr_host_name"
 TAG_USER_PREFIX: Final[str] = "mngr_user_"
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+
+def handle_modal_auth_error(func: Callable[P, T]) -> Callable[P, T]:
+    """Decorator to convert modal.exception.AuthError to ModalAuthError.
+
+    Wraps provider methods to catch Modal authentication errors at the boundary
+    and convert them to our ModalAuthError with a helpful message.
+    """
+
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        try:
+            return func(*args, **kwargs)
+        except modal.exception.AuthError as e:
+            raise ModalAuthError() from e
+
+    return wrapper
 
 
 class SandboxConfig(FrozenModel):
@@ -612,6 +637,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # Core Lifecycle Methods
     # =========================================================================
 
+    @handle_modal_auth_error
     def create_host(
         self,
         name: HostName,
@@ -727,6 +753,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.info("Modal host created: id={}, name={}, ssh={}:{}", host_id, name, ssh_host, ssh_port)
         return host
 
+    @handle_modal_auth_error
     def stop_host(
         self,
         host: HostInterface | HostId,
@@ -750,6 +777,7 @@ class ModalProviderInstance(BaseProviderInstance):
         else:
             logger.debug("No sandbox found with host_id={}, may already be terminated", host_id)
 
+    @handle_modal_auth_error
     def start_host(
         self,
         host: HostInterface | HostId,
@@ -890,6 +918,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.info("Restored Modal host from snapshot: id={}, name={}", host_id, host_name)
         return restored_host
 
+    @handle_modal_auth_error
     def destroy_host(
         self,
         host: HostInterface | HostId,
@@ -909,6 +938,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # Discovery Methods
     # =========================================================================
 
+    @handle_modal_auth_error
     def get_host(
         self,
         host: HostId | HostName,
@@ -932,6 +962,7 @@ class ModalProviderInstance(BaseProviderInstance):
             raise HostNotFoundError(host)
         return host_obj
 
+    @handle_modal_auth_error
     def list_hosts(
         self,
         include_destroyed: bool = False,
@@ -976,6 +1007,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # Snapshot Methods
     # =========================================================================
 
+    @handle_modal_auth_error
     def create_snapshot(
         self,
         host: HostInterface | HostId,

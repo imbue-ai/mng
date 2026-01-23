@@ -172,9 +172,11 @@ class ClaudeAgent(BaseAgent):
 
         # Transfer repo-local claude settings
         if config.sync_repo_settings:
-            for file_path in Path(".claude").rglob("*.local.*"):
+            claude_dir = self.work_dir / ".claude"
+            for file_path in claude_dir.rglob("*.local.*"):
+                relative_path = file_path.relative_to(self.work_dir)
                 transfers.append(
-                    FileTransferSpec(local_path=file_path, agent_path=RelativePath(file_path), is_required=True)
+                    FileTransferSpec(local_path=file_path, agent_path=RelativePath(relative_path), is_required=True)
                 )
 
         # Transfer override folder contents

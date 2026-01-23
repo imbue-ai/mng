@@ -197,6 +197,110 @@ def test_connect_attach_command_option_not_implemented(
         assert "--attach-command is not implemented yet" in str(result.exception)
 
 
+def test_connect_start_restarts_stopped_agent(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --start (default) automatically restarts a stopped agent."""
+    agent_name = f"test-connect-start-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    try:
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 736291",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0, f"Create failed with: {create_result.output}"
+        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+
+        # Kill the tmux session to simulate a stopped agent
+        cleanup_tmux_session(session_name)
+        assert not tmux_session_exists(session_name), f"Expected tmux session {session_name} to be killed"
+
+        # Connect with --start (default), which should restart the agent
+        with patch("imbue.mngr.cli.connect.os.execvp") as mock_execvp:
+            cli_runner.invoke(
+                connect,
+                [agent_name],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            # Verify the tmux session was recreated before attaching
+            assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to be restarted"
+            mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
+
+    finally:
+        cleanup_tmux_session(session_name)
+
+
+def test_connect_no_start_raises_error_for_stopped_agent(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --no-start raises UserInputError when agent is stopped."""
+    agent_name = f"test-connect-nostart-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    try:
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 847362",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0, f"Create failed with: {create_result.output}"
+
+        # Kill the tmux session to simulate a stopped agent
+        cleanup_tmux_session(session_name)
+        assert not tmux_session_exists(session_name), f"Expected tmux session {session_name} to be killed"
+
+        # Connect with --no-start, which should raise an error
+        result = cli_runner.invoke(
+            connect,
+            [agent_name, "--no-start"],
+            obj=plugin_manager,
+        )
+
+        assert result.exit_code != 0
+        assert result.exception is not None
+        assert "stopped" in str(result.output).lower()
+        assert "--no-start" in str(result.output)
+
+    finally:
+        cleanup_tmux_session(session_name)
+
+
 def _make_mock_agent(name: str, state: AgentLifecycleState) -> AgentInfo:
     """Create a mock AgentInfo for testing."""
     mock_host = MagicMock()

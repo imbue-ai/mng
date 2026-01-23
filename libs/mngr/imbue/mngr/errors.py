@@ -92,6 +92,15 @@ class AgentNotFoundOnHostError(AgentError):
         super().__init__(f"Agent {agent_id} not found on host {host_id}")
 
 
+class SendMessageError(AgentError):
+    """Failed to send a message to an agent."""
+
+    def __init__(self, agent_name: str, reason: str) -> None:
+        self.agent_name = agent_name
+        self.reason = reason
+        super().__init__(f"Failed to send message to agent {agent_name}: {reason}")
+
+
 class ProviderError(MngrError):
     """Base class for all provider-related errors."""
 
@@ -225,6 +234,19 @@ class PluginMngrError(MngrError):
     """
 
 
+class ModalAuthError(PluginMngrError):
+    """Modal authentication failed due to missing or invalid token."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Modal authentication failed. Token missing or invalid. "
+            "You can disable the modal plugin by running "
+            "'mngr config set --scope user plugins.modal.enabled false', "
+            "or by passing --disable-plugin modal to individual commands. "
+            "To configure modal credentials, see https://modal.com/docs/reference/modal.config"
+        )
+
+
 class ConfigError(MngrError):
     """Base class for config errors."""
 
@@ -235,6 +257,18 @@ class ConfigNotFoundError(ConfigError):
 
 class ConfigParseError(ConfigError):
     """Failed to parse config file."""
+
+
+class ConfigKeyNotFoundError(ConfigError, KeyError):
+    """Configuration key not found."""
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+        super().__init__(f"Key not found: {key}")
+
+
+class ConfigStructureError(ConfigError, TypeError):
+    """Invalid configuration structure."""
 
 
 class UnknownBackendError(ConfigError):
