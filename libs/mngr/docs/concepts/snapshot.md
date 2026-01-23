@@ -49,3 +49,17 @@ mngr snapshot destroy --agent my-agent --snapshot-id <id>
 ```
 
 See [`mngr snapshot`](../commands/secondary/snapshot.md) for all options.
+
+## TODOs
+
+The following features described in this document are not yet implemented:
+
+- `mngr snapshot create` - Manual snapshot creation command
+- `mngr snapshot list` - List snapshots command
+- `mngr snapshot destroy` - Delete snapshots command
+- `mngr start` - Start command with `--snapshot` flag support
+- `mngr stop` - Stop command with automatic snapshot creation
+- `mngr copy` - Fork/copy command to create new agent from existing one
+- `--no-stop-during` flag for snapshot creation
+- Docker provider snapshot support
+- `--snapshot` flag in `mngr create --from-agent` (flag exists but not functional)

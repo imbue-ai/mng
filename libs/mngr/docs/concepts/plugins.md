@@ -147,3 +147,17 @@ These are enabled by default but can be disabled like any other plugin.
 ## Plugin Dependencies
 
 Plugins are Python packages and use standard dependency management. A plugin can depend on other plugins by listing them as package dependencies.
+
+## TODOs
+
+The following features are documented but not yet fully implemented:
+
+- Plugin management commands: `mngr plugin list/add/remove`
+- Program lifecycle hooks: `on_post_install`, `on_validate_permissions`, `on_startup`, `on_before_<command>`, `on_after_<command>`, `process_command_args`, `on_before_custom_command`, `on_after_custom_command`, `on_error`, `on_shutdown`
+- All host lifecycle hooks (17 hooks including `on_host_collected`, `on_before_host_create`, etc.)
+- All agent lifecycle hooks (8 hooks including `on_agent_collected`, `on_before_agent_create`, etc.)
+- Field hooks: `host_field_generators`, `agent_field_generators`
+- Docker provider backend
+- Utility plugins: `local_port_forwarding_via_frp_and_nginx`, `default_url_for_cli_agents_via_ttyd`, `user_activity_tracking_via_web`, `recursive_modal`, `recursive_mngr`, `offline_mngr_state`, `chat_history`
+- Hook directory script execution from `$MNGR_HOST_DIR/hooks/*` and `$MNGR_AGENT_STATE_DIR/hooks/start/`
+- Wire up defined but uncalled hooks: `on_agent_created`, `on_agent_destroyed`, `on_host_created`, `on_host_destroyed`

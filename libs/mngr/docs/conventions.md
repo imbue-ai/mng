@@ -22,3 +22,13 @@ Unless otherwise specified, `mngr` assumes:
 - `MNGR_AGENT_WORK_DIR` — The directory in which the agent is started, which contains your project files
 
 See [environment variables](./concepts/environment_variables.md) for the full list and how to set custom variables.
+
+## TODO
+
+Features described above but not yet fully implemented:
+
+- **Host naming convention**: Enforce `mngr-<host_name>` format for host names (currently only Modal app names use prefix)
+- **Name validation**: Validate that names contain only letters, numbers, and hyphens (currently accepts any non-empty string)
+- **Root user default**: Explicitly set root as default user (CLI has `--user` override but default is unclear)
+- **SSH key storage location**: Implement `~/.ssh/mngr/<host_id>` storage convention across all providers (currently only partial Modal support)
+- **Host logs/events directories**: Create `logs` and `events` subdirectories in `$MNGR_HOST_DIR` (currently only created for agent directories)

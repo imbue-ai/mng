@@ -38,3 +38,11 @@ Provisioning is designed to be idempotent--the underlying tool ([pyinfra](https:
 ## Plugin provisioning implementation details
 
 For implementation details about package version checking, cross-platform installation, and plugin ordering during provisioning, see the [provisioning spec](../../specs/provisioning.md).
+
+## TODOs
+
+The following features are documented but not yet implemented:
+
+- **`mngr provision` command**: Standalone command to re-run provisioning on existing agents (currently only runs automatically during `mngr create`)
+- **Devcontainer hooks**: Integration with devcontainer lifecycle hooks (`onCreateCommand`, `updateContentsCommand`, etc.)
+- **Pyinfra operations**: True idempotent provisioning using pyinfra's built-in operations (currently only uses pyinfra as a transport layer, not for package/file management)

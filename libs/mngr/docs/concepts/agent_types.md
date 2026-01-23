@@ -85,3 +85,12 @@ mngr plugin list    # Shows plugins and what types they provide
 ```
 
 Built-in plugins provide `claude` and `codex` by default.
+
+## TODOs
+
+The following features described in this document are not yet fully implemented:
+
+- **`parent_type` inheritance**: Custom types can define `parent_type` in config, but inheritance resolution is not implemented
+- **`permissions` from custom types**: The `permissions` field is parsed but not applied to agents during creation (currently hardcoded to empty list)
+- **Default settings**: Lifecycle options like `idle_timeout` and `activity_mode` are parsed from CLI but not applied to running agents
+- **`mngr plugin list` command**: No CLI command exists to discover available agent types from plugins (registry exists internally but not exposed)

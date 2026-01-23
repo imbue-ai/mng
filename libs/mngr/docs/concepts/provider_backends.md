@@ -32,3 +32,11 @@ Each provider backend has different trade-offs:
 Browse [100's of additional plugins](http://imbue.com/mngr/plugins) for other provider backends (like AWS, GCP, Kubernetes, etc.).
 
 You can also create custom plugins to register additional provider backends by calling `register_provider_backend(...)` in the plugin's `on_startup` hook
+
+## TODOs
+
+The following features described above are not yet implemented:
+
+- **Docker backend**: Configuration class exists but no backend implementation (snapshots, resource limits, GPU support all missing)
+- **AWS backend**: Mentioned in plugin examples but no implementation exists
+- **Plugin browsing**: Link to plugin repository (http://imbue.com/mngr/plugins) returns 404

@@ -63,3 +63,14 @@ See [`imbue/mngr/interfaces/provider.py`](../../imbue/mngr/interfaces/provider.p
 Each provider instance stores its own state about the hosts it manages. This is typically accomplished via tags and other metadata.
 
 This keeps `mngr` stateless (it reconstructs the necessary state for any given command by querying provider instances).
+
+## TODOs
+
+The following features described in this document are not yet implemented:
+
+- **local_docker** built-in provider instance
+- **AWS** provider backend (shown in configuration examples)
+- **Docker** provider backend for remote Docker hosts
+- **mngr** provider backend for remote mngr instances
+
+Note: The **modal** provider backend is implemented but not documented here.
