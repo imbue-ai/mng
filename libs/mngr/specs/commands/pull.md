@@ -299,3 +299,17 @@ The initial implementation should include:
 - `specs/agent.md` - Agent state and data
 - `specs/host.md` - Host state and data
 - `specs/ssh_access.md` - SSH connection handling
+
+## TODOs
+
+Features from this spec not yet implemented:
+
+- Git sync modes (`--git-only`, `--both`)
+- Agent-to-agent sync (`to_agent` positional argument)
+- Remote agent support (currently only local agents work)
+- Host specifications (`--source-host`, `--target-host`, `--target-agent`)
+- Custom rsync arguments (`--rsync-arg`, `--rsync-args`)
+- File filtering (`--include`, `--include-gitignored`, `--include-file`, `--exclude-file`)
+- Git options (`--branch`, `--target-branch`, `--all-branches`, `--tags`, `--force-git`, `--merge`, `--rebase`)
+- Multi-target support (`--stdin`)
+- Uncommitted changes handling (`--warn-on-uncommitted-source`, `--error-on-uncommitted-source`)

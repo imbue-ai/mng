@@ -78,3 +78,14 @@ Command defaults can also be set via environment variables using the pattern `MN
 ## Validation Rules
 
 The following validations are performed at load time:
+
+## TODOs
+
+The following features described in this spec are **not yet implemented** or have **incorrect documentation**:
+
+- **File naming**: Spec says files are named `config.toml` but implementation uses `settings.toml`
+- **Environment section**: Spec shows `[env]` section with `prefix` and `host_dir`, but implementation has these as top-level fields named `prefix` and `default_host_dir`
+- **Validation rules**: The validation rules section is incomplete (no rules are actually documented)
+- **Missing local config**: Spec doesn't mention `.mngr/settings.local.toml` which exists in implementation
+- **Missing sections**: Spec doesn't document `[logging]`, `[plugins.plugin_name]`, `pager`, `unset_vars`, or `disabled_plugins` fields
+- **Incomplete agent type fields**: Spec doesn't mention the `command` field for agent types (only shows `parent_type`, `cli_args`, `permissions`)

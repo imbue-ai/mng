@@ -27,3 +27,14 @@ When using pair mode with git:
 The `--track-branch-changes` option controls behavior when the branch changes:
 - `abort`: Stop pairing if branch changes
 - `follow`: Switch to tracking the new branch
+
+## TODOs
+
+The following features described in this spec are not yet implemented:
+
+- [ ] "Newer" mode conflict resolution based on sync process awareness
+- [ ] Debouncing logic for partial write handling
+- [ ] Git commit transfer between paired sides
+- [ ] Branch change detection and handling (abort/track options)
+- [ ] `--track-branch-changes` option with `abort` and `follow` values
+- [ ] Core pair command CLI entry point and sync engine

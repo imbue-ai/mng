@@ -47,3 +47,12 @@ Submodules are **not supported**. Recursive `.git` directories are ignored entir
 ## Partial Writes
 
 During rapid concurrent edits in pair mode, changes are debounced to avoid partial writes.
+
+## TODOs
+
+Features not yet implemented:
+
+- `--git-only` and `--files-only` sync modes (only files mode currently works)
+- `--merge` and `--rebase` options for push/pull conflict resolution
+- Pair mode with `--conflict` options (newer, local, remote, ask)
+- Debouncing for rapid concurrent edits in pair mode

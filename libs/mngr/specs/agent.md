@@ -48,3 +48,9 @@ Agent state is separated into two classes:
 
 **Important:** All access to agent data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_create_time` vs `get_reported_status`).
 
+## TODOs
+
+- [ ] Implement `host.*` certified fields in `data.json`
+- [ ] Rename agent-level `environment` file to `env` (spec says `env`, code uses `environment`)
+- [ ] Consider storing agent name in separate `name` file instead of only in `data.json` (per spec line 7)
+

@@ -38,3 +38,18 @@ What can be configured:
 - Number of retries
 - Back-off exponent, strategy, etc.
 - Whether to treat PluginMngrError, AgentMngrError, and/or HostMngrError as warnings or errors
+
+## TODOs
+
+The following features are not yet implemented:
+
+- TransientMngrError class
+- AgentMngrError class (distinct from generic AgentError)
+- HostMngrError class (distinct from generic HostError)
+- FatalMngrError class
+- Retry mechanism for transient errors
+- Read/write command defaults in configuration hierarchy
+- Per-command per-plugin overrides in configuration hierarchy
+- Retry count configuration
+- Back-off strategy configuration
+- Configurable warning vs error treatment per error type
