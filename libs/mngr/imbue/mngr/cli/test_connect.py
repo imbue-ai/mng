@@ -28,7 +28,6 @@ from imbue.mngr.cli.connect import filter_agents
 from imbue.mngr.cli.connect import handle_search_key
 from imbue.mngr.cli.connect import select_agent_interactively
 from imbue.mngr.cli.create import create
-from imbue.mngr.errors import UserInputError
 from imbue.mngr.main import cli
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.utils.testing import cleanup_tmux_session
@@ -295,9 +294,8 @@ def test_connect_no_start_raises_error_for_stopped_agent(
 
         assert result.exit_code != 0
         assert result.exception is not None
-        assert isinstance(result.exception, UserInputError)
-        assert "stopped" in str(result.exception).lower()
-        assert "--no-start" in str(result.exception)
+        assert "stopped" in str(result.output).lower()
+        assert "--no-start" in str(result.output)
 
     finally:
         cleanup_tmux_session(session_name)

@@ -10,7 +10,7 @@ Or to run all tests including Modal tests:
     pytest --timeout=180
 """
 
-from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import modal.exception
@@ -26,21 +26,25 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
+from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 
 
 def make_modal_provider(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
     """Create a ModalProviderInstance for testing."""
-    # 5 minutes timeout for tests
-    return ModalProviderInstance(
+    # Use the backend to properly construct the instance with app and backend_cls
+    instance = ModalProviderBackend.build_provider_instance(
         name=ProviderInstanceName("modal-test"),
-        host_dir=Path("/mngr"),
+        instance_configuration={
+            "app_name": app_name,
+            "host_dir": "/mngr",
+            "default_timeout": 300,
+            "default_cpu": 0.5,
+            "default_memory": 0.5,
+        },
         mngr_ctx=mngr_ctx,
-        app_name=app_name,
-        default_timeout=300,
-        default_cpu=0.5,
-        default_memory=0.5,
     )
+    return cast(ModalProviderInstance, instance)
 
 
 @pytest.fixture

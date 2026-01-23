@@ -20,30 +20,6 @@ def _write_to_multiple_files(
     return len(text)
 
 
-class _DeduplicatingWriter(StringIO):
-    """StringIO buffer that deduplicates consecutive identical messages.
-
-    This is useful for Modal output which often repeats the same status messages.
-    """
-
-    _last_message: str = ""
-
-    def write(self, text: str) -> int:  # ty: ignore[invalid-method-override]
-        """Write text to the buffer, skipping consecutive duplicates."""
-        stripped = text.strip()
-        if stripped == self._last_message or stripped == "":
-            return len(text)
-        self._last_message = stripped
-        return super().write(text)
-
-
-def _create_deduplicating_writer() -> _DeduplicatingWriter:
-    """Create a new deduplicating writer instance."""
-    writer = _DeduplicatingWriter()
-    writer._last_message = ""
-    return writer
-
-
 class _MultiWriter:
     """File-like object that writes to multiple destinations.
 
@@ -88,16 +64,14 @@ class _ModalLoguruWriter:
     Supports setting app_id and app_name for structured logging.
     """
 
-    _last_message: str = ""
     app_id: str | None = None
     app_name: str | None = None
 
     def write(self, text: str) -> int:
         """Write text to loguru, deduplicating consecutive identical messages."""
         stripped = text.strip()
-        if stripped == self._last_message or stripped == "":
+        if stripped == "":
             return len(text)
-        self._last_message = stripped
         extra = {
             "source": "modal",
             "app_id": self.app_id,
@@ -126,24 +100,52 @@ class _ModalLoguruWriter:
 def _create_modal_loguru_writer() -> _ModalLoguruWriter:
     """Create a new Modal loguru writer instance."""
     writer = _ModalLoguruWriter()
-    writer._last_message = ""
     writer.app_id = None
     writer.app_name = None
     return writer
 
 
+@contextlib.contextmanager
+def Pointless():
+    yield None
+
+
 class _QuietOutputManager(OutputManager):
-    """Modal OutputManager that suppresses interactive spinners and status updates.
+    """Modal OutputManager that suppresses interactive spinners, status updates, and duplicate logs.
 
     Modal's default OutputManager displays spinners and progress bars which don't
     work well when capturing output programmatically. This subclass disables those
-    features while preserving the ability to capture log output.
+    features while preserving the ability to capture log output via _stdout.
+
+    We use the timestamp of each log entry to deduplicate logs, as Modal sometimes
+    emits the same log line multiple times during image builds.
     """
+
+    _timestamps: set[float]
 
     @contextlib.contextmanager
     def show_status_spinner(self) -> Generator[None, None, None]:
         """Suppress the status spinner."""
         yield
+
+    @staticmethod
+    def step_progress(text: str = ""):
+        return ""
+
+    def make_live(self, renderable):
+        return Pointless()
+
+    # this captures the normal log lines from modal
+    # If you want to get the modal URL for the app, it is logged here in one of the earlier messages
+    def print(self, renderable) -> None:
+        pass
+
+    # this is where the build logs end up
+    async def put_log_content(self, log):
+        if log.timestamp not in self._timestamps:
+            self._timestamps.add(log.timestamp)
+            # print(log)
+            self._stdout.write(log.data)
 
     def update_app_page_url(self, app_page_url: str) -> None:
         """Log the app page URL instead of displaying it."""
@@ -161,21 +163,19 @@ def enable_modal_output_capture(
 ) -> Generator[tuple[StringIO, _ModalLoguruWriter | None], None, None]:
     """Context manager for capturing Modal app output.
 
-    Intercepts Modal's output system and routes it to a StringIO buffer (for
-    programmatic inspection) and optionally to loguru (for mngr's logging).
-    The buffer can be used to detect build failures by inspecting the captured
-    output after operations complete.
+    Intercepts Modal's output system and routes it to a StringIO buffer for
+    programmatic inspection. The buffer can be used to detect build failures
+    by inspecting the captured output after operations complete.
 
-    Set is_logging_to_loguru=False to disable routing to loguru.
+    When is_logging_to_loguru is True (default), Modal output is also logged
+    to loguru with deduplication to avoid spam from repeated status messages.
 
     Yields a tuple of (output_buffer, loguru_writer) where loguru_writer contains
     app_id and app_name fields that can be set for structured logging, or is
     None if is_logging_to_loguru is False.
     """
-    output_buffer = _create_deduplicating_writer()
-    loguru_writer: _ModalLoguruWriter | None = (
-        _create_modal_loguru_writer() if is_logging_to_loguru else None
-    )
+    output_buffer = StringIO()
+    loguru_writer: _ModalLoguruWriter | None = _create_modal_loguru_writer() if is_logging_to_loguru else None
 
     # Build list of writers to tee output to
     writers: list[Any] = [output_buffer]
@@ -187,7 +187,11 @@ def enable_modal_output_capture(
     logger.debug("Enabling Modal output capture")
 
     with modal.enable_output(show_progress=True):
-        OutputManager._instance = _QuietOutputManager(status_spinner_text="Running...")
-        OutputManager._instance._stdout = multi_writer
+        output_manager = _QuietOutputManager()
+        # Set _stdout to capture Modal's output (build logs, status messages, etc.)
+        # This only captures what Modal writes to its OutputManager, not all stdout/stderr
+        output_manager._stdout = multi_writer
+        output_manager._timestamps = set()
+        OutputManager._instance = output_manager
 
         yield output_buffer, loguru_writer

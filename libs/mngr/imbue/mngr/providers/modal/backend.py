@@ -1,17 +1,68 @@
+import contextlib
 from pathlib import Path
 from typing import Any
+from typing import ClassVar
 from uuid import uuid4
 
+import modal
+from loguru import logger
+from pydantic import Field
+
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
+from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 
 MODAL_BACKEND_NAME = ProviderBackendName("modal")
 USER_ID_FILENAME = "user_id"
+STATE_VOLUME_SUFFIX = "-state"
+
+
+class ModalAppContextHandle(FrozenModel):
+    """Handle for managing a Modal app context lifecycle with output capture.
+
+    This class captures a Modal app's run context along with the output capture
+    context. The output buffer can be inspected to detect build failures and
+    other issues in the Modal logs.
+
+    Also manages the state volume for persisting host records across sandbox
+    termination. The volume is created lazily when first accessed.
+    """
+
+    run_context: Any = Field(description="The Modal app.run() context manager")
+    app_name: str = Field(description="The name of the Modal app")
+    output_capture_context: Any = Field(description="The output capture context manager")
+    output_buffer: Any = Field(description="StringIO buffer containing captured Modal output")
+    loguru_writer: Any = Field(description="Loguru writer for structured logging (or None)")
+    volume_name: str = Field(description="Name of the state volume for persisting host records")
+    volume: Any = Field(default=None, description="The Modal volume for state storage (lazily created)")
+
+
+def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
+    """Exit a Modal app context and its output capture context."""
+    logger.debug("Exiting Modal app context: {}", handle.app_name)
+
+    # Log any captured output for debugging
+    captured_output = handle.output_buffer.getvalue()
+    if captured_output:
+        logger.trace("Modal output captured ({} chars): {}", len(captured_output), captured_output[:500])
+
+    # Exit the app context first
+    try:
+        handle.run_context.__exit__(None, None, None)
+    except modal.exception.Error as e:
+        logger.warning("Modal error exiting app context {}: {}", handle.app_name, e)
+
+    # Exit the output capture context - this is a cleanup operation so we just
+    # suppress any errors
+    with contextlib.suppress(OSError, RuntimeError):
+        handle.output_capture_context.__exit__(None, None, None)
 
 
 def _get_or_create_user_id(mngr_ctx: MngrContext) -> str:
@@ -41,7 +92,152 @@ class ModalProviderBackend(ProviderBackendInterface):
 
     The Modal provider backend creates provider instances that manage Modal sandboxes
     as hosts. Each sandbox runs sshd and is accessed via SSH/pyinfra.
+
+    This class maintains a class-level registry of Modal app contexts by app name.
+    This ensures we only create one app per unique app_name, even if multiple
+    ModalProviderInstance objects are created with the same app_name.
     """
+
+    # Class-level registry of app contexts by app name.
+    # Maps app_name -> (modal.App, ModalAppContextHandle)
+    _app_registry: ClassVar[dict[str, tuple[modal.App, ModalAppContextHandle]]] = {}
+
+    @classmethod
+    def _get_or_create_app(cls, app_name: str) -> tuple[modal.App, ModalAppContextHandle]:
+        """Get or create a Modal app with output capture.
+
+        Creates an ephemeral app with `modal.App(name)` and enters its `app.run()`
+        context manager. The app is cached in the class-level registry by name, so
+        multiple calls with the same app_name will return the same app.
+
+        Modal output is captured via enable_modal_output_capture(), which routes
+        all Modal logs to both a StringIO buffer (for inspection) and to loguru
+        (for mngr's logging system).
+
+        Also prepares the volume name for state storage. The volume is created
+        lazily when first accessed via get_volume_for_app().
+
+        Raises modal.exception.AuthError if Modal credentials are not configured.
+        """
+        if app_name in cls._app_registry:
+            return cls._app_registry[app_name]
+
+        logger.debug("Creating ephemeral Modal app with output capture: {}", app_name)
+
+        # Enter the output capture context first
+        output_capture_context = enable_modal_output_capture(is_logging_to_loguru=True)
+        output_buffer, loguru_writer = output_capture_context.__enter__()
+
+        # Create the Modal app
+        app = modal.App(app_name)
+
+        # Enter the app.run() context manager manually so we can return the app
+        # while keeping the context active until close() is called
+        run_context = app.run()
+        run_context.__enter__()
+
+        # Set app metadata on the loguru writer for structured logging
+        if loguru_writer is not None:
+            loguru_writer.app_id = app.app_id
+            loguru_writer.app_name = app.name
+
+        # Create the volume name for state storage (volume created lazily)
+        volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
+
+        context_handle = ModalAppContextHandle(
+            run_context=run_context,
+            app_name=app_name,
+            output_capture_context=output_capture_context,
+            output_buffer=output_buffer,
+            loguru_writer=loguru_writer,
+            volume_name=volume_name,
+            volume=None,
+        )
+        cls._app_registry[app_name] = (app, context_handle)
+        return app, context_handle
+
+    @classmethod
+    def get_captured_output_for_app(cls, app_name: str) -> str:
+        """Get all captured Modal output for an app.
+
+        Returns the contents of the output buffer that has been capturing Modal
+        logs since the app was created. This can be used to detect build failures
+        or other issues by inspecting the captured output.
+
+        Returns an empty string if no app has been created with the given name.
+        """
+        if app_name not in cls._app_registry:
+            return ""
+        _, context_handle = cls._app_registry[app_name]
+        return context_handle.output_buffer.getvalue()
+
+    @classmethod
+    def get_volume_for_app(cls, app_name: str) -> modal.Volume:
+        """Get or create the state volume for an app.
+
+        The volume is used to persist host records (including snapshots) across
+        sandbox termination. This allows multiple mngr instances to share state
+        and enables restoration from snapshots even after the original sandbox
+        is gone.
+
+        The volume is created lazily on first access and cached in the context
+        handle for subsequent calls.
+
+        Raises MngrError if the app has not been created yet.
+        """
+        if app_name not in cls._app_registry:
+            raise MngrError(f"App {app_name} not found in registry")
+
+        _, context_handle = cls._app_registry[app_name]
+
+        # Return cached volume if already created
+        if context_handle.volume is not None:
+            return context_handle.volume
+
+        # Create or get the volume
+        logger.debug("Creating/getting state volume: {}", context_handle.volume_name)
+        volume = modal.Volume.from_name(context_handle.volume_name, create_if_missing=True)
+
+        # Cache the volume in the context handle (need to update the registry entry)
+        # Since FrozenModel is immutable, we need to create a new handle
+        updated_handle = ModalAppContextHandle(
+            run_context=context_handle.run_context,
+            app_name=context_handle.app_name,
+            output_capture_context=context_handle.output_capture_context,
+            output_buffer=context_handle.output_buffer,
+            loguru_writer=context_handle.loguru_writer,
+            volume_name=context_handle.volume_name,
+            volume=volume,
+        )
+        app, _ = cls._app_registry[app_name]
+        cls._app_registry[app_name] = (app, updated_handle)
+
+        return volume
+
+    @classmethod
+    def close_app(cls, app_name: str) -> None:
+        """Close a Modal app context.
+
+        Exits the app.run() context manager and removes the app from the registry.
+        This makes the app ephemeral and prevents accumulation.
+        """
+        if app_name in cls._app_registry:
+            _, context_handle = cls._app_registry.pop(app_name)
+            _exit_modal_app_context(context_handle)
+
+    @classmethod
+    def reset_app_registry(cls) -> None:
+        """Reset the modal app registry.
+
+        Closes all open app contexts and clears the registry. This is primarily used
+        for test isolation to ensure a clean state between tests.
+        """
+        for app_name, (_, context_handle) in list(cls._app_registry.items()):
+            try:
+                _exit_modal_app_context(context_handle)
+            except modal.exception.Error as e:
+                logger.debug("Modal error closing app {} during reset: {}", app_name, e)
+        cls._app_registry.clear()
 
     @staticmethod
     def get_name() -> ProviderBackendName:
@@ -100,6 +296,8 @@ Supported build arguments for the modal provider:
             default_timeout=default_timeout,
             default_cpu=default_cpu,
             default_memory=default_memory,
+            # Pass the backend class so instance can call its methods
+            backend_cls=ModalProviderBackend,
         )
 
 

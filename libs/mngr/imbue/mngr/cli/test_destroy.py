@@ -11,7 +11,6 @@ from click.testing import CliRunner
 from imbue.mngr.cli.create import create
 from imbue.mngr.cli.destroy import _get_agent_name_from_session
 from imbue.mngr.cli.destroy import destroy
-from imbue.mngr.errors import UserInputError
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
 from imbue.mngr.utils.testing import wait_for
@@ -226,10 +225,9 @@ def test_destroy_fails_if_any_identifier_not_found(
 
         # Command should fail
         assert destroy_result.exit_code != 0
-        assert isinstance(destroy_result.exception, UserInputError)
 
         # Error message should include both missing agent names
-        error_message = str(destroy_result.exception)
+        error_message = destroy_result.output
         assert nonexistent_name1 in error_message
         assert nonexistent_name2 in error_message
 
@@ -399,8 +397,7 @@ def test_session_cannot_combine_with_agent_names(
     )
 
     assert result.exit_code != 0
-    assert isinstance(result.exception, UserInputError)
-    assert "Cannot specify --session with agent names or --all" in str(result.exception)
+    assert "Cannot specify --session with agent names or --all" in result.output
 
 
 def test_session_cannot_combine_with_all(
@@ -416,8 +413,7 @@ def test_session_cannot_combine_with_all(
     )
 
     assert result.exit_code != 0
-    assert isinstance(result.exception, UserInputError)
-    assert "Cannot specify --session with agent names or --all" in str(result.exception)
+    assert "Cannot specify --session with agent names or --all" in result.output
 
 
 def test_session_fails_with_invalid_prefix(
@@ -433,8 +429,7 @@ def test_session_fails_with_invalid_prefix(
     )
 
     assert result.exit_code != 0
-    assert isinstance(result.exception, UserInputError)
-    assert "does not match the expected format" in str(result.exception)
+    assert "does not match the expected format" in result.output
 
 
 @pytest.mark.parametrize(

@@ -8,6 +8,7 @@ from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
+from imbue.mngr.cli.output_helpers import format_mngr_error_for_cli
 from imbue.mngr.cli.output_helpers import on_error
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
@@ -153,3 +154,45 @@ def test_emit_final_json_outputs_json(capsys) -> None:
     output = json.loads(captured.out.strip())
     assert output["status"] == "success"
     assert output["count"] == 5
+
+
+# =============================================================================
+# Tests for format_mngr_error_for_cli
+# =============================================================================
+
+
+def test_format_mngr_error_for_cli_without_help_text() -> None:
+    """format_mngr_error_for_cli should format error message without help text."""
+    error = ValueError("Something went wrong")
+    result = format_mngr_error_for_cli(error, None)
+    assert result == "Error: Something went wrong"
+
+
+def test_format_mngr_error_for_cli_with_help_text() -> None:
+    """format_mngr_error_for_cli should include help text when provided."""
+    error = ValueError("Agent not found")
+    help_text = "Use 'mngr list' to see available agents."
+    result = format_mngr_error_for_cli(error, help_text)
+    assert "Error: Agent not found" in result
+    assert "Use 'mngr list' to see available agents." in result
+
+
+def test_format_mngr_error_for_cli_separates_error_and_help_text() -> None:
+    """format_mngr_error_for_cli should separate error and help text with blank line."""
+    error = ValueError("Test error")
+    help_text = "Help text here"
+    result = format_mngr_error_for_cli(error, help_text)
+    lines = result.split("\n")
+    assert len(lines) == 3
+    assert lines[0] == "Error: Test error"
+    assert lines[1] == ""
+    assert lines[2] == "Help text here"
+
+
+def test_format_mngr_error_for_cli_with_multiline_help_text() -> None:
+    """format_mngr_error_for_cli should handle multiline help text."""
+    error = ValueError("Test error")
+    help_text = "Line 1\nLine 2"
+    result = format_mngr_error_for_cli(error, help_text)
+    assert "Error: Test error" in result
+    assert "Line 1\nLine 2" in result

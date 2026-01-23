@@ -1,55 +1,9 @@
 from io import StringIO
 
-from imbue.mngr.providers.modal.log_utils import _create_deduplicating_writer
+from imbue.mngr.providers.modal.log_utils import _ModalLoguruWriter
 from imbue.mngr.providers.modal.log_utils import _create_modal_loguru_writer
 from imbue.mngr.providers.modal.log_utils import _create_multi_writer
-from imbue.mngr.providers.modal.log_utils import _ModalLoguruWriter
 from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
-
-
-def test_deduplicating_writer_writes_unique_messages() -> None:
-    """Should write unique messages to the buffer."""
-    writer = _create_deduplicating_writer()
-    writer.write("message 1")
-    writer.write("message 2")
-    writer.write("message 3")
-
-    assert "message 1" in writer.getvalue()
-    assert "message 2" in writer.getvalue()
-    assert "message 3" in writer.getvalue()
-
-
-def test_deduplicating_writer_deduplicates_consecutive_identical_messages() -> None:
-    """Should skip consecutive duplicate messages."""
-    writer = _create_deduplicating_writer()
-    writer.write("same message")
-    writer.write("same message")
-    writer.write("same message")
-
-    assert writer.getvalue().count("same message") == 1
-
-
-def test_deduplicating_writer_allows_non_consecutive_duplicates() -> None:
-    """Should allow the same message to appear non-consecutively."""
-    writer = _create_deduplicating_writer()
-    writer.write("message a")
-    writer.write("message b")
-    writer.write("message a")
-
-    content = writer.getvalue()
-    assert content.count("message a") == 2
-    assert content.count("message b") == 1
-
-
-def test_deduplicating_writer_skips_empty_messages() -> None:
-    """Should skip empty messages."""
-    writer = _create_deduplicating_writer()
-    writer.write("")
-    writer.write("   ")
-    writer.write("\n")
-    writer.write("real message")
-
-    assert writer.getvalue() == "real message"
 
 
 def test_multi_writer_writes_to_all_files() -> None:
@@ -127,5 +81,3 @@ def test_enable_modal_output_capture_returns_none_writer_when_disabled() -> None
     with enable_modal_output_capture(is_logging_to_loguru=False) as (buffer, writer):
         assert isinstance(buffer, StringIO)
         assert writer is None
-
-

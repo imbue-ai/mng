@@ -104,3 +104,16 @@ def on_error(
 def emit_final_json(data: dict[str, Any]) -> None:
     """Emit final JSON output (for JSON format only)."""
     _write_json_line(data)
+
+
+def format_mngr_error_for_cli(error: Exception, user_help_text: str | None) -> str:
+    """Format a MngrError for display in the CLI.
+
+    Produces a user-friendly error message without a stack trace.
+    If the error has user_help_text, it is appended after the error message.
+    """
+    lines = [f"Error: {error}"]
+    if user_help_text:
+        lines.append("")
+        lines.append(user_help_text)
+    return "\n".join(lines)
