@@ -253,6 +253,9 @@ def _emit_human_output(result: MessageResult) -> None:
         logger.info("No agents found to send message to")
     elif result.successful_agents:
         logger.info("Successfully sent message to {} agent(s)", len(result.successful_agents))
+    else:
+        # Only failed agents, no successful ones - failures already logged above
+        logger.info("Failed to send message to {} agent(s)", len(result.failed_agents))
 
 
 def _emit_json_output(result: MessageResult) -> None:
