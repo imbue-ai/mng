@@ -27,3 +27,8 @@ Environment variables are redacted from logs by default for security. Use `--log
 - `--context PATH`: Project context directory (used for build context and loading project-specific config) [default: local .git root]
 - `--[no-]interactive`: Enable interactive mode (e.g. show a TUI or interactive prompts) [default: interactive if pty]
 - `--plugin TEXT / --enable-plugin TEXT / --disable-plugin TEXT`: Enable / disable selected plugins
+
+## TODOs
+
+- **Custom format templates**: The `--format FORMAT` option for custom template strings is not implemented yet (raises NotImplementedError in cli/list.py:165-166)
+- **--[no-]interactive as common option**: Currently only implemented in `create` command, not available as a common option across all commands

@@ -7,3 +7,7 @@ The options are:
 - continue-and-warn: proceed with the command and log warnings for any hosts where the command did not succeed
 - fail-immediately: abort the command as soon as a command fails on any host
 - retry-until-success: keep retrying until all hosts have succeeded
+
+## TODOs
+
+- **retry-until-success**: Not yet implemented. Currently only `CONTINUE` and `ABORT` error behaviors are available in the codebase.
