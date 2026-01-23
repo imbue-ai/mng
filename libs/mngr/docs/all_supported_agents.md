@@ -51,3 +51,11 @@ permissions = ["github"]
 ```
 
 For more details, see [Agent Types](./concepts/agent_types.md).
+
+## TODOs
+
+The following features are documented but not yet fully implemented:
+
+- **Parent type inheritance**: The `parent_type` field is stored in config but not actively resolved. Custom agent types don't inherit properties from their parent types yet (see `create_agent_state()` in `hosts/host.py`).
+- **PATH commands as agent types**: Commands from PATH cannot be used directly as agent types. The system doesn't check `PATH` for unknown agent types (no `shutil.which()` resolution).
+- **Permission enforcement for custom types**: The `permissions` field in custom agent types is stored but not enforced during agent creation.
