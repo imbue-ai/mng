@@ -10,10 +10,13 @@ from typing import Sequence
 from loguru import logger
 from pydantic import Field
 
+from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.agent import AgentStatus
+from imbue.mngr.interfaces.data_types import FileTransferSpec
+from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentLifecycleState
@@ -421,3 +424,52 @@ class BaseAgent(AgentInterface):
             return None
         now = datetime.now(timezone.utc)
         return (now - start_time).total_seconds()
+
+    # =========================================================================
+    # Provisioning Lifecycle
+    # =========================================================================
+
+    def on_before_provisioning(
+        self,
+        host: HostInterface,
+        options: CreateAgentOptions,
+        mngr_ctx: MngrContext,
+    ) -> None:
+        """Default implementation: no-op.
+
+        Subclasses can override to validate preconditions before provisioning.
+        """
+
+    def get_provision_file_transfers(
+        self,
+        host: HostInterface,
+        options: CreateAgentOptions,
+        mngr_ctx: MngrContext,
+    ) -> Sequence[FileTransferSpec]:
+        """Default implementation: no file transfers.
+
+        Subclasses can override to declare files to transfer during provisioning.
+        """
+        return []
+
+    def provision(
+        self,
+        host: HostInterface,
+        options: CreateAgentOptions,
+        mngr_ctx: MngrContext,
+    ) -> None:
+        """Default implementation: no-op.
+
+        Subclasses can override to perform agent-type-specific provisioning.
+        """
+
+    def on_after_provisioning(
+        self,
+        host: HostInterface,
+        options: CreateAgentOptions,
+        mngr_ctx: MngrContext,
+    ) -> None:
+        """Default implementation: no-op.
+
+        Subclasses can override to perform finalization after provisioning.
+        """

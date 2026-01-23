@@ -14,7 +14,6 @@ import pluggy
 import pytest
 from pyinfra.api.command import StringCommand
 
-from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -1193,157 +1192,10 @@ def _create_minimal_agent(host: Host, temp_dir: Path, work_dir: Path | None = No
     )
 
 
-# =============================================================================
-# Provision Agent Hook Tests
-# =============================================================================
-
-
-class _ProvisionHookTracker:
-    """Test plugin that tracks when on_provision_agent is called."""
-
-    def __init__(self, marker_path: Path) -> None:
-        self.marker_path = marker_path
-        self.call_count = 0
-        self.agent_names: list[str] = []
-
-    @hookimpl
-    def provision_agent(
-        self,
-        agent: AgentInterface,
-        host: "Host",
-        options: CreateAgentOptions,
-        mngr_ctx: MngrContext,
-    ) -> None:
-        """Hook implementation that records when it was called."""
-        self.call_count += 1
-        self.agent_names.append(str(agent.name))
-        # Write a marker file to verify hook ran before CLI options
-        self.marker_path.parent.mkdir(parents=True, exist_ok=True)
-        self.marker_path.write_text(f"hook_called:{agent.name}")
-
-
-def test_provision_agent_calls_hook(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
-) -> None:
-    """Test that provision_agent calls the provision_agent hook."""
-    marker_path = temp_host_dir / "hook_marker.txt"
-    hook_tracker = _ProvisionHookTracker(marker_path)
-    plugin_manager.register(hook_tracker)
-
-    try:
-        config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-        mngr_ctx = MngrContext(config=config, pm=plugin_manager)
-        provider = LocalProviderInstance(
-            name=ProviderInstanceName("local"),
-            host_dir=temp_host_dir,
-            mngr_ctx=mngr_ctx,
-        )
-        host = provider.create_host(HostName("test-hook"))
-        assert isinstance(host, Host)
-
-        agent = host.create_agent_state(
-            work_dir_path=temp_work_dir,
-            options=CreateAgentOptions(
-                name=AgentName("hook-test-agent"),
-                agent_type=AgentTypeName("generic"),
-                command=CommandString("sleep 1"),
-            ),
-        )
-
-        host.provision_agent(
-            agent,
-            CreateAgentOptions(
-                name=AgentName("hook-test-agent"),
-                agent_type=AgentTypeName("generic"),
-                command=CommandString("sleep 1"),
-            ),
-            mngr_ctx,
-        )
-
-        # Verify hook was called
-        assert hook_tracker.call_count == 1
-        assert "hook-test-agent" in hook_tracker.agent_names
-        assert marker_path.exists()
-        assert "hook_called:hook-test-agent" in marker_path.read_text()
-
-    finally:
-        plugin_manager.unregister(hook_tracker)
-
-
-def test_provision_agent_hook_called_before_cli_options(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
-) -> None:
-    """Test that provision_agent hook is called before CLI options are applied."""
-    # This marker file will be created by CLI user_commands
-    cli_marker_path = temp_host_dir / "provision_test" / "cli_marker.txt"
-    hook_marker_path = temp_host_dir / "hook_order_marker.txt"
-
-    class _OrderTrackingHook:
-        """Hook that records if CLI marker exists when hook runs."""
-
-        def __init__(self) -> None:
-            self.cli_marker_existed_when_hook_ran: bool | None = None
-
-        @hookimpl
-        def provision_agent(
-            self,
-            agent: AgentInterface,
-            host: "Host",
-            options: CreateAgentOptions,
-            mngr_ctx: MngrContext,
-        ) -> None:
-            # Check if CLI marker file exists (it should NOT at this point)
-            self.cli_marker_existed_when_hook_ran = cli_marker_path.exists()
-            # Write our own marker
-            hook_marker_path.parent.mkdir(parents=True, exist_ok=True)
-            hook_marker_path.write_text("hook_ran_first")
-
-    order_tracker = _OrderTrackingHook()
-    plugin_manager.register(order_tracker)
-
-    try:
-        config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-        mngr_ctx = MngrContext(config=config, pm=plugin_manager)
-        provider = LocalProviderInstance(
-            name=ProviderInstanceName("local"),
-            host_dir=temp_host_dir,
-            mngr_ctx=mngr_ctx,
-        )
-        host = provider.create_host(HostName("test-hook-order"))
-        assert isinstance(host, Host)
-
-        agent = host.create_agent_state(
-            work_dir_path=temp_work_dir,
-            options=CreateAgentOptions(
-                name=AgentName("hook-order-agent"),
-                agent_type=AgentTypeName("generic"),
-                command=CommandString("sleep 1"),
-            ),
-        )
-
-        # Provision with a CLI user_command that creates a marker file
-        host.provision_agent(
-            agent,
-            CreateAgentOptions(
-                name=AgentName("hook-order-agent"),
-                agent_type=AgentTypeName("generic"),
-                command=CommandString("sleep 1"),
-                provisioning=AgentProvisioningOptions(
-                    create_directories=(cli_marker_path.parent,),
-                    user_commands=(f"echo 'cli_ran' > {cli_marker_path}",),
-                ),
-            ),
-            mngr_ctx,
-        )
-
-        # Verify ordering: hook ran first (CLI marker did NOT exist when hook ran)
-        assert order_tracker.cli_marker_existed_when_hook_ran is False
-        # But CLI marker should exist now (CLI commands ran after hook)
-        assert cli_marker_path.exists()
-        assert hook_marker_path.exists()
-
-    finally:
-        plugin_manager.unregister(order_tracker)
+# Note: Agent provisioning lifecycle tests (on_before_provisioning, get_provision_file_transfers,
+# provision, on_after_provisioning) are covered by agent-type specific tests since these are
+# methods on the agent class rather than plugin hooks. See the "Provisioning Lifecycle Tests"
+# section in claude_agent_test.py.
 
 
 # =============================================================================

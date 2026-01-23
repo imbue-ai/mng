@@ -15,6 +15,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
@@ -26,6 +27,7 @@ from imbue.mngr.primitives import Permission
 
 # this is the only place where it is acceptable to use the TYPE_CHECKING flag
 if TYPE_CHECKING:
+    from imbue.mngr.interfaces.host import CreateAgentOptions
     from imbue.mngr.interfaces.host import HostInterface
 
 
@@ -230,4 +232,97 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def runtime_seconds(self) -> float | None:
         """Return how many seconds the agent has been running, or None if not started."""
+        ...
+
+    # =========================================================================
+    # Provisioning Lifecycle
+    # =========================================================================
+
+    @abstractmethod
+    def on_before_provisioning(
+        self,
+        host: HostInterface,
+        options: CreateAgentOptions,
+        mngr_ctx: MngrContext,
+    ) -> None:
+        """Called before any provisioning steps run, for validation.
+
+        This method runs before any file transfers or package installations.
+        Subclasses should use this to validate preconditions:
+        - Check that required environment variables are set (e.g., ANTHROPIC_API_KEY)
+        - Verify that required local files exist (e.g., SSH keys, config templates)
+        - Validate any agent-type-specific configuration
+
+        If validation fails, raise a PluginMngrError with a clear message
+        explaining what is missing and how to fix it.
+
+        IMPORTANT: This method should only perform read-only validation checks.
+        Do not make any changes to the host in this method.
+        """
+        ...
+
+    @abstractmethod
+    def get_provision_file_transfers(
+        self,
+        host: HostInterface,
+        options: CreateAgentOptions,
+        mngr_ctx: MngrContext,
+    ) -> Sequence[FileTransferSpec]:
+        """Return file transfer specifications for provisioning.
+
+        Subclasses can declare files that need to be transferred from the local
+        machine to the remote host during provisioning.
+
+        Returns a sequence of FileTransferSpec objects, each specifying:
+        - local_path: Path to the file on the local machine
+        - agent_path: Destination path on the remote host (relative to work_dir)
+        - is_required: If True, provisioning fails if the local file doesn't exist
+
+        Return an empty sequence if no files need to be transferred.
+
+        All collected file transfers are executed before package installation
+        and other provisioning steps.
+        """
+        ...
+
+    @abstractmethod
+    def provision(
+        self,
+        host: HostInterface,
+        options: CreateAgentOptions,
+        mngr_ctx: MngrContext,
+    ) -> None:
+        """Called during agent provisioning, after file transfers but before CLI options.
+
+        This method is called after on_before_provisioning validation and
+        after get_provision_file_transfers files have been copied, but before any
+        of the CLI-defined provisioning options (create_directories, upload_files,
+        append_to_files, prepend_to_files, sudo_commands, user_commands) are
+        processed.
+
+        Use this method to perform agent-type-specific provisioning that should happen
+        before user-defined provisioning steps. Subclasses can install packages,
+        create config files, or perform other setup tasks.
+        """
+        ...
+
+    @abstractmethod
+    def on_after_provisioning(
+        self,
+        host: HostInterface,
+        options: CreateAgentOptions,
+        mngr_ctx: MngrContext,
+    ) -> None:
+        """Called after all provisioning steps have completed.
+
+        This method is called after all provisioning has finished, including:
+        - Agent file transfers
+        - Agent provisioning (provision method)
+        - CLI-defined provisioning options (directories, uploads, commands, etc.)
+
+        Use this method to perform finalization or verification steps, such as:
+        - Verify that provisioning completed successfully
+        - Perform final configuration that depends on other provisioning
+        - Log or report provisioning status
+        """
         ...
