@@ -1,8 +1,11 @@
 import contextlib
+import sys
 from io import StringIO
 from typing import Any
 from typing import Generator
 from typing import Sequence
+from typing import TextIO
+from typing import cast
 
 import modal
 from loguru import logger
@@ -155,6 +158,57 @@ class _QuietOutputManager(OutputManager):
         pass
 
 
+class _TeeWriter:
+    """File-like object that tees writes to both the original stream and a capture writer.
+
+    This allows us to capture Modal output for logging while still displaying it
+    to the user on the terminal. Modal writes build logs directly to sys.stdout/stderr,
+    so we need to intercept at that level rather than through the OutputManager.
+    """
+
+    _original: TextIO
+    _capture_writer: Any
+
+    def write(self, text: str) -> int:
+        """Write to both the original stream and the capture writer."""
+        # Always write to original so user sees output
+        self._original.write(text)
+        # Also write to capture writer for logging
+        self._capture_writer.write(text)
+        return len(text)
+
+    def flush(self) -> None:
+        """Flush both streams."""
+        self._original.flush()
+        self._capture_writer.flush()
+
+    def isatty(self) -> bool:
+        """Delegate isatty to original stream."""
+        return self._original.isatty()
+
+    def fileno(self) -> int:
+        """Delegate fileno to original stream."""
+        return self._original.fileno()
+
+    @property
+    def encoding(self) -> str:
+        """Delegate encoding to original stream."""
+        return self._original.encoding
+
+    @property
+    def errors(self) -> str | None:
+        """Delegate errors to original stream."""
+        return self._original.errors
+
+
+def _create_tee_writer(original: TextIO, capture_writer: Any) -> _TeeWriter:
+    """Create a tee writer that writes to both the original stream and capture writer."""
+    writer = _TeeWriter()
+    writer._original = original
+    writer._capture_writer = capture_writer
+    return writer
+
+
 @contextlib.contextmanager
 def enable_modal_output_capture(
     is_logging_to_loguru: bool = True,
@@ -165,6 +219,10 @@ def enable_modal_output_capture(
     programmatic inspection) and optionally to loguru (for mngr's logging).
     The buffer can be used to detect build failures by inspecting the captured
     output after operations complete.
+
+    Modal writes build logs directly to sys.stdout/stderr, so we intercept at
+    that level using tee-style writers that write to both the original stream
+    (so users see output) and to our capture mechanism (for logging).
 
     Set is_logging_to_loguru=False to disable routing to loguru.
 
@@ -186,8 +244,26 @@ def enable_modal_output_capture(
 
     logger.debug("Enabling Modal output capture")
 
+    # Save original stdout/stderr so we can restore them later
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+
+    # Create tee writers that write to both original streams and our capture mechanism
+    tee_stdout = _create_tee_writer(original_stdout, multi_writer)
+    tee_stderr = _create_tee_writer(original_stderr, multi_writer)
+
     with modal.enable_output(show_progress=True):
         OutputManager._instance = _QuietOutputManager(status_spinner_text="Running...")
         OutputManager._instance._stdout = multi_writer
 
-        yield output_buffer, loguru_writer
+        # Intercept sys.stdout and sys.stderr to capture Modal build output.
+        # Modal writes build logs directly to these streams, not through OutputManager.
+        sys.stdout = cast(TextIO, tee_stdout)
+        sys.stderr = cast(TextIO, tee_stderr)
+
+        try:
+            yield output_buffer, loguru_writer
+        finally:
+            # Restore original stdout/stderr
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
