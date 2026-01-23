@@ -54,3 +54,24 @@ See [multi-target](../generic/multi_target.md) options for behavior when some ag
 - `--force-git`: Force overwrite local git state (use with caution). Allows you to pull even when you have the same branch checked out with local changes.
 - `--warn-on-uncommitted-source / --error-on-uncommitted-source`: Warn or error if the source has uncommitted changes and target is not already on the same branch with a clean state [default: error]
 - `--merge / --rebase`: Whether to merge remote changes with local changes, or attempt to rebase them on top [default: use default configured for git repo, otherwise merge]
+
+## TODOs
+
+The following features are documented but not yet implemented:
+
+**General Options:**
+- `--source-host`, `--target`, `--target-agent`, `--target-host`, `--target-path` (agent-to-agent and remote host operations)
+- `--stdin` (reading sources from stdin)
+- `--rsync-arg`, `--rsync-args` (custom rsync arguments)
+
+**Sync Mode:**
+- `--both`, `--git-only`, `--files-only` (currently only files mode supported, raises NotImplementedError for others)
+
+**File Filtering:**
+- `--include-gitignored`, `--include`, `--exclude`, `--include-file`, `--exclude-file` (no filtering support)
+
+**Git Options:**
+- All git functionality: `--branch`, `--target-branch`, `--all`/`--all-branches`, `--tags`, `--force-git`, `--warn-on-uncommitted-source`/`--error-on-uncommitted-source`, `--merge`/`--rebase` (no git operations implemented)
+
+**Multi-target:**
+- Multi-target operations referenced in documentation not supported
