@@ -77,7 +77,7 @@ def handle_modal_auth_error(func: Callable[P, T]) -> Callable[P, T]:
     return wrapper
 
 
-# FIXME: this _app_registry data should live as a class-level variable on the ModalProviderBackend class instead of as a module-level global here!
+# FIXME: this _app_registry data should live as a class-level variable on the ModalProviderBackend class instead of as a module-level variable here!
 #  that's kinda the whole point of the ModalProviderBackend class...
 #  Obviously all of the associated functions should move to backend.py as well.
 
