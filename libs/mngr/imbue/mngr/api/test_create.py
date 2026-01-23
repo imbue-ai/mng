@@ -831,5 +831,6 @@ def test_on_before_create_hooks_chain_in_order(
 
 
 # Note: Agent provisioning lifecycle tests (on_before_provisioning, get_provision_file_transfers,
-# provision, on_after_provisioning) are now covered by agent-type specific tests since these
-# are methods on the agent class rather than plugin hooks. See claude_agent_test.py for examples.
+# provision, on_after_provisioning) are covered by agent-type specific tests since these are
+# methods on the agent class rather than plugin hooks. See the "Provisioning Lifecycle Tests"
+# section in claude_agent_test.py.
