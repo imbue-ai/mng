@@ -204,9 +204,8 @@ Supported build arguments for the modal provider:
     def get_start_args_help() -> str:
         return "No start arguments are supported for the modal provider."
 
-    @classmethod
+    @staticmethod
     def build_provider_instance(
-        cls,
         name: ProviderInstanceName,
         instance_configuration: dict[str, Any],
         mngr_ctx: MngrContext,
@@ -240,7 +239,7 @@ Supported build arguments for the modal provider:
             default_cpu=default_cpu,
             default_memory=default_memory,
             # Pass the backend class so instance can call its methods
-            backend_cls=cls,
+            backend_cls=ModalProviderBackend,
         )
 
 
