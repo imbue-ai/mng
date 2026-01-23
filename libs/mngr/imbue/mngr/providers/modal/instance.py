@@ -811,7 +811,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Memory is in GB but Modal expects MB
         memory_mb = int(config.memory * 1024)
-        if config.gpu:
+        try:
             sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
@@ -821,15 +821,8 @@ class ModalProviderInstance(BaseProviderInstance):
                 unencrypted_ports=[CONTAINER_SSH_PORT],
                 gpu=config.gpu,
             )
-        else:
-            sandbox = modal.Sandbox.create(
-                image=modal_image,
-                app=app,
-                timeout=config.timeout,
-                cpu=config.cpu,
-                memory=memory_mb,
-                unencrypted_ports=[CONTAINER_SSH_PORT],
-            )
+        except modal.exception.RemoteError as e:
+            raise MngrError(f"Failed to create Modal sandbox: {e}\n{self.get_captured_output()}") from None
         logger.info("Created sandbox: {}", sandbox.object_id)
 
         # Start sshd with our host key
