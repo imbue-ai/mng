@@ -28,17 +28,8 @@ def copy_work_dir(
 ) -> None:
     """Copy a work directory from source host to target host.
 
-    This function determines the best strategy for copying:
-    - If the source has a git repo and git options are specified, use git clone
-    - Otherwise, use rsync
-
-    Args:
-        source_host: The host where the source directory resides
-        source_path: The path to the source directory on source_host
-        target_host: The host where the target directory should be created
-        target_path: The path to the target directory on target_host
-        git_options: Git-related options (depth, shallow_since, etc.)
-        data_options: Options for what data to include from the source
+    Uses git clone if the source has a git repo and git options are specified,
+    otherwise uses rsync.
     """
     # Determine if source is a git repo
     source_has_git = _is_git_repo(source_host, source_path)
