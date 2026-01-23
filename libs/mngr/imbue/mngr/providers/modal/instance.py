@@ -17,7 +17,6 @@ from typing import Mapping
 from typing import Sequence
 from typing import cast
 
-from pydantic import ConfigDict
 
 import modal
 from dockerfile_parse import DockerfileParser
@@ -90,14 +89,10 @@ class ModalProviderInstance(BaseProviderInstance):
     Modal's Sandbox.list() API.
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     app_name: str = Field(frozen=True, description="Modal app name for sandboxes")
     default_timeout: int = Field(frozen=True, description="Default sandbox timeout in seconds")
     default_cpu: float = Field(frozen=True, description="Default CPU cores")
     default_memory: float = Field(frozen=True, description="Default memory in GB")
-    # The Modal app instance, provided by the backend
-    app: modal.App = Field(frozen=True, description="Modal app instance")
     # Reference to the backend class for calling its methods (typed as Any to avoid circular import)
     backend_cls: Any = Field(frozen=True, description="Backend class reference")
 
@@ -578,12 +573,17 @@ class ModalProviderInstance(BaseProviderInstance):
         return host_id, name, ssh_host, ssh_port, host_public_key, config, user_tags, snapshots
 
     def _get_modal_app(self) -> modal.App:
-        """Get the Modal app for this provider instance.
+        """Get or create the Modal app for this provider instance.
 
-        The app is created by the backend and passed to this instance during
-        construction. Modal output is captured at the backend level.
+        The app is lazily created by the backend when first needed. This allows
+        basic property tests to run without Modal credentials.
+
+        Modal output is captured at the backend level.
+
+        Raises modal.exception.AuthError if Modal credentials are not configured.
         """
-        return self.app
+        app, _ = self.backend_cls._get_or_create_app(self.app_name)
+        return app
 
     def get_captured_output(self) -> str:
         """Get all captured Modal output for this provider instance.

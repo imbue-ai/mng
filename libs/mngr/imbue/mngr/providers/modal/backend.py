@@ -231,9 +231,6 @@ Supported build arguments for the modal provider:
         default_cpu = instance_configuration.get("default_cpu", 1.0)
         default_memory = instance_configuration.get("default_memory", 1.0)
 
-        # Create or get the Modal app (managed by the backend)
-        app, _ = cls._get_or_create_app(app_name)
-
         return ModalProviderInstance(
             name=name,
             host_dir=host_dir,
@@ -242,8 +239,7 @@ Supported build arguments for the modal provider:
             default_timeout=default_timeout,
             default_cpu=default_cpu,
             default_memory=default_memory,
-            # Pass the app and backend class so instance can use them without imports
-            app=app,
+            # Pass the backend class so instance can call its methods
             backend_cls=cls,
         )
 
