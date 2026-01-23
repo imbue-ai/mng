@@ -84,9 +84,7 @@ def test_cli_create_via_subprocess(
                 "--await-ready",
                 "--no-copy-work-dir",
                 "--no-ensure-clean",
-                # Use generic agent type to avoid Claude installation check in CI
-                "--agent-type",
-                "generic",
+                # Note: --agent-cmd automatically implies --agent-type generic
                 # Disable modal to avoid auth errors in CI
                 "--disable-plugin",
                 "modal",
@@ -480,3 +478,72 @@ def test_add_command_without_name_uses_default_window_name(
         )
         window_names = window_list_result.stdout.strip().split("\n")
         assert "cmd-1" in window_names, f"Expected window 'cmd-1' in {window_names}"
+
+
+def test_agent_cmd_and_agent_type_are_mutually_exclusive(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --agent-cmd and --agent-type (other than generic) are mutually exclusive."""
+    agent_name = f"test-mutex-{int(time.time())}"
+
+    # "claude" agent type should conflict with --agent-cmd
+    result = cli_runner.invoke(
+        create,
+        [
+            "--name",
+            agent_name,
+            "--agent-cmd",
+            "sleep 123456",
+            "--agent-type",
+            "claude",
+            "--source",
+            str(temp_work_dir),
+            "--no-connect",
+            "--no-copy-work-dir",
+            "--no-ensure-clean",
+        ],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert "--agent-cmd and --agent-type are mutually exclusive" in str(result.exception)
+
+
+def test_agent_cmd_with_generic_type_is_allowed(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --agent-cmd with --agent-type generic is allowed (they are compatible)."""
+    agent_name = f"test-generic-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Explicit --agent-type generic is OK with --agent-cmd
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 654321",
+                "--agent-type",
+                "generic",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
+        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
