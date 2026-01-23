@@ -152,3 +152,25 @@ See [`./docs/security_model.md`](./docs/security_model.md) for more details on o
 ## Contributing
 
 Contributions are welcome! Please see [`CONTRIBUTING.md`](/CONTRIBUTING.md) for guidelines.
+
+## TODOs
+
+**Missing commands:**
+- `open` - Open agent URLs in browser
+- `stop` - Stop running agents
+- `start` - Start stopped agents
+- `snapshot` - Create/list/delete snapshots (backend exists, needs CLI)
+- `clone` - Clone existing agents
+- `migrate` - Move agents between hosts
+- `limit` - Set resource limits
+- `push` - Push data to agents
+- `pair` - Continuous sync with agents
+- `provision` - Re-run provisioning (as standalone command)
+- `ask` - Chat with mngr for help
+- `plugin` - Manage plugins (system exists, needs CLI)
+
+**Partial implementations:**
+- `list` - Custom formats, field selection, watch mode, filter aliases, sorting, limiting
+- `connect` - Remote agent connections, message flags, attach-command option
+- `pull` - Remote agent support, state/full sync modes, exclude patterns
+- `create` - Snapshot source agent functionality
