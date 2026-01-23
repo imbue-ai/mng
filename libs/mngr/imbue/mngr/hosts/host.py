@@ -54,6 +54,7 @@ from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
+from imbue.mngr.utils.work_dir_copy import copy_work_dir
 
 LOCAL_CONNECTOR_NAME: Final[str] = "LocalConnector"
 
@@ -649,17 +650,57 @@ class Host(HostInterface):
         # Check if source and target are on the same host
         source_is_same_host = host.id == self.id
 
-        # If target path is specified, use it; otherwise use source path
+        # Determine the target work directory path
         if options.target_path:
             work_dir_path = options.target_path
-            # If target equals source and same host, it's in-place
-            is_generated_work_dir = not (source_is_same_host and path == work_dir_path)
-        else:
-            # No target path specified, use source path directly (in-place if same host)
+        elif source_is_same_host and options.copy_mode is None:
+            # Same host with no explicit target and no copy mode - use source path (in-place)
             work_dir_path = path
-            is_generated_work_dir = not source_is_same_host
+        else:
+            # Different host or copy mode specified - generate a path
+            agent_id = AgentId.generate()
+            work_dir_path = self.host_dir / "worktrees" / str(agent_id)
 
-        self._mkdir(work_dir_path)
+        # Determine if this is a generated work dir (needs tracking for cleanup)
+        is_generated_work_dir = not (source_is_same_host and path == work_dir_path)
+
+        # Handle in-place case (same host, same path)
+        if source_is_same_host and path == work_dir_path:
+            logger.debug("Using in-place work directory at {}", work_dir_path)
+            self._mkdir(work_dir_path)
+            return work_dir_path
+
+        # Handle copy mode
+        if options.copy_mode == WorkDirCopyMode.COPY:
+            logger.debug("Copying work directory from {} to {}", path, work_dir_path)
+            self._mkdir(work_dir_path.parent)
+
+            # Use the copy utility to copy files
+            copy_work_dir(
+                source_host=host,
+                source_path=path,
+                target_host=self,
+                target_path=work_dir_path,
+                git_options=options.git,
+                data_options=options.data_options,
+            )
+        elif options.copy_mode == WorkDirCopyMode.CLONE:
+            # Clone mode - similar to copy but using git clone semantics
+            logger.debug("Cloning work directory from {} to {}", path, work_dir_path)
+            self._mkdir(work_dir_path.parent)
+
+            copy_work_dir(
+                source_host=host,
+                source_path=path,
+                target_host=self,
+                target_path=work_dir_path,
+                git_options=options.git,
+                data_options=options.data_options,
+            )
+        else:
+            # None (in-place) or unknown - just create the directory
+            logger.debug("Creating work directory at {}", work_dir_path)
+            self._mkdir(work_dir_path)
 
         # Track generated work directories at the host level
         if is_generated_work_dir:

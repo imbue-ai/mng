@@ -20,14 +20,17 @@ from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
+from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.host import AgentEnvironmentOptions
+from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import FileModificationSpec
 from imbue.mngr.interfaces.host import NamedCommand
+from imbue.mngr.interfaces.host import SourceDataOptions
 from imbue.mngr.interfaces.host import UploadFileSpec
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentName
@@ -37,6 +40,7 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.testing import wait_for
 
@@ -1654,3 +1658,392 @@ def test_provision_agent_host_env_sourced_before_agent_env(host_with_temp_dir: t
     assert "HOST_VAR=host_value" in content
     # Agent env should override host env for SHARED_VAR
     assert "SHARED_VAR=from_agent" in content
+
+
+# =============================================================================
+# Work Directory Copy Tests
+# =============================================================================
+
+
+def test_create_agent_work_dir_copy_local_to_local(host_with_temp_dir: tuple[Host, Path], tmp_path: Path) -> None:
+    """Test copying a work directory from local to local."""
+    host, temp_dir = host_with_temp_dir
+
+    # Create a source directory with some files
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "file1.txt").write_text("content1")
+    (source_dir / "subdir").mkdir()
+    (source_dir / "subdir" / "file2.txt").write_text("content2")
+
+    target_dir = tmp_path / "target"
+
+    options = CreateAgentOptions(
+        name=AgentName("copy-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        copy_mode=WorkDirCopyMode.COPY,
+        target_path=target_dir,
+    )
+
+    result_path = host.create_agent_work_dir(host, source_dir, options)
+
+    assert result_path == target_dir
+    assert target_dir.exists()
+    assert (target_dir / "file1.txt").read_text() == "content1"
+    assert (target_dir / "subdir" / "file2.txt").read_text() == "content2"
+
+
+def test_create_agent_work_dir_copy_with_git_repo(host_with_temp_dir: tuple[Host, Path], tmp_path: Path) -> None:
+    """Test copying a git repository from local to local."""
+    host, temp_dir = host_with_temp_dir
+
+    # Create a source directory with a git repo
+    source_dir = tmp_path / "source_repo"
+    source_dir.mkdir()
+    (source_dir / "file.txt").write_text("git content")
+
+    # Initialize git repo
+    host.execute_command(f"git init {source_dir}")
+    host.execute_command(f"git -C {source_dir} config user.email 'test@test.com'")
+    host.execute_command(f"git -C {source_dir} config user.name 'Test User'")
+    host.execute_command(f"git -C {source_dir} add .")
+    host.execute_command(f"git -C {source_dir} commit -m 'Initial commit'")
+
+    target_dir = tmp_path / "target_repo"
+
+    options = CreateAgentOptions(
+        name=AgentName("git-copy-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        copy_mode=WorkDirCopyMode.COPY,
+        target_path=target_dir,
+    )
+
+    result_path = host.create_agent_work_dir(host, source_dir, options)
+
+    assert result_path == target_dir
+    assert target_dir.exists()
+    assert (target_dir / "file.txt").read_text() == "git content"
+    assert (target_dir / ".git").is_dir()
+
+
+def test_create_agent_work_dir_copy_excludes_git_when_requested(
+    host_with_temp_dir: tuple[Host, Path], tmp_path: Path
+) -> None:
+    """Test that .git directory is excluded when is_include_git is False."""
+    host, temp_dir = host_with_temp_dir
+
+    # Create a source directory with a git repo
+    source_dir = tmp_path / "source_no_git"
+    source_dir.mkdir()
+    (source_dir / "file.txt").write_text("content")
+
+    # Initialize git repo
+    host.execute_command(f"git init {source_dir}")
+    host.execute_command(f"git -C {source_dir} config user.email 'test@test.com'")
+    host.execute_command(f"git -C {source_dir} config user.name 'Test User'")
+    host.execute_command(f"git -C {source_dir} add .")
+    host.execute_command(f"git -C {source_dir} commit -m 'Initial commit'")
+
+    target_dir = tmp_path / "target_no_git"
+
+    options = CreateAgentOptions(
+        name=AgentName("no-git-copy-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        copy_mode=WorkDirCopyMode.COPY,
+        target_path=target_dir,
+        data_options=SourceDataOptions(is_include_git=False),
+    )
+
+    result_path = host.create_agent_work_dir(host, source_dir, options)
+
+    assert result_path == target_dir
+    assert target_dir.exists()
+    assert (target_dir / "file.txt").read_text() == "content"
+    assert not (target_dir / ".git").exists()
+
+
+def test_create_agent_work_dir_copy_with_shallow_clone(host_with_temp_dir: tuple[Host, Path], tmp_path: Path) -> None:
+    """Test copying a git repository with depth option."""
+    host, temp_dir = host_with_temp_dir
+
+    # Create a source directory with a git repo with multiple commits
+    source_dir = tmp_path / "source_deep"
+    source_dir.mkdir()
+
+    host.execute_command(f"git init {source_dir}")
+    host.execute_command(f"git -C {source_dir} config user.email 'test@test.com'")
+    host.execute_command(f"git -C {source_dir} config user.name 'Test User'")
+
+    # Create multiple commits
+    for i in range(5):
+        (source_dir / f"file{i}.txt").write_text(f"content{i}")
+        host.execute_command(f"git -C {source_dir} add .")
+        host.execute_command(f"git -C {source_dir} commit -m 'Commit {i}'")
+
+    target_dir = tmp_path / "target_shallow"
+
+    options = CreateAgentOptions(
+        name=AgentName("shallow-clone-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        copy_mode=WorkDirCopyMode.COPY,
+        target_path=target_dir,
+        git=AgentGitOptions(depth=1),
+    )
+
+    result_path = host.create_agent_work_dir(host, source_dir, options)
+
+    assert result_path == target_dir
+    assert target_dir.exists()
+    assert (target_dir / ".git").is_dir()
+
+    # Verify it's a shallow clone by checking commit count
+    result = host.execute_command(f"git -C {target_dir} rev-list --count HEAD")
+    commit_count = int(result.stdout.strip())
+    assert commit_count == 1
+
+
+def test_create_agent_work_dir_raises_on_git_options_without_repo(
+    host_with_temp_dir: tuple[Host, Path], tmp_path: Path
+) -> None:
+    """Test that git options raise an error when source is not a git repo."""
+    host, temp_dir = host_with_temp_dir
+
+    # Create a non-git source directory
+    source_dir = tmp_path / "non_git_source"
+    source_dir.mkdir()
+    (source_dir / "file.txt").write_text("content")
+
+    target_dir = tmp_path / "target"
+
+    options = CreateAgentOptions(
+        name=AgentName("error-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        copy_mode=WorkDirCopyMode.COPY,
+        target_path=target_dir,
+        git=AgentGitOptions(depth=1),
+    )
+
+    with pytest.raises(UserInputError) as exc_info:
+        host.create_agent_work_dir(host, source_dir, options)
+
+    assert "not a git repository" in str(exc_info.value)
+
+
+def test_create_agent_work_dir_in_place_same_host(host_with_temp_dir: tuple[Host, Path], tmp_path: Path) -> None:
+    """Test that in-place mode (no copy_mode) uses the source path directly."""
+    host, temp_dir = host_with_temp_dir
+
+    # Create a source directory
+    source_dir = tmp_path / "in_place_source"
+    source_dir.mkdir()
+    (source_dir / "file.txt").write_text("content")
+
+    # In-place mode (no copy_mode)
+    options = CreateAgentOptions(
+        name=AgentName("in-place-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        copy_mode=None,
+    )
+
+    result_path = host.create_agent_work_dir(host, source_dir, options)
+
+    # Should return the source path when in-place on same host
+    assert result_path == source_dir
+
+
+def test_create_agent_work_dir_generates_path_when_no_target(
+    host_with_temp_dir: tuple[Host, Path], tmp_path: Path
+) -> None:
+    """Test that a path is generated when no target_path is specified for copy mode."""
+    host, temp_dir = host_with_temp_dir
+
+    # Create a source directory
+    source_dir = tmp_path / "source_gen_path"
+    source_dir.mkdir()
+    (source_dir / "file.txt").write_text("content")
+
+    options = CreateAgentOptions(
+        name=AgentName("gen-path-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        copy_mode=WorkDirCopyMode.COPY,
+        # No target_path specified
+    )
+
+    result_path = host.create_agent_work_dir(host, source_dir, options)
+
+    # Should generate a path under host_dir/worktrees
+    assert "worktrees" in str(result_path)
+    assert result_path.exists()
+    assert (result_path / "file.txt").read_text() == "content"
+
+
+def test_create_agent_work_dir_tracks_generated_directories(
+    host_with_temp_dir: tuple[Host, Path], tmp_path: Path
+) -> None:
+    """Test that generated work directories are tracked for cleanup."""
+    host, temp_dir = host_with_temp_dir
+
+    # Create a source directory
+    source_dir = tmp_path / "source_tracked"
+    source_dir.mkdir()
+    (source_dir / "file.txt").write_text("content")
+
+    target_dir = tmp_path / "target_tracked"
+
+    options = CreateAgentOptions(
+        name=AgentName("tracked-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        copy_mode=WorkDirCopyMode.COPY,
+        target_path=target_dir,
+    )
+
+    host.create_agent_work_dir(host, source_dir, options)
+
+    # Check that the work directory is tracked
+    assert host._is_generated_work_dir(target_dir)
+
+
+def test_create_agent_work_dir_copy_with_exclude_patterns(
+    host_with_temp_dir: tuple[Host, Path], tmp_path: Path
+) -> None:
+    """Test copying with exclude patterns."""
+    host, temp_dir = host_with_temp_dir
+
+    # Create a source directory with files to exclude
+    source_dir = tmp_path / "source_exclude"
+    source_dir.mkdir()
+    (source_dir / "keep.txt").write_text("keep this")
+    (source_dir / "exclude.log").write_text("exclude this")
+    (source_dir / "node_modules").mkdir()
+    (source_dir / "node_modules" / "package.txt").write_text("package")
+
+    target_dir = tmp_path / "target_exclude"
+
+    options = CreateAgentOptions(
+        name=AgentName("exclude-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        copy_mode=WorkDirCopyMode.COPY,
+        target_path=target_dir,
+        data_options=SourceDataOptions(
+            exclude_patterns=("*.log", "node_modules"),
+        ),
+    )
+
+    host.create_agent_work_dir(host, source_dir, options)
+
+    assert (target_dir / "keep.txt").read_text() == "keep this"
+    assert not (target_dir / "exclude.log").exists()
+    assert not (target_dir / "node_modules").exists()
+
+
+def test_create_agent_work_dir_clone_mode(host_with_temp_dir: tuple[Host, Path], tmp_path: Path) -> None:
+    """Test clone mode (similar to copy mode)."""
+    host, temp_dir = host_with_temp_dir
+
+    # Create a source directory with a git repo
+    source_dir = tmp_path / "source_clone"
+    source_dir.mkdir()
+    (source_dir / "file.txt").write_text("clone content")
+
+    host.execute_command(f"git init {source_dir}")
+    host.execute_command(f"git -C {source_dir} config user.email 'test@test.com'")
+    host.execute_command(f"git -C {source_dir} config user.name 'Test User'")
+    host.execute_command(f"git -C {source_dir} add .")
+    host.execute_command(f"git -C {source_dir} commit -m 'Initial commit'")
+
+    target_dir = tmp_path / "target_clone"
+
+    options = CreateAgentOptions(
+        name=AgentName("clone-mode-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        copy_mode=WorkDirCopyMode.CLONE,
+        target_path=target_dir,
+    )
+
+    result_path = host.create_agent_work_dir(host, source_dir, options)
+
+    assert result_path == target_dir
+    assert target_dir.exists()
+    assert (target_dir / "file.txt").read_text() == "clone content"
+    assert (target_dir / ".git").is_dir()
+
+
+def test_create_agent_work_dir_copy_preserves_file_permissions(
+    host_with_temp_dir: tuple[Host, Path], tmp_path: Path
+) -> None:
+    """Test that copy mode preserves file permissions."""
+    host, temp_dir = host_with_temp_dir
+
+    source_dir = tmp_path / "source_perms"
+    source_dir.mkdir()
+    script = source_dir / "script.sh"
+    script.write_text("#!/bin/bash\necho hello")
+    script.chmod(0o755)
+
+    target_dir = tmp_path / "target_perms"
+
+    options = CreateAgentOptions(
+        name=AgentName("perms-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        copy_mode=WorkDirCopyMode.COPY,
+        target_path=target_dir,
+    )
+
+    host.create_agent_work_dir(host, source_dir, options)
+
+    target_script = target_dir / "script.sh"
+    assert target_script.exists()
+    # Check that executable bits are preserved
+    assert target_script.stat().st_mode & 0o111
+
+
+def test_create_agent_work_dir_git_clone_with_branch(
+    host_with_temp_dir: tuple[Host, Path], tmp_path: Path
+) -> None:
+    """Test git clone with a specific branch."""
+    host, temp_dir = host_with_temp_dir
+
+    source_dir = tmp_path / "source_branch"
+    source_dir.mkdir()
+
+    host.execute_command(f"git init {source_dir}")
+    host.execute_command(f"git -C {source_dir} config user.email 'test@test.com'")
+    host.execute_command(f"git -C {source_dir} config user.name 'Test User'")
+
+    # Create initial commit on main
+    (source_dir / "main.txt").write_text("main content")
+    host.execute_command(f"git -C {source_dir} add .")
+    host.execute_command(f"git -C {source_dir} commit -m 'Main commit'")
+
+    # Create a feature branch
+    host.execute_command(f"git -C {source_dir} checkout -b feature")
+    (source_dir / "feature.txt").write_text("feature content")
+    host.execute_command(f"git -C {source_dir} add .")
+    host.execute_command(f"git -C {source_dir} commit -m 'Feature commit'")
+
+    target_dir = tmp_path / "target_branch"
+
+    options = CreateAgentOptions(
+        name=AgentName("branch-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        copy_mode=WorkDirCopyMode.COPY,
+        target_path=target_dir,
+        git=AgentGitOptions(base_branch="feature"),
+    )
+
+    host.create_agent_work_dir(host, source_dir, options)
+
+    assert (target_dir / "feature.txt").exists()
+    assert (target_dir / "main.txt").exists()
