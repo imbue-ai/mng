@@ -18,3 +18,7 @@ Much like a simpler version of `git config`, `mngr config` allows you to manage 
 `mngr config edit` opens the config file in your default editor for manual editing.
 
 Run `mngr help --config` for details on available keys and their meanings.
+
+## TODOs
+
+- **`mngr help --config`**: The command to list available configuration keys and their meanings is not yet implemented.

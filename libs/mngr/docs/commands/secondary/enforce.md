@@ -18,3 +18,13 @@ mngr enforce
 - `--[no-]check-idle`: Check for hosts that have exceeded their timeouts [default: check-idle]
 - `--[no-]check-timeouts`: Check for hosts that have exceeded their timeouts for some (transitory) state. See the config for more details. [default: check-timeouts]
 - `-w, --watch SECONDS`: Re-run enforcement checks at the specified interval
+
+## TODO
+
+The following functionality is not yet implemented:
+
+- Entire `enforce` command (no CLI handler exists)
+- `--check-idle` option and idle timeout enforcement
+- `--check-timeouts` option and transitory state timeout checking (BUILDING, STARTING, STOPPING)
+- `-w, --watch` option for periodic enforcement checks
+- State signing key awareness and validation

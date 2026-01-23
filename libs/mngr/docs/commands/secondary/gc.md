@@ -49,3 +49,7 @@ For snapshots, you can use `x.recency_idx` in filters to select based on snapsho
 
 - `--dry-run`: Show what would be cleaned without actually cleaning
 - `-w, --watch SECONDS`: Re-run garbage collection at the specified interval
+
+## TODOs
+
+- `--machine-cache`: Documented but not implemented (currently only `--build-cache` exists)

@@ -31,3 +31,10 @@ mngr message --agent my-agent --agent another-agent --message "Hello"
 If no message is specified, reads from stdin (if headless) or opens an editor (if interactive).
 
 See [multi-target](../generic/multi_target.md) options for behavior when some agents fail.
+
+## TODOs
+
+All features described in this document are implemented. Notes:
+
+- `-m` short form for `--message` is implemented but not documented above
+- Multi-target error handling options are available via `--on-error` (choices: `abort`, `continue`). See [multi-target.md](../generic/multi_target.md#todos) for limitations on additional error behaviors.
