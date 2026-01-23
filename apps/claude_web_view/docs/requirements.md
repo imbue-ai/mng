@@ -167,3 +167,26 @@ ClaudeWebView/
 6. Frontend connects to SSE endpoint for live updates
 7. File watcher detects changes to transcript, pushes new messages via SSE
 8. React app renders messages using Radix components and Sculptor-style SCSS
+
+---
+
+## TODO - Not Yet Implemented
+
+### CLI Features
+- `--latest` flag to automatically view the most recent session
+- Session listing/discovery functionality
+
+### Content Block Types
+The following content block types mentioned in Technical Context are not yet parsed or rendered:
+- `ErrorBlock` - Separate error block type (currently using `is_error` flag in ToolResultBlock)
+- `WarningBlock` - Warning messages
+- `ContextSummaryBlock` - Conversation compaction summaries
+- `FileBlock` - Attached files/images in messages
+
+### UI Features
+- Display attached files/images in message content
+- Session cost and duration summary display (data is in transcript but not shown in UI)
+- Remove ChatInput component (non-functional UI element - requirements specify no interactive features)
+
+### Build/Distribution
+- Frontend must be built (`npm run build` in frontend/) to create frontend-dist directory before the app can run
