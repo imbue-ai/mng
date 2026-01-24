@@ -140,9 +140,11 @@ class ModalProviderApp(FrozenModel):
     app: modal.App = Field(frozen=True, description="Modal app")
     volume: modal.Volume = Field(frozen=True, description="Modal volume for host records")
 
-    def get_captured_output(self) -> str: ...
+    def get_captured_output(self) -> str:
+        raise NotImplementedError()
 
-    def close(self) -> None: ...
+    def close(self) -> None:
+        raise NotImplementedError()
 
 
 class ModalProviderInstance(BaseProviderInstance):
