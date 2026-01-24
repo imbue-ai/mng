@@ -5,6 +5,7 @@ Note: Unit tests for env file parsing are in utils/env_utils_test.py
 
 import fcntl
 import json
+import os
 import stat
 import subprocess
 import threading
@@ -24,10 +25,12 @@ from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.host import AgentEnvironmentOptions
+from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import FileModificationSpec
 from imbue.mngr.interfaces.host import NamedCommand
+from imbue.mngr.interfaces.host import SourceDataOptions
 from imbue.mngr.interfaces.host import UploadFileSpec
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentName
@@ -1210,6 +1213,306 @@ def _create_minimal_agent(host: Host, temp_dir: Path, work_dir: Path | None = No
 # provision, on_after_provisioning) are covered by agent-type specific tests since these are
 # methods on the agent class rather than plugin hooks. See the "Provisioning Lifecycle Tests"
 # section in claude_agent_test.py.
+
+
+# =============================================================================
+# File Transfer Tests (create_agent_work_dir and helpers)
+# =============================================================================
+
+
+def test_get_ssh_connection_info_returns_none_for_local_host(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that _get_ssh_connection_info returns None for local hosts."""
+    host, _ = host_with_temp_dir
+    ssh_info = host._get_ssh_connection_info()
+    assert ssh_info is None
+
+
+def test_create_work_dir_same_path_no_transfer(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that no transfer happens when source and target are the same."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "same_path_test"
+    source_path.mkdir()
+    (source_path / "test_file.txt").write_text("original content")
+
+    options = CreateAgentOptions(
+        name=AgentName("same-path-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=source_path,
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == source_path
+    assert (work_dir / "test_file.txt").read_text() == "original content"
+
+
+def test_create_work_dir_copy_without_git(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test copying a directory without git."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_no_git"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("content1")
+    (source_path / "subdir").mkdir()
+    (source_path / "subdir" / "file2.txt").write_text("content2")
+
+    target_path = temp_dir / "target_no_git"
+
+    options = CreateAgentOptions(
+        name=AgentName("copy-no-git"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "file1.txt").read_text() == "content1"
+    assert (work_dir / "subdir" / "file2.txt").read_text() == "content2"
+
+
+def test_create_work_dir_copy_with_git(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test copying a directory with git repository."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_with_git"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("tracked content")
+
+    # Initialize git repo
+    subprocess.run(["git", "init"], cwd=source_path, capture_output=True, check=True)
+    subprocess.run(["git", "add", "."], cwd=source_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=source_path,
+        capture_output=True,
+        check=True,
+        env={**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@test.com",
+             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@test.com"},
+    )
+
+    target_path = temp_dir / "target_with_git"
+
+    options = CreateAgentOptions(
+        name=AgentName("copy-with-git"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "file1.txt").read_text() == "tracked content"
+    assert (work_dir / ".git").exists()
+
+    # Verify git is functional in target
+    result = subprocess.run(
+        ["git", "log", "--oneline"],
+        cwd=work_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "Initial commit" in result.stdout
+
+
+def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that .git is excluded when is_include_git is False."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_exclude_git"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("content")
+
+    # Initialize git repo
+    subprocess.run(["git", "init"], cwd=source_path, capture_output=True, check=True)
+
+    target_path = temp_dir / "target_exclude_git"
+
+    options = CreateAgentOptions(
+        name=AgentName("exclude-git"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        data_options=SourceDataOptions(is_include_git=False),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "file1.txt").read_text() == "content"
+    assert not (work_dir / ".git").exists()
+
+
+def test_create_work_dir_copy_with_untracked_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test copying includes untracked files when is_include_unclean is True."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_untracked"
+    source_path.mkdir()
+    (source_path / "tracked.txt").write_text("tracked")
+
+    # Initialize git repo and commit tracked file
+    subprocess.run(["git", "init"], cwd=source_path, capture_output=True, check=True)
+    subprocess.run(["git", "add", "tracked.txt"], cwd=source_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=source_path,
+        capture_output=True,
+        check=True,
+        env={**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@test.com",
+             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@test.com"},
+    )
+
+    # Add untracked file after commit
+    (source_path / "untracked.txt").write_text("untracked")
+
+    target_path = temp_dir / "target_untracked"
+
+    options = CreateAgentOptions(
+        name=AgentName("include-untracked"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        data_options=SourceDataOptions(is_include_unclean=True),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "tracked.txt").read_text() == "tracked"
+    assert (work_dir / "untracked.txt").read_text() == "untracked"
+
+
+def test_create_work_dir_copy_with_gitignored_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test copying includes gitignored files when is_include_gitignored is True."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_gitignored"
+    source_path.mkdir()
+    (source_path / "tracked.txt").write_text("tracked")
+    (source_path / ".gitignore").write_text("*.log\n")
+
+    # Initialize git repo and commit tracked file
+    subprocess.run(["git", "init"], cwd=source_path, capture_output=True, check=True)
+    subprocess.run(["git", "add", "."], cwd=source_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=source_path,
+        capture_output=True,
+        check=True,
+        env={**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@test.com",
+             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@test.com"},
+    )
+
+    # Add gitignored file
+    (source_path / "debug.log").write_text("log content")
+
+    target_path = temp_dir / "target_gitignored"
+
+    options = CreateAgentOptions(
+        name=AgentName("include-gitignored"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        data_options=SourceDataOptions(is_include_gitignored=True),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "tracked.txt").read_text() == "tracked"
+    assert (work_dir / "debug.log").read_text() == "log content"
+
+
+def test_create_work_dir_copy_with_renamed_file(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test copying handles renamed files in git status output."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_renamed"
+    source_path.mkdir()
+    (source_path / "old_name.txt").write_text("content")
+
+    # Initialize git repo and commit
+    subprocess.run(["git", "init"], cwd=source_path, capture_output=True, check=True)
+    subprocess.run(["git", "add", "."], cwd=source_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=source_path,
+        capture_output=True,
+        check=True,
+        env={**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@test.com",
+             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@test.com"},
+    )
+
+    # Rename the file (use git mv to ensure status shows rename)
+    subprocess.run(["git", "mv", "old_name.txt", "new_name.txt"], cwd=source_path, capture_output=True, check=True)
+
+    target_path = temp_dir / "target_renamed"
+
+    options = CreateAgentOptions(
+        name=AgentName("rename-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        data_options=SourceDataOptions(is_include_unclean=True),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    # After git transfer and rsync, the renamed file should be present
+    assert (work_dir / "new_name.txt").read_text() == "content"
+
+
+def test_create_work_dir_generates_new_branch(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that git transfer creates a new branch when is_new_branch is True."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_new_branch"
+    source_path.mkdir()
+    (source_path / "file.txt").write_text("content")
+
+    # Initialize git repo
+    subprocess.run(["git", "init"], cwd=source_path, capture_output=True, check=True)
+    subprocess.run(["git", "add", "."], cwd=source_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=source_path,
+        capture_output=True,
+        check=True,
+        env={**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@test.com",
+             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@test.com"},
+    )
+
+    target_path = temp_dir / "target_new_branch"
+
+    options = CreateAgentOptions(
+        name=AgentName("new-branch-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(is_new_branch=True, new_branch_prefix="test/"),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "file.txt").read_text() == "content"
+
+    # Check the branch name starts with test/
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=work_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip().startswith("test/")
 
 
 # =============================================================================

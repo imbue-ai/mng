@@ -3,8 +3,10 @@ from __future__ import annotations
 import fcntl
 import io
 import json
+import os
 import platform
 import shlex
+import subprocess
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -55,6 +57,7 @@ from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
+from imbue.mngr.utils.git_utils import get_current_git_branch
 
 LOCAL_CONNECTOR_NAME: Final[str] = "LocalConnector"
 
@@ -326,6 +329,24 @@ class Host(HostInterface):
     def _mkdir(self, path: Path) -> None:
         """Create a directory on the host."""
         self.execute_command(f"mkdir -p '{str(path)}'")
+
+    def _get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
+        """Get SSH connection info for this host if it's remote.
+
+        Returns (user, hostname, port, private_key_path) if remote, None if local.
+        """
+        if self.is_local:
+            return None
+
+        host_data = self.connector.host.data
+        user = host_data.get("ssh_user", "root")
+        hostname = self.connector.host.name
+        port = host_data.get("ssh_port", 22)
+        key_path_str = host_data.get("ssh_key", "")
+        if not key_path_str:
+            return None
+
+        return (user, hostname, port, Path(key_path_str))
 
     # =========================================================================
     # Activity Configuration
@@ -666,7 +687,7 @@ class Host(HostInterface):
         logger.debug("Creating agent work directory with copy_mode={}", options.copy_mode)
         if options.copy_mode == WorkDirCopyMode.WORKTREE:
             return self._create_work_dir_as_git_worktree(host, path, options)
-        elif options.copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE):
+        elif options.copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE, None):
             return self._create_work_dir_as_copy(host, path, options)
         else:
             raise SwitchError(f"Unsupported work dir copy mode: {options.copy_mode}")
@@ -696,25 +717,302 @@ class Host(HostInterface):
         if is_generated_work_dir:
             self._add_generated_work_dir(work_dir_path)
 
-        # FIXME: actually implement file transfer functionality by following the plan below:
-        # if a .git directory exists at source:
-        #     new_branch_name = self._determine_branch_name(options)
-        #     base_branch_name = options.git.base_branch or get_current_branch_name(source)
-        #     if a .git checkout already exists at the target:
-        #         run on target: cd /path/to && git checkout `git rev-parse --abbrev-ref HEAD`
-        #     else (if no .git directory exists at the target):
-        #         run on target: git init --bare /path/to/.git
-        #     run locally: git push --mirror ssh://user@remote/path/to/.git
-        #     run on target: cd /path/to && git config --bool core.bare false && git checkout -b new_branch_name base_branch_name
-        #     then assemble an rsync command to take care of the rest:
-        #     if options.data_options.is_include_unclean, include untracked/modified files
-        #     if options.data_options.is_include_gitignored, include gitignored files
-        #     if anything is included after considering the above two options, then run rsync
-        # if no .git directory exists at source, just use rsync to copy files over:
-        #     figure out the rsync source and target paths
-        #     include exclude arg for any .git directory
+        # If source and target are same path on same host, nothing to transfer
+        if source_is_same_host and source_path == work_dir_path:
+            logger.debug("Source and target are the same path, no file transfer needed")
+            return work_dir_path
+
+        # Check if source has a .git directory
+        if host.is_local:
+            source_has_git = (source_path / ".git").exists()
+        else:
+            result = host.execute_command(f"test -d {shlex.quote(str(source_path / '.git'))}")
+            source_has_git = result.success
+
+        # Transfer files based on whether source has .git and whether we want to include it
+        if source_has_git and options.data_options.is_include_git:
+            self._transfer_git_repo(host, source_path, work_dir_path, options)
+            self._transfer_extra_files(host, source_path, work_dir_path, options)
+        else:
+            self._transfer_files_rsync(host, source_path, work_dir_path, options)
 
         return work_dir_path
+
+    def _transfer_git_repo(
+        self,
+        source_host: HostInterface,
+        source_path: Path,
+        target_path: Path,
+        options: CreateAgentOptions,
+    ) -> None:
+        """Transfer a git repository from source to target."""
+        logger.debug("Transferring git repository from {} to {}", source_path, target_path)
+
+        new_branch_name = self._determine_branch_name(options)
+        if options.git.base_branch:
+            base_branch_name = options.git.base_branch
+        elif source_host.is_local:
+            base_branch_name = get_current_git_branch(source_path) or "main"
+        else:
+            result = source_host.execute_command(
+                "git rev-parse --abbrev-ref HEAD",
+                cwd=source_path,
+            )
+            base_branch_name = result.stdout.strip() if result.success else "main"
+
+        logger.debug("Git transfer: base_branch={}, new_branch={}", base_branch_name, new_branch_name)
+
+        # Check if target already has a .git directory
+        if self.is_local:
+            target_has_git = (target_path / ".git").exists()
+        else:
+            result = self.execute_command(f"test -d {shlex.quote(str(target_path / '.git'))}")
+            target_has_git = result.success
+
+        if target_has_git:
+            logger.debug("Target already has .git, checking out current branch")
+            result = self.execute_command(
+                "git checkout $(git rev-parse --abbrev-ref HEAD)",
+                cwd=target_path,
+            )
+            if not result.success:
+                logger.warning("Failed to checkout branch on target: {}", result.stderr)
+        else:
+            logger.debug("Initializing bare git repo on target")
+            result = self.execute_command(f"git init --bare {shlex.quote(str(target_path / '.git'))}")
+            if not result.success:
+                raise MngrError(f"Failed to initialize git repo on target: {result.stderr}")
+
+        self._git_push_to_target(source_host, source_path, target_path)
+
+        logger.debug("Configuring target git repo")
+        result = self.execute_command(
+            f"git config --bool core.bare false && git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch_name)}",
+            cwd=target_path,
+        )
+        if not result.success:
+            raise MngrError(f"Failed to configure git repo on target: {result.stderr}")
+
+    def _git_push_to_target(
+        self,
+        source_host: HostInterface,
+        source_path: Path,
+        target_path: Path,
+    ) -> None:
+        """Push git repo from source to target using git push --mirror."""
+        target_ssh_info = self._get_ssh_connection_info()
+
+        if target_ssh_info is None:
+            if source_host.is_local:
+                git_url = str(target_path / ".git")
+            else:
+                source_ssh_info = (
+                    source_host._get_ssh_connection_info()
+                    if isinstance(source_host, Host) else None
+                )
+                if source_ssh_info is None:
+                    raise MngrError("Cannot determine SSH connection info for remote source host")
+                user, hostname, port, key_path = source_ssh_info
+                logger.debug("Fetching from remote source to local target")
+                git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
+                env = {"GIT_SSH_COMMAND": git_ssh_cmd}
+                remote_url = f"ssh://{user}@{hostname}:{port}{source_path}/.git"
+                result = subprocess.run(
+                    ["git", "clone", "--mirror", remote_url, str(target_path / ".git")],
+                    capture_output=True,
+                    text=True,
+                    env={**os.environ, **env},
+                )
+                if result.returncode != 0:
+                    raise MngrError(f"Failed to clone from remote source: {result.stderr}")
+                return
+        else:
+            user, hostname, port, key_path = target_ssh_info
+            git_url = f"ssh://{user}@{hostname}:{port}{target_path}/.git"
+
+        if source_host.is_local:
+            logger.debug("Pushing git repo to target: {}", git_url)
+            env: dict[str, str] = {}
+            if target_ssh_info is not None:
+                user, hostname, port, key_path = target_ssh_info
+                git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
+                env["GIT_SSH_COMMAND"] = git_ssh_cmd
+
+            result = subprocess.run(
+                ["git", "-C", str(source_path), "push", "--mirror", git_url],
+                capture_output=True,
+                text=True,
+                env={**os.environ, **env} if env else None,
+            )
+            if result.returncode != 0:
+                raise MngrError(f"Failed to push git repo: {result.stderr}")
+        else:
+            source_ssh_info = (
+                source_host._get_ssh_connection_info()
+                if isinstance(source_host, Host) else None
+            )
+            if target_ssh_info is not None:
+                user, hostname, port, key_path = target_ssh_info
+                git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
+                result = source_host.execute_command(
+                    f"GIT_SSH_COMMAND={shlex.quote(git_ssh_cmd)} git push --mirror {shlex.quote(git_url)}",
+                    cwd=source_path,
+                )
+            else:
+                result = source_host.execute_command(
+                    f"git push --mirror {shlex.quote(git_url)}",
+                    cwd=source_path,
+                )
+            if not result.success:
+                raise MngrError(f"Failed to push git repo from remote source: {result.stderr}")
+
+    def _transfer_extra_files(
+        self,
+        source_host: HostInterface,
+        source_path: Path,
+        target_path: Path,
+        options: CreateAgentOptions,
+    ) -> None:
+        """Transfer extra files that aren't in git (untracked, modified, gitignored)."""
+        files_to_include: list[str] = []
+
+        if options.data_options.is_include_unclean:
+            if source_host.is_local:
+                result = subprocess.run(
+                    ["git", "-C", str(source_path), "status", "--porcelain"],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split("\n"):
+                        if line:
+                            filename = line[3:].strip()
+                            if " -> " in filename:
+                                filename = filename.split(" -> ")[1]
+                            files_to_include.append(filename)
+            else:
+                result = source_host.execute_command("git status --porcelain", cwd=source_path)
+                if result.success:
+                    for line in result.stdout.strip().split("\n"):
+                        if line:
+                            filename = line[3:].strip()
+                            if " -> " in filename:
+                                filename = filename.split(" -> ")[1]
+                            files_to_include.append(filename)
+
+        if options.data_options.is_include_gitignored:
+            if source_host.is_local:
+                result = subprocess.run(
+                    ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split("\n"):
+                        if line:
+                            files_to_include.append(line)
+            else:
+                result = source_host.execute_command(
+                    "git ls-files --others --ignored --exclude-standard",
+                    cwd=source_path,
+                )
+                if result.success:
+                    for line in result.stdout.strip().split("\n"):
+                        if line:
+                            files_to_include.append(line)
+
+        files_to_include = list(set(files_to_include))
+
+        if not files_to_include:
+            logger.debug("No extra files to transfer")
+            return
+
+        logger.debug("Transferring {} extra files", len(files_to_include))
+        self._rsync_files(source_host, source_path, target_path, include_files=files_to_include, exclude_git=True)
+
+    def _transfer_files_rsync(
+        self,
+        source_host: HostInterface,
+        source_path: Path,
+        target_path: Path,
+        options: CreateAgentOptions,
+    ) -> None:
+        """Transfer all files using rsync, optionally excluding .git."""
+        exclude_git = not options.data_options.is_include_git
+        self._rsync_files(source_host, source_path, target_path, exclude_git=exclude_git)
+
+    def _rsync_files(
+        self,
+        source_host: HostInterface,
+        source_path: Path,
+        target_path: Path,
+        include_files: list[str] | None = None,
+        exclude_git: bool = False,
+    ) -> None:
+        """Run rsync to transfer files from source to target."""
+        target_ssh_info = self._get_ssh_connection_info()
+        source_ssh_info = (
+            source_host._get_ssh_connection_info()
+            if isinstance(source_host, Host)
+            else None
+        )
+
+        rsync_args = ["rsync", "-a", "--delete"]
+
+        if exclude_git:
+            rsync_args.extend(["--exclude", ".git"])
+
+        if include_files:
+            for f in include_files:
+                rsync_args.extend(["--include", f])
+            rsync_args.extend(["--include", "*/"])
+            rsync_args.extend(["--exclude", "*"])
+
+        source_str = str(source_path).rstrip("/") + "/"
+        target_str = str(target_path).rstrip("/") + "/"
+
+        if source_host.is_local and self.is_local:
+            logger.debug("rsync: local to local")
+            rsync_args.extend([source_str, target_str])
+            result = subprocess.run(rsync_args, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise MngrError(f"rsync failed: {result.stderr}")
+
+        elif source_host.is_local and target_ssh_info is not None:
+            user, hostname, port, key_path = target_ssh_info
+            logger.debug("rsync: local to remote {}@{}:{}", user, hostname, port)
+            rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
+            rsync_args.extend([source_str, f"{user}@{hostname}:{target_str}"])
+            result = subprocess.run(rsync_args, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise MngrError(f"rsync failed: {result.stderr}")
+
+        elif source_ssh_info is not None and self.is_local:
+            user, hostname, port, key_path = source_ssh_info
+            logger.debug("rsync: remote to local from {}@{}:{}", user, hostname, port)
+            rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
+            rsync_args.extend([f"{user}@{hostname}:{source_str}", target_str])
+            result = subprocess.run(rsync_args, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise MngrError(f"rsync failed: {result.stderr}")
+
+        elif source_ssh_info is not None and target_ssh_info is not None:
+            logger.debug("rsync: remote to remote")
+            raise MngrError("Remote-to-remote file transfer is not yet supported.")
+
+        else:
+            logger.debug("rsync: same host transfer")
+            if source_host.is_local:
+                rsync_args.extend([source_str, target_str])
+                result = subprocess.run(rsync_args, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise MngrError(f"rsync failed: {result.stderr}")
+            else:
+                cmd = " ".join(shlex.quote(arg) for arg in rsync_args)
+                cmd += f" {shlex.quote(source_str)} {shlex.quote(target_str)}"
+                result = source_host.execute_command(cmd)
+                if not result.success:
+                    raise MngrError(f"rsync failed on remote host: {result.stderr}")
 
     def _create_work_dir_as_git_worktree(
         self,
