@@ -10,6 +10,7 @@ Or to run all tests including Modal tests:
     pytest --timeout=300
 """
 
+import importlib.resources
 import os
 import subprocess
 import tempfile
@@ -18,6 +19,8 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+
+from imbue.mngr import resources
 
 
 @pytest.fixture
@@ -395,6 +398,61 @@ def test_mngr_create_transfers_git_repo_with_new_branch(temp_git_source_dir: Pat
         capture_output=True,
         text=True,
         timeout=300,
+    )
+
+    assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
+    assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
+
+
+def _get_mngr_default_dockerfile_path() -> Path:
+    """Get the path to the mngr default Dockerfile from the resources package."""
+    resources_dir = importlib.resources.files(resources)
+    dockerfile_resource = resources_dir / "Dockerfile"
+    dockerfile_path = Path(str(dockerfile_resource))
+    return dockerfile_path
+
+
+@pytest.mark.release
+@pytest.mark.timeout(600)
+def test_mngr_create_with_default_dockerfile_on_modal(temp_source_dir: Path) -> None:
+    """Test creating an agent on Modal using the mngr default Dockerfile.
+
+    This verifies that the default Dockerfile in libs/mngr/imbue/mngr/resources/Dockerfile:
+    1. Builds successfully on Modal
+    2. Has the expected tools installed (uv, claude code)
+    3. Can run agents properly
+
+    This test is marked as release since it takes longer due to the image build.
+    """
+    agent_name = f"test-modal-default-df-{uuid4().hex[:8]}"
+    unique_marker = f"default-dockerfile-{uuid4().hex[:8]}"
+
+    dockerfile_path = _get_mngr_default_dockerfile_path()
+    assert dockerfile_path.exists(), f"Default Dockerfile not found at {dockerfile_path}"
+
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "mngr",
+            "create",
+            agent_name,
+            "generic",
+            "--in",
+            "modal",
+            "--no-connect",
+            "--await-ready",
+            "--no-ensure-clean",
+            "--source",
+            str(temp_source_dir),
+            "-b",
+            f"--dockerfile={dockerfile_path}",
+            "--",
+            f"echo {unique_marker} && which uv && which claude && sleep 30",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=600,
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
