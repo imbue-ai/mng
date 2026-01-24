@@ -358,36 +358,30 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(temp_git_source_dir
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
     assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
 
-    # Verify file transfer by executing commands on the agent to check files exist
-    # Check tracked file (from git)
-    tracked_result = subprocess.run(
-        ["uv", "run", "mngr", "exec", agent_name, "--", "cat", "tracked.txt"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert tracked_result.returncode == 0, f"Failed to read tracked.txt: {tracked_result.stderr}"
-    assert "tracked content" in tracked_result.stdout, f"tracked.txt content mismatch: {tracked_result.stdout}"
+    # Verify file transfer by pulling files back from the agent
+    with tempfile.TemporaryDirectory() as pull_dir:
+        pull_result = subprocess.run(
+            ["uv", "run", "mngr", "pull", agent_name, pull_dir],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert pull_result.returncode == 0, f"Failed to pull files: {pull_result.stderr}\nstdout: {pull_result.stdout}"
 
-    # Check untracked file (transferred via rsync)
-    untracked_result = subprocess.run(
-        ["uv", "run", "mngr", "exec", agent_name, "--", "cat", "untracked.txt"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert untracked_result.returncode == 0, f"Failed to read untracked.txt: {untracked_result.stderr}"
-    assert "untracked content" in untracked_result.stdout, f"untracked.txt content mismatch: {untracked_result.stdout}"
+        # Check tracked file (from git)
+        tracked_path = Path(pull_dir) / "tracked.txt"
+        assert tracked_path.exists(), "tracked.txt not found in pulled files"
+        assert "tracked content" in tracked_path.read_text(), "tracked.txt content mismatch"
 
-    # Check marker file (transferred via rsync)
-    marker_result = subprocess.run(
-        ["uv", "run", "mngr", "exec", agent_name, "--", "cat", "marker.txt"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert marker_result.returncode == 0, f"Failed to read marker.txt: {marker_result.stderr}"
-    assert unique_marker in marker_result.stdout, f"marker.txt content mismatch: {marker_result.stdout}"
+        # Check untracked file (transferred via rsync)
+        untracked_path = Path(pull_dir) / "untracked.txt"
+        assert untracked_path.exists(), "untracked.txt not found in pulled files"
+        assert "untracked content" in untracked_path.read_text(), "untracked.txt content mismatch"
+
+        # Check marker file (transferred via rsync)
+        marker_path = Path(pull_dir) / "marker.txt"
+        assert marker_path.exists(), "marker.txt not found in pulled files"
+        assert unique_marker in marker_path.read_text(), "marker.txt content mismatch"
 
 
 @pytest.mark.acceptance
