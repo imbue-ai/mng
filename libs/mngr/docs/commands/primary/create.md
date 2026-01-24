@@ -46,10 +46,8 @@ See [connect options](./connect.md) (only applies if `--connect` is specified)
 - `--source-agent AGENT`: Source agent [alias: `--from-agent`]
 - `--source-host HOST`: Source host
 - `--source-path PATH`: Source path
-- `--include TEXT`: Include additional files matching glob pattern [repeatable]
-- `--exclude TEXT`: Exclude files matching glob pattern [repeatable]
-- `--include-file PATH`: Read include patterns from file
-- `--exclude-file PATH`: Read exclude patterns from file
+- `--[no-]rsync`: Use rsync for file transfer [default: rsync]
+- `--rsync-args TEXT`: Additional arguments to pass to rsync
 - `--[no-]include-git`: Include data from the `.git` directory [default: include-git]
 - `--include-unclean / --exclude-unclean`: Include staged, unstaged, and untracked files. [default: include if --no-ensure-clean, exclude if --ensure-clean]
 - `--[no-]include-gitignored`: Include files matching `.gitignore` [default: no-include-gitignored]

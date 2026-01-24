@@ -142,10 +142,8 @@ class CreateCliOptions(CommonCliOptions):
     copy_source: bool
     clone: bool
     worktree: bool
-    include: tuple[str, ...]
-    exclude: tuple[str, ...]
-    include_file: str | None
-    exclude_file: str | None
+    rsync: bool
+    rsync_args: str | None
     include_git: bool
     include_unclean: bool | None
     include_gitignored: bool
@@ -285,10 +283,8 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option(
     "--worktree", is_flag=True, help="Create a git worktree that shares objects and index with original repo"
 )
-@optgroup.option("--include", multiple=True, help="Include additional files matching glob pattern [repeatable]")
-@optgroup.option("--exclude", multiple=True, help="Exclude files matching glob pattern [repeatable]")
-@optgroup.option("--include-file", type=click.Path(exists=True), help="Read include patterns from file")
-@optgroup.option("--exclude-file", type=click.Path(exists=True), help="Read exclude patterns from file")
+@optgroup.option("--rsync/--no-rsync", default=True, show_default=True, help="Use rsync for file transfer")
+@optgroup.option("--rsync-args", help="Additional arguments to pass to rsync")
 @optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
 @optgroup.option("--base-branch", help="The starting point for the agent [default: current branch]")
 @optgroup.option(
@@ -800,10 +796,8 @@ def _parse_agent_opts(
 
     # parse source data options
     data_options = AgentDataOptions(
-        include_patterns=opts.include,
-        exclude_patterns=opts.exclude,
-        include_patterns_file=Path(opts.include_file) if opts.include_file else None,
-        exclude_patterns_file=Path(opts.exclude_file) if opts.exclude_file else None,
+        is_rsync_enabled=opts.rsync,
+        rsync_args=opts.rsync_args or "",
     )
 
     # Parse environment options
@@ -1134,7 +1128,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     one_line_description="Create and run an agent",
     synopsis="""mngr create [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
-    [--include <PATTERN>] [--exclude <PATTERN>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
+    [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot]
