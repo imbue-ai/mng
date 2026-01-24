@@ -277,14 +277,14 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--source-agent", "--from-agent", "source_agent", help="Source agent for cloning work_dir")
 @optgroup.option("--source-host", help="Source host")
 @optgroup.option("--source-path", help="Source path")
+@optgroup.option("--rsync/--no-rsync", default=True, show_default=True, help="Use rsync for file transfer")
+@optgroup.option("--rsync-args", help="Additional arguments to pass to rsync")
 @optgroup.group("Agent Git Configuration")
 @optgroup.option("--copy", "copy_source", is_flag=True, help="Copy source to isolated directory before running")
 @optgroup.option("--clone", is_flag=True, help="Create a git clone that just shares objects with original repo")
 @optgroup.option(
     "--worktree", is_flag=True, help="Create a git worktree that shares objects and index with original repo"
 )
-@optgroup.option("--rsync/--no-rsync", default=True, show_default=True, help="Use rsync for file transfer")
-@optgroup.option("--rsync-args", help="Additional arguments to pass to rsync")
 @optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
 @optgroup.option("--base-branch", help="The starting point for the agent [default: current branch]")
 @optgroup.option(
