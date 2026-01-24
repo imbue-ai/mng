@@ -231,6 +231,8 @@ class Host(HostInterface):
         timeout_seconds: float | None = None,
     ) -> CommandResult:
         """Execute a command and return the result."""
+        logger.debug(f"Executing command on host {self.id}: {command}")
+        logger.trace(f"Command details: user={user}, cwd={cwd}, env={env}, timeout={timeout_seconds}")
         success, output = self._run_shell_command(
             StringCommand(command),
             _su_user=user,
@@ -774,14 +776,16 @@ class Host(HostInterface):
         if target_has_git:
             logger.debug("Target already has .git, checking out current branch")
             result = self.execute_command(
-                "git checkout $(git rev-parse --abbrev-ref HEAD)",
+                f"git checkout $(git rev-parse --abbrev-ref HEAD) && git config --global --add safe.directory {target_path}",
                 cwd=target_path,
             )
             if not result.success:
                 logger.warning("Failed to checkout branch on target: {}", result.stderr)
         else:
             logger.debug("Initializing bare git repo on target")
-            result = self.execute_command(f"git init --bare {shlex.quote(str(target_path / '.git'))}")
+            result = self.execute_command(
+                f"git init --bare {shlex.quote(str(target_path / '.git'))} && git config --global --add safe.directory {target_path}"
+            )
             if not result.success:
                 raise MngrError(f"Failed to initialize git repo on target: {result.stderr}")
 
@@ -837,8 +841,15 @@ class Host(HostInterface):
                 git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
                 env["GIT_SSH_COMMAND"] = git_ssh_cmd
 
+            # don't bother pushing LFS objects - they can be transferred later as needed,
+            # and without this, it can take a ridiculously long time.
+            env["GIT_LFS_SKIP_PUSH"] = "1"
+
+            command_args = ["git", "-C", str(source_path), "push", "--mirror", git_url]
+            logger.trace(" ".join(command_args))
+            logger.trace("Running git push --mirror from local source to target with env: {}", env)
             result = subprocess.run(
-                ["git", "-C", str(source_path), "push", "--mirror", git_url],
+                command_args,
                 capture_output=True,
                 text=True,
                 env={**os.environ, **env} if env else None,
@@ -846,7 +857,6 @@ class Host(HostInterface):
             if result.returncode != 0:
                 raise MngrError(f"Failed to push git repo: {result.stderr}")
         else:
-            source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
             if target_ssh_info is not None:
                 user, hostname, port, key_path = target_ssh_info
                 git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"

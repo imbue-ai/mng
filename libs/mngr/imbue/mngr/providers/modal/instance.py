@@ -392,6 +392,8 @@ class ModalProviderInstance(BaseProviderInstance):
         # Check for required packages and install if missing
         self._check_and_install_packages(sandbox)
 
+        logger.debug("Configuring SSH keys in sandbox")
+
         # FIXME: this should use the correct host user's .ssh directory rather than assuming root
         # Create .ssh directory
         sandbox.exec("mkdir", "-p", "/root/.ssh").wait()
@@ -415,6 +417,8 @@ class ModalProviderInstance(BaseProviderInstance):
         # Set correct permissions on host key
         sandbox.exec("chmod", "600", "/etc/ssh/ssh_host_ed25519_key").wait()
         sandbox.exec("chmod", "644", "/etc/ssh/ssh_host_ed25519_key.pub").wait()
+
+        logger.debug("Starting sshd in sandbox")
 
         # Start sshd (-D: don't detach, -e: print errors to stdout)
         sandbox.exec("/usr/sbin/sshd", "-D", "-e")
