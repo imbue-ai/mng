@@ -11,13 +11,14 @@ from imbue.mngr.api.message import MessageResult
 from imbue.mngr.api.message import _agent_to_cel_context
 from imbue.mngr.api.message import _send_message_to_agent
 from imbue.mngr.api.message import send_message_to_agents
-from imbue.mngr.hosts.host import Host
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.hosts.host import Host
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
+from imbue.mngr.utils.testing import wait_for
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
@@ -257,23 +258,25 @@ def test_send_message_to_replaced_agent_succeeds(
         on_error=None,
     )
 
-    # Verify the message was actually sent by checking tmux pane content
-    session_name = f"{mngr_test_prefix}replaced-test"
-    capture_result = host.execute_command(
-        f"tmux capture-pane -t '{session_name}' -p",
-        timeout_seconds=5.0,
-    )
-
-    # Clean up
-    host.destroy_agent(agent)
-
     # Should succeed because tmux session exists even if state is REPLACED
     assert str(agent.name) in result.successful_agents
     assert len(result.failed_agents) == 0
 
-    # Verify the message was actually delivered to the tmux pane
-    assert capture_result.success, "Failed to capture tmux pane content"
-    assert test_message in capture_result.stdout, f"Message '{test_message}' not found in tmux pane output"
+    # Verify the message was actually sent by checking tmux pane content
+    # Use wait_for since tmux may not have rendered the message immediately
+    session_name = f"{mngr_test_prefix}replaced-test"
+
+    def message_in_pane() -> bool:
+        capture_result = host.execute_command(
+            f"tmux capture-pane -t '{session_name}' -p",
+            timeout_seconds=5.0,
+        )
+        return capture_result.success and test_message in capture_result.stdout
+
+    wait_for(message_in_pane, timeout=2.0, error_message=f"Message '{test_message}' not found in tmux pane output")
+
+    # Clean up
+    host.destroy_agent(agent)
 
 
 def test_send_message_to_agents_with_include_filter(
