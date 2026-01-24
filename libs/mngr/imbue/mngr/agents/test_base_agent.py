@@ -23,7 +23,9 @@ from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import Permission
+from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.utils.testing import capture_tmux_pane_contents
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import wait_for
 
@@ -668,8 +670,6 @@ def test_base_agent_lifecycle_hooks_are_noop(
     )
     host = local_provider.get_host(HostName("local"))
 
-    from imbue.mngr.interfaces.host import CreateAgentOptions
-
     options = CreateAgentOptions(
         name=AgentName("test"),
         agent_type=AgentTypeName("generic"),
@@ -774,8 +774,6 @@ def test_base_agent_send_message(
         our_agent.send_message("hello from test")
 
         # Verify the message was sent (captured in tmux pane)
-        from imbue.mngr.utils.testing import capture_tmux_pane_contents
-
         wait_for(
             lambda: "hello from test" in capture_tmux_pane_contents(session_name),
             timeout=5.0,
