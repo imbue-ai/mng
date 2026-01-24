@@ -10,7 +10,6 @@ import signal
 import socket
 import subprocess
 import tempfile
-import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -24,6 +23,7 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.ssh.backend import SSHHostConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
+from imbue.mngr.utils.testing import wait_for
 
 
 def find_free_port() -> int:
@@ -33,18 +33,15 @@ def find_free_port() -> int:
         return s.getsockname()[1]
 
 
-def wait_for_port(port: int, timeout: float = 10.0) -> bool:
-    """Wait for a port to become available."""
-    start = time.time()
-    while time.time() - start < timeout:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1.0)
-                s.connect(("127.0.0.1", port))
-                return True
-        except (socket.error, socket.timeout):
-            time.sleep(0.1)
-    return False
+def is_port_open(port: int) -> bool:
+    """Check if a port is open and accepting connections."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1.0)
+            s.connect(("127.0.0.1", port))
+            return True
+    except (OSError, socket.timeout):
+        return False
 
 
 @contextmanager
@@ -59,7 +56,12 @@ def local_sshd(
     sshd_path = shutil.which("sshd")
     if sshd_path is None:
         pytest.skip("sshd not found - install openssh-server")
-    assert sshd_path is not None  # help type checker understand pytest.skip doesn't return
+    # Assert needed for type narrowing since pytest.skip is typed as NoReturn
+    assert sshd_path is not None
+
+    # Ensure ~/.ssh directory exists for pyinfra's known_hosts handling
+    ssh_dir = Path.home() / ".ssh"
+    ssh_dir.mkdir(exist_ok=True)
 
     port = find_free_port()
 
@@ -120,8 +122,11 @@ AllowUsers {current_user}
 
         try:
             # Wait for sshd to start
-            if not wait_for_port(port, timeout=10.0):
-                raise RuntimeError("sshd failed to start within timeout")
+            wait_for(
+                lambda: is_port_open(port),
+                timeout=10.0,
+                error_message="sshd failed to start within timeout",
+            )
 
             yield port, host_key_path
 
@@ -160,6 +165,7 @@ def ssh_keypair() -> Generator[tuple[Path, Path], None, None]:
 
 
 @pytest.mark.integration
+@pytest.mark.timeout(60)
 def test_ssh_provider_create_and_get_host(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> None:
     """Test creating and getting a host via SSH provider."""
     with ssh_keypair() as (private_key, public_key):
@@ -209,6 +215,7 @@ def test_ssh_provider_create_and_get_host(temp_host_dir: Path, temp_mngr_ctx: Mn
 
 
 @pytest.mark.integration
+@pytest.mark.timeout(60)
 def test_ssh_provider_execute_command(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> None:
     """Test executing a command on an SSH host."""
     with ssh_keypair() as (private_key, public_key):
@@ -242,6 +249,7 @@ def test_ssh_provider_execute_command(temp_host_dir: Path, temp_mngr_ctx: MngrCo
 
 
 @pytest.mark.integration
+@pytest.mark.timeout(60)
 def test_ssh_provider_double_create_fails(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> None:
     """Test that creating a host twice fails."""
     with ssh_keypair() as (private_key, public_key):
@@ -275,6 +283,7 @@ def test_ssh_provider_double_create_fails(temp_host_dir: Path, temp_mngr_ctx: Mn
 
 
 @pytest.mark.integration
+@pytest.mark.timeout(60)
 def test_ssh_provider_start_host(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> None:
     """Test starting an already-registered host."""
     with ssh_keypair() as (private_key, public_key):
@@ -307,6 +316,7 @@ def test_ssh_provider_start_host(temp_host_dir: Path, temp_mngr_ctx: MngrContext
 
 
 @pytest.mark.integration
+@pytest.mark.timeout(60)
 def test_ssh_provider_destroy_removes_state(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> None:
     """Test that destroying a host removes its state."""
     with ssh_keypair() as (private_key, public_key):

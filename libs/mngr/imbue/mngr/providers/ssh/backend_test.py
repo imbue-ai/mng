@@ -123,8 +123,9 @@ def test_build_provider_instance_parses_hosts(temp_mngr_ctx: MngrContext) -> Non
     assert instance.hosts["server1"].user == "admin"
 
     assert instance.hosts["server2"].address == "192.168.1.2"
-    assert instance.hosts["server2"].port == 22  # default
-    assert instance.hosts["server2"].user == "root"  # default
+    # Verify default values are used
+    assert instance.hosts["server2"].port == 22
+    assert instance.hosts["server2"].user == "root"
 
 
 def test_build_provider_instance_with_key_file(temp_mngr_ctx: MngrContext) -> None:

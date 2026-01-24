@@ -15,6 +15,7 @@ from loguru import logger
 from pydantic import Field
 from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
+from pyinfra.api.exceptions import ConnectError as PyinfraConnectError
 from pyinfra.api.inventory import Inventory
 
 from imbue.mngr.errors import HostNotFoundError
@@ -309,7 +310,7 @@ class SSHProviderInstance(BaseProviderInstance):
             try:
                 host = self._create_host_object(host_id, host_name, host_config)
                 hosts.append(host)
-            except Exception as e:
+            except PyinfraConnectError as e:
                 logger.debug("Failed to create host object for {}: {}", host_name, e)
 
         return hosts

@@ -143,7 +143,7 @@ def test_get_host_resources_returns_defaults(temp_host_dir: Path, temp_mngr_ctx:
     class MockHost:
         id = HostId.generate()
 
-    resources = provider.get_host_resources(MockHost())  # type: ignore[arg-type]
+    resources = provider.get_host_resources(MockHost())  # ty: ignore[invalid-argument-type]
     assert resources.cpu.count >= 1
     assert resources.memory_gb >= 0
 
