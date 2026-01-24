@@ -231,8 +231,8 @@ class Host(HostInterface):
         timeout_seconds: float | None = None,
     ) -> CommandResult:
         """Execute a command and return the result."""
-        logger.debug(f"Executing command on host {self.id}: {command}")
-        logger.trace(f"Command details: user={user}, cwd={cwd}, env={env}, timeout={timeout_seconds}")
+        logger.debug("Executing command on host {}: {}", self.id, command)
+        logger.trace("Command details: user={}, cwd={}, env={}, timeout={}", user, cwd, env, timeout_seconds)
         success, output = self._run_shell_command(
             StringCommand(command),
             _su_user=user,
