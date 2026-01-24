@@ -957,7 +957,12 @@ class Host(HostInterface):
             else None
         )
 
-        rsync_args = ["rsync", "-a", "--delete"]
+        # Use --delete only for full syncs (no include_files).
+        # When using include_files, we're selectively adding files to an existing directory
+        # (e.g., after git push), so we shouldn't delete anything.
+        rsync_args = ["rsync", "-a"]
+        if not include_files:
+            rsync_args.append("--delete")
 
         if exclude_git:
             rsync_args.extend(["--exclude", ".git"])
