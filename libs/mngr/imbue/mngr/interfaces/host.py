@@ -550,6 +550,10 @@ class NamedCommand(FrozenModel):
 class AgentDataOptions(FrozenModel):
     """Options for what data to include from the source."""
 
+    # FIXME: remove the below, and replace with "is_rsync_enabled" and "rsync_args: str"
+    #  remove them both here, and from the create command line options
+    #  update the create.md documentation accordingly as well
+
     include_patterns: tuple[str, ...] = Field(
         default=(),
         description="Glob patterns for additional files to include",
