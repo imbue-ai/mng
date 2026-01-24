@@ -24,6 +24,7 @@ from pydantic import Field
 from pyinfra.api.command import StringCommand
 from pyinfra.connectors.util import CommandOutput
 
+from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.agents.agent_registry import get_agent_class
 from imbue.mngr.agents.agent_registry import get_agent_config_class
@@ -665,7 +666,17 @@ class Host(HostInterface):
         logger.debug("Creating agent work directory with copy_mode={}", options.copy_mode)
         if options.copy_mode == WorkDirCopyMode.WORKTREE:
             return self._create_work_dir_as_git_worktree(host, path, options)
+        elif options.copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE):
+            return self._create_work_dir_as_copy(host, path, options)
+        else:
+            raise SwitchError(f"Unsupported work dir copy mode: {options.copy_mode}")
 
+    def _create_work_dir_as_copy(
+        self,
+        host: HostInterface,
+        source_path: Path,
+        options: CreateAgentOptions,
+    ) -> Path:
         # Check if source and target are on the same host
         source_is_same_host = host.id == self.id
 
@@ -673,10 +684,10 @@ class Host(HostInterface):
         if options.target_path:
             work_dir_path = options.target_path
             # If target equals source and same host, it's in-place
-            is_generated_work_dir = not (source_is_same_host and path == work_dir_path)
+            is_generated_work_dir = not (source_is_same_host and source_path == work_dir_path)
         else:
             # No target path specified, use source path directly (in-place if same host)
-            work_dir_path = path
+            work_dir_path = source_path
             is_generated_work_dir = not source_is_same_host
 
         self._mkdir(work_dir_path)
@@ -684,6 +695,24 @@ class Host(HostInterface):
         # Track generated work directories at the host level
         if is_generated_work_dir:
             self._add_generated_work_dir(work_dir_path)
+
+        # FIXME: actually implement file transfer functionality by following the plan below:
+        # if a .git directory exists at source:
+        #     new_branch_name = self._determine_branch_name(options)
+        #     base_branch_name = options.git.base_branch or get_current_branch_name(source)
+        #     if a .git checkout already exists at the target:
+        #         run on target: cd /path/to && git checkout `git rev-parse --abbrev-ref HEAD`
+        #     else (if no .git directory exists at the target):
+        #         run on target: git init --bare /path/to/.git
+        #     run locally: git push --mirror ssh://user@remote/path/to/.git
+        #     run on target: cd /path/to && git config --bool core.bare false && git checkout -b new_branch_name base_branch_name
+        #     then assemble an rsync command to take care of the rest:
+        #     if options.data_options.is_include_unclean, include untracked/modified files
+        #     if options.data_options.is_include_gitignored, include gitignored files
+        #     if anything is included after considering the above two options, then run rsync
+        # if no .git directory exists at source, just use rsync to copy files over:
+        #     figure out the rsync source and target paths
+        #     include exclude arg for any .git directory
 
         return work_dir_path
 
@@ -722,7 +751,7 @@ class Host(HostInterface):
         return work_dir_path
 
     def _determine_branch_name(self, options: CreateAgentOptions) -> str:
-        """Determine the branch name for a worktree."""
+        """Determine the branch name for a new work_dir."""
         if options.git.new_branch_name:
             return options.git.new_branch_name
 
