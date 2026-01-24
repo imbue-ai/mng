@@ -7,6 +7,7 @@ import os
 import platform
 import shlex
 import subprocess
+import tempfile
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -731,19 +732,27 @@ class Host(HostInterface):
             source_has_git = result.success
 
         # Transfer files based on whether source has .git and whether we want to include it
-        if options.git and options.git.is_git_synced:
+        is_git_synced = options.git is not None and options.git.is_git_synced
+        # Exclude .git from rsync if user has specified any git options (they're making an explicit choice)
+        # If options.git is None, include .git (simple file copy of everything)
+        has_git_options = options.git is not None
+        if is_git_synced:
             # fall back to file copy if source is not a git repo
             if not source_has_git:
                 logger.warning("Source path is not a git repository, falling back to file copy")
-                self._rsync_files(host, source_path, work_dir_path, "--delete")
+                self._rsync_files(host, source_path, work_dir_path, "--delete", exclude_git=True)
             # Source is a git repo, transfer via git
             else:
                 self._transfer_git_repo(host, source_path, work_dir_path, options)
                 self._transfer_extra_files(host, source_path, work_dir_path, options)
 
-        # run rsync if enabled
+        # Run rsync if enabled. This is designed for adding extra files (e.g., data files not in git),
+        # not for full directory sync. By default, rsync does NOT use --delete, so existing files
+        # in the target won't be removed. Users can add --delete to rsync_args if they want
+        # full sync behavior with file deletion.
+        # Exclude .git from rsync if user specified git options (they're making an explicit choice about git handling)
         if options.data_options.is_rsync_enabled:
-            self._rsync_files(host, source_path, work_dir_path, extra_args=options.data_options.rsync_args)
+            self._rsync_files(host, source_path, work_dir_path, extra_args=options.data_options.rsync_args, exclude_git=has_git_options)
 
         return work_dir_path
 
@@ -934,14 +943,16 @@ class Host(HostInterface):
 
         logger.debug("Transferring {} extra files", len(files_to_include))
 
-        # FIXME: actually, let's write these to files instead--otherwise the command line can get really long, which is bad
-        rsync_args = []
-        for f in files_to_include:
-            rsync_args.extend(["--include", f])
-        rsync_args.extend(["--include", "*/"])
-        rsync_args.extend(["--exclude", "*"])
+        # Write files to a temp file to avoid command line length limits
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            files_from_path = Path(f.name)
+            for file_path in files_to_include:
+                f.write(file_path + "\n")
 
-        self._rsync_files(source_host, source_path, target_path, extra_args=" ".join(files_to_include))
+        try:
+            self._rsync_files(source_host, source_path, target_path, files_from=files_from_path, exclude_git=True)
+        finally:
+            files_from_path.unlink(missing_ok=True)
 
     def _rsync_files(
         self,
@@ -949,61 +960,94 @@ class Host(HostInterface):
         source_path: Path,
         target_path: Path,
         extra_args: str | None = None,
+        files_from: Path | None = None,
+        exclude_git: bool = False,
     ) -> None:
         """Run rsync to transfer files from source to target."""
         target_ssh_info = self._get_ssh_connection_info()
         source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
 
         rsync_args = ["rsync", "-rlpt"]
-        rsync_args.extend(["--exclude", ".git"])
+        if exclude_git:
+            rsync_args.extend(["--exclude", ".git"])
 
-        # FIXME: Handle extra_args here--split correctly based on spaces (using shlex.split perhaps?) and extend rsync_args
+        # Handle extra_args: parse using shlex.split for proper space handling
+        if extra_args:
+            rsync_args.extend(shlex.split(extra_args))
 
         source_str = str(source_path).rstrip("/") + "/"
         target_str = str(target_path).rstrip("/") + "/"
 
-        if source_host.is_local and self.is_local:
-            logger.debug("rsync: local to local")
-            rsync_args.extend([source_str, target_str])
-            result = subprocess.run(rsync_args, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise MngrError(f"rsync failed: {result.stderr}")
+        # Determine if rsync will run locally or remotely
+        # rsync runs remotely only in the "same host transfer" case when source_host is not local
+        # The last condition (source_host.is_local) covers the same-host-transfer local case
+        runs_locally = (
+            (source_host.is_local and self.is_local)
+            or (source_host.is_local and target_ssh_info is not None)
+            or (source_ssh_info is not None and self.is_local)
+            or (source_ssh_info is not None and target_ssh_info is not None)
+            or source_host.is_local
+        )
 
-        elif source_host.is_local and target_ssh_info is not None:
-            user, hostname, port, key_path = target_ssh_info
-            logger.debug("rsync: local to remote {}@{}:{}", user, hostname, port)
-            rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
-            rsync_args.extend([source_str, f"{user}@{hostname}:{target_str}"])
-            result = subprocess.run(rsync_args, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise MngrError(f"rsync failed: {result.stderr}")
+        # Handle files_from: for local runs use the local path, for remote runs copy to remote first
+        remote_files_from_path: Path | None = None
+        if files_from is not None:
+            if runs_locally:
+                rsync_args.extend(["--files-from", str(files_from)])
+            else:
+                # Copy the files-from content to the remote host
+                files_from_content = files_from.read_text()
+                remote_files_from_path = Path(f"/tmp/rsync_files_from_{os.getpid()}.txt")
+                source_host.write_text_file(remote_files_from_path, files_from_content)
+                rsync_args.extend(["--files-from", str(remote_files_from_path)])
 
-        elif source_ssh_info is not None and self.is_local:
-            user, hostname, port, key_path = source_ssh_info
-            logger.debug("rsync: remote to local from {}@{}:{}", user, hostname, port)
-            rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
-            rsync_args.extend([f"{user}@{hostname}:{source_str}", target_str])
-            result = subprocess.run(rsync_args, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise MngrError(f"rsync failed: {result.stderr}")
-
-        elif source_ssh_info is not None and target_ssh_info is not None:
-            logger.debug("rsync: remote to remote")
-            raise MngrError("Remote-to-remote file transfer is not yet supported.")
-
-        else:
-            logger.debug("rsync: same host transfer")
-            if source_host.is_local:
+        try:
+            if source_host.is_local and self.is_local:
+                logger.debug("rsync: local to local")
                 rsync_args.extend([source_str, target_str])
                 result = subprocess.run(rsync_args, capture_output=True, text=True)
                 if result.returncode != 0:
                     raise MngrError(f"rsync failed: {result.stderr}")
+
+            elif source_host.is_local and target_ssh_info is not None:
+                user, hostname, port, key_path = target_ssh_info
+                logger.debug("rsync: local to remote {}@{}:{}", user, hostname, port)
+                rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
+                rsync_args.extend([source_str, f"{user}@{hostname}:{target_str}"])
+                result = subprocess.run(rsync_args, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise MngrError(f"rsync failed: {result.stderr}")
+
+            elif source_ssh_info is not None and self.is_local:
+                user, hostname, port, key_path = source_ssh_info
+                logger.debug("rsync: remote to local from {}@{}:{}", user, hostname, port)
+                rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
+                rsync_args.extend([f"{user}@{hostname}:{source_str}", target_str])
+                result = subprocess.run(rsync_args, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise MngrError(f"rsync failed: {result.stderr}")
+
+            elif source_ssh_info is not None and target_ssh_info is not None:
+                logger.debug("rsync: remote to remote")
+                raise MngrError("Remote-to-remote file transfer is not yet supported.")
+
             else:
-                cmd = " ".join(shlex.quote(arg) for arg in rsync_args)
-                cmd += f" {shlex.quote(source_str)} {shlex.quote(target_str)}"
-                result = source_host.execute_command(cmd)
-                if not result.success:
-                    raise MngrError(f"rsync failed on remote host: {result.stderr}")
+                logger.debug("rsync: same host transfer")
+                if source_host.is_local:
+                    rsync_args.extend([source_str, target_str])
+                    result = subprocess.run(rsync_args, capture_output=True, text=True)
+                    if result.returncode != 0:
+                        raise MngrError(f"rsync failed: {result.stderr}")
+                else:
+                    cmd = " ".join(shlex.quote(arg) for arg in rsync_args)
+                    cmd += f" {shlex.quote(source_str)} {shlex.quote(target_str)}"
+                    result = source_host.execute_command(cmd)
+                    if not result.success:
+                        raise MngrError(f"rsync failed on remote host: {result.stderr}")
+        finally:
+            # Clean up remote files-from file if we created one
+            if remote_files_from_path is not None:
+                source_host.execute_command(f"rm -f {shlex.quote(str(remote_files_from_path))}")
 
     def _create_work_dir_as_git_worktree(
         self,
