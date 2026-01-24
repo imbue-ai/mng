@@ -530,7 +530,7 @@ class NamedCommand(FrozenModel):
         return cls(command=CommandString(s), window_name=None)
 
 
-class SourceDataOptions(FrozenModel):
+class AgentDataOptions(FrozenModel):
     """Options for what data to include from the source."""
 
     include_patterns: tuple[str, ...] = Field(
@@ -549,6 +549,7 @@ class SourceDataOptions(FrozenModel):
         default=None,
         description="File containing exclude patterns (one per line)",
     )
+    # FIXME: move these into AgentGitOptions instead
     is_include_git: bool = Field(
         default=True,
         description="Whether to include the .git directory",
@@ -598,6 +599,7 @@ class CreateAgentOptions(FrozenModel):
         default=None,
         description="Target path for the agent work_dir",
     )
+    # FIXME: move this option into the AgentGitOptions class instead
     copy_mode: WorkDirCopyMode | None = Field(
         default=None,
         description="How to set up the work_dir: copy, clone, or worktree",
@@ -619,8 +621,8 @@ class CreateAgentOptions(FrozenModel):
         default_factory=AgentGitOptions,
         description="Git configuration for the work_dir",
     )
-    data_options: SourceDataOptions = Field(
-        default_factory=SourceDataOptions,
+    data_options: AgentDataOptions = Field(
+        default_factory=AgentDataOptions,
         description="Options for what data to include from the source",
     )
     environment: AgentEnvironmentOptions = Field(
