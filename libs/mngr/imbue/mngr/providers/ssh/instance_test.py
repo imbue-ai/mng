@@ -153,3 +153,71 @@ def test_close_is_noop(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> None:
     provider = make_ssh_provider(temp_host_dir, temp_mngr_ctx)
     # Should not raise
     provider.close()
+
+
+def test_rename_host_with_nonexistent_host_raises_error(
+    temp_host_dir: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """rename_host should raise HostNotFoundError for non-existent host."""
+    provider = make_ssh_provider(temp_host_dir, temp_mngr_ctx)
+    fake_host_id = HostId.generate()
+
+    with pytest.raises(HostNotFoundError):
+        provider.rename_host(fake_host_id, HostName("test-host"))
+
+
+def test_rename_host_to_unconfigured_name_raises_error(
+    temp_host_dir: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """rename_host to unconfigured name should raise UserInputError."""
+    hosts = {
+        "host1": SSHHostConfig(address="localhost", port=22),
+        "host2": SSHHostConfig(address="localhost", port=2222),
+    }
+    provider = make_ssh_provider(temp_host_dir, temp_mngr_ctx, hosts=hosts)
+
+    # Manually create state for host1 (simulating a registered host)
+    host_id = HostId.generate()
+    state = {"host_id": str(host_id), "host_name": "host1"}
+    provider._write_host_state("host1", state)
+
+    with pytest.raises(UserInputError) as exc_info:
+        provider.rename_host(host_id, HostName("nonexistent-host"))
+    assert "not in SSH host pool configuration" in str(exc_info.value)
+
+
+def test_rename_host_updates_state_files(
+    temp_host_dir: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """rename_host should update state files correctly."""
+    hosts = {
+        "host1": SSHHostConfig(address="localhost", port=22),
+        "host2": SSHHostConfig(address="localhost", port=2222),
+    }
+    provider = make_ssh_provider(temp_host_dir, temp_mngr_ctx, hosts=hosts)
+
+    # Manually create state for host1 (simulating a registered host)
+    host_id = HostId.generate()
+    state = {"host_id": str(host_id), "host_name": "host1"}
+    provider._write_host_state("host1", state)
+
+    # Verify old state exists
+    old_state_path = provider._get_host_state_path("host1")
+    assert old_state_path.exists()
+
+    # Rename host1 to host2
+    renamed_host = provider.rename_host(host_id, HostName("host2"))
+
+    # Verify old state is deleted and new state exists
+    assert not old_state_path.exists()
+    new_state_path = provider._get_host_state_path("host2")
+    assert new_state_path.exists()
+
+    # Verify new state has correct content
+    new_state = provider._read_host_state("host2")
+    assert new_state is not None
+    assert new_state["host_id"] == str(host_id)
+    assert new_state["host_name"] == "host2"
+
+    # Verify returned host has correct ID
+    assert renamed_host.id == host_id
