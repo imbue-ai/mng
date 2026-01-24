@@ -1220,6 +1220,25 @@ def _create_minimal_agent(host: Host, temp_dir: Path, work_dir: Path | None = No
 # =============================================================================
 
 
+def _init_git_repo(path: Path, commit_message: str = "Initial commit") -> None:
+    """Helper to initialize a git repo with consistent env vars."""
+    subprocess.run(["git", "init"], cwd=path, capture_output=True, check=True)
+    subprocess.run(["git", "add", "."], cwd=path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", commit_message],
+        cwd=path,
+        capture_output=True,
+        check=True,
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "Test",
+            "GIT_AUTHOR_EMAIL": "test@test.com",
+            "GIT_COMMITTER_NAME": "Test",
+            "GIT_COMMITTER_EMAIL": "test@test.com",
+        },
+    )
+
+
 def test_get_ssh_connection_info_returns_none_for_local_host(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that _get_ssh_connection_info returns None for local hosts."""
     host, _ = host_with_temp_dir
@@ -1282,17 +1301,7 @@ def test_create_work_dir_copy_with_git(host_with_temp_dir: tuple[Host, Path]) ->
     source_path.mkdir()
     (source_path / "file1.txt").write_text("tracked content")
 
-    # Initialize git repo
-    subprocess.run(["git", "init"], cwd=source_path, capture_output=True, check=True)
-    subprocess.run(["git", "add", "."], cwd=source_path, capture_output=True, check=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=source_path,
-        capture_output=True,
-        check=True,
-        env={**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@test.com",
-             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@test.com"},
-    )
+    _init_git_repo(source_path)
 
     target_path = temp_dir / "target_with_git"
 
@@ -1397,17 +1406,7 @@ def test_create_work_dir_copy_with_gitignored_files(host_with_temp_dir: tuple[Ho
     (source_path / "tracked.txt").write_text("tracked")
     (source_path / ".gitignore").write_text("*.log\n")
 
-    # Initialize git repo and commit tracked file
-    subprocess.run(["git", "init"], cwd=source_path, capture_output=True, check=True)
-    subprocess.run(["git", "add", "."], cwd=source_path, capture_output=True, check=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=source_path,
-        capture_output=True,
-        check=True,
-        env={**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@test.com",
-             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@test.com"},
-    )
+    _init_git_repo(source_path)
 
     # Add gitignored file
     (source_path / "debug.log").write_text("log content")
@@ -1437,17 +1436,7 @@ def test_create_work_dir_copy_with_renamed_file(host_with_temp_dir: tuple[Host, 
     source_path.mkdir()
     (source_path / "old_name.txt").write_text("content")
 
-    # Initialize git repo and commit
-    subprocess.run(["git", "init"], cwd=source_path, capture_output=True, check=True)
-    subprocess.run(["git", "add", "."], cwd=source_path, capture_output=True, check=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=source_path,
-        capture_output=True,
-        check=True,
-        env={**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@test.com",
-             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@test.com"},
-    )
+    _init_git_repo(source_path)
 
     # Rename the file (use git mv to ensure status shows rename)
     subprocess.run(["git", "mv", "old_name.txt", "new_name.txt"], cwd=source_path, capture_output=True, check=True)
@@ -1477,17 +1466,7 @@ def test_create_work_dir_generates_new_branch(host_with_temp_dir: tuple[Host, Pa
     source_path.mkdir()
     (source_path / "file.txt").write_text("content")
 
-    # Initialize git repo
-    subprocess.run(["git", "init"], cwd=source_path, capture_output=True, check=True)
-    subprocess.run(["git", "add", "."], cwd=source_path, capture_output=True, check=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=source_path,
-        capture_output=True,
-        check=True,
-        env={**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@test.com",
-             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@test.com"},
-    )
+    _init_git_repo(source_path)
 
     target_path = temp_dir / "target_new_branch"
 
