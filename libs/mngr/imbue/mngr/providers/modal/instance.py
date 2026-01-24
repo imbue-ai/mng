@@ -30,6 +30,7 @@ import modal
 import modal.exception
 from dockerfile_parse import DockerfileParser
 from loguru import logger
+from pydantic import ConfigDict
 from pydantic import Field
 from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
@@ -133,6 +134,8 @@ class HostRecord(FrozenModel):
 
 class ModalProviderApp(FrozenModel):
     """Modal app, volume, etc,"""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     app: modal.App = Field(frozen=True, description="Modal app")
     volume: modal.Volume = Field(frozen=True, description="Modal volume for host records")
