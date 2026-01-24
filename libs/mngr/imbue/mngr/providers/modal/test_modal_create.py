@@ -385,7 +385,7 @@ def test_mngr_create_transfers_git_repo_with_new_branch(temp_git_source_dir: Pat
             "--no-ensure-clean",
             "--source",
             str(temp_git_source_dir),
-            "--new-branch",
+            "--new-branch=",
             "--",
             "git rev-parse --abbrev-ref HEAD && sleep 3600",
         ],
