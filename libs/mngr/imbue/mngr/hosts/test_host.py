@@ -1327,7 +1327,7 @@ def test_create_work_dir_copy_with_git(host_with_temp_dir: tuple[Host, Path]) ->
 
 
 def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test that .git is excluded when is_include_git is False."""
+    """Test that .git is excluded when not syncing git data."""
     host, temp_dir = host_with_temp_dir
 
     source_path = temp_dir / "source_exclude_git"
@@ -1344,7 +1344,7 @@ def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tup
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        git=AgentGitOptions(is_include_git=False),
+        git=AgentGitOptions(is_git_synced=False),
     )
 
     work_dir = host.create_agent_work_dir(host, source_path, options)

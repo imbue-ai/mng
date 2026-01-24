@@ -343,6 +343,10 @@ class HostInterface(MutableModel, ABC):
 class AgentGitOptions(FrozenModel):
     """Git-related options for the agent work_dir."""
 
+    is_git_synced: bool = Field(
+        default=True,
+        description="Whether to sync git data from the source repository",
+    )
     copy_mode: WorkDirCopyMode = Field(
         default=WorkDirCopyMode.COPY,
         description="How to set up the work_dir: copy, clone, or worktree",
@@ -370,10 +374,6 @@ class AgentGitOptions(FrozenModel):
     shallow_since: str | None = Field(
         default=None,
         description="Shallow clone since date",
-    )
-    is_include_git: bool = Field(
-        default=True,
-        description="Whether to include the .git directory",
     )
     is_include_unclean: bool = Field(
         # the default is true because we should not assume that git is even being used

@@ -731,12 +731,19 @@ class Host(HostInterface):
             source_has_git = result.success
 
         # Transfer files based on whether source has .git and whether we want to include it
-        is_include_git = options.git.is_include_git if options.git else True
-        if source_has_git and is_include_git:
-            self._transfer_git_repo(host, source_path, work_dir_path, options)
-            self._transfer_extra_files(host, source_path, work_dir_path, options)
-        else:
-            self._transfer_files_rsync(host, source_path, work_dir_path, options)
+        if options.git and options.git.is_git_synced:
+            # fall back to file copy if source is not a git repo
+            if not source_has_git:
+                logger.warning("Source path is not a git repository, falling back to file copy")
+                self._rsync_files(host, source_path, work_dir_path, "--delete")
+            # Source is a git repo, transfer via git
+            else:
+                self._transfer_git_repo(host, source_path, work_dir_path, options)
+                self._transfer_extra_files(host, source_path, work_dir_path, options)
+
+        # run rsync if enabled
+        if options.data_options.is_rsync_enabled:
+            self._rsync_files(host, source_path, work_dir_path, extra_args=options.data_options.rsync_args)
 
         return work_dir_path
 
@@ -926,47 +933,31 @@ class Host(HostInterface):
             return
 
         logger.debug("Transferring {} extra files", len(files_to_include))
-        self._rsync_files(source_host, source_path, target_path, include_files=files_to_include, exclude_git=True)
 
-    def _transfer_files_rsync(
-        self,
-        source_host: HostInterface,
-        source_path: Path,
-        target_path: Path,
-        options: CreateAgentOptions,
-    ) -> None:
-        """Transfer all files using rsync, optionally excluding .git."""
-        is_include_git = options.git.is_include_git if options.git else True
-        exclude_git = not is_include_git
-        self._rsync_files(source_host, source_path, target_path, exclude_git=exclude_git)
+        # FIXME: actually, let's write these to files instead--otherwise the command line can get really long, which is bad
+        rsync_args = []
+        for f in files_to_include:
+            rsync_args.extend(["--include", f])
+        rsync_args.extend(["--include", "*/"])
+        rsync_args.extend(["--exclude", "*"])
+
+        self._rsync_files(source_host, source_path, target_path, extra_args=" ".join(files_to_include))
 
     def _rsync_files(
         self,
         source_host: HostInterface,
         source_path: Path,
         target_path: Path,
-        include_files: list[str] | None = None,
-        exclude_git: bool = False,
+        extra_args: str | None = None,
     ) -> None:
         """Run rsync to transfer files from source to target."""
         target_ssh_info = self._get_ssh_connection_info()
         source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
 
-        # Use --delete only for full syncs (no include_files).
-        # When using include_files, we're selectively adding files to an existing directory
-        # (e.g., after git push), so we shouldn't delete anything.
-        rsync_args = ["rsync", "-a"]
-        if not include_files:
-            rsync_args.append("--delete")
+        rsync_args = ["rsync", "-rlpt"]
+        rsync_args.extend(["--exclude", ".git"])
 
-        if exclude_git:
-            rsync_args.extend(["--exclude", ".git"])
-
-        if include_files:
-            for f in include_files:
-                rsync_args.extend(["--include", f])
-            rsync_args.extend(["--include", "*/"])
-            rsync_args.extend(["--exclude", "*"])
+        # FIXME: Handle extra_args here--split correctly based on spaces (using shlex.split perhaps?) and extend rsync_args
 
         source_str = str(source_path).rstrip("/") + "/"
         target_str = str(target_path).rstrip("/") + "/"

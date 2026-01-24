@@ -789,7 +789,7 @@ def _parse_agent_opts(
             new_branch_prefix=opts.new_branch_prefix,
             depth=opts.depth,
             shallow_since=opts.shallow_since,
-            is_include_git=opts.include_git,
+            is_git_synced=opts.include_git,
             is_include_unclean=is_include_unclean,
             is_include_gitignored=opts.include_gitignored,
         )
