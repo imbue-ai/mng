@@ -24,7 +24,6 @@ from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import _is_macos
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import ActivityConfig
-from imbue.mngr.interfaces.host import AgentDataOptions
 from imbue.mngr.interfaces.host import AgentEnvironmentOptions
 from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
@@ -1345,7 +1344,7 @@ def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tup
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        data_options=AgentDataOptions(is_include_git=False),
+        git=AgentGitOptions(is_include_git=False),
     )
 
     work_dir = host.create_agent_work_dir(host, source_path, options)
@@ -1390,7 +1389,7 @@ def test_create_work_dir_copy_with_untracked_files(host_with_temp_dir: tuple[Hos
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        data_options=AgentDataOptions(is_include_unclean=True),
+        git=AgentGitOptions(is_include_unclean=True),
     )
 
     work_dir = host.create_agent_work_dir(host, source_path, options)
@@ -1421,7 +1420,7 @@ def test_create_work_dir_copy_with_gitignored_files(host_with_temp_dir: tuple[Ho
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        data_options=AgentDataOptions(is_include_gitignored=True),
+        git=AgentGitOptions(is_include_gitignored=True),
     )
 
     work_dir = host.create_agent_work_dir(host, source_path, options)
@@ -1451,7 +1450,7 @@ def test_create_work_dir_copy_with_renamed_file(host_with_temp_dir: tuple[Host, 
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        data_options=AgentDataOptions(is_include_unclean=True),
+        git=AgentGitOptions(is_include_unclean=True),
     )
 
     work_dir = host.create_agent_work_dir(host, source_path, options)

@@ -774,20 +774,29 @@ def _parse_agent_opts(
     else:
         new_branch = opts.new_branch
 
-    git = AgentGitOptions(
-        base_branch=opts.base_branch or _get_current_git_branch(source_location),
-        is_new_branch=is_new_branch,
-        new_branch_name=new_branch if new_branch else None,
-        new_branch_prefix=opts.new_branch_prefix,
-        depth=opts.depth,
-        shallow_since=opts.shallow_since,
-    )
-
-    # if the user didn't specify whether to include unclea, then infer from ensure_clean,
+    # if the user didn't specify whether to include unclean, then infer from ensure_clean
     if opts.include_unclean is None:
         is_include_unclean = False if opts.ensure_clean else True
     else:
         is_include_unclean = opts.include_unclean
+
+    # Build git options (None if copy_mode is None, meaning --in-place)
+    git: AgentGitOptions | None
+    if copy_mode is None:
+        git = None
+    else:
+        git = AgentGitOptions(
+            copy_mode=copy_mode,
+            base_branch=opts.base_branch or _get_current_git_branch(source_location),
+            is_new_branch=is_new_branch,
+            new_branch_name=new_branch if new_branch else None,
+            new_branch_prefix=opts.new_branch_prefix,
+            depth=opts.depth,
+            shallow_since=opts.shallow_since,
+            is_include_git=opts.include_git,
+            is_include_unclean=is_include_unclean,
+            is_include_gitignored=opts.include_gitignored,
+        )
 
     # parse source data options
     data_options = AgentDataOptions(
@@ -795,9 +804,6 @@ def _parse_agent_opts(
         exclude_patterns=opts.exclude,
         include_patterns_file=Path(opts.include_file) if opts.include_file else None,
         exclude_patterns_file=Path(opts.exclude_file) if opts.exclude_file else None,
-        is_include_git=opts.include_git,
-        is_include_unclean=is_include_unclean,
-        is_include_gitignored=opts.include_gitignored,
     )
 
     # Parse environment options
@@ -888,7 +894,6 @@ def _parse_agent_opts(
         agent_args=resolved_agent_args,
         user=opts.user,
         target_path=parsed_target_path,
-        copy_mode=copy_mode,
         is_copy_immediate=should_copy,
         initial_message=initial_message,
         message_delay_seconds=opts.message_delay,

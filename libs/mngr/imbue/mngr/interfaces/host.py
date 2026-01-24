@@ -343,6 +343,10 @@ class HostInterface(MutableModel, ABC):
 class AgentGitOptions(FrozenModel):
     """Git-related options for the agent work_dir."""
 
+    copy_mode: WorkDirCopyMode = Field(
+        default=WorkDirCopyMode.COPY,
+        description="How to set up the work_dir: copy, clone, or worktree",
+    )
     base_branch: str | None = Field(
         default=None,
         description="Starting branch for the agent (default: current branch)",
@@ -366,6 +370,19 @@ class AgentGitOptions(FrozenModel):
     shallow_since: str | None = Field(
         default=None,
         description="Shallow clone since date",
+    )
+    is_include_git: bool = Field(
+        default=True,
+        description="Whether to include the .git directory",
+    )
+    is_include_unclean: bool = Field(
+        # the default is true because we should not assume that git is even being used
+        default=True,
+        description="Whether to include uncommitted files",
+    )
+    is_include_gitignored: bool = Field(
+        default=False,
+        description="Whether to include files matching .gitignore",
     )
 
 
@@ -549,20 +566,6 @@ class AgentDataOptions(FrozenModel):
         default=None,
         description="File containing exclude patterns (one per line)",
     )
-    # FIXME: move these into AgentGitOptions instead
-    is_include_git: bool = Field(
-        default=True,
-        description="Whether to include the .git directory",
-    )
-    is_include_unclean: bool = Field(
-        # the default is true because we should not assume that git is even being used
-        default=True,
-        description="Whether to include uncommitted files",
-    )
-    is_include_gitignored: bool = Field(
-        default=False,
-        description="Whether to include files matching .gitignore",
-    )
 
 
 class CreateAgentOptions(FrozenModel):
@@ -599,11 +602,6 @@ class CreateAgentOptions(FrozenModel):
         default=None,
         description="Target path for the agent work_dir",
     )
-    # FIXME: move this option into the AgentGitOptions class instead
-    copy_mode: WorkDirCopyMode | None = Field(
-        default=None,
-        description="How to set up the work_dir: copy, clone, or worktree",
-    )
     is_copy_immediate: bool = Field(
         default=False,
         description="Whether to copy the source data immediately (before building the host) or after",
@@ -616,10 +614,9 @@ class CreateAgentOptions(FrozenModel):
         default=1.0,
         description="Delay in seconds before sending initial message (to allow agent startup)",
     )
-    # FIXME: actually this should be optional, since not all agents are guaranteed to have a git repo
-    git: AgentGitOptions = Field(
-        default_factory=AgentGitOptions,
-        description="Git configuration for the work_dir",
+    git: AgentGitOptions | None = Field(
+        default=None,
+        description="Git configuration for the work_dir (None if no git repo)",
     )
     data_options: AgentDataOptions = Field(
         default_factory=AgentDataOptions,
