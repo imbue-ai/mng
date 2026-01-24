@@ -131,6 +131,17 @@ class HostRecord(FrozenModel):
     snapshots: list[SnapshotRecord] = Field(default_factory=list, description="List of snapshots")
 
 
+class ModalProviderApp(FrozenModel):
+    """Modal app, volume, etc,"""
+
+    app: modal.App = Field(frozen=True, description="Modal app")
+    volume: modal.Volume = Field(frozen=True, description="Modal volume for host records")
+
+    def get_captured_output(self) -> str: ...
+
+    def close(self) -> None: ...
+
+
 class ModalProviderInstance(BaseProviderInstance):
     """Provider instance for managing Modal sandboxes as hosts.
 
@@ -147,7 +158,9 @@ class ModalProviderInstance(BaseProviderInstance):
     default_timeout: int = Field(frozen=True, description="Default sandbox timeout in seconds")
     default_cpu: float = Field(frozen=True, description="Default CPU cores")
     default_memory: float = Field(frozen=True, description="Default memory in GB")
-    # Reference to the backend class for calling its methods (typed as Any to avoid circular import)
+    # FIXME: this is silly. I've created a little class ModalProviderApp above, and we should use that instead doing this weird backwards reference
+    #  it was originally created to avoid circular imports, but the better way is to just make the ModalProviderApp and pass that in here, and remove this variable entirely
+    #  As part of doing this, also implement the methods on ModalProviderApp
     backend_cls: Any = Field(frozen=True, description="Backend class reference")
 
     @property

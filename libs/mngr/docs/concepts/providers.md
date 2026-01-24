@@ -60,6 +60,8 @@ See [`imbue/mngr/interfaces/provider.py`](../../imbue/mngr/interfaces/provider.p
 
 ## State Storage
 
-Each provider instance stores its own state about the hosts it manages. This is typically accomplished via tags and other metadata.
+Each provider instance should store *all* of its state *in the provider itself*. 
+This helps ensure that such state could be accessed by other (remote) `mngr` instances if needed.
+It also helps to keep `mngr` stateless (`mngr` should reconstruct the necessary state for any given command by querying provider instances, which then load the remote state).
 
-This keeps `mngr` stateless (it reconstructs the necessary state for any given command by querying provider instances).
+This state storage is typically accomplished via tags, remote disks/volumes, and other provider-specific metadata storage.
