@@ -765,6 +765,8 @@ def _parse_agent_opts(
     # new_branch: None = no new branch, "" = auto-generate name, "name" = use specified name
     is_new_branch = opts.new_branch is not None
 
+    # FIXME: idk about that--let's just say that the default is always to create a new branch. Update the help string in here, and all of the .md files that mention this flag as well
+    #  we'll need a --no-new-branch flag to override it (which we could then blow up here if you have --no-new-branch and --worktree together, since that doesn't work)
     # --worktree implies --new-branch
     if copy_mode == WorkDirCopyMode.WORKTREE and not is_new_branch:
         is_new_branch = True
