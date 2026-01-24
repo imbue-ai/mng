@@ -2,6 +2,7 @@ from typing import Any
 
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
+import imbue.mngr.providers.ssh.backend as ssh_backend_module
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.provider_registry import load_provider_configs_from_plugins
@@ -46,15 +47,16 @@ def reset_backend_registry() -> None:
 
 
 def load_local_backend_only(pm) -> None:
-    """Load only the local provider backend.
+    """Load only the local and SSH provider backends.
 
     This is used by tests to avoid depending on Modal credentials.
-    Unlike load_backends_from_plugins, this only registers the local backend.
+    Unlike load_backends_from_plugins, this only registers the local and SSH backends.
     """
     if _registry_state["backends_loaded"]:
         return
 
     pm.register(local_backend_module)
+    pm.register(ssh_backend_module)
     backends = pm.hook.register_provider_backend()
 
     for backend_class in backends:
@@ -72,6 +74,7 @@ def load_backends_from_plugins(pm) -> None:
 
     pm.register(local_backend_module)
     pm.register(modal_backend_module)
+    pm.register(ssh_backend_module)
     backends = pm.hook.register_provider_backend()
 
     for backend_class in backends:
