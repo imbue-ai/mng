@@ -297,6 +297,10 @@ class ModalProviderInstance(BaseProviderInstance):
         curl_check = sandbox.exec("sh", "-c", "command -v curl >/dev/null 2>&1 && echo yes || echo no")
         is_curl_installed = curl_check.stdout.read().strip() == "yes"
 
+        # Check if rsync is installed (required for file transfer)
+        rsync_check = sandbox.exec("sh", "-c", "command -v rsync >/dev/null 2>&1 && echo yes || echo no")
+        is_rsync_installed = rsync_check.stdout.read().strip() == "yes"
+
         # Determine which packages need installation
         packages_to_install: list[str] = []
         if not is_sshd_installed:
@@ -319,6 +323,13 @@ class ModalProviderInstance(BaseProviderInstance):
                 "Installing at runtime. For faster startup, consider using an image with curl pre-installed."
             )
             packages_to_install.append("curl")
+
+        if not is_rsync_installed:
+            logger.warning(
+                "rsync is not pre-installed in the base image. "
+                "Installing at runtime. For faster startup, consider using an image with rsync pre-installed."
+            )
+            packages_to_install.append("rsync")
 
         # Install missing packages
         if packages_to_install:

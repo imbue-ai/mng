@@ -180,11 +180,12 @@ def test_mngr_create_with_dockerfile_on_modal(temp_source_dir: Path) -> None:
     dockerfile_content = """\
 FROM debian:bookworm-slim
 
-# Install minimal dependencies for mngr to work (openssh, tmux)
+# Install minimal dependencies for mngr to work (openssh, tmux, rsync for file transfer)
 RUN apt-get update && apt-get install -y --no-install-recommends \\
     openssh-server \\
     tmux \\
     python3 \\
+    rsync \\
     && rm -rf /var/lib/apt/lists/*
 
 # Create a marker file to verify we're using the custom image
@@ -343,6 +344,7 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(temp_git_source_dir
             "modal",
             "--no-connect",
             "--await-ready",
+            "--no-ensure-clean",
             "--source",
             str(temp_git_source_dir),
             "--",
@@ -380,6 +382,7 @@ def test_mngr_create_transfers_git_repo_with_new_branch(temp_git_source_dir: Pat
             "modal",
             "--no-connect",
             "--await-ready",
+            "--no-ensure-clean",
             "--source",
             str(temp_git_source_dir),
             "--new-branch",
