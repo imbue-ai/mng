@@ -18,6 +18,7 @@ from pyinfra.api import State as PyinfraState
 from pyinfra.api.exceptions import ConnectError as PyinfraConnectError
 from pyinfra.api.inventory import Inventory
 
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import SnapshotsNotSupportedError
 from imbue.mngr.errors import UserInputError
@@ -34,7 +35,6 @@ from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
-from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 
 
@@ -180,16 +180,13 @@ class SSHProviderInstance(BaseProviderInstance):
         if name_str not in self.hosts:
             available = ", ".join(self.hosts.keys()) if self.hosts else "(none)"
             raise UserInputError(
-                f"Host '{name_str}' is not in the SSH host pool configuration. "
-                f"Available hosts: {available}"
+                f"Host '{name_str}' is not in the SSH host pool configuration. Available hosts: {available}"
             )
 
         # Check if host is already registered
         existing_state = self._read_host_state(name_str)
         if existing_state is not None:
-            raise UserInputError(
-                f"Host '{name_str}' is already registered. Use 'mngr destroy {name_str}' first."
-            )
+            raise UserInputError(f"Host '{name_str}' is already registered. Use 'mngr destroy {name_str}' first.")
 
         host_config = self.hosts[name_str]
         host_id = HostId.generate()
@@ -370,6 +367,7 @@ class SSHProviderInstance(BaseProviderInstance):
         """SSH provider does not support tags - returns empty dict."""
         return {}
 
+    # FIXME: each of these next 3 methods should raise NotImplementedError instead of being no-ops
     def set_host_tags(
         self,
         host: HostInterface | HostId,
@@ -413,8 +411,7 @@ class SSHProviderInstance(BaseProviderInstance):
         if new_name not in self.hosts:
             available = ", ".join(self.hosts.keys()) if self.hosts else "(none)"
             raise UserInputError(
-                f"Cannot rename to '{new_name}' - not in SSH host pool configuration. "
-                f"Available hosts: {available}"
+                f"Cannot rename to '{new_name}' - not in SSH host pool configuration. Available hosts: {available}"
             )
 
         # Update state file
