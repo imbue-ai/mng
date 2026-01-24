@@ -153,50 +153,6 @@ def test_connect_no_agent_found(
     assert result.exception is not None
 
 
-def test_connect_message_not_implemented(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that --message raises NotImplementedError."""
-    agent_name = f"test-connect-msg-{int(time.time())}"
-
-    with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name, 625314):
-        result = cli_runner.invoke(
-            connect,
-            [agent_name, "--message", "hello"],
-            obj=plugin_manager,
-        )
-
-        assert result.exit_code != 0
-        assert result.exception is not None
-        assert isinstance(result.exception, NotImplementedError)
-        assert "--message is not implemented yet" in str(result.exception)
-
-
-def test_connect_attach_command_option_not_implemented(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that --attach-command raises NotImplementedError."""
-    agent_name = f"test-connect-cmd-{int(time.time())}"
-
-    with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name, 514263):
-        result = cli_runner.invoke(
-            connect,
-            [agent_name, "--attach-command", "bash"],
-            obj=plugin_manager,
-        )
-
-        assert result.exit_code != 0
-        assert result.exception is not None
-        assert isinstance(result.exception, NotImplementedError)
-        assert "--attach-command is not implemented yet" in str(result.exception)
-
-
 def test_connect_start_restarts_stopped_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
