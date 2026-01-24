@@ -1906,6 +1906,7 @@ def test_transfer_extra_files_with_many_files(host_with_temp_dir: tuple[Host, Pa
         assert (work_dir / f"untracked_{i}.txt").read_text() == f"untracked content {i}"
 
 
+# FIXME: now that we have the static ssh host provider, we ought to be able to use that to stop using mocks here--just run a local sshd so that we can check if this works
 def test_rsync_files_remote_files_from_handling(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that files_from is copied to remote host when rsync runs remotely.
 

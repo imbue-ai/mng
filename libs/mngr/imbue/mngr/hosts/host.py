@@ -754,7 +754,13 @@ class Host(HostInterface):
         # full sync behavior with file deletion.
         # Exclude .git from rsync if user specified git options (they're making an explicit choice about git handling)
         if options.data_options.is_rsync_enabled:
-            self._rsync_files(host, source_path, work_dir_path, extra_args=options.data_options.rsync_args, exclude_git=has_git_options)
+            self._rsync_files(
+                host,
+                source_path,
+                work_dir_path,
+                extra_args=options.data_options.rsync_args,
+                exclude_git=has_git_options,
+            )
 
         return work_dir_path
 
@@ -987,6 +993,10 @@ class Host(HostInterface):
 
         source_str = str(source_path).rstrip("/") + "/"
         target_str = str(target_path).rstrip("/") + "/"
+
+        # FIXME: the whole rest of this file is really silly, plus there's no reason for remote-to-remote rsync to not be supported:
+        #  if the source is remote, just move the files_from over there first, then run the rsync from the source host.
+        #  Absolutely no need for all of this silly special casing and complexity!
 
         # Determine if rsync will run locally or remotely
         # rsync runs remotely only in the "same host transfer" case when source_host is not local
