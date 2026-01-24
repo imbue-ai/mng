@@ -374,6 +374,9 @@ class ModalProviderInstance(BaseProviderInstance):
         # Create mngr host directory
         sandbox.exec("mkdir", "-p", str(self.host_dir)).wait()
 
+    # FIXME: turn all of this *except* the last line (that starts sshd) into one gigantic disgusting shell command
+    #  The reason is that A) it can then be re-used by other providers, and B) it will be much faster to run as a single command rather than multiple exec calls
+    #  In particular, you'll need to make echo commands that emit lines with a particular prefix, then look for those in in the output (in order to get the warnings to show up to the user for the missing packages)
     def _start_sshd_in_sandbox(
         self,
         sandbox: modal.Sandbox,
@@ -389,6 +392,7 @@ class ModalProviderInstance(BaseProviderInstance):
         # Check for required packages and install if missing
         self._check_and_install_packages(sandbox)
 
+        # FIXME: this should use the correct host user's .ssh directory rather than assuming root
         # Create .ssh directory
         sandbox.exec("mkdir", "-p", "/root/.ssh").wait()
 
@@ -535,6 +539,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # Tag Management Helpers
     # =========================================================================
 
+    # FIXME: these next two methods should be moved off of the class to be static helper methods. Then they can be easily unit tested (and they should be)
     def _build_sandbox_tags(
         self,
         host_id: HostId,
@@ -817,6 +822,7 @@ class ModalProviderInstance(BaseProviderInstance):
         else:
             logger.debug("No sandbox found with host_id={}, may already be terminated", host_id)
 
+    # FIXME: a good deal of this logic seems duplicated with the create_host method; we should try to consolidate it into shared helper methods
     @handle_modal_auth_error
     def start_host(
         self,
