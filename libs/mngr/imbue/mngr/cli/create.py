@@ -226,6 +226,9 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--host", "--target-host", help="Use an existing host (by name or ID) [default: local]")
 @optgroup.option("--target", help="Target [HOST][:PATH]. Defaults to current dir if no other target args are given")
 @optgroup.option("--target-path", help="Directory to mount source inside agent host")
+@optgroup.option(
+    "--in-place", "in_place", is_flag=True, help="Run directly in source directory (no copy/clone/worktree)"
+)
 # FIXME: you can get yourself in a bit of a screwy situation if you DONT specify --project and you DO use a remote source (which comes from a different project)
 #   currently we have this assumption that your local dir and source are for the same project
 #   we should at least validate that, for remote sources, they end up having the exact same project inferred as locally
@@ -266,7 +269,7 @@ class CreateCliOptions(CommonCliOptions):
     default=None,
     help="Copy source work_dir immediately [default: copy if --no-connect]",
 )
-@optgroup.group("Agent Work Dir")
+@optgroup.group("Agent Source Work Dir")
 @optgroup.option(
     "--from",
     "--source",
@@ -276,9 +279,7 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--source-agent", "--from-agent", "source_agent", help="Source agent for cloning work_dir")
 @optgroup.option("--source-host", help="Source host")
 @optgroup.option("--source-path", help="Source path")
-@optgroup.option(
-    "--in-place", "in_place", is_flag=True, help="Run directly in source directory (no copy/clone/worktree)"
-)
+@optgroup.group("Agent Git Configuration")
 @optgroup.option("--copy", "copy_source", is_flag=True, help="Copy source to isolated directory before running")
 @optgroup.option("--clone", is_flag=True, help="Create a git clone that just shares objects with original repo")
 @optgroup.option(
@@ -289,19 +290,6 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--include-file", type=click.Path(exists=True), help="Read include patterns from file")
 @optgroup.option("--exclude-file", type=click.Path(exists=True), help="Read exclude patterns from file")
 @optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
-@optgroup.option(
-    "--include-unclean/--exclude-unclean",
-    "include_unclean",
-    default=None,
-    help="Include uncommitted files [default: include if --no-ensure-clean]",
-)
-@optgroup.option(
-    "--include-gitignored/--no-include-gitignored",
-    default=False,
-    show_default=True,
-    help="Include gitignored files",
-)
-@optgroup.group("Agent Git Configuration")
 @optgroup.option("--base-branch", help="The starting point for the agent [default: current branch]")
 @optgroup.option(
     "--new-branch",
@@ -317,6 +305,18 @@ class CreateCliOptions(CommonCliOptions):
 )
 @optgroup.option("--depth", type=int, help="Shallow clone depth [default: full]")
 @optgroup.option("--shallow-since", help="Shallow clone since date")
+@optgroup.option(
+    "--include-unclean/--exclude-unclean",
+    "include_unclean",
+    default=None,
+    help="Include uncommitted files [default: include if --no-ensure-clean]",
+)
+@optgroup.option(
+    "--include-gitignored/--no-include-gitignored",
+    default=False,
+    show_default=True,
+    help="Include gitignored files",
+)
 @optgroup.group("Agent Environment Variables")
 @optgroup.option("--env", "--agent-env", "agent_env", multiple=True, help="Set environment variable KEY=VALUE")
 @optgroup.option(
@@ -774,20 +774,29 @@ def _parse_agent_opts(
     else:
         new_branch = opts.new_branch
 
-    git = AgentGitOptions(
-        base_branch=opts.base_branch or _get_current_git_branch(source_location),
-        is_new_branch=is_new_branch,
-        new_branch_name=new_branch if new_branch else None,
-        new_branch_prefix=opts.new_branch_prefix,
-        depth=opts.depth,
-        shallow_since=opts.shallow_since,
-    )
-
-    # if the user didn't specify whether to include unclea, then infer from ensure_clean,
+    # if the user didn't specify whether to include unclean, then infer from ensure_clean
     if opts.include_unclean is None:
         is_include_unclean = False if opts.ensure_clean else True
     else:
         is_include_unclean = opts.include_unclean
+
+    # Build git options (None if copy_mode is None, meaning --in-place)
+    git: AgentGitOptions | None
+    if copy_mode is None:
+        git = None
+    else:
+        git = AgentGitOptions(
+            copy_mode=copy_mode,
+            base_branch=opts.base_branch or _get_current_git_branch(source_location),
+            is_new_branch=is_new_branch,
+            new_branch_name=new_branch if new_branch else None,
+            new_branch_prefix=opts.new_branch_prefix,
+            depth=opts.depth,
+            shallow_since=opts.shallow_since,
+            is_include_git=opts.include_git,
+            is_include_unclean=is_include_unclean,
+            is_include_gitignored=opts.include_gitignored,
+        )
 
     # parse source data options
     data_options = AgentDataOptions(
@@ -795,9 +804,6 @@ def _parse_agent_opts(
         exclude_patterns=opts.exclude,
         include_patterns_file=Path(opts.include_file) if opts.include_file else None,
         exclude_patterns_file=Path(opts.exclude_file) if opts.exclude_file else None,
-        is_include_git=opts.include_git,
-        is_include_unclean=is_include_unclean,
-        is_include_gitignored=opts.include_gitignored,
     )
 
     # Parse environment options
@@ -888,7 +894,6 @@ def _parse_agent_opts(
         agent_args=resolved_agent_args,
         user=opts.user,
         target_path=parsed_target_path,
-        copy_mode=copy_mode,
         is_copy_immediate=should_copy,
         initial_message=initial_message,
         message_delay_seconds=opts.message_delay,

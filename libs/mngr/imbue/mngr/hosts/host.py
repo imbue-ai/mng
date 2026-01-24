@@ -684,14 +684,14 @@ class Host(HostInterface):
         options: CreateAgentOptions,
     ) -> Path:
         """Create the work_dir directory for a new agent."""
-        logger.debug("Creating agent work directory with copy_mode={}", options.copy_mode)
-        if options.copy_mode == WorkDirCopyMode.WORKTREE:
+        copy_mode = options.git.copy_mode if options.git else WorkDirCopyMode.COPY
+        logger.debug("Creating agent work directory with copy_mode={}", copy_mode)
+        if copy_mode == WorkDirCopyMode.WORKTREE:
             return self._create_work_dir_as_git_worktree(host, path, options)
-        # FIXME: no, this should not be allowed to be None--that should be disallowed on the type, and handled at the CLI level
-        elif options.copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE, None):
+        elif copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE):
             return self._create_work_dir_as_copy(host, path, options)
         else:
-            raise SwitchError(f"Unsupported work dir copy mode: {options.copy_mode}")
+            raise SwitchError(f"Unsupported work dir copy mode: {copy_mode}")
 
     def _create_work_dir_as_copy(
         self,
@@ -731,7 +731,8 @@ class Host(HostInterface):
             source_has_git = result.success
 
         # Transfer files based on whether source has .git and whether we want to include it
-        if source_has_git and options.data_options.is_include_git:
+        is_include_git = options.git.is_include_git if options.git else True
+        if source_has_git and is_include_git:
             self._transfer_git_repo(host, source_path, work_dir_path, options)
             self._transfer_extra_files(host, source_path, work_dir_path, options)
         else:
@@ -750,7 +751,7 @@ class Host(HostInterface):
         logger.debug("Transferring git repository from {} to {}", source_path, target_path)
 
         new_branch_name = self._determine_branch_name(options)
-        if options.git.base_branch:
+        if options.git and options.git.base_branch:
             base_branch_name = options.git.base_branch
         elif source_host.is_local:
             base_branch_name = get_current_git_branch(source_path) or "main"
@@ -871,7 +872,8 @@ class Host(HostInterface):
         """Transfer extra files that aren't in git (untracked, modified, gitignored)."""
         files_to_include: list[str] = []
 
-        if options.data_options.is_include_unclean:
+        is_include_unclean = options.git.is_include_unclean if options.git else True
+        if is_include_unclean:
             if source_host.is_local:
                 result = subprocess.run(
                     ["git", "-C", str(source_path), "status", "--porcelain"],
@@ -895,7 +897,8 @@ class Host(HostInterface):
                                 filename = filename.split(" -> ")[1]
                             files_to_include.append(filename)
 
-        if options.data_options.is_include_gitignored:
+        is_include_gitignored = options.git.is_include_gitignored if options.git else False
+        if is_include_gitignored:
             if source_host.is_local:
                 result = subprocess.run(
                     ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
@@ -933,7 +936,8 @@ class Host(HostInterface):
         options: CreateAgentOptions,
     ) -> None:
         """Transfer all files using rsync, optionally excluding .git."""
-        exclude_git = not options.data_options.is_include_git
+        is_include_git = options.git.is_include_git if options.git else True
+        exclude_git = not is_include_git
         self._rsync_files(source_host, source_path, target_path, exclude_git=exclude_git)
 
     def _rsync_files(
@@ -1032,7 +1036,7 @@ class Host(HostInterface):
         logger.debug("Creating git worktree at {} with branch {}", work_dir_path, branch_name)
         cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
 
-        if options.git.base_branch:
+        if options.git and options.git.base_branch:
             cmd += f" {shlex.quote(options.git.base_branch)}"
 
         result = self.execute_command(cmd)
@@ -1046,12 +1050,12 @@ class Host(HostInterface):
 
     def _determine_branch_name(self, options: CreateAgentOptions) -> str:
         """Determine the branch name for a new work_dir."""
-        if options.git.new_branch_name:
+        if options.git and options.git.new_branch_name:
             return options.git.new_branch_name
 
         agent_name = options.name or AgentName("agent")
         provider_name = self.provider_instance.name
-        branch_prefix = options.git.new_branch_prefix
+        branch_prefix = options.git.new_branch_prefix if options.git else "mngr/"
 
         return f"{branch_prefix}{agent_name}-{provider_name}"
 
@@ -1160,7 +1164,7 @@ class Host(HostInterface):
         env_vars["MNGR_AGENT_WORK_DIR"] = str(agent.work_dir)
 
         # 2. Add programmatic defaults
-        env_vars["GIT_BASE_BRANCH"] = options.git.base_branch or ""
+        env_vars["GIT_BASE_BRANCH"] = (options.git.base_branch if options.git else None) or ""
 
         # 3. Load from env_files
         for env_file in options.environment.env_files:
