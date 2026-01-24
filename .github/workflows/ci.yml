@@ -135,7 +135,7 @@ jobs:
         run: uv sync --all-packages
 
       - name: Run acceptance tests
-        run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 --durations=20 --durations-min=1.0 -m "not release"' --no-cov -v --tb=short --splits 8 --group ${{ matrix.group }} --splitting-algorithm=least_duration
+        run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 durations=20 durations-min=1.0 -m "not release"' --no-cov -v --tb=short --splits 8 --group ${{ matrix.group }} --splitting-algorithm=least_duration
 
   # Release tests - runs only on main branch pushes
   test-release:
@@ -171,4 +171,4 @@ jobs:
         run: uv sync --all-packages
 
       - name: Run release tests
-        run: export IS_RELEASE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 --durations=20 --durations-min=1.0' --no-cov -v --tb=short --splits 8 --group ${{ matrix.group }} --splitting-algorithm=least_duration
+        run: export IS_RELEASE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 durations=20 durations-min=1.0' --no-cov -v --tb=short --splits 8 --group ${{ matrix.group }} --splitting-algorithm=least_duration
