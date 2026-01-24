@@ -687,6 +687,7 @@ class Host(HostInterface):
         logger.debug("Creating agent work directory with copy_mode={}", options.copy_mode)
         if options.copy_mode == WorkDirCopyMode.WORKTREE:
             return self._create_work_dir_as_git_worktree(host, path, options)
+        # FIXME: no, this should not be allowed to be None--that should be disallowed on the type, and handled at the CLI level
         elif options.copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE, None):
             return self._create_work_dir_as_copy(host, path, options)
         else:
@@ -806,10 +807,7 @@ class Host(HostInterface):
             if source_host.is_local:
                 git_url = str(target_path / ".git")
             else:
-                source_ssh_info = (
-                    source_host._get_ssh_connection_info()
-                    if isinstance(source_host, Host) else None
-                )
+                source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
                 if source_ssh_info is None:
                     raise MngrError("Cannot determine SSH connection info for remote source host")
                 user, hostname, port, key_path = source_ssh_info
@@ -847,10 +845,7 @@ class Host(HostInterface):
             if result.returncode != 0:
                 raise MngrError(f"Failed to push git repo: {result.stderr}")
         else:
-            source_ssh_info = (
-                source_host._get_ssh_connection_info()
-                if isinstance(source_host, Host) else None
-            )
+            source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
             if target_ssh_info is not None:
                 user, hostname, port, key_path = target_ssh_info
                 git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
@@ -951,11 +946,7 @@ class Host(HostInterface):
     ) -> None:
         """Run rsync to transfer files from source to target."""
         target_ssh_info = self._get_ssh_connection_info()
-        source_ssh_info = (
-            source_host._get_ssh_connection_info()
-            if isinstance(source_host, Host)
-            else None
-        )
+        source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
 
         # Use --delete only for full syncs (no include_files).
         # When using include_files, we're selectively adding files to an existing directory

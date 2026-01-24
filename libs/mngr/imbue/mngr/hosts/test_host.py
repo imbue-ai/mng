@@ -20,17 +20,17 @@ from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
-from imbue.mngr.hosts.host import _is_macos
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.hosts.host import _is_macos
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import ActivityConfig
+from imbue.mngr.interfaces.host import AgentDataOptions
 from imbue.mngr.interfaces.host import AgentEnvironmentOptions
 from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import FileModificationSpec
 from imbue.mngr.interfaces.host import NamedCommand
-from imbue.mngr.interfaces.host import SourceDataOptions
 from imbue.mngr.interfaces.host import UploadFileSpec
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentName
@@ -667,9 +667,7 @@ def test_start_agent_creates_process_group(
         # Get process group ID using platform-specific method
         if _is_macos():
             # macOS: use ps command
-            success, output = host._run_shell_command(
-                StringCommand(f"ps -o pgid= -p {pane_pid}")
-            )
+            success, output = host._run_shell_command(StringCommand(f"ps -o pgid= -p {pane_pid}"))
             assert success, f"Failed to get pgid for pid {pane_pid}"
         else:
             # Linux: use /proc filesystem (5th field in /proc/<pid>/stat is pgid)
@@ -1347,7 +1345,7 @@ def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tup
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        data_options=SourceDataOptions(is_include_git=False),
+        data_options=AgentDataOptions(is_include_git=False),
     )
 
     work_dir = host.create_agent_work_dir(host, source_path, options)
@@ -1373,8 +1371,13 @@ def test_create_work_dir_copy_with_untracked_files(host_with_temp_dir: tuple[Hos
         cwd=source_path,
         capture_output=True,
         check=True,
-        env={**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@test.com",
-             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@test.com"},
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "Test",
+            "GIT_AUTHOR_EMAIL": "test@test.com",
+            "GIT_COMMITTER_NAME": "Test",
+            "GIT_COMMITTER_EMAIL": "test@test.com",
+        },
     )
 
     # Add untracked file after commit
@@ -1387,7 +1390,7 @@ def test_create_work_dir_copy_with_untracked_files(host_with_temp_dir: tuple[Hos
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        data_options=SourceDataOptions(is_include_unclean=True),
+        data_options=AgentDataOptions(is_include_unclean=True),
     )
 
     work_dir = host.create_agent_work_dir(host, source_path, options)
@@ -1418,7 +1421,7 @@ def test_create_work_dir_copy_with_gitignored_files(host_with_temp_dir: tuple[Ho
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        data_options=SourceDataOptions(is_include_gitignored=True),
+        data_options=AgentDataOptions(is_include_gitignored=True),
     )
 
     work_dir = host.create_agent_work_dir(host, source_path, options)
@@ -1448,7 +1451,7 @@ def test_create_work_dir_copy_with_renamed_file(host_with_temp_dir: tuple[Host, 
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        data_options=SourceDataOptions(is_include_unclean=True),
+        data_options=AgentDataOptions(is_include_unclean=True),
     )
 
     work_dir = host.create_agent_work_dir(host, source_path, options)

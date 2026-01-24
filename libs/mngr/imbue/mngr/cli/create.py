@@ -40,6 +40,7 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import AgentDataOptions
 from imbue.mngr.interfaces.host import AgentEnvironmentOptions
 from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import AgentLifecycleOptions
@@ -49,7 +50,6 @@ from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import FileModificationSpec
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import NamedCommand
-from imbue.mngr.interfaces.host import SourceDataOptions
 from imbue.mngr.interfaces.host import UploadFileSpec
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
@@ -790,7 +790,7 @@ def _parse_agent_opts(
         is_include_unclean = opts.include_unclean
 
     # parse source data options
-    data_options = SourceDataOptions(
+    data_options = AgentDataOptions(
         include_patterns=opts.include,
         exclude_patterns=opts.exclude,
         include_patterns_file=Path(opts.include_file) if opts.include_file else None,
