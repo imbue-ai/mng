@@ -301,6 +301,10 @@ class ModalProviderInstance(BaseProviderInstance):
         rsync_check = sandbox.exec("sh", "-c", "command -v rsync >/dev/null 2>&1 && echo yes || echo no")
         is_rsync_installed = rsync_check.stdout.read().strip() == "yes"
 
+        # Check if git is installed (required for git repo transfer)
+        git_check = sandbox.exec("sh", "-c", "command -v git >/dev/null 2>&1 && echo yes || echo no")
+        is_git_installed = git_check.stdout.read().strip() == "yes"
+
         # Determine which packages need installation
         packages_to_install: list[str] = []
         if not is_sshd_installed:
@@ -330,6 +334,13 @@ class ModalProviderInstance(BaseProviderInstance):
                 "Installing at runtime. For faster startup, consider using an image with rsync pre-installed."
             )
             packages_to_install.append("rsync")
+
+        if not is_git_installed:
+            logger.warning(
+                "git is not pre-installed in the base image. "
+                "Installing at runtime. For faster startup, consider using an image with git pre-installed."
+            )
+            packages_to_install.append("git")
 
         # Install missing packages
         if packages_to_install:
