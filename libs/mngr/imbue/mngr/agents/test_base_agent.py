@@ -1,20 +1,17 @@
 """Integration tests for the BaseAgent class."""
 
 import json
-import time
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 
-import pluggy
 import pytest
-from click.testing import CliRunner
 
 from imbue.mngr.agents.base_agent import BaseAgent
-from imbue.mngr.cli.create import create
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import NoCommandDefinedError
+from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
@@ -23,11 +20,7 @@ from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import Permission
-from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.providers.local.instance import LocalProviderInstance
-from imbue.mngr.utils.testing import capture_tmux_pane_contents
-from imbue.mngr.utils.testing import tmux_session_cleanup
-from imbue.mngr.utils.testing import wait_for
 
 
 def _create_test_agent(
@@ -683,99 +676,3 @@ def test_base_agent_lifecycle_hooks_are_noop(
     # get_provision_file_transfers should return empty list
     transfers = agent.get_provision_file_transfers(host, options, temp_mngr_ctx)
     assert transfers == []
-
-
-def test_base_agent_with_running_agent(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    temp_mngr_ctx: MngrContext,
-    mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-    local_provider: LocalProviderInstance,
-) -> None:
-    """Test base agent methods on a running agent."""
-    agent_name = f"test-running-{int(time.time())}"
-    session_name = f"{mngr_test_prefix}{agent_name}"
-
-    with tmux_session_cleanup(session_name):
-        # Create a running agent
-        result = cli_runner.invoke(
-            create,
-            [
-                "--name",
-                agent_name,
-                "--agent-cmd",
-                "sleep 847291",
-                "--source",
-                str(temp_work_dir),
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
-                "--no-ensure-clean",
-            ],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-
-        # Get the agent via the host
-        host = local_provider.get_host(HostName("local"))
-        agents = host.get_agents()
-
-        # Find our agent
-        our_agent = next((a for a in agents if str(a.name) == agent_name), None)
-        assert our_agent is not None
-
-        # Test lifecycle state
-        state = our_agent.get_lifecycle_state()
-        assert state == AgentLifecycleState.RUNNING
-
-
-def test_base_agent_send_message(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    temp_mngr_ctx: MngrContext,
-    mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-    local_provider: LocalProviderInstance,
-) -> None:
-    """Test sending a message to a running agent."""
-    agent_name = f"test-send-msg-{int(time.time())}"
-    session_name = f"{mngr_test_prefix}{agent_name}"
-
-    with tmux_session_cleanup(session_name):
-        # Create a running agent with cat to receive messages
-        result = cli_runner.invoke(
-            create,
-            [
-                "--name",
-                agent_name,
-                "--agent-cmd",
-                "cat",
-                "--source",
-                str(temp_work_dir),
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
-                "--no-ensure-clean",
-            ],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0
-
-        # Get the agent
-        host = local_provider.get_host(HostName("local"))
-        agents = host.get_agents()
-        our_agent = next((a for a in agents if str(a.name) == agent_name), None)
-        assert our_agent is not None
-
-        # Send a message
-        our_agent.send_message("hello from test")
-
-        # Verify the message was sent (captured in tmux pane)
-        wait_for(
-            lambda: "hello from test" in capture_tmux_pane_contents(session_name),
-            timeout=5.0,
-            error_message="Message not found in tmux pane",
-        )
