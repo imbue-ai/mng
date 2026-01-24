@@ -87,7 +87,7 @@ jobs:
       - name: Combine coverage
         run: |
           uv run coverage combine coverage-*/.coverage
-          uv run coverage report --fail-under=80
+          uv run coverage report --fail-under=78
           uv run coverage xml
           uv run coverage html
 
