@@ -17,11 +17,9 @@ from pathlib import Path
 import pytest
 
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.errors import HostNotFoundError
-from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
-from imbue.mngr.providers.ssh.backend import SSHHostConfig
+from imbue.mngr.providers.ssh.instance import SSHHostConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
 from imbue.mngr.utils.testing import wait_for
 
@@ -166,7 +164,7 @@ def ssh_keypair() -> Generator[tuple[Path, Path], None, None]:
 
 @pytest.fixture
 def ssh_provider(
-    temp_host_dir: Path, temp_mngr_ctx: MngrContext
+    temp_mngr_ctx: MngrContext,
 ) -> Generator[SSHProviderInstance, None, None]:
     """Fixture that provides an SSHProviderInstance connected to a local sshd."""
     with ssh_keypair() as (private_key, public_key):
@@ -186,7 +184,6 @@ def ssh_provider(
                         key_file=private_key,
                     ),
                 },
-                local_state_dir=temp_host_dir,
             )
 
             yield provider
@@ -194,92 +191,62 @@ def ssh_provider(
 
 @pytest.mark.integration
 @pytest.mark.timeout(60)
-def test_ssh_provider_create_and_get_host(ssh_provider: SSHProviderInstance, temp_host_dir: Path) -> None:
-    """Test creating and getting a host via SSH provider."""
-    # Create host
-    host = ssh_provider.create_host(HostName("localhost"))
+def test_ssh_provider_get_host(ssh_provider: SSHProviderInstance) -> None:
+    """Test getting a host by name from SSH provider."""
+    host = ssh_provider.get_host(HostName("localhost"))
     assert host is not None
     assert host.id is not None
 
-    # Get host by ID
-    retrieved_host = ssh_provider.get_host(host.id)
-    assert retrieved_host.id == host.id
 
-    # Get host by name
-    retrieved_host_by_name = ssh_provider.get_host(HostName("localhost"))
-    assert retrieved_host_by_name.id == host.id
+@pytest.mark.integration
+@pytest.mark.timeout(60)
+def test_ssh_provider_get_host_by_id(ssh_provider: SSHProviderInstance) -> None:
+    """Test getting a host by ID from SSH provider."""
+    host_by_name = ssh_provider.get_host(HostName("localhost"))
+    host_by_id = ssh_provider.get_host(host_by_name.id)
+    assert host_by_id.id == host_by_name.id
 
-    # List hosts
+
+@pytest.mark.integration
+@pytest.mark.timeout(60)
+def test_ssh_provider_list_hosts(ssh_provider: SSHProviderInstance) -> None:
+    """Test listing hosts from SSH provider."""
     hosts = ssh_provider.list_hosts()
     assert len(hosts) == 1
-    assert hosts[0].id == host.id
-
-    # Destroy host
-    ssh_provider.destroy_host(host)
-
-    # Should no longer be listed
-    hosts = ssh_provider.list_hosts()
-    assert len(hosts) == 0
+    assert hosts[0].id == ssh_provider.get_host(HostName("localhost")).id
 
 
 @pytest.mark.integration
 @pytest.mark.timeout(60)
 def test_ssh_provider_execute_command(ssh_provider: SSHProviderInstance) -> None:
     """Test executing a command on an SSH host."""
-    host = ssh_provider.create_host(HostName("localhost"))
-    try:
-        # Execute a simple command
-        result = host.execute_command("echo hello")
-        assert result.success
-        assert "hello" in result.stdout
-    finally:
+    host = ssh_provider.get_host(HostName("localhost"))
+    result = host.execute_command("echo hello")
+    assert result.success
+    assert "hello" in result.stdout
+
+
+@pytest.mark.integration
+@pytest.mark.timeout(60)
+def test_ssh_provider_host_id_is_deterministic(ssh_provider: SSHProviderInstance) -> None:
+    """Test that the same host name always produces the same host ID."""
+    host1 = ssh_provider.get_host(HostName("localhost"))
+    host2 = ssh_provider.get_host(HostName("localhost"))
+    assert host1.id == host2.id
+
+
+@pytest.mark.integration
+@pytest.mark.timeout(60)
+def test_ssh_provider_create_host_raises_not_implemented(ssh_provider: SSHProviderInstance) -> None:
+    """Test that create_host raises NotImplementedError."""
+    with pytest.raises(NotImplementedError):
+        ssh_provider.create_host(HostName("localhost"))
+
+
+@pytest.mark.integration
+@pytest.mark.timeout(60)
+def test_ssh_provider_destroy_host_raises_not_implemented(ssh_provider: SSHProviderInstance) -> None:
+    """Test that destroy_host raises NotImplementedError."""
+    host = ssh_provider.get_host(HostName("localhost"))
+    with pytest.raises(NotImplementedError):
         ssh_provider.destroy_host(host)
-
-
-@pytest.mark.integration
-@pytest.mark.timeout(60)
-def test_ssh_provider_double_create_fails(ssh_provider: SSHProviderInstance) -> None:
-    """Test that creating a host twice fails."""
-    host = ssh_provider.create_host(HostName("localhost"))
-    try:
-        # Creating again should fail
-        with pytest.raises(UserInputError) as exc_info:
-            ssh_provider.create_host(HostName("localhost"))
-        assert "already registered" in str(exc_info.value)
-    finally:
-        ssh_provider.destroy_host(host)
-
-
-@pytest.mark.integration
-@pytest.mark.timeout(60)
-def test_ssh_provider_start_host(ssh_provider: SSHProviderInstance) -> None:
-    """Test starting an already-registered host."""
-    host1 = ssh_provider.create_host(HostName("localhost"))
-    try:
-        # start_host should return the same host
-        host2 = ssh_provider.start_host(host1.id)
-        assert host2.id == host1.id
-    finally:
-        ssh_provider.destroy_host(host1)
-
-
-@pytest.mark.integration
-@pytest.mark.timeout(60)
-def test_ssh_provider_destroy_removes_state(ssh_provider: SSHProviderInstance, temp_host_dir: Path) -> None:
-    """Test that destroying a host removes its state."""
-    host = ssh_provider.create_host(HostName("localhost"))
-    host_id = host.id
-
-    # State file should exist
-    state_path = temp_host_dir / "providers" / "ssh" / "localhost.json"
-    assert state_path.exists()
-
-    # Destroy the host
-    ssh_provider.destroy_host(host_id)
-
-    # State file should be gone
-    assert not state_path.exists()
-
-    # Getting the host should fail
-    with pytest.raises(HostNotFoundError):
-        ssh_provider.get_host(host_id)
