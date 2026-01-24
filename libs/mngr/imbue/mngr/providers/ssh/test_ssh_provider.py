@@ -164,194 +164,122 @@ def ssh_keypair() -> Generator[tuple[Path, Path], None, None]:
         yield key_path, Path(f"{key_path}.pub")
 
 
+@pytest.fixture
+def ssh_provider(
+    temp_host_dir: Path, temp_mngr_ctx: MngrContext
+) -> Generator[SSHProviderInstance, None, None]:
+    """Fixture that provides an SSHProviderInstance connected to a local sshd."""
+    with ssh_keypair() as (private_key, public_key):
+        public_key_content = public_key.read_text()
+
+        with local_sshd(public_key_content) as (port, _host_key):
+            current_user = os.environ.get("USER", "root")
+            provider = SSHProviderInstance(
+                name=ProviderInstanceName("ssh-test"),
+                host_dir=Path("/tmp/mngr-test"),
+                mngr_ctx=temp_mngr_ctx,
+                hosts={
+                    "localhost": SSHHostConfig(
+                        address="127.0.0.1",
+                        port=port,
+                        user=current_user,
+                        key_file=private_key,
+                    ),
+                },
+                local_state_dir=temp_host_dir,
+            )
+
+            yield provider
+
+
 @pytest.mark.integration
 @pytest.mark.timeout(60)
-def test_ssh_provider_create_and_get_host(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> None:
+def test_ssh_provider_create_and_get_host(ssh_provider: SSHProviderInstance, temp_host_dir: Path) -> None:
     """Test creating and getting a host via SSH provider."""
-    with ssh_keypair() as (private_key, public_key):
-        public_key_content = public_key.read_text()
+    # Create host
+    host = ssh_provider.create_host(HostName("localhost"))
+    assert host is not None
+    assert host.id is not None
 
-        with local_sshd(public_key_content) as (port, _host_key):
-            current_user = os.environ.get("USER", "root")
-            provider = SSHProviderInstance(
-                name=ProviderInstanceName("ssh-test"),
-                host_dir=Path("/tmp/mngr-test"),
-                mngr_ctx=temp_mngr_ctx,
-                hosts={
-                    "localhost": SSHHostConfig(
-                        address="127.0.0.1",
-                        port=port,
-                        user=current_user,
-                        key_file=private_key,
-                    ),
-                },
-                local_state_dir=temp_host_dir,
-            )
+    # Get host by ID
+    retrieved_host = ssh_provider.get_host(host.id)
+    assert retrieved_host.id == host.id
 
-            # Create host
-            host = provider.create_host(HostName("localhost"))
-            assert host is not None
-            assert host.id is not None
+    # Get host by name
+    retrieved_host_by_name = ssh_provider.get_host(HostName("localhost"))
+    assert retrieved_host_by_name.id == host.id
 
-            # Get host by ID
-            retrieved_host = provider.get_host(host.id)
-            assert retrieved_host.id == host.id
+    # List hosts
+    hosts = ssh_provider.list_hosts()
+    assert len(hosts) == 1
+    assert hosts[0].id == host.id
 
-            # Get host by name
-            retrieved_host_by_name = provider.get_host(HostName("localhost"))
-            assert retrieved_host_by_name.id == host.id
+    # Destroy host
+    ssh_provider.destroy_host(host)
 
-            # List hosts
-            hosts = provider.list_hosts()
-            assert len(hosts) == 1
-            assert hosts[0].id == host.id
-
-            # Destroy host
-            provider.destroy_host(host)
-
-            # Should no longer be listed
-            hosts = provider.list_hosts()
-            assert len(hosts) == 0
+    # Should no longer be listed
+    hosts = ssh_provider.list_hosts()
+    assert len(hosts) == 0
 
 
 @pytest.mark.integration
 @pytest.mark.timeout(60)
-def test_ssh_provider_execute_command(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> None:
+def test_ssh_provider_execute_command(ssh_provider: SSHProviderInstance) -> None:
     """Test executing a command on an SSH host."""
-    with ssh_keypair() as (private_key, public_key):
-        public_key_content = public_key.read_text()
-
-        with local_sshd(public_key_content) as (port, _host_key):
-            current_user = os.environ.get("USER", "root")
-            provider = SSHProviderInstance(
-                name=ProviderInstanceName("ssh-test"),
-                host_dir=Path("/tmp/mngr-test"),
-                mngr_ctx=temp_mngr_ctx,
-                hosts={
-                    "localhost": SSHHostConfig(
-                        address="127.0.0.1",
-                        port=port,
-                        user=current_user,
-                        key_file=private_key,
-                    ),
-                },
-                local_state_dir=temp_host_dir,
-            )
-
-            host = provider.create_host(HostName("localhost"))
-            try:
-                # Execute a simple command
-                result = host.execute_command("echo hello")
-                assert result.success
-                assert "hello" in result.stdout
-            finally:
-                provider.destroy_host(host)
+    host = ssh_provider.create_host(HostName("localhost"))
+    try:
+        # Execute a simple command
+        result = host.execute_command("echo hello")
+        assert result.success
+        assert "hello" in result.stdout
+    finally:
+        ssh_provider.destroy_host(host)
 
 
 @pytest.mark.integration
 @pytest.mark.timeout(60)
-def test_ssh_provider_double_create_fails(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> None:
+def test_ssh_provider_double_create_fails(ssh_provider: SSHProviderInstance) -> None:
     """Test that creating a host twice fails."""
-    with ssh_keypair() as (private_key, public_key):
-        public_key_content = public_key.read_text()
-
-        with local_sshd(public_key_content) as (port, _host_key):
-            current_user = os.environ.get("USER", "root")
-            provider = SSHProviderInstance(
-                name=ProviderInstanceName("ssh-test"),
-                host_dir=Path("/tmp/mngr-test"),
-                mngr_ctx=temp_mngr_ctx,
-                hosts={
-                    "localhost": SSHHostConfig(
-                        address="127.0.0.1",
-                        port=port,
-                        user=current_user,
-                        key_file=private_key,
-                    ),
-                },
-                local_state_dir=temp_host_dir,
-            )
-
-            host = provider.create_host(HostName("localhost"))
-            try:
-                # Creating again should fail
-                with pytest.raises(UserInputError) as exc_info:
-                    provider.create_host(HostName("localhost"))
-                assert "already registered" in str(exc_info.value)
-            finally:
-                provider.destroy_host(host)
+    host = ssh_provider.create_host(HostName("localhost"))
+    try:
+        # Creating again should fail
+        with pytest.raises(UserInputError) as exc_info:
+            ssh_provider.create_host(HostName("localhost"))
+        assert "already registered" in str(exc_info.value)
+    finally:
+        ssh_provider.destroy_host(host)
 
 
 @pytest.mark.integration
 @pytest.mark.timeout(60)
-def test_ssh_provider_start_host(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> None:
+def test_ssh_provider_start_host(ssh_provider: SSHProviderInstance) -> None:
     """Test starting an already-registered host."""
-    with ssh_keypair() as (private_key, public_key):
-        public_key_content = public_key.read_text()
-
-        with local_sshd(public_key_content) as (port, _host_key):
-            current_user = os.environ.get("USER", "root")
-            provider = SSHProviderInstance(
-                name=ProviderInstanceName("ssh-test"),
-                host_dir=Path("/tmp/mngr-test"),
-                mngr_ctx=temp_mngr_ctx,
-                hosts={
-                    "localhost": SSHHostConfig(
-                        address="127.0.0.1",
-                        port=port,
-                        user=current_user,
-                        key_file=private_key,
-                    ),
-                },
-                local_state_dir=temp_host_dir,
-            )
-
-            host1 = provider.create_host(HostName("localhost"))
-            try:
-                # start_host should return the same host
-                host2 = provider.start_host(host1.id)
-                assert host2.id == host1.id
-            finally:
-                provider.destroy_host(host1)
+    host1 = ssh_provider.create_host(HostName("localhost"))
+    try:
+        # start_host should return the same host
+        host2 = ssh_provider.start_host(host1.id)
+        assert host2.id == host1.id
+    finally:
+        ssh_provider.destroy_host(host1)
 
 
 @pytest.mark.integration
 @pytest.mark.timeout(60)
-def test_ssh_provider_destroy_removes_state(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> None:
+def test_ssh_provider_destroy_removes_state(ssh_provider: SSHProviderInstance, temp_host_dir: Path) -> None:
     """Test that destroying a host removes its state."""
-    with ssh_keypair() as (private_key, public_key):
-        public_key_content = public_key.read_text()
+    host = ssh_provider.create_host(HostName("localhost"))
+    host_id = host.id
 
-        with local_sshd(public_key_content) as (port, _host_key):
-            current_user = os.environ.get("USER", "root")
-            provider = SSHProviderInstance(
-                name=ProviderInstanceName("ssh-test"),
-                host_dir=Path("/tmp/mngr-test"),
-                mngr_ctx=temp_mngr_ctx,
-                hosts={
-                    "localhost": SSHHostConfig(
-                        address="127.0.0.1",
-                        port=port,
-                        user=current_user,
-                        key_file=private_key,
-                    ),
-                },
-                local_state_dir=temp_host_dir,
-            )
+    # State file should exist
+    state_path = temp_host_dir / "providers" / "ssh" / "localhost.json"
+    assert state_path.exists()
 
-            host = provider.create_host(HostName("localhost"))
-            host_id = host.id
+    # Destroy the host
+    ssh_provider.destroy_host(host_id)
 
-            # State file should exist
-            state_path = temp_host_dir / "providers" / "ssh" / "localhost.json"
-            assert state_path.exists()
+    # State file should be gone
+    assert not state_path.exists()
 
-            # Destroy the host
-            provider.destroy_host(host_id)
-
-            # State file should be gone
-            assert not state_path.exists()
-
-            # Getting the host should fail
-            with pytest.raises(HostNotFoundError):
-                provider.get_host(host_id)
+    # Getting the host should fail
+    with pytest.raises(HostNotFoundError):
+        ssh_provider.get_host(host_id)
