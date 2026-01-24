@@ -98,15 +98,11 @@ Example configuration in mngr.toml:
                     host_data["key_file"] = Path(host_data["key_file"]).expanduser()
                 hosts[host_name] = SSHHostConfig(**host_data)
 
-        # local_state_dir is where we store provider state locally
-        local_state_dir = mngr_ctx.config.default_host_dir.expanduser()
-
         return SSHProviderInstance(
             name=name,
             host_dir=host_dir,
             mngr_ctx=mngr_ctx,
             hosts=hosts,
-            local_state_dir=local_state_dir,
         )
 
 

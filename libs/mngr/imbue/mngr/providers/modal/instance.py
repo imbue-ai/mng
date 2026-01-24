@@ -59,6 +59,9 @@ from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
+from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
+from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
+from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
 
 # Constants
 CONTAINER_SSH_PORT = 22
@@ -298,81 +301,25 @@ class ModalProviderInstance(BaseProviderInstance):
     ) -> None:
         """Check for required packages and install if missing, with warnings.
 
-        Checks for sshd and tmux. If either is missing, logs a warning and
-        installs via apt. This allows users to pre-configure their base images
+        Uses a single shell command to check for all packages and install missing ones,
+        which is faster than multiple exec calls and allows the logic to be reused
+        by other providers.
+
+        Checks for sshd, tmux, curl, rsync, and git. If any is missing, logs a warning
+        and installs via apt. This allows users to pre-configure their base images
         for faster startup while supporting images without these tools.
         """
-        # FIXME: consolidate this duplicated logic that is checking for packages into a shared utility function or more sensible for loop over the expected packages and the commands to test for them
-        # Check if sshd is installed
-        sshd_check = sandbox.exec("sh", "-c", "test -x /usr/sbin/sshd && echo yes || echo no")
-        is_sshd_installed = sshd_check.stdout.read().strip() == "yes"
+        # Build and execute the combined check-and-install command
+        check_install_cmd = build_check_and_install_packages_command(str(self.host_dir))
+        process = sandbox.exec("sh", "-c", check_install_cmd)
 
-        # Check if tmux is installed
-        tmux_check = sandbox.exec("sh", "-c", "command -v tmux >/dev/null 2>&1 && echo yes || echo no")
-        is_tmux_installed = tmux_check.stdout.read().strip() == "yes"
+        # Read output (implicitly waits for completion)
+        stdout = process.stdout.read()
 
-        # Check if curl is installed
-        curl_check = sandbox.exec("sh", "-c", "command -v curl >/dev/null 2>&1 && echo yes || echo no")
-        is_curl_installed = curl_check.stdout.read().strip() == "yes"
-
-        # Check if rsync is installed (required for file transfer)
-        rsync_check = sandbox.exec("sh", "-c", "command -v rsync >/dev/null 2>&1 && echo yes || echo no")
-        is_rsync_installed = rsync_check.stdout.read().strip() == "yes"
-
-        # Check if git is installed (required for git repo transfer)
-        git_check = sandbox.exec("sh", "-c", "command -v git >/dev/null 2>&1 && echo yes || echo no")
-        is_git_installed = git_check.stdout.read().strip() == "yes"
-
-        # Determine which packages need installation
-        packages_to_install: list[str] = []
-        if not is_sshd_installed:
-            logger.warning(
-                "openssh-server is not pre-installed in the base image. "
-                "Installing at runtime. For faster startup, consider using an image with openssh-server pre-installed."
-            )
-            packages_to_install.append("openssh-server")
-
-        if not is_tmux_installed:
-            logger.warning(
-                "tmux is not pre-installed in the base image. "
-                "Installing at runtime. For faster startup, consider using an image with tmux pre-installed."
-            )
-            packages_to_install.append("tmux")
-
-        if not is_curl_installed:
-            logger.warning(
-                "curl is not pre-installed in the base image. "
-                "Installing at runtime. For faster startup, consider using an image with curl pre-installed."
-            )
-            packages_to_install.append("curl")
-
-        if not is_rsync_installed:
-            logger.warning(
-                "rsync is not pre-installed in the base image. "
-                "Installing at runtime. For faster startup, consider using an image with rsync pre-installed."
-            )
-            packages_to_install.append("rsync")
-
-        if not is_git_installed:
-            logger.warning(
-                "git is not pre-installed in the base image. "
-                "Installing at runtime. For faster startup, consider using an image with git pre-installed."
-            )
-            packages_to_install.append("git")
-
-        # Install missing packages
-        if packages_to_install:
-            logger.debug("Installing packages: {}", packages_to_install)
-            # Wait for apt-get commands to complete by calling .wait() on the result
-            sandbox.exec("apt-get", "update", "-qq").wait()
-            sandbox.exec("apt-get", "install", "-y", "-qq", *packages_to_install).wait()
-
-        # Create sshd run directory (required for sshd to start)
-        # Wait for the command to complete before proceeding
-        sandbox.exec("mkdir", "-p", "/run/sshd").wait()
-
-        # Create mngr host directory
-        sandbox.exec("mkdir", "-p", str(self.host_dir)).wait()
+        # Parse warnings from output and log them
+        warnings = parse_warnings_from_output(stdout)
+        for warning in warnings:
+            logger.warning(warning)
 
     def _start_sshd_in_sandbox(
         self,
@@ -380,37 +327,31 @@ class ModalProviderInstance(BaseProviderInstance):
         client_public_key: str,
         host_private_key: str,
         host_public_key: str,
+        ssh_user: str = "root",
     ) -> None:
         """Set up SSH access and start sshd in the sandbox.
 
         This method handles the complete SSH setup including package installation
         (if needed), key configuration, and starting the sshd daemon.
+
+        All setup (except starting sshd) is done via a single shell command for
+        speed and to allow reuse by other providers.
         """
         # Check for required packages and install if missing
         self._check_and_install_packages(sandbox)
 
-        # Create .ssh directory
-        sandbox.exec("mkdir", "-p", "/root/.ssh").wait()
+        logger.debug("Configuring SSH keys in sandbox for user={}", ssh_user)
 
-        # Write the authorized_keys file (for client authentication)
-        with sandbox.open("/root/.ssh/authorized_keys", "wb") as f:
-            f.write(client_public_key.encode("utf-8"))
+        # Build and execute the SSH configuration command
+        configure_ssh_cmd = build_configure_ssh_command(
+            user=ssh_user,
+            client_public_key=client_public_key,
+            host_private_key=host_private_key,
+            host_public_key=host_public_key,
+        )
+        sandbox.exec("sh", "-c", configure_ssh_cmd).wait()
 
-        # Remove any existing host keys first to ensure we use our key
-        # This is important for restored sandboxes which may have old keys from the snapshot
-        sandbox.exec("rm", "-f", "/etc/ssh/ssh_host_*").wait()
-
-        # Install the host key (for host identification)
-        # This ensures all Modal sandboxes use the same host key that we control
-        with sandbox.open("/etc/ssh/ssh_host_ed25519_key", "wb") as f:
-            f.write(host_private_key.encode("utf-8"))
-
-        with sandbox.open("/etc/ssh/ssh_host_ed25519_key.pub", "wb") as f:
-            f.write(host_public_key.encode("utf-8"))
-
-        # Set correct permissions on host key
-        sandbox.exec("chmod", "600", "/etc/ssh/ssh_host_ed25519_key").wait()
-        sandbox.exec("chmod", "644", "/etc/ssh/ssh_host_ed25519_key.pub").wait()
+        logger.debug("Starting sshd in sandbox")
 
         # Start sshd (-D: don't detach, -e: print errors to stdout)
         sandbox.exec("/usr/sbin/sshd", "-D", "-e")
@@ -535,6 +476,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # Tag Management Helpers
     # =========================================================================
 
+    # FIXME: these next two methods should be moved off of the class to be static helper methods. Then they can be easily unit tested (and they should be)
     def _build_sandbox_tags(
         self,
         host_id: HostId,
@@ -817,6 +759,7 @@ class ModalProviderInstance(BaseProviderInstance):
         else:
             logger.debug("No sandbox found with host_id={}, may already be terminated", host_id)
 
+    # FIXME: a good deal of this logic seems duplicated with the create_host method; we should try to consolidate it into shared helper methods
     @handle_modal_auth_error
     def start_host(
         self,
