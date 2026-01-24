@@ -10,6 +10,7 @@ import stat
 import subprocess
 import threading
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pluggy
 import pytest
@@ -24,6 +25,7 @@ from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import _is_macos
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import ActivityConfig
+from imbue.mngr.interfaces.host import AgentDataOptions
 from imbue.mngr.interfaces.host import AgentEnvironmentOptions
 from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
@@ -1327,7 +1329,7 @@ def test_create_work_dir_copy_with_git(host_with_temp_dir: tuple[Host, Path]) ->
 
 
 def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test that .git is excluded when is_include_git is False."""
+    """Test that .git is excluded when not syncing git data."""
     host, temp_dir = host_with_temp_dir
 
     source_path = temp_dir / "source_exclude_git"
@@ -1344,7 +1346,7 @@ def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tup
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         target_path=target_path,
-        git=AgentGitOptions(is_include_git=False),
+        git=AgentGitOptions(is_git_synced=False),
     )
 
     work_dir = host.create_agent_work_dir(host, source_path, options)
@@ -1804,3 +1806,240 @@ def test_provision_agent_host_env_sourced_before_agent_env(host_with_temp_dir: t
     assert "HOST_VAR=host_value" in content
     # Agent env should override host env for SHARED_VAR
     assert "SHARED_VAR=from_agent" in content
+
+
+def test_rsync_extra_args_parsing(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that rsync extra_args are parsed correctly using shlex."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_rsync_args"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("content1")
+    (source_path / "file2.txt").write_text("content2")
+    (source_path / "exclude_me.txt").write_text("excluded")
+
+    target_path = temp_dir / "target_rsync_args"
+
+    # Use rsync_args to exclude a file (tests that args are parsed and applied)
+    options = CreateAgentOptions(
+        name=AgentName("rsync-args-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        data_options=AgentDataOptions(
+            is_rsync_enabled=True,
+            rsync_args="--exclude exclude_me.txt",
+        ),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "file1.txt").read_text() == "content1"
+    assert (work_dir / "file2.txt").read_text() == "content2"
+    # The excluded file should not be copied
+    assert not (work_dir / "exclude_me.txt").exists()
+
+
+def test_rsync_extra_args_with_spaces(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that rsync extra_args with quoted spaces are parsed correctly."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_rsync_spaces"
+    source_path.mkdir()
+    (source_path / "file with spaces.txt").write_text("content with spaces")
+    (source_path / "normal.txt").write_text("normal content")
+
+    target_path = temp_dir / "target_rsync_spaces"
+
+    # Use rsync_args with a filter pattern that has spaces
+    # Note: rsync filter rules can be complex, so we use a simple exclude test
+    options = CreateAgentOptions(
+        name=AgentName("rsync-spaces-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        data_options=AgentDataOptions(
+            is_rsync_enabled=True,
+            rsync_args='--exclude "file with spaces.txt"',
+        ),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "normal.txt").read_text() == "normal content"
+    # The file with spaces should be excluded
+    assert not (work_dir / "file with spaces.txt").exists()
+
+
+def test_transfer_extra_files_with_many_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that transferring many extra files works (uses temp file for --files-from)."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_many_files"
+    source_path.mkdir()
+    (source_path / "tracked.txt").write_text("tracked")
+
+    _init_git_repo(source_path)
+
+    # Create many untracked files to exercise the files-from approach
+    for i in range(50):
+        (source_path / f"untracked_{i}.txt").write_text(f"untracked content {i}")
+
+    target_path = temp_dir / "target_many_files"
+
+    options = CreateAgentOptions(
+        name=AgentName("many-files-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(is_git_synced=True, is_include_unclean=True),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "tracked.txt").read_text() == "tracked"
+    # Verify all untracked files were transferred
+    for i in range(50):
+        assert (work_dir / f"untracked_{i}.txt").read_text() == f"untracked content {i}"
+
+
+def test_rsync_files_remote_files_from_handling(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that files_from is copied to remote host when rsync runs remotely.
+
+    This tests the code path where rsync runs on a remote host and needs the
+    files-from list to be available there.
+    """
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_remote"
+    source_path.mkdir()
+    target_path = temp_dir / "target_remote"
+    target_path.mkdir()
+
+    # Create a files-from file
+    files_from_path = temp_dir / "files_from.txt"
+    files_from_path.write_text("file1.txt\nfile2.txt\n")
+
+    # Create a mock "remote" host
+    mock_remote_host = MagicMock()
+    mock_remote_host.is_local = False
+    mock_remote_host._get_ssh_connection_info.return_value = None
+
+    # Track what gets written to the remote
+    written_files: dict[Path, str] = {}
+
+    def mock_write_text_file(path: Path, content: str, encoding: str = "utf-8", mode: str | None = None) -> None:
+        written_files[path] = content
+
+    mock_remote_host.write_text_file = mock_write_text_file
+
+    # Track commands executed on remote
+    executed_commands: list[str] = []
+    mock_result = MagicMock()
+    mock_result.success = True
+    mock_result.stderr = ""
+
+    def mock_execute_command(cmd: str, **kwargs: object) -> MagicMock:
+        executed_commands.append(cmd)
+        return mock_result
+
+    mock_remote_host.execute_command = mock_execute_command
+
+    # Call _rsync_files with the mock remote host and files_from
+    # This should copy the files-from content to the remote and clean it up
+    host._rsync_files(
+        source_host=mock_remote_host,
+        source_path=source_path,
+        target_path=target_path,
+        files_from=files_from_path,
+    )
+
+    # Verify the files-from content was written to the remote
+    assert len(written_files) == 1
+    remote_path = list(written_files.keys())[0]
+    assert str(remote_path).startswith("/tmp/rsync_files_from_")
+    assert written_files[remote_path] == "file1.txt\nfile2.txt\n"
+
+    # Verify rsync was executed on the remote with --files-from pointing to the remote file
+    rsync_cmd = next((cmd for cmd in executed_commands if "rsync" in cmd), None)
+    assert rsync_cmd is not None
+    assert "--files-from" in rsync_cmd
+    assert str(remote_path) in rsync_cmd
+
+    # Verify cleanup command was executed
+    cleanup_cmd = next((cmd for cmd in executed_commands if "rm -f" in cmd), None)
+    assert cleanup_cmd is not None
+    assert str(remote_path) in cleanup_cmd
+
+
+def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that rsync without --delete preserves existing files in target.
+
+    This is intentional behavior: rsync is designed for adding extra files
+    (e.g., data files not in git), not for full directory sync.
+    """
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_no_delete"
+    source_path.mkdir()
+    (source_path / "new_file.txt").write_text("new content")
+
+    target_path = temp_dir / "target_no_delete"
+    target_path.mkdir()
+    # Pre-existing file in target that doesn't exist in source
+    (target_path / "existing_file.txt").write_text("existing content")
+
+    options = CreateAgentOptions(
+        name=AgentName("no-delete-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        data_options=AgentDataOptions(is_rsync_enabled=True),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    # New file should be copied
+    assert (work_dir / "new_file.txt").read_text() == "new content"
+    # Existing file should NOT be deleted (rsync doesn't use --delete by default)
+    assert (work_dir / "existing_file.txt").read_text() == "existing content"
+
+
+def test_rsync_with_delete_removes_extra_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that rsync with --delete removes files not in source.
+
+    Users can add --delete to rsync_args to get full sync behavior.
+    """
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_with_delete"
+    source_path.mkdir()
+    (source_path / "new_file.txt").write_text("new content")
+
+    target_path = temp_dir / "target_with_delete"
+    target_path.mkdir()
+    # Pre-existing file in target that doesn't exist in source
+    (target_path / "existing_file.txt").write_text("existing content")
+
+    options = CreateAgentOptions(
+        name=AgentName("with-delete-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        data_options=AgentDataOptions(
+            is_rsync_enabled=True,
+            rsync_args="--delete",
+        ),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    # New file should be copied
+    assert (work_dir / "new_file.txt").read_text() == "new content"
+    # Existing file SHOULD be deleted (--delete flag passed)
+    assert not (work_dir / "existing_file.txt").exists()
