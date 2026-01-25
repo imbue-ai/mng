@@ -1137,11 +1137,11 @@ def _await_agent_stopped(
             condition=lambda: not agent.is_running(),
             timeout=timeout_seconds,
             poll_interval=poll_interval_seconds,
-            error_message=f"Timeout waiting for agent {agent.name} to stop",
+            error_message=f"Timeout waiting for agent {agent.name} to stop after {timeout_seconds} seconds",
         )
         logger.info("Agent {} has stopped", agent.name)
-    except TimeoutError:
-        logger.warning("Timeout waiting for agent {} to stop after {} seconds", agent.name, timeout_seconds)
+    except TimeoutError as e:
+        raise click.ClickException(str(e)) from e
 
 
 def _find_agent_in_host(host: HostInterface, agent_id: AgentId) -> AgentInterface:
