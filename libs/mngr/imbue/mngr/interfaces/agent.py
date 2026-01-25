@@ -65,7 +65,7 @@ class AgentInterface(MutableModel, ABC):
     ) -> CommandString:
         """Assemble the full command to execute for this agent.
 
-        Raises NoCommandDefinedError if no command is defined.
+        May raise NoCommandDefinedError if no command is defined.
         """
         ...
 
