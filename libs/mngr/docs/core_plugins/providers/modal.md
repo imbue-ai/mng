@@ -34,6 +34,7 @@ mngr create my-agent --in modal --build-args "gpu=h100 cpu=2 memory=8"
 | `timeout` | Sandbox timeout in seconds | 900 (15 minutes) |
 | `region` | Region to run the sandbox in (e.g., `us-east`, `us-west`, `eu-west`) | auto |
 | `context-dir` | Build context directory for Dockerfile COPY/ADD instructions | Dockerfile's directory |
+| `secret` | Environment variable name to pass as a secret during image build (can be specified multiple times) | None |
 
 ### Examples
 
@@ -46,6 +47,33 @@ mngr create my-agent --in modal -b cpu=4 -b memory=16
 
 # Create with custom image and longer timeout
 mngr create my-agent --in modal -b image=python:3.11-slim -b timeout=3600
+```
+
+### Using Secrets During Image Build
+
+The `secret` build argument allows passing environment variables as secrets to the image build process. This is useful for installing private packages or accessing authenticated resources during the Dockerfile build:
+
+```bash
+# Pass a single secret
+mngr create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN
+
+# Pass multiple secrets
+mngr create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN -b secret=GITHUB_TOKEN
+```
+
+In your Dockerfile, access the secret using `--mount=type=secret`:
+
+```dockerfile
+FROM python:3.11-slim
+
+# Install a private npm package using NPM_TOKEN
+RUN --mount=type=secret,id=NPM_TOKEN \
+    npm config set //registry.npmjs.org/:_authToken=$(cat /run/secrets/NPM_TOKEN) && \
+    npm install -g @myorg/private-package
+
+# Install a private pip package using GITHUB_TOKEN
+RUN --mount=type=secret,id=GITHUB_TOKEN \
+    pip install git+https://$(cat /run/secrets/GITHUB_TOKEN)@github.com/myorg/private-repo.git
 ```
 
 ## Snapshots

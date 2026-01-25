@@ -244,6 +244,9 @@ Supported build arguments for the modal provider:
   --timeout SEC     Maximum sandbox lifetime in seconds. Default: 900 (15 min)
   --region NAME     Region to run the sandbox in (e.g., us-east, us-west, eu-west). Default: auto
   --context-dir DIR Build context directory for Dockerfile COPY/ADD instructions. Default: Dockerfile's directory
+  --secret VAR      Pass an environment variable as a secret to the image build. The value of
+                    VAR is read from your current environment and made available during Dockerfile
+                    RUN commands via --mount=type=secret,id=VAR. Can be specified multiple times.
 """
 
     @staticmethod

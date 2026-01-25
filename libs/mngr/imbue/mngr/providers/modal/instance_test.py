@@ -35,6 +35,7 @@ from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.instance import TAG_HOST_ID
 from imbue.mngr.providers.modal.instance import TAG_HOST_NAME
 from imbue.mngr.providers.modal.instance import TAG_USER_PREFIX
+from imbue.mngr.providers.modal.instance import _build_modal_secrets_from_env
 from imbue.mngr.providers.modal.instance import build_sandbox_tags
 from imbue.mngr.providers.modal.instance import parse_sandbox_tags
 
@@ -368,6 +369,101 @@ def test_parse_build_args_context_dir_default_is_none(modal_provider: ModalProvi
 
     config = modal_provider._parse_build_args(["cpu=2"])
     assert config.context_dir is None
+
+
+def test_parse_build_args_single_secret(modal_provider: ModalProviderInstance) -> None:
+    """Should parse a single --secret argument."""
+    config = modal_provider._parse_build_args(["--secret=MY_TOKEN"])
+    assert config.secrets == ("MY_TOKEN",)
+
+
+def test_parse_build_args_multiple_secrets(modal_provider: ModalProviderInstance) -> None:
+    """Should parse multiple --secret arguments."""
+    config = modal_provider._parse_build_args(["--secret=TOKEN1", "--secret=TOKEN2", "--secret=TOKEN3"])
+    assert config.secrets == ("TOKEN1", "TOKEN2", "TOKEN3")
+
+
+def test_parse_build_args_secret_with_key_value_format(modal_provider: ModalProviderInstance) -> None:
+    """Should parse secret=VAR format."""
+    config = modal_provider._parse_build_args(["secret=MY_TOKEN"])
+    assert config.secrets == ("MY_TOKEN",)
+
+
+def test_parse_build_args_secret_default_is_empty(modal_provider: ModalProviderInstance) -> None:
+    """secrets should default to empty tuple."""
+    config = modal_provider._parse_build_args([])
+    assert config.secrets == ()
+
+    config = modal_provider._parse_build_args(["cpu=2"])
+    assert config.secrets == ()
+
+
+def test_parse_build_args_secrets_with_other_args(modal_provider: ModalProviderInstance) -> None:
+    """Should parse secrets alongside other build args."""
+    config = modal_provider._parse_build_args(["cpu=2", "--secret=TOKEN1", "memory=4", "--secret=TOKEN2"])
+    assert config.cpu == 2.0
+    assert config.memory == 4.0
+    assert config.secrets == ("TOKEN1", "TOKEN2")
+
+
+# =============================================================================
+# Tests for _build_modal_secrets_from_env helper function
+# =============================================================================
+
+
+def test_build_modal_secrets_from_env_empty_list() -> None:
+    """Empty list of env vars should return empty list of secrets."""
+    result = _build_modal_secrets_from_env([])
+    assert result == []
+
+
+def test_build_modal_secrets_from_env_with_set_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Should create secrets from environment variables that are set."""
+    monkeypatch.setenv("TEST_SECRET_1", "value1")
+    monkeypatch.setenv("TEST_SECRET_2", "value2")
+
+    result = _build_modal_secrets_from_env(["TEST_SECRET_1", "TEST_SECRET_2"])
+
+    # All vars are combined into one Secret
+    assert len(result) == 1
+
+
+def test_build_modal_secrets_from_env_missing_var_raises_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Should raise MngrError when an environment variable is not set."""
+    # Ensure the variable is not set
+    monkeypatch.delenv("NONEXISTENT_VAR", raising=False)
+
+    with pytest.raises(MngrError) as exc_info:
+        _build_modal_secrets_from_env(["NONEXISTENT_VAR"])
+
+    assert "Environment variable(s) not set for secrets" in str(exc_info.value)
+    assert "NONEXISTENT_VAR" in str(exc_info.value)
+
+
+def test_build_modal_secrets_from_env_multiple_missing_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Should report all missing environment variables in the error."""
+    monkeypatch.delenv("MISSING_VAR_1", raising=False)
+    monkeypatch.delenv("MISSING_VAR_2", raising=False)
+
+    with pytest.raises(MngrError) as exc_info:
+        _build_modal_secrets_from_env(["MISSING_VAR_1", "MISSING_VAR_2"])
+
+    error_message = str(exc_info.value)
+    assert "MISSING_VAR_1" in error_message
+    assert "MISSING_VAR_2" in error_message
+
+
+def test_build_modal_secrets_from_env_partial_missing_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Should raise error listing only the missing vars when some are set."""
+    monkeypatch.setenv("SET_VAR", "value")
+    monkeypatch.delenv("MISSING_VAR", raising=False)
+
+    with pytest.raises(MngrError) as exc_info:
+        _build_modal_secrets_from_env(["SET_VAR", "MISSING_VAR"])
+
+    error_message = str(exc_info.value)
+    assert "MISSING_VAR" in error_message
+    assert "SET_VAR" not in error_message
 
 
 # =============================================================================
