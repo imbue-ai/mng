@@ -17,14 +17,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv (fast Python package manager)
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && echo 'PATH="/root/.local/bin:$PATH"' >> /root/.bashrc
 ENV PATH="/root/.local/bin:$PATH"
-RUN echo 'PATH="/root/.local/bin:$PATH"' >> /root/.bashrc
 
 # Install claude code
-RUN curl -fsSL https://claude.ai/install.sh > /tmp/install_claude.sh && ( cat /tmp/install_claude.sh | bash ) || ( cat /tmp/install_claude.sh && exit 1 )
+RUN curl -fsSL https://claude.ai/install.sh > /tmp/install_claude.sh && ( cat /tmp/install_claude.sh | bash && echo 'PATH="/root/.claude/local/bin:$PATH"' >> /root/.bashrc ) || ( cat /tmp/install_claude.sh && exit 1 )
 ENV PATH="/root/.claude/local/bin:$PATH"
-RUN echo 'PATH="/root/.claude/local/bin:$PATH"' >> /root/.bashrc
+
+# copy in all of our code:
+COPY . /code/mngr/
+
+# set working directory
+WORKDIR /code/mngr/
+
+# install python dependencies
+RUN uv sync --all-packages
 
 # Run idly forever while being responsive to SIGTERM.
 # PID 1 must explicitly install signal handlers in order to respect signals.
