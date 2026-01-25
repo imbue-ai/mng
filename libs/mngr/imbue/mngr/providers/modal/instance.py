@@ -18,7 +18,6 @@ from datetime import datetime
 from datetime import timezone
 from functools import wraps
 from pathlib import Path
-from typing import Any
 from typing import Final
 from typing import Mapping
 from typing import ParamSpec
@@ -151,6 +150,7 @@ class SandboxConfig(FrozenModel):
     dockerfile: str | None = None
     timeout: int = DEFAULT_SANDBOX_TIMEOUT
     region: str | None = None
+    context_dir: str | None = None
 
 
 class SnapshotRecord(FrozenModel):
@@ -195,19 +195,10 @@ class ModalProviderApp(FrozenModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     app_name: str = Field(frozen=True, description="The name of the Modal app")
-    # Reference to the backend class for accessing the app registry.
-    # This is needed because apps are managed in a class-level registry to allow
-    # sharing between multiple ModalProviderInstance objects with the same app_name.
-    backend_cls: Any = Field(frozen=True, description="Backend class for registry access")
-
-    def get_app(self) -> modal.App:
-        """Get the Modal app, creating it if necessary."""
-        app, _ = self.backend_cls._get_or_create_app(self.app_name)
-        return app
-
-    def get_volume(self) -> modal.Volume:
-        """Get the Modal volume for state storage, creating it if necessary."""
-        return self.backend_cls.get_volume_for_app(self.app_name)
+    app: modal.App = Field(frozen=True, description="The Modal app instance")
+    volume: modal.Volume = Field(frozen=True, description="The Modal volume for state storage")
+    close_callback: Callable[[], None] = Field(frozen=True, description="Callback to clean up the app context")
+    get_output_callback: Callable[[], str] = Field(frozen=True, description="Callback to get the log output buffer")
 
     def get_captured_output(self) -> str:
         """Get all captured Modal output.
@@ -216,15 +207,10 @@ class ModalProviderApp(FrozenModel):
         logs since the app was created. This can be used to detect build failures
         or other issues by inspecting the captured output.
         """
-        return self.backend_cls.get_captured_output_for_app(self.app_name)
+        return self.get_output_callback()
 
     def close(self) -> None:
-        """Clean up the Modal app context.
-
-        Exits the app.run() context manager if one was created for this app_name.
-        This makes the app ephemeral and prevents accumulation.
-        """
-        self.backend_cls.close_app(self.app_name)
+        self.close_callback()
 
 
 class ModalProviderInstance(BaseProviderInstance):
@@ -293,7 +279,7 @@ class ModalProviderInstance(BaseProviderInstance):
         The volume is used to persist host records (including snapshots) across
         sandbox termination. This allows multiple mngr instances to share state.
         """
-        return self.modal_app.get_volume()
+        return self.modal_app.volume
 
     def _get_host_record_path(self, host_id: HostId) -> str:
         """Get the path for a host record on the volume."""
@@ -344,6 +330,7 @@ class ModalProviderInstance(BaseProviderInstance):
         self,
         base_image: str | None = None,
         dockerfile: Path | None = None,
+        context_dir: Path | None = None,
     ) -> modal.Image:
         """Build a Modal image.
 
@@ -354,15 +341,18 @@ class ModalProviderInstance(BaseProviderInstance):
         Elif base_image is provided (e.g., "python:3.11-slim"), uses that as the
         base. Otherwise uses debian:bookworm-slim.
 
+        The context_dir specifies the directory for Dockerfile COPY/ADD instructions.
+        If not provided, defaults to the Dockerfile's parent directory.
+
         SSH and tmux setup is handled at runtime in _start_sshd_in_sandbox to
         allow warning if these tools are not pre-installed in the base image.
         """
         if dockerfile is not None:
             dockerfile_contents = dockerfile.read_text()
-            context_dir = dockerfile.parent
+            effective_context_dir = context_dir if context_dir is not None else dockerfile.parent
             image = _build_image_from_dockerfile_contents(
                 dockerfile_contents,
-                context_dir=context_dir,
+                context_dir=effective_context_dir,
                 is_each_layer_cached=True,
             )
         elif base_image:
@@ -569,6 +559,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 dockerfile=None,
                 timeout=self.default_timeout,
                 region=None,
+                context_dir=None,
             )
 
         # Normalize arguments: convert "key=value" to "--key=value"
@@ -593,6 +584,7 @@ class ModalProviderInstance(BaseProviderInstance):
         parser.add_argument("--dockerfile", type=str, default=None)
         parser.add_argument("--timeout", type=int, default=self.default_timeout)
         parser.add_argument("--region", type=str, default=None)
+        parser.add_argument("--context-dir", type=str, default=None)
 
         try:
             parsed, unknown = parser.parse_known_args(normalized_args)
@@ -610,6 +602,7 @@ class ModalProviderInstance(BaseProviderInstance):
             dockerfile=parsed.dockerfile,
             timeout=parsed.timeout,
             region=parsed.region,
+            context_dir=parsed.context_dir,
         )
 
     # =========================================================================
@@ -642,7 +635,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
         Raises modal.exception.AuthError if Modal credentials are not configured.
         """
-        return self.modal_app.get_app()
+        return self.modal_app.app
 
     def get_captured_output(self) -> str:
         """Get all captured Modal output for this provider instance.
@@ -746,10 +739,11 @@ class ModalProviderInstance(BaseProviderInstance):
         config = self._parse_build_args(build_args)
         base_image = str(image) if image else config.image
         dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
+        context_dir_path = Path(config.context_dir) if config.context_dir else None
 
         # Build the Modal image
         logger.debug("Building Modal image...")
-        modal_image = self._build_modal_image(base_image, dockerfile_path)
+        modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path)
 
         # Get or create the Modal app (uses singleton pattern with context manager)
         logger.debug("Getting Modal app: {}", self.app_name)

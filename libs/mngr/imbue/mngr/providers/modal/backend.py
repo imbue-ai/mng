@@ -158,21 +158,6 @@ class ModalProviderBackend(ProviderBackendInterface):
         return app, context_handle
 
     @classmethod
-    def get_captured_output_for_app(cls, app_name: str) -> str:
-        """Get all captured Modal output for an app.
-
-        Returns the contents of the output buffer that has been capturing Modal
-        logs since the app was created. This can be used to detect build failures
-        or other issues by inspecting the captured output.
-
-        Returns an empty string if no app has been created with the given name.
-        """
-        if app_name not in cls._app_registry:
-            return ""
-        _, context_handle = cls._app_registry[app_name]
-        return context_handle.output_buffer.getvalue()
-
-    @classmethod
     def get_volume_for_app(cls, app_name: str) -> modal.Volume:
         """Get or create the state volume for an app.
 
@@ -252,12 +237,13 @@ class ModalProviderBackend(ProviderBackendInterface):
     def get_build_args_help() -> str:
         return """\
 Supported build arguments for the modal provider:
-  --gpu TYPE    GPU type to use (e.g., t4, a10g, a100, any). Default: no GPU
-  --cpu COUNT   Number of CPU cores (0.25-16). Default: 1.0
-  --memory GB   Memory in GB (0.5-32). Default: 1.0
-  --image NAME  Base Docker image to use. Default: debian:bookworm-slim
-  --timeout SEC Maximum sandbox lifetime in seconds. Default: 900 (15 min)
-  --region NAME Region to run the sandbox in (e.g., us-east, us-west, eu-west). Default: auto
+  --gpu TYPE        GPU type to use (e.g., t4, a10g, a100, any). Default: no GPU
+  --cpu COUNT       Number of CPU cores (0.25-16). Default: 1.0
+  --memory GB       Memory in GB (0.5-32). Default: 1.0
+  --image NAME      Base Docker image to use. Default: debian:bookworm-slim
+  --timeout SEC     Maximum sandbox lifetime in seconds. Default: 900 (15 min)
+  --region NAME     Region to run the sandbox in (e.g., us-east, us-west, eu-west). Default: auto
+  --context-dir DIR Build context directory for Dockerfile COPY/ADD instructions. Default: Dockerfile's directory
 """
 
     @staticmethod
@@ -291,9 +277,14 @@ Supported build arguments for the modal provider:
         default_memory = instance_configuration.get("default_memory", 1.0)
 
         # Create the ModalProviderApp that manages the Modal app and its resources
+        app, context_handle = ModalProviderBackend._get_or_create_app(app_name)
+        volume = ModalProviderBackend.get_volume_for_app(app_name)
         modal_app = ModalProviderApp(
             app_name=app_name,
-            backend_cls=ModalProviderBackend,
+            app=app,
+            volume=volume,
+            close_callback=lambda: ModalProviderBackend.close_app(app_name),
+            get_output_callback=lambda: context_handle.output_buffer.getvalue(),
         )
 
         return ModalProviderInstance(
