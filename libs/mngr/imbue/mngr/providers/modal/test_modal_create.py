@@ -443,31 +443,52 @@ def test_mngr_create_with_default_dockerfile_on_modal(temp_source_dir: Path) -> 
     dockerfile_path = _get_mngr_default_dockerfile_path()
     assert dockerfile_path.exists(), f"Default Dockerfile not found at {dockerfile_path}"
 
-    result = subprocess.run(
-        [
-            "uv",
-            "run",
-            "mngr",
-            "create",
-            agent_name,
-            "generic",
-            "--in",
-            "modal",
-            "--no-connect",
-            "--await-ready",
-            "--no-ensure-clean",
-            "--source",
-            str(temp_source_dir),
-            "-b",
-            f"--dockerfile={dockerfile_path}",
-            "--",
-            f"echo {unique_marker} && which uv && which claude && sleep 30",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=600,
-        env=_get_test_env(),
-    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        temp_dir_with_tar = str(Path(tmpdir)).rstrip("/")
+        commit_hash = os.environ.get("GITHUB_SHA", "") or Path(".mngr/dev/modal_image_commit_hash").read_text().strip()
+
+        # go make the tar
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f"./scripts/make_tar_of_repo.sh {commit_hash} {temp_dir_with_tar}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            env=_get_test_env(),
+        )
+        # now we can try making the agent
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "mngr",
+                "create",
+                agent_name,
+                "generic",
+                "--in",
+                "modal",
+                "--no-connect",
+                "--await-ready",
+                "--no-ensure-clean",
+                "--source",
+                str(temp_source_dir),
+                "-b",
+                f"--dockerfile={dockerfile_path}",
+                "-b",
+                f"context-dir={temp_dir_with_tar}",
+                "--target-path",
+                "/code/mngr",
+                "--",
+                f"echo {unique_marker} && which uv && which claude && sleep 30",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            env=_get_test_env(),
+        )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
     assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
