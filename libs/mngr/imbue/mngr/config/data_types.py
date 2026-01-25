@@ -452,6 +452,10 @@ class MngrContext(FrozenModel):
     pm: pluggy.PluginManager = Field(
         description="Plugin manager for hooks and backends",
     )
+    is_interactive: bool = Field(
+        default=False,
+        description="Whether the CLI is running in interactive mode (can prompt user for input)",
+    )
 
 
 class OutputOptions(FrozenModel):

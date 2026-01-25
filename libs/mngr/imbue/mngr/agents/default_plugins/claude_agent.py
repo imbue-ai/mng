@@ -219,9 +219,15 @@ class ClaudeAgent(BaseAgent):
                 logger.warning("Claude is not installed on the host")
 
                 if host.is_local:
-                    # For local hosts, prompt the user for consent
-                    # FIXME: this needs to understand whether we're running in interactive mode or not, should be part of MngrContext
-                    if not _prompt_user_for_installation():
+                    # For local hosts, prompt the user for consent (if interactive)
+                    if mngr_ctx.is_interactive:
+                        if not _prompt_user_for_installation():
+                            raise PluginMngrError(
+                                "Claude is not installed. Please install it manually with:\n"
+                                "  curl -fsSL https://claude.ai/install.sh | bash"
+                            )
+                    else:
+                        # Non-interactive mode: fail with a clear message
                         raise PluginMngrError(
                             "Claude is not installed. Please install it manually with:\n"
                             "  curl -fsSL https://claude.ai/install.sh | bash"
