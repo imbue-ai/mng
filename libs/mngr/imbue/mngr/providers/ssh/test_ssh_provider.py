@@ -189,7 +189,7 @@ def ssh_provider(
             yield provider
 
 
-@pytest.mark.integration
+@pytest.mark.acceptance
 @pytest.mark.timeout(60)
 def test_ssh_provider_get_host(ssh_provider: SSHProviderInstance) -> None:
     """Test getting a host by name from SSH provider."""
@@ -198,7 +198,7 @@ def test_ssh_provider_get_host(ssh_provider: SSHProviderInstance) -> None:
     assert host.id is not None
 
 
-@pytest.mark.integration
+@pytest.mark.acceptance
 @pytest.mark.timeout(60)
 def test_ssh_provider_get_host_by_id(ssh_provider: SSHProviderInstance) -> None:
     """Test getting a host by ID from SSH provider."""
@@ -207,7 +207,7 @@ def test_ssh_provider_get_host_by_id(ssh_provider: SSHProviderInstance) -> None:
     assert host_by_id.id == host_by_name.id
 
 
-@pytest.mark.integration
+@pytest.mark.acceptance
 @pytest.mark.timeout(60)
 def test_ssh_provider_list_hosts(ssh_provider: SSHProviderInstance) -> None:
     """Test listing hosts from SSH provider."""
@@ -216,7 +216,7 @@ def test_ssh_provider_list_hosts(ssh_provider: SSHProviderInstance) -> None:
     assert hosts[0].id == ssh_provider.get_host(HostName("localhost")).id
 
 
-@pytest.mark.integration
+@pytest.mark.acceptance
 @pytest.mark.timeout(60)
 def test_ssh_provider_execute_command(ssh_provider: SSHProviderInstance) -> None:
     """Test executing a command on an SSH host."""
@@ -226,7 +226,7 @@ def test_ssh_provider_execute_command(ssh_provider: SSHProviderInstance) -> None
     assert "hello" in result.stdout
 
 
-@pytest.mark.integration
+@pytest.mark.acceptance
 @pytest.mark.timeout(60)
 def test_ssh_provider_host_id_is_deterministic(ssh_provider: SSHProviderInstance) -> None:
     """Test that the same host name always produces the same host ID."""
@@ -235,7 +235,7 @@ def test_ssh_provider_host_id_is_deterministic(ssh_provider: SSHProviderInstance
     assert host1.id == host2.id
 
 
-@pytest.mark.integration
+@pytest.mark.acceptance
 @pytest.mark.timeout(60)
 def test_ssh_provider_create_host_raises_not_implemented(ssh_provider: SSHProviderInstance) -> None:
     """Test that create_host raises NotImplementedError."""
@@ -243,7 +243,7 @@ def test_ssh_provider_create_host_raises_not_implemented(ssh_provider: SSHProvid
         ssh_provider.create_host(HostName("localhost"))
 
 
-@pytest.mark.integration
+@pytest.mark.acceptance
 @pytest.mark.timeout(60)
 def test_ssh_provider_destroy_host_raises_not_implemented(ssh_provider: SSHProviderInstance) -> None:
     """Test that destroy_host raises NotImplementedError."""

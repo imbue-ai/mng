@@ -44,6 +44,7 @@ def load_config(
     context_dir: Path | None = None,
     enabled_plugins: Sequence[str] | None = None,
     disabled_plugins: Sequence[str] | None = None,
+    is_interactive: bool = False,
 ) -> MngrContext:
     """Load and merge configuration from all sources.
 
@@ -159,7 +160,7 @@ def load_config(
     final_config = MngrConfig.model_validate(config_dict)
 
     # Return MngrContext containing both config and plugin manager
-    return MngrContext(config=final_config, pm=pm)
+    return MngrContext(config=final_config, pm=pm, is_interactive=is_interactive)
 
 
 # =============================================================================

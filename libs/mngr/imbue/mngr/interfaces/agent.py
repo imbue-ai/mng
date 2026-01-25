@@ -62,8 +62,11 @@ class AgentInterface(MutableModel, ABC):
         host: HostInterface,
         agent_args: tuple[str, ...],
         command_override: CommandString | None,
-    ) -> CommandString | None:
-        """Assemble the full command to execute for this agent, or return None if no command is defined."""
+    ) -> CommandString:
+        """Assemble the full command to execute for this agent.
+
+        May raise NoCommandDefinedError if no command is defined.
+        """
         ...
 
     # =========================================================================

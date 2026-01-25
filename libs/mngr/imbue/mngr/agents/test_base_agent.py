@@ -5,12 +5,9 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 
-import pytest
-
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
@@ -525,12 +522,16 @@ def test_base_agent_assemble_command_with_args(
     assert command == CommandString("base --flag value")
 
 
-def test_base_agent_assemble_command_no_command_raises(
+def test_base_agent_assemble_command_falls_back_to_agent_type(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,
 ) -> None:
-    """Test assemble_command raises NoCommandDefinedError when no command available."""
+    """Test assemble_command uses agent_type as command when no explicit command available.
+
+    This verifies the documented "Direct command" fallback behavior where an unrecognized
+    agent type is treated as a command to run.
+    """
     host = local_provider.get_host(HostName("local"))
     host_id = host.id
 
@@ -547,8 +548,8 @@ def test_base_agent_assemble_command_no_command_raises(
     agent = BaseAgent(
         id=agent_id,
         host_id=host_id,
-        name=AgentName("test-no-cmd-error"),
-        agent_type=AgentTypeName("generic"),
+        name=AgentName("test-fallback-cmd"),
+        agent_type=AgentTypeName("my-custom-type"),
         agent_config=agent_config,
         work_dir=temp_work_dir,
         create_time=datetime.now(timezone.utc),
@@ -556,8 +557,9 @@ def test_base_agent_assemble_command_no_command_raises(
         mngr_ctx=temp_mngr_ctx,
     )
 
-    with pytest.raises(NoCommandDefinedError):
-        agent.assemble_command(host=host, agent_args=(), command_override=None)
+    # When no command is defined, the agent type should be used as the command
+    command = agent.assemble_command(host=host, agent_args=(), command_override=None)
+    assert command == "my-custom-type"
 
 
 def test_base_agent_list_reported_plugin_files_empty(

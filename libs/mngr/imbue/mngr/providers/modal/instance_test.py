@@ -28,6 +28,105 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
+from imbue.mngr.providers.modal.instance import TAG_HOST_ID
+from imbue.mngr.providers.modal.instance import TAG_HOST_NAME
+from imbue.mngr.providers.modal.instance import TAG_USER_PREFIX
+from imbue.mngr.providers.modal.instance import build_sandbox_tags
+from imbue.mngr.providers.modal.instance import parse_sandbox_tags
+
+
+# =============================================================================
+# Unit tests for sandbox tag helper functions
+# =============================================================================
+
+
+def test_build_sandbox_tags_with_no_user_tags() -> None:
+    """build_sandbox_tags with no user tags should only include host_id and host_name."""
+    host_id = HostId.generate()
+    name = HostName("test-host")
+
+    tags = build_sandbox_tags(host_id, name, None)
+
+    assert tags == {
+        TAG_HOST_ID: str(host_id),
+        TAG_HOST_NAME: str(name),
+    }
+
+
+def test_build_sandbox_tags_with_empty_user_tags() -> None:
+    """build_sandbox_tags with empty user tags dict should only include host_id and host_name."""
+    host_id = HostId.generate()
+    name = HostName("test-host")
+
+    tags = build_sandbox_tags(host_id, name, {})
+
+    assert tags == {
+        TAG_HOST_ID: str(host_id),
+        TAG_HOST_NAME: str(name),
+    }
+
+
+def test_build_sandbox_tags_with_user_tags() -> None:
+    """build_sandbox_tags with user tags should prefix them with TAG_USER_PREFIX."""
+    host_id = HostId.generate()
+    name = HostName("test-host")
+    user_tags = {"env": "production", "team": "backend"}
+
+    tags = build_sandbox_tags(host_id, name, user_tags)
+
+    assert tags[TAG_HOST_ID] == str(host_id)
+    assert tags[TAG_HOST_NAME] == str(name)
+    assert tags[TAG_USER_PREFIX + "env"] == "production"
+    assert tags[TAG_USER_PREFIX + "team"] == "backend"
+    assert len(tags) == 4
+
+
+def test_parse_sandbox_tags_extracts_host_id_and_name() -> None:
+    """parse_sandbox_tags should extract host_id and name from tags."""
+    host_id = HostId.generate()
+    name = HostName("test-host")
+    tags = {
+        TAG_HOST_ID: str(host_id),
+        TAG_HOST_NAME: str(name),
+    }
+
+    parsed_host_id, parsed_name, parsed_user_tags = parse_sandbox_tags(tags)
+
+    assert parsed_host_id == host_id
+    assert parsed_name == name
+    assert parsed_user_tags == {}
+
+
+def test_parse_sandbox_tags_extracts_user_tags() -> None:
+    """parse_sandbox_tags should extract user tags and strip the prefix."""
+    host_id = HostId.generate()
+    name = HostName("test-host")
+    tags = {
+        TAG_HOST_ID: str(host_id),
+        TAG_HOST_NAME: str(name),
+        TAG_USER_PREFIX + "env": "staging",
+        TAG_USER_PREFIX + "version": "1.0.0",
+    }
+
+    parsed_host_id, parsed_name, parsed_user_tags = parse_sandbox_tags(tags)
+
+    assert parsed_host_id == host_id
+    assert parsed_name == name
+    assert parsed_user_tags == {"env": "staging", "version": "1.0.0"}
+
+
+def test_build_and_parse_sandbox_tags_roundtrip() -> None:
+    """Building and parsing tags should round-trip correctly."""
+    host_id = HostId.generate()
+    name = HostName("my-test-host")
+    user_tags = {"key1": "value1", "key2": "value2"}
+
+    built_tags = build_sandbox_tags(host_id, name, user_tags)
+    parsed_host_id, parsed_name, parsed_user_tags = parse_sandbox_tags(built_tags)
+
+    assert parsed_host_id == host_id
+    assert parsed_name == name
+    assert parsed_user_tags == user_tags
 
 
 def make_modal_provider(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:

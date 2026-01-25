@@ -45,6 +45,18 @@ def merge_list_fields(base: list[T], override: list[T] | None) -> list[T]:
     return base
 
 
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+@deal.has()
+def merge_dict_fields(base: dict[K, V], override: dict[K, V] | None) -> dict[K, V]:
+    """Merge dict fields, with override keys taking precedence."""
+    if override is not None:
+        return {**base, **override}
+    return base
+
+
 # === Value Types ===
 
 
@@ -149,24 +161,33 @@ class ProviderInstanceConfig(FrozenModel):
         """Merge this config with an override config.
 
         Scalar fields: override wins if not None
+        List fields: concatenate both lists
+        Dict fields: merge keys, with override keys taking precedence
         """
         # Ensure override is same type as self
         if not isinstance(override, self.__class__):
             raise ConfigParseError(f"Cannot merge {self.__class__.__name__} with different provider config type")
 
-        # Merge all fields: for each field, use override value if not None, else use self value
+        # Merge all fields: for each field, use appropriate merge strategy based on type
         # Backend always comes from override
         merged_values: dict[str, Any] = {}
         for field_name in self.__class__.model_fields:
             if field_name == "backend":
                 merged_values[field_name] = override.backend
             else:
+                base_value = getattr(self, field_name)
                 override_value = getattr(override, field_name)
-                if override_value is not None:
-                    # FIXME: we probably want to merge different here depending on if this is a list, dict, or other (see how it works for agent configs)
+                if isinstance(base_value, list):
+                    # Lists: concatenate
+                    merged_values[field_name] = merge_list_fields(base_value, override_value)
+                elif isinstance(base_value, dict):
+                    # Dicts: merge keys with override taking precedence
+                    merged_values[field_name] = merge_dict_fields(base_value, override_value)
+                elif override_value is not None:
+                    # Scalars: override wins if not None
                     merged_values[field_name] = override_value
                 else:
-                    merged_values[field_name] = getattr(self, field_name)
+                    merged_values[field_name] = base_value
         return self.__class__(**merged_values)
 
 
@@ -430,6 +451,10 @@ class MngrContext(FrozenModel):
     )
     pm: pluggy.PluginManager = Field(
         description="Plugin manager for hooks and backends",
+    )
+    is_interactive: bool = Field(
+        default=False,
+        description="Whether the CLI is running in interactive mode (can prompt user for input)",
     )
 
 

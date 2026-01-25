@@ -283,7 +283,9 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--copy", "copy_source", is_flag=True, help="Copy source to isolated directory before running")
 @optgroup.option("--clone", is_flag=True, help="Create a git clone that just shares objects with original repo")
 @optgroup.option(
-    "--worktree", is_flag=True, help="Create a git worktree that shares objects and index with original repo"
+    "--worktree",
+    is_flag=True,
+    help="Create a git worktree that shares objects and index with original repo. Requires --new-branch",
 )
 @optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
 @optgroup.option("--base-branch", help="The starting point for the agent [default: current branch]")
@@ -292,10 +294,16 @@ class CreateCliOptions(CommonCliOptions):
     "new_branch",
     is_flag=False,
     flag_value="",
-    default=None,
-    help="Create a fresh branch (named TEXT if provided, otherwise auto-generated) [default: no new branch]",
+    default="",
+    help="Create a fresh branch (named TEXT if provided, otherwise auto-generated) [default: new branch]",
 )
-@optgroup.option("--no-new-branch", "new_branch", flag_value=None, is_flag=True, hidden=True)
+@optgroup.option(
+    "--no-new-branch",
+    "new_branch",
+    flag_value=None,
+    is_flag=True,
+    help="Do not create a new branch; use the current branch directly. Incompatible with --worktree",
+)
 @optgroup.option(
     "--new-branch-prefix", default="mngr/", show_default=True, help="Prefix for auto-generated branch names"
 )
@@ -761,14 +769,11 @@ def _parse_agent_opts(
     # new_branch: None = no new branch, "" = auto-generate name, "name" = use specified name
     is_new_branch = opts.new_branch is not None
 
-    # FIXME: idk about that--let's just say that the default is always to create a new branch. Update the help string in here, and all of the .md files that mention this flag as well
-    #  we'll need a --no-new-branch flag to override it (which we could then blow up here if you have --no-new-branch and --worktree together, since that doesn't work)
-    # --worktree implies --new-branch
+    # --worktree requires a new branch; error if --no-new-branch is used with --worktree
     if copy_mode == WorkDirCopyMode.WORKTREE and not is_new_branch:
-        is_new_branch = True
-        new_branch = ""
-    else:
-        new_branch = opts.new_branch
+        raise UserInputError("--worktree requires a new branch. Cannot use --no-new-branch with --worktree.")
+
+    new_branch = opts.new_branch
 
     # if the user didn't specify whether to include unclean, then infer from ensure_clean
     if opts.include_unclean is None:

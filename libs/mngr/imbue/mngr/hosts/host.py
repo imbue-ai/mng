@@ -34,6 +34,7 @@ from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
+from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
@@ -979,95 +980,113 @@ class Host(HostInterface):
         files_from: Path | None = None,
         exclude_git: bool = False,
     ) -> None:
-        """Run rsync to transfer files from source to target."""
+        """Run rsync to transfer files from source to target.
+
+        Always runs rsync from the source host, which simplifies the logic:
+        - If source is local, run rsync locally (pushing to target via SSH if remote)
+        - If source is remote, run rsync on source host (pushing to target via SSH if different host)
+        """
         target_ssh_info = self._get_ssh_connection_info()
-        source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
-
-        rsync_args = ["rsync", "-rlpt"]
-        if exclude_git:
-            rsync_args.extend(["--exclude", ".git"])
-
-        # Handle extra_args: parse using shlex.split for proper space handling
-        if extra_args:
-            rsync_args.extend(shlex.split(extra_args))
 
         source_str = str(source_path).rstrip("/") + "/"
         target_str = str(target_path).rstrip("/") + "/"
 
-        # FIXME: the whole rest of this file is really silly, plus there's no reason for remote-to-remote rsync to not be supported:
-        #  if the source is remote, just move the files_from over there first, then run the rsync from the source host.
-        #  Absolutely no need for all of this silly special casing and complexity!
+        # Build rsync arguments
+        rsync_args = ["rsync", "-rlpt"]
+        if exclude_git:
+            rsync_args.extend(["--exclude", ".git"])
+        if extra_args:
+            rsync_args.extend(shlex.split(extra_args))
 
-        # Determine if rsync will run locally or remotely
-        # rsync runs remotely only in the "same host transfer" case when source_host is not local
-        # The last condition (source_host.is_local) covers the same-host-transfer local case
-        runs_locally = (
-            (source_host.is_local and self.is_local)
-            or (source_host.is_local and target_ssh_info is not None)
-            or (source_ssh_info is not None and self.is_local)
-            or (source_ssh_info is not None and target_ssh_info is not None)
-            or source_host.is_local
-        )
+        # FIXME: this next block, and the next two functions, are silly--we should ALWAYS be running rsync locally!
+        #  you can easily sync between 2 remote hosts, or between any combination of local and remote--just assemble the args for source and dest separately, and then run the correct rsync command locally
 
-        # Handle files_from: for local runs use the local path, for remote runs copy to remote first
+        # Handle files_from: if source is remote, copy the file there first
         remote_files_from_path: Path | None = None
         if files_from is not None:
-            if runs_locally:
+            if source_host.is_local:
                 rsync_args.extend(["--files-from", str(files_from)])
             else:
-                # Copy the files-from content to the remote host
                 files_from_content = files_from.read_text()
                 remote_files_from_path = Path(f"/tmp/rsync_files_from_{os.getpid()}.txt")
                 source_host.write_text_file(remote_files_from_path, files_from_content)
                 rsync_args.extend(["--files-from", str(remote_files_from_path)])
 
         try:
-            if source_host.is_local and self.is_local:
-                logger.debug("rsync: local to local")
-                rsync_args.extend([source_str, target_str])
-                result = subprocess.run(rsync_args, capture_output=True, text=True)
-                if result.returncode != 0:
-                    raise MngrError(f"rsync failed: {result.stderr}")
-
-            elif source_host.is_local and target_ssh_info is not None:
-                user, hostname, port, key_path = target_ssh_info
-                logger.debug("rsync: local to remote {}@{}:{}", user, hostname, port)
-                rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
-                rsync_args.extend([source_str, f"{user}@{hostname}:{target_str}"])
-                result = subprocess.run(rsync_args, capture_output=True, text=True)
-                if result.returncode != 0:
-                    raise MngrError(f"rsync failed: {result.stderr}")
-
-            elif source_ssh_info is not None and self.is_local:
-                user, hostname, port, key_path = source_ssh_info
-                logger.debug("rsync: remote to local from {}@{}:{}", user, hostname, port)
-                rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
-                rsync_args.extend([f"{user}@{hostname}:{source_str}", target_str])
-                result = subprocess.run(rsync_args, capture_output=True, text=True)
-                if result.returncode != 0:
-                    raise MngrError(f"rsync failed: {result.stderr}")
-
-            elif source_ssh_info is not None and target_ssh_info is not None:
-                logger.debug("rsync: remote to remote")
-                raise MngrError("Remote-to-remote file transfer is not yet supported.")
-
+            if source_host.is_local:
+                # Run rsync locally - it can push to remote targets via SSH
+                self._run_rsync_locally(rsync_args, source_str, target_str, target_ssh_info)
             else:
-                logger.debug("rsync: same host transfer")
-                if source_host.is_local:
-                    rsync_args.extend([source_str, target_str])
-                    result = subprocess.run(rsync_args, capture_output=True, text=True)
-                    if result.returncode != 0:
-                        raise MngrError(f"rsync failed: {result.stderr}")
-                else:
-                    cmd = " ".join(shlex.quote(arg) for arg in rsync_args)
-                    cmd += f" {shlex.quote(source_str)} {shlex.quote(target_str)}"
-                    result = source_host.execute_command(cmd)
-                    if not result.success:
-                        raise MngrError(f"rsync failed on remote host: {result.stderr}")
+                # Run rsync on the source host - it can push to any target via SSH
+                self._run_rsync_on_source_host(source_host, rsync_args, source_str, target_str, target_ssh_info)
         finally:
-            # Clean up remote files-from file if we created one
             if remote_files_from_path is not None:
                 source_host.execute_command(f"rm -f {shlex.quote(str(remote_files_from_path))}")
+
+    def _run_rsync_locally(
+        self,
+        rsync_args: list[str],
+        source_str: str,
+        target_str: str,
+        target_ssh_info: tuple[str, str, int, Path] | None,
+    ) -> None:
+        """Run rsync locally, pushing to either a local or remote target."""
+        if target_ssh_info is None:
+            # Local to local
+            logger.debug("rsync: local to local")
+            rsync_args.extend([source_str, target_str])
+        else:
+            # Local to remote
+            user, hostname, port, key_path = target_ssh_info
+            logger.debug("rsync: local to remote {}@{}:{}", user, hostname, port)
+            rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
+            rsync_args.extend([source_str, f"{user}@{hostname}:{target_str}"])
+
+        result = subprocess.run(rsync_args, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise MngrError(f"rsync failed: {result.stderr}")
+
+    def _run_rsync_on_source_host(
+        self,
+        source_host: HostInterface,
+        rsync_args: list[str],
+        source_str: str,
+        target_str: str,
+        target_ssh_info: tuple[str, str, int, Path] | None,
+    ) -> None:
+        """Run rsync on the source host, pushing to a local or remote target."""
+        # Build the rsync command string to run on the source host
+        cmd_parts = [shlex.quote(arg) for arg in rsync_args]
+
+        if source_host.id == self.id:
+            # Same host transfer - run rsync directly with local paths
+            logger.debug("rsync: same remote host transfer")
+            cmd = " ".join(cmd_parts) + f" {shlex.quote(source_str)} {shlex.quote(target_str)}"
+            result = source_host.execute_command(cmd)
+            if not result.success:
+                raise MngrError(f"rsync failed on remote host: {result.stderr}")
+        elif target_ssh_info is not None:
+            # Remote source to different remote target - run rsync on source, push to target via SSH
+            user, hostname, port, key_path = target_ssh_info
+            logger.debug("rsync: remote to remote (from source to {}@{}:{})", user, hostname, port)
+            ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
+            cmd_parts.extend(["-e", shlex.quote(ssh_cmd)])
+            cmd = " ".join(cmd_parts) + f" {shlex.quote(source_str)} {shlex.quote(f'{user}@{hostname}:{target_str}')}"
+            result = source_host.execute_command(cmd)
+            if not result.success:
+                raise MngrError(f"rsync failed on remote host: {result.stderr}")
+        else:
+            # Remote source to local target - pull from source via SSH
+            logger.debug("rsync: remote to local (pulling from source)")
+            source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
+            if source_ssh_info is None:
+                raise MngrError("Cannot determine SSH connection info for remote source host")
+            user, hostname, port, key_path = source_ssh_info
+            rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
+            rsync_args.extend([f"{user}@{hostname}:{source_str}", target_str])
+            result = subprocess.run(rsync_args, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise MngrError(f"rsync failed: {result.stderr}")
 
     def _create_work_dir_as_git_worktree(
         self,
@@ -1149,16 +1168,12 @@ class Host(HostInterface):
             agent_config=agent_config,
         )
 
-        # FIXME: this whole block of code is nonsense. Agents MUST have a a command--they literally ARE commands. assemble_command() should be changed to require a non-None return type.
-        if options.command is not None or agent_config.command is not None:
-            command = agent.assemble_command(
-                host=self,
-                agent_args=options.agent_args,
-                command_override=options.command,
-            )
-            command_str = str(command)
-        else:
-            command_str = None
+        command = agent.assemble_command(
+            host=self,
+            agent_args=options.agent_args,
+            command_override=options.command,
+        )
+        command_str = str(command)
 
         data = {
             "id": str(agent_id),
@@ -1509,9 +1524,6 @@ class Host(HostInterface):
         - Sources the user's default ~/.tmux.conf if it exists
         - Adds a Ctrl-q binding to detach and destroy the current agent
         """
-        # FIXME: The execute_command calls in this method do not check for success.
-        # If tmux new-session fails, the code continues trying to send keys to a
-        # non-existent session. Should check result.success and raise an error.
         logger.debug("Starting {} agent(s)", len(agent_ids))
 
         # Create the host-level tmux config (shared by all agents on this host)
@@ -1545,21 +1557,31 @@ class Host(HostInterface):
             # The -f flag specifies our custom tmux config with the exit hotkey binding
             # Note: env_shell_cmd must be quoted so it's passed as a single argument to tmux
             # The -d flag creates a detached session; tmux returns after the session is created
-            self.execute_command(
+            result = self.execute_command(
                 f"{unset_env_args}tmux -f {shlex.quote(str(tmux_config_path))} new-session -d -s '{session_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
             )
+            if not result.success:
+                raise AgentStartError(str(agent.name), f"tmux new-session failed: {result.stderr}")
 
             # Set the session's default-command so any new window/pane created
             # by the user will automatically source the env files
             # Note: env_shell_cmd needs to be quoted as a single argument for tmux
-            self.execute_command(f"tmux set-option -t '{session_name}' default-command {shlex.quote(env_shell_cmd)}")
+            result = self.execute_command(
+                f"tmux set-option -t '{session_name}' default-command {shlex.quote(env_shell_cmd)}"
+            )
+            if not result.success:
+                raise AgentStartError(str(agent.name), f"tmux set-option failed: {result.stderr}")
 
             # Send the command as literal keys (tmux will handle escaping)
             # Using -l flag to send literal characters
-            self.execute_command(f"tmux send-keys -t '{session_name}' -l {shlex.quote(command)}")
+            result = self.execute_command(f"tmux send-keys -t '{session_name}' -l {shlex.quote(command)}")
+            if not result.success:
+                raise AgentStartError(str(agent.name), f"tmux send-keys failed: {result.stderr}")
 
             # Send Enter to execute the command
-            self.execute_command(f"tmux send-keys -t '{session_name}' Enter")
+            result = self.execute_command(f"tmux send-keys -t '{session_name}' Enter")
+            if not result.success:
+                raise AgentStartError(str(agent.name), f"tmux send-keys Enter failed: {result.stderr}")
 
             # Create additional windows for each additional command
             for idx, named_cmd in enumerate(additional_commands):
@@ -1572,21 +1594,33 @@ class Host(HostInterface):
 
                 # Create a new window with a shell that has env vars sourced
                 # Note: env_shell_cmd must be quoted so it's passed as a single argument to tmux
-                self.execute_command(
+                result = self.execute_command(
                     f"tmux new-window -t '{session_name}' -n '{window_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
                 )
+                if not result.success:
+                    raise AgentStartError(
+                        str(agent.name), f"tmux new-window failed for {window_name}: {result.stderr}"
+                    )
 
                 # Send the additional command as literal keys
-                self.execute_command(
+                result = self.execute_command(
                     f"tmux send-keys -t '{session_name}:{window_name}' -l {shlex.quote(str(named_cmd.command))}"
                 )
+                if not result.success:
+                    raise AgentStartError(str(agent.name), f"tmux send-keys failed for {window_name}: {result.stderr}")
 
                 # Send Enter to execute the command
-                self.execute_command(f"tmux send-keys -t '{session_name}:{window_name}' Enter")
+                result = self.execute_command(f"tmux send-keys -t '{session_name}:{window_name}' Enter")
+                if not result.success:
+                    raise AgentStartError(
+                        str(agent.name), f"tmux send-keys Enter failed for {window_name}: {result.stderr}"
+                    )
 
             # If we created additional windows, select the first window (the main agent)
             if additional_commands:
-                self.execute_command(f"tmux select-window -t '{session_name}:0'")
+                result = self.execute_command(f"tmux select-window -t '{session_name}:0'")
+                if not result.success:
+                    raise AgentStartError(str(agent.name), f"tmux select-window failed: {result.stderr}")
 
     def _get_all_descendant_pids(self, parent_pid: str) -> list[str]:
         """Recursively get all descendant PIDs of a given parent PID."""

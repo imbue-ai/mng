@@ -11,6 +11,8 @@ from click_option_group import GroupedOption
 from click_option_group import OptionGroup
 from click_option_group import optgroup
 
+import sys
+
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -120,7 +122,19 @@ def setup_command_context(
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
     pm = ctx.obj
     # FIXME: stop passing the pm in here--all it's doing is ending up in the MngrContext, which we should assemble at this level instead (ie, load_config should return a MngrConfig, not a MngrContext). We'll need to update all of the tests to account for this as well.
-    mngr_ctx = load_config(pm, context_dir, initial_opts.plugin, initial_opts.disable_plugin)
+    # Determine if we're running interactively (stdout is a TTY)
+    try:
+        is_interactive = sys.stdout.isatty()
+    except (ValueError, AttributeError):
+        # Handle cases where stdout is uninitialized (e.g., xdist workers)
+        is_interactive = False
+    mngr_ctx = load_config(
+        pm,
+        context_dir,
+        initial_opts.plugin,
+        initial_opts.disable_plugin,
+        is_interactive=is_interactive,
+    )
 
     # Parse output options
     output_opts = parse_output_options(
