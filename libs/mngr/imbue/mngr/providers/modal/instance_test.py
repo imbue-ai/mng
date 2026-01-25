@@ -304,6 +304,27 @@ def test_parse_build_args_region_default_is_none(modal_provider: ModalProviderIn
     assert config.region is None
 
 
+def test_parse_build_args_context_dir(modal_provider: ModalProviderInstance) -> None:
+    """Should parse context-dir argument."""
+    config = modal_provider._parse_build_args(["context-dir=/path/to/context"])
+    assert config.context_dir == "/path/to/context"
+
+    config = modal_provider._parse_build_args(["--context-dir=/another/path"])
+    assert config.context_dir == "/another/path"
+
+    config = modal_provider._parse_build_args(["--context-dir", "/third/path"])
+    assert config.context_dir == "/third/path"
+
+
+def test_parse_build_args_context_dir_default_is_none(modal_provider: ModalProviderInstance) -> None:
+    """context_dir should default to None (use Dockerfile's directory)."""
+    config = modal_provider._parse_build_args([])
+    assert config.context_dir is None
+
+    config = modal_provider._parse_build_args(["cpu=2"])
+    assert config.context_dir is None
+
+
 # =============================================================================
 # Acceptance tests (require Modal network access)
 # =============================================================================
