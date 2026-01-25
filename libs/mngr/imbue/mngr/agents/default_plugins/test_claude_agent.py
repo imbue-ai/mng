@@ -8,6 +8,7 @@ to main. To run them locally:
         libs/mngr/imbue/mngr/agents/default_plugins/test_claude_agent.py::test_claude_agent_provisioning_on_modal
 """
 
+import os
 import subprocess
 import tempfile
 from collections.abc import Generator
@@ -15,6 +16,18 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+
+
+def _get_test_env() -> dict[str, str]:
+    """Get environment variables for subprocess calls that prevent loading project config.
+
+    Sets MNGR_ROOT_NAME to a value that doesn't have a corresponding config directory,
+    preventing tests from picking up .mngr/settings.toml which might have settings
+    like add_command that would interfere with tests.
+    """
+    env = os.environ.copy()
+    env["MNGR_ROOT_NAME"] = "mngr-release-test"
+    return env
 
 
 @pytest.fixture
@@ -72,6 +85,7 @@ def test_claude_agent_provisioning_on_modal(temp_source_dir: Path) -> None:
         capture_output=True,
         text=True,
         timeout=600,
+        env=_get_test_env(),
     )
 
     # Check that the command succeeded
