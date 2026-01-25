@@ -510,6 +510,36 @@ def test_agent_cmd_and_agent_type_are_mutually_exclusive(
     assert "--agent-cmd and --agent-type are mutually exclusive" in result.output
 
 
+def test_worktree_and_no_new_branch_are_mutually_exclusive(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --worktree and --no-new-branch are mutually exclusive."""
+    agent_name = f"test-worktree-no-branch-{int(time.time())}"
+
+    result = cli_runner.invoke(
+        create,
+        [
+            "--name",
+            agent_name,
+            "--agent-cmd",
+            "sleep 847293",
+            "--worktree",
+            "--no-new-branch",
+            "--source",
+            str(temp_work_dir),
+            "--no-connect",
+            "--no-copy-work-dir",
+            "--no-ensure-clean",
+        ],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "--worktree requires a new branch" in result.output
+
+
 def test_agent_cmd_with_generic_type_is_allowed(
     cli_runner: CliRunner,
     temp_work_dir: Path,
