@@ -50,10 +50,11 @@ def test_config_list_with_scope_shows_file_path(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mngr_test_root_name: str,
 ) -> None:
     """Test config list with scope shows the config file path."""
-    # Create a mock user config directory
-    user_config_dir = tmp_path / ".config" / "mngr"
+    # Create a mock user config directory using the test root name
+    user_config_dir = tmp_path / ".config" / mngr_test_root_name
     user_config_dir.mkdir(parents=True)
     user_config_path = user_config_dir / "settings.toml"
     user_config_path.write_text('prefix = "custom-"\n')
@@ -147,6 +148,7 @@ def test_config_set_creates_config_file(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mngr_test_root_name: str,
 ) -> None:
     """Test config set creates a new config file if it doesn't exist."""
     # Monkeypatch find_git_worktree_root to return our tmp_path
@@ -162,8 +164,8 @@ def test_config_set_creates_config_file(
     assert result.exit_code == 0
     assert "Set prefix" in result.output
 
-    # Verify the file was created
-    config_path = tmp_path / ".mngr" / "settings.toml"
+    # Verify the file was created (using the test root name)
+    config_path = tmp_path / f".{mngr_test_root_name}" / "settings.toml"
     assert config_path.exists()
     content = config_path.read_text()
     assert 'prefix = "my-prefix-"' in content
@@ -174,6 +176,7 @@ def test_config_set_nested_key(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mngr_test_root_name: str,
 ) -> None:
     """Test config set with a nested key path."""
     monkeypatch.setattr(config_module, "find_git_worktree_root", lambda start=None: tmp_path)
@@ -187,8 +190,8 @@ def test_config_set_nested_key(
 
     assert result.exit_code == 0
 
-    # Verify the nested structure was created
-    config_path = tmp_path / ".mngr" / "settings.toml"
+    # Verify the nested structure was created (using the test root name)
+    config_path = tmp_path / f".{mngr_test_root_name}" / "settings.toml"
     content = config_path.read_text()
     assert "[commands.create]" in content
     assert "connect = false" in content
@@ -199,6 +202,7 @@ def test_config_set_parses_boolean_values(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mngr_test_root_name: str,
 ) -> None:
     """Test config set correctly parses boolean values."""
     monkeypatch.setattr(config_module, "find_git_worktree_root", lambda start=None: tmp_path)
@@ -212,7 +216,7 @@ def test_config_set_parses_boolean_values(
     )
     assert result.exit_code == 0
 
-    config_path = tmp_path / ".mngr" / "settings.toml"
+    config_path = tmp_path / f".{mngr_test_root_name}" / "settings.toml"
     content = config_path.read_text()
     assert "test_bool = true" in content
 
@@ -222,6 +226,7 @@ def test_config_set_parses_integer_values(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mngr_test_root_name: str,
 ) -> None:
     """Test config set correctly parses integer values."""
     monkeypatch.setattr(config_module, "find_git_worktree_root", lambda start=None: tmp_path)
@@ -234,7 +239,7 @@ def test_config_set_parses_integer_values(
     )
     assert result.exit_code == 0
 
-    config_path = tmp_path / ".mngr" / "settings.toml"
+    config_path = tmp_path / f".{mngr_test_root_name}" / "settings.toml"
     content = config_path.read_text()
     assert "test_int = 42" in content
 
@@ -244,12 +249,13 @@ def test_config_unset_removes_value(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mngr_test_root_name: str,
 ) -> None:
     """Test config unset removes an existing value."""
     monkeypatch.setattr(config_module, "find_git_worktree_root", lambda start=None: tmp_path)
 
-    # First set a value
-    config_dir = tmp_path / ".mngr"
+    # First set a value (using the test root name)
+    config_dir = tmp_path / f".{mngr_test_root_name}"
     config_dir.mkdir()
     config_path = config_dir / "settings.toml"
     config_path.write_text('prefix = "test-"\nother = "keep"\n')
@@ -276,12 +282,13 @@ def test_config_unset_nonexistent_key_fails(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mngr_test_root_name: str,
 ) -> None:
     """Test config unset with nonexistent key returns an error."""
     monkeypatch.setattr(config_module, "find_git_worktree_root", lambda start=None: tmp_path)
 
-    # Create an empty config
-    config_dir = tmp_path / ".mngr"
+    # Create an empty config (using the test root name)
+    config_dir = tmp_path / f".{mngr_test_root_name}"
     config_dir.mkdir()
     config_path = config_dir / "settings.toml"
     config_path.write_text("")

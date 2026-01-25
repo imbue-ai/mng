@@ -16,6 +16,13 @@ from uuid import uuid4
 
 import pytest
 
+from imbue.mngr.utils.testing import get_subprocess_test_env
+
+
+def _get_test_env() -> dict[str, str]:
+    """Get environment variables for subprocess calls that prevent loading project config."""
+    return get_subprocess_test_env("mngr-release-test")
+
 
 @pytest.fixture
 def temp_source_dir() -> Generator[Path, None, None]:
@@ -72,6 +79,7 @@ def test_claude_agent_provisioning_on_modal(temp_source_dir: Path) -> None:
         capture_output=True,
         text=True,
         timeout=600,
+        env=_get_test_env(),
     )
 
     # Check that the command succeeded

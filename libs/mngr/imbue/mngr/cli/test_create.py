@@ -58,6 +58,7 @@ def test_cli_create_via_subprocess(
     temp_work_dir: Path,
     temp_host_dir: Path,
     mngr_test_prefix: str,
+    mngr_test_root_name: str,
 ) -> None:
     """Test calling the mngr create command via subprocess."""
     agent_name = f"test-subprocess-{int(time.time())}"
@@ -66,6 +67,9 @@ def test_cli_create_via_subprocess(
     # Pass the test environment variables to the subprocess for proper isolation
     env["MNGR_HOST_DIR"] = str(temp_host_dir)
     env["MNGR_PREFIX"] = mngr_test_prefix
+    # Prevent loading project config (.mngr/settings.toml) which might have
+    # settings like add_command that would interfere with tests
+    env["MNGR_ROOT_NAME"] = mngr_test_root_name
 
     with tmux_session_cleanup(session_name):
         result = subprocess.run(

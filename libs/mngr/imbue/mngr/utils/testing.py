@@ -1,3 +1,4 @@
+import os
 import subprocess
 import time
 from collections.abc import Callable
@@ -11,6 +12,23 @@ from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+
+
+def get_subprocess_test_env(root_name: str = "mngr-test") -> dict[str, str]:
+    """Get environment variables for subprocess calls that prevent loading project config.
+
+    Sets MNGR_ROOT_NAME to a value that doesn't have a corresponding config directory,
+    preventing subprocess tests from picking up .mngr/settings.toml which might have
+    settings like add_command that would interfere with tests.
+
+    The root_name parameter defaults to "mngr-test" but can be set to a descriptive
+    name for your test category (e.g., "mngr-acceptance-test", "mngr-release-test").
+
+    Returns a copy of os.environ with MNGR_ROOT_NAME set to the specified value.
+    """
+    env = os.environ.copy()
+    env["MNGR_ROOT_NAME"] = root_name
+    return env
 
 
 def cleanup_tmux_session(session_name: str) -> None:

@@ -21,6 +21,12 @@ from uuid import uuid4
 import pytest
 
 from imbue.mngr import resources
+from imbue.mngr.utils.testing import get_subprocess_test_env
+
+
+def _get_test_env() -> dict[str, str]:
+    """Get environment variables for subprocess calls that prevent loading project config."""
+    return get_subprocess_test_env("mngr-acceptance-test")
 
 
 @pytest.fixture
@@ -73,6 +79,7 @@ def test_mngr_create_echo_command_on_modal(temp_source_dir: Path) -> None:
         capture_output=True,
         text=True,
         timeout=300,
+        env=_get_test_env(),
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
@@ -111,6 +118,7 @@ def test_mngr_create_with_worktree_flag_on_modal_raises_error(temp_source_dir: P
         capture_output=True,
         text=True,
         timeout=300,
+        env=_get_test_env(),
     )
 
     # Should fail with an error about worktree mode
@@ -159,6 +167,7 @@ def test_mngr_create_with_build_args_on_modal(temp_source_dir: Path) -> None:
         capture_output=True,
         text=True,
         timeout=300,
+        env=_get_test_env(),
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
@@ -219,6 +228,7 @@ RUN echo "custom-dockerfile-marker" > /dockerfile-marker.txt
         capture_output=True,
         text=True,
         timeout=300,
+        env=_get_test_env(),
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
@@ -273,6 +283,7 @@ RUN echo "About to fail with marker: {unique_failure_marker}" && exit 1
         capture_output=True,
         text=True,
         timeout=300,
+        env=_get_test_env(),
     )
 
     # The command should fail because the Dockerfile build fails
@@ -359,6 +370,7 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(temp_git_source_dir
         capture_output=True,
         text=True,
         timeout=300,
+        env=_get_test_env(),
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
@@ -398,6 +410,7 @@ def test_mngr_create_transfers_git_repo_with_new_branch(temp_git_source_dir: Pat
         capture_output=True,
         text=True,
         timeout=300,
+        env=_get_test_env(),
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
@@ -453,6 +466,7 @@ def test_mngr_create_with_default_dockerfile_on_modal(temp_source_dir: Path) -> 
         capture_output=True,
         text=True,
         timeout=600,
+        env=_get_test_env(),
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"

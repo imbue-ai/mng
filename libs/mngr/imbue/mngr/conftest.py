@@ -94,10 +94,23 @@ def mngr_test_prefix(mngr_test_id: str) -> str:
     return f"mngr_{mngr_test_id}-"
 
 
+@pytest.fixture
+def mngr_test_root_name(mngr_test_id: str) -> str:
+    """Get the test root name for config isolation.
+
+    Format: mngr-test-{test_id}
+
+    This ensures tests don't load the project's .mngr/settings.toml config,
+    which might have settings like add_command that would interfere with tests.
+    """
+    return f"mngr-test-{mngr_test_id}"
+
+
 @pytest.fixture(autouse=True)
 def setup_test_mngr_env(
     temp_host_dir: Path,
     mngr_test_prefix: str,
+    mngr_test_root_name: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Set up mngr environment variables for all tests.
@@ -105,9 +118,11 @@ def setup_test_mngr_env(
     This autouse fixture ensures:
     - MNGR_HOST_DIR points to a temporary directory (not ~/.mngr)
     - MNGR_PREFIX uses a unique test ID for isolation
+    - MNGR_ROOT_NAME prevents loading project config (.mngr/settings.toml)
     """
     monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
+    monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
 
 
 @pytest.fixture
