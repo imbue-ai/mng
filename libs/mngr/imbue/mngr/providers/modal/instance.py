@@ -150,6 +150,7 @@ class SandboxConfig(FrozenModel):
     image: str | None = None
     dockerfile: str | None = None
     timeout: int = DEFAULT_SANDBOX_TIMEOUT
+    region: str | None = None
 
 
 class SnapshotRecord(FrozenModel):
@@ -567,6 +568,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 image=None,
                 dockerfile=None,
                 timeout=self.default_timeout,
+                region=None,
             )
 
         # Normalize arguments: convert "key=value" to "--key=value"
@@ -590,6 +592,7 @@ class ModalProviderInstance(BaseProviderInstance):
         parser.add_argument("--image", type=str, default=None)
         parser.add_argument("--dockerfile", type=str, default=None)
         parser.add_argument("--timeout", type=int, default=self.default_timeout)
+        parser.add_argument("--region", type=str, default=None)
 
         try:
             parsed, unknown = parser.parse_known_args(normalized_args)
@@ -606,6 +609,7 @@ class ModalProviderInstance(BaseProviderInstance):
             image=parsed.image,
             dockerfile=parsed.dockerfile,
             timeout=parsed.timeout,
+            region=parsed.region,
         )
 
     # =========================================================================
@@ -770,6 +774,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 memory=memory_mb,
                 unencrypted_ports=[CONTAINER_SSH_PORT],
                 gpu=config.gpu,
+                region=config.region,
             )
         except modal.exception.RemoteError as e:
             raise MngrError(f"Failed to create Modal sandbox: {e}\n{self.get_captured_output()}") from None
@@ -907,6 +912,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 memory=memory_mb,
                 unencrypted_ports=[CONTAINER_SSH_PORT],
                 gpu=config.gpu,
+                region=config.region,
             )
         else:
             new_sandbox = modal.Sandbox.create(
@@ -916,6 +922,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 cpu=config.cpu,
                 memory=memory_mb,
                 unencrypted_ports=[CONTAINER_SSH_PORT],
+                region=config.region,
             )
         logger.info("Created sandbox from snapshot: {}", new_sandbox.object_id)
 

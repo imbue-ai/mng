@@ -915,7 +915,8 @@ class Host(HostInterface):
                 if result.returncode == 0:
                     for line in result.stdout.strip().split("\n"):
                         if line:
-                            filename = line.strip()[2:]
+                            # git status --porcelain format: "XY filename" (2 status chars + space + filename)
+                            filename = line[3:]
                             if " -> " in filename:
                                 filename = filename.split(" -> ")[1]
                             files_to_include.append(filename)
@@ -924,7 +925,8 @@ class Host(HostInterface):
                 if result.success:
                     for line in result.stdout.strip().split("\n"):
                         if line:
-                            filename = line.strip()[2:]
+                            # git status --porcelain format: "XY filename" (2 status chars + space + filename)
+                            filename = line[3:]
                             if " -> " in filename:
                                 filename = filename.split(" -> ")[1]
                             files_to_include.append(filename)
@@ -1019,7 +1021,7 @@ class Host(HostInterface):
             rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
             rsync_args.extend([f"{user}@{hostname}:{source_path_str}", target_path_str])
         else:
-            # TODO: we could implement this, but would need to support a few options:
+            # FIXME: we could implement this, but would need to support a few options:
             #  1. slow, safe: sync locally, then sync to target
             #  2. fast, safe: rsync directly between two remote hosts (requires both hosts to have SSH access to each other)
             #  3. fast, unsafe: forward SSH auth from source to target (requires SSH agent forwarding), then sync between them

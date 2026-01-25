@@ -32,6 +32,7 @@ mngr create my-agent --in modal --build-args "gpu=h100 cpu=2 memory=8"
 | `memory` | Memory in GB | 1.0 |
 | `image` | Base container image | debian:bookworm-slim |
 | `timeout` | Sandbox timeout in seconds | 900 (15 minutes) |
+| `region` | Region to run the sandbox in (e.g., `us-east`, `us-west`, `eu-west`) | auto |
 
 ### Examples
 
