@@ -428,6 +428,10 @@ class MngrConfig(FrozenModel):
         # Merge pre_command_scripts (dict - override keys take precedence)
         merged_pre_command_scripts = merge_dict_fields(self.pre_command_scripts, override.pre_command_scripts)
 
+        is_allowed_in_pytest = self.is_allowed_in_pytest
+        if override.is_allowed_in_pytest is not None:
+            is_allowed_in_pytest = override.is_allowed_in_pytest
+
         # Merge logging (nested config - use merge_with if override.logging is not None)
         merged_logging = self.logging
         if override.logging is not None:
@@ -445,6 +449,7 @@ class MngrConfig(FrozenModel):
             commands=merged_commands,
             pre_command_scripts=merged_pre_command_scripts,
             logging=merged_logging,
+            is_allowed_in_pytest=is_allowed_in_pytest,
         )
 
 

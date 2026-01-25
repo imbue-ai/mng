@@ -156,6 +156,9 @@ def load_config(
     if config.logging is not None:
         config_dict["logging"] = config.logging
 
+    config_dict["is_allowed_in_pytest"] = config.is_allowed_in_pytest
+    config_dict["pre_command_scripts"] = config.pre_command_scripts
+
     # Allow plugins to modify config_dict before validation
     pm.hook.on_load_config(config_dict=config_dict)
 
@@ -367,6 +370,7 @@ def _parse_config(raw: dict[str, Any]) -> MngrConfig:
     kwargs["commands"] = _parse_commands(raw.pop("commands", {})) if "commands" in raw else {}
     kwargs["logging"] = _parse_logging_config(raw.pop("logging", {})) if "logging" in raw else None
     kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", {}) if "is_allowed_in_pytest" in raw else None
+    kwargs["pre_command_scripts"] = raw.pop("pre_command_scripts", {}) if "pre_command_scripts" in raw else None
 
     if len(raw) > 0:
         raise ConfigParseError(f"Unknown configuration fields: {list(raw.keys())}")
