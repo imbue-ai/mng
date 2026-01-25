@@ -347,8 +347,7 @@ class Host(HostInterface):
         hostname = self.connector.host.name
         port = host_data.get("ssh_port", 22)
         key_path_str = host_data.get("ssh_key", "")
-        if not key_path_str:
-            return None
+        assert key_path_str, "SSH key path must be set for remote hosts"
 
         return (user, hostname, port, Path(key_path_str))
 
@@ -699,39 +698,39 @@ class Host(HostInterface):
 
     def _create_work_dir_as_copy(
         self,
-        host: HostInterface,
+        source_host: HostInterface,
         source_path: Path,
         options: CreateAgentOptions,
     ) -> Path:
         # Check if source and target are on the same host
-        source_is_same_host = host.id == self.id
+        source_is_same_host = source_host.id == self.id
 
         # If target path is specified, use it; otherwise use source path
         if options.target_path:
-            work_dir_path = options.target_path
+            target_path = options.target_path
             # If target equals source and same host, it's in-place
-            is_generated_work_dir = not (source_is_same_host and source_path == work_dir_path)
+            is_generated_work_dir = not (source_is_same_host and source_path == target_path)
         else:
             # No target path specified, use source path directly (in-place if same host)
-            work_dir_path = source_path
+            target_path = source_path
             is_generated_work_dir = not source_is_same_host
 
-        self._mkdir(work_dir_path)
+        self._mkdir(target_path)
 
         # Track generated work directories at the host level
         if is_generated_work_dir:
-            self._add_generated_work_dir(work_dir_path)
+            self._add_generated_work_dir(target_path)
 
         # If source and target are same path on same host, nothing to transfer
-        if source_is_same_host and source_path == work_dir_path:
+        if source_is_same_host and source_path == target_path:
             logger.debug("Source and target are the same path, no file transfer needed")
-            return work_dir_path
+            return target_path
 
         # Check if source has a .git directory
-        if host.is_local:
+        if source_host.is_local:
             source_has_git = (source_path / ".git").exists()
         else:
-            result = host.execute_command(f"test -d {shlex.quote(str(source_path / '.git'))}")
+            result = source_host.execute_command(f"test -d {shlex.quote(str(source_path / '.git'))}")
             source_has_git = result.success
 
         # Transfer files based on whether source has .git and whether we want to include it
@@ -743,11 +742,11 @@ class Host(HostInterface):
             # fall back to file copy if source is not a git repo
             if not source_has_git:
                 logger.warning("Source path is not a git repository, falling back to file copy")
-                self._rsync_files(host, source_path, work_dir_path, "--delete", exclude_git=True)
+                self._rsync_files(source_host, source_path, target_path, "--delete", exclude_git=True)
             # Source is a git repo, transfer via git
             else:
-                self._transfer_git_repo(host, source_path, work_dir_path, options)
-                self._transfer_extra_files(host, source_path, work_dir_path, options)
+                self._transfer_git_repo(source_host, source_path, target_path, options)
+                self._transfer_extra_files(source_host, source_path, target_path, options)
 
         # Run rsync if enabled. This is designed for adding extra files (e.g., data files not in git),
         # not for full directory sync. By default, rsync does NOT use --delete, so existing files
@@ -756,14 +755,14 @@ class Host(HostInterface):
         # Exclude .git from rsync if user specified git options (they're making an explicit choice about git handling)
         if options.data_options.is_rsync_enabled:
             self._rsync_files(
-                host,
+                source_host,
                 source_path,
-                work_dir_path,
+                target_path,
                 extra_args=options.data_options.rsync_args,
                 exclude_git=has_git_options,
             )
 
-        return work_dir_path
+        return target_path
 
     def _transfer_git_repo(
         self,
@@ -916,7 +915,7 @@ class Host(HostInterface):
                 if result.returncode == 0:
                     for line in result.stdout.strip().split("\n"):
                         if line:
-                            filename = line[3:].strip()
+                            filename = line.strip()[2:]
                             if " -> " in filename:
                                 filename = filename.split(" -> ")[1]
                             files_to_include.append(filename)
@@ -925,7 +924,7 @@ class Host(HostInterface):
                 if result.success:
                     for line in result.stdout.strip().split("\n"):
                         if line:
-                            filename = line[3:].strip()
+                            filename = line.strip()[2:]
                             if " -> " in filename:
                                 filename = filename.split(" -> ")[1]
                             files_to_include.append(filename)
@@ -986,10 +985,6 @@ class Host(HostInterface):
         - If source is local, run rsync locally (pushing to target via SSH if remote)
         - If source is remote, run rsync on source host (pushing to target via SSH if different host)
         """
-        target_ssh_info = self._get_ssh_connection_info()
-
-        source_str = str(source_path).rstrip("/") + "/"
-        target_str = str(target_path).rstrip("/") + "/"
 
         # Build rsync arguments
         rsync_args = ["rsync", "-rlpt"]
@@ -997,96 +992,43 @@ class Host(HostInterface):
             rsync_args.extend(["--exclude", ".git"])
         if extra_args:
             rsync_args.extend(shlex.split(extra_args))
-
-        # FIXME: this next block, and the next two functions, are silly--we should ALWAYS be running rsync locally!
-        #  you can easily sync between 2 remote hosts, or between any combination of local and remote--just assemble the args for source and dest separately, and then run the correct rsync command locally
-
-        # Handle files_from: if source is remote, copy the file there first
-        remote_files_from_path: Path | None = None
         if files_from is not None:
-            if source_host.is_local:
-                rsync_args.extend(["--files-from", str(files_from)])
-            else:
-                files_from_content = files_from.read_text()
-                remote_files_from_path = Path(f"/tmp/rsync_files_from_{os.getpid()}.txt")
-                source_host.write_text_file(remote_files_from_path, files_from_content)
-                rsync_args.extend(["--files-from", str(remote_files_from_path)])
+            rsync_args.extend(["--files-from", str(files_from)])
 
-        try:
-            if source_host.is_local:
-                # Run rsync locally - it can push to remote targets via SSH
-                self._run_rsync_locally(rsync_args, source_str, target_str, target_ssh_info)
-            else:
-                # Run rsync on the source host - it can push to any target via SSH
-                self._run_rsync_on_source_host(source_host, rsync_args, source_str, target_str, target_ssh_info)
-        finally:
-            if remote_files_from_path is not None:
-                source_host.execute_command(f"rm -f {shlex.quote(str(remote_files_from_path))}")
+        source_path_str = str(source_path).rstrip("/") + "/"
+        target_path_str = str(target_path).rstrip("/") + "/"
 
-    def _run_rsync_locally(
-        self,
-        rsync_args: list[str],
-        source_str: str,
-        target_str: str,
-        target_ssh_info: tuple[str, str, int, Path] | None,
-    ) -> None:
-        """Run rsync locally, pushing to either a local or remote target."""
-        if target_ssh_info is None:
+        if source_host.is_local and self.is_local:
             # Local to local
             logger.debug("rsync: local to local")
-            rsync_args.extend([source_str, target_str])
-        else:
+            rsync_args.extend([source_path_str, target_path_str])
+        elif source_host.is_local and not self.is_local:
             # Local to remote
+            target_ssh_info = self._get_ssh_connection_info()
+            assert target_ssh_info is not None
             user, hostname, port, key_path = target_ssh_info
             logger.debug("rsync: local to remote {}@{}:{}", user, hostname, port)
             rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
-            rsync_args.extend([source_str, f"{user}@{hostname}:{target_str}"])
+            rsync_args.extend([source_path_str, f"{user}@{hostname}:{target_path_str}"])
+        elif not source_host.is_local and self.is_local:
+            # Remote to local
+            source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
+            assert source_ssh_info is not None
+            user, hostname, port, key_path = source_ssh_info
+            logger.debug("rsync: remote to local {}@{}:{}", user, hostname, port)
+            rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
+            rsync_args.extend([f"{user}@{hostname}:{source_path_str}", target_path_str])
+        else:
+            # TODO: we could implement this, but would need to support a few options:
+            #  1. slow, safe: sync locally, then sync to target
+            #  2. fast, safe: rsync directly between two remote hosts (requires both hosts to have SSH access to each other)
+            #  3. fast, unsafe: forward SSH auth from source to target (requires SSH agent forwarding), then sync between them
+            raise NotImplementedError("rsync between two remote hosts is not supported right now")
 
+        logger.trace(" ".join(rsync_args))
         result = subprocess.run(rsync_args, capture_output=True, text=True)
         if result.returncode != 0:
             raise MngrError(f"rsync failed: {result.stderr}")
-
-    def _run_rsync_on_source_host(
-        self,
-        source_host: HostInterface,
-        rsync_args: list[str],
-        source_str: str,
-        target_str: str,
-        target_ssh_info: tuple[str, str, int, Path] | None,
-    ) -> None:
-        """Run rsync on the source host, pushing to a local or remote target."""
-        # Build the rsync command string to run on the source host
-        cmd_parts = [shlex.quote(arg) for arg in rsync_args]
-
-        if source_host.id == self.id:
-            # Same host transfer - run rsync directly with local paths
-            logger.debug("rsync: same remote host transfer")
-            cmd = " ".join(cmd_parts) + f" {shlex.quote(source_str)} {shlex.quote(target_str)}"
-            result = source_host.execute_command(cmd)
-            if not result.success:
-                raise MngrError(f"rsync failed on remote host: {result.stderr}")
-        elif target_ssh_info is not None:
-            # Remote source to different remote target - run rsync on source, push to target via SSH
-            user, hostname, port, key_path = target_ssh_info
-            logger.debug("rsync: remote to remote (from source to {}@{}:{})", user, hostname, port)
-            ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
-            cmd_parts.extend(["-e", shlex.quote(ssh_cmd)])
-            cmd = " ".join(cmd_parts) + f" {shlex.quote(source_str)} {shlex.quote(f'{user}@{hostname}:{target_str}')}"
-            result = source_host.execute_command(cmd)
-            if not result.success:
-                raise MngrError(f"rsync failed on remote host: {result.stderr}")
-        else:
-            # Remote source to local target - pull from source via SSH
-            logger.debug("rsync: remote to local (pulling from source)")
-            source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
-            if source_ssh_info is None:
-                raise MngrError("Cannot determine SSH connection info for remote source host")
-            user, hostname, port, key_path = source_ssh_info
-            rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
-            rsync_args.extend([f"{user}@{hostname}:{source_str}", target_str])
-            result = subprocess.run(rsync_args, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise MngrError(f"rsync failed: {result.stderr}")
 
     def _create_work_dir_as_git_worktree(
         self,

@@ -26,5 +26,9 @@ RUN curl -fsSL https://claude.ai/install.sh > /tmp/install_claude.sh && ( cat /t
 ENV PATH="/root/.claude/local/bin:$PATH"
 RUN echo 'PATH="/root/.claude/local/bin:$PATH"' >> /root/.bashrc
 
-# Use tini as init system to handle signals properly
-ENTRYPOINT ["/usr/bin/tini", "--"]
+# Run idly forever while being responsive to SIGTERM.
+# PID 1 must explicitly install signal handlers in order to respect signals.
+# `tail -f /dev/null` does not do this.
+# Since `docker stop` issues a `SIGTERM`, we use an explicit `trap`.
+# In practice, this appears to enable rapid interactions using `docker stop`.
+CMD ["sh", "-c", "trap 'exit 0' TERM; tail -f /dev/null & wait"]

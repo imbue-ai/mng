@@ -142,7 +142,7 @@ class CreateCliOptions(CommonCliOptions):
     copy_source: bool
     clone: bool
     worktree: bool
-    rsync: bool
+    rsync: bool | None
     rsync_args: str | None
     include_git: bool
     include_unclean: bool | None
@@ -277,7 +277,11 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--source-agent", "--from-agent", "source_agent", help="Source agent for cloning work_dir")
 @optgroup.option("--source-host", help="Source host")
 @optgroup.option("--source-path", help="Source path")
-@optgroup.option("--rsync/--no-rsync", default=True, show_default=True, help="Use rsync for file transfer")
+@optgroup.option(
+    "--rsync/--no-rsync",
+    default=None,
+    help="Use rsync for file transfer [default: yes if rsync-args are present or if git is disabled]",
+)
 @optgroup.option("--rsync-args", help="Additional arguments to pass to rsync")
 @optgroup.group("Agent Git Configuration")
 @optgroup.option("--copy", "copy_source", is_flag=True, help="Copy source to isolated directory before running")
@@ -801,7 +805,7 @@ def _parse_agent_opts(
 
     # parse source data options
     data_options = AgentDataOptions(
-        is_rsync_enabled=opts.rsync,
+        is_rsync_enabled=opts.rsync or opts.rsync_args or git is None,
         rsync_args=opts.rsync_args or "",
     )
 
