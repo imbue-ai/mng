@@ -1911,7 +1911,8 @@ def test_rsync_files_remote_files_from_handling(host_with_temp_dir: tuple[Host, 
     """Test that files_from is copied to remote host when rsync runs remotely.
 
     This tests the code path where rsync runs on a remote host and needs the
-    files-from list to be available there.
+    files-from list to be available there. This simulates a same-host transfer
+    on a remote machine (source and target paths on the same remote host).
     """
     host, temp_dir = host_with_temp_dir
 
@@ -1924,9 +1925,12 @@ def test_rsync_files_remote_files_from_handling(host_with_temp_dir: tuple[Host, 
     files_from_path = temp_dir / "files_from.txt"
     files_from_path.write_text("file1.txt\nfile2.txt\n")
 
-    # Create a mock "remote" host
+    # Create a mock "remote" host that simulates a same-host transfer
+    # (source and target are both on this remote host)
     mock_remote_host = MagicMock()
     mock_remote_host.is_local = False
+    # Same ID as target to simulate same-host transfer
+    mock_remote_host.id = host.id
     mock_remote_host._get_ssh_connection_info.return_value = None
 
     # Track what gets written to the remote
