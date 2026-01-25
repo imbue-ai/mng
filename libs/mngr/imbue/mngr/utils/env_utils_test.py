@@ -1,6 +1,13 @@
 """Unit tests for environment utilities."""
 
+from imbue.mngr.utils.env_utils import is_interactive_terminal
 from imbue.mngr.utils.env_utils import parse_env_file
+
+
+def test_is_interactive_terminal_returns_bool() -> None:
+    """is_interactive_terminal should return a boolean without raising."""
+    result = is_interactive_terminal()
+    assert isinstance(result, bool)
 
 
 def test_parse_env_file_simple() -> None:

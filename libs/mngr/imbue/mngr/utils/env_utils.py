@@ -1,4 +1,18 @@
+import sys
+
 import deal
+
+
+def is_interactive_terminal() -> bool:
+    """Check if stdout is an interactive terminal.
+
+    Returns False if stdout is not available (e.g., in some test environments).
+    """
+    try:
+        return sys.stdout.isatty()
+    except (ValueError, AttributeError):
+        # Handle cases where stdout is uninitialized (e.g., xdist workers)
+        return False
 
 
 @deal.has()

@@ -19,6 +19,7 @@ from imbue.mngr.interfaces.data_types import RelativePath
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import CommandString
+from imbue.mngr.utils.env_utils import is_interactive_terminal
 
 
 class ClaudeAgentConfig(AgentTypeConfig):
@@ -69,8 +70,24 @@ def _install_claude(host: HostInterface) -> None:
         raise PluginMngrError(f"Failed to install claude. stderr: {result.stderr}")
 
 
-def _prompt_user_for_installation() -> bool:
-    """Prompt the user to install claude locally."""
+def _can_prompt_user(mngr_ctx: MngrContext) -> bool:
+    """Check if we can prompt the user for input.
+
+    Uses MngrContext.is_interactive if explicitly set, otherwise auto-detects from TTY.
+    """
+    if mngr_ctx.is_interactive is not None:
+        return mngr_ctx.is_interactive
+    return is_interactive_terminal()
+
+
+def _prompt_user_for_installation(mngr_ctx: MngrContext) -> bool:
+    """Prompt the user to install claude locally.
+
+    Returns False without prompting if we're not in interactive mode.
+    """
+    if not _can_prompt_user(mngr_ctx):
+        logger.debug("Cannot prompt user: not in interactive mode")
+        return False
     logger.info("")
     logger.info("Claude is not installed on this machine.")
     logger.info("You can install it by running:")
@@ -219,9 +236,8 @@ class ClaudeAgent(BaseAgent):
                 logger.warning("Claude is not installed on the host")
 
                 if host.is_local:
-                    # For local hosts, prompt the user for consent
-                    # FIXME: this needs to understand whether we're running in interactive mode or not, should be part of MngrContext
-                    if not _prompt_user_for_installation():
+                    # For local hosts, prompt the user for consent (if in interactive mode)
+                    if not _prompt_user_for_installation(mngr_ctx):
                         raise PluginMngrError(
                             "Claude is not installed. Please install it manually with:\n"
                             "  curl -fsSL https://claude.ai/install.sh | bash"

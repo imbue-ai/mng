@@ -431,6 +431,10 @@ class MngrContext(FrozenModel):
     pm: pluggy.PluginManager = Field(
         description="Plugin manager for hooks and backends",
     )
+    is_interactive: bool | None = Field(
+        default=None,
+        description="Whether we're running in interactive mode. None means auto-detect from TTY.",
+    )
 
 
 class OutputOptions(FrozenModel):

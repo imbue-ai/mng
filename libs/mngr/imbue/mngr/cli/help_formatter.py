@@ -15,6 +15,7 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
 from imbue.mngr.config.data_types import MngrConfig
+from imbue.mngr.utils.env_utils import is_interactive_terminal as is_interactive_terminal
 
 
 class CommandHelpMetadata(FrozenModel):
@@ -43,18 +44,6 @@ def register_help_metadata(command_name: str, metadata: CommandHelpMetadata) -> 
 def get_help_metadata(command_name: str) -> CommandHelpMetadata | None:
     """Get help metadata for a command, if registered."""
     return _help_metadata_registry.get(command_name)
-
-
-def is_interactive_terminal() -> bool:
-    """Check if stdout is an interactive terminal.
-
-    Returns False if stdout is not available (e.g., in some test environments).
-    """
-    try:
-        return sys.stdout.isatty()
-    except (ValueError, AttributeError):
-        # Handle cases where stdout is uninitialized (e.g., xdist workers)
-        return False
 
 
 @deal.has()
