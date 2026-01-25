@@ -81,6 +81,49 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 
+def build_sandbox_tags(
+    host_id: HostId,
+    name: HostName,
+    user_tags: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """Build the tags dict to store on a Modal sandbox.
+
+    Only stores host_id, host_name, and user tags. All other metadata
+    (SSH info, config, snapshots) is stored on the Modal Volume.
+    """
+    tags: dict[str, str] = {
+        TAG_HOST_ID: str(host_id),
+        TAG_HOST_NAME: str(name),
+    }
+
+    # Store user tags with a prefix to separate them from mngr tags
+    if user_tags:
+        for key, value in user_tags.items():
+            tags[TAG_USER_PREFIX + key] = value
+
+    return tags
+
+
+def parse_sandbox_tags(
+    tags: dict[str, str],
+) -> tuple[HostId, HostName, dict[str, str]]:
+    """Parse tags from a Modal sandbox into structured data.
+
+    Returns (host_id, name, user_tags). All other metadata is read from the volume.
+    """
+    host_id = HostId(tags[TAG_HOST_ID])
+    name = HostName(tags[TAG_HOST_NAME])
+
+    # Extract user tags (those with the user prefix)
+    user_tags: dict[str, str] = {}
+    for key, value in tags.items():
+        if key.startswith(TAG_USER_PREFIX):
+            user_key = key[len(TAG_USER_PREFIX) :]
+            user_tags[user_key] = value
+
+    return host_id, name, user_tags
+
+
 def handle_modal_auth_error(func: Callable[P, T]) -> Callable[P, T]:
     """Decorator to convert modal.exception.AuthError to ModalAuthError.
 
@@ -536,49 +579,21 @@ class ModalProviderInstance(BaseProviderInstance):
     # Tag Management Helpers
     # =========================================================================
 
-    # FIXME: these next two methods should be moved off of the class to be static helper methods. Then they can be easily unit tested (and they should be)
     def _build_sandbox_tags(
         self,
         host_id: HostId,
         name: HostName,
         user_tags: Mapping[str, str] | None,
     ) -> dict[str, str]:
-        """Build the tags dict to store on a Modal sandbox.
-
-        Only stores host_id, host_name, and user tags. All other metadata
-        (SSH info, config, snapshots) is stored on the Modal Volume.
-        """
-        tags: dict[str, str] = {
-            TAG_HOST_ID: str(host_id),
-            TAG_HOST_NAME: str(name),
-        }
-
-        # Store user tags with a prefix to separate them from mngr tags
-        if user_tags:
-            for key, value in user_tags.items():
-                tags[TAG_USER_PREFIX + key] = value
-
-        return tags
+        """Build the tags dict to store on a Modal sandbox."""
+        return build_sandbox_tags(host_id, name, user_tags)
 
     def _parse_sandbox_tags(
         self,
         tags: dict[str, str],
     ) -> tuple[HostId, HostName, dict[str, str]]:
-        """Parse tags from a Modal sandbox into structured data.
-
-        Returns (host_id, name, user_tags). All other metadata is read from the volume.
-        """
-        host_id = HostId(tags[TAG_HOST_ID])
-        name = HostName(tags[TAG_HOST_NAME])
-
-        # Extract user tags (those with the user prefix)
-        user_tags: dict[str, str] = {}
-        for key, value in tags.items():
-            if key.startswith(TAG_USER_PREFIX):
-                user_key = key[len(TAG_USER_PREFIX) :]
-                user_tags[user_key] = value
-
-        return host_id, name, user_tags
+        """Parse tags from a Modal sandbox into structured data."""
+        return parse_sandbox_tags(tags)
 
     def _get_modal_app(self) -> modal.App:
         """Get or create the Modal app for this provider instance.
