@@ -330,9 +330,9 @@ class MngrConfig(FrozenModel):
         default_factory=dict,
         description="Default values for CLI command parameters (e.g., 'commands.create')",
     )
-    pre_command_scripts: dict[str, Path] = Field(
+    pre_command_scripts: dict[str, list[str]] = Field(
         default_factory=dict,
-        description="Scripts to run before commands execute, keyed by command name (e.g., 'create': '/path/to/script.sh')",
+        description="Commands to run before CLI commands execute, keyed by command name (e.g., 'create': ['echo hello', 'validate.sh'])",
     )
     logging: LoggingConfig = Field(
         default_factory=LoggingConfig,

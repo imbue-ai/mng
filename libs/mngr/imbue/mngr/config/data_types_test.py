@@ -511,26 +511,26 @@ def test_mngr_config_merge_with_merges_pre_command_scripts(mngr_test_prefix: str
     """MngrConfig.merge_with should merge pre_command_scripts dicts."""
     base = MngrConfig(
         prefix=mngr_test_prefix,
-        pre_command_scripts={"create": Path("/path/to/create.sh"), "list": Path("/path/to/list.sh")},
+        pre_command_scripts={"create": ["echo base"], "list": ["echo list"]},
     )
     override = MngrConfig(
         prefix=mngr_test_prefix,
-        pre_command_scripts={"create": Path("/new/path/to/create.sh")},
+        pre_command_scripts={"create": ["echo override"]},
     )
     merged = base.merge_with(override)
-    assert merged.pre_command_scripts["create"] == Path("/new/path/to/create.sh")
-    assert merged.pre_command_scripts["list"] == Path("/path/to/list.sh")
+    assert merged.pre_command_scripts["create"] == ["echo override"]
+    assert merged.pre_command_scripts["list"] == ["echo list"]
 
 
 def test_mngr_config_merge_with_adds_new_pre_command_scripts(mngr_test_prefix: str) -> None:
     """MngrConfig.merge_with should add new pre_command_scripts from override."""
     base = MngrConfig(
         prefix=mngr_test_prefix,
-        pre_command_scripts={"create": Path("/path/to/create.sh")},
+        pre_command_scripts={"create": ["echo create"]},
     )
     override = MngrConfig(
         prefix=mngr_test_prefix,
-        pre_command_scripts={"destroy": Path("/path/to/destroy.sh")},
+        pre_command_scripts={"destroy": ["echo destroy"]},
     )
     merged = base.merge_with(override)
     assert "create" in merged.pre_command_scripts
