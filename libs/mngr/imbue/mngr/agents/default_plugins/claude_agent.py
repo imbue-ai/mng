@@ -227,9 +227,9 @@ class ClaudeAgent(BaseAgent):
                             "  curl -fsSL https://claude.ai/install.sh | bash"
                         )
                 else:
-                    # FIXME: for remote hosts, we need to check whether the user has configured automatic installation
-                    #  and if not, raise an error here
-                    pass
+                    # Remote hosts: auto-install is enabled when check_installation=True
+                    # Users can disable auto-installation by setting check_installation=False
+                    logger.debug("Claude will be auto-installed on remote host")
 
                 # Install claude
                 logger.info("Installing claude...")
