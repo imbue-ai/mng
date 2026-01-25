@@ -12,7 +12,6 @@ from pydantic import Field
 
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostConnectionError
-from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import SendMessageError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.agent import AgentStatus
@@ -40,14 +39,19 @@ class BaseAgent(AgentInterface):
         agent_args: tuple[str, ...],
         command_override: CommandString | None,
     ) -> CommandString:
-        """Default: command_override or config.command, then append cli_args and agent_args."""
+        """Default: command_override or config.command or agent_type, then append cli_args and agent_args.
+
+        If no explicit command is defined, falls back to using the agent_type as a command.
+        This allows using arbitrary commands as agent types (e.g., 'mngr create my-agent echo').
+        """
         logger.trace("Assembling command for agent {} (type={}) on host {}", self.name, self.agent_type, host.id)
         if command_override is not None:
             base = str(command_override)
         elif self.agent_config.command is not None:
             base = str(self.agent_config.command)
         else:
-            raise NoCommandDefinedError(f"No command defined for agent type '{self.agent_type}'")
+            # Fall back to using the agent type as a command (documented "Direct command" behavior)
+            base = str(self.agent_type)
 
         parts = [base]
         if self.agent_config.cli_args:
