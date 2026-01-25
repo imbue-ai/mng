@@ -10,7 +10,10 @@ Or to run all tests including Modal tests:
     pytest --timeout=180
 """
 
+from io import StringIO
+from pathlib import Path
 from typing import cast
+from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import modal.exception
@@ -27,6 +30,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
+from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.instance import TAG_HOST_ID
 from imbue.mngr.providers.modal.instance import TAG_HOST_NAME
@@ -129,9 +133,43 @@ def test_build_and_parse_sandbox_tags_roundtrip() -> None:
     assert parsed_user_tags == user_tags
 
 
-def make_modal_provider(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
-    """Create a ModalProviderInstance for testing."""
-    # Use the backend to properly construct the instance with app and backend_cls
+def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
+    """Create a ModalProviderInstance with mocked Modal dependencies for unit tests.
+
+    Uses model_construct() to bypass Pydantic validation, allowing MagicMock objects
+    to be used in place of real modal.App and modal.Volume instances.
+    """
+    mock_app = MagicMock()
+    mock_app.app_id = "mock-app-id"
+    mock_app.name = app_name
+
+    mock_volume = MagicMock()
+    output_buffer = StringIO()
+
+    # Create ModalProviderApp using model_construct to skip validation
+    modal_app = ModalProviderApp.model_construct(
+        app_name=app_name,
+        app=mock_app,
+        volume=mock_volume,
+        close_callback=MagicMock(),
+        get_output_callback=output_buffer.getvalue,
+    )
+
+    # Create ModalProviderInstance using model_construct to skip validation
+    instance = ModalProviderInstance.model_construct(
+        name=ProviderInstanceName("modal-test"),
+        host_dir=Path("/mngr"),
+        mngr_ctx=mngr_ctx,
+        default_timeout=300,
+        default_cpu=0.5,
+        default_memory=0.5,
+        modal_app=modal_app,
+    )
+    return instance
+
+
+def make_modal_provider_real(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
+    """Create a ModalProviderInstance with real Modal for acceptance tests."""
     instance = ModalProviderBackend.build_provider_instance(
         name=ProviderInstanceName("modal-test"),
         instance_configuration={
@@ -148,8 +186,15 @@ def make_modal_provider(mngr_ctx: MngrContext, app_name: str) -> ModalProviderIn
 
 @pytest.fixture
 def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProviderInstance:
-    """Create a ModalProviderInstance with a unique app name for test isolation."""
-    return make_modal_provider(temp_mngr_ctx, f"mngr-test-{mngr_test_id}")
+    """Create a ModalProviderInstance with mocked Modal for unit/integration tests."""
+    app_name = f"mngr-test-{mngr_test_id}"
+    return make_modal_provider_with_mocks(temp_mngr_ctx, app_name)
+
+
+@pytest.fixture
+def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProviderInstance:
+    """Create a ModalProviderInstance with real Modal for acceptance tests."""
+    return make_modal_provider_real(temp_mngr_ctx, f"mngr-test-{mngr_test_id}")
 
 
 # =============================================================================
@@ -311,11 +356,11 @@ def test_parse_build_args_region_default_is_none(modal_provider: ModalProviderIn
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_create_host_creates_sandbox_with_ssh(modal_provider: ModalProviderInstance) -> None:
+def test_create_host_creates_sandbox_with_ssh(real_modal_provider: ModalProviderInstance) -> None:
     """Creating a host should create a Modal sandbox with SSH access."""
     host = None
     try:
-        host = modal_provider.create_host(HostName("test-host"))
+        host = real_modal_provider.create_host(HostName("test-host"))
 
         # Verify host was created
         assert host.id is not None
@@ -330,150 +375,150 @@ def test_create_host_creates_sandbox_with_ssh(modal_provider: ModalProviderInsta
         assert "hello from modal" in result.stdout
 
         # Verify output capture is working (Modal should emit some output during host creation)
-        captured_output = modal_provider.get_captured_output()
+        captured_output = real_modal_provider.get_captured_output()
         assert isinstance(captured_output, str)
 
     finally:
         if host:
-            modal_provider.destroy_host(host)
+            real_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_get_host_by_id(modal_provider: ModalProviderInstance) -> None:
+def test_get_host_by_id(real_modal_provider: ModalProviderInstance) -> None:
     """Should be able to get a host by its ID."""
     host = None
     try:
-        host = modal_provider.create_host(HostName("test-host"))
+        host = real_modal_provider.create_host(HostName("test-host"))
         host_id = host.id
 
         # Get the same host by ID
-        retrieved_host = modal_provider.get_host(host_id)
+        retrieved_host = real_modal_provider.get_host(host_id)
         assert retrieved_host.id == host_id
 
     finally:
         if host:
-            modal_provider.destroy_host(host)
+            real_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_get_host_by_name(modal_provider: ModalProviderInstance) -> None:
+def test_get_host_by_name(real_modal_provider: ModalProviderInstance) -> None:
     """Should be able to get a host by its name."""
     host = None
     try:
-        host = modal_provider.create_host(HostName("test-host"))
+        host = real_modal_provider.create_host(HostName("test-host"))
         host_id = host.id
 
         # Get the same host by name
-        retrieved_host = modal_provider.get_host(HostName("test-host"))
+        retrieved_host = real_modal_provider.get_host(HostName("test-host"))
         assert retrieved_host.id == host_id
 
     finally:
         if host:
-            modal_provider.destroy_host(host)
+            real_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_list_hosts_includes_created_host(modal_provider: ModalProviderInstance) -> None:
+def test_list_hosts_includes_created_host(real_modal_provider: ModalProviderInstance) -> None:
     """Created host should appear in list_hosts."""
     host = None
     try:
-        host = modal_provider.create_host(HostName("test-host"))
+        host = real_modal_provider.create_host(HostName("test-host"))
 
-        hosts = modal_provider.list_hosts()
+        hosts = real_modal_provider.list_hosts()
         host_ids = [h.id for h in hosts]
         assert host.id in host_ids
 
     finally:
         if host:
-            modal_provider.destroy_host(host)
+            real_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_destroy_host_removes_sandbox(modal_provider: ModalProviderInstance) -> None:
+def test_destroy_host_removes_sandbox(real_modal_provider: ModalProviderInstance) -> None:
     """Destroying a host should remove it from the provider."""
-    host = modal_provider.create_host(HostName("test-host"))
+    host = real_modal_provider.create_host(HostName("test-host"))
     host_id = host.id
 
-    modal_provider.destroy_host(host)
+    real_modal_provider.destroy_host(host)
 
     # Host should no longer be found
     with pytest.raises(HostNotFoundError):
-        modal_provider.get_host(host_id)
+        real_modal_provider.get_host(host_id)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_get_host_resources(modal_provider: ModalProviderInstance) -> None:
+def test_get_host_resources(real_modal_provider: ModalProviderInstance) -> None:
     """Should be able to get resource information for a host."""
     host = None
     try:
-        host = modal_provider.create_host(HostName("test-host"))
-        resources = modal_provider.get_host_resources(host)
+        host = real_modal_provider.create_host(HostName("test-host"))
+        resources = real_modal_provider.get_host_resources(host)
 
         assert resources.cpu.count >= 1
         assert resources.memory_gb >= 0.5
 
     finally:
         if host:
-            modal_provider.destroy_host(host)
+            real_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_get_and_set_host_tags(modal_provider: ModalProviderInstance) -> None:
+def test_get_and_set_host_tags(real_modal_provider: ModalProviderInstance) -> None:
     """Should be able to get and set tags on a host."""
     host = None
     try:
-        host = modal_provider.create_host(HostName("test-host"))
+        host = real_modal_provider.create_host(HostName("test-host"))
 
         # Initially no tags
-        tags = modal_provider.get_host_tags(host)
+        tags = real_modal_provider.get_host_tags(host)
         assert tags == {}
 
         # Set some tags
-        modal_provider.set_host_tags(host, {"env": "test", "team": "backend"})
-        tags = modal_provider.get_host_tags(host)
+        real_modal_provider.set_host_tags(host, {"env": "test", "team": "backend"})
+        tags = real_modal_provider.get_host_tags(host)
         assert tags == {"env": "test", "team": "backend"}
 
         # Add a tag
-        modal_provider.add_tags_to_host(host, {"version": "1.0"})
-        tags = modal_provider.get_host_tags(host)
+        real_modal_provider.add_tags_to_host(host, {"version": "1.0"})
+        tags = real_modal_provider.get_host_tags(host)
         assert len(tags) == 3
         assert tags["version"] == "1.0"
 
         # Remove a tag
-        modal_provider.remove_tags_from_host(host, ["team"])
-        tags = modal_provider.get_host_tags(host)
+        real_modal_provider.remove_tags_from_host(host, ["team"])
+        tags = real_modal_provider.get_host_tags(host)
         assert "team" not in tags
         assert len(tags) == 2
 
     finally:
         if host:
-            modal_provider.destroy_host(host)
+            real_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_create_and_list_snapshots(modal_provider: ModalProviderInstance) -> None:
+def test_create_and_list_snapshots(real_modal_provider: ModalProviderInstance) -> None:
     """Should be able to create and list snapshots."""
     host = None
     try:
-        host = modal_provider.create_host(HostName("test-host"))
+        host = real_modal_provider.create_host(HostName("test-host"))
 
         # Initially no snapshots
-        snapshots = modal_provider.list_snapshots(host)
+        snapshots = real_modal_provider.list_snapshots(host)
         assert snapshots == []
 
         # Create a snapshot
-        snapshot_id = modal_provider.create_snapshot(host, SnapshotName("test-snapshot"))
+        snapshot_id = real_modal_provider.create_snapshot(host, SnapshotName("test-snapshot"))
         assert snapshot_id is not None
 
         # Verify it appears in the list
-        snapshots = modal_provider.list_snapshots(host)
+        snapshots = real_modal_provider.list_snapshots(host)
         assert len(snapshots) == 1
         assert snapshots[0].id == snapshot_id
         assert snapshots[0].name == SnapshotName("test-snapshot")
@@ -481,71 +526,71 @@ def test_create_and_list_snapshots(modal_provider: ModalProviderInstance) -> Non
 
     finally:
         if host:
-            modal_provider.destroy_host(host)
+            real_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_list_snapshots_returns_empty_initially(modal_provider: ModalProviderInstance) -> None:
+def test_list_snapshots_returns_empty_initially(real_modal_provider: ModalProviderInstance) -> None:
     """list_snapshots should return empty list for a new host."""
     host = None
     try:
-        host = modal_provider.create_host(HostName("test-host"))
-        snapshots = modal_provider.list_snapshots(host)
+        host = real_modal_provider.create_host(HostName("test-host"))
+        snapshots = real_modal_provider.list_snapshots(host)
         assert snapshots == []
 
     finally:
         if host:
-            modal_provider.destroy_host(host)
+            real_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_delete_snapshot(modal_provider: ModalProviderInstance) -> None:
+def test_delete_snapshot(real_modal_provider: ModalProviderInstance) -> None:
     """Should be able to delete a snapshot."""
     host = None
     try:
-        host = modal_provider.create_host(HostName("test-host"))
+        host = real_modal_provider.create_host(HostName("test-host"))
 
         # Create a snapshot
-        snapshot_id = modal_provider.create_snapshot(host)
-        assert len(modal_provider.list_snapshots(host)) == 1
+        snapshot_id = real_modal_provider.create_snapshot(host)
+        assert len(real_modal_provider.list_snapshots(host)) == 1
 
         # Delete it
-        modal_provider.delete_snapshot(host, snapshot_id)
-        assert len(modal_provider.list_snapshots(host)) == 0
+        real_modal_provider.delete_snapshot(host, snapshot_id)
+        assert len(real_modal_provider.list_snapshots(host)) == 0
 
     finally:
         if host:
-            modal_provider.destroy_host(host)
+            real_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_delete_nonexistent_snapshot_raises_error(modal_provider: ModalProviderInstance) -> None:
+def test_delete_nonexistent_snapshot_raises_error(real_modal_provider: ModalProviderInstance) -> None:
     """Deleting a nonexistent snapshot should raise SnapshotNotFoundError."""
     host = None
     try:
-        host = modal_provider.create_host(HostName("test-host"))
+        host = real_modal_provider.create_host(HostName("test-host"))
 
         fake_id = SnapshotId.generate()
         with pytest.raises(SnapshotNotFoundError):
-            modal_provider.delete_snapshot(host, fake_id)
+            real_modal_provider.delete_snapshot(host, fake_id)
 
     finally:
         if host:
-            modal_provider.destroy_host(host)
+            real_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-def test_start_host_restores_from_snapshot(modal_provider: ModalProviderInstance) -> None:
+def test_start_host_restores_from_snapshot(real_modal_provider: ModalProviderInstance) -> None:
     """start_host with a snapshot_id should restore a terminated host from the snapshot."""
     host = None
     restored_host = None
     try:
         # Create a host and write a marker file
-        host = modal_provider.create_host(HostName("test-host"))
+        host = real_modal_provider.create_host(HostName("test-host"))
         host_id = host.id
 
         # Write a marker file to verify restoration
@@ -553,18 +598,18 @@ def test_start_host_restores_from_snapshot(modal_provider: ModalProviderInstance
         assert result.success
 
         # Create a snapshot
-        snapshot_id = modal_provider.create_snapshot(host, SnapshotName("test-restore"))
+        snapshot_id = real_modal_provider.create_snapshot(host, SnapshotName("test-restore"))
 
         # Verify snapshot exists
-        snapshots = modal_provider.list_snapshots(host)
+        snapshots = real_modal_provider.list_snapshots(host)
         assert len(snapshots) == 1
         assert snapshots[0].id == snapshot_id
 
         # Stop the host (terminates the sandbox)
-        modal_provider.stop_host(host)
+        real_modal_provider.stop_host(host)
 
         # Restore from snapshot
-        restored_host = modal_provider.start_host(host_id, snapshot_id=snapshot_id)
+        restored_host = real_modal_provider.start_host(host_id, snapshot_id=snapshot_id)
 
         # Verify the host was restored with the same ID
         assert restored_host.id == host_id
@@ -576,56 +621,56 @@ def test_start_host_restores_from_snapshot(modal_provider: ModalProviderInstance
 
     finally:
         if restored_host:
-            modal_provider.destroy_host(restored_host)
+            real_modal_provider.destroy_host(restored_host)
         elif host:
-            modal_provider.destroy_host(host)
+            real_modal_provider.destroy_host(host)
         else:
             pass
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_start_host_on_running_host(modal_provider: ModalProviderInstance) -> None:
+def test_start_host_on_running_host(real_modal_provider: ModalProviderInstance) -> None:
     """start_host on a running host should return the same host."""
     host = None
     try:
-        host = modal_provider.create_host(HostName("test-host"))
+        host = real_modal_provider.create_host(HostName("test-host"))
         host_id = host.id
 
         # Starting a running host should just return it
-        started_host = modal_provider.start_host(host)
+        started_host = real_modal_provider.start_host(host)
         assert started_host.id == host_id
 
     finally:
         if host:
-            modal_provider.destroy_host(host)
+            real_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_start_host_on_stopped_host_raises_error(modal_provider: ModalProviderInstance) -> None:
+def test_start_host_on_stopped_host_raises_error(real_modal_provider: ModalProviderInstance) -> None:
     """start_host on a terminated host should raise an error."""
-    host = modal_provider.create_host(HostName("test-host"))
+    host = real_modal_provider.create_host(HostName("test-host"))
     host_id = host.id
 
     # Stop/destroy the host
-    modal_provider.stop_host(host)
+    real_modal_provider.stop_host(host)
 
     # Trying to start it should fail
     with pytest.raises(MngrError):
-        modal_provider.start_host(host_id)
+        real_modal_provider.start_host(host_id)
 
 
 @pytest.mark.acceptance
-def test_get_host_not_found_raises_error(modal_provider: ModalProviderInstance) -> None:
+def test_get_host_not_found_raises_error(real_modal_provider: ModalProviderInstance) -> None:
     """Getting a non-existent host should raise HostNotFoundError."""
     fake_id = HostId.generate()
     with pytest.raises(HostNotFoundError):
-        modal_provider.get_host(fake_id)
+        real_modal_provider.get_host(fake_id)
 
 
 @pytest.mark.acceptance
-def test_get_host_by_name_not_found_raises_error(modal_provider: ModalProviderInstance) -> None:
+def test_get_host_by_name_not_found_raises_error(real_modal_provider: ModalProviderInstance) -> None:
     """Getting a non-existent host by name should raise HostNotFoundError."""
     with pytest.raises(HostNotFoundError):
-        modal_provider.get_host(HostName("nonexistent-host"))
+        real_modal_provider.get_host(HostName("nonexistent-host"))
