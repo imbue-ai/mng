@@ -60,12 +60,12 @@ See [connect options](./connect.md) (only applies if `--connect` is specified)
 - `--in-place`: Run directly in source directory. Incompatible with `--target-path`
 - `--copy`: Copy source to isolated directory before running [default for remote agents, and for local agents if not in a git repo]
 - `--clone`: Create a git clone that shares objects with the original repo (only works for local agents)
-- `--worktree`: Create a git worktree that shares objects and index with the original repo [default for local agents in a git repo]. Note: implies `--new-branch`
+- `--worktree`: Create a git worktree that shares objects and index with the original repo [default for local agents in a git repo]. Note: requires `--new-branch` (which is the default)
 
 ## Agent Git Configuration
 
 - `--base-branch TEXT`: The starting point for the agent [default: current branch]
-- `--new-branch TEXT / --no-new-branch`: Create a fresh branch for the agent's work (named TEXT if provided, otherwise auto-generated). The new branch is created from `--base-branch` [default: --no-new-branch unless --worktree is used]
+- `--new-branch TEXT / --no-new-branch`: Create a fresh branch for the agent's work (named TEXT if provided, otherwise auto-generated). The new branch is created from `--base-branch` [default: --new-branch]. Note: `--no-new-branch` is incompatible with `--worktree`
 - `--new-branch-prefix TEXT`: Prefix for auto-generated branch names [default: `mngr/`]
 - `--depth INTEGER`: Shallow clone depth [default: full]
 - `--shallow-since DATE`: Shallow clone since date
