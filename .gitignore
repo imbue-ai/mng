@@ -239,4 +239,4 @@ scripts/notify_user.local.sh
 .claude/tests_outputs/
 
 # we stick the image build artifacts here
-.mngr/dev/
+.mngr/dev/build/

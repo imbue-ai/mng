@@ -445,7 +445,7 @@ def test_mngr_create_with_default_dockerfile_on_modal(temp_source_dir: Path) -> 
 
     with tempfile.TemporaryDirectory() as tmpdir:
         temp_dir_with_tar = str(Path(tmpdir)).rstrip("/")
-        commit_hash = os.environ.get("GITHUB_SHA", "") or "e66b24ce9354eb11c9dc107b3d640a790f0c45b1"
+        commit_hash = os.environ.get("GITHUB_SHA", "") or Path(".mngr/dev/modal_image_commit_hash").read_text().strip()
 
         # go make the tar
         result = subprocess.run(
