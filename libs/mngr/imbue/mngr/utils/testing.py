@@ -1,7 +1,5 @@
 import os
 import subprocess
-import time
-from collections.abc import Callable
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -12,6 +10,8 @@ from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+# Re-export wait_for from polling module for backward compatibility
+from imbue.mngr.utils.polling import wait_for as wait_for
 
 
 def get_subprocess_test_env(root_name: str = "mngr-test") -> dict[str, str]:
@@ -65,26 +65,6 @@ def tmux_session_exists(session_name: str) -> bool:
         capture_output=True,
     )
     return result.returncode == 0
-
-
-def wait_for(
-    condition: Callable[[], bool],
-    timeout: float = 5.0,
-    poll_interval: float = 0.1,
-    error_message: str = "Condition not met within timeout",
-) -> None:
-    """Wait for a condition to become true, polling at regular intervals.
-
-    Raises TimeoutError if the condition is not met within the timeout period.
-    """
-    start_time = time.time()
-    elapsed_time = 0.0
-    while elapsed_time < timeout:
-        if condition():
-            return
-        time.sleep(poll_interval)
-        elapsed_time = time.time() - start_time
-    raise TimeoutError(error_message)
 
 
 def make_local_provider(
