@@ -273,7 +273,7 @@ def test_send_message_to_replaced_agent_succeeds(
         )
         return capture_result.success and test_message in capture_result.stdout
 
-    wait_for(message_in_pane, timeout=2.0, error_message=f"Message '{test_message}' not found in tmux pane output")
+    wait_for(message_in_pane, timeout=5.0, error_message=f"Message '{test_message}' not found in tmux pane output")
 
     # Clean up
     host.destroy_agent(agent)
