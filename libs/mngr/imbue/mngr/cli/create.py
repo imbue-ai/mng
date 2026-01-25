@@ -439,6 +439,12 @@ def create(ctx: click.Context, **kwargs) -> None:
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
 
+    # validate that we're not waiting for the agent to stop and trying to connect:
+    if opts.await_agent_stopped and opts.connect:
+        raise UserInputError(
+            "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
+        )
+
     # Read message from file if --message-file is provided
     initial_message: str | None
     if opts.message_file is not None:

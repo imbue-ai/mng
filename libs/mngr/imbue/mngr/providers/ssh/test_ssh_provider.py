@@ -21,7 +21,7 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.ssh.instance import SSHHostConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
-from imbue.mngr.utils.testing import wait_for
+from imbue.mngr.utils.polling import wait_for
 
 
 def find_free_port() -> int:

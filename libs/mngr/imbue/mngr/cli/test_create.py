@@ -10,10 +10,10 @@ import pluggy
 from click.testing import CliRunner
 
 from imbue.mngr.cli.create import create
+from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import capture_tmux_pane_contents
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
-from imbue.mngr.utils.testing import wait_for
 
 
 def test_cli_create_with_echo_command(
@@ -575,8 +575,7 @@ def test_await_agent_stopped_waits_for_agent_to_exit(
                 str(temp_work_dir),
                 "--no-connect",
                 "--await-agent-stopped",
-                "--no-copy-work-dir",
-                "--no-ensure-clean",
+                "--no-connect",
             ],
             obj=plugin_manager,
             catch_exceptions=False,
@@ -587,7 +586,8 @@ def test_await_agent_stopped_waits_for_agent_to_exit(
         # The key assertion: we waited for the agent to stop
         assert "has stopped" in result.output
 
-        # The tmux session may still exist (tmux keeps sessions after command exits),
-        # but the agent's process should not be running anymore
-        # We verify this by checking that the command completed successfully
-        # and the "has stopped" message was printed before output_result
+        # wait for the tmux session to be gone
+        wait_for(
+            lambda: not tmux_session_exists(session_name),
+            error_message=f"Expected tmux session {session_name} to be gone after agent stopped",
+        )

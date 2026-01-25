@@ -18,13 +18,13 @@ from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
-from imbue.mngr.utils.testing import wait_for
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.utils.polling import wait_for
 
 
 @pytest.fixture

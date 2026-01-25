@@ -10,8 +10,6 @@ from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
-# Re-export wait_for from polling module for backward compatibility
-from imbue.mngr.utils.polling import wait_for as wait_for
 
 
 def get_subprocess_test_env(root_name: str = "mngr-test") -> dict[str, str]:

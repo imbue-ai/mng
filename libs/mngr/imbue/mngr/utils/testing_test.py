@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import make_mngr_ctx
-from imbue.mngr.utils.testing import wait_for
 
 
 def test_wait_for_returns_immediately_when_condition_true() -> None:
