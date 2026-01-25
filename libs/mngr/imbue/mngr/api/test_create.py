@@ -9,8 +9,10 @@ import time
 from pathlib import Path
 
 import pluggy
+import pytest
 
 from imbue.mngr import hookimpl
+from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.api.create import _call_on_before_create_hooks
 from imbue.mngr.api.create import create
 from imbue.mngr.api.data_types import NewHostOptions
@@ -200,11 +202,11 @@ def test_agent_state_is_persisted(
 # =============================================================================
 
 
-def test_create_agent_without_command_uses_none(
+def test_create_agent_without_command_raises_error(
     temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,
 ) -> None:
-    """Test that creating an agent without a command is handled."""
+    """Test that creating an agent without a command raises NoCommandDefinedError."""
     agent_name = AgentName(f"test-no-cmd-{int(time.time())}")
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
@@ -221,15 +223,13 @@ def test_create_agent_without_command_uses_none(
             name=agent_name,
         )
 
-        result = create(
-            source_location=source_location,
-            target_host=local_host,
-            agent_options=agent_options,
-            mngr_ctx=temp_mngr_ctx,
-        )
-
-        assert result.agent.id is not None
-        assert result.host.id is not None
+        with pytest.raises(NoCommandDefinedError):
+            create(
+                source_location=source_location,
+                target_host=local_host,
+                agent_options=agent_options,
+                mngr_ctx=temp_mngr_ctx,
+            )
 
 
 # =============================================================================
