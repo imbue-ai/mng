@@ -1,5 +1,9 @@
+import subprocess
+import sys
 import uuid
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
 from pathlib import Path
 from typing import Any
 from typing import TypeVar
@@ -10,8 +14,6 @@ from click.core import ParameterSource
 from click_option_group import GroupedOption
 from click_option_group import OptionGroup
 from click_option_group import optgroup
-
-import sys
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.config.data_types import MngrConfig
@@ -159,6 +161,9 @@ def setup_command_context(
     # Re-create options with config defaults applied
     opts = command_class(**updated_params)
 
+    # Run pre-command scripts if configured for this command
+    _run_pre_command_scripts(mngr_ctx.config, command_name)
+
     return mngr_ctx, output_opts, opts
 
 
@@ -250,6 +255,46 @@ def _apply_plugin_option_overrides(
         command_class=command_class,
         params=params,
     )
+
+
+def _run_single_script(script: str) -> tuple[str, int, str, str]:
+    """Run a single script and return (script, exit_code, stdout, stderr)."""
+    result = subprocess.run(
+        script,
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+    return (script, result.returncode, result.stdout, result.stderr)
+
+
+def _run_pre_command_scripts(config: MngrConfig, command_name: str) -> None:
+    """Run pre-command scripts configured for this command.
+
+    Scripts are run in parallel and all must succeed (exit code 0).
+    Raises click.ClickException if any script fails.
+    """
+    scripts = config.pre_command_scripts.get(command_name)
+    if not scripts:
+        return
+
+    # Run all scripts in parallel
+    failures: list[tuple[str, int, str, str]] = []
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(_run_single_script, script) for script in scripts]
+        for future in as_completed(futures):
+            script, exit_code, _stdout, stderr = future.result()
+            if exit_code != 0:
+                failures.append((script, exit_code, _stdout, stderr))
+
+    if failures:
+        error_lines = [f"Pre-command script(s) failed for '{command_name}':"]
+        for script, exit_code, _stdout, stderr in failures:
+            error_lines.append(f"  Script: {script}")
+            error_lines.append(f"  Exit code: {exit_code}")
+            if stderr.strip():
+                error_lines.append(f"  Stderr: {stderr.strip()}")
+        raise click.ClickException("\n".join(error_lines))
 
 
 def create_group_title_option(group: OptionGroup) -> click.Option:

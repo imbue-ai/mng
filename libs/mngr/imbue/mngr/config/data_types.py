@@ -330,8 +330,10 @@ class MngrConfig(FrozenModel):
         default_factory=dict,
         description="Default values for CLI command parameters (e.g., 'commands.create')",
     )
-    # FIXME: add a "pre_command_scripts" field here that is a dict from command name to script path
-    #  That way we can run custom scripts before commands execute
+    pre_command_scripts: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Commands to run before CLI commands execute, keyed by command name (e.g., 'create': ['echo hello', 'validate.sh'])",
+    )
     logging: LoggingConfig = Field(
         default_factory=LoggingConfig,
         description="Logging configuration",
@@ -423,6 +425,9 @@ class MngrConfig(FrozenModel):
                 # Only base has this key
                 merged_commands[key] = self.commands[key]
 
+        # Merge pre_command_scripts (dict - override keys take precedence)
+        merged_pre_command_scripts = merge_dict_fields(self.pre_command_scripts, override.pre_command_scripts)
+
         # Merge logging (nested config - use merge_with if override.logging is not None)
         merged_logging = self.logging
         if override.logging is not None:
@@ -438,6 +443,7 @@ class MngrConfig(FrozenModel):
             plugins=merged_plugins,
             disabled_plugins=merged_disabled_plugins,
             commands=merged_commands,
+            pre_command_scripts=merged_pre_command_scripts,
             logging=merged_logging,
         )
 
