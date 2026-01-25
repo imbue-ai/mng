@@ -179,18 +179,51 @@ class HostRecord(FrozenModel):
 
 
 class ModalProviderApp(FrozenModel):
-    """Modal app, volume, etc,"""
+    """Encapsulates a Modal app and its associated resources.
+
+    This class manages the lifecycle of a Modal app, including:
+    - The Modal app itself and its run context
+    - Output capture for detecting build failures
+    - The state volume for persisting host records
+
+    Instances are created by ModalProviderBackend and passed to ModalProviderInstance.
+    Multiple ModalProviderInstance objects can share the same ModalProviderApp if they
+    use the same app_name.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    app: modal.App = Field(frozen=True, description="Modal app")
-    volume: modal.Volume = Field(frozen=True, description="Modal volume for host records")
+    app_name: str = Field(frozen=True, description="The name of the Modal app")
+    # Reference to the backend class for accessing the app registry.
+    # This is needed because apps are managed in a class-level registry to allow
+    # sharing between multiple ModalProviderInstance objects with the same app_name.
+    backend_cls: Any = Field(frozen=True, description="Backend class for registry access")
+
+    def get_app(self) -> modal.App:
+        """Get the Modal app, creating it if necessary."""
+        app, _ = self.backend_cls._get_or_create_app(self.app_name)
+        return app
+
+    def get_volume(self) -> modal.Volume:
+        """Get the Modal volume for state storage, creating it if necessary."""
+        return self.backend_cls.get_volume_for_app(self.app_name)
 
     def get_captured_output(self) -> str:
-        raise NotImplementedError()
+        """Get all captured Modal output.
+
+        Returns the contents of the output buffer that has been capturing Modal
+        logs since the app was created. This can be used to detect build failures
+        or other issues by inspecting the captured output.
+        """
+        return self.backend_cls.get_captured_output_for_app(self.app_name)
 
     def close(self) -> None:
-        raise NotImplementedError()
+        """Clean up the Modal app context.
+
+        Exits the app.run() context manager if one was created for this app_name.
+        This makes the app ephemeral and prevents accumulation.
+        """
+        self.backend_cls.close_app(self.app_name)
 
 
 class ModalProviderInstance(BaseProviderInstance):
@@ -205,14 +238,10 @@ class ModalProviderInstance(BaseProviderInstance):
     and user tags are stored as sandbox tags for discovery via Sandbox.list().
     """
 
-    app_name: str = Field(frozen=True, description="Modal app name for sandboxes")
     default_timeout: int = Field(frozen=True, description="Default sandbox timeout in seconds")
     default_cpu: float = Field(frozen=True, description="Default CPU cores")
     default_memory: float = Field(frozen=True, description="Default memory in GB")
-    # FIXME: this is silly. I've created a little class ModalProviderApp above, and we should use that instead doing this weird backwards reference
-    #  it was originally created to avoid circular imports, but the better way is to just make the ModalProviderApp and pass that in here, and remove this variable entirely
-    #  As part of doing this, also implement the methods on ModalProviderApp
-    backend_cls: Any = Field(frozen=True, description="Backend class reference")
+    modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
 
     @property
     def supports_snapshots(self) -> bool:
@@ -225,6 +254,11 @@ class ModalProviderInstance(BaseProviderInstance):
     @property
     def supports_mutable_tags(self) -> bool:
         return True
+
+    @property
+    def app_name(self) -> str:
+        """Get the Modal app name from the modal_app manager."""
+        return self.modal_app.app_name
 
     @property
     def _keys_dir(self) -> Path:
@@ -258,7 +292,7 @@ class ModalProviderInstance(BaseProviderInstance):
         The volume is used to persist host records (including snapshots) across
         sandbox termination. This allows multiple mngr instances to share state.
         """
-        return self.backend_cls.get_volume_for_app(self.app_name)
+        return self.modal_app.get_volume()
 
     def _get_host_record_path(self, host_id: HostId) -> str:
         """Get the path for a host record on the volume."""
@@ -597,15 +631,14 @@ class ModalProviderInstance(BaseProviderInstance):
     def _get_modal_app(self) -> modal.App:
         """Get or create the Modal app for this provider instance.
 
-        The app is lazily created by the backend when first needed. This allows
-        basic property tests to run without Modal credentials.
+        The app is lazily created by the modal_app manager when first needed.
+        This allows basic property tests to run without Modal credentials.
 
-        Modal output is captured at the backend level.
+        Modal output is captured at the modal_app level.
 
         Raises modal.exception.AuthError if Modal credentials are not configured.
         """
-        app, _ = self.backend_cls._get_or_create_app(self.app_name)
-        return app
+        return self.modal_app.get_app()
 
     def get_captured_output(self) -> str:
         """Get all captured Modal output for this provider instance.
@@ -616,7 +649,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
         Returns an empty string if no app has been created yet.
         """
-        return self.backend_cls.get_captured_output_for_app(self.app_name)
+        return self.modal_app.get_captured_output()
 
     def _find_sandbox_by_host_id(self, host_id: HostId) -> modal.Sandbox | None:
         """Find a Modal sandbox by its mngr host_id tag."""
@@ -1316,7 +1349,7 @@ class ModalProviderInstance(BaseProviderInstance):
         Exits the app.run() context manager if one was created for this app_name.
         This makes the app ephemeral and prevents accumulation.
         """
-        self.backend_cls.close_app(self.app_name)
+        self.modal_app.close()
 
 
 def _build_image_from_dockerfile_contents(

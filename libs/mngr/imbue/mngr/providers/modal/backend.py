@@ -16,6 +16,7 @@ from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 
@@ -288,16 +289,20 @@ Supported build arguments for the modal provider:
         default_cpu = instance_configuration.get("default_cpu", 1.0)
         default_memory = instance_configuration.get("default_memory", 1.0)
 
+        # Create the ModalProviderApp that manages the Modal app and its resources
+        modal_app = ModalProviderApp(
+            app_name=app_name,
+            backend_cls=ModalProviderBackend,
+        )
+
         return ModalProviderInstance(
             name=name,
             host_dir=host_dir,
             mngr_ctx=mngr_ctx,
-            app_name=app_name,
             default_timeout=default_timeout,
             default_cpu=default_cpu,
             default_memory=default_memory,
-            # Pass the backend class so instance can call its methods
-            backend_cls=ModalProviderBackend,
+            modal_app=modal_app,
         )
 
 
