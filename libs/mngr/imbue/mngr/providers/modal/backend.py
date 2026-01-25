@@ -257,6 +257,7 @@ Supported build arguments for the modal provider:
   --memory GB   Memory in GB (0.5-32). Default: 1.0
   --image NAME  Base Docker image to use. Default: debian:bookworm-slim
   --timeout SEC Maximum sandbox lifetime in seconds. Default: 900 (15 min)
+  --region NAME Region to run the sandbox in (e.g., us-east, us-west, eu-west). Default: auto
 """
 
     @staticmethod

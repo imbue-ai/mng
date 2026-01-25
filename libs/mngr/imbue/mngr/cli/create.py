@@ -805,7 +805,7 @@ def _parse_agent_opts(
 
     # parse source data options
     data_options = AgentDataOptions(
-        is_rsync_enabled=opts.rsync or opts.rsync_args or git is None,
+        is_rsync_enabled=bool(opts.rsync or opts.rsync_args or git is None),
         rsync_args=opts.rsync_args or "",
     )
 

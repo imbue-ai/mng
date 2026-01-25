@@ -32,6 +32,7 @@ mngr create my-agent --in modal --build-args "gpu=h100 cpu=2 memory=8"
 | `memory` | Memory in GB | 1.0 |
 | `image` | Base container image | debian:bookworm-slim |
 | `timeout` | Sandbox timeout in seconds | 900 (15 minutes) |
+| `region` | Region to run the sandbox in (e.g., `us-east`, `us-west`, `eu-west`) | auto |
 
 ### Examples
 
@@ -46,8 +47,24 @@ mngr create my-agent --in modal -b cpu=4 -b memory=16
 mngr create my-agent --in modal -b image=python:3.11-slim -b timeout=3600
 ```
 
+## Snapshots
+
+Modal sandboxes support filesystem snapshots for preserving state:
+
+```bash
+# Create a snapshot
+mngr snapshot create my-host
+
+# List snapshots
+mngr snapshot list my-host
+
+# Start from a snapshot (restores the sandbox state)
+mngr start my-host --snapshot <snapshot-id>
+```
+
+Snapshots are stored as Modal images and persist even after the sandbox is terminated.
+
 ## Limitations
 
 - Sandboxes have a maximum lifetime (timeout) after which they are automatically terminated by Modal
-- Sandboxes cannot be stopped and resumed - they can only be terminated
-- Snapshots are not currently supported (planned for future)
+- Sandboxes cannot be stopped and resumed directly - use snapshots to preserve state before termination

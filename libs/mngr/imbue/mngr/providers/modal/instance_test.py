@@ -283,6 +283,27 @@ def test_parse_build_args_value_with_equals(modal_provider: ModalProviderInstanc
     assert config.image == "myregistry.com/image:tag=v1"
 
 
+def test_parse_build_args_region(modal_provider: ModalProviderInstance) -> None:
+    """Should parse region argument."""
+    config = modal_provider._parse_build_args(["region=us-east"])
+    assert config.region == "us-east"
+
+    config = modal_provider._parse_build_args(["--region=eu-west"])
+    assert config.region == "eu-west"
+
+    config = modal_provider._parse_build_args(["--region", "us-west"])
+    assert config.region == "us-west"
+
+
+def test_parse_build_args_region_default_is_none(modal_provider: ModalProviderInstance) -> None:
+    """Region should default to None (auto-select)."""
+    config = modal_provider._parse_build_args([])
+    assert config.region is None
+
+    config = modal_provider._parse_build_args(["cpu=2"])
+    assert config.region is None
+
+
 # =============================================================================
 # Acceptance tests (require Modal network access)
 # =============================================================================
