@@ -1398,14 +1398,14 @@ def _build_image_from_dockerfile_contents(
                         continue
                     modal_image = modal_image.dockerfile_commands(
                         [instr["content"]],
-                        context_dir=context_dir,
+                        context_dir=context_dir.expanduser(),
                     )
             else:
                 # The downside of doing them all at once is that if any one fails,
                 # Modal will re-run all of them
                 modal_image = modal_image.dockerfile_commands(
                     [x["content"] for x in instructions if x["instruction"] != "COMMENT"],
-                    context_dir=context_dir,
+                    context_dir=context_dir.expanduser(),
                 )
 
         return modal_image
