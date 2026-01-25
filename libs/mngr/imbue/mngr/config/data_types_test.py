@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from pydantic import Field
+
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import CommandDefaults
 from imbue.mngr.config.data_types import EnvVar
@@ -13,6 +15,7 @@ from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.config.data_types import merge_cli_args
+from imbue.mngr.config.data_types import merge_dict_fields
 from imbue.mngr.config.data_types import merge_list_fields
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
@@ -204,6 +207,41 @@ def test_merge_list_fields_concatenates_empty_override() -> None:
 
 
 # =============================================================================
+# Tests for merge_dict_fields
+# =============================================================================
+
+
+def test_merge_dict_fields_combines_keys() -> None:
+    """merge_dict_fields should combine keys from both dicts."""
+    result = merge_dict_fields({"a": 1, "b": 2}, {"c": 3})
+    assert result == {"a": 1, "b": 2, "c": 3}
+
+
+def test_merge_dict_fields_override_takes_precedence() -> None:
+    """merge_dict_fields should use override value for same key."""
+    result = merge_dict_fields({"a": 1, "b": 2}, {"b": 99})
+    assert result == {"a": 1, "b": 99}
+
+
+def test_merge_dict_fields_returns_base_when_override_none() -> None:
+    """merge_dict_fields should return base when override is None."""
+    result = merge_dict_fields({"a": 1}, None)
+    assert result == {"a": 1}
+
+
+def test_merge_dict_fields_returns_override_when_base_empty() -> None:
+    """merge_dict_fields should return override when base is empty."""
+    result = merge_dict_fields({}, {"a": 1})
+    assert result == {"a": 1}
+
+
+def test_merge_dict_fields_handles_empty_override() -> None:
+    """merge_dict_fields should return base when override is empty dict."""
+    result = merge_dict_fields({"a": 1}, {})
+    assert result == {"a": 1}
+
+
+# =============================================================================
 # Tests for ProviderInstanceConfig
 # =============================================================================
 
@@ -214,6 +252,81 @@ def test_provider_instance_config_merge_with_returns_override_backend() -> None:
     override = ProviderInstanceConfig(backend=ProviderBackendName("docker"))
     merged = base.merge_with(override)
     assert merged.backend == ProviderBackendName("docker")
+
+
+class _TestProviderConfigWithListAndDict(ProviderInstanceConfig):
+    """Test config with list and dict fields for testing merge behavior."""
+
+    tags: list[str] = Field(default_factory=list)
+    options: dict[str, str] = Field(default_factory=dict)
+
+
+def test_provider_instance_config_merge_concatenates_lists() -> None:
+    """ProviderInstanceConfig.merge_with should concatenate list fields."""
+    base = _TestProviderConfigWithListAndDict(
+        backend=ProviderBackendName("local"),
+        tags=["tag1", "tag2"],
+        options={},
+    )
+    override = _TestProviderConfigWithListAndDict(
+        backend=ProviderBackendName("local"),
+        tags=["tag3"],
+        options={},
+    )
+    merged = base.merge_with(override)
+    assert isinstance(merged, _TestProviderConfigWithListAndDict)
+    assert merged.tags == ["tag1", "tag2", "tag3"]
+
+
+def test_provider_instance_config_merge_merges_dicts() -> None:
+    """ProviderInstanceConfig.merge_with should merge dict fields."""
+    base = _TestProviderConfigWithListAndDict(
+        backend=ProviderBackendName("local"),
+        tags=[],
+        options={"key1": "val1", "key2": "base_val"},
+    )
+    override = _TestProviderConfigWithListAndDict(
+        backend=ProviderBackendName("local"),
+        tags=[],
+        options={"key2": "override_val", "key3": "val3"},
+    )
+    merged = base.merge_with(override)
+    assert isinstance(merged, _TestProviderConfigWithListAndDict)
+    assert merged.options == {"key1": "val1", "key2": "override_val", "key3": "val3"}
+
+
+def test_provider_instance_config_merge_handles_none_list_override() -> None:
+    """ProviderInstanceConfig.merge_with should keep base list when override is None."""
+    base = _TestProviderConfigWithListAndDict(
+        backend=ProviderBackendName("local"),
+        tags=["tag1"],
+        options={},
+    )
+    override = _TestProviderConfigWithListAndDict.model_construct(
+        backend=ProviderBackendName("local"),
+        tags=None,
+        options={},
+    )
+    merged = base.merge_with(override)
+    assert isinstance(merged, _TestProviderConfigWithListAndDict)
+    assert merged.tags == ["tag1"]
+
+
+def test_provider_instance_config_merge_handles_none_dict_override() -> None:
+    """ProviderInstanceConfig.merge_with should keep base dict when override is None."""
+    base = _TestProviderConfigWithListAndDict(
+        backend=ProviderBackendName("local"),
+        tags=[],
+        options={"key1": "val1"},
+    )
+    override = _TestProviderConfigWithListAndDict.model_construct(
+        backend=ProviderBackendName("local"),
+        tags=[],
+        options=None,
+    )
+    merged = base.merge_with(override)
+    assert isinstance(merged, _TestProviderConfigWithListAndDict)
+    assert merged.options == {"key1": "val1"}
 
 
 # =============================================================================
