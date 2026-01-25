@@ -18,7 +18,6 @@ from datetime import datetime
 from datetime import timezone
 from functools import wraps
 from pathlib import Path
-from typing import Any
 from typing import Final
 from typing import Mapping
 from typing import ParamSpec
@@ -195,19 +194,10 @@ class ModalProviderApp(FrozenModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     app_name: str = Field(frozen=True, description="The name of the Modal app")
-    # Reference to the backend class for accessing the app registry.
-    # This is needed because apps are managed in a class-level registry to allow
-    # sharing between multiple ModalProviderInstance objects with the same app_name.
-    backend_cls: Any = Field(frozen=True, description="Backend class for registry access")
-
-    def get_app(self) -> modal.App:
-        """Get the Modal app, creating it if necessary."""
-        app, _ = self.backend_cls._get_or_create_app(self.app_name)
-        return app
-
-    def get_volume(self) -> modal.Volume:
-        """Get the Modal volume for state storage, creating it if necessary."""
-        return self.backend_cls.get_volume_for_app(self.app_name)
+    app: modal.App = Field(frozen=True, description="The Modal app instance")
+    volume: modal.Volume = Field(frozen=True, description="The Modal volume for state storage")
+    close_callback: Callable[[], None] = Field(frozen=True, description="Callback to clean up the app context")
+    get_output_callback: Callable[[], str] = Field(frozen=True, description="Callback to get the log output buffer")
 
     def get_captured_output(self) -> str:
         """Get all captured Modal output.
@@ -216,15 +206,10 @@ class ModalProviderApp(FrozenModel):
         logs since the app was created. This can be used to detect build failures
         or other issues by inspecting the captured output.
         """
-        return self.backend_cls.get_captured_output_for_app(self.app_name)
+        return self.get_output_callback()
 
     def close(self) -> None:
-        """Clean up the Modal app context.
-
-        Exits the app.run() context manager if one was created for this app_name.
-        This makes the app ephemeral and prevents accumulation.
-        """
-        self.backend_cls.close_app(self.app_name)
+        self.close_callback()
 
 
 class ModalProviderInstance(BaseProviderInstance):
@@ -293,7 +278,7 @@ class ModalProviderInstance(BaseProviderInstance):
         The volume is used to persist host records (including snapshots) across
         sandbox termination. This allows multiple mngr instances to share state.
         """
-        return self.modal_app.get_volume()
+        return self.modal_app.volume
 
     def _get_host_record_path(self, host_id: HostId) -> str:
         """Get the path for a host record on the volume."""
@@ -642,7 +627,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
         Raises modal.exception.AuthError if Modal credentials are not configured.
         """
-        return self.modal_app.get_app()
+        return self.modal_app.app
 
     def get_captured_output(self) -> str:
         """Get all captured Modal output for this provider instance.
