@@ -1,7 +1,7 @@
 is_allowed_in_pytest = false
 
 [pre_command_scripts]
-create = ["""bash -c 'HASH=e66b24ce9354eb11c9dc107b3d640a790f0c45b1; mkdir -p ~/.mngr/dev/ && [ -d "$HOME/.mngr/dev/$HASH" ] || (set -eo pipefail; tmp=$(mktemp -d); rm -rf "$tmp"; git clone . "$tmp" && git -C "$tmp" checkout "$HASH" && mv "$tmp" "$HOME/.mngr/dev/$HASH"); ln -fs "$HOME/.mngr/dev/$HASH" "$HOME/.mngr/dev/current"'"""]
+create = ["""bash -c 'HASH=e66b24ce9354eb11c9dc107b3d640a790f0c45b1; mkdir -p ~/.mngr/dev/ && [ -e "$HOME/.mngr/dev/$HASH.tar.gz" ] || (set -eo pipefail; tmp=$(mktemp -d); rm -rf "$tmp"; git clone . "$tmp" && git -C "$tmp" checkout "$HASH" && mv "$tmp" "$HOME/.mngr/dev/$HASH"; tar czf "$HOME/.mngr/dev/current.tar.gz" -C "$HOME/.mngr/dev/$HASH" . && rm -rf "$HOME/.mngr/dev/$HASH" && touch "$HOME/.mngr/dev/$HASH.tar.gz";)'"""]
 
 [commands.create]
 add_command = ["reviewer_0=claude --dangerously-skip-permissions"]

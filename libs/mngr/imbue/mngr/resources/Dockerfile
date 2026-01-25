@@ -25,10 +25,13 @@ RUN curl -fsSL https://claude.ai/install.sh > /tmp/install_claude.sh && ( cat /t
 ENV PATH="/root/.claude/local/bin:$PATH"
 
 # copy in all of our code:
-COPY . /code/mngr/
+COPY . /code/
 
 # set working directory
 WORKDIR /code/mngr/
+
+# extract our code
+RUN tar -xzf /code/current.tar.gz -C /code/mngr/ && rm /code/*.tar.gz && git config --global --add safe.directory /code/mngr/ && chown -R root:root /code/mngr/
 
 # install python dependencies
 RUN uv sync --all-packages
