@@ -151,6 +151,7 @@ class SandboxConfig(FrozenModel):
     dockerfile: str | None = None
     timeout: int = DEFAULT_SANDBOX_TIMEOUT
     region: str | None = None
+    context_dir: str | None = None
 
 
 class SnapshotRecord(FrozenModel):
@@ -344,6 +345,7 @@ class ModalProviderInstance(BaseProviderInstance):
         self,
         base_image: str | None = None,
         dockerfile: Path | None = None,
+        context_dir: Path | None = None,
     ) -> modal.Image:
         """Build a Modal image.
 
@@ -354,15 +356,18 @@ class ModalProviderInstance(BaseProviderInstance):
         Elif base_image is provided (e.g., "python:3.11-slim"), uses that as the
         base. Otherwise uses debian:bookworm-slim.
 
+        The context_dir specifies the directory for Dockerfile COPY/ADD instructions.
+        If not provided, defaults to the Dockerfile's parent directory.
+
         SSH and tmux setup is handled at runtime in _start_sshd_in_sandbox to
         allow warning if these tools are not pre-installed in the base image.
         """
         if dockerfile is not None:
             dockerfile_contents = dockerfile.read_text()
-            context_dir = dockerfile.parent
+            effective_context_dir = context_dir if context_dir is not None else dockerfile.parent
             image = _build_image_from_dockerfile_contents(
                 dockerfile_contents,
-                context_dir=context_dir,
+                context_dir=effective_context_dir,
                 is_each_layer_cached=True,
             )
         elif base_image:
@@ -569,6 +574,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 dockerfile=None,
                 timeout=self.default_timeout,
                 region=None,
+                context_dir=None,
             )
 
         # Normalize arguments: convert "key=value" to "--key=value"
@@ -593,6 +599,7 @@ class ModalProviderInstance(BaseProviderInstance):
         parser.add_argument("--dockerfile", type=str, default=None)
         parser.add_argument("--timeout", type=int, default=self.default_timeout)
         parser.add_argument("--region", type=str, default=None)
+        parser.add_argument("--context-dir", type=str, default=None)
 
         try:
             parsed, unknown = parser.parse_known_args(normalized_args)
@@ -610,6 +617,7 @@ class ModalProviderInstance(BaseProviderInstance):
             dockerfile=parsed.dockerfile,
             timeout=parsed.timeout,
             region=parsed.region,
+            context_dir=parsed.context_dir,
         )
 
     # =========================================================================
@@ -746,10 +754,11 @@ class ModalProviderInstance(BaseProviderInstance):
         config = self._parse_build_args(build_args)
         base_image = str(image) if image else config.image
         dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
+        context_dir_path = Path(config.context_dir) if config.context_dir else None
 
         # Build the Modal image
         logger.debug("Building Modal image...")
-        modal_image = self._build_modal_image(base_image, dockerfile_path)
+        modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path)
 
         # Get or create the Modal app (uses singleton pattern with context manager)
         logger.debug("Getting Modal app: {}", self.app_name)

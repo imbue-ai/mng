@@ -252,12 +252,13 @@ class ModalProviderBackend(ProviderBackendInterface):
     def get_build_args_help() -> str:
         return """\
 Supported build arguments for the modal provider:
-  --gpu TYPE    GPU type to use (e.g., t4, a10g, a100, any). Default: no GPU
-  --cpu COUNT   Number of CPU cores (0.25-16). Default: 1.0
-  --memory GB   Memory in GB (0.5-32). Default: 1.0
-  --image NAME  Base Docker image to use. Default: debian:bookworm-slim
-  --timeout SEC Maximum sandbox lifetime in seconds. Default: 900 (15 min)
-  --region NAME Region to run the sandbox in (e.g., us-east, us-west, eu-west). Default: auto
+  --gpu TYPE        GPU type to use (e.g., t4, a10g, a100, any). Default: no GPU
+  --cpu COUNT       Number of CPU cores (0.25-16). Default: 1.0
+  --memory GB       Memory in GB (0.5-32). Default: 1.0
+  --image NAME      Base Docker image to use. Default: debian:bookworm-slim
+  --timeout SEC     Maximum sandbox lifetime in seconds. Default: 900 (15 min)
+  --region NAME     Region to run the sandbox in (e.g., us-east, us-west, eu-west). Default: auto
+  --context-dir DIR Build context directory for Dockerfile COPY/ADD instructions. Default: Dockerfile's directory
 """
 
     @staticmethod
