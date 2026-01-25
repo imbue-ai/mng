@@ -330,6 +330,8 @@ class MngrConfig(FrozenModel):
         default_factory=dict,
         description="Default values for CLI command parameters (e.g., 'commands.create')",
     )
+    # FIXME: add a "pre_command_scripts" field here that is a dict from command name to script path
+    #  That way we can run custom scripts before commands execute
     logging: LoggingConfig = Field(
         default_factory=LoggingConfig,
         description="Logging configuration",
