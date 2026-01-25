@@ -71,11 +71,9 @@ def _install_claude(host: HostInterface) -> None:
 
 def _prompt_user_for_installation() -> bool:
     """Prompt the user to install claude locally."""
-    logger.info("")
-    logger.info("Claude is not installed on this machine.")
-    logger.info("You can install it by running:")
-    logger.info("  curl -fsSL https://claude.ai/install.sh | bash")
-    logger.info("")
+    logger.info(
+        "\nClaude is not installed on this machine.\nYou can install it by running:\n  curl -fsSL https://claude.ai/install.sh | bash\n"
+    )
     return click.confirm("Would you like to install it now?", default=True)
 
 
@@ -221,7 +219,9 @@ class ClaudeAgent(BaseAgent):
                 if host.is_local:
                     # For local hosts, prompt the user for consent (if interactive)
                     if mngr_ctx.is_interactive:
-                        if not _prompt_user_for_installation():
+                        if _prompt_user_for_installation():
+                            logger.debug("User consented to install claude locally")
+                        else:
                             raise PluginMngrError(
                                 "Claude is not installed. Please install it manually with:\n"
                                 "  curl -fsSL https://claude.ai/install.sh | bash"
