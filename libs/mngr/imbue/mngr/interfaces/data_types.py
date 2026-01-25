@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 from pydantic import Field
@@ -259,24 +260,27 @@ class HostInfo(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
 
 
-# FIXME: this is dumb--we should inherit from Path (it is a path, after all), and there should be no reason for the .to_path() method
-class RelativePath(str):
-    """A string representing a relative path (not absolute).
+class RelativePath(PurePosixPath):
+    """A path that must be relative (not absolute).
 
-    This is a string subclass that validates the path is relative and provides
-    a method to convert to a Path object when needed.
+    Inherits from PurePosixPath to provide full path manipulation capabilities.
+    Uses POSIX path semantics since agent paths are always on remote Linux hosts.
     """
 
-    def __new__(cls, value: str | Path) -> "RelativePath":
-        str_value = str(value)
-        path = Path(str_value)
-        if path.is_absolute():
-            raise InvalidRelativePathError(str_value)
-        return super().__new__(cls, str_value)
+    def __new__(cls, *args: str | Path) -> "RelativePath":
+        instance = super().__new__(cls, *args)
+        if instance.is_absolute():
+            raise InvalidRelativePathError(str(instance))
+        return instance
 
-    def to_path(self) -> Path:
-        """Convert to a Path object."""
-        return Path(self)
+    @classmethod
+    def _validate(cls, value: Any) -> "RelativePath":
+        """Validate and convert input to RelativePath."""
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, (str, Path, PurePosixPath)):
+            return cls(value)
+        raise ParseSpecError(f"Expected str, Path, or RelativePath, got {type(value)}")
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -284,9 +288,8 @@ class RelativePath(str):
         source_type: Any,
         handler: GetCoreSchemaHandler,
     ) -> core_schema.CoreSchema:
-        return core_schema.no_info_after_validator_function(
-            cls,
-            core_schema.str_schema(),
+        return core_schema.no_info_plain_validator_function(
+            cls._validate,
             serialization=core_schema.to_string_ser_schema(),
         )
 
