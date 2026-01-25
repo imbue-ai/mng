@@ -350,12 +350,23 @@ if [[ ${#REVIEWER_PIDS[@]} -gt 0 ]]; then
     done
 
     for pid in "${REVIEWER_PIDS[@]}"; do
-        if ! wait "$pid"; then
-            log_warn "Reviewer process $pid failed"
-            # FIXME: we should be a little smarter here. exit code 2 means that it failed because of issues found
-            #  but other exit codes mean other failures (ex: timeout, internal error, etc)
-            #  and should be surfaced to the caller instead (immediately) so that this overall scripting setup can be fixed
-            REVIEWER_FAILED=true
+        wait "$pid" && EXIT_CODE=0 || EXIT_CODE=$?
+        if [[ $EXIT_CODE -ne 0 ]]; then
+            if [[ $EXIT_CODE -eq 2 ]]; then
+                # Exit code 2 means the reviewer found blocking issues (CRITICAL/MAJOR with confidence >= 0.7)
+                # This is expected behavior - we'll surface it to the user after all reviewers complete
+                log_warn "Reviewer process $pid found blocking issues (exit code 2)"
+                REVIEWER_FAILED=true
+            else
+                # Other exit codes indicate internal errors that should be surfaced immediately
+                # Exit code 1 = failed to store review results
+                # Exit code 3 = timeout waiting for review
+                log_error "Reviewer process $pid failed with internal error (exit code $EXIT_CODE)"
+                log_error "This indicates a problem with the review infrastructure, not code issues."
+                log_error "Exit code 1 = failed to store review results"
+                log_error "Exit code 3 = timeout waiting for review"
+                exit $EXIT_CODE
+            fi
         fi
     done
     if [[ "$REVIEWER_FAILED" == true ]]; then
