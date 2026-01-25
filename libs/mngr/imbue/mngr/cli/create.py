@@ -74,7 +74,7 @@ from imbue.mngr.utils.git_utils import find_git_worktree_root
 from imbue.mngr.utils.git_utils import get_current_git_branch
 from imbue.mngr.utils.name_generator import generate_agent_name
 from imbue.mngr.utils.name_generator import generate_host_name
-from imbue.mngr.utils.testing import wait_for
+from imbue.mngr.utils.polling import wait_for
 
 
 @deal.has()
