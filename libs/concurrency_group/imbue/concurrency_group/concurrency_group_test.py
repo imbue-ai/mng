@@ -3,7 +3,6 @@ from pathlib import Path
 from threading import Event
 from time import monotonic
 from typing import Any
-from unittest.mock import Mock
 
 import pytest
 
@@ -61,11 +60,16 @@ def test_concurrency_group_supports_running_process_to_completion(tmp_path: Path
 
 
 def test_concurrency_group_supports_running_processes_with_on_output_callbacks(tmp_path: Path) -> None:
-    callback_mock = Mock()
+    calls: list[tuple[str, bool]] = []
+
+    def callback(line: str, is_stdout: bool) -> None:
+        calls.append((line, is_stdout))
+
     with ConcurrencyGroup(name="outer") as cg:
-        process = cg.run_process_to_completion(["echo", "foo"], on_output=callback_mock)
+        process = cg.run_process_to_completion(["echo", "foo"], on_output=callback)
     assert process.returncode == 0
-    callback_mock.assert_called_once_with("foo\n", True)
+    assert len(calls) == 1
+    assert calls[0] == ("foo\n", True)
 
 
 def test_concurrency_group_supports_running_running_local_process_in_background(tmp_path: Path) -> None:
