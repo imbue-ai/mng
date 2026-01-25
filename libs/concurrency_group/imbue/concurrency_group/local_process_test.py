@@ -384,18 +384,6 @@ def test_run_background_timeout_parameter() -> None:
     assert return_code != 0
 
 
-def test_run_background_trace_log_context() -> None:
-    """Test that trace_log_context is passed through."""
-    trace_context = {"request_id": "test-123", "user": "test_user"}
-
-    proc = run_background(["echo", "test with context"], trace_log_context=trace_context)
-
-    stdout, stderr = proc.wait_and_read(timeout=5.0)
-
-    assert proc.returncode == 0
-    assert stdout.strip() == "test with context"
-
-
 def test_run_background_interleaved_stdout_stderr() -> None:
     """Test that stdout and stderr maintain their order in the queue."""
     output_queue: Queue[tuple[str, bool]] = Queue()

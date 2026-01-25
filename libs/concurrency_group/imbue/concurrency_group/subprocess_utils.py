@@ -24,7 +24,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 
 
 # Received a shutdown signal
-SUBPROCESS_STOPPED_BY_REQUEST_EXIT_CODE = -9999
+SUBPROCESS_STOPPED_BY_REQUEST_EXIT_CODE: Final[int] = -9999
 
 
 _READ_SIZE: Final[int] = 2**20
@@ -190,7 +190,6 @@ def run_local_command_modern_version(
     trace_output: bool = False,
     cwd: Path | None = None,
     trace_on_line_callback: Callable[[str, bool], None] | None = None,
-    trace_log_context: Mapping[str, object] | None = None,
     shutdown_event: MutableEvent | None = None,
     shutdown_timeout_sec: float = 30.0,
     poll_time: float = 0.01,

@@ -35,18 +35,7 @@ class ObservableThread(threading.Thread):
         silenced_exceptions: tuple[type[BaseException], ...] | None = None,
         suppressed_exceptions: tuple[type[BaseException], ...] | None = None,
     ) -> None:
-        """
-        Initialize ObservableThread.
-
-        Args:
-            target: Function to run
-            args: Positional arguments for target
-            kwargs: Keyword arguments for target
-            name: Thread name
-            daemon: Whether thread is daemon
-            silenced_exceptions: Exceptions that are not logged
-            suppressed_exceptions: Exceptions that are not re-raised
-        """
+        """Initialize ObservableThread."""
         super().__init__(name=name, daemon=daemon)
         self._target = target
         self._target_name = getattr(target, "__name__", None) if target else None
@@ -77,14 +66,7 @@ class ObservableThread(threading.Thread):
                 raise
 
     def join(self, timeout: float | None = None) -> None:
-        """Wait for thread completion and raise exception if any.
-
-        Args:
-            timeout: Max time to wait
-
-        Raises:
-            The exception raised by target function, if any, unless it is in the suppressed_exceptions list
-        """
+        """Wait for thread completion and raise exception if any."""
         super().join(timeout)
         self.maybe_raise()
 

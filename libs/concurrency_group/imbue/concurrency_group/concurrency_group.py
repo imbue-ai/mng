@@ -9,6 +9,7 @@ from threading import Lock
 from typing import Any
 from typing import Callable
 from typing import Concatenate
+from typing import Final
 from typing import Mapping
 from typing import ParamSpec
 from typing import Sequence
@@ -34,13 +35,13 @@ from imbue.imbue_common.mutable_model import MutableModel
 P = ParamSpec("P")
 T = TypeVar("T")
 
-DEFAULT_EXIT_TIMEOUT_SECONDS = 4.0
-DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 4.0
+DEFAULT_EXIT_TIMEOUT_SECONDS: Final[float] = 4.0
+DEFAULT_SHUTDOWN_TIMEOUT_SECONDS: Final[float] = 4.0
 
 # Increase this if cleanup becomes a performance bottleneck.
-CLEANUP_INTERVAL_TICKS = 1
+CLEANUP_INTERVAL_TICKS: Final[int] = 1
 # For each kind of strand, we don't need to keep too many failed ones around after cleanup.
-MAX_FAILED_STRANDS_TO_KEEP_AFTER_CLEANUP = 8
+MAX_FAILED_STRANDS_TO_KEEP_AFTER_CLEANUP: Final[int] = 8
 
 
 def _raise_if_any_strands_or_ancestors_failed_or_is_shutting_down(
@@ -405,7 +406,6 @@ class ConcurrencyGroup(MutableModel, AbstractContextManager):
         is_checked_by_group: bool = False,
         on_output: Callable[[str, bool], None] | None = None,
         cwd: Path | None = None,
-        trace_log_context: Mapping[str, object] | None = None,
         env: Mapping[str, str] | None = None,
         shutdown_event: ReadOnlyEvent | None = None,
     ) -> RunningProcess:
@@ -421,7 +421,6 @@ class ConcurrencyGroup(MutableModel, AbstractContextManager):
             env=env,
             is_checked=is_checked_by_group,
             timeout=timeout,
-            trace_log_context=trace_log_context,
             shutdown_event=self._maybe_wrap_external_shutdown_event(shutdown_event),
             process_class=RunningProcessWithOnLineCallback,
             process_class_kwargs={"on_line_callback": on_output},
@@ -435,7 +434,6 @@ class ConcurrencyGroup(MutableModel, AbstractContextManager):
         is_checked_after: bool = True,
         on_output: Callable[[str, bool], None] | None = None,
         cwd: Path | None = None,
-        trace_log_context: Mapping[str, object] | None = None,
         env: Mapping[str, str] | None = None,
         shutdown_event: ReadOnlyEvent | None = None,
     ) -> FinishedProcess:
@@ -451,7 +449,6 @@ class ConcurrencyGroup(MutableModel, AbstractContextManager):
             cwd=cwd,
             env=env,
             shutdown_event=shutdown_event,
-            trace_log_context=trace_log_context,
             on_output=on_output,
             is_checked_by_group=False,
         )
