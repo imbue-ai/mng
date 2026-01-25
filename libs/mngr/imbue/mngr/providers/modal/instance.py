@@ -189,15 +189,30 @@ class ModalProviderApp(FrozenModel):
     Instances are created by ModalProviderBackend and passed to ModalProviderInstance.
     Multiple ModalProviderInstance objects can share the same ModalProviderApp if they
     use the same app_name.
+
+    The app and volume are created lazily via callbacks to allow basic property tests
+    to run without Modal credentials.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     app_name: str = Field(frozen=True, description="The name of the Modal app")
-    app: modal.App = Field(frozen=True, description="The Modal app instance")
-    volume: modal.Volume = Field(frozen=True, description="The Modal volume for state storage")
+    get_app_callback: Callable[[], modal.App] = Field(frozen=True, description="Callback to get the Modal app lazily")
+    get_volume_callback: Callable[[], modal.Volume] = Field(
+        frozen=True, description="Callback to get the volume lazily"
+    )
     close_callback: Callable[[], None] = Field(frozen=True, description="Callback to clean up the app context")
     get_output_callback: Callable[[], str] = Field(frozen=True, description="Callback to get the log output buffer")
+
+    @property
+    def app(self) -> modal.App:
+        """Get the Modal app, creating it if necessary."""
+        return self.get_app_callback()
+
+    @property
+    def volume(self) -> modal.Volume:
+        """Get the Modal volume, creating it if necessary."""
+        return self.get_volume_callback()
 
     def get_captured_output(self) -> str:
         """Get all captured Modal output.

@@ -88,6 +88,32 @@ def _get_or_create_user_id(mngr_ctx: MngrContext) -> str:
     return user_id
 
 
+class _ModalAppCallbacks(FrozenModel):
+    """Provides lazy access to Modal app resources.
+
+    This avoids using inline functions in build_provider_instance while still
+    deferring Modal authentication until the resources are actually needed.
+    """
+
+    app_name: str = Field(frozen=True, description="The name of the Modal app")
+
+    def get_app(self) -> modal.App:
+        app, _ = ModalProviderBackend._get_or_create_app(self.app_name)
+        return app
+
+    def get_volume(self) -> modal.Volume:
+        return ModalProviderBackend.get_volume_for_app(self.app_name)
+
+    def get_output(self) -> str:
+        if self.app_name not in ModalProviderBackend._app_registry:
+            return ""
+        _, context_handle = ModalProviderBackend._app_registry[self.app_name]
+        return context_handle.output_buffer.getvalue()
+
+    def close(self) -> None:
+        ModalProviderBackend.close_app(self.app_name)
+
+
 class ModalProviderBackend(ProviderBackendInterface):
     """Backend for creating Modal sandbox provider instances.
 
@@ -275,15 +301,16 @@ Supported build arguments for the modal provider:
         default_cpu = instance_configuration.get("default_cpu", 1.0)
         default_memory = instance_configuration.get("default_memory", 1.0)
 
-        # Create the ModalProviderApp that manages the Modal app and its resources
-        app, context_handle = ModalProviderBackend._get_or_create_app(app_name)
-        volume = ModalProviderBackend.get_volume_for_app(app_name)
+        # Create the ModalProviderApp that manages the Modal app and its resources.
+        # App and volume are created lazily via callbacks to allow basic property tests
+        # to run without Modal credentials.
+        callbacks = _ModalAppCallbacks(app_name=app_name)
         modal_app = ModalProviderApp(
             app_name=app_name,
-            app=app,
-            volume=volume,
-            close_callback=lambda: ModalProviderBackend.close_app(app_name),
-            get_output_callback=lambda: context_handle.output_buffer.getvalue(),
+            get_app_callback=callbacks.get_app,
+            get_volume_callback=callbacks.get_volume,
+            close_callback=callbacks.close,
+            get_output_callback=callbacks.get_output,
         )
 
         return ModalProviderInstance(
