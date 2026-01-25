@@ -233,8 +233,9 @@ class ClaudeAgent(BaseAgent):
                             "  curl -fsSL https://claude.ai/install.sh | bash"
                         )
                 else:
-                    # FIXME: for remote hosts, we need to check whether the user has configured automatic installation
-                    #  and if not, raise an error here
+                    # FIXME: for remote hosts, we need to check whether the user has allowed automatic installation for remote hosts
+                    #  in the global MngrConfig (we'll need to add that config option there, defaulting to True)
+                    #  If they have not enabled that, we must raise an error here
                     pass
 
                 # Install claude
