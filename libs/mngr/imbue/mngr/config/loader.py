@@ -12,7 +12,6 @@ from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import CommandDefaults
 from imbue.mngr.config.data_types import LoggingConfig
 from imbue.mngr.config.data_types import MngrConfig
-from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.config.plugin_registry import get_plugin_config_class
@@ -44,7 +43,7 @@ def load_config(
     context_dir: Path | None = None,
     enabled_plugins: Sequence[str] | None = None,
     disabled_plugins: Sequence[str] | None = None,
-) -> MngrContext:
+) -> MngrConfig:
     """Load and merge configuration from all sources.
 
     Precedence (lowest to highest):
@@ -60,7 +59,11 @@ def load_config(
 
     Explicit MNGR_PREFIX/MNGR_HOST_DIR values override MNGR_ROOT_NAME-derived defaults.
 
-    Returns MngrContext containing both the final MngrConfig and a reference to the plugin manager.
+    The pm parameter is still needed to call the on_load_config hook, allowing plugins
+    to modify the config dict before validation.
+
+    Returns the final MngrConfig. Callers should construct MngrContext themselves
+    by combining this config with the plugin manager.
     """
 
     # Read MNGR_ROOT_NAME early to use for config file discovery
@@ -158,8 +161,7 @@ def load_config(
     # Validate and apply defaults using normal constructor
     final_config = MngrConfig.model_validate(config_dict)
 
-    # Return MngrContext containing both config and plugin manager
-    return MngrContext(config=final_config, pm=pm)
+    return final_config
 
 
 # =============================================================================

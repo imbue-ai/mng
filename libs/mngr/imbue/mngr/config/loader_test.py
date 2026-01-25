@@ -538,10 +538,10 @@ def test_on_load_config_hook_can_modify_config(
     monkeypatch.delenv("MNGR_ROOT_NAME", raising=False)
 
     # Call load_config
-    mngr_ctx = load_config(pm=pm, context_dir=tmp_path)
+    config = load_config(pm=pm, context_dir=tmp_path)
 
     # Verify the config was modified
-    assert mngr_ctx.config.prefix == "modified-by-plugin-"
+    assert config.prefix == "modified-by-plugin-"
 
 
 def test_on_load_config_hook_can_add_new_fields(
@@ -571,8 +571,8 @@ def test_on_load_config_hook_can_add_new_fields(
     monkeypatch.delenv("MNGR_ROOT_NAME", raising=False)
 
     # Call load_config
-    mngr_ctx = load_config(pm=pm, context_dir=tmp_path)
+    config = load_config(pm=pm, context_dir=tmp_path)
 
     # Verify the agent type was added
-    assert AgentTypeName("custom-agent") in mngr_ctx.config.agent_types
-    assert mngr_ctx.config.agent_types[AgentTypeName("custom-agent")].cli_args == "--custom"
+    assert AgentTypeName("custom-agent") in config.agent_types
+    assert config.agent_types[AgentTypeName("custom-agent")].cli_args == "--custom"

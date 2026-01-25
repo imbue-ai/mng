@@ -116,11 +116,11 @@ def setup_command_context(
     # First parse options from CLI args to extract common parameters
     initial_opts = command_class(**ctx.params)
 
-    # Load config
+    # Load config and assemble context
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
     pm = ctx.obj
-    # FIXME: stop passing the pm in here--all it's doing is ending up in the MngrContext, which we should assemble at this level instead (ie, load_config should return a MngrConfig, not a MngrContext). We'll need to update all of the tests to account for this as well.
-    mngr_ctx = load_config(pm, context_dir, initial_opts.plugin, initial_opts.disable_plugin)
+    config = load_config(pm, context_dir, initial_opts.plugin, initial_opts.disable_plugin)
+    mngr_ctx = MngrContext(config=config, pm=pm)
 
     # Parse output options
     output_opts = parse_output_options(
