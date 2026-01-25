@@ -34,6 +34,7 @@ from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
+from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
@@ -1509,9 +1510,6 @@ class Host(HostInterface):
         - Sources the user's default ~/.tmux.conf if it exists
         - Adds a Ctrl-q binding to detach and destroy the current agent
         """
-        # FIXME: The execute_command calls in this method do not check for success.
-        # If tmux new-session fails, the code continues trying to send keys to a
-        # non-existent session. Should check result.success and raise an error.
         logger.debug("Starting {} agent(s)", len(agent_ids))
 
         # Create the host-level tmux config (shared by all agents on this host)
@@ -1545,21 +1543,31 @@ class Host(HostInterface):
             # The -f flag specifies our custom tmux config with the exit hotkey binding
             # Note: env_shell_cmd must be quoted so it's passed as a single argument to tmux
             # The -d flag creates a detached session; tmux returns after the session is created
-            self.execute_command(
+            result = self.execute_command(
                 f"{unset_env_args}tmux -f {shlex.quote(str(tmux_config_path))} new-session -d -s '{session_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
             )
+            if not result.success:
+                raise AgentStartError(str(agent.name), f"Failed to create tmux session: {result.stderr}")
 
             # Set the session's default-command so any new window/pane created
             # by the user will automatically source the env files
             # Note: env_shell_cmd needs to be quoted as a single argument for tmux
-            self.execute_command(f"tmux set-option -t '{session_name}' default-command {shlex.quote(env_shell_cmd)}")
+            result = self.execute_command(
+                f"tmux set-option -t '{session_name}' default-command {shlex.quote(env_shell_cmd)}"
+            )
+            if not result.success:
+                raise AgentStartError(str(agent.name), f"Failed to set tmux default-command: {result.stderr}")
 
             # Send the command as literal keys (tmux will handle escaping)
             # Using -l flag to send literal characters
-            self.execute_command(f"tmux send-keys -t '{session_name}' -l {shlex.quote(command)}")
+            result = self.execute_command(f"tmux send-keys -t '{session_name}' -l {shlex.quote(command)}")
+            if not result.success:
+                raise AgentStartError(str(agent.name), f"Failed to send command to tmux session: {result.stderr}")
 
             # Send Enter to execute the command
-            self.execute_command(f"tmux send-keys -t '{session_name}' Enter")
+            result = self.execute_command(f"tmux send-keys -t '{session_name}' Enter")
+            if not result.success:
+                raise AgentStartError(str(agent.name), f"Failed to send Enter to tmux session: {result.stderr}")
 
             # Create additional windows for each additional command
             for idx, named_cmd in enumerate(additional_commands):
@@ -1572,21 +1580,35 @@ class Host(HostInterface):
 
                 # Create a new window with a shell that has env vars sourced
                 # Note: env_shell_cmd must be quoted so it's passed as a single argument to tmux
-                self.execute_command(
+                result = self.execute_command(
                     f"tmux new-window -t '{session_name}' -n '{window_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
                 )
+                if not result.success:
+                    raise AgentStartError(
+                        str(agent.name), f"Failed to create tmux window '{window_name}': {result.stderr}"
+                    )
 
                 # Send the additional command as literal keys
-                self.execute_command(
+                result = self.execute_command(
                     f"tmux send-keys -t '{session_name}:{window_name}' -l {shlex.quote(str(named_cmd.command))}"
                 )
+                if not result.success:
+                    raise AgentStartError(
+                        str(agent.name), f"Failed to send command to tmux window '{window_name}': {result.stderr}"
+                    )
 
                 # Send Enter to execute the command
-                self.execute_command(f"tmux send-keys -t '{session_name}:{window_name}' Enter")
+                result = self.execute_command(f"tmux send-keys -t '{session_name}:{window_name}' Enter")
+                if not result.success:
+                    raise AgentStartError(
+                        str(agent.name), f"Failed to send Enter to tmux window '{window_name}': {result.stderr}"
+                    )
 
             # If we created additional windows, select the first window (the main agent)
             if additional_commands:
-                self.execute_command(f"tmux select-window -t '{session_name}:0'")
+                result = self.execute_command(f"tmux select-window -t '{session_name}:0'")
+                if not result.success:
+                    raise AgentStartError(str(agent.name), f"Failed to select tmux window: {result.stderr}")
 
     def _get_all_descendant_pids(self, parent_pid: str) -> list[str]:
         """Recursively get all descendant PIDs of a given parent PID."""
