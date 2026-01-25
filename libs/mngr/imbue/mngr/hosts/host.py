@@ -998,6 +998,9 @@ class Host(HostInterface):
         if extra_args:
             rsync_args.extend(shlex.split(extra_args))
 
+        # FIXME: this next block, and the next two functions, are silly--we should ALWAYS be running rsync locally!
+        #  you can easily sync between 2 remote hosts, or between any combination of local and remote--just assemble the args for source and dest separately, and then run the correct rsync command locally
+
         # Handle files_from: if source is remote, copy the file there first
         remote_files_from_path: Path | None = None
         if files_from is not None:
@@ -1595,16 +1598,16 @@ class Host(HostInterface):
                     f"tmux new-window -t '{session_name}' -n '{window_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
                 )
                 if not result.success:
-                    raise AgentStartError(str(agent.name), f"tmux new-window failed for {window_name}: {result.stderr}")
+                    raise AgentStartError(
+                        str(agent.name), f"tmux new-window failed for {window_name}: {result.stderr}"
+                    )
 
                 # Send the additional command as literal keys
                 result = self.execute_command(
                     f"tmux send-keys -t '{session_name}:{window_name}' -l {shlex.quote(str(named_cmd.command))}"
                 )
                 if not result.success:
-                    raise AgentStartError(
-                        str(agent.name), f"tmux send-keys failed for {window_name}: {result.stderr}"
-                    )
+                    raise AgentStartError(str(agent.name), f"tmux send-keys failed for {window_name}: {result.stderr}")
 
                 # Send Enter to execute the command
                 result = self.execute_command(f"tmux send-keys -t '{session_name}:{window_name}' Enter")
