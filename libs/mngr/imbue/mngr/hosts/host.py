@@ -913,7 +913,7 @@ class Host(HostInterface):
                     text=True,
                 )
                 if result.returncode == 0:
-                    for line in result.stdout.strip().split("\n"):
+                    for line in result.stdout.split("\n"):
                         if line:
                             # git status --porcelain format: "XY filename" (2 status chars + space + filename)
                             filename = line[3:]
@@ -923,7 +923,7 @@ class Host(HostInterface):
             else:
                 result = source_host.execute_command("git status --porcelain", cwd=source_path)
                 if result.success:
-                    for line in result.stdout.strip().split("\n"):
+                    for line in result.stdout.split("\n"):
                         if line:
                             # git status --porcelain format: "XY filename" (2 status chars + space + filename)
                             filename = line[3:]
@@ -940,7 +940,7 @@ class Host(HostInterface):
                     text=True,
                 )
                 if result.returncode == 0:
-                    for line in result.stdout.strip().split("\n"):
+                    for line in result.stdout.split("\n"):
                         if line:
                             files_to_include.append(line)
             else:
@@ -949,7 +949,7 @@ class Host(HostInterface):
                     cwd=source_path,
                 )
                 if result.success:
-                    for line in result.stdout.strip().split("\n"):
+                    for line in result.stdout.split("\n"):
                         if line:
                             files_to_include.append(line)
 
