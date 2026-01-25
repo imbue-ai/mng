@@ -22,6 +22,7 @@ mngr create [OPTIONS] [NAME] [AGENT_TYPE] -- [AGENT_ARGS]...
 
 - `--[no-]connect`: Connect to an agent after creation (disconnecting will not destroy the agent) [default: connect]
 - `--[no-]await-ready`: Wait until the agent is ready before returning (only applies if `--no-connect` is specified, changes when the command returns) [default: no-await-ready if --no-connect]
+- `--[no-]await-agent-stopped`: Wait until the agent has completely finished running before exiting. This is useful for testing and scripting when you need to wait for the agent to exit. First waits for the agent to become ready, then waits for it to stop. [default: no-await-agent-stopped]
 - `--[no-]copy-work-dir`: Immediately make a copy of the source work_dir. Useful when launching background agents so that you can continue editing locally without worrying about invalid content being copied into the new agent [default: copy if --no-connect, no-copy if --connect]
 - `--[no-]ensure-clean`: Abort if git in the source work_dir has uncommitted changes [default: ensure-clean]
 - `--[no-]snapshot-source`: Snapshot source agent before cloning [default: snapshot-source when `--source-agent` is specified and not local]

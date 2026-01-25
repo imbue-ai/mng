@@ -74,6 +74,7 @@ from imbue.mngr.utils.git_utils import find_git_worktree_root
 from imbue.mngr.utils.git_utils import get_current_git_branch
 from imbue.mngr.utils.name_generator import generate_agent_name
 from imbue.mngr.utils.name_generator import generate_host_name
+from imbue.mngr.utils.polling import wait_for
 
 
 @deal.has()
@@ -124,6 +125,7 @@ class CreateCliOptions(CommonCliOptions):
     agent_type: str | None
     connect: bool
     await_ready: bool | None
+    await_agent_stopped: bool | None
     copy_work_dir: bool | None
     ensure_clean: bool
     snapshot_source: bool | None
@@ -251,6 +253,12 @@ class CreateCliOptions(CommonCliOptions):
     "await_ready",
     default=None,
     help="Wait until agent is ready before returning [default: no-await-ready if --no-connect]",
+)
+@optgroup.option(
+    "--await-agent-stopped/--no-await-agent-stopped",
+    "await_agent_stopped",
+    default=None,
+    help="Wait until agent has completely finished running before exiting [default: no-await-agent-stopped]",
 )
 @optgroup.option(
     "--ensure-clean/--no-ensure-clean", default=True, show_default=True, help="Abort if working tree is dirty"
@@ -431,6 +439,12 @@ def create(ctx: click.Context, **kwargs) -> None:
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
 
+    # validate that we're not waiting for the agent to stop and trying to connect:
+    if opts.await_agent_stopped and opts.connect:
+        raise UserInputError(
+            "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
+        )
+
     # Read message from file if --message-file is provided
     initial_message: str | None
     if opts.message_file is not None:
@@ -512,9 +526,13 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     # Determine whether to wait for agent to be ready
     # Default: --no-await-ready when --no-connect, --await-ready when --connect
+    # Note: --await-agent-stopped implies --await-ready (we need the agent to be ready first)
     should_await_ready = opts.await_ready
     if should_await_ready is None:
-        should_await_ready = opts.connect
+        if opts.await_agent_stopped:
+            should_await_ready = True
+        else:
+            should_await_ready = opts.connect
 
     # If --no-connect and --no-await-ready, run api_create in background
     if not opts.connect and not should_await_ready:
@@ -536,6 +554,10 @@ def create(ctx: click.Context, **kwargs) -> None:
         mngr_ctx=mngr_ctx,
         create_work_dir=not is_work_dir_created,
     )
+
+    # If --await-agent-stopped is set, wait for the agent to finish running
+    if opts.await_agent_stopped:
+        _await_agent_stopped(create_result.agent)
 
     # If --connect is set, connect to the agent
     if opts.connect:
@@ -1102,6 +1124,30 @@ def _connect_to_agent(
         ssh_args.extend(["-t", "tmux", "attach", "-t", session_name])
 
         os.execvp("ssh", ssh_args)
+
+
+def _await_agent_stopped(
+    agent: AgentInterface,
+    poll_interval_seconds: float = 0.1,
+    timeout_seconds: float = 300.0,
+) -> None:
+    """Wait for an agent to completely finish running.
+
+    Polls the agent's is_running() status until it returns False.
+    This is useful for scripting and testing when you need to wait
+    for the agent to exit before proceeding.
+    """
+    logger.debug("Waiting for agent {} to stop", agent.name)
+    try:
+        wait_for(
+            condition=lambda: not agent.is_running(),
+            timeout=timeout_seconds,
+            poll_interval=poll_interval_seconds,
+            error_message=f"Timeout waiting for agent {agent.name} to stop after {timeout_seconds} seconds",
+        )
+        logger.info("Agent {} has stopped", agent.name)
+    except TimeoutError as e:
+        raise click.ClickException(str(e)) from e
 
 
 def _find_agent_in_host(host: HostInterface, agent_id: AgentId) -> AgentInterface:

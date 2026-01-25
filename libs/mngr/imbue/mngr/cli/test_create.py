@@ -10,10 +10,10 @@ import pluggy
 from click.testing import CliRunner
 
 from imbue.mngr.cli.create import create
+from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import capture_tmux_pane_contents
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
-from imbue.mngr.utils.testing import wait_for
 
 
 def test_cli_create_with_echo_command(
@@ -549,3 +549,45 @@ def test_agent_cmd_with_generic_type_is_allowed(
 
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+
+
+def test_await_agent_stopped_waits_for_agent_to_exit(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --await-agent-stopped waits for the agent to completely finish running."""
+    agent_name = f"test-await-stopped-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    # Use tmux_session_cleanup to ensure cleanup even if test fails
+    with tmux_session_cleanup(session_name):
+        # Run a command that echoes something and then exits
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "echo 'hello from await-stopped test' && exit 0",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-agent-stopped",
+                "--no-connect",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
+        assert "Created agent:" in result.output
+        # The key assertion: we waited for the agent to stop
+        assert "has stopped" in result.output
+
+        # wait for the tmux session to be gone
+        wait_for(
+            lambda: not tmux_session_exists(session_name),
+            error_message=f"Expected tmux session {session_name} to be gone after agent stopped",
+        )

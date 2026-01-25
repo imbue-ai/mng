@@ -10,6 +10,7 @@ Only host_id and host_name are stored as sandbox tags for discovery purposes.
 
 import argparse
 import io
+import os
 import socket
 import tempfile
 import time
@@ -151,6 +152,10 @@ class SandboxConfig(FrozenModel):
     timeout: int = DEFAULT_SANDBOX_TIMEOUT
     region: str | None = None
     context_dir: str | None = None
+    secrets: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Environment variable names to pass as secrets during image build",
+    )
 
 
 class SnapshotRecord(FrozenModel):
@@ -331,6 +336,7 @@ class ModalProviderInstance(BaseProviderInstance):
         base_image: str | None = None,
         dockerfile: Path | None = None,
         context_dir: Path | None = None,
+        secrets: Sequence[str] = (),
     ) -> modal.Image:
         """Build a Modal image.
 
@@ -344,9 +350,16 @@ class ModalProviderInstance(BaseProviderInstance):
         The context_dir specifies the directory for Dockerfile COPY/ADD instructions.
         If not provided, defaults to the Dockerfile's parent directory.
 
+        The secrets parameter is a sequence of environment variable names whose values
+        will be read from the current environment and passed to the Modal image build
+        process. These are available during Dockerfile RUN commands via --mount=type=secret.
+
         SSH and tmux setup is handled at runtime in _start_sshd_in_sandbox to
         allow warning if these tools are not pre-installed in the base image.
         """
+        # Build modal secrets from environment variables
+        modal_secrets = _build_modal_secrets_from_env(secrets)
+
         if dockerfile is not None:
             dockerfile_contents = dockerfile.read_text()
             effective_context_dir = context_dir if context_dir is not None else dockerfile.parent
@@ -354,6 +367,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 dockerfile_contents,
                 context_dir=effective_context_dir,
                 is_each_layer_cached=True,
+                secrets=modal_secrets,
             )
         elif base_image:
             image = modal.Image.from_registry(base_image)
@@ -560,6 +574,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 timeout=self.default_timeout,
                 region=None,
                 context_dir=None,
+                secrets=(),
             )
 
         # Normalize arguments: convert "key=value" to "--key=value"
@@ -585,6 +600,7 @@ class ModalProviderInstance(BaseProviderInstance):
         parser.add_argument("--timeout", type=int, default=self.default_timeout)
         parser.add_argument("--region", type=str, default=None)
         parser.add_argument("--context-dir", type=str, default=None)
+        parser.add_argument("--secret", type=str, action="append", default=[])
 
         try:
             parsed, unknown = parser.parse_known_args(normalized_args)
@@ -603,6 +619,7 @@ class ModalProviderInstance(BaseProviderInstance):
             timeout=parsed.timeout,
             region=parsed.region,
             context_dir=parsed.context_dir,
+            secrets=tuple(parsed.secret),
         )
 
     # =========================================================================
@@ -743,7 +760,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Build the Modal image
         logger.debug("Building Modal image...")
-        modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path)
+        modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
 
         # Get or create the Modal app (uses singleton pattern with context manager)
         logger.debug("Getting Modal app: {}", self.app_name)
@@ -1353,6 +1370,40 @@ class ModalProviderInstance(BaseProviderInstance):
         self.modal_app.close()
 
 
+def _build_modal_secrets_from_env(
+    env_var_names: Sequence[str],
+) -> list[modal.Secret]:
+    """Build Modal secrets from environment variable names.
+
+    Reads the values of the specified environment variables from the current
+    environment and creates a Modal secret containing them. This allows
+    Dockerfiles to access secrets during build via --mount=type=secret.
+
+    Raises MngrError if any specified environment variable is not set.
+    """
+    if not env_var_names:
+        return []
+
+    secret_dict: dict[str, str | None] = {}
+    missing_vars: list[str] = []
+
+    for var_name in env_var_names:
+        value = os.environ.get(var_name)
+        if value is None:
+            missing_vars.append(var_name)
+        else:
+            secret_dict[var_name] = value
+
+    if missing_vars:
+        raise MngrError(
+            f"Environment variable(s) not set for secrets: {', '.join(missing_vars)}. "
+            "Set these environment variables before building."
+        )
+
+    logger.debug("Creating Modal secrets from {} environment variable(s)", len(secret_dict))
+    return [modal.Secret.from_dict(secret_dict)]
+
+
 def _build_image_from_dockerfile_contents(
     dockerfile_contents: str,
     # build context directory for COPY/ADD instructions
@@ -1362,12 +1413,17 @@ def _build_image_from_dockerfile_contents(
     # if True, apply each instruction separately for per-layer caching; if False, apply
     # all instructions at once (faster but no intermediate caching on failure)
     is_each_layer_cached: bool = True,
+    # Modal secrets to make available during Dockerfile RUN commands
+    secrets: Sequence[modal.Secret] = (),
 ) -> modal.Image:
     """Build a Modal image from Dockerfile contents with optional per-layer caching.
 
     When is_each_layer_cached=True (the default), each instruction is applied separately,
     allowing Modal to cache intermediate layers. This means if a build fails at step N,
     steps 1 through N-1 don't need to be re-run. Multistage dockerfiles are not supported.
+
+    Secrets are passed to dockerfile_commands and are available during RUN commands
+    via --mount=type=secret,id=<env_var_name>.
     """
     # DockerfileParser writes to a file, so use a temp directory to avoid conflicts
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1392,20 +1448,24 @@ def _build_image_from_dockerfile_contents(
             modal_image = initial_image
 
         if len(instructions) > 0:
+            secrets_list = list(secrets)
+            expanded_context_dir = context_dir.expanduser() if context_dir is not None else None
             if is_each_layer_cached:
                 for instr in instructions:
                     if instr["instruction"] == "COMMENT":
                         continue
                     modal_image = modal_image.dockerfile_commands(
                         [instr["content"]],
-                        context_dir=context_dir,
+                        context_dir=expanded_context_dir,
+                        secrets=secrets_list,
                     )
             else:
                 # The downside of doing them all at once is that if any one fails,
                 # Modal will re-run all of them
                 modal_image = modal_image.dockerfile_commands(
                     [x["content"] for x in instructions if x["instruction"] != "COMMENT"],
-                    context_dir=context_dir,
+                    context_dir=expanded_context_dir,
+                    secrets=secrets_list,
                 )
 
         return modal_image
