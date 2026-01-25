@@ -231,7 +231,6 @@ class ModalProviderInstance(BaseProviderInstance):
         config_dir = self.mngr_ctx.config.default_host_dir.expanduser()
         return config_dir / "providers" / "modal"
 
-    # FIXME: this is strange--we should at least have a key for the client and the host. This appears to be using the same key for both this function and _get_host_keypair?
     def _get_ssh_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH keypair for this provider instance."""
         return load_or_create_ssh_keypair(self._keys_dir)
