@@ -14,11 +14,7 @@ from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.concurrency_group.event_utils import CompoundEvent
 from imbue.concurrency_group.local_process import run_background
 from imbue.concurrency_group.local_process import RunningProcess
-
-
-def _wait_interval(timeout: float) -> None:
-    """Wait for a specified interval using Event.wait instead of time.sleep."""
-    Event().wait(timeout=timeout)
+from imbue.concurrency_group.test_utils import wait_interval
 
 
 def test_run_background_simple_command() -> None:
@@ -111,7 +107,7 @@ def test_run_background_poll_and_is_finished() -> None:
     proc = run_background(["echo", "quick"])
 
     # Initially might still be running
-    _wait_interval(0.01)
+    wait_interval(0.01)
 
     # Wait for completion
     proc.wait(timeout=5.0)
@@ -145,7 +141,7 @@ def test_run_background_terminate() -> None:
     proc = run_background(["sleep", "10"])
 
     # Process should be running
-    _wait_interval(0.1)
+    wait_interval(0.1)
     assert not proc.is_finished()
 
     # Terminate it
@@ -229,14 +225,14 @@ def test_run_background_shutdown_event() -> None:
     proc = run_background(["sleep", "10"], shutdown_event=shutdown_event, shutdown_timeout_sec=1.0)
 
     # Let it run briefly
-    _wait_interval(0.2)
+    wait_interval(0.2)
     assert not proc.is_finished()
 
     # Trigger shutdown
     shutdown_event.set()
 
     # Wait for shutdown to complete
-    _wait_interval(1.5)
+    wait_interval(1.5)
 
     # Process should be terminated
     assert proc.is_finished()
@@ -257,14 +253,14 @@ def test_run_background_compound_shutdown_event() -> None:
     )
 
     # Let it run briefly
-    _wait_interval(0.2)
+    wait_interval(0.2)
     assert not proc.is_finished()
 
     # Trigger one of the compound events
     event2.set()
 
     # Wait for shutdown
-    _wait_interval(1.5)
+    wait_interval(1.5)
 
     # Process should be terminated
     assert proc.is_finished()
@@ -459,7 +455,7 @@ def test_run_background_thread_safety() -> None:
         try:
             for _ in range(10):
                 results["poll"].append(proc.poll())
-                _wait_interval(0.05)
+                wait_interval(0.05)
         except Exception as e:
             errors.append(e)
 
@@ -467,7 +463,7 @@ def test_run_background_thread_safety() -> None:
         try:
             for _ in range(10):
                 results["is_finished"].append(proc.is_finished())
-                _wait_interval(0.05)
+                wait_interval(0.05)
         except Exception as e:
             errors.append(e)
 
@@ -476,7 +472,7 @@ def test_run_background_thread_safety() -> None:
             for _ in range(5):
                 results["stdout"].append(proc.read_stdout())
                 results["stderr"].append(proc.read_stderr())
-                _wait_interval(0.1)
+                wait_interval(0.1)
         except Exception as e:
             errors.append(e)
 
