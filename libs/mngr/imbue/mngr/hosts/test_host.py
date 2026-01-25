@@ -19,6 +19,7 @@ from pyinfra.api.command import StringCommand
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.hosts.host import Host
@@ -679,6 +680,52 @@ def test_start_agent_creates_process_group(
         pgid = output.stdout.strip()
         assert pgid, "Process group ID should not be empty"
         assert pgid.isdigit(), f"Process group ID should be numeric, got: {pgid}"
+    finally:
+        host.stop_agents([agent.id])
+
+
+def test_start_agent_raises_error_on_duplicate_session(
+    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+) -> None:
+    """Test that start_agents raises AgentStartError when session already exists."""
+    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    provider = LocalProviderInstance(
+        name=ProviderInstanceName("local"),
+        host_dir=temp_host_dir,
+        mngr_ctx=mngr_ctx,
+    )
+    host = provider.create_host(HostName("test-dup-session"))
+    assert isinstance(host, Host)
+
+    agent = host.create_agent_state(
+        work_dir_path=temp_work_dir,
+        options=CreateAgentOptions(
+            name=AgentName("dup-session-test"),
+            agent_type=AgentTypeName("generic"),
+            command=CommandString("sleep 937481"),
+        ),
+    )
+
+    # Start the agent the first time (should succeed)
+    host.start_agents([agent.id])
+    session_name = f"{mngr_test_prefix}{agent.name}"
+
+    try:
+        # Verify the session exists
+        success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
+        assert success
+        assert session_name in output.stdout
+
+        # Try to start the same agent again - should raise AgentStartError
+        # because the tmux session already exists
+        with pytest.raises(AgentStartError) as exc_info:
+            host.start_agents([agent.id])
+
+        # Verify the error message contains useful information
+        assert agent.name in str(exc_info.value.agent_name)
+        assert "tmux session" in str(exc_info.value.reason).lower() or "duplicate" in str(exc_info.value).lower()
+
     finally:
         host.stop_agents([agent.id])
 

@@ -2,6 +2,7 @@
 
 from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import AgentNotFoundOnHostError
+from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import HostNameConflictError
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import HostNotRunningError
@@ -192,3 +193,19 @@ def test_provider_instance_not_found_error_has_user_help_text() -> None:
     error = ProviderInstanceNotFoundError(provider_name)
     assert error.user_help_text is not None
     assert "provider" in error.user_help_text.lower()
+
+
+def test_agent_start_error_sets_agent_name_and_reason() -> None:
+    """AgentStartError should set agent_name and reason attributes."""
+    error = AgentStartError("my-agent", "Failed to create tmux session")
+    assert error.agent_name == "my-agent"
+    assert error.reason == "Failed to create tmux session"
+    assert "my-agent" in str(error)
+    assert "Failed to create tmux session" in str(error)
+
+
+def test_agent_start_error_has_user_help_text() -> None:
+    """AgentStartError should have user_help_text for troubleshooting."""
+    error = AgentStartError("my-agent", "some reason")
+    assert error.user_help_text is not None
+    assert "tmux" in error.user_help_text.lower()
