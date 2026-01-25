@@ -283,7 +283,7 @@ Supported build arguments for the modal provider:
             app=app,
             volume=volume,
             close_callback=lambda: ModalProviderBackend.close_app(app_name),
-            get_output_callback=lambda: context_handle.output_buffer.getvalue,
+            get_output_callback=lambda: context_handle.output_buffer.getvalue(),
         )
 
         return ModalProviderInstance(
