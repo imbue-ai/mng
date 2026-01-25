@@ -13,7 +13,7 @@ A library for managing threads and processes in a structured way. It provides th
 ## Basic Usage
 
 ```python
-from imbue.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
 with ConcurrencyGroup(name="main") as cg:
     # Start a thread
