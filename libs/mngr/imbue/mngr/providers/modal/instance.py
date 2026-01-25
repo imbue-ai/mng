@@ -411,6 +411,66 @@ class ModalProviderInstance(BaseProviderInstance):
 
         return pyinfra_host
 
+    def _setup_sandbox_ssh_and_create_host(
+        self,
+        sandbox: modal.Sandbox,
+        host_id: HostId,
+        host_name: HostName,
+        user_tags: Mapping[str, str] | None,
+    ) -> tuple[Host, str, int, str]:
+        """Set up SSH in a sandbox and create a Host object.
+
+        This helper consolidates the common logic for setting up SSH access
+        after a sandbox is created, used by both create_host and start_host.
+
+        Returns a tuple of (Host, ssh_host, ssh_port, host_public_key) so callers
+        can use the SSH info for creating/updating host records.
+        """
+        # Get SSH keypairs
+        private_key_path, client_public_key = self._get_ssh_keypair()
+        host_key_path, host_public_key = self._get_host_keypair()
+        host_private_key = host_key_path.read_text()
+
+        # Start sshd with our host key
+        logger.debug("Starting sshd in sandbox...")
+        self._start_sshd_in_sandbox(sandbox, client_public_key, host_private_key, host_public_key)
+
+        # Get SSH connection info
+        ssh_host, ssh_port = self._get_ssh_info_from_sandbox(sandbox)
+        logger.debug("SSH endpoint: {}:{}", ssh_host, ssh_port)
+
+        # Add the host to our known_hosts file before waiting for sshd
+        logger.debug("Adding host to known_hosts: {}:{}", ssh_host, ssh_port)
+        add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
+
+        # Wait for sshd to be ready
+        logger.debug("Waiting for sshd to be ready...")
+        self._wait_for_sshd(ssh_host, ssh_port)
+        logger.debug("sshd is ready")
+
+        # Set sandbox tags
+        sandbox_tags = self._build_sandbox_tags(
+            host_id=host_id,
+            name=host_name,
+            user_tags=user_tags,
+        )
+        logger.debug("Setting sandbox tags: {}", list(sandbox_tags.keys()))
+        sandbox.set_tags(sandbox_tags)
+
+        # Create pyinfra host and connector
+        pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
+        connector = PyinfraConnector(pyinfra_host)
+
+        # Create the Host object
+        host = Host(
+            id=host_id,
+            connector=connector,
+            provider_instance=self,
+            mngr_ctx=self.mngr_ctx,
+        )
+
+        return host, ssh_host, ssh_port, host_public_key
+
     def _parse_build_args(
         self,
         build_args: Sequence[str] | None,
@@ -636,15 +696,6 @@ class ModalProviderInstance(BaseProviderInstance):
         base_image = str(image) if image else config.image
         dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
 
-        # Get SSH client keypair (for authentication)
-        private_key_path, client_public_key = self._get_ssh_keypair()
-        logger.debug("Using SSH client key: {}", private_key_path)
-
-        # Get SSH host keypair (for host identification)
-        host_key_path, host_public_key = self._get_host_keypair()
-        host_private_key = host_key_path.read_text()
-        logger.debug("Using SSH host key: {}", host_key_path)
-
         # Build the Modal image
         logger.debug("Building Modal image...")
         modal_image = self._build_modal_image(base_image, dockerfile_path)
@@ -677,34 +728,16 @@ class ModalProviderInstance(BaseProviderInstance):
             raise MngrError(f"Failed to create Modal sandbox: {e}\n{self.get_captured_output()}") from None
         logger.info("Created sandbox: {}", sandbox.object_id)
 
-        # Start sshd with our host key
-        logger.debug("Starting sshd in sandbox...")
-        self._start_sshd_in_sandbox(sandbox, client_public_key, host_private_key, host_public_key)
-
-        # Get SSH connection info
-        ssh_host, ssh_port = self._get_ssh_info_from_sandbox(sandbox)
-        logger.debug("SSH endpoint: {}:{}", ssh_host, ssh_port)
-
-        # Add the host to our known_hosts file before waiting for sshd
-        logger.debug("Adding host to known_hosts: {}:{}", ssh_host, ssh_port)
-        add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
-
-        # Wait for sshd to be ready
-        logger.debug("Waiting for sshd to be ready...")
-        self._wait_for_sshd(ssh_host, ssh_port)
-        logger.debug("sshd is ready")
-
         # Generate host ID
         host_id = HostId.generate()
 
-        # Store only host_id, host_name, and user tags on the sandbox
-        sandbox_tags = self._build_sandbox_tags(
+        # Set up SSH and create host object using shared helper
+        host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
+            sandbox=sandbox,
             host_id=host_id,
-            name=name,
+            host_name=name,
             user_tags=tags,
         )
-        logger.debug("Setting sandbox tags: {}", list(sandbox_tags.keys()))
-        sandbox.set_tags(sandbox_tags)
 
         # Store full host metadata on the volume for persistence
         host_record = HostRecord(
@@ -719,18 +752,6 @@ class ModalProviderInstance(BaseProviderInstance):
         )
         logger.debug("Writing host record to volume for host_id={}", host_id)
         self._write_host_record(host_record)
-
-        # Create pyinfra host
-        pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
-        connector = PyinfraConnector(pyinfra_host)
-
-        # Create and return the Host object
-        host = Host(
-            id=host_id,
-            connector=connector,
-            provider_instance=self,
-            mngr_ctx=self.mngr_ctx,
-        )
 
         logger.info("Modal host created: id={}, name={}, ssh={}:{}", host_id, name, ssh_host, ssh_port)
         return host
@@ -759,7 +780,6 @@ class ModalProviderInstance(BaseProviderInstance):
         else:
             logger.debug("No sandbox found with host_id={}, may already be terminated", host_id)
 
-    # FIXME: a good deal of this logic seems duplicated with the create_host method; we should try to consolidate it into shared helper methods
     @handle_modal_auth_error
     def start_host(
         self,
@@ -816,11 +836,6 @@ class ModalProviderInstance(BaseProviderInstance):
 
         logger.info("Restoring Modal sandbox from snapshot: host_id={}, snapshot_id={}", host_id, snapshot_id)
 
-        # Get SSH keypairs
-        private_key_path, client_public_key = self._get_ssh_keypair()
-        host_key_path, host_public_key = self._get_host_keypair()
-        host_private_key = host_key_path.read_text()
-
         # Use configuration from host record
         config = host_record.config
         host_name = HostName(host_record.host_name)
@@ -857,25 +872,13 @@ class ModalProviderInstance(BaseProviderInstance):
             )
         logger.info("Created sandbox from snapshot: {}", new_sandbox.object_id)
 
-        # Start sshd
-        self._start_sshd_in_sandbox(new_sandbox, client_public_key, host_private_key, host_public_key)
-
-        # Get SSH connection info
-        ssh_host, ssh_port = self._get_ssh_info_from_sandbox(new_sandbox)
-
-        # Add to known hosts
-        add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
-
-        # Wait for sshd
-        self._wait_for_sshd(ssh_host, ssh_port)
-
-        # Store only host_id and host_name as tags
-        sandbox_tags = self._build_sandbox_tags(
+        # Set up SSH and create host object using shared helper
+        restored_host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
+            sandbox=new_sandbox,
             host_id=host_id,
-            name=host_name,
+            host_name=host_name,
             user_tags=user_tags,
         )
-        new_sandbox.set_tags(sandbox_tags)
 
         # Update host record on volume with new SSH info
         updated_host_record = host_record.model_copy(
@@ -886,17 +889,6 @@ class ModalProviderInstance(BaseProviderInstance):
             }
         )
         self._write_host_record(updated_host_record)
-
-        # Create pyinfra host and return
-        pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
-        connector = PyinfraConnector(pyinfra_host)
-
-        restored_host = Host(
-            id=host_id,
-            connector=connector,
-            provider_instance=self,
-            mngr_ctx=self.mngr_ctx,
-        )
 
         logger.info("Restored Modal host from snapshot: id={}, name={}", host_id, host_name)
         return restored_host
