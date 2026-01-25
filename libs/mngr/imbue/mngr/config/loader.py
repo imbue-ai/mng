@@ -39,6 +39,9 @@ from imbue.mngr.utils.git_utils import find_git_worktree_root
 _ENV_COMMANDS_PREFIX = "MNGR_COMMANDS_"
 
 
+# FIXME: sadly, putting in random keys into the various config locations often silently fails. We should *at least* warn when there are unknown keys.
+#  The behavior of whether to warn/error/ignore should be configurable as well! (both via an env var and via config file)
+#  I made a quick example of how to do this correctly in _parse_config (but the other sub parsers need to be updated as well)
 def load_config(
     pm: pluggy.PluginManager,
     context_dir: Path | None = None,
@@ -158,6 +161,13 @@ def load_config(
 
     # Validate and apply defaults using normal constructor
     final_config = MngrConfig.model_validate(config_dict)
+
+    # check whether we're in pytest
+    if not final_config.is_allowed_in_pytest:
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            raise ConfigParseError(
+                "Running mngr within pytest is not allowed by the current configuration. This can happen when tests are poorly written, and load the .mngr/settings.toml file from the root of the mngr project"
+            )
 
     # Return MngrContext containing both config and plugin manager
     return MngrContext(config=final_config, pm=pm, is_interactive=is_interactive)
@@ -349,13 +359,17 @@ def _parse_config(raw: dict[str, Any]) -> MngrConfig:
     """
     # Build kwargs with None for unset scalar fields
     kwargs: dict[str, Any] = {}
-    kwargs["prefix"] = raw.get("prefix", None)
-    kwargs["default_host_dir"] = raw.get("default_host_dir", None)
-    kwargs["agent_types"] = _parse_agent_types(raw.get("agent_types", {})) if "agent_types" in raw else {}
-    kwargs["providers"] = _parse_providers(raw.get("providers", {})) if "providers" in raw else {}
-    kwargs["plugins"] = _parse_plugins(raw.get("plugins", {})) if "plugins" in raw else {}
-    kwargs["commands"] = _parse_commands(raw.get("commands", {})) if "commands" in raw else {}
-    kwargs["logging"] = _parse_logging_config(raw.get("logging", {})) if "logging" in raw else None
+    kwargs["prefix"] = raw.pop("prefix", None)
+    kwargs["default_host_dir"] = raw.pop("default_host_dir", None)
+    kwargs["agent_types"] = _parse_agent_types(raw.pop("agent_types", {})) if "agent_types" in raw else {}
+    kwargs["providers"] = _parse_providers(raw.pop("providers", {})) if "providers" in raw else {}
+    kwargs["plugins"] = _parse_plugins(raw.pop("plugins", {})) if "plugins" in raw else {}
+    kwargs["commands"] = _parse_commands(raw.pop("commands", {})) if "commands" in raw else {}
+    kwargs["logging"] = _parse_logging_config(raw.pop("logging", {})) if "logging" in raw else None
+    kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", {}) if "is_allowed_in_pytest" in raw else None
+
+    if len(raw) > 0:
+        raise ConfigParseError(f"Unknown configuration fields: {list(raw.keys())}")
 
     # Use model_construct to bypass field defaults
     return MngrConfig.model_construct(**kwargs)

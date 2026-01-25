@@ -334,6 +334,10 @@ class MngrConfig(FrozenModel):
         default_factory=LoggingConfig,
         description="Logging configuration",
     )
+    is_allowed_in_pytest: bool = Field(
+        default=True,
+        description="Set this to False to prevent loading this config in pytest runs",
+    )
 
     def merge_with(self, override: Self) -> Self:
         """Merge this config with an override config.
