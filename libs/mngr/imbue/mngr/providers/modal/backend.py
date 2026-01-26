@@ -279,6 +279,7 @@ Supported build arguments for the modal provider:
         # Truncate app_name if needed to fit Modal's 64 char limit (accounting for volume suffix)
         max_app_name_length = MODAL_NAME_MAX_LENGTH - len(STATE_VOLUME_SUFFIX)
         if len(app_name) > max_app_name_length:
+            logger.warning("Truncating Modal app name to {} characters: {}", max_app_name_length, app_name)
             app_name = app_name[:max_app_name_length]
         host_dir = Path(instance_configuration.get("host_dir", "/mngr"))
         default_timeout = instance_configuration.get("default_timeout", 900)
