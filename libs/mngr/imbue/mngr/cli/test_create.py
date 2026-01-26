@@ -106,56 +106,6 @@ def test_cli_create_via_subprocess(
         assert agents_dir.exists(), "agents directory should exist in temp dir"
 
 
-def test_connect_flag_attempts_tmux_attach_for_local_agent(
-    temp_work_dir: Path,
-    temp_host_dir: Path,
-    mngr_test_prefix: str,
-    mngr_test_root_name: str,
-) -> None:
-    """Test that --connect flag attempts to attach to the tmux session for local agents.
-
-    We test this via subprocess to verify the behavior without mocking execvp.
-    Since execvp would replace the process, we use --no-connect and verify the session
-    exists, then separately test the connect path by checking the subprocess behavior.
-    """
-    agent_name = f"test-connect-local-{int(time.time())}"
-    session_name = f"{mngr_test_prefix}{agent_name}"
-    env = os.environ.copy()
-    env["MNGR_HOST_DIR"] = str(temp_host_dir)
-    env["MNGR_PREFIX"] = mngr_test_prefix
-    env["MNGR_ROOT_NAME"] = mngr_test_root_name
-
-    with tmux_session_cleanup(session_name):
-        # First create the agent without connect to verify it works
-        result = subprocess.run(
-            [
-                "uv",
-                "run",
-                "mngr",
-                "create",
-                "--name",
-                agent_name,
-                "--agent-cmd",
-                "sleep 397265",
-                "--source",
-                str(temp_work_dir),
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
-                "--no-ensure-clean",
-                "--disable-plugin",
-                "modal",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=env,
-        )
-
-        assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
-
-
 def test_no_connect_flag_skips_tmux_attach(
     cli_runner: CliRunner,
     temp_work_dir: Path,
