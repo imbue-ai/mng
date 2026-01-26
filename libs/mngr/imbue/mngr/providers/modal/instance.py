@@ -750,7 +750,11 @@ class ModalProviderInstance(BaseProviderInstance):
         start_args: Sequence[str] | None = None,
     ) -> Host:
         """Create a new Modal sandbox host."""
-        logger.info("Creating Modal sandbox host: name={}", name)
+        # Generate host ID
+        host_id = HostId.generate()
+
+        logger.info("Creating host {} in {} ...", name, self.name)
+        logger.debug("Creating host: name={} id={} provider=modal", name, host_id)
 
         # Parse build arguments (including --dockerfile if specified)
         config = self._parse_build_args(build_args)
@@ -789,10 +793,7 @@ class ModalProviderInstance(BaseProviderInstance):
             )
         except modal.exception.RemoteError as e:
             raise MngrError(f"Failed to create Modal sandbox: {e}\n{self.get_captured_output()}") from None
-        logger.info("Created sandbox: {}", sandbox.object_id)
-
-        # Generate host ID
-        host_id = HostId.generate()
+        logger.debug("Created Modal sandbox: id={}", sandbox.object_id)
 
         # Set up SSH and create host object using shared helper
         host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
@@ -816,7 +817,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.debug("Writing host record to volume for host_id={}", host_id)
         self._write_host_record(host_record)
 
-        logger.info("Modal host created: id={}, name={}, ssh={}:{}", host_id, name, ssh_host, ssh_port)
+        logger.debug("Modal host created: id={}, name={}, ssh={}:{}", host_id, name, ssh_host, ssh_port)
         return host
 
     @handle_modal_auth_error

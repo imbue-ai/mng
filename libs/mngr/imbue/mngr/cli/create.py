@@ -1084,6 +1084,7 @@ def _connect_to_agent(
 
     This function does not return - it replaces the current process.
     """
+    logger.info("Connecting to agent...")
 
     session_name = f"{mngr_ctx.config.prefix}{agent.name}"
 
@@ -1137,7 +1138,7 @@ def _await_agent_stopped(
     This is useful for scripting and testing when you need to wait
     for the agent to exit before proceeding.
     """
-    logger.debug("Waiting for agent {} to stop", agent.name)
+    logger.info("Waiting for agent to stop...")
     try:
         wait_for(
             condition=lambda: not agent.is_running(),
@@ -1145,7 +1146,7 @@ def _await_agent_stopped(
             poll_interval=poll_interval_seconds,
             error_message=f"Timeout waiting for agent {agent.name} to stop after {timeout_seconds} seconds",
         )
-        logger.info("Agent {} has stopped", agent.name)
+        logger.debug("Agent {} has stopped", agent.name)
     except TimeoutError as e:
         raise click.ClickException(str(e)) from e
 
@@ -1171,8 +1172,7 @@ def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
         case OutputFormat.JSONL:
             emit_event("created", result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
-            logger.info("Created agent: {}", result.agent.id)
-            logger.info("  Host: {}", result.host.id)
+            logger.info("Done.")
         case _ as unreachable:
             assert_never(unreachable)
 
