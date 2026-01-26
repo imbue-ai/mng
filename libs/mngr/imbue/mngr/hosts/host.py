@@ -273,7 +273,11 @@ class Host(HostInterface):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(content)
         else:
-            is_success = self._put_file(io.BytesIO(content), str(path))
+            try:
+                is_success = self._put_file(io.BytesIO(content), str(path))
+            except IOError:
+                # pyinfra/paramiko raises IOError when the parent directory doesn't exist
+                is_success = False
             if not is_success:
                 # May have failed because parent directory doesn't exist, create it and retry
                 parent_dir = str(path.parent)
