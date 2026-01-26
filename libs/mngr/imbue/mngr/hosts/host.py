@@ -264,6 +264,7 @@ class Host(HostInterface):
     def write_file(self, path: Path, content: bytes, mode: str | None = None) -> None:
         """Write bytes content to a file, creating parent directories as needed."""
         parent_dir = str(path.parent)
+        # FIXME: we should only bother trying to create the parent dir if we try to write and fail--otherwise this is needlessly slow
         result = self.execute_command(f"mkdir -p '{parent_dir}'")
         if not result.success:
             raise MngrError(
@@ -333,6 +334,11 @@ class Host(HostInterface):
     def _mkdir(self, path: Path) -> None:
         """Create a directory on the host."""
         self.execute_command(f"mkdir -p '{str(path)}'")
+
+    def _mkdirs(self, paths: Sequence[Path]) -> None:
+        """Create multiple directories on the host."""
+        joined_dirs = " ".join(f"'{str(p)}'" for p in paths)
+        self.execute_command(f"mkdir -p {joined_dirs}")
 
     def _get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
         """Get SSH connection info for this host if it's remote.
@@ -796,13 +802,7 @@ class Host(HostInterface):
             target_has_git = result.success
 
         if target_has_git:
-            logger.debug("Target already has .git, checking out current branch")
-            result = self.execute_command(
-                f"git checkout $(git rev-parse --abbrev-ref HEAD) && git config --global --add safe.directory {target_path}",
-                cwd=target_path,
-            )
-            if not result.success:
-                logger.warning("Failed to checkout branch on target: {}", result.stderr)
+            logger.debug("Target already has .git")
         else:
             logger.debug("Initializing bare git repo on target")
             result = self.execute_command(
@@ -1096,7 +1096,7 @@ class Host(HostInterface):
             agent_config = config_class()
 
         state_dir = self.host_dir / "agents" / str(agent_id)
-        self._mkdir(state_dir)
+        self._mkdirs([state_dir, state_dir / "logs", state_dir / "events"])
 
         create_time = datetime.now(timezone.utc)
 
@@ -1136,9 +1136,6 @@ class Host(HostInterface):
 
         data_path = state_dir / "data.json"
         self.write_text_file(data_path, json.dumps(data, indent=2))
-
-        self._mkdir(state_dir / "logs")
-        self._mkdir(state_dir / "events")
 
         return agent
 
