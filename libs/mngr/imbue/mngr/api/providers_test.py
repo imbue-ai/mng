@@ -6,12 +6,12 @@ from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.provider_registry import LocalProviderConfig
+from imbue.mngr.errors import UnknownBackendError
 from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.local.config import LocalProviderConfig
 from imbue.mngr.providers.local.instance import LocalProviderInstance
-from imbue.mngr.providers.registry import UnknownBackendError
 from imbue.mngr.providers.registry import get_backend
 from imbue.mngr.providers.registry import list_backends
 

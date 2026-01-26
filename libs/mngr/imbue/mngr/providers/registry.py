@@ -1,29 +1,22 @@
-from typing import Any
-
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.provider_registry import load_provider_configs_from_plugins
+from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.errors import UnknownBackendError
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
+from imbue.mngr.providers.docker.config import DockerProviderConfig
 
 # Cache for registered backends
 _backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
+# Cache for registered config classes (may include configs without backends, like docker)
+_config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
 # Use a mutable container to track state without 'global' keyword
 _registry_state: dict[str, bool] = {"backends_loaded": False}
-
-
-class UnknownBackendError(Exception):
-    """Raised when an unknown provider backend is requested."""
-
-    def __init__(self, backend_name: str, available: list[str]) -> None:
-        self.backend_name = backend_name
-        self.available = available
-        super().__init__(f"Unknown provider backend: {backend_name}. Available: {', '.join(available) or '(none)'}")
 
 
 def load_all_registries(pm) -> None:
@@ -34,7 +27,6 @@ def load_all_registries(pm) -> None:
     """
     load_backends_from_plugins(pm)
     load_agents_from_plugins(pm)
-    load_provider_configs_from_plugins(pm)
 
 
 def reset_backend_registry() -> None:
@@ -43,6 +35,7 @@ def reset_backend_registry() -> None:
     This is primarily used for test isolation to ensure a clean state between tests.
     """
     _backend_registry.clear()
+    _config_registry.clear()
     _registry_state["backends_loaded"] = False
 
 
@@ -57,12 +50,17 @@ def load_local_backend_only(pm) -> None:
 
     pm.register(local_backend_module)
     pm.register(ssh_backend_module)
-    backends = pm.hook.register_provider_backend()
+    registrations = pm.hook.register_provider_backend()
 
-    for backend_class in backends:
-        if backend_class is not None:
+    for registration in registrations:
+        if registration is not None:
+            backend_class, config_class = registration
             backend_name = backend_class.get_name()
             _backend_registry[backend_name] = backend_class
+            _config_registry[backend_name] = config_class
+
+    # Register docker config (no backend implementation yet)
+    _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
 
     _registry_state["backends_loaded"] = True
 
@@ -75,12 +73,17 @@ def load_backends_from_plugins(pm) -> None:
     pm.register(local_backend_module)
     pm.register(modal_backend_module)
     pm.register(ssh_backend_module)
-    backends = pm.hook.register_provider_backend()
+    registrations = pm.hook.register_provider_backend()
 
-    for backend_class in backends:
-        if backend_class is not None:
+    for registration in registrations:
+        if registration is not None:
+            backend_class, config_class = registration
             backend_name = backend_class.get_name()
             _backend_registry[backend_name] = backend_class
+            _config_registry[backend_name] = config_class
+
+    # Register docker config (no backend implementation yet)
+    _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
 
     _registry_state["backends_loaded"] = True
 
@@ -93,8 +96,25 @@ def get_backend(name: str | ProviderBackendName) -> type[ProviderBackendInterfac
     key = ProviderBackendName(name) if isinstance(name, str) else name
     if key not in _backend_registry:
         available = sorted(str(k) for k in _backend_registry.keys())
-        raise UnknownBackendError(str(key), available)
+        raise UnknownBackendError(
+            f"Unknown provider backend: {key}. Registered backends: {', '.join(available) or '(none)'}"
+        )
     return _backend_registry[key]
+
+
+def get_config_class(name: str | ProviderBackendName) -> type[ProviderInstanceConfig]:
+    """Get the config class for a provider backend.
+
+    This returns the typed config class that should be used when parsing
+    configuration for the given backend.
+    """
+    key = ProviderBackendName(name) if isinstance(name, str) else name
+    if key not in _config_registry:
+        registered = ", ".join(sorted(str(k) for k in _config_registry.keys()))
+        raise UnknownBackendError(
+            f"Unknown provider backend: {key}. Registered backends: {registered or '(none)'}"
+        )
+    return _config_registry[key]
 
 
 def list_backends() -> list[str]:
@@ -105,14 +125,14 @@ def list_backends() -> list[str]:
 def build_provider_instance(
     instance_name: ProviderInstanceName,
     backend_name: ProviderBackendName,
-    instance_configuration: dict[str, Any],
+    config: ProviderInstanceConfig,
     mngr_ctx: MngrContext,
 ) -> BaseProviderInstance:
     """Build a provider instance using the registered backend."""
     backend_class = get_backend(backend_name)
     obj = backend_class.build_provider_instance(
         name=instance_name,
-        instance_configuration=instance_configuration,
+        config=config,
         mngr_ctx=mngr_ctx,
     )
     assert isinstance(obj, BaseProviderInstance)

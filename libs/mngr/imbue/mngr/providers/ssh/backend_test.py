@@ -7,8 +7,9 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.ssh.backend import SSH_BACKEND_NAME
-from imbue.mngr.providers.ssh.backend import SSHHostConfig
 from imbue.mngr.providers.ssh.backend import SSHProviderBackend
+from imbue.mngr.providers.ssh.config import SSHHostConfig
+from imbue.mngr.providers.ssh.config import SSHProviderConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
 
 
@@ -33,33 +34,37 @@ def test_backend_start_args_help() -> None:
     assert len(help_text) > 0
 
 
+def test_backend_get_config_class() -> None:
+    assert SSHProviderBackend.get_config_class() is SSHProviderConfig
+
+
 def test_build_provider_instance_returns_ssh_provider_instance(temp_mngr_ctx: MngrContext) -> None:
+    config = SSHProviderConfig(
+        hosts={
+            "test-host": SSHHostConfig(
+                address="localhost",
+                port=22,
+            )
+        }
+    )
     instance = SSHProviderBackend.build_provider_instance(
         name=ProviderInstanceName("test"),
-        instance_configuration={
-            "hosts": {
-                "test-host": {
-                    "address": "localhost",
-                    "port": 22,
-                }
-            }
-        },
+        config=config,
         mngr_ctx=temp_mngr_ctx,
     )
     assert isinstance(instance, SSHProviderInstance)
 
 
 def test_build_provider_instance_with_custom_host_dir(temp_mngr_ctx: MngrContext) -> None:
+    config = SSHProviderConfig(
+        host_dir=Path("/custom/path"),
+        hosts={
+            "test-host": SSHHostConfig(address="localhost"),
+        },
+    )
     instance = SSHProviderBackend.build_provider_instance(
         name=ProviderInstanceName("test"),
-        instance_configuration={
-            "host_dir": "/custom/path",
-            "hosts": {
-                "test-host": {
-                    "address": "localhost",
-                }
-            },
-        },
+        config=config,
         mngr_ctx=temp_mngr_ctx,
     )
     assert isinstance(instance, SSHProviderInstance)
@@ -67,50 +72,49 @@ def test_build_provider_instance_with_custom_host_dir(temp_mngr_ctx: MngrContext
 
 
 def test_build_provider_instance_uses_default_host_dir(temp_mngr_ctx: MngrContext) -> None:
+    config = SSHProviderConfig(
+        hosts={
+            "test-host": SSHHostConfig(address="localhost"),
+        },
+    )
     instance = SSHProviderBackend.build_provider_instance(
         name=ProviderInstanceName("test"),
-        instance_configuration={
-            "hosts": {
-                "test-host": {
-                    "address": "localhost",
-                }
-            },
-        },
+        config=config,
         mngr_ctx=temp_mngr_ctx,
     )
     assert instance.host_dir == Path("/tmp/mngr")
 
 
 def test_build_provider_instance_uses_name(temp_mngr_ctx: MngrContext) -> None:
+    config = SSHProviderConfig(
+        hosts={
+            "test-host": SSHHostConfig(address="localhost"),
+        },
+    )
     instance = SSHProviderBackend.build_provider_instance(
         name=ProviderInstanceName("my-ssh"),
-        instance_configuration={
-            "hosts": {
-                "test-host": {
-                    "address": "localhost",
-                }
-            },
-        },
+        config=config,
         mngr_ctx=temp_mngr_ctx,
     )
     assert instance.name == ProviderInstanceName("my-ssh")
 
 
 def test_build_provider_instance_parses_hosts(temp_mngr_ctx: MngrContext) -> None:
+    config = SSHProviderConfig(
+        hosts={
+            "server1": SSHHostConfig(
+                address="192.168.1.1",
+                port=2222,
+                user="admin",
+            ),
+            "server2": SSHHostConfig(
+                address="192.168.1.2",
+            ),
+        },
+    )
     instance = SSHProviderBackend.build_provider_instance(
         name=ProviderInstanceName("test"),
-        instance_configuration={
-            "hosts": {
-                "server1": {
-                    "address": "192.168.1.1",
-                    "port": 2222,
-                    "user": "admin",
-                },
-                "server2": {
-                    "address": "192.168.1.2",
-                },
-            },
-        },
+        config=config,
         mngr_ctx=temp_mngr_ctx,
     )
     assert isinstance(instance, SSHProviderInstance)
@@ -133,16 +137,17 @@ def test_build_provider_instance_with_key_file(temp_mngr_ctx: MngrContext) -> No
         f.write("fake-key")
         key_path = f.name
 
+    config = SSHProviderConfig(
+        hosts={
+            "server1": SSHHostConfig(
+                address="localhost",
+                key_file=Path(key_path),
+            ),
+        },
+    )
     instance = SSHProviderBackend.build_provider_instance(
         name=ProviderInstanceName("test"),
-        instance_configuration={
-            "hosts": {
-                "server1": {
-                    "address": "localhost",
-                    "key_file": key_path,
-                },
-            },
-        },
+        config=config,
         mngr_ctx=temp_mngr_ctx,
     )
     assert isinstance(instance, SSHProviderInstance)

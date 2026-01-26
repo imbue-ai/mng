@@ -30,6 +30,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
+from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.instance import TAG_HOST_ID
@@ -171,15 +172,16 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
 
 def make_modal_provider_real(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
     """Create a ModalProviderInstance with real Modal for acceptance tests."""
+    config = ModalProviderConfig(
+        app_name=app_name,
+        host_dir=Path("/mngr"),
+        default_timeout=300,
+        default_cpu=0.5,
+        default_memory=0.5,
+    )
     instance = ModalProviderBackend.build_provider_instance(
         name=ProviderInstanceName("modal-test"),
-        instance_configuration={
-            "app_name": app_name,
-            "host_dir": "/mngr",
-            "default_timeout": 300,
-            "default_cpu": 0.5,
-            "default_memory": 0.5,
-        },
+        config=config,
         mngr_ctx=mngr_ctx,
     )
     return cast(ModalProviderInstance, instance)

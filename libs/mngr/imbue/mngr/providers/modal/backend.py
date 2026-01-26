@@ -11,11 +11,13 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
@@ -235,6 +237,10 @@ class ModalProviderBackend(ProviderBackendInterface):
         return "Runs agents in Modal cloud sandboxes with SSH access"
 
     @staticmethod
+    def get_config_class() -> type[ProviderInstanceConfig]:
+        return ModalProviderConfig
+
+    @staticmethod
     def get_build_args_help() -> str:
         return """\
 Supported build arguments for the modal provider:
@@ -257,34 +263,35 @@ Supported build arguments for the modal provider:
     @staticmethod
     def build_provider_instance(
         name: ProviderInstanceName,
-        instance_configuration: dict[str, Any],
+        config: ProviderInstanceConfig,
         mngr_ctx: MngrContext,
     ) -> ProviderInstanceInterface:
-        """Build a Modal provider instance.
-
-        The instance_configuration may contain:
-        - app_name: Modal app name (defaults to "mngr-{name}")
-        - host_dir: Base directory for mngr data on the sandbox (defaults to /mngr)
-        - default_timeout: Default sandbox timeout in seconds (defaults to 900)
-        - default_cpu: Default CPU cores (defaults to 1.0)
-        - default_memory: Default memory in GB (defaults to 1.0)
-        """
+        """Build a Modal provider instance."""
         # Use prefix + user_id + name to namespace the app, ensuring isolation
         # between different mngr installations sharing the same Modal account
         prefix = mngr_ctx.config.prefix
         user_id = _get_or_create_user_id(mngr_ctx)
         default_app_name = f"{prefix}{user_id}-{name}"
-        app_name = instance_configuration.get("app_name", default_app_name)
+
+        # Extract typed config values
+        if isinstance(config, ModalProviderConfig):
+            app_name = config.app_name if config.app_name is not None else default_app_name
+            host_dir = config.host_dir if config.host_dir is not None else Path("/mngr")
+            default_timeout = config.default_timeout
+            default_cpu = config.default_cpu
+            default_memory = config.default_memory
+        else:
+            app_name = default_app_name
+            host_dir = Path("/mngr")
+            default_timeout = 900
+            default_cpu = 1.0
+            default_memory = 1.0
 
         # Truncate app_name if needed to fit Modal's 64 char limit (accounting for volume suffix)
         max_app_name_length = MODAL_NAME_MAX_LENGTH - len(STATE_VOLUME_SUFFIX)
         if len(app_name) > max_app_name_length:
             logger.warning("Truncating Modal app name to {} characters: {}", max_app_name_length, app_name)
             app_name = app_name[:max_app_name_length]
-        host_dir = Path(instance_configuration.get("host_dir", "/mngr"))
-        default_timeout = instance_configuration.get("default_timeout", 900)
-        default_cpu = instance_configuration.get("default_cpu", 1.0)
-        default_memory = instance_configuration.get("default_memory", 1.0)
 
         # Create the ModalProviderApp that manages the Modal app and its resources
         app, context_handle = ModalProviderBackend._get_or_create_app(app_name)
@@ -309,6 +316,8 @@ Supported build arguments for the modal provider:
 
 
 @hookimpl
-def register_provider_backend() -> type[ProviderBackendInterface]:
+def register_provider_backend() -> (
+    tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]
+):
     """Register the Modal provider backend."""
-    return ModalProviderBackend
+    return (ModalProviderBackend, ModalProviderConfig)
