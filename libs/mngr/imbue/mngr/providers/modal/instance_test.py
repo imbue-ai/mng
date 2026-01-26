@@ -157,14 +157,21 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
         get_output_callback=output_buffer.getvalue,
     )
 
+    # Create config for the provider instance
+    config = ModalProviderConfig(
+        app_name=app_name,
+        host_dir=Path("/mngr"),
+        default_timeout=300,
+        default_cpu=0.5,
+        default_memory=0.5,
+    )
+
     # Create ModalProviderInstance using model_construct to skip validation
     instance = ModalProviderInstance.model_construct(
         name=ProviderInstanceName("modal-test"),
         host_dir=Path("/mngr"),
         mngr_ctx=mngr_ctx,
-        default_timeout=300,
-        default_cpu=0.5,
-        default_memory=0.5,
+        config=config,
         modal_app=modal_app,
     )
     return instance

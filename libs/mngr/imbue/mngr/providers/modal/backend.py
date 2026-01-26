@@ -267,27 +267,16 @@ Supported build arguments for the modal provider:
         mngr_ctx: MngrContext,
     ) -> ProviderInstanceInterface:
         """Build a Modal provider instance."""
+        assert isinstance(config, ModalProviderConfig)
+
         # Use prefix + user_id + name to namespace the app, ensuring isolation
         # between different mngr installations sharing the same Modal account
         prefix = mngr_ctx.config.prefix
         user_id = _get_or_create_user_id(mngr_ctx)
         default_app_name = f"{prefix}{user_id}-{name}"
 
-        # FIXME: we can just assert isinstance here since it should be impossible to get a different type
-        # Extract typed config values
-        if isinstance(config, ModalProviderConfig):
-            app_name = config.app_name if config.app_name is not None else default_app_name
-            host_dir = config.host_dir if config.host_dir is not None else Path("/mngr")
-            # FIXME: this typed config should be passed through, rather than extracting individual fields and then passing those through (ie, remove the individual fields on the instance and replace with the config object)
-            default_timeout = config.default_timeout
-            default_cpu = config.default_cpu
-            default_memory = config.default_memory
-        else:
-            app_name = default_app_name
-            host_dir = Path("/mngr")
-            default_timeout = 900
-            default_cpu = 1.0
-            default_memory = 1.0
+        app_name = config.app_name if config.app_name is not None else default_app_name
+        host_dir = config.host_dir if config.host_dir is not None else Path("/mngr")
 
         # Truncate app_name if needed to fit Modal's 64 char limit (accounting for volume suffix)
         max_app_name_length = MODAL_NAME_MAX_LENGTH - len(STATE_VOLUME_SUFFIX)
@@ -310,9 +299,7 @@ Supported build arguments for the modal provider:
             name=name,
             host_dir=host_dir,
             mngr_ctx=mngr_ctx,
-            default_timeout=default_timeout,
-            default_cpu=default_cpu,
-            default_memory=default_memory,
+            config=config,
             modal_app=modal_app,
         )
 
