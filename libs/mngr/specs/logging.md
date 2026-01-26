@@ -19,7 +19,9 @@ mngr separates three distinct concerns:
 **Console Logging** shows what's happening during execution:
 - Sent to stderr
 - Level controlled by `-v/--verbose` flags or config
-- Shows: INFO (default), DEBUG (-v), TRACE (-vv)
+- Shows: BUILD (default), DEBUG (-v), TRACE (-vv)
+- BUILD level shows image build logs (modal, docker) in medium gray
+- DEBUG level shows diagnostic messages in blue
 - Suppressed by `-q/--quiet`
 
 **File Logging** captures detailed diagnostic information:
@@ -37,8 +39,9 @@ Logging behavior is configured via the `[logging]` section in config files:
 # What gets logged to file (default: DEBUG)
 file_level = "DEBUG"
 
-# What gets shown on console during commands (default: INFO)
-console_level = "INFO"
+# What gets shown on console during commands (default: BUILD)
+# BUILD shows image build logs (modal, docker) in medium gray
+console_level = "BUILD"
 
 # Where logs are stored (relative to data root if relative)
 log_dir = "logs"
@@ -99,7 +102,7 @@ Oldest logs are identified by least-recently-modified time.
 
 Logs are structured JSON (one JSON object per line) containing:
 - `timestamp`: ISO 8601 timestamp
-- `level`: Log level (TRACE, DEBUG, INFO, WARN, ERROR)
+- `level`: Log level (TRACE, DEBUG, BUILD, INFO, WARN, ERROR)
 - `message`: Log message
 - `name`: Logger name (module)
 - `function`: Function name

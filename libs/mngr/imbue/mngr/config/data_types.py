@@ -228,7 +228,7 @@ class LoggingConfig(FrozenModel):
         description="Maximum size of each log file in MB",
     )
     console_level: LogLevel = Field(
-        default=LogLevel.INFO,
+        default=LogLevel.BUILD,
         description="Log level for console output",
     )
     is_logging_commands: bool = Field(
@@ -483,7 +483,7 @@ class OutputOptions(FrozenModel):
         description="Output format for command results",
     )
     console_level: LogLevel = Field(
-        default=LogLevel.INFO,
+        default=LogLevel.BUILD,
         description="Log level for console output",
     )
     log_level: LogLevel = Field(

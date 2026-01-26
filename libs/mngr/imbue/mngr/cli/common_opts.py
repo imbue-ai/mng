@@ -96,7 +96,7 @@ def add_common_options(command: TDecorated) -> TDecorated:
         default=None,
         help="Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json)",
     )(command)
-    command = optgroup.option("-v", "--verbose", count=True, help="Increase verbosity; -v for DEBUG, -vv for TRACE")(
+    command = optgroup.option("-v", "--verbose", count=True, help="Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE")(
         command
     )
     command = optgroup.option("-q", "--quiet", is_flag=True, help="Suppress all console output")(command)
