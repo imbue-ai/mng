@@ -99,11 +99,11 @@ def create(
     # Start the agent
     logger.info("Starting agent {} ...", agent.name)
     host.start_agents([agent.id])
-    logger.info("Sending initial message...")
 
     # Send initial message if one is configured
     initial_message = agent.get_initial_message()
     if initial_message is not None:
+        logger.info("Sending initial message...")
         # Note: ideally agents would have their own mechanism for signaling readiness
         # (e.g., claude has hooks we could use). For now, use configurable delay.
         # Give the agent a moment to start up before sending the message
