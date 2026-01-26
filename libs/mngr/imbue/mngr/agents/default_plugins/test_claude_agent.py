@@ -84,7 +84,7 @@ def test_claude_agent_provisioning_on_modal(temp_source_dir: Path) -> None:
 
     # Check that the command succeeded
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
-    assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
+    assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
 
     # Verify that Claude was installed (this message appears in the provisioning output)
     # This confirms that the claude plugin provisioning hook ran correctly
