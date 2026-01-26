@@ -4,6 +4,7 @@ import os
 import subprocess
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pluggy
 from click.testing import CliRunner
@@ -104,6 +105,37 @@ def test_cli_create_via_subprocess(
 
         agents_dir = temp_host_dir / "agents"
         assert agents_dir.exists(), "agents directory should exist in temp dir"
+
+
+def test_connect_flag_calls_tmux_attach_for_local_agent(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --connect flag attempts to attach to the tmux session for local agents."""
+    agent_name = f"test-connect-local-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        with patch("os.execvp") as mock_execvp:
+            cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name,
+                    "--agent-cmd",
+                    "sleep 397265",
+                    "--source",
+                    str(temp_work_dir),
+                    "--connect",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
 
 
 def test_no_connect_flag_skips_tmux_attach(
@@ -645,11 +677,7 @@ def test_edit_message_with_initial_content(
 
     # Create a script that captures the initial content, then writes the edited message
     editor_script = tmp_path / "test_editor.sh"
-    editor_script.write_text(
-        f'#!/bin/bash\n'
-        f'cp "$1" "{captured_file}"\n'
-        f'echo -n "{edited_message}" > "$1"\n'
-    )
+    editor_script.write_text(f'#!/bin/bash\ncp "$1" "{captured_file}"\necho -n "{edited_message}" > "$1"\n')
     editor_script.chmod(0o755)
 
     original_editor = os.environ.get("EDITOR")
