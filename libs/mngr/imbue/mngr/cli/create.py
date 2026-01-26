@@ -70,6 +70,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.editor import EditorSession
+from imbue.mngr.utils.logging import LoggingSuppressor
 from imbue.mngr.utils.git_utils import derive_project_name_from_path
 from imbue.mngr.utils.git_utils import find_git_worktree_root
 from imbue.mngr.utils.git_utils import get_current_git_branch
@@ -464,9 +465,13 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     # If --edit-message is set, start the editor immediately
     # The editor runs in parallel with agent creation
+    # We suppress logging while the editor is open to avoid writing to the terminal
     editor_session: EditorSession | None = None
     if opts.edit_message:
         editor_session = EditorSession.create(initial_content=initial_message_content)
+        # Enable logging suppression before starting the editor so that
+        # log messages don't interfere with the editor's terminal output
+        LoggingSuppressor.enable(output_opts)
         editor_session.start()
         # When using editor, don't pass message to api_create (we'll send it after editor finishes)
         initial_message = None
@@ -556,6 +561,9 @@ def create(ctx: click.Context, **kwargs) -> None:
     if not opts.connect and not should_await_ready:
         # --edit-message is incompatible with background creation
         if editor_session is not None:
+            # Disable logging suppression before showing the error
+            if LoggingSuppressor.is_suppressed():
+                LoggingSuppressor.disable_and_replay(clear_screen=True)
             editor_session.cleanup()
             raise UserInputError(
                 "--edit-message cannot be used with background creation (--no-connect --no-await-ready). "
@@ -592,6 +600,9 @@ def create(ctx: click.Context, **kwargs) -> None:
         # Clean up editor session on success or failure
         if editor_session is not None and not editor_session.is_finished():
             editor_session.cleanup()
+        # Ensure logging suppression is disabled on any exit path
+        if LoggingSuppressor.is_suppressed():
+            LoggingSuppressor.disable_and_replay(clear_screen=True)
 
     # If --await-agent-stopped is set, wait for the agent to finish running
     if opts.await_agent_stopped:
@@ -616,10 +627,17 @@ def _handle_editor_message(
 
     Note: No message delay is applied here because by the time the user finishes
     editing, the agent has been running in parallel and is already ready.
+
+    After the editor closes, logging suppression is disabled, the screen is cleared,
+    and any buffered log messages are replayed.
     """
     try:
         logger.debug("Waiting for editor to finish...")
         edited_message = editor_session.wait_for_result()
+
+        # Disable logging suppression and replay buffered messages
+        # This clears the screen and shows what happened while the editor was open
+        LoggingSuppressor.disable_and_replay(clear_screen=True)
 
         if edited_message is None:
             logger.warning("No message to send (editor was closed without saving or content is empty)")
@@ -631,6 +649,9 @@ def _handle_editor_message(
 
     finally:
         editor_session.cleanup()
+        # Make sure suppression is disabled even if an exception occurred
+        if LoggingSuppressor.is_suppressed():
+            LoggingSuppressor.disable_and_replay(clear_screen=True)
 
 
 def _create_agent_in_background(
