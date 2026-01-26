@@ -31,6 +31,13 @@ mngr create [OPTIONS] [NAME] [AGENT_TYPE] -- [AGENT_ARGS]...
 
 See [connect options](./connect.md) (only applies if `--connect` is specified)
 
+## Initial Message Options
+
+- `--message TEXT`: Initial message to send to the agent after it starts
+- `--message-file PATH`: File containing the initial message to send
+- `--edit-message`: Open an interactive editor (using `$EDITOR`) to compose the initial message. The editor runs in parallel with agent creation. If `--message` or `--message-file` is also provided, their content is used as the initial editor content.
+- `--message-delay FLOAT`: Seconds to wait before sending the initial message [default: 1.0]
+
 ## Agent Options
 
 - `--agent-type TEXT`: Which type of agent to run [default: `claude`]

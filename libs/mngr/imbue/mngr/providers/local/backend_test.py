@@ -13,6 +13,7 @@ from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.backend import LOCAL_BACKEND_NAME
 from imbue.mngr.providers.local.backend import LocalProviderBackend
+from imbue.mngr.providers.local.config import LocalProviderConfig
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
 
@@ -37,10 +38,15 @@ def test_backend_start_args_help() -> None:
     assert len(help_text) > 0
 
 
+def test_backend_get_config_class() -> None:
+    assert LocalProviderBackend.get_config_class() is LocalProviderConfig
+
+
 def test_build_provider_instance_returns_local_provider_instance(temp_mngr_ctx: MngrContext) -> None:
+    config = LocalProviderConfig()
     instance = LocalProviderBackend.build_provider_instance(
         name=ProviderInstanceName("test"),
-        instance_configuration={},
+        config=config,
         mngr_ctx=temp_mngr_ctx,
     )
     assert isinstance(instance, LocalProviderInstance)
@@ -48,9 +54,10 @@ def test_build_provider_instance_returns_local_provider_instance(temp_mngr_ctx: 
 
 def test_build_provider_instance_with_custom_host_dir(temp_mngr_ctx: MngrContext) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
+        config = LocalProviderConfig(host_dir=Path(tmpdir))
         instance = LocalProviderBackend.build_provider_instance(
             name=ProviderInstanceName("test"),
-            instance_configuration={"host_dir": tmpdir},
+            config=config,
             mngr_ctx=temp_mngr_ctx,
         )
         assert isinstance(instance, LocalProviderInstance)
@@ -58,9 +65,10 @@ def test_build_provider_instance_with_custom_host_dir(temp_mngr_ctx: MngrContext
 
 
 def test_build_provider_instance_uses_default_host_dir(temp_mngr_ctx: MngrContext) -> None:
+    config = LocalProviderConfig()
     instance = LocalProviderBackend.build_provider_instance(
         name=ProviderInstanceName("test"),
-        instance_configuration={},
+        config=config,
         mngr_ctx=temp_mngr_ctx,
     )
     # ~ should be expanded to the actual home directory
@@ -68,18 +76,20 @@ def test_build_provider_instance_uses_default_host_dir(temp_mngr_ctx: MngrContex
 
 
 def test_build_provider_instance_uses_config_default_host_dir(temp_mngr_ctx: MngrContext) -> None:
+    config = LocalProviderConfig()
     instance = LocalProviderBackend.build_provider_instance(
         name=ProviderInstanceName("test"),
-        instance_configuration={},
+        config=config,
         mngr_ctx=temp_mngr_ctx,
     )
     assert instance.host_dir == temp_mngr_ctx.config.default_host_dir
 
 
 def test_build_provider_instance_uses_name(temp_mngr_ctx: MngrContext) -> None:
+    config = LocalProviderConfig()
     instance = LocalProviderBackend.build_provider_instance(
         name=ProviderInstanceName("my-local"),
-        instance_configuration={},
+        config=config,
         mngr_ctx=temp_mngr_ctx,
     )
     assert instance.name == ProviderInstanceName("my-local")
@@ -87,9 +97,10 @@ def test_build_provider_instance_uses_name(temp_mngr_ctx: MngrContext) -> None:
 
 def test_built_instance_can_create_host(temp_mngr_ctx: MngrContext) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
+        config = LocalProviderConfig(host_dir=Path(tmpdir))
         instance = LocalProviderBackend.build_provider_instance(
             name=ProviderInstanceName("test"),
-            instance_configuration={"host_dir": tmpdir},
+            config=config,
             mngr_ctx=temp_mngr_ctx,
         )
 
@@ -104,14 +115,16 @@ def test_multiple_instances_with_different_names(mngr_test_prefix: str) -> None:
             pm = pluggy.PluginManager("mngr")
             mngr_ctx1 = MngrContext(config=MngrConfig(default_host_dir=Path(tmpdir1), prefix=mngr_test_prefix), pm=pm)
             mngr_ctx2 = MngrContext(config=MngrConfig(default_host_dir=Path(tmpdir2), prefix=mngr_test_prefix), pm=pm)
+            config1 = LocalProviderConfig(host_dir=Path(tmpdir1))
+            config2 = LocalProviderConfig(host_dir=Path(tmpdir2))
             instance1 = LocalProviderBackend.build_provider_instance(
                 name=ProviderInstanceName("local-1"),
-                instance_configuration={"host_dir": tmpdir1},
+                config=config1,
                 mngr_ctx=mngr_ctx1,
             )
             instance2 = LocalProviderBackend.build_provider_instance(
                 name=ProviderInstanceName("local-2"),
-                instance_configuration={"host_dir": tmpdir2},
+                config=config2,
                 mngr_ctx=mngr_ctx2,
             )
 

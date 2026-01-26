@@ -13,6 +13,19 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
 
+# FIXME: this is stupid--replace with a context manager instead. Do we already have one? Is there a built-in pytest fixture for this?
+def restore_env_var(name: str, original_value: str | None) -> None:
+    """Restore an environment variable to its original value.
+
+    Use this in test cleanup to restore environment variables that were modified
+    during test execution. Pass the original value (or None if it was not set).
+    """
+    if original_value is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = original_value
+
+
 def get_subprocess_test_env(root_name: str = "mngr-test") -> dict[str, str]:
     """Get environment variables for subprocess calls that prevent loading project config.
 

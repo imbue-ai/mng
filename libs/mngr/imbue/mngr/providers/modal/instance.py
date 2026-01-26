@@ -56,6 +56,7 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
+from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
@@ -230,9 +231,7 @@ class ModalProviderInstance(BaseProviderInstance):
     and user tags are stored as sandbox tags for discovery via Sandbox.list().
     """
 
-    default_timeout: int = Field(frozen=True, description="Default sandbox timeout in seconds")
-    default_cpu: float = Field(frozen=True, description="Default CPU cores")
-    default_memory: float = Field(frozen=True, description="Default memory in GB")
+    config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
 
     @property
@@ -434,8 +433,10 @@ class ModalProviderInstance(BaseProviderInstance):
 
         logger.debug("Starting sshd in sandbox")
 
-        # Start sshd (-D: don't detach, -e: print errors to stdout)
-        sandbox.exec("/usr/sbin/sshd", "-D", "-e")
+        # Start sshd (-D: don't detach)
+        # suppress all output--we don't want Modal tracking this for performance and stability reasons.
+        # yes, this is annoying for debugging, sorry--feel free to modify this code when debugging
+        sandbox.exec("/usr/sbin/sshd", "-D", stdout=modal.StreamType.DEVNULL, stderr=modal.StreamType.DEVNULL)
 
     def _get_ssh_info_from_sandbox(self, sandbox: modal.Sandbox) -> tuple[str, int]:
         """Extract SSH connection info from a running sandbox."""
@@ -566,11 +567,11 @@ class ModalProviderInstance(BaseProviderInstance):
         if not build_args:
             return SandboxConfig(
                 gpu=None,
-                cpu=self.default_cpu,
-                memory=self.default_memory,
+                cpu=self.config.default_cpu,
+                memory=self.config.default_memory,
                 image=None,
                 dockerfile=None,
-                timeout=self.default_timeout,
+                timeout=self.config.default_timeout,
                 region=None,
                 context_dir=None,
                 secrets=(),
@@ -592,11 +593,11 @@ class ModalProviderInstance(BaseProviderInstance):
             exit_on_error=False,
         )
         parser.add_argument("--gpu", type=str, default=None)
-        parser.add_argument("--cpu", type=float, default=self.default_cpu)
-        parser.add_argument("--memory", type=float, default=self.default_memory)
+        parser.add_argument("--cpu", type=float, default=self.config.default_cpu)
+        parser.add_argument("--memory", type=float, default=self.config.default_memory)
         parser.add_argument("--image", type=str, default=None)
         parser.add_argument("--dockerfile", type=str, default=None)
-        parser.add_argument("--timeout", type=int, default=self.default_timeout)
+        parser.add_argument("--timeout", type=int, default=self.config.default_timeout)
         parser.add_argument("--region", type=str, default=None)
         parser.add_argument("--context-dir", type=str, default=None)
         parser.add_argument("--secret", type=str, action="append", default=[])

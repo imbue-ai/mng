@@ -69,6 +69,8 @@ from imbue.mngr.primitives import Permission
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import WorkDirCopyMode
+from imbue.mngr.utils.editor import EditorSession
+from imbue.mngr.utils.logging import LoggingSuppressor
 from imbue.mngr.utils.git_utils import derive_project_name_from_path
 from imbue.mngr.utils.git_utils import find_git_worktree_root
 from imbue.mngr.utils.git_utils import get_current_git_branch
@@ -175,6 +177,7 @@ class CreateCliOptions(CommonCliOptions):
     interactive: bool | None
     message: str | None
     message_file: str | None
+    edit_message: bool
     retry: int
     retry_delay: str
     attach_command: str | None
@@ -406,6 +409,11 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--message", help="Initial message to send after the agent starts")
 @optgroup.option("--message-file", type=click.Path(exists=True), help="File containing initial message to send")
 @optgroup.option(
+    "--edit-message",
+    is_flag=True,
+    help="Open an editor to compose the initial message (uses $EDITOR)",
+)
+@optgroup.option(
     "--message-delay",
     type=float,
     default=1.0,
@@ -445,15 +453,31 @@ def create(ctx: click.Context, **kwargs) -> None:
             "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
         )
 
-    # Read message from file if --message-file is provided
-    initial_message: str | None
+    # Read message from file if --message-file is provided (used as initial content for editor if --edit-message)
+    initial_message_content: str | None
     if opts.message_file is not None:
         message_file_path = Path(opts.message_file)
-        initial_message = message_file_path.read_text()
+        initial_message_content = message_file_path.read_text()
     elif opts.message is not None:
-        initial_message = opts.message
+        initial_message_content = opts.message
     else:
+        initial_message_content = None
+
+    # If --edit-message is set, start the editor immediately
+    # The editor runs in parallel with agent creation
+    # We suppress logging while the editor is open to avoid writing to the terminal
+    editor_session: EditorSession | None = None
+    if opts.edit_message:
+        editor_session = EditorSession.create(initial_content=initial_message_content)
+        # Enable logging suppression before starting the editor so that
+        # log messages don't interfere with the editor's terminal output
+        LoggingSuppressor.enable(output_opts)
+        # Start editor with callback that restores logging when it exits
+        editor_session.start(on_exit=_on_editor_exit)
+        # When using editor, don't pass message to api_create (we'll send it after editor finishes)
         initial_message = None
+    else:
+        initial_message = initial_message_content
 
     # Create a lazy loader for agents grouped by host (only loads if needed)
     @lru_cache
@@ -536,6 +560,16 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     # If --no-connect and --no-await-ready, run api_create in background
     if not opts.connect and not should_await_ready:
+        # --edit-message is incompatible with background creation
+        if editor_session is not None:
+            # Disable logging suppression before showing the error
+            if LoggingSuppressor.is_suppressed():
+                LoggingSuppressor.disable_and_replay(clear_screen=True)
+            editor_session.cleanup()
+            raise UserInputError(
+                "--edit-message cannot be used with background creation (--no-connect --no-await-ready). "
+                "Use --await-ready to wait for agent creation."
+            )
         _create_agent_in_background(
             final_source_location,
             resolved_target_host,
@@ -547,13 +581,29 @@ def create(ctx: click.Context, **kwargs) -> None:
         return
 
     # Call the API create function (synchronously)
-    create_result = api_create(
-        source_location=final_source_location,
-        target_host=resolved_target_host,
-        agent_options=agent_opts,
-        mngr_ctx=mngr_ctx,
-        create_work_dir=not is_work_dir_created,
-    )
+    # Wrap in try/finally to ensure editor cleanup on failure
+    try:
+        create_result = api_create(
+            source_location=final_source_location,
+            target_host=resolved_target_host,
+            agent_options=agent_opts,
+            mngr_ctx=mngr_ctx,
+            create_work_dir=not is_work_dir_created,
+        )
+
+        # If --edit-message was used, wait for editor and send the message
+        if editor_session is not None:
+            _handle_editor_message(
+                editor_session=editor_session,
+                agent=create_result.agent,
+            )
+    finally:
+        # Clean up editor session on success or failure
+        if editor_session is not None and not editor_session.is_finished():
+            editor_session.cleanup()
+        # Ensure logging suppression is disabled on any exit path
+        if LoggingSuppressor.is_suppressed():
+            LoggingSuppressor.disable_and_replay(clear_screen=True)
 
     # If --await-agent-stopped is set, wait for the agent to finish running
     if opts.await_agent_stopped:
@@ -565,6 +615,54 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     # Output result
     _output_result(create_result, output_opts)
+
+
+def _on_editor_exit() -> None:
+    """Callback invoked when the editor process exits.
+
+    Restores logging by disabling suppression and replaying buffered messages.
+    This is called from a background thread as soon as the editor exits.
+    """
+    LoggingSuppressor.disable_and_replay(clear_screen=True)
+
+
+def _handle_editor_message(
+    editor_session: EditorSession,
+    agent: AgentInterface,
+) -> None:
+    """Wait for the editor to finish and send the edited message to the agent.
+
+    If the editor exits with a non-zero code, is cancelled, or the content is empty,
+    no message is sent and a warning is logged.
+
+    Note: No message delay is applied here because by the time the user finishes
+    editing, the agent has been running in parallel and is already ready.
+
+    Logging suppression is disabled automatically by the editor's on_exit callback
+    as soon as the editor process exits. By the time wait_for_result() returns,
+    the callback has already restored logging.
+    """
+    try:
+        logger.debug("Waiting for editor to finish...")
+        edited_message = editor_session.wait_for_result()
+
+        # By this point, the on_exit callback has already restored logging
+        # (it's called as soon as the editor process exits)
+
+        if edited_message is None:
+            logger.warning("No message to send (editor was closed without saving or content is empty)")
+            return
+
+        logger.info("Sending edited message...")
+        agent.send_message(edited_message)
+        logger.debug("Message sent successfully")
+
+    finally:
+        editor_session.cleanup()
+        # Make sure suppression is disabled even if an exception occurred
+        # (e.g., if the callback wasn't called for some reason)
+        if LoggingSuppressor.is_suppressed():
+            LoggingSuppressor.disable_and_replay(clear_screen=True)
 
 
 def _create_agent_in_background(

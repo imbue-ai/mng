@@ -13,15 +13,16 @@ This is useful for:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
-from imbue.mngr.providers.ssh.instance import SSHHostConfig
+from imbue.mngr.providers.ssh.config import SSHHostConfig
+from imbue.mngr.providers.ssh.config import SSHProviderConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
 
 SSH_BACKEND_NAME = ProviderBackendName("ssh")
@@ -48,6 +49,10 @@ class SSHProviderBackend(ProviderBackendInterface):
         return "Connects to pre-configured hosts via SSH (static host pool)"
 
     @staticmethod
+    def get_config_class() -> type[ProviderInstanceConfig]:
+        return SSHProviderConfig
+
+    @staticmethod
     def get_build_args_help() -> str:
         return """\
 The SSH provider does not support creating hosts dynamically.
@@ -71,32 +76,31 @@ Example configuration in mngr.toml:
     @staticmethod
     def build_provider_instance(
         name: ProviderInstanceName,
-        instance_configuration: dict[str, Any],
+        config: ProviderInstanceConfig,
         mngr_ctx: MngrContext,
     ) -> ProviderInstanceInterface:
-        """Build an SSH provider instance.
-
-        The instance_configuration should contain:
-        - host_dir: Directory for mngr state on remote hosts (default: /tmp/mngr)
-        - hosts: dict of host_name -> host configuration
-          Each host configuration can have:
-          - address: SSH hostname or IP (required)
-          - port: SSH port (default: 22)
-          - user: SSH username (default: root)
-          - key_file: Path to SSH private key (optional)
-        """
-        # host_dir is the path on remote hosts for mngr state
-        host_dir = Path(instance_configuration.get("host_dir", "/tmp/mngr"))
-        hosts_config = instance_configuration.get("hosts", {})
-
-        hosts: dict[str, SSHHostConfig] = {}
-        for host_name, host_data in hosts_config.items():
-            if isinstance(host_data, dict):
-                # Convert key_file to Path if present
-                if "key_file" in host_data and host_data["key_file"] is not None:
-                    host_data = dict(host_data)
-                    host_data["key_file"] = Path(host_data["key_file"]).expanduser()
-                hosts[host_name] = SSHHostConfig(**host_data)
+        """Build an SSH provider instance."""
+        # FIXME: we can just assert isinstance here since it should be impossible to get a different type
+        # Extract typed config values
+        if isinstance(config, SSHProviderConfig):
+            host_dir = config.host_dir
+            hosts = config.hosts
+            # Expand key_file paths
+            expanded_hosts: dict[str, SSHHostConfig] = {}
+            for host_name, host_config in hosts.items():
+                if host_config.key_file is not None:
+                    expanded_hosts[host_name] = SSHHostConfig(
+                        address=host_config.address,
+                        port=host_config.port,
+                        user=host_config.user,
+                        key_file=Path(host_config.key_file).expanduser(),
+                    )
+                else:
+                    expanded_hosts[host_name] = host_config
+            hosts = expanded_hosts
+        else:
+            host_dir = Path("/tmp/mngr")
+            hosts = {}
 
         return SSHProviderInstance(
             name=name,
@@ -107,6 +111,6 @@ Example configuration in mngr.toml:
 
 
 @hookimpl
-def register_provider_backend() -> type[ProviderBackendInterface]:
+def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]:
     """Register the SSH provider backend."""
-    return SSHProviderBackend
+    return (SSHProviderBackend, SSHProviderConfig)

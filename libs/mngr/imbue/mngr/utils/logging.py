@@ -2,10 +2,13 @@ import functools
 import inspect
 import os
 import sys
+from collections import deque
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from typing import Final
+from typing import NamedTuple
 from typing import ParamSpec
 from typing import TypeVar
 
@@ -26,6 +29,15 @@ from imbue.mngr.primitives import LogLevel
 WARNING_COLOR = "\x1b[1;38;5;178m"
 ERROR_COLOR = "\x1b[1;38;5;196m"
 RESET_COLOR = "\x1b[0m"
+
+# Default buffer size for suppressed log messages
+DEFAULT_BUFFER_SIZE: Final[int] = 500
+
+# ANSI escape codes for screen control
+CLEAR_SCREEN: Final[str] = "\x1b[2J\x1b[H"
+
+# Module-level storage for console handler IDs (used by LoggingSuppressor)
+_console_handler_ids: dict[str, int] = {}
 
 
 def _format_user_message(record: Any) -> str:
@@ -65,28 +77,33 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
         LogLevel.NONE: "CRITICAL",
     }
 
+    # Clear stored handler IDs from previous setup (if any)
+    _console_handler_ids.clear()
+
     # Set up stdout logging for user messages (clean format, with colored WARNING prefix).
     # We set colorize=False because we handle colors manually in _format_user_message.
     if output_opts.console_level != LogLevel.NONE:
-        logger.add(
+        handler_id = logger.add(
             sys.stdout,
             level=output_opts.console_level,
             format=_format_user_message,
             colorize=False,
             diagnose=False,
         )
+        _console_handler_ids["stdout"] = handler_id
 
     # Set up stderr logging for diagnostics (structured format)
     # Shows all messages at console_level with detailed formatting
     if output_opts.log_level != LogLevel.NONE:
         console_level = level_map[output_opts.log_level]
-        logger.add(
+        handler_id = logger.add(
             sys.stderr,
             level=console_level,
             format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
             colorize=True,
             diagnose=False,
         )
+        _console_handler_ids["stderr"] = handler_id
 
     # Set up file logging
     # Use provided log file path if specified, otherwise use default directory
@@ -203,3 +220,174 @@ def log_call(func: Callable[P, R]) -> Callable[P, R]:
         return result
 
     return wrapper
+
+
+class BufferedMessage(NamedTuple):
+    """A buffered log message with its formatted output and destination."""
+
+    formatted_message: str
+    is_stderr: bool
+
+
+class LoggingSuppressor:
+    """Manages temporary suppression and buffering of console log output.
+
+    When suppression is enabled, console log messages (stdout/stderr) are
+    buffered instead of being written immediately. File logging is not affected.
+
+    Use as a context manager or call enable/disable explicitly.
+    """
+
+    # Class-level state for the singleton suppressor
+    _is_suppressed: bool = False
+    _buffer: deque[BufferedMessage] = deque(maxlen=DEFAULT_BUFFER_SIZE)
+    _stdout_handler_id: int | None = None
+    _stderr_handler_id: int | None = None
+    _suppressed_stdout_handler_id: int | None = None
+    _suppressed_stderr_handler_id: int | None = None
+    _output_opts: OutputOptions | None = None
+
+    @classmethod
+    def is_suppressed(cls) -> bool:
+        """Check if logging suppression is currently active."""
+        return cls._is_suppressed
+
+    @classmethod
+    def enable(cls, output_opts: OutputOptions, buffer_size: int = DEFAULT_BUFFER_SIZE) -> None:
+        """Enable logging suppression and start buffering console output.
+
+        The buffer will keep the most recent buffer_size messages. File logging
+        is not affected - only stdout and stderr console handlers are suppressed.
+        """
+        if cls._is_suppressed:
+            return
+
+        cls._output_opts = output_opts
+        cls._buffer = deque(maxlen=buffer_size)
+        cls._is_suppressed = True
+
+        # Remove only the console handlers (preserving file logging)
+        # The handler IDs are stored in _console_handler_ids by setup_logging()
+        if "stdout" in _console_handler_ids:
+            try:
+                logger.remove(_console_handler_ids["stdout"])
+            except ValueError:
+                pass
+        if "stderr" in _console_handler_ids:
+            try:
+                logger.remove(_console_handler_ids["stderr"])
+            except ValueError:
+                pass
+
+        # Add buffering handlers that capture messages instead of writing to console
+        if output_opts.console_level != LogLevel.NONE:
+            cls._suppressed_stdout_handler_id = logger.add(
+                cls._buffered_stdout_sink,
+                level=output_opts.console_level,
+                format=_format_user_message,
+                colorize=False,
+                diagnose=False,
+            )
+
+        if output_opts.log_level != LogLevel.NONE:
+            level_map = {
+                LogLevel.TRACE: "TRACE",
+                LogLevel.DEBUG: "DEBUG",
+                LogLevel.INFO: "INFO",
+                LogLevel.WARN: "WARNING",
+                LogLevel.ERROR: "ERROR",
+                LogLevel.NONE: "CRITICAL",
+            }
+            cls._suppressed_stderr_handler_id = logger.add(
+                cls._buffered_stderr_sink,
+                level=level_map[output_opts.log_level],
+                format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+                colorize=True,
+                diagnose=False,
+            )
+
+    @classmethod
+    def _buffered_stdout_sink(cls, message: Any) -> None:
+        """Sink function that buffers messages intended for stdout."""
+        cls._buffer.append(BufferedMessage(str(message), is_stderr=False))
+
+    @classmethod
+    def _buffered_stderr_sink(cls, message: Any) -> None:
+        """Sink function that buffers messages intended for stderr."""
+        cls._buffer.append(BufferedMessage(str(message), is_stderr=True))
+
+    @classmethod
+    def disable_and_replay(cls, clear_screen: bool = True) -> None:
+        """Disable suppression and replay buffered messages.
+
+        If clear_screen is True, clears the terminal before replaying messages.
+        """
+        if not cls._is_suppressed:
+            return
+
+        cls._is_suppressed = False
+        output_opts = cls._output_opts
+
+        # Remove the buffering handlers
+        if cls._suppressed_stdout_handler_id is not None:
+            logger.remove(cls._suppressed_stdout_handler_id)
+            cls._suppressed_stdout_handler_id = None
+        if cls._suppressed_stderr_handler_id is not None:
+            logger.remove(cls._suppressed_stderr_handler_id)
+            cls._suppressed_stderr_handler_id = None
+
+        # Clear the screen if requested
+        if clear_screen:
+            sys.stdout.write(CLEAR_SCREEN)
+            sys.stdout.flush()
+
+        # Replay buffered messages to their original destinations
+        for buffered_msg in cls._buffer:
+            if buffered_msg.is_stderr:
+                sys.stderr.write(buffered_msg.formatted_message)
+            else:
+                sys.stdout.write(buffered_msg.formatted_message)
+
+        # Flush both streams
+        sys.stdout.flush()
+        sys.stderr.flush()
+
+        # Clear the buffer
+        cls._buffer.clear()
+
+        # Re-add the normal console handlers and store their IDs
+        if output_opts is not None:
+            if output_opts.console_level != LogLevel.NONE:
+                handler_id = logger.add(
+                    sys.stdout,
+                    level=output_opts.console_level,
+                    format=_format_user_message,
+                    colorize=False,
+                    diagnose=False,
+                )
+                _console_handler_ids["stdout"] = handler_id
+
+            if output_opts.log_level != LogLevel.NONE:
+                level_map = {
+                    LogLevel.TRACE: "TRACE",
+                    LogLevel.DEBUG: "DEBUG",
+                    LogLevel.INFO: "INFO",
+                    LogLevel.WARN: "WARNING",
+                    LogLevel.ERROR: "ERROR",
+                    LogLevel.NONE: "CRITICAL",
+                }
+                handler_id = logger.add(
+                    sys.stderr,
+                    level=level_map[output_opts.log_level],
+                    format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+                    colorize=True,
+                    diagnose=False,
+                )
+                _console_handler_ids["stderr"] = handler_id
+
+        cls._output_opts = None
+
+    @classmethod
+    def get_buffered_messages(cls) -> list[BufferedMessage]:
+        """Get a copy of the current buffer contents."""
+        return list(cls._buffer)

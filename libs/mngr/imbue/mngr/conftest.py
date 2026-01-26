@@ -18,7 +18,6 @@ from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.provider_registry import load_provider_configs_from_plugins
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
@@ -204,11 +203,11 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
 
     # Only register the local backend, not modal
     # This prevents tests from depending on Modal credentials
+    # This also loads the provider configs since backends and configs are registered together
     load_local_backend_only(pm)
 
-    # Load other registries (agents and provider configs)
+    # Load other registries (agents)
     load_agents_from_plugins(pm)
-    load_provider_configs_from_plugins(pm)
 
     yield pm
 

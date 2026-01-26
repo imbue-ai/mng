@@ -6,7 +6,6 @@ Manages connections to pre-configured SSH hosts.
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from typing import Any
 from typing import Mapping
 from typing import Sequence
@@ -16,7 +15,6 @@ from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 
-from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import SnapshotsNotSupportedError
 from imbue.mngr.hosts.host import Host
@@ -33,18 +31,10 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
+from imbue.mngr.providers.ssh.config import SSHHostConfig
 
 # Fixed UUID namespace for generating deterministic host IDs from names
 _SSH_PROVIDER_NAMESPACE = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
-
-
-class SSHHostConfig(FrozenModel):
-    """Configuration for a single SSH host in the pool."""
-
-    address: str = Field(description="SSH hostname or IP address")
-    port: int = Field(default=22, description="SSH port number")
-    user: str = Field(default="root", description="SSH username")
-    key_file: Path | None = Field(default=None, description="Path to SSH private key file")
 
 
 class SSHProviderInstance(BaseProviderInstance):

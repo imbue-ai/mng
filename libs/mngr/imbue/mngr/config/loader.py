@@ -16,12 +16,12 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.config.plugin_registry import get_plugin_config_class
-from imbue.mngr.config.provider_registry import get_provider_config_class
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import PluginName
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.registry import get_config_class as get_provider_config_class
 from imbue.mngr.utils.git_utils import find_git_worktree_root
 
 # Environment variable prefix for command config overrides.

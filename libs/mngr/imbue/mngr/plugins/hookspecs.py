@@ -9,17 +9,26 @@ from imbue.mngr.api.data_types import OnBeforeCreateArgs
 from imbue.mngr.cli.data_types import OptionStackItem
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 
 hookspec = pluggy.HookspecMarker("mngr")
 
 
 @hookspec
-def register_provider_backend() -> type[ProviderBackendInterface] | None:
+def register_provider_backend() -> (
+    tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]] | None
+):
     """Register a provider backend with mngr.
 
-    Plugins should implement this hook to register provider backends.
-    Return the backend class to register it, or None if not registering a backend.
+    Plugins should implement this hook to register provider backends along with
+    their configuration class.
+
+    Return a tuple of (backend_class, config_class) to register a backend,
+    or None if not registering a backend.
+
+    The config_class should be a subclass of ProviderInstanceConfig that defines
+    the configuration options for this backend.
     """
 
 
@@ -32,17 +41,6 @@ def register_agent_type() -> tuple[str, type[AgentInterface] | None, type | None
     - agent_type_name: The string name for this agent type (e.g., "claude", "codex")
     - agent_class: The AgentInterface implementation class (or None to use BaseAgent)
     - config_class: The AgentTypeConfig subclass (or None to use AgentTypeConfig)
-    """
-
-
-@hookspec
-def register_provider_config() -> tuple[str, type] | None:
-    """Register a provider config class with mngr.
-
-    Types should implement this hook as a static method to register themselves.
-    Return a tuple of (backend_name, config_class) or None.
-    - backend_name: The backend name this config is for (e.g., "local", "docker")
-    - config_class: The ProviderInstanceConfig subclass
     """
 
 
