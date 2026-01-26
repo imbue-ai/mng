@@ -42,7 +42,11 @@ def register_build_level() -> None:
     """Register the custom BUILD log level with loguru.
 
     This is called at module import time to ensure the BUILD level is always
-    available when using logger.log("BUILD", ...).
+    available when using logger.log("BUILD", ...). The function is idempotent
+    and can be called multiple times safely.
+
+    The BUILD level (severity 15) sits between DEBUG (10) and INFO (20),
+    intended for image build output (Modal, Docker, etc).
     """
     try:
         logger.level("BUILD")
