@@ -46,8 +46,11 @@ Examples:
 - `MNGR_COMMANDS_CREATE_NEW_BRANCH_PREFIX=agent/` - Sets the default branch prefix for the create command
 - `MNGR_COMMANDS_CREATE_CONNECT=false` - Disables auto-connect after creating an agent
 - `MNGR_COMMANDS_LIST_FORMAT=json` - Sets default output format for list command
+- `MNGR_COMMANDS_CREATE_ADD_COMMAND=` - Clears all additional commands (overrides config file defaults)
 
 Values are stored as strings and converted to the appropriate type by click/pydantic based on the parameter's type definition.
+
+**Clearing list/tuple parameters**: For repeatable options (like `--add-command`), setting the environment variable to an empty string clears the list entirely. This is useful for overriding config file defaults on a per-invocation basis.
 
 These environment variable overrides are applied after config files but before CLI arguments, following the standard precedence order:
 

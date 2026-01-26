@@ -213,6 +213,10 @@ def apply_config_defaults(ctx: click.Context, config: MngrConfig, command_name: 
 
     Uses ctx.get_parameter_source() to detect which parameters came from defaults.
     Only overrides parameters that came from DEFAULT source, not COMMANDLINE or ENVIRONMENT.
+
+    Special handling for tuple/list parameters:
+    - An empty string value ("") clears the list (sets it to an empty tuple)
+    - This allows env vars like MNGR_COMMANDS_CREATE_ADD_COMMAND= to clear config defaults
     """
     # Get command defaults from config
     command_defaults = config.commands.get(command_name)
@@ -234,7 +238,12 @@ def apply_config_defaults(ctx: click.Context, config: MngrConfig, command_name: 
 
         # Only override if the value came from the default
         if source == ParameterSource.DEFAULT:
-            updated_params[param_name] = config_value
+            # Handle empty string for tuple/list parameters (clears the list)
+            current_value = ctx.params[param_name]
+            if isinstance(current_value, tuple) and config_value == "":
+                updated_params[param_name] = ()
+            else:
+                updated_params[param_name] = config_value
 
     return updated_params
 
