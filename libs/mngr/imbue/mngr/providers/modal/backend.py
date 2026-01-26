@@ -22,7 +22,8 @@ from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 
 MODAL_BACKEND_NAME = ProviderBackendName("modal")
 USER_ID_FILENAME = "user_id"
-STATE_VOLUME_SUFFIX = "-state"
+STATE_VOLUME_SUFFIX = "-st"
+MODAL_NAME_MAX_LENGTH = 64
 
 
 class ModalAppContextHandle(FrozenModel):
@@ -74,8 +75,6 @@ def _get_or_create_user_id(mngr_ctx: MngrContext) -> str:
     The user ID is stored in a file in the mngr data directory. This ID is used
     to namespace Modal apps, ensuring that sandboxes created by different mngr
     installations on a shared Modal account don't interfere with each other.
-
-    We use only 8 hex characters to keep app names under Modal's 64 char limit.
     """
     data_dir = mngr_ctx.config.default_host_dir.expanduser()
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -84,8 +83,8 @@ def _get_or_create_user_id(mngr_ctx: MngrContext) -> str:
     if user_id_file.exists():
         return user_id_file.read_text().strip()
 
-    # Generate a new user ID (8 hex chars for ~4 billion unique values)
-    user_id = uuid4().hex[:8]
+    # Generate a new user ID
+    user_id = uuid4().hex
     user_id_file.write_text(user_id)
     return user_id
 
@@ -276,6 +275,11 @@ Supported build arguments for the modal provider:
         user_id = _get_or_create_user_id(mngr_ctx)
         default_app_name = f"{prefix}{user_id}-{name}"
         app_name = instance_configuration.get("app_name", default_app_name)
+
+        # Truncate app_name if needed to fit Modal's 64 char limit (accounting for volume suffix)
+        max_app_name_length = MODAL_NAME_MAX_LENGTH - len(STATE_VOLUME_SUFFIX)
+        if len(app_name) > max_app_name_length:
+            app_name = app_name[:max_app_name_length]
         host_dir = Path(instance_configuration.get("host_dir", "/mngr"))
         default_timeout = instance_configuration.get("default_timeout", 900)
         default_cpu = instance_configuration.get("default_cpu", 1.0)
