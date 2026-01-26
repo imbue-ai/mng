@@ -36,6 +36,9 @@ DEFAULT_BUFFER_SIZE: Final[int] = 500
 # ANSI escape codes for screen control
 CLEAR_SCREEN: Final[str] = "\x1b[2J\x1b[H"
 
+# Module-level storage for console handler IDs (used by LoggingSuppressor)
+_console_handler_ids: dict[str, int] = {}
+
 
 def _format_user_message(record: Any) -> str:
     """Format user-facing log messages, adding colored prefixes for warnings and errors.
@@ -74,28 +77,33 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
         LogLevel.NONE: "CRITICAL",
     }
 
+    # Clear stored handler IDs from previous setup (if any)
+    _console_handler_ids.clear()
+
     # Set up stdout logging for user messages (clean format, with colored WARNING prefix).
     # We set colorize=False because we handle colors manually in _format_user_message.
     if output_opts.console_level != LogLevel.NONE:
-        logger.add(
+        handler_id = logger.add(
             sys.stdout,
             level=output_opts.console_level,
             format=_format_user_message,
             colorize=False,
             diagnose=False,
         )
+        _console_handler_ids["stdout"] = handler_id
 
     # Set up stderr logging for diagnostics (structured format)
     # Shows all messages at console_level with detailed formatting
     if output_opts.log_level != LogLevel.NONE:
         console_level = level_map[output_opts.log_level]
-        logger.add(
+        handler_id = logger.add(
             sys.stderr,
             level=console_level,
             format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
             colorize=True,
             diagnose=False,
         )
+        _console_handler_ids["stderr"] = handler_id
 
     # Set up file logging
     # Use provided log file path if specified, otherwise use default directory
@@ -251,7 +259,7 @@ class LoggingSuppressor:
         """Enable logging suppression and start buffering console output.
 
         The buffer will keep the most recent buffer_size messages. File logging
-        is not affected - only stdout and stderr handlers are suppressed.
+        is not affected - only stdout and stderr console handlers are suppressed.
         """
         if cls._is_suppressed:
             return
@@ -260,17 +268,20 @@ class LoggingSuppressor:
         cls._buffer = deque(maxlen=buffer_size)
         cls._is_suppressed = True
 
-        # Remove existing console handlers and remember their IDs
-        # We need to find and remove the stdout and stderr handlers
-        # Then add new handlers that write to our buffer instead
-        logger.remove()
+        # Remove only the console handlers (preserving file logging)
+        # The handler IDs are stored in _console_handler_ids by setup_logging()
+        if "stdout" in _console_handler_ids:
+            try:
+                logger.remove(_console_handler_ids["stdout"])
+            except ValueError:
+                pass
+        if "stderr" in _console_handler_ids:
+            try:
+                logger.remove(_console_handler_ids["stderr"])
+            except ValueError:
+                pass
 
-        # Re-add file logging (this continues as normal)
-        # We don't have access to the full config here, so we set up a minimal file logger
-        # The original file logger should still be active since logger.remove() only removes
-        # handlers we added, not the file handler added in setup_logging
-
-        # Add stdout handler that buffers instead of writing
+        # Add buffering handlers that capture messages instead of writing to console
         if output_opts.console_level != LogLevel.NONE:
             cls._suppressed_stdout_handler_id = logger.add(
                 cls._buffered_stdout_sink,
@@ -280,7 +291,6 @@ class LoggingSuppressor:
                 diagnose=False,
             )
 
-        # Add stderr handler that buffers instead of writing
         if output_opts.log_level != LogLevel.NONE:
             level_map = {
                 LogLevel.TRACE: "TRACE",
@@ -347,16 +357,17 @@ class LoggingSuppressor:
         # Clear the buffer
         cls._buffer.clear()
 
-        # Re-add the normal console handlers
+        # Re-add the normal console handlers and store their IDs
         if output_opts is not None:
             if output_opts.console_level != LogLevel.NONE:
-                logger.add(
+                handler_id = logger.add(
                     sys.stdout,
                     level=output_opts.console_level,
                     format=_format_user_message,
                     colorize=False,
                     diagnose=False,
                 )
+                _console_handler_ids["stdout"] = handler_id
 
             if output_opts.log_level != LogLevel.NONE:
                 level_map = {
@@ -367,13 +378,14 @@ class LoggingSuppressor:
                     LogLevel.ERROR: "ERROR",
                     LogLevel.NONE: "CRITICAL",
                 }
-                logger.add(
+                handler_id = logger.add(
                     sys.stderr,
                     level=level_map[output_opts.log_level],
                     format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
                     colorize=True,
                     diagnose=False,
                 )
+                _console_handler_ids["stderr"] = handler_id
 
         cls._output_opts = None
 
