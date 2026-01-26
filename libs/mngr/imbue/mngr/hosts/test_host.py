@@ -704,6 +704,51 @@ def test_start_agent_creates_process_group(
         host.stop_agents([agent.id])
 
 
+def test_start_agent_starts_process_activity_monitor(
+    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+) -> None:
+    """Test that start_agents launches a process activity monitor that writes PROCESS activity."""
+    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    provider = LocalProviderInstance(
+        name=ProviderInstanceName("local"),
+        host_dir=temp_host_dir,
+        mngr_ctx=mngr_ctx,
+    )
+    host = provider.create_host(HostName("test-activity-monitor"))
+    assert isinstance(host, Host)
+
+    agent = host.create_agent_state(
+        work_dir_path=temp_work_dir,
+        options=CreateAgentOptions(
+            name=AgentName("activity-monitor-test"),
+            agent_type=AgentTypeName("generic"),
+            command=CommandString("sleep 847291"),
+        ),
+    )
+
+    host.start_agents([agent.id])
+
+    try:
+        # The process activity monitor should write PROCESS activity within ~5-6 seconds
+        activity_path = temp_host_dir / "agents" / str(agent.id) / "activity" / "PROCESS"
+
+        def activity_file_exists() -> bool:
+            return activity_path.exists()
+
+        wait_for(activity_file_exists, timeout=10.0, error_message="PROCESS activity file not created")
+
+        # Verify the activity file has valid JSON content with a timestamp
+        content = activity_path.read_text()
+        data = json.loads(content)
+        assert "time" in data
+        # Verify it's a valid ISO timestamp format
+        assert "T" in data["time"]
+        assert data["time"].endswith("+00:00")
+    finally:
+        host.stop_agents([agent.id])
+
+
 # =============================================================================
 # Additional Commands Tests
 # =============================================================================
