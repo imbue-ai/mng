@@ -30,6 +30,7 @@ import modal
 import modal.exception
 from dockerfile_parse import DockerfileParser
 from loguru import logger
+from modal.stream_type import StreamType
 from pydantic import ConfigDict
 from pydantic import Field
 from pyinfra.api import Host as PyinfraHost
@@ -436,7 +437,7 @@ class ModalProviderInstance(BaseProviderInstance):
         # Start sshd (-D: don't detach)
         # suppress all output--we don't want Modal tracking this for performance and stability reasons.
         # yes, this is annoying for debugging, sorry--feel free to modify this code when debugging
-        sandbox.exec("/usr/sbin/sshd", "-D", stdout=modal.StreamType.DEVNULL, stderr=modal.StreamType.DEVNULL)
+        sandbox.exec("/usr/sbin/sshd", "-D", stdout=StreamType.DEVNULL, stderr=StreamType.DEVNULL)
 
     def _get_ssh_info_from_sandbox(self, sandbox: modal.Sandbox) -> tuple[str, int]:
         """Extract SSH connection info from a running sandbox."""
