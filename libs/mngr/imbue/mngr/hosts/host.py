@@ -1584,6 +1584,51 @@ class Host(HostInterface):
             # Record START activity for idle detection
             agent.record_activity(ActivitySource.START)
 
+            # Start background process activity monitor
+            self._start_process_activity_monitor(agent, session_name)
+
+    def _start_process_activity_monitor(self, agent: AgentInterface, session_name: str) -> None:
+        """Start a background process that writes PROCESS activity while the agent is alive.
+
+        This launches a detached bash script on the host that:
+        1. Gets the tmux pane PID for the agent's session
+        2. Loops while that PID is alive, writing PROCESS activity every ~5 seconds
+        3. Exits when the pane process exits
+        """
+        activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value
+
+        # Build a bash script that monitors the process and writes activity
+        # We use nohup and redirect output to /dev/null to fully detach
+        # The script:
+        # 1. Gets the pane PID using tmux list-panes
+        # 2. While the PID exists, write activity JSON and sleep
+        # 3. Uses date -u for UTC ISO format timestamps
+        monitor_script = f'''
+PANE_PID=$(tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null | head -n 1)
+if [ -z "$PANE_PID" ]; then
+    exit 0
+fi
+ACTIVITY_PATH={shlex.quote(str(activity_path))}
+mkdir -p "$(dirname "$ACTIVITY_PATH")"
+while kill -0 "$PANE_PID" 2>/dev/null; do
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%6N+00:00" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S+00:00")
+    printf '{{\\n  "time": "%s"\\n}}\\n' "$TIMESTAMP" > "$ACTIVITY_PATH"
+    sleep 5
+done
+'''
+        # Run the script in the background, fully detached
+        # nohup ensures it survives if the parent shell exits
+        # Redirect all output to /dev/null and background with &
+        cmd = f"nohup bash -c {shlex.quote(monitor_script)} </dev/null >/dev/null 2>&1 &"
+
+        result = self.execute_command(cmd)
+        if not result.success:
+            logger.warning(
+                "Failed to start process activity monitor for agent {}: {}",
+                agent.name,
+                result.stderr,
+            )
+
     def _get_all_descendant_pids(self, parent_pid: str) -> list[str]:
         """Recursively get all descendant PIDs of a given parent PID."""
         descendant_pids: list[str] = []
