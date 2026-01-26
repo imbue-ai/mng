@@ -45,6 +45,7 @@ class CommonCliOptions(FrozenModel):
     output_format: str
     quiet: bool
     verbose: int
+    log_file: str | None
     log_commands: bool | None
     log_command_output: bool | None
     log_env_vars: bool | None
@@ -60,6 +61,7 @@ def add_common_options(command: TDecorated) -> TDecorated:
     - --format: Output format (human/json/jsonl)
     - -q, --quiet: Suppress console output
     - -v, --verbose: Increase verbosity
+    - --log-file: Override log file path
     - --log-commands: Log executed commands
     - --log-command-output: Log command output
     - --log-env-vars: Log environment variables
@@ -87,6 +89,12 @@ def add_common_options(command: TDecorated) -> TDecorated:
     )(command)
     command = optgroup.option(
         "--log-commands/--no-log-commands", default=None, help="Log commands that were executed"
+    )(command)
+    command = optgroup.option(
+        "--log-file",
+        type=click.Path(),
+        default=None,
+        help="Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json)",
     )(command)
     command = optgroup.option("-v", "--verbose", count=True, help="Increase verbosity; -v for DEBUG, -vv for TRACE")(
         command
@@ -143,6 +151,7 @@ def setup_command_context(
         output_format=initial_opts.output_format,
         quiet=initial_opts.quiet,
         verbose=initial_opts.verbose,
+        log_file=initial_opts.log_file,
         log_commands=initial_opts.log_commands,
         log_command_output=initial_opts.log_command_output,
         log_env_vars=initial_opts.log_env_vars,
@@ -171,6 +180,7 @@ def parse_output_options(
     output_format: str,
     quiet: bool,
     verbose: int,
+    log_file: str | None,
     log_commands: bool | None,
     log_command_output: bool | None,
     log_env_vars: bool | None,
@@ -190,6 +200,9 @@ def parse_output_options(
     else:
         console_level = config.logging.console_level
 
+    # Parse log file path
+    log_file_path = Path(log_file) if log_file else None
+
     # Use CLI overrides if provided, otherwise use config
     is_log_commands = log_commands if log_commands is not None else config.logging.is_logging_commands
 
@@ -202,6 +215,7 @@ def parse_output_options(
     return OutputOptions(
         output_format=parsed_output_format,
         console_level=console_level,
+        log_file_path=log_file_path,
         is_log_commands=is_log_commands,
         is_log_command_output=is_log_command_output,
         is_log_env_vars=is_log_env_vars,

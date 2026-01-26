@@ -1,5 +1,6 @@
 """Tests for logging utilities."""
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -117,6 +118,68 @@ def test_setup_logging_creates_log_file(temp_mngr_ctx: MngrContext) -> None:
 
     log_files = list(log_dir.glob("*.json"))
     assert len(log_files) >= 1
+
+
+def test_setup_logging_uses_custom_log_file_path(temp_mngr_ctx: MngrContext) -> None:
+    """setup_logging should create log file at custom path when log_file_path is provided."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        custom_log_path = Path(tmpdir) / "custom_log.json"
+
+        output_opts = OutputOptions(
+            output_format=OutputFormat.HUMAN,
+            console_level=LogLevel.INFO,
+            log_file_path=custom_log_path,
+            is_log_commands=True,
+            is_log_command_output=False,
+        )
+
+        setup_logging(output_opts, temp_mngr_ctx)
+
+        assert custom_log_path.exists()
+
+
+def test_setup_logging_creates_parent_dirs_for_custom_log_path(temp_mngr_ctx: MngrContext) -> None:
+    """setup_logging should create parent directories for custom log file path."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        custom_log_path = Path(tmpdir) / "nested" / "dirs" / "custom_log.json"
+
+        assert not custom_log_path.parent.exists()
+
+        output_opts = OutputOptions(
+            output_format=OutputFormat.HUMAN,
+            console_level=LogLevel.INFO,
+            log_file_path=custom_log_path,
+            is_log_commands=True,
+            is_log_command_output=False,
+        )
+
+        setup_logging(output_opts, temp_mngr_ctx)
+
+        assert custom_log_path.parent.exists()
+        assert custom_log_path.exists()
+
+
+def test_setup_logging_expands_user_in_custom_log_path(temp_mngr_ctx: MngrContext) -> None:
+    """setup_logging should expand ~ in custom log file path."""
+    home_dir = Path(os.path.expanduser("~"))
+
+    with tempfile.TemporaryDirectory(dir=home_dir) as tmpdir:
+        # Get the relative path from home
+        relative_path = Path(tmpdir).relative_to(home_dir)
+        tilde_path = Path("~") / relative_path / "expanded_log.json"
+
+        output_opts = OutputOptions(
+            output_format=OutputFormat.HUMAN,
+            console_level=LogLevel.INFO,
+            log_file_path=tilde_path,
+            is_log_commands=True,
+            is_log_command_output=False,
+        )
+
+        setup_logging(output_opts, temp_mngr_ctx)
+
+        expanded_path = home_dir / relative_path / "expanded_log.json"
+        assert expanded_path.exists()
 
 
 # =============================================================================
