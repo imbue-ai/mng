@@ -66,6 +66,8 @@ def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
         handle.output_capture_context.__exit__(None, None, None)
 
 
+# FIXME: this function should be moved to a much lower level (many other things may want a user id, should be part of MngrContext?)
+#  also, obviously this should return a concrete type, not a str
 def _get_or_create_user_id(mngr_ctx: MngrContext) -> str:
     """Get or create a unique user ID for this mngr installation.
 
@@ -82,8 +84,8 @@ def _get_or_create_user_id(mngr_ctx: MngrContext) -> str:
     if user_id_file.exists():
         return user_id_file.read_text().strip()
 
-    # Generate a new user ID (8 hex chars for ~4 billion unique values)
-    user_id = uuid4().hex[:8]
+    # Generate a new user ID
+    user_id = uuid4().hex
     user_id_file.write_text(user_id)
     return user_id
 

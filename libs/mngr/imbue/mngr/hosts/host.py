@@ -1090,7 +1090,7 @@ class Host(HostInterface):
     ) -> AgentInterface:
         """Create the agent state directory and return the agent."""
         agent_id = AgentId.generate()
-        agent_name = options.name or AgentName(f"agent-{str(agent_id)[:8]}")
+        agent_name = options.name or AgentName(f"agent-{str(agent_id)}")
         agent_type = options.agent_type or AgentTypeName("claude")
         logger.debug("Creating agent state: id={} name={} type={}", agent_id, agent_name, agent_type)
 

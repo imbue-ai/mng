@@ -1,7 +1,6 @@
 """Tests for BaseAgent lifecycle state detection."""
 
 import json
-import uuid
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -21,6 +20,7 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.testing import get_short_random_string
 
 
 def create_test_agent(
@@ -36,7 +36,7 @@ def create_test_agent(
 
     agent_id = AgentId.generate()
     # Use unique agent name to avoid conflicts in parallel tests
-    agent_name = AgentName(f"test-agent-{uuid.uuid4().hex[:8]}")
+    agent_name = AgentName(f"test-agent-{get_short_random_string()}")
     agent_type = AgentTypeName("test")
 
     # Create agent directory and data.json

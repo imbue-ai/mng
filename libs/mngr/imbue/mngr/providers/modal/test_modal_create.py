@@ -16,11 +16,11 @@ import subprocess
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 
 from imbue.mngr import resources
+from imbue.mngr.utils.testing import get_short_random_string
 from imbue.mngr.utils.testing import get_subprocess_test_env
 
 
@@ -52,8 +52,8 @@ def test_mngr_create_echo_command_on_modal(temp_source_dir: Path) -> None:
     5. Agent is created and command runs
     6. Output can be verified
     """
-    agent_name = f"test-modal-echo-{uuid4().hex[:8]}"
-    expected_output = f"hello-from-modal-{uuid4().hex[:8]}"
+    agent_name = f"test-modal-echo-{get_short_random_string()}"
+    expected_output = f"hello-from-modal-{get_short_random_string()}"
 
     # Run mngr create with echo command on modal
     # Using --no-connect and --await-ready to run synchronously without attaching
@@ -94,7 +94,7 @@ def test_mngr_create_with_worktree_flag_on_modal_raises_error(temp_source_dir: P
     The --worktree flag only works when source and target are on the same host.
     Modal is always a remote host, so this should fail.
     """
-    agent_name = f"test-modal-worktree-{uuid4().hex[:8]}"
+    agent_name = f"test-modal-worktree-{get_short_random_string()}"
 
     result = subprocess.run(
         [
@@ -135,8 +135,8 @@ def test_mngr_create_with_build_args_on_modal(temp_source_dir: Path) -> None:
 
     This verifies that build arguments are passed correctly to the Modal sandbox.
     """
-    agent_name = f"test-modal-build-{uuid4().hex[:8]}"
-    expected_output = f"build-test-{uuid4().hex[:8]}"
+    agent_name = f"test-modal-build-{get_short_random_string()}"
+    expected_output = f"build-test-{get_short_random_string()}"
 
     result = subprocess.run(
         [
@@ -184,8 +184,8 @@ def test_mngr_create_with_dockerfile_on_modal(temp_source_dir: Path) -> None:
     2. Modal builds an image from the Dockerfile
     3. The sandbox runs with the custom image
     """
-    agent_name = f"test-modal-dockerfile-{uuid4().hex[:8]}"
-    expected_output = f"dockerfile-test-{uuid4().hex[:8]}"
+    agent_name = f"test-modal-dockerfile-{get_short_random_string()}"
+    expected_output = f"dockerfile-test-{get_short_random_string()}"
 
     # Create a simple Dockerfile in the source directory
     dockerfile_path = temp_source_dir / "Dockerfile"
@@ -246,12 +246,12 @@ def test_mngr_create_with_failing_dockerfile_shows_build_failure(temp_source_dir
 
     This is important for debuggability - users need to see why their build failed.
     """
-    agent_name = f"test-modal-dockerfile-fail-{uuid4().hex[:8]}"
+    agent_name = f"test-modal-dockerfile-fail-{get_short_random_string()}"
 
     # Create a Dockerfile with a command that will definitely fail
     dockerfile_path = temp_source_dir / "Dockerfile"
     # Use a unique marker so we can verify the actual failing command is shown in output
-    unique_failure_marker = f"intentional-fail-{uuid4().hex[:8]}"
+    unique_failure_marker = f"intentional-fail-{get_short_random_string()}"
     dockerfile_content = f"""\
 FROM debian:bookworm-slim
 
@@ -342,8 +342,8 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(temp_git_source_dir
     Note: The actual file transfer logic is verified by unit tests in test_host.py.
     This acceptance test verifies the end-to-end flow works on Modal.
     """
-    agent_name = f"test-modal-git-{uuid4().hex[:8]}"
-    unique_marker = f"git-transfer-test-{uuid4().hex[:8]}"
+    agent_name = f"test-modal-git-{get_short_random_string()}"
+    unique_marker = f"git-transfer-test-{get_short_random_string()}"
 
     # Write a unique marker file (will be transferred via rsync as untracked)
     (temp_git_source_dir / "marker.txt").write_text(unique_marker)
@@ -386,7 +386,7 @@ def test_mngr_create_transfers_git_repo_with_new_branch(temp_git_source_dir: Pat
     1. Git repository is pushed via git push --mirror
     2. A new branch is created with the specified prefix
     """
-    agent_name = f"test-modal-branch-{uuid4().hex[:8]}"
+    agent_name = f"test-modal-branch-{get_short_random_string()}"
 
     result = subprocess.run(
         [
@@ -437,8 +437,8 @@ def test_mngr_create_with_default_dockerfile_on_modal(temp_source_dir: Path) -> 
 
     This test is marked as release since it takes longer due to the image build.
     """
-    agent_name = f"test-modal-default-df-{uuid4().hex[:8]}"
-    unique_marker = f"default-dockerfile-{uuid4().hex[:8]}"
+    agent_name = f"test-modal-default-df-{get_short_random_string()}"
+    unique_marker = f"default-dockerfile-{get_short_random_string()}"
 
     dockerfile_path = _get_mngr_default_dockerfile_path()
     assert dockerfile_path.exists(), f"Default Dockerfile not found at {dockerfile_path}"
