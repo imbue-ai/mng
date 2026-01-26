@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
@@ -588,11 +587,10 @@ def create(ctx: click.Context, **kwargs) -> None:
             _handle_editor_message(
                 editor_session=editor_session,
                 agent=create_result.agent,
-                message_delay=opts.message_delay,
             )
     finally:
         # Clean up editor session on success or failure
-        if editor_session is not None and not editor_session._is_finished:
+        if editor_session is not None and not editor_session.is_finished():
             editor_session.cleanup()
 
     # If --await-agent-stopped is set, wait for the agent to finish running
@@ -610,12 +608,14 @@ def create(ctx: click.Context, **kwargs) -> None:
 def _handle_editor_message(
     editor_session: EditorSession,
     agent: AgentInterface,
-    message_delay: float,
 ) -> None:
     """Wait for the editor to finish and send the edited message to the agent.
 
     If the editor exits with a non-zero code, is cancelled, or the content is empty,
     no message is sent and a warning is logged.
+
+    Note: No message delay is applied here because by the time the user finishes
+    editing, the agent has been running in parallel and is already ready.
     """
     try:
         logger.debug("Waiting for editor to finish...")
@@ -624,11 +624,6 @@ def _handle_editor_message(
         if edited_message is None:
             logger.warning("No message to send (editor was closed without saving or content is empty)")
             return
-
-        # Apply message delay before sending
-        if message_delay > 0:
-            logger.debug("Waiting {} seconds before sending message", message_delay)
-            time.sleep(message_delay)
 
         logger.info("Sending edited message...")
         agent.send_message(edited_message)

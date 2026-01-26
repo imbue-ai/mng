@@ -125,6 +125,10 @@ class EditorSession:
         # Poll to check if process has finished
         return self._process.poll() is None
 
+    def is_finished(self) -> bool:
+        """Check if the editor session has finished (successfully or not)."""
+        return self._is_finished
+
     def wait_for_result(self, timeout_seconds: float | None = None) -> str | None:
         """Wait for the editor to finish and return the edited content.
 
