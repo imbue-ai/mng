@@ -13,6 +13,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
 
+# FIXME: this is stupid--replace with a context manager instead. Do we already have one? Is there a built-in pytest fixture for this?
 def restore_env_var(name: str, original_value: str | None) -> None:
     """Restore an environment variable to its original value.
 
