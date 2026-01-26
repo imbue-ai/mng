@@ -22,7 +22,7 @@ from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 
 MODAL_BACKEND_NAME = ProviderBackendName("modal")
 USER_ID_FILENAME = "user_id"
-STATE_VOLUME_SUFFIX = "-st"
+STATE_VOLUME_SUFFIX = "-state"
 MODAL_NAME_MAX_LENGTH = 64
 
 
