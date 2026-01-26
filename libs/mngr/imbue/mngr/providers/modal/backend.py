@@ -273,10 +273,12 @@ Supported build arguments for the modal provider:
         user_id = _get_or_create_user_id(mngr_ctx)
         default_app_name = f"{prefix}{user_id}-{name}"
 
+        # FIXME: we can just assert isinstance here since it should be impossible to get a different type
         # Extract typed config values
         if isinstance(config, ModalProviderConfig):
             app_name = config.app_name if config.app_name is not None else default_app_name
             host_dir = config.host_dir if config.host_dir is not None else Path("/mngr")
+            # FIXME: this typed config should be passed through, rather than extracting individual fields and then passing those through (ie, remove the individual fields on the instance and replace with the config object)
             default_timeout = config.default_timeout
             default_cpu = config.default_cpu
             default_memory = config.default_memory
@@ -316,8 +318,6 @@ Supported build arguments for the modal provider:
 
 
 @hookimpl
-def register_provider_backend() -> (
-    tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]
-):
+def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]:
     """Register the Modal provider backend."""
     return (ModalProviderBackend, ModalProviderConfig)

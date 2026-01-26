@@ -49,6 +49,7 @@ class LocalProviderBackend(ProviderBackendInterface):
     ) -> ProviderInstanceInterface:
         """Build a local provider instance."""
         # Get host_dir from typed config, falling back to default
+        # FIXME: we can just assert isinstance here since it should be impossible to get a different type
         if isinstance(config, LocalProviderConfig) and config.host_dir is not None:
             host_dir = config.host_dir
         else:
@@ -63,8 +64,6 @@ class LocalProviderBackend(ProviderBackendInterface):
 
 
 @hookimpl
-def register_provider_backend() -> (
-    tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]
-):
+def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]:
     """Register the local provider backend."""
     return (LocalProviderBackend, LocalProviderConfig)

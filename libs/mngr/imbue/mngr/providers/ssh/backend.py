@@ -80,6 +80,7 @@ Example configuration in mngr.toml:
         mngr_ctx: MngrContext,
     ) -> ProviderInstanceInterface:
         """Build an SSH provider instance."""
+        # FIXME: we can just assert isinstance here since it should be impossible to get a different type
         # Extract typed config values
         if isinstance(config, SSHProviderConfig):
             host_dir = config.host_dir
@@ -110,8 +111,6 @@ Example configuration in mngr.toml:
 
 
 @hookimpl
-def register_provider_backend() -> (
-    tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]
-):
+def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]:
     """Register the SSH provider backend."""
     return (SSHProviderBackend, SSHProviderConfig)

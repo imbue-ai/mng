@@ -39,6 +39,7 @@ def reset_backend_registry() -> None:
     _registry_state["backends_loaded"] = False
 
 
+# FIXME: consolidate with the below function, the code is mostly duplicated
 def load_local_backend_only(pm) -> None:
     """Load only the local and SSH provider backends.
 
@@ -59,6 +60,7 @@ def load_local_backend_only(pm) -> None:
             _backend_registry[backend_name] = backend_class
             _config_registry[backend_name] = config_class
 
+    # FIXME: make a placeholder docker backend for now that just raises NotImplementedError for everything
     # Register docker config (no backend implementation yet)
     _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
 
@@ -111,9 +113,7 @@ def get_config_class(name: str | ProviderBackendName) -> type[ProviderInstanceCo
     key = ProviderBackendName(name) if isinstance(name, str) else name
     if key not in _config_registry:
         registered = ", ".join(sorted(str(k) for k in _config_registry.keys()))
-        raise UnknownBackendError(
-            f"Unknown provider backend: {key}. Registered backends: {registered or '(none)'}"
-        )
+        raise UnknownBackendError(f"Unknown provider backend: {key}. Registered backends: {registered or '(none)'}")
     return _config_registry[key]
 
 
