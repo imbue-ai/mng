@@ -83,7 +83,7 @@ def test_mngr_create_echo_command_on_modal(temp_source_dir: Path) -> None:
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
-    assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
+    assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
 
 
 @pytest.mark.acceptance
@@ -171,7 +171,7 @@ def test_mngr_create_with_build_args_on_modal(temp_source_dir: Path) -> None:
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
-    assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
+    assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
 
 
 @pytest.mark.acceptance
@@ -232,7 +232,7 @@ RUN echo "custom-dockerfile-marker" > /dockerfile-marker.txt
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
-    assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
+    assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
 
 
 @pytest.mark.acceptance
@@ -374,7 +374,7 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(temp_git_source_dir
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
-    assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
+    assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
 
 
 @pytest.mark.acceptance
@@ -414,7 +414,7 @@ def test_mngr_create_transfers_git_repo_with_new_branch(temp_git_source_dir: Pat
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
-    assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
+    assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
 
 
 def _get_mngr_default_dockerfile_path() -> Path:
@@ -491,4 +491,4 @@ def test_mngr_create_with_default_dockerfile_on_modal(temp_source_dir: Path) -> 
         )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
-    assert "Created agent:" in result.stdout, f"Expected 'Created agent:' in output: {result.stdout}"
+    assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
