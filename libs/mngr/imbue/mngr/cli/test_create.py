@@ -47,7 +47,7 @@ def test_cli_create_with_echo_command(
         )
 
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        assert "Created agent:" in result.output
+        assert "Done." in result.output
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
         agents_dir = temp_host_dir / "agents"
@@ -582,9 +582,9 @@ def test_await_agent_stopped_waits_for_agent_to_exit(
         )
 
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        assert "Created agent:" in result.output
         # The key assertion: we waited for the agent to stop
-        assert "has stopped" in result.output
+        assert "Waiting for agent to stop..." in result.output
+        assert "Done." in result.output
 
         # wait for the tmux session to be gone
         wait_for(
