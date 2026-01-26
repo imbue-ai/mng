@@ -18,6 +18,7 @@ from pyinfra.api.command import StringCommand
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.hosts.host import Host
@@ -263,19 +264,31 @@ def test_record_boot_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
     assert activity_time is not None
 
 
-def test_record_create_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test recording create activity."""
+def test_record_create_activity_on_host_raises(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that recording CREATE activity on host raises error.
+
+    CREATE activity should only be recorded on agents, not hosts.
+    """
     host, _ = host_with_temp_dir
-    host.record_activity(ActivitySource.CREATE)
-    activity_time = host.get_reported_activity_time(ActivitySource.CREATE)
-    assert activity_time is not None
+    with pytest.raises(InvalidActivityTypeError):
+        host.record_activity(ActivitySource.CREATE)
 
 
 def test_invalid_activity_type_raises(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test that recording invalid activity type raises."""
+    """Test that recording invalid activity types on host raises error.
+
+    Only BOOT activity is valid for host-level recording.
+    """
     host, _ = host_with_temp_dir
-    with pytest.raises(ValueError):
+    # USER activity is invalid
+    with pytest.raises(InvalidActivityTypeError):
         host.record_activity(ActivitySource.USER)
+    # CREATE activity is also invalid for hosts
+    with pytest.raises(InvalidActivityTypeError):
+        host.record_activity(ActivitySource.CREATE)
+    # START activity is also invalid for hosts
+    with pytest.raises(InvalidActivityTypeError):
+        host.record_activity(ActivitySource.START)
 
 
 def test_get_activity_content(host_with_temp_dir: tuple[Host, Path]) -> None:
@@ -457,17 +470,22 @@ def test_get_uptime(host_with_temp_dir: tuple[Host, Path]) -> None:
 # =============================================================================
 
 
-def test_get_idle_seconds_no_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test idle seconds when no activity recorded."""
+def test_get_idle_seconds_with_boot_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test idle seconds includes BOOT activity recorded at host creation.
+
+    Since hosts now automatically record BOOT activity when created,
+    idle seconds should not be infinity.
+    """
     host, _ = host_with_temp_dir
     idle = host.get_idle_seconds()
-    assert idle == float("inf")
+    # BOOT activity is recorded at host creation, so idle should be finite
+    assert 0 <= idle < 10
 
 
-def test_get_idle_seconds_with_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test idle seconds after recording activity."""
+def test_get_idle_seconds_after_boot_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test idle seconds after recording BOOT activity."""
     host, _ = host_with_temp_dir
-    host.record_activity(ActivitySource.CREATE)
+    host.record_activity(ActivitySource.BOOT)
     idle = host.get_idle_seconds()
     assert 0 <= idle < 10
 
