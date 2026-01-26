@@ -72,12 +72,7 @@ class _ModalLoguruWriter:
         stripped = text.strip()
         if stripped == "":
             return len(text)
-        extra = {
-            "source": "modal",
-            "app_id": self.app_id,
-            "app_name": self.app_name,
-        }
-        logger.bind(**extra).debug("{}", stripped)
+        logger.debug("{}", stripped, source="modal", app_id=self.app_id, app_name=self.app_name)
         return len(text)
 
     def flush(self) -> None:

@@ -700,7 +700,7 @@ class Host(HostInterface):
     ) -> Path:
         """Create the work_dir directory for a new agent."""
         copy_mode = options.git.copy_mode if options.git else WorkDirCopyMode.COPY
-        logger.debug("Creating agent work directory with copy_mode={}", copy_mode)
+        logger.debug("Creating agent work directory", copy_mode=str(copy_mode))
         if copy_mode == WorkDirCopyMode.WORKTREE:
             return self._create_work_dir_as_git_worktree(host, path, options)
         elif copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE):
@@ -784,8 +784,6 @@ class Host(HostInterface):
         options: CreateAgentOptions,
     ) -> None:
         """Transfer a git repository from source to target."""
-        logger.debug("Transferring git repository from {} to {}", source_path, target_path)
-
         new_branch_name = self._determine_branch_name(options)
         if options.git and options.git.base_branch:
             base_branch_name = options.git.base_branch
@@ -798,7 +796,13 @@ class Host(HostInterface):
             )
             base_branch_name = result.stdout.strip() if result.success else "main"
 
-        logger.debug("Git transfer: base_branch={}, new_branch={}", base_branch_name, new_branch_name)
+        logger.debug(
+            "Transferring git repository",
+            source=str(source_path),
+            target=str(target_path),
+            base_branch=base_branch_name,
+            new_branch=new_branch_name,
+        )
 
         # Check if target already has a .git directory
         if self.is_local:
@@ -965,7 +969,7 @@ class Host(HostInterface):
             logger.debug("No extra files to transfer")
             return
 
-        logger.debug("Transferring {} extra files", len(files_to_include))
+        logger.debug("Transferring extra files", count=len(files_to_include))
 
         # Write files to a temp file to avoid command line length limits
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
@@ -1057,7 +1061,7 @@ class Host(HostInterface):
 
         branch_name = self._determine_branch_name(options)
 
-        logger.debug("Creating git worktree at {} with branch {}", work_dir_path, branch_name)
+        logger.debug("Creating git worktree", path=str(work_dir_path), branch=branch_name)
         cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
 
         if options.git and options.git.base_branch:
@@ -1092,7 +1096,12 @@ class Host(HostInterface):
         agent_id = AgentId.generate()
         agent_name = options.name or AgentName(f"agent-{str(agent_id)}")
         agent_type = options.agent_type or AgentTypeName("claude")
-        logger.debug("Creating agent state: id={} name={} type={}", agent_id, agent_name, agent_type)
+        logger.debug(
+            "Creating agent state",
+            agent_id=str(agent_id),
+            agent_name=str(agent_name),
+            agent_type=str(agent_type),
+        )
 
         agent_class = get_agent_class(str(agent_type))
         config_class = get_agent_config_class(str(agent_type))
@@ -1203,7 +1212,7 @@ class Host(HostInterface):
         env_path = self._get_agent_env_path(agent)
         content = _format_env_file(env_vars)
         self.write_text_file(env_path, content)
-        logger.debug("Wrote {} env vars to {}", len(env_vars), env_path)
+        logger.debug("Wrote env vars", count=len(env_vars), path=str(env_path))
 
     def _build_source_env_commands(self, agent: AgentInterface) -> list[str]:
         """Build shell commands that source host and agent env files.
@@ -1270,14 +1279,14 @@ class Host(HostInterface):
 
         provisioning = options.provisioning
         logger.debug(
-            "Provisioning agent {} with user commands: {} dirs, {} uploads, {} appends, {} prepends, {} sudo cmds, {} user cmds",
-            agent.name,
-            len(provisioning.create_directories),
-            len(provisioning.upload_files),
-            len(provisioning.append_to_files),
-            len(provisioning.prepend_to_files),
-            len(provisioning.sudo_commands),
-            len(provisioning.user_commands),
+            "Applying user provisioning commands",
+            agent_name=str(agent.name),
+            dirs=len(provisioning.create_directories),
+            uploads=len(provisioning.upload_files),
+            appends=len(provisioning.append_to_files),
+            prepends=len(provisioning.prepend_to_files),
+            sudo_cmds=len(provisioning.sudo_commands),
+            user_cmds=len(provisioning.user_commands),
         )
 
         # 5. Create directories
@@ -1393,7 +1402,7 @@ class Host(HostInterface):
 
     def destroy_agent(self, agent: AgentInterface) -> None:
         """Destroy an agent and clean up its resources."""
-        logger.debug("Destroying agent id={} name={}", agent.id, agent.name)
+        logger.debug("Destroying agent", agent_id=str(agent.id), agent_name=str(agent.name))
         self.stop_agents([agent.id])
         state_dir = self.host_dir / "agents" / str(agent.id)
         self._remove_directory(state_dir)
