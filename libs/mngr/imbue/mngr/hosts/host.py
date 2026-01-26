@@ -263,22 +263,28 @@ class Host(HostInterface):
 
     def write_file(self, path: Path, content: bytes, mode: str | None = None) -> None:
         """Write bytes content to a file, creating parent directories as needed."""
-        parent_dir = str(path.parent)
-        # FIXME: we should only bother trying to create the parent dir if we try to write and fail--otherwise this is needlessly slow
-        result = self.execute_command(f"mkdir -p '{parent_dir}'")
-        if not result.success:
-            raise MngrError(
-                f"Failed to create parent directory '{parent_dir}' on host {self.id} because: {result.stderr}"
-            )
-        # this shortcut reduces the number of file descriptors opened on local hosts and speeds things up considerably
+        # Try to write first, only create parent directory if the write fails.
+        # This avoids an extra subprocess call for mkdir -p on every write.
         if self.is_local:
-            path.write_bytes(content)
+            try:
+                path.write_bytes(content)
+            except FileNotFoundError:
+                # Parent directory doesn't exist, create it and retry
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
         else:
             is_success = self._put_file(io.BytesIO(content), str(path))
             if not is_success:
-                raise MngrError(f"Failed to write file '{str(path)}' on host {self.id}'")
-            else:
-                pass
+                # May have failed because parent directory doesn't exist, create it and retry
+                parent_dir = str(path.parent)
+                result = self.execute_command(f"mkdir -p '{parent_dir}'")
+                if not result.success:
+                    raise MngrError(
+                        f"Failed to create parent directory '{parent_dir}' on host {self.id} because: {result.stderr}"
+                    )
+                is_success = self._put_file(io.BytesIO(content), str(path))
+                if not is_success:
+                    raise MngrError(f"Failed to write file '{str(path)}' on host {self.id}'")
         if mode is not None:
             self.execute_command(f"chmod {mode} '{str(path)}'")
 
