@@ -19,7 +19,6 @@ from unittest.mock import patch
 import modal.exception
 import pytest
 
-from imbue.mngr.conftest import register_modal_test_app
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
@@ -210,8 +209,6 @@ def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProvid
 def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProviderInstance:
     """Create a ModalProviderInstance with real Modal for acceptance tests."""
     app_name = f"mngr-test-{mngr_test_id}"
-    # Register the app name for cleanup verification
-    register_modal_test_app(app_name)
     return make_modal_provider_real(temp_mngr_ctx, app_name)
 
 

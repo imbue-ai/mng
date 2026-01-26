@@ -288,60 +288,51 @@ def _is_alive_non_zombie(proc: psutil.Process) -> bool:
         return False
 
 
-# Track Modal app names that were used during tests for cleanup verification.
-# This is separate from _worker_test_ids because not all tests use Modal.
-_worker_modal_app_names: list[str] = []
+# Track Modal sandbox IDs that were created during tests for cleanup verification.
+# This enables detection of leaked sandboxes that weren't properly cleaned up.
+_worker_modal_sandbox_ids: list[str] = []
 
 
-def register_modal_test_app(app_name: str) -> None:
-    """Register a Modal app name for cleanup verification.
+def register_modal_test_sandbox(sandbox_id: str) -> None:
+    """Register a Modal sandbox ID for cleanup verification.
 
-    Call this when creating a Modal app during tests to enable leak detection.
+    Call this when creating a Modal sandbox during tests to enable leak detection.
+    The sandbox ID can be obtained from sandbox.object_id after creation.
     """
-    if app_name not in _worker_modal_app_names:
-        _worker_modal_app_names.append(app_name)
+    if sandbox_id not in _worker_modal_sandbox_ids:
+        _worker_modal_sandbox_ids.append(sandbox_id)
 
 
-def _get_modal_sandboxes_for_test_apps() -> list[tuple[str, str]]:
-    """Get Modal sandboxes belonging to test apps.
+def unregister_modal_test_sandbox(sandbox_id: str) -> None:
+    """Unregister a Modal sandbox ID after it's been properly cleaned up.
 
-    Returns a list of (app_name, sandbox_id) tuples for sandboxes that belong
-    to apps registered via register_modal_test_app().
-
-    This function is defensive and will return an empty list if Modal credentials
-    are not available or if there are any errors accessing Modal.
+    Call this when a test properly destroys a Modal sandbox to prevent false
+    positive leak detection.
     """
-    # Skip if no Modal apps were registered
-    if not _worker_modal_app_names:
-        return []
-
-    sandboxes: list[tuple[str, str]] = []
-
-    for app_name in _worker_modal_app_names:
-        try:
-            # Try to get the app by name
-            app = modal.App(app_name)
-            with app.run():
-                # List sandboxes for this app
-                for sandbox in modal.Sandbox.list(app_id=app.app_id):
-                    sandboxes.append((app_name, sandbox.object_id))
-        except modal.exception.AuthError:
-            # Modal credentials not available, skip all cleanup
-            return []
-        except (modal.exception.Error, Exception):
-            # App doesn't exist or other error, continue to next
-            continue
-
-    return sandboxes
+    if sandbox_id in _worker_modal_sandbox_ids:
+        _worker_modal_sandbox_ids.remove(sandbox_id)
 
 
-def _terminate_modal_sandboxes(sandboxes: list[tuple[str, str]]) -> None:
+def _get_leaked_modal_sandboxes() -> list[str]:
+    """Get Modal sandbox IDs that were registered but not unregistered.
+
+    Returns sandbox IDs that were created during tests but not properly cleaned up.
+    This function does not make any Modal API calls - it simply returns the list
+    of sandbox IDs that were registered but not unregistered.
+    """
+    return list(_worker_modal_sandbox_ids)
+
+
+def _terminate_modal_sandboxes(sandbox_ids: list[str]) -> None:
     """Terminate the specified Modal sandboxes.
 
     This function is defensive and will silently skip any sandboxes that cannot
     be terminated.
     """
-    for _app_name, sandbox_id in sandboxes:
+    if not sandbox_ids:
+        return
+
+    for sandbox_id in sandbox_ids:
         try:
             sandbox = modal.Sandbox.from_id(sandbox_id)
             sandbox.terminate()
@@ -411,10 +402,10 @@ def session_cleanup() -> Generator[None, None, None]:
         )
 
     # 3. Check for leftover Modal sandboxes from this worker's tests
-    leftover_sandboxes = _get_modal_sandboxes_for_test_apps()
+    leftover_sandboxes = _get_leaked_modal_sandboxes()
 
     if leftover_sandboxes:
-        sandbox_info = [f"  {app_name}: {sandbox_id}" for app_name, sandbox_id in leftover_sandboxes]
+        sandbox_info = [f"  {s}" for s in leftover_sandboxes]
         errors.append(
             "Leftover Modal sandboxes found!\n"
             "Tests should destroy their Modal hosts before completing.\n" + "\n".join(sandbox_info)

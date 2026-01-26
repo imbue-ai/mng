@@ -39,5 +39,10 @@ class ModalProviderConfig(ProviderInstanceConfig):
     )
     is_persistent: bool = Field(
         default=True,
-        description="Whether the Modal app should persist. Set to False for testing to enable cleanup.",
+        description=(
+            "Configuration marker for Modal app persistence. When True (default), indicates "
+            "the app is intended for production use. When False (set in tests), indicates "
+            "the app is for testing and should be cleaned up. This field enables tests to "
+            "signal their intent for easier identification and cleanup of test resources."
+        ),
     )
