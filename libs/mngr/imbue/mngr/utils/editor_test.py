@@ -89,7 +89,8 @@ class TestEditorSession:
         try:
             with patch("subprocess.Popen") as mock_popen:
                 mock_process = MagicMock()
-                mock_process.poll.return_value = None  # Process still running
+                # Process still running (poll returns None)
+                mock_process.poll.return_value = None
                 mock_popen.return_value = mock_process
 
                 session.start()
@@ -116,7 +117,8 @@ class TestEditorSession:
 
             with patch("subprocess.Popen") as mock_popen:
                 mock_process = MagicMock()
-                mock_process.wait.return_value = 0  # Exit code 0
+                # Exit code 0 indicates success
+                mock_process.wait.return_value = 0
                 mock_popen.return_value = mock_process
 
                 session.start()
@@ -132,7 +134,8 @@ class TestEditorSession:
         try:
             with patch("subprocess.Popen") as mock_popen:
                 mock_process = MagicMock()
-                mock_process.wait.return_value = 1  # Non-zero exit code
+                # Non-zero exit code indicates failure
+                mock_process.wait.return_value = 1
                 mock_popen.return_value = mock_process
 
                 session.start()
@@ -193,7 +196,8 @@ class TestEditorSession:
         try:
             with patch("subprocess.Popen") as mock_popen:
                 mock_process = MagicMock()
-                mock_process.poll.return_value = None  # Process still running
+                # Process still running (poll returns None)
+                mock_process.poll.return_value = None
                 mock_process.wait.return_value = 0
                 mock_popen.return_value = mock_process
 
@@ -212,7 +216,8 @@ class TestEditorSession:
         try:
             with patch("subprocess.Popen") as mock_popen:
                 mock_process = MagicMock()
-                mock_process.poll.return_value = None  # Process still running
+                # Process still running (poll returns None)
+                mock_process.poll.return_value = None
                 # First wait (after terminate) times out
                 mock_process.wait.side_effect = [subprocess.TimeoutExpired("cmd", 1), 0]
                 mock_popen.return_value = mock_process

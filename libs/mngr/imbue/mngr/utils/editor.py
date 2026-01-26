@@ -52,18 +52,17 @@ class EditorSession:
     The editor runs in a subprocess while allowing other work to continue.
     The result is retrieved when wait_for_result() is called.
 
-    This is a plain class rather than a Pydantic model because we need to store
-    a subprocess.Popen object which is not serializable.
+    Use the create() factory method to instantiate.
     """
 
-    def __init__(self, temp_file_path: Path, editor_command: str) -> None:
-        self.temp_file_path: Path = temp_file_path
-        self.editor_command: str = editor_command
-        self._process: subprocess.Popen[Any] | None = None
-        self._is_started: bool = False
-        self._is_finished: bool = False
-        self._result_content: str | None = None
-        self._exit_code: int | None = None
+    # Class attributes with type hints (not instance attributes)
+    temp_file_path: Path
+    editor_command: str
+    _process: subprocess.Popen[Any] | None
+    _is_started: bool
+    _is_finished: bool
+    _result_content: str | None
+    _exit_code: int | None
 
     @classmethod
     def create(cls, initial_content: str | None = None) -> "EditorSession":
@@ -84,10 +83,16 @@ class EditorSession:
         editor_command = get_editor_command()
         logger.debug("Using editor: {}", editor_command)
 
-        return cls(
-            temp_file_path=temp_file_path,
-            editor_command=editor_command,
-        )
+        # Create instance using object.__new__ and set attributes directly
+        instance = object.__new__(cls)
+        instance.temp_file_path = temp_file_path
+        instance.editor_command = editor_command
+        instance._process = None
+        instance._is_started = False
+        instance._is_finished = False
+        instance._result_content = None
+        instance._exit_code = None
+        return instance
 
     def start(self) -> None:
         """Start the editor subprocess.
@@ -101,12 +106,12 @@ class EditorSession:
         logger.debug("Starting editor {} with file {}", self.editor_command, self.temp_file_path)
 
         # Start the editor process
-        # The editor inherits the terminal (stdin/stdout/stderr)
+        # The editor inherits the terminal (stdin/stdout/stderr) from parent
         self._process = subprocess.Popen(
             [self.editor_command, str(self.temp_file_path)],
-            stdin=None,  # Inherit from parent
-            stdout=None,  # Inherit from parent
-            stderr=None,  # Inherit from parent
+            stdin=None,
+            stdout=None,
+            stderr=None,
         )
         self._is_started = True
         logger.trace("Editor process started with PID {}", self._process.pid)
