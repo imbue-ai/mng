@@ -179,8 +179,8 @@ def _format_arg_value(value: Any) -> str:
 def log_call(func: Callable[P, R]) -> Callable[P, R]:
     """Decorator that logs function calls with inputs and outputs at debug level.
 
-    Logs the function name, all arguments (with values truncated if too long),
-    and the return value. Useful for API entry points to trace execution.
+    Logs the function name and binds arguments as structured logging fields.
+    Useful for API entry points to trace execution.
     """
     # Get the function name once at decoration time
     func_name = getattr(func, "__name__", repr(func))
@@ -192,15 +192,13 @@ def log_call(func: Callable[P, R]) -> Callable[P, R]:
         bound_args = sig.bind(*args, **kwargs)
         bound_args.apply_defaults()
 
-        # Format arguments for logging
-        arg_strs = [f"{name}={_format_arg_value(value)}" for name, value in bound_args.arguments.items()]
-        args_str = ", ".join(arg_strs)
-
-        logger.debug("Calling {}({})", func_name, args_str)
+        # Build structured logging fields from arguments
+        log_fields = {name: _format_arg_value(value) for name, value in bound_args.arguments.items()}
+        logger.bind(**log_fields).debug("Calling {}", func_name)
 
         result = func(*args, **kwargs)
 
-        logger.debug("{} returned {}", func_name, _format_arg_value(result))
+        logger.bind(result=_format_arg_value(result)).debug("{} returned", func_name)
 
         return result
 

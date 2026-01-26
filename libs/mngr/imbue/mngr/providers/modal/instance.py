@@ -421,7 +421,7 @@ class ModalProviderInstance(BaseProviderInstance):
         # Check for required packages and install if missing
         self._check_and_install_packages(sandbox)
 
-        logger.debug("Configuring SSH keys in sandbox for user={}", ssh_user)
+        logger.bind(ssh_user=ssh_user).debug("Configuring SSH keys in sandbox")
 
         # Build and execute the SSH configuration command
         configure_ssh_cmd = build_configure_ssh_command(
@@ -517,10 +517,10 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Get SSH connection info
         ssh_host, ssh_port = self._get_ssh_info_from_sandbox(sandbox)
-        logger.debug("SSH endpoint: {}:{}", ssh_host, ssh_port)
+        logger.bind(ssh_host=ssh_host, ssh_port=ssh_port).debug("SSH endpoint available")
 
         # Add the host to our known_hosts file before waiting for sshd
-        logger.debug("Adding host to known_hosts: {}:{}", ssh_host, ssh_port)
+        logger.bind(ssh_host=ssh_host, ssh_port=ssh_port).debug("Adding host to known_hosts")
         add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
 
         # Wait for sshd to be ready
@@ -753,7 +753,6 @@ class ModalProviderInstance(BaseProviderInstance):
         host_id = HostId.generate()
 
         logger.info("Creating host {} in {} ...", name, self.name)
-        logger.debug("Creating host: name={} id={} provider=modal", name, host_id)
 
         # Parse build arguments (including --dockerfile if specified)
         config = self._parse_build_args(build_args)
@@ -766,16 +765,11 @@ class ModalProviderInstance(BaseProviderInstance):
         modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
 
         # Get or create the Modal app (uses singleton pattern with context manager)
-        logger.debug("Getting Modal app: {}", self.app_name)
+        logger.bind(app_name=self.app_name).debug("Getting Modal app")
         app = self._get_modal_app()
 
         # Create the sandbox
-        logger.debug(
-            "Creating Modal sandbox with timeout={}s, cpu={}, memory={}GB",
-            config.timeout,
-            config.cpu,
-            config.memory,
-        )
+        logger.bind(timeout=config.timeout, cpu=config.cpu, memory_gb=config.memory).debug("Creating Modal sandbox")
 
         # Memory is in GB but Modal expects MB
         memory_mb = int(config.memory * 1024)
@@ -792,7 +786,7 @@ class ModalProviderInstance(BaseProviderInstance):
             )
         except modal.exception.RemoteError as e:
             raise MngrError(f"Failed to create Modal sandbox: {e}\n{self.get_captured_output()}") from None
-        logger.debug("Created Modal sandbox: id={}", sandbox.object_id)
+        logger.bind(sandbox_id=sandbox.object_id).debug("Created Modal sandbox")
 
         # Set up SSH and create host object using shared helper
         host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
@@ -813,10 +807,9 @@ class ModalProviderInstance(BaseProviderInstance):
             user_tags=dict(tags) if tags else {},
             snapshots=[],
         )
-        logger.debug("Writing host record to volume for host_id={}", host_id)
+        logger.bind(host_id=str(host_id)).debug("Writing host record to volume")
         self._write_host_record(host_record)
 
-        logger.debug("Modal host created: id={}, name={}, ssh={}:{}", host_id, name, ssh_host, ssh_port)
         return host
 
     @handle_modal_auth_error
@@ -841,7 +834,7 @@ class ModalProviderInstance(BaseProviderInstance):
             except modal.exception.Error as e:
                 logger.warning("Error terminating sandbox: {}", e)
         else:
-            logger.debug("No sandbox found with host_id={}, may already be terminated", host_id)
+            logger.bind(host_id=str(host_id)).debug("No sandbox found, may already be terminated")
 
     @handle_modal_auth_error
     def start_host(
@@ -897,7 +890,7 @@ class ModalProviderInstance(BaseProviderInstance):
         if not modal_image_id:
             raise MngrError(f"Snapshot {snapshot_id} does not contain a Modal image ID for restoration.")
 
-        logger.info("Restoring Modal sandbox from snapshot: host_id={}, snapshot_id={}", host_id, snapshot_id)
+        logger.bind(host_id=str(host_id), snapshot_id=str(snapshot_id)).info("Restoring Modal sandbox from snapshot")
 
         # Use configuration from host record
         config = host_record.config
@@ -905,7 +898,7 @@ class ModalProviderInstance(BaseProviderInstance):
         user_tags = host_record.user_tags
 
         # Create the image reference from the snapshot
-        logger.debug("Creating sandbox from snapshot image: {}", modal_image_id)
+        logger.bind(image_id=modal_image_id).debug("Creating sandbox from snapshot image")
         # Cast needed because modal.Image.from_id returns Self which the type checker can't resolve
         modal_image = cast(modal.Image, modal.Image.from_id(modal_image_id))
 
@@ -935,7 +928,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 unencrypted_ports=[CONTAINER_SSH_PORT],
                 region=config.region,
             )
-        logger.info("Created sandbox from snapshot: {}", new_sandbox.object_id)
+        logger.bind(sandbox_id=new_sandbox.object_id).info("Created sandbox from snapshot")
 
         # Set up SSH and create host object using shared helper
         restored_host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
@@ -955,7 +948,7 @@ class ModalProviderInstance(BaseProviderInstance):
         )
         self._write_host_record(updated_host_record)
 
-        logger.info("Restored Modal host from snapshot: id={}, name={}", host_id, host_name)
+        logger.bind(host_id=str(host_id), host_name=str(host_name)).info("Restored Modal host from snapshot")
         return restored_host
 
     @handle_modal_auth_error
@@ -1060,7 +1053,7 @@ class ModalProviderInstance(BaseProviderInstance):
         sandbox termination and sharing between mngr instances.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
-        logger.debug("Creating snapshot for Modal sandbox: host_id={}", host_id)
+        logger.bind(host_id=str(host_id)).debug("Creating snapshot for Modal sandbox")
 
         sandbox = self._find_sandbox_by_host_id(host_id)
         if sandbox is None:
@@ -1151,7 +1144,7 @@ class ModalProviderInstance(BaseProviderInstance):
         by Modal when no longer referenced.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
-        logger.debug("Deleting snapshot {} from Modal sandbox: host_id={}", snapshot_id, host_id)
+        logger.bind(snapshot_id=str(snapshot_id), host_id=str(host_id)).debug("Deleting snapshot from Modal sandbox")
 
         # Read host record from volume
         host_record = self._read_host_record(host_id)
@@ -1169,7 +1162,7 @@ class ModalProviderInstance(BaseProviderInstance):
         updated_host_record = host_record.model_copy(update={"snapshots": updated_snapshots})
         self._write_host_record(updated_host_record)
 
-        logger.info("Deleted snapshot: {}", snapshot_id)
+        logger.bind(snapshot_id=str(snapshot_id)).info("Deleted snapshot")
 
     # =========================================================================
     # Volume Methods (not supported)
@@ -1400,7 +1393,7 @@ def _build_modal_secrets_from_env(
             "Set these environment variables before building."
         )
 
-    logger.debug("Creating Modal secrets from {} environment variable(s)", len(secret_dict))
+    logger.bind(count=len(secret_dict)).debug("Creating Modal secrets from environment variables")
     return [modal.Secret.from_dict(secret_dict)]
 
 
