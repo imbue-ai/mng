@@ -240,6 +240,18 @@ def test_send_message_to_replaced_agent_succeeds(
     # Start the agent
     host.start_agents([agent.id])
 
+    # Wait for the tmux session to exist before sending messages
+    session_name = f"{mngr_test_prefix}replaced-test"
+
+    def session_exists() -> bool:
+        result = host.execute_command(
+            f"tmux has-session -t '{session_name}'",
+            timeout_seconds=2.0,
+        )
+        return result.success
+
+    wait_for(session_exists, timeout=5.0, error_message=f"Tmux session '{session_name}' not found")
+
     # Mock the agent to return REPLACED state
     mock_agent = MagicMock()
     mock_agent.name = agent.name
@@ -264,8 +276,6 @@ def test_send_message_to_replaced_agent_succeeds(
 
     # Verify the message was actually sent by checking tmux pane content
     # Use wait_for since tmux may not have rendered the message immediately
-    session_name = f"{mngr_test_prefix}replaced-test"
-
     def message_in_pane() -> bool:
         capture_result = host.execute_command(
             f"tmux capture-pane -t '{session_name}' -p",
