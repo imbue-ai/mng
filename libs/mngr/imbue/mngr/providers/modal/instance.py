@@ -513,7 +513,6 @@ class ModalProviderInstance(BaseProviderInstance):
         host_private_key = host_key_path.read_text()
 
         # Start sshd with our host key
-        logger.debug("Starting sshd in sandbox...")
         self._start_sshd_in_sandbox(sandbox, client_public_key, host_private_key, host_public_key)
 
         # Get SSH connection info

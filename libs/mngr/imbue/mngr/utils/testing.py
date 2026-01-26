@@ -3,6 +3,7 @@ import subprocess
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from uuid import uuid4
 
 import pluggy
 
@@ -97,3 +98,7 @@ def make_mngr_ctx(default_host_dir: Path, prefix: str) -> MngrContext:
     config = MngrConfig(default_host_dir=default_host_dir, prefix=prefix)
     pm = pluggy.PluginManager("mngr")
     return MngrContext(config=config, pm=pm)
+
+
+def get_short_random_string() -> str:
+    return uuid4().hex[:8]

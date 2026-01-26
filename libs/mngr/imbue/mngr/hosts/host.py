@@ -263,21 +263,28 @@ class Host(HostInterface):
 
     def write_file(self, path: Path, content: bytes, mode: str | None = None) -> None:
         """Write bytes content to a file, creating parent directories as needed."""
-        parent_dir = str(path.parent)
-        result = self.execute_command(f"mkdir -p '{parent_dir}'")
-        if not result.success:
-            raise MngrError(
-                f"Failed to create parent directory '{parent_dir}' on host {self.id} because: {result.stderr}"
-            )
-        # this shortcut reduces the number of file descriptors opened on local hosts and speeds things up considerably
+        # Try to write first, only create parent directory if the write fails.
+        # This avoids an extra subprocess call for mkdir -p on every write.
         if self.is_local:
-            path.write_bytes(content)
+            try:
+                path.write_bytes(content)
+            except FileNotFoundError:
+                # Parent directory doesn't exist, create it and retry
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
         else:
             is_success = self._put_file(io.BytesIO(content), str(path))
             if not is_success:
-                raise MngrError(f"Failed to write file '{str(path)}' on host {self.id}'")
-            else:
-                pass
+                # May have failed because parent directory doesn't exist, create it and retry
+                parent_dir = str(path.parent)
+                result = self.execute_command(f"mkdir -p '{parent_dir}'")
+                if not result.success:
+                    raise MngrError(
+                        f"Failed to create parent directory '{parent_dir}' on host {self.id} because: {result.stderr}"
+                    )
+                is_success = self._put_file(io.BytesIO(content), str(path))
+                if not is_success:
+                    raise MngrError(f"Failed to write file '{str(path)}' on host {self.id}'")
         if mode is not None:
             self.execute_command(f"chmod {mode} '{str(path)}'")
 
@@ -333,6 +340,11 @@ class Host(HostInterface):
     def _mkdir(self, path: Path) -> None:
         """Create a directory on the host."""
         self.execute_command(f"mkdir -p '{str(path)}'")
+
+    def _mkdirs(self, paths: Sequence[Path]) -> None:
+        """Create multiple directories on the host."""
+        joined_dirs = " ".join(f"'{str(p)}'" for p in paths)
+        self.execute_command(f"mkdir -p {joined_dirs}")
 
     def _get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
         """Get SSH connection info for this host if it's remote.
@@ -796,13 +808,7 @@ class Host(HostInterface):
             target_has_git = result.success
 
         if target_has_git:
-            logger.debug("Target already has .git, checking out current branch")
-            result = self.execute_command(
-                f"git checkout $(git rev-parse --abbrev-ref HEAD) && git config --global --add safe.directory {target_path}",
-                cwd=target_path,
-            )
-            if not result.success:
-                logger.warning("Failed to checkout branch on target: {}", result.stderr)
+            logger.debug("Target already has .git")
         else:
             logger.debug("Initializing bare git repo on target")
             result = self.execute_command(
@@ -1084,7 +1090,7 @@ class Host(HostInterface):
     ) -> AgentInterface:
         """Create the agent state directory and return the agent."""
         agent_id = AgentId.generate()
-        agent_name = options.name or AgentName(f"agent-{str(agent_id)[:8]}")
+        agent_name = options.name or AgentName(f"agent-{str(agent_id)}")
         agent_type = options.agent_type or AgentTypeName("claude")
         logger.debug("Creating agent state: id={} name={} type={}", agent_id, agent_name, agent_type)
 
@@ -1096,7 +1102,7 @@ class Host(HostInterface):
             agent_config = config_class()
 
         state_dir = self.host_dir / "agents" / str(agent_id)
-        self._mkdir(state_dir)
+        self._mkdirs([state_dir, state_dir / "logs", state_dir / "events"])
 
         create_time = datetime.now(timezone.utc)
 
@@ -1136,9 +1142,6 @@ class Host(HostInterface):
 
         data_path = state_dir / "data.json"
         self.write_text_file(data_path, json.dumps(data, indent=2))
-
-        self._mkdir(state_dir / "logs")
-        self._mkdir(state_dir / "events")
 
         return agent
 
