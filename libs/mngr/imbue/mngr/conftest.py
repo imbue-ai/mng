@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Generator
 from uuid import uuid4
 
+import modal
+import modal.exception
 import pluggy
 import psutil
 import pytest
@@ -223,6 +225,10 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
 # Session Cleanup - Detect and clean up leaked test resources
 # =============================================================================
 
+# Prefix for Modal test apps - all test Modal apps should use this prefix
+# to enable easy identification and cleanup
+MODAL_TEST_APP_PREFIX = "mngr-test-"
+
 
 def _get_tmux_sessions_with_prefix(prefix: str) -> list[str]:
     """Get tmux sessions matching the given prefix."""
@@ -282,6 +288,68 @@ def _is_alive_non_zombie(proc: psutil.Process) -> bool:
         return False
 
 
+# Track Modal app names that were used during tests for cleanup verification.
+# This is separate from _worker_test_ids because not all tests use Modal.
+_worker_modal_app_names: list[str] = []
+
+
+def register_modal_test_app(app_name: str) -> None:
+    """Register a Modal app name for cleanup verification.
+
+    Call this when creating a Modal app during tests to enable leak detection.
+    """
+    if app_name not in _worker_modal_app_names:
+        _worker_modal_app_names.append(app_name)
+
+
+def _get_modal_sandboxes_for_test_apps() -> list[tuple[str, str]]:
+    """Get Modal sandboxes belonging to test apps.
+
+    Returns a list of (app_name, sandbox_id) tuples for sandboxes that belong
+    to apps registered via register_modal_test_app().
+
+    This function is defensive and will return an empty list if Modal credentials
+    are not available or if there are any errors accessing Modal.
+    """
+    # Skip if no Modal apps were registered
+    if not _worker_modal_app_names:
+        return []
+
+    sandboxes: list[tuple[str, str]] = []
+
+    for app_name in _worker_modal_app_names:
+        try:
+            # Try to get the app by name
+            app = modal.App(app_name)
+            with app.run():
+                # List sandboxes for this app
+                for sandbox in modal.Sandbox.list(app_id=app.app_id):
+                    sandboxes.append((app_name, sandbox.object_id))
+        except modal.exception.AuthError:
+            # Modal credentials not available, skip all cleanup
+            return []
+        except (modal.exception.Error, Exception):
+            # App doesn't exist or other error, continue to next
+            continue
+
+    return sandboxes
+
+
+def _terminate_modal_sandboxes(sandboxes: list[tuple[str, str]]) -> None:
+    """Terminate the specified Modal sandboxes.
+
+    This function is defensive and will silently skip any sandboxes that cannot
+    be terminated.
+    """
+    for _app_name, sandbox_id in sandboxes:
+        try:
+            sandbox = modal.Sandbox.from_id(sandbox_id)
+            sandbox.terminate()
+        except (modal.exception.Error, Exception):
+            # Sandbox may already be terminated or not found
+            pass
+
+
 @pytest.fixture(scope="session", autouse=True)
 def session_cleanup() -> Generator[None, None, None]:
     """Session-scoped fixture to detect and clean up leaked test resources.
@@ -290,6 +358,7 @@ def session_cleanup() -> Generator[None, None, None]:
     and checks for:
     1. Leftover child processes (excluding xdist workers on the leader)
     2. Leftover tmux sessions created by this worker's tests
+    3. Leftover Modal sandboxes created by this worker's tests
 
     If any leaked resources are found:
     - An error is raised to fail the test suite
@@ -341,7 +410,17 @@ def session_cleanup() -> Generator[None, None, None]:
             + "\n".join(f"  {s}" for s in leftover_sessions)
         )
 
-    # 3. Clean up leaked resources (last-ditch safety measure)
+    # 3. Check for leftover Modal sandboxes from this worker's tests
+    leftover_sandboxes = _get_modal_sandboxes_for_test_apps()
+
+    if leftover_sandboxes:
+        sandbox_info = [f"  {app_name}: {sandbox_id}" for app_name, sandbox_id in leftover_sandboxes]
+        errors.append(
+            "Leftover Modal sandboxes found!\n"
+            "Tests should destroy their Modal hosts before completing.\n" + "\n".join(sandbox_info)
+        )
+
+    # 4. Clean up leaked resources (last-ditch safety measure)
     for proc in leftover_processes:
         try:
             proc.kill()
@@ -349,8 +428,9 @@ def session_cleanup() -> Generator[None, None, None]:
             pass
 
     _kill_tmux_sessions(leftover_sessions)
+    _terminate_modal_sandboxes(leftover_sandboxes)
 
-    # 4. Fail the test suite if any issues were found
+    # 5. Fail the test suite if any issues were found
     if errors:
         raise AssertionError(
             "=" * 70 + "\n"

@@ -37,3 +37,7 @@ class ModalProviderConfig(ProviderInstanceConfig):
         default=1.0,
         description="Default memory in GB",
     )
+    is_persistent: bool = Field(
+        default=True,
+        description="Whether the Modal app should persist. Set to False for testing to enable cleanup.",
+    )

@@ -19,6 +19,7 @@ from unittest.mock import patch
 import modal.exception
 import pytest
 
+from imbue.mngr.conftest import register_modal_test_app
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
@@ -158,12 +159,14 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
     )
 
     # Create config for the provider instance
+    # Set is_persistent=False for testing to enable cleanup
     config = ModalProviderConfig(
         app_name=app_name,
         host_dir=Path("/mngr"),
         default_timeout=300,
         default_cpu=0.5,
         default_memory=0.5,
+        is_persistent=False,
     )
 
     # Create ModalProviderInstance using model_construct to skip validation
@@ -179,12 +182,14 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
 
 def make_modal_provider_real(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
     """Create a ModalProviderInstance with real Modal for acceptance tests."""
+    # Set is_persistent=False for testing to enable cleanup
     config = ModalProviderConfig(
         app_name=app_name,
         host_dir=Path("/mngr"),
         default_timeout=300,
         default_cpu=0.5,
         default_memory=0.5,
+        is_persistent=False,
     )
     instance = ModalProviderBackend.build_provider_instance(
         name=ProviderInstanceName("modal-test"),
@@ -204,7 +209,10 @@ def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProvid
 @pytest.fixture
 def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProviderInstance:
     """Create a ModalProviderInstance with real Modal for acceptance tests."""
-    return make_modal_provider_real(temp_mngr_ctx, f"mngr-test-{mngr_test_id}")
+    app_name = f"mngr-test-{mngr_test_id}"
+    # Register the app name for cleanup verification
+    register_modal_test_app(app_name)
+    return make_modal_provider_real(temp_mngr_ctx, app_name)
 
 
 # =============================================================================
