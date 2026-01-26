@@ -16,6 +16,7 @@ Command results are sent to stdout. Console logging is sent to stderr.
 
 Logs are automatically saved to `~/.mngr/logs/<timestamp>-<pid>.json` with rotation based on config settings.
 
+- `--log-file PATH`: Override the log file path (e.g., `/tmp/mngr.log`)
 - `--[no-]log-commands`: Log what commands were executed [default: from config]
 - `--[no-]log-command-output`: Log stdout/stderr from executed commands [default: from config]
 - `--[no-]log-env-vars`: Log environment variables (security risk, disabled by default)

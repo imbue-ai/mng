@@ -490,6 +490,10 @@ class OutputOptions(FrozenModel):
         default=LogLevel.NONE,
         description="Log level for outputting to stderr",
     )
+    log_file_path: Path | None = Field(
+        default=None,
+        description="Override path for log file (if None, uses default ~/.mngr/logs/<timestamp>-<pid>.json)",
+    )
     is_log_commands: bool = Field(
         default=True,
         description="Log what commands were executed",

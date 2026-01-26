@@ -48,8 +48,9 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     Sets up:
     - stdout logging for user-facing messages (clean format)
     - stderr logging for structured diagnostic messages (detailed format)
-    - File logging to ~/.mngr/logs/<timestamp>-<pid>.json
-    - Log rotation based on config
+    - File logging to custom path (if log_file_path provided) or
+      ~/.mngr/logs/<timestamp>-<pid>.json (default)
+    - Log rotation based on config (only for default log directory)
     """
     # Remove default handler
     logger.remove()
@@ -88,13 +89,19 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
         )
 
     # Set up file logging
-    log_dir = _resolve_log_dir(mngr_ctx.config)
-    log_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create log file path
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    pid = os.getpid()
-    log_file = log_dir / f"{timestamp}-{pid}.json"
+    # Use provided log file path if specified, otherwise use default directory
+    is_using_custom_log_path = output_opts.log_file_path is not None
+    if is_using_custom_log_path:
+        log_file = output_opts.log_file_path.expanduser()
+        # Ensure parent directory exists
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        log_dir = _resolve_log_dir(mngr_ctx.config)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        # Create log file path with timestamp and PID
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        pid = os.getpid()
+        log_file = log_dir / f"{timestamp}-{pid}.json"
 
     file_level = level_map[mngr_ctx.config.logging.file_level]
     logger.add(
@@ -106,8 +113,10 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
         rotation=f"{mngr_ctx.config.logging.max_log_size_mb} MB",
     )
 
-    # Rotate old logs if needed (do explicit rotation for better control)
-    _rotate_old_logs(log_dir, mngr_ctx.config.logging.max_log_files)
+    # Rotate old logs if needed (only for default log directory to avoid
+    # accidentally deleting unrelated .json files when custom path is used)
+    if not is_using_custom_log_path:
+        _rotate_old_logs(log_dir, mngr_ctx.config.logging.max_log_files)
 
 
 def _resolve_log_dir(config: MngrConfig) -> Path:
