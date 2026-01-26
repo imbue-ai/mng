@@ -11,16 +11,9 @@ from click.testing import CliRunner
 from imbue.mngr.cli.create import create
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import capture_tmux_pane_contents
+from imbue.mngr.utils.testing import restore_env_var
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
-
-
-def _restore_env_var(name: str, original_value: str | None) -> None:
-    """Restore an environment variable to its original value."""
-    if original_value is None:
-        os.environ.pop(name, None)
-    else:
-        os.environ[name] = original_value
 
 
 def test_cli_create_with_echo_command(
@@ -680,8 +673,8 @@ def test_edit_message_sends_edited_content(
                 error_message=f"Expected message '{edited_message}' to appear in tmux pane output",
             )
     finally:
-        _restore_env_var("EDITOR", original_editor)
-        _restore_env_var("VISUAL", original_visual)
+        restore_env_var("EDITOR", original_editor)
+        restore_env_var("VISUAL", original_visual)
 
 
 def test_edit_message_with_initial_content(
@@ -757,8 +750,8 @@ def test_edit_message_with_initial_content(
                 error_message=f"Expected message '{edited_message}' to appear in tmux pane output",
             )
     finally:
-        _restore_env_var("EDITOR", original_editor)
-        _restore_env_var("VISUAL", original_visual)
+        restore_env_var("EDITOR", original_editor)
+        restore_env_var("VISUAL", original_visual)
 
 
 def test_edit_message_incompatible_with_background_creation(
@@ -851,5 +844,5 @@ def test_edit_message_empty_content_does_not_send(
             # Warning should be logged about no message being sent
             assert "No message to send" in result.output or "empty" in result.output.lower()
     finally:
-        _restore_env_var("EDITOR", original_editor)
-        _restore_env_var("VISUAL", original_visual)
+        restore_env_var("EDITOR", original_editor)
+        restore_env_var("VISUAL", original_visual)

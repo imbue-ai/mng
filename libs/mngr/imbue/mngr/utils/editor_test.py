@@ -9,14 +9,7 @@ import pytest
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.utils.editor import EditorSession
 from imbue.mngr.utils.editor import get_editor_command
-
-
-def _restore_env_var(name: str, original_value: str | None) -> None:
-    """Restore an environment variable to its original value."""
-    if original_value is None:
-        os.environ.pop(name, None)
-    else:
-        os.environ[name] = original_value
+from imbue.mngr.utils.testing import restore_env_var
 
 
 class TestGetEditorCommand:
@@ -31,8 +24,8 @@ class TestGetEditorCommand:
             os.environ["EDITOR"] = "vim"
             assert get_editor_command() == "code"
         finally:
-            _restore_env_var("VISUAL", original_visual)
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("VISUAL", original_visual)
+            restore_env_var("EDITOR", original_editor)
 
     def test_uses_editor_when_visual_not_set(self) -> None:
         """Test that $EDITOR is used when $VISUAL is not set."""
@@ -43,8 +36,8 @@ class TestGetEditorCommand:
             os.environ["EDITOR"] = "nano"
             assert get_editor_command() == "nano"
         finally:
-            _restore_env_var("VISUAL", original_visual)
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("VISUAL", original_visual)
+            restore_env_var("EDITOR", original_editor)
 
     def test_falls_back_to_default_when_no_env_vars(self) -> None:
         """Test that a fallback editor is used when env vars are not set."""
@@ -57,8 +50,8 @@ class TestGetEditorCommand:
             # Should find one of the fallback editors or return vim as last resort
             assert result in ("vim", "vi", "nano", "notepad")
         finally:
-            _restore_env_var("VISUAL", original_visual)
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("VISUAL", original_visual)
+            restore_env_var("EDITOR", original_editor)
 
 
 class TestEditorSession:
@@ -96,7 +89,7 @@ class TestEditorSession:
             finally:
                 session.cleanup()
         finally:
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("EDITOR", original_editor)
 
     def test_is_running_returns_false_before_start(self) -> None:
         """Test that is_running() returns False before session is started."""
@@ -119,7 +112,7 @@ class TestEditorSession:
             finally:
                 session.cleanup()
         finally:
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("EDITOR", original_editor)
 
     def test_wait_for_result_raises_if_not_started(self) -> None:
         """Test that wait_for_result() raises if session not started."""
@@ -147,7 +140,7 @@ class TestEditorSession:
             finally:
                 session.cleanup()
         finally:
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("EDITOR", original_editor)
 
     def test_wait_for_result_returns_none_on_non_zero_exit(self) -> None:
         """Test that wait_for_result() returns None when editor exits with error."""
@@ -163,7 +156,7 @@ class TestEditorSession:
             finally:
                 session.cleanup()
         finally:
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("EDITOR", original_editor)
 
     def test_wait_for_result_returns_none_on_empty_content(self) -> None:
         """Test that wait_for_result() returns None when content is empty."""
@@ -180,7 +173,7 @@ class TestEditorSession:
             finally:
                 session.cleanup()
         finally:
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("EDITOR", original_editor)
 
     def test_wait_for_result_strips_trailing_whitespace(self) -> None:
         """Test that wait_for_result() strips trailing whitespace."""
@@ -198,7 +191,7 @@ class TestEditorSession:
             finally:
                 session.cleanup()
         finally:
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("EDITOR", original_editor)
 
     def test_cleanup_removes_temp_file(self) -> None:
         """Test that cleanup() removes the temp file."""
@@ -230,7 +223,7 @@ class TestEditorSession:
                 if session.temp_file_path.exists():
                     session.temp_file_path.unlink()
         finally:
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("EDITOR", original_editor)
 
     def test_cleanup_handles_stubborn_process(self) -> None:
         """Test that cleanup() can handle a process that requires killing."""
@@ -262,7 +255,7 @@ sleep 100
                 if session.temp_file_path.exists():
                     session.temp_file_path.unlink()
         finally:
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("EDITOR", original_editor)
             if script_path is not None:
                 Path(script_path).unlink(missing_ok=True)
 
@@ -279,7 +272,7 @@ sleep 100
             finally:
                 session.cleanup()
         finally:
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("EDITOR", original_editor)
 
     def test_is_finished_returns_true_after_wait(self) -> None:
         """Test that is_finished() returns True after waiting for result."""
@@ -294,4 +287,4 @@ sleep 100
             finally:
                 session.cleanup()
         finally:
-            _restore_env_var("EDITOR", original_editor)
+            restore_env_var("EDITOR", original_editor)
