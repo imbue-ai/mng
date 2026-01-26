@@ -1,6 +1,8 @@
 import os
 import subprocess
 import tempfile
+import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from typing import Final
@@ -63,6 +65,9 @@ class EditorSession:
     _is_finished: bool
     _result_content: str | None
     _exit_code: int | None
+    _exit_callback: Callable[[], None] | None
+    _monitor_thread: threading.Thread | None
+    _callback_called: bool
 
     @classmethod
     def create(cls, initial_content: str | None = None) -> "EditorSession":
@@ -92,13 +97,20 @@ class EditorSession:
         instance._is_finished = False
         instance._result_content = None
         instance._exit_code = None
+        instance._exit_callback = None
+        instance._monitor_thread = None
+        instance._callback_called = False
         return instance
 
-    def start(self) -> None:
+    def start(self, on_exit: Callable[[], None] | None = None) -> None:
         """Start the editor subprocess.
 
         The editor process inherits stdin/stdout/stderr from the parent,
         giving it full terminal access.
+
+        If on_exit is provided, a background thread will monitor the editor
+        process and call the callback as soon as the editor exits. This is
+        useful for restoring logging output immediately when the editor closes.
         """
         if self._is_started:
             raise UserInputError("Editor session already started")
@@ -114,7 +126,67 @@ class EditorSession:
             stderr=None,
         )
         self._is_started = True
+        self._exit_callback = on_exit
         logger.trace("Editor process started with PID {}", self._process.pid)
+
+        # Start monitor thread if callback provided
+        if on_exit is not None:
+            self._monitor_thread = threading.Thread(
+                target=self._monitor_process,
+                daemon=True,
+                name="editor-monitor",
+            )
+            self._monitor_thread.start()
+            logger.trace("Started editor monitor thread")
+
+    def _monitor_process(self) -> None:
+        """Background thread that monitors the editor process and calls the exit callback."""
+        if self._process is None:
+            return
+
+        # Wait for the process to exit
+        self._process.wait()
+
+        # Read the result immediately so it's available
+        self._read_result()
+
+        # Call the callback if we haven't already
+        if self._exit_callback is not None and not self._callback_called:
+            self._callback_called = True
+            logger.trace("Editor exited, calling exit callback")
+            # Call the callback without catching exceptions - let them propagate
+            # The callback is expected to handle its own errors
+            self._exit_callback()
+
+    def _read_result(self) -> None:
+        """Read the editor result from the temp file. Called by monitor thread on exit."""
+        if self._process is None:
+            return
+
+        self._exit_code = self._process.returncode
+        self._is_finished = True
+        logger.trace("Editor exited with code {}", self._exit_code)
+
+        # Check exit code
+        if self._exit_code != 0:
+            logger.warning("Editor exited with non-zero code: {}", self._exit_code)
+            return
+
+        # Read the edited content
+        if not self.temp_file_path.exists():
+            logger.debug("Editor temp file no longer exists")
+            return
+
+        content = self.temp_file_path.read_text()
+
+        # Strip trailing whitespace but preserve intentional content
+        self._result_content = content.rstrip()
+
+        if not self._result_content:
+            logger.debug("Editor content is empty")
+            self._result_content = None
+        else:
+            logger.trace("Read {} characters from edited file", len(self._result_content))
 
     def is_running(self) -> bool:
         """Check if the editor process is still running."""
@@ -135,10 +207,14 @@ class EditorSession:
         Returns the content of the edited file, or None if:
         - The editor exited with a non-zero code
         - The file was empty after editing
+
+        If the monitor thread has already processed the result (when on_exit
+        callback was provided), this returns immediately with the cached result.
         """
         if not self._is_started or self._process is None:
             raise UserInputError("Editor session not started")
 
+        # If monitor thread already read the result, return it
         if self._is_finished:
             return self._result_content
 
@@ -146,36 +222,19 @@ class EditorSession:
 
         # Wait for the editor process to complete
         try:
-            self._exit_code = self._process.wait(timeout=timeout_seconds)
+            self._process.wait(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
             logger.warning("Editor timeout expired, terminating")
             self._process.terminate()
             self._process.wait()
             self._exit_code = -1
-
-        self._is_finished = True
-        logger.trace("Editor exited with code {}", self._exit_code)
-
-        # Check exit code
-        if self._exit_code != 0:
-            logger.warning("Editor exited with non-zero code: {}", self._exit_code)
+            self._is_finished = True
             return None
 
-        # Read the edited content
-        if not self.temp_file_path.exists():
-            logger.debug("Editor temp file no longer exists")
-            return None
+        # Read result if not already done by monitor thread
+        if not self._is_finished:
+            self._read_result()
 
-        content = self.temp_file_path.read_text()
-
-        # Strip trailing whitespace but preserve intentional content
-        self._result_content = content.rstrip()
-
-        if not self._result_content:
-            logger.debug("Editor content is empty")
-            return None
-
-        logger.trace("Read {} characters from edited file", len(self._result_content))
         return self._result_content
 
     def cleanup(self) -> None:

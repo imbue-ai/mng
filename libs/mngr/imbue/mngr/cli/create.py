@@ -472,7 +472,8 @@ def create(ctx: click.Context, **kwargs) -> None:
         # Enable logging suppression before starting the editor so that
         # log messages don't interfere with the editor's terminal output
         LoggingSuppressor.enable(output_opts)
-        editor_session.start()
+        # Start editor with callback that restores logging when it exits
+        editor_session.start(on_exit=_on_editor_exit)
         # When using editor, don't pass message to api_create (we'll send it after editor finishes)
         initial_message = None
     else:
@@ -616,6 +617,15 @@ def create(ctx: click.Context, **kwargs) -> None:
     _output_result(create_result, output_opts)
 
 
+def _on_editor_exit() -> None:
+    """Callback invoked when the editor process exits.
+
+    Restores logging by disabling suppression and replaying buffered messages.
+    This is called from a background thread as soon as the editor exits.
+    """
+    LoggingSuppressor.disable_and_replay(clear_screen=True)
+
+
 def _handle_editor_message(
     editor_session: EditorSession,
     agent: AgentInterface,
@@ -628,16 +638,16 @@ def _handle_editor_message(
     Note: No message delay is applied here because by the time the user finishes
     editing, the agent has been running in parallel and is already ready.
 
-    After the editor closes, logging suppression is disabled, the screen is cleared,
-    and any buffered log messages are replayed.
+    Logging suppression is disabled automatically by the editor's on_exit callback
+    as soon as the editor process exits. By the time wait_for_result() returns,
+    the callback has already restored logging.
     """
     try:
         logger.debug("Waiting for editor to finish...")
         edited_message = editor_session.wait_for_result()
 
-        # Disable logging suppression and replay buffered messages
-        # This clears the screen and shows what happened while the editor was open
-        LoggingSuppressor.disable_and_replay(clear_screen=True)
+        # By this point, the on_exit callback has already restored logging
+        # (it's called as soon as the editor process exits)
 
         if edited_message is None:
             logger.warning("No message to send (editor was closed without saving or content is empty)")
@@ -650,6 +660,7 @@ def _handle_editor_message(
     finally:
         editor_session.cleanup()
         # Make sure suppression is disabled even if an exception occurred
+        # (e.g., if the callback wasn't called for some reason)
         if LoggingSuppressor.is_suppressed():
             LoggingSuppressor.disable_and_replay(clear_screen=True)
 
