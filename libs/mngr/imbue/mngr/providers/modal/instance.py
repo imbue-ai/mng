@@ -433,8 +433,10 @@ class ModalProviderInstance(BaseProviderInstance):
 
         logger.debug("Starting sshd in sandbox")
 
-        # Start sshd (-D: don't detach, -e: print errors to stdout)
-        sandbox.exec("/usr/sbin/sshd", "-D", "-e")
+        # Start sshd (-D: don't detach)
+        # suppress all output--we don't want Modal tracking this for performance and stability reasons.
+        # yes, this is annoying for debugging, sorry--feel free to modify this code when debugging
+        sandbox.exec("/usr/sbin/sshd", "-D", stdout=modal.StreamType.DEVNULL, stderr=modal.StreamType.DEVNULL)
 
     def _get_ssh_info_from_sandbox(self, sandbox: modal.Sandbox) -> tuple[str, int]:
         """Extract SSH connection info from a running sandbox."""
