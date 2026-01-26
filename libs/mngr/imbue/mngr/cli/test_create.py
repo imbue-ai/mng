@@ -591,3 +591,228 @@ def test_await_agent_stopped_waits_for_agent_to_exit(
             lambda: not tmux_session_exists(session_name),
             error_message=f"Expected tmux session {session_name} to be gone after agent stopped",
         )
+
+
+def test_edit_message_sends_edited_content(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --edit-message opens an editor and sends the edited message."""
+    agent_name = f"test-edit-message-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+    edited_message = "Hello from edited message"
+
+    with tmux_session_cleanup(session_name):
+        # Mock the editor by creating a script that writes to the temp file
+        with patch("imbue.mngr.utils.editor.get_editor_command") as mock_editor:
+            # Use a script that writes the message directly
+            mock_editor.return_value = "bash"
+
+            # Patch EditorSession.start to write our message to the temp file instead of opening an editor
+            def mock_start(self) -> None:
+                # Write the message directly to the temp file
+                self.temp_file_path.write_text(edited_message)
+                # Mark as started and create a dummy process that exits immediately
+                self._is_started = True
+                self._process = subprocess.Popen(["true"])
+
+            with patch.object(
+                __import__("imbue.mngr.utils.editor", fromlist=["EditorSession"]).EditorSession,
+                "start",
+                mock_start,
+            ):
+                result = cli_runner.invoke(
+                    create,
+                    [
+                        "--name",
+                        agent_name,
+                        "--agent-cmd",
+                        "cat",
+                        "--edit-message",
+                        "--source",
+                        str(temp_work_dir),
+                        "--no-connect",
+                        "--await-ready",
+                        "--no-copy-work-dir",
+                        "--no-ensure-clean",
+                        "--message-delay",
+                        "0.01",
+                    ],
+                    obj=plugin_manager,
+                    catch_exceptions=False,
+                )
+
+                assert result.exit_code == 0, f"CLI failed with: {result.output}"
+
+                wait_for(
+                    lambda: tmux_session_exists(session_name),
+                    error_message=f"Expected tmux session {session_name} to exist",
+                )
+
+                wait_for(
+                    lambda: edited_message in capture_tmux_pane_contents(session_name),
+                    error_message=f"Expected message '{edited_message}' to appear in tmux pane output",
+                )
+
+
+def test_edit_message_with_initial_content(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --edit-message with --message uses the message as initial content."""
+    agent_name = f"test-edit-initial-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+    initial_content = "Initial content"
+    edited_message = "Edited: " + initial_content
+
+    with tmux_session_cleanup(session_name):
+        # We'll verify that the temp file contains the initial content
+        captured_initial_content = None
+
+        def mock_start(self) -> None:
+            nonlocal captured_initial_content
+            # Capture what was written as initial content
+            captured_initial_content = self.temp_file_path.read_text()
+            # Write the edited message
+            self.temp_file_path.write_text(edited_message)
+            self._is_started = True
+            self._process = subprocess.Popen(["true"])
+
+        with patch.object(
+            __import__("imbue.mngr.utils.editor", fromlist=["EditorSession"]).EditorSession,
+            "start",
+            mock_start,
+        ):
+            result = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name,
+                    "--agent-cmd",
+                    "cat",
+                    "--edit-message",
+                    "--message",
+                    initial_content,
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                    "--message-delay",
+                    "0.01",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            assert result.exit_code == 0, f"CLI failed with: {result.output}"
+            assert captured_initial_content == initial_content, (
+                f"Expected initial content '{initial_content}' but got '{captured_initial_content}'"
+            )
+
+            wait_for(
+                lambda: tmux_session_exists(session_name),
+                error_message=f"Expected tmux session {session_name} to exist",
+            )
+
+            wait_for(
+                lambda: edited_message in capture_tmux_pane_contents(session_name),
+                error_message=f"Expected message '{edited_message}' to appear in tmux pane output",
+            )
+
+
+def test_edit_message_incompatible_with_background_creation(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --edit-message cannot be used with background creation."""
+    agent_name = f"test-edit-bg-{int(time.time())}"
+
+    result = cli_runner.invoke(
+        create,
+        [
+            "--name",
+            agent_name,
+            "--agent-cmd",
+            "sleep 123456",
+            "--edit-message",
+            "--source",
+            str(temp_work_dir),
+            "--no-connect",
+            "--no-await-ready",
+            "--no-copy-work-dir",
+            "--no-ensure-clean",
+        ],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "--edit-message cannot be used with background creation" in result.output
+
+
+def test_edit_message_empty_content_does_not_send(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that empty content from editor does not send a message."""
+    agent_name = f"test-edit-empty-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+    marker_text = "AGENT_READY_MARKER"
+
+    with tmux_session_cleanup(session_name):
+
+        def mock_start(self) -> None:
+            # Write empty content (simulating user saving empty file)
+            self.temp_file_path.write_text("")
+            self._is_started = True
+            self._process = subprocess.Popen(["true"])
+
+        with patch.object(
+            __import__("imbue.mngr.utils.editor", fromlist=["EditorSession"]).EditorSession,
+            "start",
+            mock_start,
+        ):
+            result = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name,
+                    "--agent-cmd",
+                    f"echo '{marker_text}' && cat",
+                    "--edit-message",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                    "--message-delay",
+                    "0.01",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            assert result.exit_code == 0, f"CLI failed with: {result.output}"
+
+            wait_for(
+                lambda: tmux_session_exists(session_name),
+                error_message=f"Expected tmux session {session_name} to exist",
+            )
+
+            # Verify agent started (marker appears)
+            wait_for(
+                lambda: marker_text in capture_tmux_pane_contents(session_name),
+                error_message=f"Expected marker '{marker_text}' to appear in tmux pane output",
+            )
+
+            # Warning should be logged about no message being sent
+            assert "No message to send" in result.output or "empty" in result.output.lower()
