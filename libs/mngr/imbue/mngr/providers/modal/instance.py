@@ -50,6 +50,7 @@ from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ImageReference
@@ -819,6 +820,10 @@ class ModalProviderInstance(BaseProviderInstance):
         self._write_host_record(host_record)
 
         logger.debug("Modal host created: id={}, name={}, ssh={}:{}", host_id, name, ssh_host, ssh_port)
+
+        # Record BOOT activity for idle detection
+        host.record_activity(ActivitySource.BOOT)
+
         return host
 
     @handle_modal_auth_error
@@ -958,6 +963,10 @@ class ModalProviderInstance(BaseProviderInstance):
         self._write_host_record(updated_host_record)
 
         logger.info("Restored Modal host from snapshot: id={}, name={}", host_id, host_name)
+
+        # Record BOOT activity for idle detection
+        restored_host.record_activity(ActivitySource.BOOT)
+
         return restored_host
 
     @handle_modal_auth_error

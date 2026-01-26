@@ -405,10 +405,10 @@ class Host(HostInterface):
         return self._get_file_mtime(activity_path)
 
     def record_activity(self, activity_type: ActivitySource) -> None:
-        """Record activity of the given type. Only BOOT and CREATE are valid."""
-        if activity_type not in (ActivitySource.BOOT, ActivitySource.CREATE):
+        """Record activity of the given type. Only BOOT is valid for host-level activity."""
+        if activity_type != ActivitySource.BOOT:
             raise InvalidActivityTypeError(
-                f"Only BOOT and CREATE activity can be recorded on host, got: {activity_type}"
+                f"Only BOOT activity can be recorded on host, got: {activity_type}"
             )
 
         logger.trace("Recording {} activity on host {}", activity_type, self.id)
@@ -1143,6 +1143,9 @@ class Host(HostInterface):
         data_path = state_dir / "data.json"
         self.write_text_file(data_path, json.dumps(data, indent=2))
 
+        # Record CREATE activity for idle detection
+        agent.record_activity(ActivitySource.CREATE)
+
         return agent
 
     def _get_agent_state_dir(self, agent: AgentInterface) -> Path:
@@ -1569,6 +1572,9 @@ class Host(HostInterface):
                 if not result.success:
                     raise AgentStartError(str(agent.name), f"tmux select-window failed: {result.stderr}")
 
+            # Record START activity for idle detection
+            agent.record_activity(ActivitySource.START)
+
     def _get_all_descendant_pids(self, parent_pid: str) -> list[str]:
         """Recursively get all descendant PIDs of a given parent PID."""
         descendant_pids: list[str] = []
@@ -1699,14 +1705,28 @@ class Host(HostInterface):
     # =========================================================================
 
     def get_idle_seconds(self) -> float:
-        """Get the number of seconds since last activity."""
+        """Get the number of seconds since last activity.
+
+        Checks both host-level activity files (like BOOT) and agent-level
+        activity files (like CREATE, START, AGENT). Returns the time since
+        the most recent activity from any source.
+        """
         latest_activity: datetime | None = None
 
+        # Check host-level activity files
         for activity_type in ActivitySource:
             activity_time = self.get_reported_activity_time(activity_type)
             if activity_time is not None:
                 if latest_activity is None or activity_time > latest_activity:
                     latest_activity = activity_time
+
+        # Check agent-level activity files for all agents on this host
+        for agent in self.get_agents():
+            for activity_type in ActivitySource:
+                activity_time = agent.get_reported_activity_time(activity_type)
+                if activity_time is not None:
+                    if latest_activity is None or activity_time > latest_activity:
+                        latest_activity = activity_time
 
         if latest_activity is None:
             return float("inf")
