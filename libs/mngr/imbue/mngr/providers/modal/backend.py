@@ -74,8 +74,6 @@ def _get_or_create_user_id(mngr_ctx: MngrContext) -> str:
     The user ID is stored in a file in the mngr data directory. This ID is used
     to namespace Modal apps, ensuring that sandboxes created by different mngr
     installations on a shared Modal account don't interfere with each other.
-
-    We use only 8 hex characters to keep app names under Modal's 64 char limit.
     """
     data_dir = mngr_ctx.config.default_host_dir.expanduser()
     data_dir.mkdir(parents=True, exist_ok=True)
