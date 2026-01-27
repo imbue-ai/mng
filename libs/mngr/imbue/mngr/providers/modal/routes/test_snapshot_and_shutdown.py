@@ -94,6 +94,21 @@ def _stop_app(app_name: str) -> None:
     )
 
 
+def _warmup_function(url: str) -> None:
+    """Send a warmup request to trigger cold start before tests run.
+
+    This ensures the Modal container is warm and subsequent test requests
+    complete within reasonable timeouts.
+    """
+    # Send a simple request that will fail validation but warm up the function
+    # Use a longer timeout since this is the cold start
+    try:
+        httpx.post(url, json={}, timeout=180)
+    except httpx.HTTPError:
+        # Ignore errors - we just want to trigger the cold start
+        pass
+
+
 def _create_test_sandbox(app_name: str) -> tuple[modal.Sandbox, str]:
     """Create a test sandbox within the given app.
 
@@ -150,6 +165,8 @@ def deployed_snapshot_function() -> Generator[tuple[str, str], None, None]:
 
     try:
         url = _deploy_snapshot_function(app_name)
+        # Warm up the function to avoid cold start timeouts in tests
+        _warmup_function(url)
         yield (app_name, url)
     finally:
         _stop_app(app_name)
