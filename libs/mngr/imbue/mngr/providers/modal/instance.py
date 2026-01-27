@@ -332,6 +332,33 @@ class ModalProviderInstance(BaseProviderInstance):
         except FileNotFoundError:
             pass
 
+    def _list_host_ids_from_volume(self) -> list[HostId]:
+        """List all host IDs from the volume by scanning for host record files.
+
+        Returns host IDs derived from the /<host_id>.json files on the volume.
+        """
+        volume = self._get_volume()
+        host_ids: list[HostId] = []
+
+        try:
+            for entry in volume.listdir("/"):
+                # Host records are stored as /<host_id>.json
+                if entry.path.endswith(".json"):
+                    # Extract host_id from path like "/host-xxx.json" by removing the .json suffix
+                    filename = entry.path.lstrip("/")
+                    host_id_str = filename[:-5]
+                    try:
+                        host_ids.append(HostId(host_id_str))
+                    except ValueError:
+                        logger.trace("Skipping non-host file on volume: {}", entry.path)
+                        continue
+        except modal.exception.NotFoundError:
+            # Volume is empty or doesn't exist yet
+            logger.trace("Volume is empty or doesn't exist")
+            pass
+
+        return host_ids
+
     def _build_modal_image(
         self,
         base_image: str | None = None,
@@ -668,30 +695,54 @@ class ModalProviderInstance(BaseProviderInstance):
         return self.modal_app.get_captured_output()
 
     def _find_sandbox_by_host_id(self, host_id: HostId) -> modal.Sandbox | None:
-        """Find a Modal sandbox by its mngr host_id tag."""
+        """Find a Modal sandbox by its mngr host_id tag.
+
+        Lists sandboxes across the entire Modal environment (not filtered by app_id)
+        because the app_id changes between mngr invocations. Uses the mngr_host_id
+        tag to identify sandboxes.
+        """
         logger.trace("Looking up sandbox with host_id={}", host_id)
-        app = self._get_modal_app()
-        for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
+        for sandbox in modal.Sandbox.list(tags={TAG_HOST_ID: str(host_id)}):
             return sandbox
         return None
 
     def _find_sandbox_by_name(self, name: HostName) -> modal.Sandbox | None:
-        """Find a Modal sandbox by its mngr host_name tag."""
+        """Find a Modal sandbox by its mngr host_name tag.
+
+        Lists sandboxes across the entire Modal environment (not filtered by app_id)
+        because the app_id changes between mngr invocations. Uses the mngr_host_name
+        tag to identify sandboxes.
+        """
         logger.trace("Looking up sandbox with name={}", name)
-        app = self._get_modal_app()
-        for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_NAME: str(name)}):
+        for sandbox in modal.Sandbox.list(tags={TAG_HOST_NAME: str(name)}):
             return sandbox
         return None
 
     def _list_sandboxes(self) -> list[modal.Sandbox]:
-        """List all Modal sandboxes managed by this mngr provider instance."""
-        logger.trace("Listing all mngr sandboxes for app={}", self.app_name)
-        app = self._get_modal_app()
+        """List all Modal sandboxes managed by mngr.
+
+        Uses the volume to get the list of known host IDs, then looks up each
+        sandbox by its mngr_host_id tag. This is efficient because:
+        1. We only query for hosts we know about (from the volume)
+        2. Modal filters by tag server-side, avoiding iteration through all sandboxes
+
+        Note: This only returns sandboxes for hosts that have records on the volume.
+        Sandboxes without volume records won't be listed, but this is intentional
+        since such sandboxes lack the metadata needed to connect to them.
+        """
+        logger.trace("Listing all mngr sandboxes via volume lookup")
+
+        # Get all host IDs from the volume
+        host_ids = self._list_host_ids_from_volume()
+        logger.trace("Found {} host records on volume", len(host_ids))
+
+        # Look up sandbox for each host ID using tag-based filtering
         sandboxes: list[modal.Sandbox] = []
-        for sandbox in modal.Sandbox.list(app_id=app.app_id):
-            tags = sandbox.get_tags()
-            if TAG_HOST_ID in tags:
+        for host_id in host_ids:
+            sandbox = self._find_sandbox_by_host_id(host_id)
+            if sandbox is not None:
                 sandboxes.append(sandbox)
+
         return sandboxes
 
     def _create_host_from_sandbox(

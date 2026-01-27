@@ -259,9 +259,10 @@ def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_err
     modal_provider: ModalProviderInstance,
 ) -> None:
     """The @handle_modal_auth_error decorator should convert modal.exception.AuthError to ModalAuthError."""
-    # Mock the _get_modal_app method to raise an AuthError
-    with patch.object(modal_provider, "_get_modal_app") as mock_get_app:
-        mock_get_app.side_effect = modal.exception.AuthError("Token missing")
+    # Mock the volume's listdir method to raise an AuthError (simulates missing credentials
+    # when list_hosts tries to list host IDs from the volume)
+    with patch.object(modal_provider.modal_app.volume, "listdir") as mock_listdir:
+        mock_listdir.side_effect = modal.exception.AuthError("Token missing")
 
         # list_hosts is decorated with @handle_modal_auth_error
         with pytest.raises(ModalAuthError) as exc_info:
