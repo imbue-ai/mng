@@ -175,7 +175,7 @@ def deployed_snapshot_function() -> Generator[tuple[str, str], None, None]:
 
 
 @pytest.mark.acceptance
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(180)
 def test_snapshot_and_shutdown_success(
     deployed_snapshot_function: tuple[str, str],
 ) -> None:
@@ -238,7 +238,7 @@ def test_snapshot_and_shutdown_success(
 
 
 @pytest.mark.acceptance
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(180)
 def test_snapshot_and_shutdown_missing_sandbox_id(
     deployed_snapshot_function: tuple[str, str],
 ) -> None:
@@ -256,7 +256,7 @@ def test_snapshot_and_shutdown_missing_sandbox_id(
 
 
 @pytest.mark.acceptance
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(180)
 def test_snapshot_and_shutdown_missing_host_id(
     deployed_snapshot_function: tuple[str, str],
 ) -> None:
@@ -274,7 +274,7 @@ def test_snapshot_and_shutdown_missing_host_id(
 
 
 @pytest.mark.acceptance
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(180)
 def test_snapshot_and_shutdown_nonexistent_sandbox(
     deployed_snapshot_function: tuple[str, str],
 ) -> None:
@@ -299,7 +299,7 @@ def test_snapshot_and_shutdown_nonexistent_sandbox(
 
 
 @pytest.mark.acceptance
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(180)
 def test_snapshot_and_shutdown_nonexistent_host_record(
     deployed_snapshot_function: tuple[str, str],
 ) -> None:
