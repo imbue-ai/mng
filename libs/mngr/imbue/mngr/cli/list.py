@@ -1,4 +1,6 @@
 import sys
+from enum import Enum
+from typing import Any
 
 import click
 from click_option_group import optgroup
@@ -165,8 +167,10 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     if opts.format_template:
         raise NotImplementedError("Custom format templates not implemented yet")
 
+    # Parse fields if provided
+    fields = None
     if opts.fields:
-        raise NotImplementedError("Field selection not implemented yet")
+        fields = [f.strip() for f in opts.fields.split(",") if f.strip()]
 
     if opts.watch:
         raise NotImplementedError("Watch mode not implemented yet")
@@ -242,7 +246,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         return
 
     if output_opts.output_format == OutputFormat.HUMAN:
-        _emit_human_output(result.agents)
+        _emit_human_output(result.agents, fields)
     elif output_opts.output_format == OutputFormat.JSON:
         _emit_json_output(result.agents, result.errors)
     else:
@@ -277,26 +281,85 @@ def _emit_jsonl_error(error: ErrorInfo) -> None:
     emit_final_json(error_data)
 
 
-def _emit_human_output(agents: list[AgentInfo]) -> None:
-    """Emit human-readable table output."""
+def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None) -> None:
+    """Emit human-readable table output.
+
+    Args:
+        agents: List of agents to display
+        fields: Optional list of field names to display. If None, uses default fields.
+    """
     if not agents:
         return
 
-    # Build table data
-    headers = ["NAME", "STATE", "STATUS", "HOST", "PROVIDER"]
+    # Default fields if none specified
+    if fields is None:
+        fields = ["name", "state", "status", "host", "provider"]
+
+    # Build table data dynamically based on requested fields
+    headers = []
     rows = []
+
+    # Generate headers
+    for field in fields:
+        headers.append(field.upper().replace(".", "_"))
+
+    # Generate rows
     for agent in agents:
-        state_text = str(agent.lifecycle_state.value).lower()
-        status_text = agent.status.line if agent.status else ""
-        row = [
-            str(agent.name),
-            state_text,
-            status_text,
-            agent.host.name,
-            str(agent.host.provider_name),
-        ]
+        row = []
+        for field in fields:
+            value = _get_field_value(agent, field)
+            row.append(value)
         rows.append(row)
 
     # Generate table
     table = tabulate(rows, headers=headers, tablefmt="plain")
     logger.info("\n" + table)
+
+
+def _get_field_value(agent: AgentInfo, field: str) -> str:
+    """Extract a field value from an AgentInfo object.
+
+    Args:
+        agent: The agent to extract the field from
+        field: The field name (supports nested fields like "host.name")
+
+    Returns:
+        The field value as a string
+    """
+    # Handle special field aliases for backward compatibility and convenience
+    field_aliases = {
+        "state": "lifecycle_state",
+        "host": "host.name",
+        "provider": "host.provider_name",
+    }
+
+    # Apply alias if it exists
+    if field in field_aliases:
+        field = field_aliases[field]
+
+    # Handle nested fields (e.g., "host.name")
+    parts = field.split(".")
+    value: Any = agent
+
+    try:
+        for part in parts:
+            if hasattr(value, part):
+                value = getattr(value, part)
+            else:
+                return ""
+
+        # Convert various types to string
+        # Check for enums first (before str check, since some enums inherit from str)
+        if value is None:
+            return ""
+        elif isinstance(value, Enum):
+            # For enums like lifecycle_state
+            return str(value.value).lower()
+        elif hasattr(value, "line"):  # For AgentStatus
+            return value.line
+        elif isinstance(value, str):
+            return value
+        else:
+            return str(value)
+    except (AttributeError, KeyError):
+        return ""
