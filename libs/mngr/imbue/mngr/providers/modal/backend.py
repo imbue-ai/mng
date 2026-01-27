@@ -46,6 +46,7 @@ class ModalAppContextHandle(FrozenModel):
         description="The Modal app.run() context manager (only present for ephemeral apps)"
     )
     app_name: str = Field(description="The name of the Modal app")
+    environment_name: str = Field(description="The Modal environment name for user isolation")
     output_capture_context: Any = Field(description="The output capture context manager")
     output_buffer: Any = Field(description="StringIO buffer containing captured Modal output")
     loguru_writer: Any = Field(description="Loguru writer for structured logging (or None)")
@@ -113,7 +114,9 @@ class ModalProviderBackend(ProviderBackendInterface):
     _app_registry: ClassVar[dict[str, tuple[modal.App, ModalAppContextHandle]]] = {}
 
     @classmethod
-    def _get_or_create_app(cls, app_name: str, is_persistent: bool) -> tuple[modal.App, ModalAppContextHandle]:
+    def _get_or_create_app(
+        cls, app_name: str, environment_name: str, is_persistent: bool
+    ) -> tuple[modal.App, ModalAppContextHandle]:
         """Get or create a Modal app with output capture.
 
         Creates an ephemeral app with `modal.App(name)` and enters its `app.run()`
@@ -127,19 +130,23 @@ class ModalProviderBackend(ProviderBackendInterface):
         Also prepares the volume name for state storage. The volume is created
         lazily when first accessed via get_volume_for_app().
 
+        The environment_name is used to scope all Modal resources (apps, volumes,
+        sandboxes) to a specific user, enabling isolation between different mngr
+        installations sharing the same Modal account.
+
         Raises modal.exception.AuthError if Modal credentials are not configured.
         """
         if app_name in cls._app_registry:
             return cls._app_registry[app_name]
 
-        logger.debug("Creating ephemeral Modal app with output capture: {}", app_name)
+        logger.debug("Creating ephemeral Modal app with output capture: {} (env: {})", app_name, environment_name)
 
         # Enter the output capture context first
         output_capture_context = enable_modal_output_capture(is_logging_to_loguru=True)
         output_buffer, loguru_writer = output_capture_context.__enter__()
 
         if is_persistent:
-            app = modal.App.lookup(app_name, create_if_missing=True)
+            app = modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
             run_context = None
         else:
             # Create the Modal app
@@ -147,7 +154,7 @@ class ModalProviderBackend(ProviderBackendInterface):
 
             # Enter the app.run() context manager manually so we can return the app
             # while keeping the context active until close() is called
-            run_context = app.run()
+            run_context = app.run(environment_name=environment_name)
             run_context.__enter__()
 
         # Set app metadata on the loguru writer for structured logging
@@ -161,6 +168,7 @@ class ModalProviderBackend(ProviderBackendInterface):
         context_handle = ModalAppContextHandle(
             run_context=run_context,
             app_name=app_name,
+            environment_name=environment_name,
             output_capture_context=output_capture_context,
             output_buffer=output_buffer,
             loguru_writer=loguru_writer,
@@ -180,7 +188,8 @@ class ModalProviderBackend(ProviderBackendInterface):
         is gone.
 
         The volume is created lazily on first access and cached in the context
-        handle for subsequent calls.
+        handle for subsequent calls. The volume is scoped to the same environment
+        as the app.
 
         Raises MngrError if the app has not been created yet.
         """
@@ -193,15 +202,20 @@ class ModalProviderBackend(ProviderBackendInterface):
         if context_handle.volume is not None:
             return context_handle.volume
 
-        # Create or get the volume
-        logger.debug("Creating/getting state volume: {}", context_handle.volume_name)
-        volume = modal.Volume.from_name(context_handle.volume_name, create_if_missing=True)
+        # Create or get the volume in the same environment as the app
+        logger.debug(
+            "Creating/getting state volume: {} (env: {})", context_handle.volume_name, context_handle.environment_name
+        )
+        volume = modal.Volume.from_name(
+            context_handle.volume_name, create_if_missing=True, environment_name=context_handle.environment_name
+        )
 
         # Cache the volume in the context handle (need to update the registry entry)
         # Since FrozenModel is immutable, we need to create a new handle
         updated_handle = ModalAppContextHandle(
             run_context=context_handle.run_context,
             app_name=context_handle.app_name,
+            environment_name=context_handle.environment_name,
             output_capture_context=context_handle.output_capture_context,
             output_buffer=context_handle.output_buffer,
             loguru_writer=context_handle.loguru_writer,
@@ -279,11 +293,13 @@ Supported build arguments for the modal provider:
         """Build a Modal provider instance."""
         assert isinstance(config, ModalProviderConfig)
 
-        # Use prefix + user_id + name to namespace the app, ensuring isolation
-        # between different mngr installations sharing the same Modal account
+        # Use prefix + user_id for the environment name, ensuring isolation
+        # between different mngr installations sharing the same Modal account.
+        # The app name is just prefix + name (no user_id).
         prefix = mngr_ctx.config.prefix
         user_id = _get_or_create_user_id(mngr_ctx)
-        default_app_name = f"{prefix}{user_id}-{name}"
+        environment_name = f"{prefix}{user_id}"
+        default_app_name = f"{prefix}{name}"
 
         app_name = config.app_name if config.app_name is not None else default_app_name
         host_dir = config.host_dir if config.host_dir is not None else Path("/mngr")
@@ -295,10 +311,11 @@ Supported build arguments for the modal provider:
             app_name = app_name[:max_app_name_length]
 
         # Create the ModalProviderApp that manages the Modal app and its resources
-        app, context_handle = ModalProviderBackend._get_or_create_app(app_name, config.is_persistent)
+        app, context_handle = ModalProviderBackend._get_or_create_app(app_name, environment_name, config.is_persistent)
         volume = ModalProviderBackend.get_volume_for_app(app_name)
         modal_app = ModalProviderApp(
             app_name=app_name,
+            environment_name=environment_name,
             app=app,
             volume=volume,
             close_callback=lambda: ModalProviderBackend.close_app(app_name),

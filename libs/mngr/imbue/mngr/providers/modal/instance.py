@@ -203,6 +203,7 @@ class ModalProviderApp(FrozenModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     app_name: str = Field(frozen=True, description="The name of the Modal app")
+    environment_name: str = Field(frozen=True, description="The Modal environment name for user isolation")
     app: modal.App = Field(frozen=True, description="The Modal app instance")
     volume: modal.Volume = Field(frozen=True, description="The Modal volume for state storage")
     close_callback: Callable[[], None] = Field(frozen=True, description="Callback to clean up the app context")
@@ -252,6 +253,11 @@ class ModalProviderInstance(BaseProviderInstance):
     def app_name(self) -> str:
         """Get the Modal app name from the modal_app manager."""
         return self.modal_app.app_name
+
+    @property
+    def environment_name(self) -> str:
+        """Get the Modal environment name from the modal_app manager."""
+        return self.modal_app.environment_name
 
     @property
     def _keys_dir(self) -> Path:
@@ -656,24 +662,36 @@ class ModalProviderInstance(BaseProviderInstance):
         return self.modal_app.get_captured_output()
 
     def _find_sandbox_by_host_id(self, host_id: HostId) -> modal.Sandbox | None:
-        """Find a Modal sandbox by its mngr host_id tag."""
-        logger.trace("Looking up sandbox with host_id={}", host_id)
+        """Find a Modal sandbox by its mngr host_id tag.
+
+        The app_id already carries the environment context since the app was created
+        with environment_name, so we don't need to pass environment_name here.
+        """
+        logger.trace("Looking up sandbox with host_id={} in env={}", host_id, self.environment_name)
         app = self._get_modal_app()
         for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
             return sandbox
         return None
 
     def _find_sandbox_by_name(self, name: HostName) -> modal.Sandbox | None:
-        """Find a Modal sandbox by its mngr host_name tag."""
-        logger.trace("Looking up sandbox with name={}", name)
+        """Find a Modal sandbox by its mngr host_name tag.
+
+        The app_id already carries the environment context since the app was created
+        with environment_name, so we don't need to pass environment_name here.
+        """
+        logger.trace("Looking up sandbox with name={} in env={}", name, self.environment_name)
         app = self._get_modal_app()
         for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_NAME: str(name)}):
             return sandbox
         return None
 
     def _list_sandboxes(self) -> list[modal.Sandbox]:
-        """List all Modal sandboxes managed by this mngr provider instance."""
-        logger.trace("Listing all mngr sandboxes for app={}", self.app_name)
+        """List all Modal sandboxes managed by this mngr provider instance.
+
+        The app_id already carries the environment context since the app was created
+        with environment_name, so we don't need to pass environment_name here.
+        """
+        logger.trace("Listing all mngr sandboxes for app={} in env={}", self.app_name, self.environment_name)
         app = self._get_modal_app()
         sandboxes: list[modal.Sandbox] = []
         for sandbox in modal.Sandbox.list(app_id=app.app_id):
@@ -776,6 +794,7 @@ class ModalProviderInstance(BaseProviderInstance):
             sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
+                environment_name=self.environment_name,
                 timeout=config.timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
@@ -913,6 +932,7 @@ class ModalProviderInstance(BaseProviderInstance):
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
+                environment_name=self.environment_name,
                 timeout=config.timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
@@ -924,6 +944,7 @@ class ModalProviderInstance(BaseProviderInstance):
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
+                environment_name=self.environment_name,
                 timeout=config.timeout,
                 cpu=config.cpu,
                 memory=memory_mb,

@@ -22,6 +22,7 @@ import pytest
 
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.conftest import register_modal_test_app
+from imbue.mngr.conftest import register_modal_test_environment
 from imbue.mngr.conftest import register_modal_test_volume
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
@@ -152,9 +153,13 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
     mock_volume = MagicMock()
     output_buffer = StringIO()
 
+    # Create a mock environment name for testing
+    mock_environment_name = f"test-env-{app_name}"
+
     # Create ModalProviderApp using model_construct to skip validation
     modal_app = ModalProviderApp.model_construct(
         app_name=app_name,
+        environment_name=mock_environment_name,
         app=mock_app,
         volume=mock_volume,
         close_callback=MagicMock(),
@@ -213,15 +218,19 @@ def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProvid
 def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Generator[ModalProviderInstance, None, None]:
     """Create a ModalProviderInstance with real Modal for acceptance tests.
 
-    This fixture registers the Modal app name and volume name for leak detection.
-    If the test doesn't properly clean up its hosts, the session_cleanup fixture
-    will detect the still-running app or leftover volume and clean them up.
+    This fixture registers the Modal app name, environment name, and volume name
+    for leak detection. If the test doesn't properly clean up its hosts, the
+    session_cleanup fixture will detect the still-running resources and clean them up.
     """
     app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     provider = make_modal_provider_real(temp_mngr_ctx, app_name)
 
     # Register the app name for cleanup verification
     register_modal_test_app(app_name)
+
+    # Register the environment name for cleanup verification.
+    # The environment is used to scope all Modal resources for isolation.
+    register_modal_test_environment(provider.environment_name)
 
     # Register the volume name for cleanup verification.
     # Modal volumes are global (not app-specific), so they must be tracked separately.
@@ -459,8 +468,12 @@ def make_modal_provider_with_config_defaults(
     mock_volume = MagicMock()
     output_buffer = StringIO()
 
+    # Create a mock environment name for testing
+    mock_environment_name = f"test-env-{app_name}"
+
     modal_app = ModalProviderApp.model_construct(
         app_name=app_name,
+        environment_name=mock_environment_name,
         app=mock_app,
         volume=mock_volume,
         close_callback=MagicMock(),

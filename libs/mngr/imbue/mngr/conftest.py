@@ -315,6 +315,23 @@ def register_modal_test_volume(volume_name: str) -> None:
         _worker_modal_volume_names.append(volume_name)
 
 
+# Track Modal environment names that were created during tests for cleanup verification.
+# This enables detection of leaked environments that weren't properly cleaned up.
+# Modal environments are used to scope all resources (apps, volumes, sandboxes) to a
+# specific user.
+_worker_modal_environment_names: list[str] = []
+
+
+def register_modal_test_environment(environment_name: str) -> None:
+    """Register a Modal environment name for cleanup verification.
+
+    Call this when creating a Modal environment during tests to enable leak detection.
+    The environment_name should match the name used when creating resources in that environment.
+    """
+    if environment_name not in _worker_modal_environment_names:
+        _worker_modal_environment_names.append(environment_name)
+
+
 def _get_leaked_modal_apps() -> list[tuple[str, str]]:
     """Get Modal apps that were registered and are still running.
 
@@ -435,6 +452,65 @@ def _delete_modal_volumes(volume_names: list[str]) -> None:
             pass
 
 
+def _get_leaked_modal_environments() -> list[str]:
+    """Get Modal environments that were registered and still exist.
+
+    Returns a list of environment names for environments that were created during
+    tests and still exist (not yet deleted).
+
+    Uses 'uv run modal environment list --json' to query the current state of all environments.
+    """
+    if not _worker_modal_environment_names:
+        return []
+
+    try:
+        result = subprocess.run(
+            ["uv", "run", "modal", "environment", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return []
+
+        environments = json.loads(result.stdout)
+        leaked: list[str] = []
+
+        for env in environments:
+            env_name = env.get("name", "")
+
+            # Check if this environment was created by our tests
+            if env_name in _worker_modal_environment_names:
+                leaked.append(env_name)
+
+        return leaked
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        return []
+
+
+def _delete_modal_environments(environment_names: list[str]) -> None:
+    """Delete the specified Modal environments.
+
+    Takes a list of environment names and deletes each environment using
+    'uv run modal environment delete <environment_name> --yes'.
+
+    This function is defensive and will silently skip any environments that cannot
+    be deleted.
+    """
+    if not environment_names:
+        return
+
+    for env_name in environment_names:
+        try:
+            subprocess.run(
+                ["uv", "run", "modal", "environment", "delete", env_name, "--yes"],
+                capture_output=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            pass
+
+
 @pytest.fixture(scope="session", autouse=True)
 def session_cleanup() -> Generator[None, None, None]:
     """Session-scoped fixture to detect and clean up leaked test resources.
@@ -445,6 +521,7 @@ def session_cleanup() -> Generator[None, None, None]:
     2. Leftover tmux sessions created by this worker's tests
     3. Leftover Modal apps created by this worker's tests
     4. Leftover Modal volumes created by this worker's tests
+    5. Leftover Modal environments created by this worker's tests
 
     If any leaked resources are found:
     - An error is raised to fail the test suite
@@ -516,7 +593,17 @@ def session_cleanup() -> Generator[None, None, None]:
             "Tests should delete their Modal volumes before completing.\n" + "\n".join(volume_info)
         )
 
-    # 5. Clean up leaked resources (last-ditch safety measure)
+    # 5. Check for leftover Modal environments from this worker's tests
+    leftover_environments = _get_leaked_modal_environments()
+
+    if leftover_environments:
+        env_info = [f"  {env_name}" for env_name in leftover_environments]
+        errors.append(
+            "Leftover Modal environments found!\n"
+            "Tests should delete their Modal environments before completing.\n" + "\n".join(env_info)
+        )
+
+    # 6. Clean up leaked resources (last-ditch safety measure)
     for proc in leftover_processes:
         try:
             proc.kill()
@@ -526,8 +613,9 @@ def session_cleanup() -> Generator[None, None, None]:
     _kill_tmux_sessions(leftover_sessions)
     _stop_modal_apps(leftover_apps)
     _delete_modal_volumes(leftover_volumes)
+    _delete_modal_environments(leftover_environments)
 
-    # 6. Fail the test suite if any issues were found
+    # 7. Fail the test suite if any issues were found
     if errors:
         raise AssertionError(
             "=" * 70 + "\n"
