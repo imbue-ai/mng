@@ -21,7 +21,7 @@ import modal.exception
 import pytest
 
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.conftest import register_modal_test_sandbox
+from imbue.mngr.conftest import register_modal_test_app
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
@@ -213,26 +213,17 @@ def real_modal_provider(
 ) -> Generator[ModalProviderInstance, None, None]:
     """Create a ModalProviderInstance with real Modal for acceptance tests.
 
-    This fixture also tracks sandbox IDs for leak detection. After the test
-    completes, any remaining sandboxes are registered as potential leaks,
-    which will be cleaned up at session end by the session_cleanup fixture.
+    This fixture registers the Modal app name for leak detection. If the test
+    doesn't properly clean up its hosts, the session_cleanup fixture will
+    detect the still-running app and stop it.
     """
     app_name = f"mngr-test-{mngr_test_id}"
     provider = make_modal_provider_real(temp_mngr_ctx, app_name)
 
-    yield provider
+    # Register the app name for cleanup verification
+    register_modal_test_app(app_name)
 
-    # After the test, check for any remaining sandboxes
-    # These are potential leaks that the test didn't clean up properly
-    try:
-        remaining_sandboxes = provider._list_sandboxes()
-        for sandbox in remaining_sandboxes:
-            sandbox_id = sandbox.object_id
-            register_modal_test_sandbox(sandbox_id)
-    except modal.exception.Error:
-        # Don't fail the test if we can't list sandboxes
-        # (e.g., if Modal auth expired or network error)
-        pass
+    yield provider
 
 
 # =============================================================================

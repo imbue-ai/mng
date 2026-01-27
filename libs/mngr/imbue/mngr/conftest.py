@@ -1,5 +1,6 @@
 """Shared pytest fixtures for mngr tests."""
 
+import json
 import os
 import subprocess
 import sys
@@ -7,8 +8,6 @@ from pathlib import Path
 from typing import Generator
 from uuid import uuid4
 
-import modal
-import modal.exception
 import pluggy
 import psutil
 import pytest
@@ -288,56 +287,89 @@ def _is_alive_non_zombie(proc: psutil.Process) -> bool:
         return False
 
 
-# Track Modal sandbox IDs that were created during tests for cleanup verification.
-# This enables detection of leaked sandboxes that weren't properly cleaned up.
-_worker_modal_sandbox_ids: list[str] = []
+# Track Modal app names that were created during tests for cleanup verification.
+# This enables detection of leaked apps that weren't properly cleaned up.
+_worker_modal_app_names: list[str] = []
 
 
-def register_modal_test_sandbox(sandbox_id: str) -> None:
-    """Register a Modal sandbox ID for cleanup verification.
+def register_modal_test_app(app_name: str) -> None:
+    """Register a Modal app name for cleanup verification.
 
-    Call this when creating a Modal sandbox during tests to enable leak detection.
-    The sandbox ID can be obtained from sandbox.object_id after creation.
+    Call this when creating a Modal app during tests to enable leak detection.
+    The app_name should match the name used when creating the Modal app.
     """
-    if sandbox_id not in _worker_modal_sandbox_ids:
-        _worker_modal_sandbox_ids.append(sandbox_id)
+    if app_name not in _worker_modal_app_names:
+        _worker_modal_app_names.append(app_name)
 
 
-def unregister_modal_test_sandbox(sandbox_id: str) -> None:
-    """Unregister a Modal sandbox ID after it's been properly cleaned up.
+def unregister_modal_test_app(app_name: str) -> None:
+    """Unregister a Modal app name after it's been properly cleaned up.
 
-    Call this when a test properly destroys a Modal sandbox to prevent false
+    Call this when a test properly destroys a Modal app to prevent false
     positive leak detection.
     """
-    if sandbox_id in _worker_modal_sandbox_ids:
-        _worker_modal_sandbox_ids.remove(sandbox_id)
+    if app_name in _worker_modal_app_names:
+        _worker_modal_app_names.remove(app_name)
 
 
-def _get_leaked_modal_sandboxes() -> list[str]:
-    """Get Modal sandbox IDs that were registered but not unregistered.
+def _get_leaked_modal_apps() -> list[tuple[str, str]]:
+    """Get Modal apps that were registered and are still running.
 
-    Returns sandbox IDs that were created during tests but not properly cleaned up.
-    This function does not make any Modal API calls - it simply returns the list
-    of sandbox IDs that were registered but not unregistered.
+    Returns a list of (app_id, app_name) tuples for apps that were created during
+    tests but are still running (not in 'stopped' state).
+
+    Uses 'uv run modal app list --json' to query the current state of all apps.
     """
-    return list(_worker_modal_sandbox_ids)
+    if not _worker_modal_app_names:
+        return []
+
+    try:
+        result = subprocess.run(
+            ["uv", "run", "modal", "app", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return []
+
+        apps = json.loads(result.stdout)
+        leaked: list[tuple[str, str]] = []
+
+        for app in apps:
+            app_name = app.get("Description", "")
+            app_id = app.get("App ID", "")
+            state = app.get("State", "")
+
+            # Check if this app was created by our tests and is not stopped
+            if app_name in _worker_modal_app_names and state != "stopped":
+                leaked.append((app_id, app_name))
+
+        return leaked
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        return []
 
 
-def _terminate_modal_sandboxes(sandbox_ids: list[str]) -> None:
-    """Terminate the specified Modal sandboxes.
+def _stop_modal_apps(apps: list[tuple[str, str]]) -> None:
+    """Stop the specified Modal apps.
 
-    This function is defensive and will silently skip any sandboxes that cannot
-    be terminated.
+    Takes a list of (app_id, app_name) tuples and stops each app using
+    'uv run modal app stop <app_id>'.
+
+    This function is defensive and will silently skip any apps that cannot
+    be stopped.
     """
-    if not sandbox_ids:
+    if not apps:
         return
 
-    for sandbox_id in sandbox_ids:
+    for app_id, _app_name in apps:
         try:
-            sandbox = modal.Sandbox.from_id(sandbox_id)
-            sandbox.terminate()
-        except (modal.exception.Error, Exception):
-            # Sandbox may already be terminated or not found
+            subprocess.run(
+                ["uv", "run", "modal", "app", "stop", app_id],
+                capture_output=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
             pass
 
 
@@ -349,7 +381,7 @@ def session_cleanup() -> Generator[None, None, None]:
     and checks for:
     1. Leftover child processes (excluding xdist workers on the leader)
     2. Leftover tmux sessions created by this worker's tests
-    3. Leftover Modal sandboxes created by this worker's tests
+    3. Leftover Modal apps created by this worker's tests
 
     If any leaked resources are found:
     - An error is raised to fail the test suite
@@ -401,14 +433,14 @@ def session_cleanup() -> Generator[None, None, None]:
             + "\n".join(f"  {s}" for s in leftover_sessions)
         )
 
-    # 3. Check for leftover Modal sandboxes from this worker's tests
-    leftover_sandboxes = _get_leaked_modal_sandboxes()
+    # 3. Check for leftover Modal apps from this worker's tests
+    leftover_apps = _get_leaked_modal_apps()
 
-    if leftover_sandboxes:
-        sandbox_info = [f"  {s}" for s in leftover_sandboxes]
+    if leftover_apps:
+        app_info = [f"  {app_id} ({app_name})" for app_id, app_name in leftover_apps]
         errors.append(
-            "Leftover Modal sandboxes found!\n"
-            "Tests should destroy their Modal hosts before completing.\n" + "\n".join(sandbox_info)
+            "Leftover Modal apps found!\n"
+            "Tests should destroy their Modal hosts before completing.\n" + "\n".join(app_info)
         )
 
     # 4. Clean up leaked resources (last-ditch safety measure)
@@ -419,7 +451,7 @@ def session_cleanup() -> Generator[None, None, None]:
             pass
 
     _kill_tmux_sessions(leftover_sessions)
-    _terminate_modal_sandboxes(leftover_sandboxes)
+    _stop_modal_apps(leftover_apps)
 
     # 5. Fail the test suite if any issues were found
     if errors:
