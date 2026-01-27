@@ -207,7 +207,13 @@ class ModalProviderBackend(ProviderBackendInterface):
 
             # Enter the app.run() context manager manually so we can return the app
             # while keeping the context active until close() is called
-            run_context = app.run(environment_name=environment_name)
+            # FIXME: make this more clearly a retry after making the environment by using tenacity
+            try:
+                run_context = app.run(environment_name=environment_name)
+            except modal.exception.NotFoundError:
+                # Ensure the environment exists before trying to use it
+                _ensure_environment_exists(environment_name)
+                run_context = app.run(environment_name=environment_name)
             run_context.__enter__()
 
         # Set app metadata on the loguru writer for structured logging
