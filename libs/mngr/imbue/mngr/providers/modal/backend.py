@@ -41,7 +41,7 @@ def _ensure_environment_exists(environment_name: str) -> None:
     # Check if the environment exists by listing environments
     try:
         result = subprocess.run(
-            ["modal", "environment", "list", "--json"],
+            ["uv", "run", "modal", "environment", "list", "--json"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -52,7 +52,7 @@ def _ensure_environment_exists(environment_name: str) -> None:
                 if env.get("name") == environment_name:
                     logger.trace("Modal environment already exists: {}", environment_name)
                     return
-    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError):
         # If we can't list environments, try to create anyway
         pass
 
@@ -60,7 +60,7 @@ def _ensure_environment_exists(environment_name: str) -> None:
     logger.debug("Creating Modal environment: {}", environment_name)
     try:
         result = subprocess.run(
-            ["modal", "environment", "create", environment_name],
+            ["uv", "run", "modal", "environment", "create", environment_name],
             capture_output=True,
             text=True,
             timeout=30,
