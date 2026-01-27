@@ -1,8 +1,8 @@
-"""Release tests for the snapshot_and_shutdown Modal function.
+"""Acceptance tests for the snapshot_and_shutdown Modal function.
 
 These tests deploy the function to Modal and verify end-to-end functionality.
-Marked as release tests since they involve deploying Modal infrastructure and
-can experience cold starts that take longer than acceptance test timeouts.
+They are marked as acceptance tests since they require network access and
+Modal credentials.
 """
 
 import io
@@ -89,7 +89,8 @@ def _deploy_snapshot_function(app_name: str) -> str:
 def _stop_app(app_name: str) -> None:
     """Stop and clean up a Modal app."""
     subprocess.run(
-        ["uv", "run", "modal", "app", "stop", app_name, "--yes"],
+        ["uv", "run", "modal", "app", "stop", app_name],
+        input=b"y\n",
         capture_output=True,
         timeout=60,
     )
@@ -173,7 +174,7 @@ def deployed_snapshot_function() -> Generator[tuple[str, str], None, None]:
         _stop_app(app_name)
 
 
-@pytest.mark.release
+@pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_snapshot_and_shutdown_success(
     deployed_snapshot_function: tuple[str, str],
@@ -236,7 +237,7 @@ def test_snapshot_and_shutdown_success(
             pass
 
 
-@pytest.mark.release
+@pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_snapshot_and_shutdown_missing_sandbox_id(
     deployed_snapshot_function: tuple[str, str],
@@ -254,7 +255,7 @@ def test_snapshot_and_shutdown_missing_sandbox_id(
     assert "sandbox_id" in response.text.lower()
 
 
-@pytest.mark.release
+@pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_snapshot_and_shutdown_missing_host_id(
     deployed_snapshot_function: tuple[str, str],
@@ -272,7 +273,7 @@ def test_snapshot_and_shutdown_missing_host_id(
     assert "host_id" in response.text.lower()
 
 
-@pytest.mark.release
+@pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_snapshot_and_shutdown_nonexistent_sandbox(
     deployed_snapshot_function: tuple[str, str],
@@ -297,7 +298,7 @@ def test_snapshot_and_shutdown_nonexistent_sandbox(
     assert "sandbox" in response.text.lower() or "not found" in response.text.lower()
 
 
-@pytest.mark.release
+@pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_snapshot_and_shutdown_nonexistent_host_record(
     deployed_snapshot_function: tuple[str, str],

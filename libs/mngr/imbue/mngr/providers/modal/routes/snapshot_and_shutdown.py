@@ -7,7 +7,7 @@ This function is deployed as a Modal web endpoint and can be invoked to:
 
 All code is self-contained in this file - no imports from the mngr codebase.
 
-Required environment variable:
+Required environment variable (must be set when deploying):
 - MNGR_MODAL_APP_NAME: The Modal app name (e.g., "mngr-<user_id>-modal")
 """
 
@@ -27,12 +27,25 @@ class ConfigurationError(RuntimeError):
 
 
 # Get configuration from environment variables
-# The app name MUST be set - fail early if not configured
+# When running locally (during `modal deploy`), this must be set.
+# When running in Modal's cloud, the app/volume names are already bound
+# by Modal's infrastructure, so we use a placeholder.
 APP_NAME = os.environ.get("MNGR_MODAL_APP_NAME")
-if APP_NAME is None:
-    raise ConfigurationError("MNGR_MODAL_APP_NAME environment variable must be set")
 
-VOLUME_NAME = f"{APP_NAME}-state"
+if modal.is_local():
+    # During deployment, we need the real app name
+    if APP_NAME is None:
+        raise ConfigurationError("MNGR_MODAL_APP_NAME environment variable must be set")
+    VOLUME_NAME = f"{APP_NAME}-state"
+    # Create a secret that passes the app name to the remote function
+    app_name_secret = modal.Secret.from_dict({"MNGR_MODAL_APP_NAME": APP_NAME})
+else:
+    # When running in Modal's cloud, the env var is injected by the secret
+    # For module-level code, we use placeholder values since the actual
+    # resources are already bound by Modal's infrastructure
+    APP_NAME = APP_NAME if APP_NAME is not None else "mngr-placeholder"
+    VOLUME_NAME = f"{APP_NAME}-state"
+    app_name_secret = modal.Secret.from_dict({})
 
 # Create the Modal app and volume reference
 image = modal.Image.debian_slim().pip_install("fastapi[standard]")
@@ -46,7 +59,13 @@ def _generate_snapshot_id() -> str:
 
 
 def _read_host_record(host_id: str) -> dict[str, Any] | None:
-    """Read a host record from the volume."""
+    """Read a host record from the volume.
+
+    Reloads the volume first to ensure we have the latest data,
+    as Modal volumes aren't automatically refreshed between function calls.
+    """
+    # Reload the volume to get latest data (changes made externally)
+    volume.reload()
     path = f"/vol/{host_id}.json"
     try:
         with open(path) as f:
@@ -64,7 +83,7 @@ def _write_host_record(host_record: dict[str, Any]) -> None:
     volume.commit()
 
 
-@app.function(volumes={"/vol": volume})
+@app.function(volumes={"/vol": volume}, secrets=[app_name_secret])
 @modal.fastapi_endpoint(method="POST", docs=True)
 def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     """Snapshot a Modal sandbox and shut it down.
@@ -134,5 +153,8 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
         raise
     except modal.exception.NotFoundError as e:
         raise HTTPException(status_code=404, detail=f"Sandbox not found: {e}") from None
+    except modal.exception.InvalidError as e:
+        # Invalid sandbox ID format also counts as "not found"
+        raise HTTPException(status_code=404, detail=f"Invalid sandbox ID: {e}") from None
     except modal.exception.Error as e:
         raise HTTPException(status_code=500, detail=f"Modal error: {e}") from None
