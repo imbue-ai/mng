@@ -1,4 +1,6 @@
 import contextlib
+import json
+import subprocess
 from pathlib import Path
 from typing import Any
 from typing import ClassVar
@@ -33,17 +35,44 @@ def _ensure_environment_exists(environment_name: str) -> None:
     """Ensure a Modal environment exists, creating it if necessary.
 
     Modal environments must be created before they can be used to scope resources
-    like apps, volumes, and sandboxes.
+    like apps, volumes, and sandboxes. Since the Modal Python SDK doesn't provide
+    an API for managing environments, we use the CLI.
     """
+    # Check if the environment exists by listing environments
     try:
-        # Try to look up the environment - if it exists, this succeeds
-        modal.Environment.lookup(environment_name)
-        logger.trace("Modal environment already exists: {}", environment_name)
-    except modal.exception.NotFoundError:
-        # Environment doesn't exist, create it
-        logger.debug("Creating Modal environment: {}", environment_name)
-        modal.Environment.create(environment_name)
-        logger.info("Created Modal environment: {}", environment_name)
+        result = subprocess.run(
+            ["modal", "environment", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            environments = json.loads(result.stdout)
+            for env in environments:
+                if env.get("name") == environment_name:
+                    logger.trace("Modal environment already exists: {}", environment_name)
+                    return
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        # If we can't list environments, try to create anyway
+        pass
+
+    # Environment doesn't exist, create it
+    logger.debug("Creating Modal environment: {}", environment_name)
+    try:
+        result = subprocess.run(
+            ["modal", "environment", "create", environment_name],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            logger.info("Created Modal environment: {}", environment_name)
+        else:
+            # If creation fails, it might already exist (race condition) or there's an error
+            # We'll let the subsequent Modal API calls fail with a more specific error if needed
+            logger.debug("Modal environment create returned non-zero: {}", result.stderr)
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
+        logger.warning("Failed to create Modal environment via CLI: {}", e)
 
 
 class ModalAppContextHandle(FrozenModel):
