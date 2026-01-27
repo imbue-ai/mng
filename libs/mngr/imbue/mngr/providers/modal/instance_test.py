@@ -33,6 +33,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
+from imbue.mngr.providers.modal.backend import STATE_VOLUME_SUFFIX
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
 from imbue.mngr.providers.modal.instance import ModalProviderApp
@@ -224,8 +225,7 @@ def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Genera
 
     # Register the volume name for cleanup verification.
     # Modal volumes are global (not app-specific), so they must be tracked separately.
-    # The volume name follows the pattern from backend.py: {app_name}-state
-    volume_name = f"{app_name}-state"
+    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
     register_modal_test_volume(volume_name)
 
     yield provider
