@@ -433,6 +433,143 @@ def test_parse_build_args_secrets_with_other_args(modal_provider: ModalProviderI
 
 
 # =============================================================================
+# Tests for config-level defaults in _parse_build_args
+# =============================================================================
+
+
+def make_modal_provider_with_config_defaults(
+    mngr_ctx: MngrContext,
+    app_name: str,
+    default_gpu: str | None = None,
+    default_image: str | None = None,
+    default_region: str | None = None,
+) -> ModalProviderInstance:
+    """Create a ModalProviderInstance with custom config defaults for testing."""
+    mock_app = MagicMock()
+    mock_app.app_id = "mock-app-id"
+    mock_app.name = app_name
+
+    mock_volume = MagicMock()
+    output_buffer = StringIO()
+
+    modal_app = ModalProviderApp.model_construct(
+        app_name=app_name,
+        app=mock_app,
+        volume=mock_volume,
+        close_callback=MagicMock(),
+        get_output_callback=output_buffer.getvalue,
+    )
+
+    config = ModalProviderConfig(
+        app_name=app_name,
+        host_dir=Path("/mngr"),
+        default_timeout=300,
+        default_cpu=0.5,
+        default_memory=0.5,
+        default_gpu=default_gpu,
+        default_image=default_image,
+        default_region=default_region,
+        is_persistent=False,
+    )
+
+    instance = ModalProviderInstance.model_construct(
+        name=ProviderInstanceName("modal-test"),
+        host_dir=Path("/mngr"),
+        mngr_ctx=mngr_ctx,
+        config=config,
+        modal_app=modal_app,
+    )
+    return instance
+
+
+def test_parse_build_args_uses_config_default_gpu(temp_mngr_ctx: MngrContext) -> None:
+    """When default_gpu is set in config, _parse_build_args should use it."""
+    provider = make_modal_provider_with_config_defaults(
+        temp_mngr_ctx,
+        app_name="test-app",
+        default_gpu="h100",
+    )
+    config = provider._parse_build_args([])
+    assert config.gpu == "h100"
+
+    # Empty list should also use default
+    config = provider._parse_build_args(None)
+    assert config.gpu == "h100"
+
+
+def test_parse_build_args_uses_config_default_image(temp_mngr_ctx: MngrContext) -> None:
+    """When default_image is set in config, _parse_build_args should use it."""
+    provider = make_modal_provider_with_config_defaults(
+        temp_mngr_ctx,
+        app_name="test-app",
+        default_image="python:3.11-slim",
+    )
+    config = provider._parse_build_args([])
+    assert config.image == "python:3.11-slim"
+
+
+def test_parse_build_args_uses_config_default_region(temp_mngr_ctx: MngrContext) -> None:
+    """When default_region is set in config, _parse_build_args should use it."""
+    provider = make_modal_provider_with_config_defaults(
+        temp_mngr_ctx,
+        app_name="test-app",
+        default_region="us-east",
+    )
+    config = provider._parse_build_args([])
+    assert config.region == "us-east"
+
+
+def test_parse_build_args_uses_all_config_defaults(temp_mngr_ctx: MngrContext) -> None:
+    """When all defaults are set in config, _parse_build_args should use them."""
+    provider = make_modal_provider_with_config_defaults(
+        temp_mngr_ctx,
+        app_name="test-app",
+        default_gpu="a100",
+        default_image="ubuntu:22.04",
+        default_region="eu-west",
+    )
+    config = provider._parse_build_args([])
+    assert config.gpu == "a100"
+    assert config.image == "ubuntu:22.04"
+    assert config.region == "eu-west"
+
+
+def test_parse_build_args_explicit_args_override_config_defaults(temp_mngr_ctx: MngrContext) -> None:
+    """Explicit build args should override config defaults."""
+    provider = make_modal_provider_with_config_defaults(
+        temp_mngr_ctx,
+        app_name="test-app",
+        default_gpu="h100",
+        default_image="python:3.11-slim",
+        default_region="us-east",
+    )
+
+    # Override GPU
+    config = provider._parse_build_args(["--gpu=a100"])
+    assert config.gpu == "a100"
+    assert config.image == "python:3.11-slim"
+    assert config.region == "us-east"
+
+    # Override image
+    config = provider._parse_build_args(["--image=debian:bookworm"])
+    assert config.gpu == "h100"
+    assert config.image == "debian:bookworm"
+    assert config.region == "us-east"
+
+    # Override region
+    config = provider._parse_build_args(["--region=eu-west"])
+    assert config.gpu == "h100"
+    assert config.image == "python:3.11-slim"
+    assert config.region == "eu-west"
+
+    # Override all
+    config = provider._parse_build_args(["--gpu=t4", "--image=alpine:latest", "--region=ap-south"])
+    assert config.gpu == "t4"
+    assert config.image == "alpine:latest"
+    assert config.region == "ap-south"
+
+
+# =============================================================================
 # Tests for _build_modal_secrets_from_env helper function
 # =============================================================================
 
