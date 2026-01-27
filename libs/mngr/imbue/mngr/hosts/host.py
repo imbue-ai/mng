@@ -320,6 +320,10 @@ class Host(HostInterface):
                 pass
         return None
 
+    def get_file_mtime(self, path: Path) -> datetime | None:
+        """Return the modification time of a file, or None if the file doesn't exist."""
+        return self._get_file_mtime(path)
+
     def _path_exists(self, path: Path) -> bool:
         """Check if a path exists on the host."""
         result = self.execute_command(f"test -e '{str(path)}'")
@@ -409,13 +413,28 @@ class Host(HostInterface):
         return self._get_file_mtime(activity_path)
 
     def record_activity(self, activity_type: ActivitySource) -> None:
-        """Record activity of the given type. Only BOOT is valid for host-level activity."""
+        """Record activity by writing JSON with timestamp and metadata.
+
+        Only BOOT is valid for host-level activity.
+
+        The JSON contains:
+        - time: milliseconds since Unix epoch (int)
+        - host_id: the host's ID (for debugging)
+
+        Note: The authoritative activity time is the file's mtime, not the
+        JSON content. The JSON is for debugging/auditing purposes.
+        """
         if activity_type != ActivitySource.BOOT:
             raise InvalidActivityTypeError(f"Only BOOT activity can be recorded on host, got: {activity_type}")
 
         logger.trace("Recording {} activity on host {}", activity_type, self.id)
         activity_path = self.host_dir / "activity" / activity_type.value.lower()
-        self.write_text_file(activity_path, datetime.now(timezone.utc).isoformat())
+        now = datetime.now(timezone.utc)
+        data = {
+            "time": int(now.timestamp() * 1000),
+            "host_id": str(self.id),
+        }
+        self.write_text_file(activity_path, json.dumps(data, indent=2))
 
     def get_reported_activity_content(self, activity_type: ActivitySource) -> str | None:
         """Get the content of the activity file."""
@@ -1596,15 +1615,23 @@ class Host(HostInterface):
         1. Gets the tmux pane PID for the agent's session
         2. Loops while that PID is alive, writing PROCESS activity every ~5 seconds
         3. Exits when the pane process exits
+
+        The activity file contains JSON with:
+        - time: milliseconds since Unix epoch (int)
+        - pane_pid: the tmux pane PID being monitored (for debugging)
+        - agent_id: the agent's ID (for debugging)
+
+        Note: The authoritative activity time is the file's mtime, not the JSON content.
         """
         activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value
+        agent_id = str(agent.id)
 
         # Build a bash script that monitors the process and writes activity
         # We use nohup and redirect output to /dev/null to fully detach
         # The script:
         # 1. Gets the pane PID using tmux list-panes
         # 2. While the PID exists, write activity JSON and sleep
-        # 3. Uses date -u for UTC ISO format timestamps
+        # 3. Uses date +%s for seconds since epoch, multiply by 1000 for milliseconds
         # FIXME: this script really ought to wait for up to X seconds for the PANE_PID to appear (since it can take a little bit)
         monitor_script = f"""
 PANE_PID=$(tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null | head -n 1)
@@ -1612,10 +1639,11 @@ if [ -z "$PANE_PID" ]; then
     exit 0
 fi
 ACTIVITY_PATH={shlex.quote(str(activity_path))}
+AGENT_ID={shlex.quote(agent_id)}
 mkdir -p "$(dirname "$ACTIVITY_PATH")"
 while kill -0 "$PANE_PID" 2>/dev/null; do
-    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%6N+00:00" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S+00:00")
-    printf '{{\\n  "time": "%s"\\n}}\\n' "$TIMESTAMP" > "$ACTIVITY_PATH"
+    TIME_MS=$(($(date +%s) * 1000))
+    printf '{{\\n  "time": %d,\\n  "pane_pid": %s,\\n  "agent_id": "%s"\\n}}\\n' "$TIME_MS" "$PANE_PID" "$AGENT_ID" > "$ACTIVITY_PATH"
     sleep 5
 done
 """
