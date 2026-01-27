@@ -22,6 +22,7 @@ from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
+from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
 
@@ -216,8 +217,10 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     imbue.mngr.main.reset_plugin_manager()
     reset_backend_registry()
 
-    # Clean up Modal app contexts to prevent async cleanup errors
+    # Clean up Modal app contexts and sandbox cache to prevent async cleanup errors
+    # and ensure test isolation
     ModalProviderBackend.reset_app_registry()
+    ModalProviderInstance.reset_sandbox_cache()
 
 
 # =============================================================================
