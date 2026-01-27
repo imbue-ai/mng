@@ -664,8 +664,8 @@ class ModalProviderInstance(BaseProviderInstance):
     def _find_sandbox_by_host_id(self, host_id: HostId) -> modal.Sandbox | None:
         """Find a Modal sandbox by its mngr host_id tag.
 
-        The app_id already carries the environment context since the app was created
-        with environment_name, so we don't need to pass environment_name here.
+        The app_id identifies the app within its environment, so sandboxes created
+        in that app's environment will be found via app_id alone.
         """
         logger.trace("Looking up sandbox with host_id={} in env={}", host_id, self.environment_name)
         app = self._get_modal_app()
@@ -676,8 +676,8 @@ class ModalProviderInstance(BaseProviderInstance):
     def _find_sandbox_by_name(self, name: HostName) -> modal.Sandbox | None:
         """Find a Modal sandbox by its mngr host_name tag.
 
-        The app_id already carries the environment context since the app was created
-        with environment_name, so we don't need to pass environment_name here.
+        The app_id identifies the app within its environment, so sandboxes created
+        in that app's environment will be found via app_id alone.
         """
         logger.trace("Looking up sandbox with name={} in env={}", name, self.environment_name)
         app = self._get_modal_app()
@@ -688,8 +688,8 @@ class ModalProviderInstance(BaseProviderInstance):
     def _list_sandboxes(self) -> list[modal.Sandbox]:
         """List all Modal sandboxes managed by this mngr provider instance.
 
-        The app_id already carries the environment context since the app was created
-        with environment_name, so we don't need to pass environment_name here.
+        The app_id identifies the app within its environment, so sandboxes created
+        in that app's environment will be found via app_id alone.
         """
         logger.trace("Listing all mngr sandboxes for app={} in env={}", self.app_name, self.environment_name)
         app = self._get_modal_app()
