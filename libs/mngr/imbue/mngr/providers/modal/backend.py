@@ -351,6 +351,13 @@ Supported build arguments for the modal provider:
         environment_name = f"{prefix}{user_id}"
         default_app_name = f"{prefix}{name}"
 
+        # Truncate environment_name if needed to fit Modal's 64 char limit
+        if len(environment_name) > MODAL_NAME_MAX_LENGTH:
+            logger.warning(
+                "Truncating Modal environment name to {} characters: {}", MODAL_NAME_MAX_LENGTH, environment_name
+            )
+            environment_name = environment_name[:MODAL_NAME_MAX_LENGTH]
+
         app_name = config.app_name if config.app_name is not None else default_app_name
         host_dir = config.host_dir if config.host_dir is not None else Path("/mngr")
 
