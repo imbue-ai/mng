@@ -204,7 +204,3 @@ And run your local development copy of the tool like this:
 ```bash
 uv run claude-code-transcripts --help
 ```
-
-## TODOs
-
-All documented features are fully implemented. No outstanding TODOs.
