@@ -107,7 +107,7 @@ class ModalProviderBackend(ProviderBackendInterface):
     _app_registry: ClassVar[dict[str, tuple[modal.App, ModalAppContextHandle]]] = {}
 
     @classmethod
-    def _get_or_create_app(cls, app_name: str) -> tuple[modal.App, ModalAppContextHandle]:
+    def _get_or_create_app(cls, app_name: str, is_persistent: bool) -> tuple[modal.App, ModalAppContextHandle]:
         """Get or create a Modal app with output capture.
 
         Creates an ephemeral app with `modal.App(name)` and enters its `app.run()`
@@ -137,7 +137,7 @@ class ModalProviderBackend(ProviderBackendInterface):
 
         # Enter the app.run() context manager manually so we can return the app
         # while keeping the context active until close() is called
-        run_context = app.run()
+        run_context = app.run(detach=is_persistent)
         run_context.__enter__()
 
         # Set app metadata on the loguru writer for structured logging
@@ -285,7 +285,7 @@ Supported build arguments for the modal provider:
             app_name = app_name[:max_app_name_length]
 
         # Create the ModalProviderApp that manages the Modal app and its resources
-        app, context_handle = ModalProviderBackend._get_or_create_app(app_name)
+        app, context_handle = ModalProviderBackend._get_or_create_app(app_name, config.is_persistent)
         volume = ModalProviderBackend.get_volume_for_app(app_name)
         modal_app = ModalProviderApp(
             app_name=app_name,
