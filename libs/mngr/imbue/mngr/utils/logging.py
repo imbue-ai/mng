@@ -1,5 +1,6 @@
 import functools
 import inspect
+import io
 import os
 import sys
 from collections import deque
@@ -10,7 +11,9 @@ from typing import Any
 from typing import Final
 from typing import NamedTuple
 from typing import ParamSpec
+from typing import TextIO
 from typing import TypeVar
+from typing import cast
 
 import deal
 from loguru import logger
@@ -267,11 +270,73 @@ class BufferedMessage(NamedTuple):
     is_stderr: bool
 
 
+class BufferingStreamWrapper(io.TextIOBase):
+    """A stream wrapper that buffers all writes instead of passing them through.
+
+    This is used to capture ALL writes to stdout/stderr, including those from
+    Python's warnings module, third-party libraries, and any other code that
+    writes directly to sys.stdout or sys.stderr.
+
+    The wrapper maintains a reference to the original stream so it can be
+    restored later, and stores all writes in a provided buffer.
+    """
+
+    def __init__(self, original_stream: TextIO, buffer: deque[BufferedMessage], is_stderr: bool) -> None:
+        """Create a buffering wrapper around a stream."""
+        super().__init__()
+        self._original_stream = original_stream
+        self._buffer = buffer
+        self._is_stderr = is_stderr
+        self._encoding = getattr(original_stream, "encoding", "utf-8")
+        self._errors = getattr(original_stream, "errors", "strict")
+
+    @property
+    def encoding(self) -> str:
+        """Return the encoding of the original stream."""
+        return self._encoding
+
+    @property
+    def errors(self) -> str:
+        """Return the error handling mode of the original stream."""
+        return self._errors
+
+    def write(self, s: str) -> int:
+        """Buffer the write instead of passing it to the original stream."""
+        if s:
+            self._buffer.append(BufferedMessage(s, self._is_stderr))
+        return len(s)
+
+    def flush(self) -> None:
+        """No-op since we're buffering, not writing."""
+        pass
+
+    def isatty(self) -> bool:
+        """Return whether the original stream is a TTY."""
+        return self._original_stream.isatty()
+
+    def fileno(self) -> int:
+        """Return the file descriptor of the original stream.
+
+        This is needed for code that checks the file descriptor (e.g., some
+        terminal libraries).
+        """
+        return self._original_stream.fileno()
+
+    @property
+    def original_stream(self) -> TextIO:
+        """Get the original stream for restoration."""
+        return self._original_stream
+
+
 class LoggingSuppressor:
     """Manages temporary suppression and buffering of console log output.
 
     When suppression is enabled, console log messages (stdout/stderr) are
     buffered instead of being written immediately. File logging is not affected.
+
+    This class also redirects sys.stdout and sys.stderr to capture ALL writes,
+    including those from Python's warnings module, third-party libraries, and
+    any other code that writes directly to the streams.
 
     Use as a context manager or call enable/disable explicitly.
     """
@@ -284,6 +349,9 @@ class LoggingSuppressor:
     _suppressed_stdout_handler_id: int | None = None
     _suppressed_stderr_handler_id: int | None = None
     _output_opts: OutputOptions | None = None
+    # Original streams for restoration
+    _original_stdout: TextIO | None = None
+    _original_stderr: TextIO | None = None
 
     @classmethod
     def is_suppressed(cls) -> bool:
@@ -296,6 +364,9 @@ class LoggingSuppressor:
 
         The buffer will keep the most recent buffer_size messages. File logging
         is not affected - only stdout and stderr console handlers are suppressed.
+
+        This also redirects sys.stdout and sys.stderr to capture ALL writes,
+        including those from Python's warnings module and third-party libraries.
         """
         if cls._is_suppressed:
             return
@@ -317,7 +388,20 @@ class LoggingSuppressor:
             except ValueError:
                 pass
 
-        # Add buffering handlers that capture messages instead of writing to console
+        # Redirect sys.stdout and sys.stderr to capture ALL writes
+        # This captures Python warnings, third-party library output, etc.
+        cls._original_stdout = sys.stdout
+        cls._original_stderr = sys.stderr
+        stdout_wrapper = BufferingStreamWrapper(cls._original_stdout, cls._buffer, is_stderr=False)
+        stderr_wrapper = BufferingStreamWrapper(cls._original_stderr, cls._buffer, is_stderr=True)
+        sys.stdout = cast(TextIO, stdout_wrapper)
+        sys.stderr = cast(TextIO, stderr_wrapper)
+
+        # Add buffering handlers that capture messages instead of writing to console.
+        # Note: These handlers now write to our BufferingStreamWrapper, but since we're
+        # using custom sink functions that write to the buffer directly, this is fine.
+        # The loguru messages will be buffered via the sink functions, while direct
+        # writes to sys.stdout/stderr will be buffered via the stream wrappers.
         if output_opts.console_level != LogLevel.NONE:
             cls._suppressed_stdout_handler_id = logger.add(
                 cls._buffered_stdout_sink,
@@ -360,6 +444,7 @@ class LoggingSuppressor:
         """Disable suppression and replay buffered messages.
 
         If clear_screen is True, clears the terminal before replaying messages.
+        Restores sys.stdout and sys.stderr to their original streams.
         """
         if not cls._is_suppressed:
             return
@@ -374,6 +459,15 @@ class LoggingSuppressor:
         if cls._suppressed_stderr_handler_id is not None:
             logger.remove(cls._suppressed_stderr_handler_id)
             cls._suppressed_stderr_handler_id = None
+
+        # Restore the original stdout/stderr streams BEFORE writing anything
+        # This ensures our replayed messages go to the real terminal
+        if cls._original_stdout is not None:
+            sys.stdout = cls._original_stdout
+            cls._original_stdout = None
+        if cls._original_stderr is not None:
+            sys.stderr = cls._original_stderr
+            cls._original_stderr = None
 
         # Clear the screen if requested
         if clear_screen:
