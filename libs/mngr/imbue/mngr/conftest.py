@@ -15,13 +15,13 @@ from click.testing import CliRunner
 from urwid.widget.listbox import SimpleFocusListWalker
 
 import imbue.mngr.main
-from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
 
@@ -224,10 +224,6 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
 # Session Cleanup - Detect and clean up leaked test resources
 # =============================================================================
 
-# Prefix for Modal test apps - all test Modal apps should use this prefix
-# to enable easy identification and cleanup
-MODAL_TEST_APP_PREFIX = "mngr-test-"
-
 
 def _get_tmux_sessions_with_prefix(prefix: str) -> list[str]:
     """Get tmux sessions matching the given prefix."""
@@ -300,16 +296,6 @@ def register_modal_test_app(app_name: str) -> None:
     """
     if app_name not in _worker_modal_app_names:
         _worker_modal_app_names.append(app_name)
-
-
-def unregister_modal_test_app(app_name: str) -> None:
-    """Unregister a Modal app name after it's been properly cleaned up.
-
-    Call this when a test properly destroys a Modal app to prevent false
-    positive leak detection.
-    """
-    if app_name in _worker_modal_app_names:
-        _worker_modal_app_names.remove(app_name)
 
 
 def _get_leaked_modal_apps() -> list[tuple[str, str]]:

@@ -33,6 +33,7 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.modal.config import ModalProviderConfig
+from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.instance import TAG_HOST_ID
@@ -41,7 +42,6 @@ from imbue.mngr.providers.modal.instance import TAG_USER_PREFIX
 from imbue.mngr.providers.modal.instance import _build_modal_secrets_from_env
 from imbue.mngr.providers.modal.instance import build_sandbox_tags
 from imbue.mngr.providers.modal.instance import parse_sandbox_tags
-
 
 # =============================================================================
 # Unit tests for sandbox tag helper functions
@@ -203,21 +203,19 @@ def make_modal_provider_real(mngr_ctx: MngrContext, app_name: str) -> ModalProvi
 @pytest.fixture
 def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProviderInstance:
     """Create a ModalProviderInstance with mocked Modal for unit/integration tests."""
-    app_name = f"mngr-test-{mngr_test_id}"
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     return make_modal_provider_with_mocks(temp_mngr_ctx, app_name)
 
 
 @pytest.fixture
-def real_modal_provider(
-    temp_mngr_ctx: MngrContext, mngr_test_id: str
-) -> Generator[ModalProviderInstance, None, None]:
+def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Generator[ModalProviderInstance, None, None]:
     """Create a ModalProviderInstance with real Modal for acceptance tests.
 
     This fixture registers the Modal app name for leak detection. If the test
     doesn't properly clean up its hosts, the session_cleanup fixture will
     detect the still-running app and stop it.
     """
-    app_name = f"mngr-test-{mngr_test_id}"
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     provider = make_modal_provider_real(temp_mngr_ctx, app_name)
 
     # Register the app name for cleanup verification
