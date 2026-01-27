@@ -188,15 +188,18 @@ class ModalProviderBackend(ProviderBackendInterface):
 
         logger.debug("Creating ephemeral Modal app with output capture: {} (env: {})", app_name, environment_name)
 
-        # Ensure the environment exists before trying to use it
-        _ensure_environment_exists(environment_name)
-
         # Enter the output capture context first
         output_capture_context = enable_modal_output_capture(is_logging_to_loguru=True)
         output_buffer, loguru_writer = output_capture_context.__enter__()
 
         if is_persistent:
-            app = modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
+            # FIXME: make this more clearly a retry after making the environment by using tenacity
+            try:
+                app = modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
+            except modal.exception.NotFoundError:
+                # Ensure the environment exists before trying to use it
+                _ensure_environment_exists(environment_name)
+                app = modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
             run_context = None
         else:
             # Create the Modal app
