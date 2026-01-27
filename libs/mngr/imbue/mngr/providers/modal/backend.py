@@ -39,7 +39,12 @@ class ModalAppContextHandle(FrozenModel):
     termination. The volume is created lazily when first accessed.
     """
 
-    run_context: Any = Field(description="The Modal app.run() context manager")
+    # FIXME: replace Any with concrete types from modal
+    #  you'll need a config dict like this:
+    #      model_config = ConfigDict(arbitrary_types_allowed=True)
+    run_context: Any | None = Field(
+        description="The Modal app.run() context manager (only present for ephemeral apps)"
+    )
     app_name: str = Field(description="The name of the Modal app")
     output_capture_context: Any = Field(description="The output capture context manager")
     output_buffer: Any = Field(description="StringIO buffer containing captured Modal output")
@@ -59,7 +64,8 @@ def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
 
     # Exit the app context first
     try:
-        handle.run_context.__exit__(None, None, None)
+        if handle.run_context is not None:
+            handle.run_context.__exit__(None, None, None)
     except modal.exception.Error as e:
         logger.warning("Modal error exiting app context {}: {}", handle.app_name, e)
 
@@ -132,13 +138,17 @@ class ModalProviderBackend(ProviderBackendInterface):
         output_capture_context = enable_modal_output_capture(is_logging_to_loguru=True)
         output_buffer, loguru_writer = output_capture_context.__enter__()
 
-        # Create the Modal app
-        app = modal.App(app_name)
+        if is_persistent:
+            app = modal.App.lookup(app_name, create_if_missing=True)
+            run_context = None
+        else:
+            # Create the Modal app
+            app = modal.App(app_name)
 
-        # Enter the app.run() context manager manually so we can return the app
-        # while keeping the context active until close() is called
-        run_context = app.run(detach=is_persistent)
-        run_context.__enter__()
+            # Enter the app.run() context manager manually so we can return the app
+            # while keeping the context active until close() is called
+            run_context = app.run()
+            run_context.__enter__()
 
         # Set app metadata on the loguru writer for structured logging
         if loguru_writer is not None:
