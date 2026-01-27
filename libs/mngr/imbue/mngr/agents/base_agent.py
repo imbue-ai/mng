@@ -337,19 +337,33 @@ class BaseAgent(AgentInterface):
     # =========================================================================
 
     def get_reported_activity_time(self, activity_type: ActivitySource) -> datetime | None:
+        """Return the last activity time using file modification time.
+
+        Activity time is determined by mtime, not by parsing the JSON content.
+        This ensures consistency across all activity writers (Python, bash, lua)
+        and allows simple scripts to just touch files without writing JSON.
+        """
         activity_path = self._get_agent_dir() / "activity" / activity_type.value
-        try:
-            content = self.host.read_text_file(activity_path)
-            data = json.loads(content)
-            return datetime.fromisoformat(data["time"])
-        except (FileNotFoundError, KeyError, ValueError):
-            return None
+        return self.host.get_file_mtime(activity_path)
 
     def record_activity(self, activity_type: ActivitySource) -> None:
+        """Record activity by writing JSON with timestamp and metadata.
+
+        The JSON contains:
+        - time: milliseconds since Unix epoch (int)
+        - agent_id: the agent's ID (for debugging)
+        - agent_name: the agent's name (for debugging)
+
+        Note: The authoritative activity time is the file's mtime, not the
+        JSON content. The JSON is for debugging/auditing purposes.
+        """
         logger.trace("Recording {} activity for agent {}", activity_type, self.name)
         activity_path = self._get_agent_dir() / "activity" / activity_type.value
+        now = datetime.now(timezone.utc)
         data = {
-            "time": datetime.now(timezone.utc).isoformat(),
+            "time": int(now.timestamp() * 1000),
+            "agent_id": str(self.id),
+            "agent_name": str(self.name),
         }
         self.host.write_text_file(activity_path, json.dumps(data, indent=2))
 

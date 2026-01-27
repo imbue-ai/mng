@@ -1174,9 +1174,15 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str
 
     The script:
     1. Creates the activity directory if needed
-    2. Starts a background loop that writes timestamps to activity/ssh
+    2. Starts a background loop that writes JSON activity to activity/ssh
     3. Runs tmux attach (foreground, blocking)
     4. Kills the activity tracker when tmux exits
+
+    The activity file contains JSON with:
+    - time: milliseconds since Unix epoch (int)
+    - ssh_pid: the PID of the SSH activity tracker process (for debugging)
+
+    Note: The authoritative activity time is the file's mtime, not the JSON content.
     """
     activity_dir = host_dir / "activity"
     activity_file = activity_dir / "ssh"
@@ -1184,7 +1190,10 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str
     # but the paths need to be interpolated
     return (
         f"mkdir -p '{activity_dir}'; "
-        f"(while true; do date -u +%FT%T%z > '{activity_file}'; sleep 5; done) & "
+        f"(while true; do "
+        f"TIME_MS=$(($(date +%s) * 1000)); "
+        f"printf '{{\\n  \"time\": %d,\\n  \"ssh_pid\": %d\\n}}\\n' \"$TIME_MS\" \"$$\" > '{activity_file}'; "
+        f"sleep 5; done) & "
         "MNGR_ACTIVITY_PID=$!; "
         f"tmux attach -t '{session_name}'; "
         "kill $MNGR_ACTIVITY_PID 2>/dev/null"
