@@ -37,6 +37,18 @@ class ModalProviderConfig(ProviderInstanceConfig):
         default=1.0,
         description="Default memory in GB",
     )
+    default_gpu: str | None = Field(
+        default=None,
+        description="Default GPU type (e.g., 'h100', 'a10g'). None means no GPU.",
+    )
+    default_image: str | None = Field(
+        default=None,
+        description="Default base image (e.g., 'python:3.11-slim'). None uses debian_slim.",
+    )
+    default_region: str | None = Field(
+        default=None,
+        description="Default region (e.g., 'us-east'). None lets Modal choose.",
+    )
     is_persistent: bool = Field(
         default=True,
         description=(

@@ -108,6 +108,11 @@ class HostInterface(MutableModel, ABC):
         """Write string content to a file."""
         ...
 
+    @abstractmethod
+    def get_file_mtime(self, path: Path) -> datetime | None:
+        """Return the modification time of a file, or None if the file doesn't exist."""
+        ...
+
     # =========================================================================
     # Activity Configuration
     # =========================================================================

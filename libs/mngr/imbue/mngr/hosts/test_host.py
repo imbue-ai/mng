@@ -292,12 +292,19 @@ def test_invalid_activity_type_raises(host_with_temp_dir: tuple[Host, Path]) -> 
 
 
 def test_get_activity_content(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test getting activity file content."""
+    """Test getting activity file content - should be JSON with time in milliseconds."""
     host, _ = host_with_temp_dir
     host.record_activity(ActivitySource.BOOT)
     content = host.get_reported_activity_content(ActivitySource.BOOT)
     assert content is not None
-    assert "T" in content
+    data = json.loads(content)
+    assert "time" in data
+    # Time should be an integer (milliseconds since epoch)
+    assert isinstance(data["time"], int)
+    # Should be a reasonable timestamp (after year 2020, which is 1577836800000 ms)
+    assert data["time"] > 1577836800000
+    # Should also have host_id for debugging
+    assert "host_id" in data
 
 
 # =============================================================================
@@ -738,13 +745,17 @@ def test_start_agent_starts_process_activity_monitor(
 
         wait_for(activity_file_exists, timeout=10.0, error_message="PROCESS activity file not created")
 
-        # Verify the activity file has valid JSON content with a timestamp
+        # Verify the activity file has valid JSON content with time in milliseconds
         content = activity_path.read_text()
         data = json.loads(content)
         assert "time" in data
-        # Verify it's a valid ISO timestamp format
-        assert "T" in data["time"]
-        assert data["time"].endswith("+00:00")
+        # Time should be an integer (milliseconds since epoch)
+        assert isinstance(data["time"], int)
+        # Should be a reasonable timestamp (after year 2020, which is 1577836800000 ms)
+        assert data["time"] > 1577836800000
+        # Should also have debugging fields
+        assert "pane_pid" in data
+        assert "agent_id" in data
     finally:
         host.stop_agents([agent.id])
 
