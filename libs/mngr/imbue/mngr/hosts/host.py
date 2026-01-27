@@ -273,7 +273,11 @@ class Host(HostInterface):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(content)
         else:
-            is_success = self._put_file(io.BytesIO(content), str(path))
+            try:
+                is_success = self._put_file(io.BytesIO(content), str(path))
+            except IOError:
+                # pyinfra/paramiko raises IOError when the parent directory doesn't exist
+                is_success = False
             if not is_success:
                 # May have failed because parent directory doesn't exist, create it and retry
                 parent_dir = str(path.parent)
@@ -405,11 +409,9 @@ class Host(HostInterface):
         return self._get_file_mtime(activity_path)
 
     def record_activity(self, activity_type: ActivitySource) -> None:
-        """Record activity of the given type. Only BOOT and CREATE are valid."""
-        if activity_type not in (ActivitySource.BOOT, ActivitySource.CREATE):
-            raise InvalidActivityTypeError(
-                f"Only BOOT and CREATE activity can be recorded on host, got: {activity_type}"
-            )
+        """Record activity of the given type. Only BOOT is valid for host-level activity."""
+        if activity_type != ActivitySource.BOOT:
+            raise InvalidActivityTypeError(f"Only BOOT activity can be recorded on host, got: {activity_type}")
 
         logger.trace("Recording {} activity on host {}", activity_type, self.id)
         activity_path = self.host_dir / "activity" / activity_type.value.lower()
@@ -1152,6 +1154,9 @@ class Host(HostInterface):
         data_path = state_dir / "data.json"
         self.write_text_file(data_path, json.dumps(data, indent=2))
 
+        # Record CREATE activity for idle detection
+        agent.record_activity(ActivitySource.CREATE)
+
         return agent
 
     def _get_agent_state_dir(self, agent: AgentInterface) -> Path:
@@ -1578,6 +1583,55 @@ class Host(HostInterface):
                 if not result.success:
                     raise AgentStartError(str(agent.name), f"tmux select-window failed: {result.stderr}")
 
+            # Record START activity for idle detection
+            agent.record_activity(ActivitySource.START)
+
+            # Start background process activity monitor
+            self._start_process_activity_monitor(agent, session_name)
+
+    def _start_process_activity_monitor(self, agent: AgentInterface, session_name: str) -> None:
+        """Start a background process that writes PROCESS activity while the agent is alive.
+
+        This launches a detached bash script on the host that:
+        1. Gets the tmux pane PID for the agent's session
+        2. Loops while that PID is alive, writing PROCESS activity every ~5 seconds
+        3. Exits when the pane process exits
+        """
+        activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value
+
+        # Build a bash script that monitors the process and writes activity
+        # We use nohup and redirect output to /dev/null to fully detach
+        # The script:
+        # 1. Gets the pane PID using tmux list-panes
+        # 2. While the PID exists, write activity JSON and sleep
+        # 3. Uses date -u for UTC ISO format timestamps
+        # FIXME: this script really ought to wait for up to X seconds for the PANE_PID to appear (since it can take a little bit)
+        monitor_script = f"""
+PANE_PID=$(tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null | head -n 1)
+if [ -z "$PANE_PID" ]; then
+    exit 0
+fi
+ACTIVITY_PATH={shlex.quote(str(activity_path))}
+mkdir -p "$(dirname "$ACTIVITY_PATH")"
+while kill -0 "$PANE_PID" 2>/dev/null; do
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%6N+00:00" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S+00:00")
+    printf '{{\\n  "time": "%s"\\n}}\\n' "$TIMESTAMP" > "$ACTIVITY_PATH"
+    sleep 5
+done
+"""
+        # Run the script in the background, fully detached
+        # nohup ensures it survives if the parent shell exits
+        # Redirect all output to /dev/null and background with &
+        cmd = f"nohup bash -c {shlex.quote(monitor_script)} </dev/null >/dev/null 2>&1 &"
+
+        result = self.execute_command(cmd)
+        if not result.success:
+            logger.warning(
+                "Failed to start process activity monitor for agent {}: {}",
+                agent.name,
+                result.stderr,
+            )
+
     def _get_all_descendant_pids(self, parent_pid: str) -> list[str]:
         """Recursively get all descendant PIDs of a given parent PID."""
         descendant_pids: list[str] = []
@@ -1708,14 +1762,28 @@ class Host(HostInterface):
     # =========================================================================
 
     def get_idle_seconds(self) -> float:
-        """Get the number of seconds since last activity."""
+        """Get the number of seconds since last activity.
+
+        Checks both host-level activity files (like BOOT) and agent-level
+        activity files (like CREATE, START, AGENT). Returns the time since
+        the most recent activity from any source.
+        """
         latest_activity: datetime | None = None
 
+        # Check host-level activity files
         for activity_type in ActivitySource:
             activity_time = self.get_reported_activity_time(activity_type)
             if activity_time is not None:
                 if latest_activity is None or activity_time > latest_activity:
                     latest_activity = activity_time
+
+        # Check agent-level activity files for all agents on this host
+        for agent in self.get_agents():
+            for activity_type in ActivitySource:
+                activity_time = agent.get_reported_activity_time(activity_type)
+                if activity_time is not None:
+                    if latest_activity is None or activity_time > latest_activity:
+                        latest_activity = activity_time
 
         if latest_activity is None:
             return float("inf")

@@ -1169,6 +1169,28 @@ def _assemble_result(
     return (agent_id, host_id)
 
 
+def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str:
+    """Build a shell script that tracks SSH activity while running tmux.
+
+    The script:
+    1. Creates the activity directory if needed
+    2. Starts a background loop that writes timestamps to activity/ssh
+    3. Runs tmux attach (foreground, blocking)
+    4. Kills the activity tracker when tmux exits
+    """
+    activity_dir = host_dir / "activity"
+    activity_file = activity_dir / "ssh"
+    # Use single quotes around most things to avoid shell expansion issues,
+    # but the paths need to be interpolated
+    return (
+        f"mkdir -p '{activity_dir}'; "
+        f"(while true; do date -u +%FT%T%z > '{activity_file}'; sleep 5; done) & "
+        "MNGR_ACTIVITY_PID=$!; "
+        f"tmux attach -t '{session_name}'; "
+        "kill $MNGR_ACTIVITY_PID 2>/dev/null"
+    )
+
+
 def _connect_to_agent(
     agent: AgentInterface,
     host: HostInterface,
@@ -1178,7 +1200,10 @@ def _connect_to_agent(
     """Connect to the created agent by replacing the current process with tmux attach.
 
     For local agents, executes: tmux attach -t <session_name>
-    For remote agents, executes: ssh <host> tmux attach -t <session_name>
+    For remote agents, executes: ssh <host> <activity_wrapper_script>
+
+    The activity wrapper script tracks SSH activity by writing timestamps to the
+    host's activity/ssh file while the SSH connection is open.
 
     This function does not return - it replaces the current process.
     """
@@ -1220,7 +1245,9 @@ def _connect_to_agent(
         else:
             ssh_args.append(ssh_host)
 
-        ssh_args.extend(["-t", "tmux", "attach", "-t", session_name])
+        # Build wrapper script that tracks SSH activity while running tmux
+        wrapper_script = _build_ssh_activity_wrapper_script(session_name, host.host_dir)
+        ssh_args.extend(["-t", "bash", "-c", wrapper_script])
 
         os.execvp("ssh", ssh_args)
 
