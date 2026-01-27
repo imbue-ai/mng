@@ -582,14 +582,13 @@ class ModalProviderInstance(BaseProviderInstance):
             add_help=False,
             exit_on_error=False,
         )
-        # FIXME: obviously we should add the rest of the defaults here (ie to the config, rather than having default=None anywhere below)
-        parser.add_argument("--gpu", type=str, default=None)
+        parser.add_argument("--gpu", type=str, default=self.config.default_gpu)
         parser.add_argument("--cpu", type=float, default=self.config.default_cpu)
         parser.add_argument("--memory", type=float, default=self.config.default_memory)
-        parser.add_argument("--image", type=str, default=None)
+        parser.add_argument("--image", type=str, default=self.config.default_image)
         parser.add_argument("--dockerfile", type=str, default=None)
         parser.add_argument("--timeout", type=int, default=self.config.default_timeout)
-        parser.add_argument("--region", type=str, default=None)
+        parser.add_argument("--region", type=str, default=self.config.default_region)
         parser.add_argument("--context-dir", type=str, default=None)
         parser.add_argument("--secret", type=str, action="append", default=[])
 
