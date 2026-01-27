@@ -71,11 +71,9 @@ def _install_claude(host: HostInterface) -> None:
 
 def _prompt_user_for_installation() -> bool:
     """Prompt the user to install claude locally."""
-    logger.info("")
-    logger.info("Claude is not installed on this machine.")
-    logger.info("You can install it by running:")
-    logger.info("  curl -fsSL https://claude.ai/install.sh | bash")
-    logger.info("")
+    logger.info(
+        "\nClaude is not installed on this machine.\nYou can install it by running:\n  curl -fsSL https://claude.ai/install.sh | bash\n"
+    )
     return click.confirm("Would you like to install it now?", default=True)
 
 
@@ -219,16 +217,25 @@ class ClaudeAgent(BaseAgent):
                 logger.warning("Claude is not installed on the host")
 
                 if host.is_local:
-                    # For local hosts, prompt the user for consent
-                    # FIXME: this needs to understand whether we're running in interactive mode or not, should be part of MngrContext
-                    if not _prompt_user_for_installation():
+                    # For local hosts, prompt the user for consent (if interactive)
+                    if mngr_ctx.is_interactive:
+                        if _prompt_user_for_installation():
+                            logger.debug("User consented to install claude locally")
+                        else:
+                            raise PluginMngrError(
+                                "Claude is not installed. Please install it manually with:\n"
+                                "  curl -fsSL https://claude.ai/install.sh | bash"
+                            )
+                    else:
+                        # Non-interactive mode: fail with a clear message
                         raise PluginMngrError(
                             "Claude is not installed. Please install it manually with:\n"
                             "  curl -fsSL https://claude.ai/install.sh | bash"
                         )
                 else:
-                    # FIXME: for remote hosts, we need to check whether the user has configured automatic installation
-                    #  and if not, raise an error here
+                    # FIXME: for remote hosts, we need to check whether the user has allowed automatic installation for remote hosts
+                    #  in the global MngrConfig (we'll need to add that config option there, defaulting to True)
+                    #  If they have not enabled that, we must raise an error here
                     pass
 
                 # Install claude

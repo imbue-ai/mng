@@ -45,6 +45,18 @@ def merge_list_fields(base: list[T], override: list[T] | None) -> list[T]:
     return base
 
 
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+@deal.has()
+def merge_dict_fields(base: dict[K, V], override: dict[K, V] | None) -> dict[K, V]:
+    """Merge dict fields, with override keys taking precedence."""
+    if override is not None:
+        return {**base, **override}
+    return base
+
+
 # === Value Types ===
 
 
@@ -149,24 +161,33 @@ class ProviderInstanceConfig(FrozenModel):
         """Merge this config with an override config.
 
         Scalar fields: override wins if not None
+        List fields: concatenate both lists
+        Dict fields: merge keys, with override keys taking precedence
         """
         # Ensure override is same type as self
         if not isinstance(override, self.__class__):
             raise ConfigParseError(f"Cannot merge {self.__class__.__name__} with different provider config type")
 
-        # Merge all fields: for each field, use override value if not None, else use self value
+        # Merge all fields: for each field, use appropriate merge strategy based on type
         # Backend always comes from override
         merged_values: dict[str, Any] = {}
         for field_name in self.__class__.model_fields:
             if field_name == "backend":
                 merged_values[field_name] = override.backend
             else:
+                base_value = getattr(self, field_name)
                 override_value = getattr(override, field_name)
-                if override_value is not None:
-                    # FIXME: we probably want to merge different here depending on if this is a list, dict, or other (see how it works for agent configs)
+                if isinstance(base_value, list):
+                    # Lists: concatenate
+                    merged_values[field_name] = merge_list_fields(base_value, override_value)
+                elif isinstance(base_value, dict):
+                    # Dicts: merge keys with override taking precedence
+                    merged_values[field_name] = merge_dict_fields(base_value, override_value)
+                elif override_value is not None:
+                    # Scalars: override wins if not None
                     merged_values[field_name] = override_value
                 else:
-                    merged_values[field_name] = getattr(self, field_name)
+                    merged_values[field_name] = base_value
         return self.__class__(**merged_values)
 
 
@@ -207,7 +228,7 @@ class LoggingConfig(FrozenModel):
         description="Maximum size of each log file in MB",
     )
     console_level: LogLevel = Field(
-        default=LogLevel.INFO,
+        default=LogLevel.BUILD,
         description="Log level for console output",
     )
     is_logging_commands: bool = Field(
@@ -309,9 +330,17 @@ class MngrConfig(FrozenModel):
         default_factory=dict,
         description="Default values for CLI command parameters (e.g., 'commands.create')",
     )
+    pre_command_scripts: dict[str, list[str]] = Field(
+        default_factory=dict,
+        description="Commands to run before CLI commands execute, keyed by command name (e.g., 'create': ['echo hello', 'validate.sh'])",
+    )
     logging: LoggingConfig = Field(
         default_factory=LoggingConfig,
         description="Logging configuration",
+    )
+    is_allowed_in_pytest: bool = Field(
+        default=True,
+        description="Set this to False to prevent loading this config in pytest runs",
     )
 
     def merge_with(self, override: Self) -> Self:
@@ -396,6 +425,13 @@ class MngrConfig(FrozenModel):
                 # Only base has this key
                 merged_commands[key] = self.commands[key]
 
+        # Merge pre_command_scripts (dict - override keys take precedence)
+        merged_pre_command_scripts = merge_dict_fields(self.pre_command_scripts, override.pre_command_scripts)
+
+        is_allowed_in_pytest = self.is_allowed_in_pytest
+        if override.is_allowed_in_pytest is not None:
+            is_allowed_in_pytest = override.is_allowed_in_pytest
+
         # Merge logging (nested config - use merge_with if override.logging is not None)
         merged_logging = self.logging
         if override.logging is not None:
@@ -411,7 +447,9 @@ class MngrConfig(FrozenModel):
             plugins=merged_plugins,
             disabled_plugins=merged_disabled_plugins,
             commands=merged_commands,
+            pre_command_scripts=merged_pre_command_scripts,
             logging=merged_logging,
+            is_allowed_in_pytest=is_allowed_in_pytest,
         )
 
 
@@ -431,6 +469,10 @@ class MngrContext(FrozenModel):
     pm: pluggy.PluginManager = Field(
         description="Plugin manager for hooks and backends",
     )
+    is_interactive: bool = Field(
+        default=False,
+        description="Whether the CLI is running in interactive mode (can prompt user for input)",
+    )
 
 
 class OutputOptions(FrozenModel):
@@ -441,12 +483,16 @@ class OutputOptions(FrozenModel):
         description="Output format for command results",
     )
     console_level: LogLevel = Field(
-        default=LogLevel.INFO,
+        default=LogLevel.BUILD,
         description="Log level for console output",
     )
     log_level: LogLevel = Field(
         default=LogLevel.NONE,
         description="Log level for outputting to stderr",
+    )
+    log_file_path: Path | None = Field(
+        default=None,
+        description="Override path for log file (if None, uses default ~/.mngr/logs/<timestamp>-<pid>.json)",
     )
     is_log_commands: bool = Field(
         default=True,

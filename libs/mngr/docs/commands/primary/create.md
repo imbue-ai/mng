@@ -22,6 +22,7 @@ mngr create [OPTIONS] [NAME] [AGENT_TYPE] -- [AGENT_ARGS]...
 
 - `--[no-]connect`: Connect to an agent after creation (disconnecting will not destroy the agent) [default: connect]
 - `--[no-]await-ready`: Wait until the agent is ready before returning (only applies if `--no-connect` is specified, changes when the command returns) [default: no-await-ready if --no-connect]
+- `--[no-]await-agent-stopped`: Wait until the agent has completely finished running before exiting. This is useful for testing and scripting when you need to wait for the agent to exit. First waits for the agent to become ready, then waits for it to stop. [default: no-await-agent-stopped]
 - `--[no-]copy-work-dir`: Immediately make a copy of the source work_dir. Useful when launching background agents so that you can continue editing locally without worrying about invalid content being copied into the new agent [default: copy if --no-connect, no-copy if --connect]
 - `--[no-]ensure-clean`: Abort if git in the source work_dir has uncommitted changes [default: ensure-clean]
 - `--[no-]snapshot-source`: Snapshot source agent before cloning [default: snapshot-source when `--source-agent` is specified and not local]
@@ -29,6 +30,13 @@ mngr create [OPTIONS] [NAME] [AGENT_TYPE] -- [AGENT_ARGS]...
 ## Connection Options
 
 See [connect options](./connect.md) (only applies if `--connect` is specified)
+
+## Initial Message Options
+
+- `--message TEXT`: Initial message to send to the agent after it starts
+- `--message-file PATH`: File containing the initial message to send
+- `--edit-message`: Open an interactive editor (using `$EDITOR`) to compose the initial message. The editor runs in parallel with agent creation. If `--message` or `--message-file` is also provided, their content is used as the initial editor content.
+- `--message-delay FLOAT`: Seconds to wait before sending the initial message [default: 1.0]
 
 ## Agent Options
 
@@ -46,10 +54,8 @@ See [connect options](./connect.md) (only applies if `--connect` is specified)
 - `--source-agent AGENT`: Source agent [alias: `--from-agent`]
 - `--source-host HOST`: Source host
 - `--source-path PATH`: Source path
-- `--include TEXT`: Include additional files matching glob pattern [repeatable]
-- `--exclude TEXT`: Exclude files matching glob pattern [repeatable]
-- `--include-file PATH`: Read include patterns from file
-- `--exclude-file PATH`: Read exclude patterns from file
+- `--[no-]rsync`: Use rsync for file transfer [default: rsync]
+- `--rsync-args TEXT`: Additional arguments to pass to rsync
 - `--[no-]include-git`: Include data from the `.git` directory [default: include-git]
 - `--include-unclean / --exclude-unclean`: Include staged, unstaged, and untracked files. [default: include if --no-ensure-clean, exclude if --ensure-clean]
 - `--[no-]include-gitignored`: Include files matching `.gitignore` [default: no-include-gitignored]
@@ -62,12 +68,12 @@ See [connect options](./connect.md) (only applies if `--connect` is specified)
 - `--in-place`: Run directly in source directory. Incompatible with `--target-path`
 - `--copy`: Copy source to isolated directory before running [default for remote agents, and for local agents if not in a git repo]
 - `--clone`: Create a git clone that shares objects with the original repo (only works for local agents)
-- `--worktree`: Create a git worktree that shares objects and index with the original repo [default for local agents in a git repo]. Note: implies `--new-branch`
+- `--worktree`: Create a git worktree that shares objects and index with the original repo [default for local agents in a git repo]. Note: requires `--new-branch` (which is the default)
 
 ## Agent Git Configuration
 
 - `--base-branch TEXT`: The starting point for the agent [default: current branch]
-- `--new-branch TEXT / --no-new-branch`: Create a fresh branch for the agent's work (named TEXT if provided, otherwise auto-generated). The new branch is created from `--base-branch` [default: --no-new-branch unless --worktree is used]
+- `--new-branch TEXT / --no-new-branch`: Create a fresh branch for the agent's work (named TEXT if provided, otherwise auto-generated). The new branch is created from `--base-branch` [default: --new-branch]. Note: `--no-new-branch` is incompatible with `--worktree`
 - `--new-branch-prefix TEXT`: Prefix for auto-generated branch names [default: `mngr/`]
 - `--depth INTEGER`: Shallow clone depth [default: full]
 - `--shallow-since DATE`: Shallow clone since date

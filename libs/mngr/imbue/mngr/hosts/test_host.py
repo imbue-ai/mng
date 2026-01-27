@@ -5,6 +5,7 @@ Note: Unit tests for env file parsing are in utils/env_utils_test.py
 
 import fcntl
 import json
+import os
 import stat
 import subprocess
 import threading
@@ -17,13 +18,16 @@ from pyinfra.api.command import StringCommand
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
-from imbue.mngr.hosts.host import _is_macos
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.hosts.host import _is_macos
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import ActivityConfig
+from imbue.mngr.interfaces.host import AgentDataOptions
 from imbue.mngr.interfaces.host import AgentEnvironmentOptions
+from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import FileModificationSpec
@@ -38,7 +42,11 @@ from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
-from imbue.mngr.utils.testing import wait_for
+from imbue.mngr.providers.ssh.instance import SSHHostConfig
+from imbue.mngr.providers.ssh.instance import SSHProviderInstance
+from imbue.mngr.providers.ssh.test_ssh_provider import local_sshd
+from imbue.mngr.providers.ssh.test_ssh_provider import ssh_keypair
+from imbue.mngr.utils.polling import wait_for
 
 
 @pytest.fixture
@@ -256,28 +264,47 @@ def test_record_boot_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
     assert activity_time is not None
 
 
-def test_record_create_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test recording create activity."""
+def test_record_create_activity_on_host_raises(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that recording CREATE activity on host raises error.
+
+    CREATE activity should only be recorded on agents, not hosts.
+    """
     host, _ = host_with_temp_dir
-    host.record_activity(ActivitySource.CREATE)
-    activity_time = host.get_reported_activity_time(ActivitySource.CREATE)
-    assert activity_time is not None
+    with pytest.raises(InvalidActivityTypeError):
+        host.record_activity(ActivitySource.CREATE)
 
 
 def test_invalid_activity_type_raises(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test that recording invalid activity type raises."""
+    """Test that recording invalid activity types on host raises error.
+
+    Only BOOT activity is valid for host-level recording.
+    """
     host, _ = host_with_temp_dir
-    with pytest.raises(ValueError):
+    # USER activity is invalid
+    with pytest.raises(InvalidActivityTypeError):
         host.record_activity(ActivitySource.USER)
+    # CREATE activity is also invalid for hosts
+    with pytest.raises(InvalidActivityTypeError):
+        host.record_activity(ActivitySource.CREATE)
+    # START activity is also invalid for hosts
+    with pytest.raises(InvalidActivityTypeError):
+        host.record_activity(ActivitySource.START)
 
 
 def test_get_activity_content(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test getting activity file content."""
+    """Test getting activity file content - should be JSON with time in milliseconds."""
     host, _ = host_with_temp_dir
     host.record_activity(ActivitySource.BOOT)
     content = host.get_reported_activity_content(ActivitySource.BOOT)
     assert content is not None
-    assert "T" in content
+    data = json.loads(content)
+    assert "time" in data
+    # Time should be an integer (milliseconds since epoch)
+    assert isinstance(data["time"], int)
+    # Should be a reasonable timestamp (after year 2020, which is 1577836800000 ms)
+    assert data["time"] > 1577836800000
+    # Should also have host_id for debugging
+    assert "host_id" in data
 
 
 # =============================================================================
@@ -450,17 +477,22 @@ def test_get_uptime(host_with_temp_dir: tuple[Host, Path]) -> None:
 # =============================================================================
 
 
-def test_get_idle_seconds_no_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test idle seconds when no activity recorded."""
+def test_get_idle_seconds_with_boot_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test idle seconds includes BOOT activity recorded at host creation.
+
+    Since hosts now automatically record BOOT activity when created,
+    idle seconds should not be infinity.
+    """
     host, _ = host_with_temp_dir
     idle = host.get_idle_seconds()
-    assert idle == float("inf")
+    # BOOT activity is recorded at host creation, so idle should be finite
+    assert 0 <= idle < 10
 
 
-def test_get_idle_seconds_with_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test idle seconds after recording activity."""
+def test_get_idle_seconds_after_boot_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test idle seconds after recording BOOT activity."""
     host, _ = host_with_temp_dir
-    host.record_activity(ActivitySource.CREATE)
+    host.record_activity(ActivitySource.BOOT)
     idle = host.get_idle_seconds()
     assert 0 <= idle < 10
 
@@ -664,9 +696,7 @@ def test_start_agent_creates_process_group(
         # Get process group ID using platform-specific method
         if _is_macos():
             # macOS: use ps command
-            success, output = host._run_shell_command(
-                StringCommand(f"ps -o pgid= -p {pane_pid}")
-            )
+            success, output = host._run_shell_command(StringCommand(f"ps -o pgid= -p {pane_pid}"))
             assert success, f"Failed to get pgid for pid {pane_pid}"
         else:
             # Linux: use /proc filesystem (5th field in /proc/<pid>/stat is pgid)
@@ -677,6 +707,55 @@ def test_start_agent_creates_process_group(
         pgid = output.stdout.strip()
         assert pgid, "Process group ID should not be empty"
         assert pgid.isdigit(), f"Process group ID should be numeric, got: {pgid}"
+    finally:
+        host.stop_agents([agent.id])
+
+
+def test_start_agent_starts_process_activity_monitor(
+    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+) -> None:
+    """Test that start_agents launches a process activity monitor that writes PROCESS activity."""
+    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    provider = LocalProviderInstance(
+        name=ProviderInstanceName("local"),
+        host_dir=temp_host_dir,
+        mngr_ctx=mngr_ctx,
+    )
+    host = provider.create_host(HostName("test-activity-monitor"))
+    assert isinstance(host, Host)
+
+    agent = host.create_agent_state(
+        work_dir_path=temp_work_dir,
+        options=CreateAgentOptions(
+            name=AgentName("activity-monitor-test"),
+            agent_type=AgentTypeName("generic"),
+            command=CommandString("sleep 847291"),
+        ),
+    )
+
+    host.start_agents([agent.id])
+
+    try:
+        # The process activity monitor should write PROCESS activity within ~5-6 seconds
+        activity_path = temp_host_dir / "agents" / str(agent.id) / "activity" / "PROCESS"
+
+        def activity_file_exists() -> bool:
+            return activity_path.exists()
+
+        wait_for(activity_file_exists, timeout=10.0, error_message="PROCESS activity file not created")
+
+        # Verify the activity file has valid JSON content with time in milliseconds
+        content = activity_path.read_text()
+        data = json.loads(content)
+        assert "time" in data
+        # Time should be an integer (milliseconds since epoch)
+        assert isinstance(data["time"], int)
+        # Should be a reasonable timestamp (after year 2020, which is 1577836800000 ms)
+        assert data["time"] > 1577836800000
+        # Should also have debugging fields
+        assert "pane_pid" in data
+        assert "agent_id" in data
     finally:
         host.stop_agents([agent.id])
 
@@ -1213,6 +1292,290 @@ def _create_minimal_agent(host: Host, temp_dir: Path, work_dir: Path | None = No
 
 
 # =============================================================================
+# File Transfer Tests (create_agent_work_dir and helpers)
+# =============================================================================
+
+
+def _init_git_repo(path: Path, commit_message: str = "Initial commit") -> None:
+    """Helper to initialize a git repo with consistent env vars."""
+    subprocess.run(["git", "init"], cwd=path, capture_output=True, check=True)
+    subprocess.run(["git", "add", "."], cwd=path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", commit_message],
+        cwd=path,
+        capture_output=True,
+        check=True,
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "Test",
+            "GIT_AUTHOR_EMAIL": "test@test.com",
+            "GIT_COMMITTER_NAME": "Test",
+            "GIT_COMMITTER_EMAIL": "test@test.com",
+        },
+    )
+
+
+def test_get_ssh_connection_info_returns_none_for_local_host(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that _get_ssh_connection_info returns None for local hosts."""
+    host, _ = host_with_temp_dir
+    ssh_info = host._get_ssh_connection_info()
+    assert ssh_info is None
+
+
+def test_create_work_dir_same_path_no_transfer(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that no transfer happens when source and target are the same."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "same_path_test"
+    source_path.mkdir()
+    (source_path / "test_file.txt").write_text("original content")
+
+    options = CreateAgentOptions(
+        name=AgentName("same-path-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=source_path,
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == source_path
+    assert (work_dir / "test_file.txt").read_text() == "original content"
+
+
+def test_create_work_dir_copy_without_git(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test copying a directory without git."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_no_git"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("content1")
+    (source_path / "subdir").mkdir()
+    (source_path / "subdir" / "file2.txt").write_text("content2")
+
+    target_path = temp_dir / "target_no_git"
+
+    options = CreateAgentOptions(
+        name=AgentName("copy-no-git"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "file1.txt").read_text() == "content1"
+    assert (work_dir / "subdir" / "file2.txt").read_text() == "content2"
+
+
+def test_create_work_dir_copy_with_git(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test copying a directory with git repository."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_with_git"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("tracked content")
+
+    _init_git_repo(source_path)
+
+    target_path = temp_dir / "target_with_git"
+
+    options = CreateAgentOptions(
+        name=AgentName("copy-with-git"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "file1.txt").read_text() == "tracked content"
+    assert (work_dir / ".git").exists()
+
+    # Verify git is functional in target
+    result = subprocess.run(
+        ["git", "log", "--oneline"],
+        cwd=work_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "Initial commit" in result.stdout
+
+
+def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that .git is excluded when not syncing git data."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_exclude_git"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("content")
+
+    # Initialize git repo
+    subprocess.run(["git", "init"], cwd=source_path, capture_output=True, check=True)
+
+    target_path = temp_dir / "target_exclude_git"
+
+    options = CreateAgentOptions(
+        name=AgentName("exclude-git"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(is_git_synced=False),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "file1.txt").read_text() == "content"
+    assert not (work_dir / ".git").exists()
+
+
+def test_create_work_dir_copy_with_untracked_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test copying includes untracked files when is_include_unclean is True."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_untracked"
+    source_path.mkdir()
+    (source_path / "tracked.txt").write_text("tracked")
+
+    # Initialize git repo and commit tracked file
+    subprocess.run(["git", "init"], cwd=source_path, capture_output=True, check=True)
+    subprocess.run(["git", "add", "tracked.txt"], cwd=source_path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=source_path,
+        capture_output=True,
+        check=True,
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "Test",
+            "GIT_AUTHOR_EMAIL": "test@test.com",
+            "GIT_COMMITTER_NAME": "Test",
+            "GIT_COMMITTER_EMAIL": "test@test.com",
+        },
+    )
+
+    # Add untracked file after commit
+    (source_path / "untracked.txt").write_text("untracked")
+
+    target_path = temp_dir / "target_untracked"
+
+    options = CreateAgentOptions(
+        name=AgentName("include-untracked"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(is_include_unclean=True),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "tracked.txt").read_text() == "tracked"
+    assert (work_dir / "untracked.txt").read_text() == "untracked"
+
+
+def test_create_work_dir_copy_with_gitignored_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test copying includes gitignored files when is_include_gitignored is True."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_gitignored"
+    source_path.mkdir()
+    (source_path / "tracked.txt").write_text("tracked")
+    (source_path / ".gitignore").write_text("*.log\n")
+
+    _init_git_repo(source_path)
+
+    # Add gitignored file
+    (source_path / "debug.log").write_text("log content")
+
+    target_path = temp_dir / "target_gitignored"
+
+    options = CreateAgentOptions(
+        name=AgentName("include-gitignored"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(is_include_gitignored=True),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "tracked.txt").read_text() == "tracked"
+    assert (work_dir / "debug.log").read_text() == "log content"
+
+
+def test_create_work_dir_copy_with_renamed_file(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test copying handles renamed files in git status output."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_renamed"
+    source_path.mkdir()
+    (source_path / "old_name.txt").write_text("content")
+
+    _init_git_repo(source_path)
+
+    # Rename the file (use git mv to ensure status shows rename)
+    subprocess.run(["git", "mv", "old_name.txt", "new_name.txt"], cwd=source_path, capture_output=True, check=True)
+
+    target_path = temp_dir / "target_renamed"
+
+    options = CreateAgentOptions(
+        name=AgentName("rename-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(is_include_unclean=True),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    # After git transfer and rsync, the renamed file should be present
+    assert (work_dir / "new_name.txt").read_text() == "content"
+
+
+def test_create_work_dir_generates_new_branch(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that git transfer creates a new branch when is_new_branch is True."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_new_branch"
+    source_path.mkdir()
+    (source_path / "file.txt").write_text("content")
+
+    _init_git_repo(source_path)
+
+    target_path = temp_dir / "target_new_branch"
+
+    options = CreateAgentOptions(
+        name=AgentName("new-branch-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(is_new_branch=True, new_branch_prefix="test/"),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "file.txt").read_text() == "content"
+
+    # Check the branch name starts with test/
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=work_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip().startswith("test/")
+
+
+# =============================================================================
 # Agent Environment Variable Tests
 # =============================================================================
 
@@ -1520,3 +1883,247 @@ def test_provision_agent_host_env_sourced_before_agent_env(host_with_temp_dir: t
     assert "HOST_VAR=host_value" in content
     # Agent env should override host env for SHARED_VAR
     assert "SHARED_VAR=from_agent" in content
+
+
+def test_rsync_extra_args_parsing(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that rsync extra_args are parsed correctly using shlex."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_rsync_args"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("content1")
+    (source_path / "file2.txt").write_text("content2")
+    (source_path / "exclude_me.txt").write_text("excluded")
+
+    target_path = temp_dir / "target_rsync_args"
+
+    # Use rsync_args to exclude a file (tests that args are parsed and applied)
+    options = CreateAgentOptions(
+        name=AgentName("rsync-args-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        data_options=AgentDataOptions(
+            is_rsync_enabled=True,
+            rsync_args="--exclude exclude_me.txt",
+        ),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "file1.txt").read_text() == "content1"
+    assert (work_dir / "file2.txt").read_text() == "content2"
+    # The excluded file should not be copied
+    assert not (work_dir / "exclude_me.txt").exists()
+
+
+def test_rsync_extra_args_with_spaces(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that rsync extra_args with quoted spaces are parsed correctly."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_rsync_spaces"
+    source_path.mkdir()
+    (source_path / "file with spaces.txt").write_text("content with spaces")
+    (source_path / "normal.txt").write_text("normal content")
+
+    target_path = temp_dir / "target_rsync_spaces"
+
+    # Use rsync_args with a filter pattern that has spaces
+    # Note: rsync filter rules can be complex, so we use a simple exclude test
+    options = CreateAgentOptions(
+        name=AgentName("rsync-spaces-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        data_options=AgentDataOptions(
+            is_rsync_enabled=True,
+            rsync_args='--exclude "file with spaces.txt"',
+        ),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "normal.txt").read_text() == "normal content"
+    # The file with spaces should be excluded
+    assert not (work_dir / "file with spaces.txt").exists()
+
+
+def test_transfer_extra_files_with_many_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that transferring many extra files works (uses temp file for --files-from)."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_many_files"
+    source_path.mkdir()
+    (source_path / "tracked.txt").write_text("tracked")
+
+    _init_git_repo(source_path)
+
+    # Create many untracked files to exercise the files-from approach
+    for i in range(50):
+        (source_path / f"untracked_{i}.txt").write_text(f"untracked content {i}")
+
+    target_path = temp_dir / "target_many_files"
+
+    options = CreateAgentOptions(
+        name=AgentName("many-files-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(is_git_synced=True, is_include_unclean=True),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    assert (work_dir / "tracked.txt").read_text() == "tracked"
+    # Verify all untracked files were transferred
+    for i in range(50):
+        assert (work_dir / f"untracked_{i}.txt").read_text() == f"untracked content {i}"
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(60)
+def test_rsync_files_remote_files_from_handling(
+    host_with_temp_dir: tuple[Host, Path],
+    temp_mngr_ctx: MngrContext,
+    tmp_path: Path,
+) -> None:
+    """Test that files_from is copied to remote host when rsync runs remotely.
+
+    This tests the code path where rsync runs on a remote host and needs the
+    files-from list to be available there. We use a real SSH connection via
+    a local sshd to verify the actual behavior.
+    """
+    local_host, temp_dir = host_with_temp_dir
+
+    # Create source files on the local filesystem
+    source_path = tmp_path / "source_remote"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("content1")
+    (source_path / "file2.txt").write_text("content2")
+    (source_path / "file3.txt").write_text("content3_not_transferred")
+
+    target_path = tmp_path / "target_remote"
+    target_path.mkdir()
+
+    # Create a files-from file that only includes file1.txt and file2.txt
+    files_from_path = tmp_path / "files_from.txt"
+    files_from_path.write_text("file1.txt\nfile2.txt\n")
+
+    with ssh_keypair() as (private_key, public_key):
+        public_key_content = public_key.read_text()
+
+        with local_sshd(public_key_content) as (port, _host_key):
+            current_user = os.environ.get("USER", "root")
+            ssh_provider = SSHProviderInstance(
+                name=ProviderInstanceName("ssh-test"),
+                host_dir=temp_dir,
+                mngr_ctx=temp_mngr_ctx,
+                hosts={
+                    "localhost": SSHHostConfig(
+                        address="127.0.0.1",
+                        port=port,
+                        user=current_user,
+                        key_file=private_key,
+                    ),
+                },
+            )
+
+            # Get the SSH host
+            ssh_host = ssh_provider.get_host(HostName("localhost"))
+
+            # Verify the SSH host is not local (is_local should be False)
+            assert not ssh_host.is_local
+
+            # Call _rsync_files with the SSH host as source
+            # Since source and target are local paths but source_host is remote,
+            # this tests the code path where the files_from file is copied to the remote
+            local_host._rsync_files(
+                source_host=ssh_host,
+                source_path=source_path,
+                target_path=target_path,
+                files_from=files_from_path,
+            )
+
+            # Verify only the files listed in files_from were transferred
+            assert (target_path / "file1.txt").read_text() == "content1"
+            assert (target_path / "file2.txt").read_text() == "content2"
+            # file3.txt should NOT have been transferred since it wasn't in files_from
+            assert not (target_path / "file3.txt").exists()
+
+            # Verify the temporary files_from file was cleaned up from the remote
+            # by checking that no files matching the pattern exist
+            result = ssh_host.execute_command("ls /tmp/rsync_files_from_*.txt 2>/dev/null || true")
+            assert "rsync_files_from_" not in result.stdout
+
+
+def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that rsync without --delete preserves existing files in target.
+
+    This is intentional behavior: rsync is designed for adding extra files
+    (e.g., data files not in git), not for full directory sync.
+    """
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_no_delete"
+    source_path.mkdir()
+    (source_path / "new_file.txt").write_text("new content")
+
+    target_path = temp_dir / "target_no_delete"
+    target_path.mkdir()
+    # Pre-existing file in target that doesn't exist in source
+    (target_path / "existing_file.txt").write_text("existing content")
+
+    options = CreateAgentOptions(
+        name=AgentName("no-delete-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        data_options=AgentDataOptions(is_rsync_enabled=True),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    # New file should be copied
+    assert (work_dir / "new_file.txt").read_text() == "new content"
+    # Existing file should NOT be deleted (rsync doesn't use --delete by default)
+    assert (work_dir / "existing_file.txt").read_text() == "existing content"
+
+
+def test_rsync_with_delete_removes_extra_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that rsync with --delete removes files not in source.
+
+    Users can add --delete to rsync_args to get full sync behavior.
+    """
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_with_delete"
+    source_path.mkdir()
+    (source_path / "new_file.txt").write_text("new content")
+
+    target_path = temp_dir / "target_with_delete"
+    target_path.mkdir()
+    # Pre-existing file in target that doesn't exist in source
+    (target_path / "existing_file.txt").write_text("existing content")
+
+    options = CreateAgentOptions(
+        name=AgentName("with-delete-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        data_options=AgentDataOptions(
+            is_rsync_enabled=True,
+            rsync_args="--delete",
+        ),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options)
+
+    assert work_dir == target_path
+    # New file should be copied
+    assert (work_dir / "new_file.txt").read_text() == "new content"
+    # Existing file SHOULD be deleted (--delete flag passed)
+    assert not (work_dir / "existing_file.txt").exists()

@@ -180,7 +180,7 @@ def test_prevent_relative_imports() -> None:
 
 
 def test_prevent_global_keyword() -> None:
-    pattern = RegexPattern(r"\bglobal\s+\w+")
+    pattern = RegexPattern(r"^\s*global\s+\w+")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(

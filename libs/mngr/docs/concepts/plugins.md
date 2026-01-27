@@ -39,7 +39,7 @@ Called at various points in the execution of any `mngr` command:
 | `on_before_<command>`      | Runs before any command executes. One hook per command. Receives the parsed args. Can modify args or abort execution.                                   |
 | `on_after_<command>`       | Runs after any command completes. One hook per command. Receives the args and result. Useful for logging, cleanup, or post-processing.                  |
 | `process_command_args`     | Called after argument parsing. Receives the command name and parsed args. Use this to validate or transform extended arguments before the command runs. |
-| `on_before_custom_command` | Runs for custom commands defined by plugins. Receives the command name and parsed args. Can modify args or abort execution.                             |                                                                |
+| `on_before_custom_command` | Runs for custom commands defined by plugins. Receives the command name and parsed args. Can modify args or abort execution.                             |
 | `on_after_custom_command`  | Runs after custom commands defined by plugins complete. Receives the command name, args, and result. Useful for logging, cleanup, or post-processing.   |
 | `on_error`                 | Runs if any command raises an exception. Receives the args and exception. Good for custom error handling or reporting.                                  |
 | `on_shutdown`              | Runs when `mngr` is shutting down. Good for cleaning up global state or resources.                                                                      |

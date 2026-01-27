@@ -238,3 +238,6 @@ scripts/notify_user.local.sh
 
 # Test output files (slow tests, coverage summaries) for agent consumption
 .claude/tests_outputs/
+
+# we stick the image build artifacts here
+.mngr/dev/build/

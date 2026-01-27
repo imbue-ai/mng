@@ -11,17 +11,21 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.modal.config import ModalProviderConfig
+from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 
 MODAL_BACKEND_NAME = ProviderBackendName("modal")
 USER_ID_FILENAME = "user_id"
 STATE_VOLUME_SUFFIX = "-state"
+MODAL_NAME_MAX_LENGTH = 64
 
 
 class ModalAppContextHandle(FrozenModel):
@@ -35,7 +39,12 @@ class ModalAppContextHandle(FrozenModel):
     termination. The volume is created lazily when first accessed.
     """
 
-    run_context: Any = Field(description="The Modal app.run() context manager")
+    # FIXME: replace Any with concrete types from modal
+    #  you'll need a config dict like this:
+    #      model_config = ConfigDict(arbitrary_types_allowed=True)
+    run_context: Any | None = Field(
+        description="The Modal app.run() context manager (only present for ephemeral apps)"
+    )
     app_name: str = Field(description="The name of the Modal app")
     output_capture_context: Any = Field(description="The output capture context manager")
     output_buffer: Any = Field(description="StringIO buffer containing captured Modal output")
@@ -55,7 +64,8 @@ def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
 
     # Exit the app context first
     try:
-        handle.run_context.__exit__(None, None, None)
+        if handle.run_context is not None:
+            handle.run_context.__exit__(None, None, None)
     except modal.exception.Error as e:
         logger.warning("Modal error exiting app context {}: {}", handle.app_name, e)
 
@@ -65,14 +75,14 @@ def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
         handle.output_capture_context.__exit__(None, None, None)
 
 
+# FIXME: this function should be moved to a much lower level (many other things may want a user id, should be part of MngrContext?)
+#  also, obviously this should return a concrete type, not a str
 def _get_or_create_user_id(mngr_ctx: MngrContext) -> str:
     """Get or create a unique user ID for this mngr installation.
 
     The user ID is stored in a file in the mngr data directory. This ID is used
     to namespace Modal apps, ensuring that sandboxes created by different mngr
     installations on a shared Modal account don't interfere with each other.
-
-    We use only 8 hex characters to keep app names under Modal's 64 char limit.
     """
     data_dir = mngr_ctx.config.default_host_dir.expanduser()
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -81,8 +91,8 @@ def _get_or_create_user_id(mngr_ctx: MngrContext) -> str:
     if user_id_file.exists():
         return user_id_file.read_text().strip()
 
-    # Generate a new user ID (8 hex chars for ~4 billion unique values)
-    user_id = uuid4().hex[:8]
+    # Generate a new user ID
+    user_id = uuid4().hex
     user_id_file.write_text(user_id)
     return user_id
 
@@ -103,7 +113,7 @@ class ModalProviderBackend(ProviderBackendInterface):
     _app_registry: ClassVar[dict[str, tuple[modal.App, ModalAppContextHandle]]] = {}
 
     @classmethod
-    def _get_or_create_app(cls, app_name: str) -> tuple[modal.App, ModalAppContextHandle]:
+    def _get_or_create_app(cls, app_name: str, is_persistent: bool) -> tuple[modal.App, ModalAppContextHandle]:
         """Get or create a Modal app with output capture.
 
         Creates an ephemeral app with `modal.App(name)` and enters its `app.run()`
@@ -128,13 +138,17 @@ class ModalProviderBackend(ProviderBackendInterface):
         output_capture_context = enable_modal_output_capture(is_logging_to_loguru=True)
         output_buffer, loguru_writer = output_capture_context.__enter__()
 
-        # Create the Modal app
-        app = modal.App(app_name)
+        if is_persistent:
+            app = modal.App.lookup(app_name, create_if_missing=True)
+            run_context = None
+        else:
+            # Create the Modal app
+            app = modal.App(app_name)
 
-        # Enter the app.run() context manager manually so we can return the app
-        # while keeping the context active until close() is called
-        run_context = app.run()
-        run_context.__enter__()
+            # Enter the app.run() context manager manually so we can return the app
+            # while keeping the context active until close() is called
+            run_context = app.run()
+            run_context.__enter__()
 
         # Set app metadata on the loguru writer for structured logging
         if loguru_writer is not None:
@@ -155,21 +169,6 @@ class ModalProviderBackend(ProviderBackendInterface):
         )
         cls._app_registry[app_name] = (app, context_handle)
         return app, context_handle
-
-    @classmethod
-    def get_captured_output_for_app(cls, app_name: str) -> str:
-        """Get all captured Modal output for an app.
-
-        Returns the contents of the output buffer that has been capturing Modal
-        logs since the app was created. This can be used to detect build failures
-        or other issues by inspecting the captured output.
-
-        Returns an empty string if no app has been created with the given name.
-        """
-        if app_name not in cls._app_registry:
-            return ""
-        _, context_handle = cls._app_registry[app_name]
-        return context_handle.output_buffer.getvalue()
 
     @classmethod
     def get_volume_for_app(cls, app_name: str) -> modal.Volume:
@@ -248,14 +247,23 @@ class ModalProviderBackend(ProviderBackendInterface):
         return "Runs agents in Modal cloud sandboxes with SSH access"
 
     @staticmethod
+    def get_config_class() -> type[ProviderInstanceConfig]:
+        return ModalProviderConfig
+
+    @staticmethod
     def get_build_args_help() -> str:
         return """\
 Supported build arguments for the modal provider:
-  --gpu TYPE    GPU type to use (e.g., t4, a10g, a100, any). Default: no GPU
-  --cpu COUNT   Number of CPU cores (0.25-16). Default: 1.0
-  --memory GB   Memory in GB (0.5-32). Default: 1.0
-  --image NAME  Base Docker image to use. Default: debian:bookworm-slim
-  --timeout SEC Maximum sandbox lifetime in seconds. Default: 900 (15 min)
+  --gpu TYPE        GPU type to use (e.g., t4, a10g, a100, any). Default: no GPU
+  --cpu COUNT       Number of CPU cores (0.25-16). Default: 1.0
+  --memory GB       Memory in GB (0.5-32). Default: 1.0
+  --image NAME      Base Docker image to use. Default: debian:bookworm-slim
+  --timeout SEC     Maximum sandbox lifetime in seconds. Default: 900 (15 min)
+  --region NAME     Region to run the sandbox in (e.g., us-east, us-west, eu-west). Default: auto
+  --context-dir DIR Build context directory for Dockerfile COPY/ADD instructions. Default: Dockerfile's directory
+  --secret VAR      Pass an environment variable as a secret to the image build. The value of
+                    VAR is read from your current environment and made available during Dockerfile
+                    RUN commands via --mount=type=secret,id=VAR. Can be specified multiple times.
 """
 
     @staticmethod
@@ -265,43 +273,48 @@ Supported build arguments for the modal provider:
     @staticmethod
     def build_provider_instance(
         name: ProviderInstanceName,
-        instance_configuration: dict[str, Any],
+        config: ProviderInstanceConfig,
         mngr_ctx: MngrContext,
     ) -> ProviderInstanceInterface:
-        """Build a Modal provider instance.
+        """Build a Modal provider instance."""
+        assert isinstance(config, ModalProviderConfig)
 
-        The instance_configuration may contain:
-        - app_name: Modal app name (defaults to "mngr-{name}")
-        - host_dir: Base directory for mngr data on the sandbox (defaults to /mngr)
-        - default_timeout: Default sandbox timeout in seconds (defaults to 900)
-        - default_cpu: Default CPU cores (defaults to 1.0)
-        - default_memory: Default memory in GB (defaults to 1.0)
-        """
         # Use prefix + user_id + name to namespace the app, ensuring isolation
         # between different mngr installations sharing the same Modal account
         prefix = mngr_ctx.config.prefix
         user_id = _get_or_create_user_id(mngr_ctx)
         default_app_name = f"{prefix}{user_id}-{name}"
-        app_name = instance_configuration.get("app_name", default_app_name)
-        host_dir = Path(instance_configuration.get("host_dir", "/mngr"))
-        default_timeout = instance_configuration.get("default_timeout", 900)
-        default_cpu = instance_configuration.get("default_cpu", 1.0)
-        default_memory = instance_configuration.get("default_memory", 1.0)
+
+        app_name = config.app_name if config.app_name is not None else default_app_name
+        host_dir = config.host_dir if config.host_dir is not None else Path("/mngr")
+
+        # Truncate app_name if needed to fit Modal's 64 char limit (accounting for volume suffix)
+        max_app_name_length = MODAL_NAME_MAX_LENGTH - len(STATE_VOLUME_SUFFIX)
+        if len(app_name) > max_app_name_length:
+            logger.warning("Truncating Modal app name to {} characters: {}", max_app_name_length, app_name)
+            app_name = app_name[:max_app_name_length]
+
+        # Create the ModalProviderApp that manages the Modal app and its resources
+        app, context_handle = ModalProviderBackend._get_or_create_app(app_name, config.is_persistent)
+        volume = ModalProviderBackend.get_volume_for_app(app_name)
+        modal_app = ModalProviderApp(
+            app_name=app_name,
+            app=app,
+            volume=volume,
+            close_callback=lambda: ModalProviderBackend.close_app(app_name),
+            get_output_callback=lambda: context_handle.output_buffer.getvalue(),
+        )
 
         return ModalProviderInstance(
             name=name,
             host_dir=host_dir,
             mngr_ctx=mngr_ctx,
-            app_name=app_name,
-            default_timeout=default_timeout,
-            default_cpu=default_cpu,
-            default_memory=default_memory,
-            # Pass the backend class so instance can call its methods
-            backend_cls=ModalProviderBackend,
+            config=config,
+            modal_app=modal_app,
         )
 
 
 @hookimpl
-def register_provider_backend() -> type[ProviderBackendInterface]:
+def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]:
     """Register the Modal provider backend."""
-    return ModalProviderBackend
+    return (ModalProviderBackend, ModalProviderConfig)

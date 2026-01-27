@@ -97,18 +97,18 @@ def create(
     host.provision_agent(agent, agent_options, mngr_ctx)
 
     # Start the agent
-    logger.debug("Starting agent {}", agent.name)
+    logger.info("Starting agent {} ...", agent.name)
     host.start_agents([agent.id])
 
     # Send initial message if one is configured
     initial_message = agent.get_initial_message()
     if initial_message is not None:
+        logger.info("Sending initial message...")
         # Note: ideally agents would have their own mechanism for signaling readiness
         # (e.g., claude has hooks we could use). For now, use configurable delay.
         # Give the agent a moment to start up before sending the message
         logger.debug("Waiting for agent to become ready before sending initial message")
         time.sleep(agent_options.message_delay_seconds)
-        logger.debug("Sending initial message to agent {}", agent.name)
         agent.send_message(initial_message)
 
     # Build and return the result

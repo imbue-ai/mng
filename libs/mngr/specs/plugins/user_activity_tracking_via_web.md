@@ -73,10 +73,17 @@ location = /_mngr/plugin/user_activity_tracking_via_web/activity.js {
     add_header Content-Type application/javascript;
 }
 
-# Handle activity reports
+# Handle activity reports - writes JSON with milliseconds timestamp
 location = /_mngr/plugin/user_activity_tracking_via_web/activity {
     content_by_lua_block {
-        os.execute("echo user_activity > " .. os.getenv("MNGR_HOST_DIR") .. "/activity/user")
+        local time_ms = math.floor(ngx.now() * 1000)
+        local json = string.format('{\\n  "time": %d,\\n  "source": "web"\\n}\\n', time_ms)
+        local path = os.getenv("MNGR_HOST_DIR") .. "/activity/user"
+        local f = io.open(path, "w")
+        if f then
+            f:write(json)
+            f:close()
+        end
         ngx.status = 204
         ngx.exit(ngx.HTTP_NO_CONTENT)
     }
@@ -85,7 +92,7 @@ location = /_mngr/plugin/user_activity_tracking_via_web/activity {
 
 ### Alternative without lua
 
-If nginx doesn't have lua support, use FastCGI:
+If nginx doesn't have lua support, use FastCGI or a simple touch (mtime is authoritative):
 
 ```nginx
 location = /_mngr/plugin/user_activity_tracking_via_web/activity {
@@ -94,15 +101,35 @@ location = /_mngr/plugin/user_activity_tracking_via_web/activity {
 }
 ```
 
-With a simple FastCGI handler that just sticks some placeholder content in the file.
+With a simple FastCGI handler that writes JSON to the file. Or, since mtime is authoritative, just touch the file:
+
+```bash
+touch "$MNGR_HOST_DIR/activity/user"
+```
 
 ## Activity File
 
 Path: `$MNGR_HOST_DIR/activity/user`
 
-This is the same file used by `mngr connect` for terminal activity tracking. mngr checks the modification time of this file to determine user activity.
+This is the same file used by `mngr connect` for terminal activity tracking. mngr checks the **modification time (mtime)** of this file to determine user activity.
 
-See [idle_detection spec](../idle_detection.md) for how this integrates with host lifecycle.
+### File Format
+
+By convention, the file should contain JSON:
+
+```json
+{
+  "time": 1705312245123,
+  "source": "web"
+}
+```
+
+- `time`: Milliseconds since Unix epoch (int)
+- `source`: "web" for web activity, "terminal" for `mngr connect`
+
+**Note**: The authoritative activity time is the file's mtime, not the JSON content. This allows simple scripts to just `touch` the file if they don't need debugging metadata.
+
+See [idle_detection spec](../idle_detection.md) and [activity tracking format spec](../standardize_activity_tracking_format.md) for details.
 
 ## Configuration
 

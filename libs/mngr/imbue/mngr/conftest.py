@@ -1,5 +1,6 @@
 """Shared pytest fixtures for mngr tests."""
 
+import json
 import os
 import subprocess
 import sys
@@ -14,14 +15,13 @@ from click.testing import CliRunner
 from urwid.widget.listbox import SimpleFocusListWalker
 
 import imbue.mngr.main
-from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.provider_registry import load_provider_configs_from_plugins
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
 
@@ -94,10 +94,23 @@ def mngr_test_prefix(mngr_test_id: str) -> str:
     return f"mngr_{mngr_test_id}-"
 
 
+@pytest.fixture
+def mngr_test_root_name(mngr_test_id: str) -> str:
+    """Get the test root name for config isolation.
+
+    Format: mngr-test-{test_id}
+
+    This ensures tests don't load the project's .mngr/settings.toml config,
+    which might have settings like add_command that would interfere with tests.
+    """
+    return f"mngr-test-{mngr_test_id}"
+
+
 @pytest.fixture(autouse=True)
 def setup_test_mngr_env(
     temp_host_dir: Path,
     mngr_test_prefix: str,
+    mngr_test_root_name: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Set up mngr environment variables for all tests.
@@ -105,9 +118,11 @@ def setup_test_mngr_env(
     This autouse fixture ensures:
     - MNGR_HOST_DIR points to a temporary directory (not ~/.mngr)
     - MNGR_PREFIX uses a unique test ID for isolation
+    - MNGR_ROOT_NAME prevents loading project config (.mngr/settings.toml)
     """
     monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
+    monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
 
 
 @pytest.fixture
@@ -189,11 +204,11 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
 
     # Only register the local backend, not modal
     # This prevents tests from depending on Modal credentials
+    # This also loads the provider configs since backends and configs are registered together
     load_local_backend_only(pm)
 
-    # Load other registries (agents and provider configs)
+    # Load other registries (agents)
     load_agents_from_plugins(pm)
-    load_provider_configs_from_plugins(pm)
 
     yield pm
 
@@ -268,6 +283,82 @@ def _is_alive_non_zombie(proc: psutil.Process) -> bool:
         return False
 
 
+# Track Modal app names that were created during tests for cleanup verification.
+# This enables detection of leaked apps that weren't properly cleaned up.
+_worker_modal_app_names: list[str] = []
+
+
+def register_modal_test_app(app_name: str) -> None:
+    """Register a Modal app name for cleanup verification.
+
+    Call this when creating a Modal app during tests to enable leak detection.
+    The app_name should match the name used when creating the Modal app.
+    """
+    if app_name not in _worker_modal_app_names:
+        _worker_modal_app_names.append(app_name)
+
+
+def _get_leaked_modal_apps() -> list[tuple[str, str]]:
+    """Get Modal apps that were registered and are still running.
+
+    Returns a list of (app_id, app_name) tuples for apps that were created during
+    tests but are still running (not in 'stopped' state).
+
+    Uses 'uv run modal app list --json' to query the current state of all apps.
+    """
+    if not _worker_modal_app_names:
+        return []
+
+    try:
+        result = subprocess.run(
+            ["uv", "run", "modal", "app", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return []
+
+        apps = json.loads(result.stdout)
+        leaked: list[tuple[str, str]] = []
+
+        for app in apps:
+            app_name = app.get("Description", "")
+            app_id = app.get("App ID", "")
+            state = app.get("State", "")
+
+            # Check if this app was created by our tests and is not stopped
+            if app_name in _worker_modal_app_names and state != "stopped":
+                leaked.append((app_id, app_name))
+
+        return leaked
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        return []
+
+
+def _stop_modal_apps(apps: list[tuple[str, str]]) -> None:
+    """Stop the specified Modal apps.
+
+    Takes a list of (app_id, app_name) tuples and stops each app using
+    'uv run modal app stop <app_id>'.
+
+    This function is defensive and will silently skip any apps that cannot
+    be stopped.
+    """
+    if not apps:
+        return
+
+    for app_id, _app_name in apps:
+        try:
+            subprocess.run(
+                ["uv", "run", "modal", "app", "stop", app_id],
+                capture_output=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            pass
+
+
 @pytest.fixture(scope="session", autouse=True)
 def session_cleanup() -> Generator[None, None, None]:
     """Session-scoped fixture to detect and clean up leaked test resources.
@@ -276,6 +367,7 @@ def session_cleanup() -> Generator[None, None, None]:
     and checks for:
     1. Leftover child processes (excluding xdist workers on the leader)
     2. Leftover tmux sessions created by this worker's tests
+    3. Leftover Modal apps created by this worker's tests
 
     If any leaked resources are found:
     - An error is raised to fail the test suite
@@ -327,7 +419,17 @@ def session_cleanup() -> Generator[None, None, None]:
             + "\n".join(f"  {s}" for s in leftover_sessions)
         )
 
-    # 3. Clean up leaked resources (last-ditch safety measure)
+    # 3. Check for leftover Modal apps from this worker's tests
+    leftover_apps = _get_leaked_modal_apps()
+
+    if leftover_apps:
+        app_info = [f"  {app_id} ({app_name})" for app_id, app_name in leftover_apps]
+        errors.append(
+            "Leftover Modal apps found!\n"
+            "Tests should destroy their Modal hosts before completing.\n" + "\n".join(app_info)
+        )
+
+    # 4. Clean up leaked resources (last-ditch safety measure)
     for proc in leftover_processes:
         try:
             proc.kill()
@@ -335,8 +437,9 @@ def session_cleanup() -> Generator[None, None, None]:
             pass
 
     _kill_tmux_sessions(leftover_sessions)
+    _stop_modal_apps(leftover_apps)
 
-    # 4. Fail the test suite if any issues were found
+    # 5. Fail the test suite if any issues were found
     if errors:
         raise AssertionError(
             "=" * 70 + "\n"

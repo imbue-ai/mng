@@ -1,0 +1,549 @@
+"""Integration tests for the list API module."""
+
+import time
+from datetime import datetime
+from datetime import timezone
+from pathlib import Path
+
+import pluggy
+from click.testing import CliRunner
+
+from imbue.mngr.api.list import AgentErrorInfo
+from imbue.mngr.api.list import AgentInfo
+from imbue.mngr.api.list import ErrorInfo
+from imbue.mngr.api.list import HostErrorInfo
+from imbue.mngr.api.list import ListResult
+from imbue.mngr.api.list import ProviderErrorInfo
+from imbue.mngr.api.list import _agent_to_cel_context
+from imbue.mngr.api.list import _apply_cel_filters
+from imbue.mngr.api.list import list_agents
+from imbue.mngr.cli.create import create
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import MngrError
+from imbue.mngr.interfaces.data_types import HostInfo
+from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import CommandString
+from imbue.mngr.primitives import ErrorBehavior
+from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.utils.cel_utils import compile_cel_filters
+from imbue.mngr.utils.testing import tmux_session_cleanup
+
+
+def test_error_info_build_creates_error_info() -> None:
+    """Test that ErrorInfo.build creates an error info from an exception."""
+    exception = RuntimeError("Test error message")
+
+    error_info = ErrorInfo.build(exception)
+
+    assert error_info.exception_type == "RuntimeError"
+    assert error_info.message == "Test error message"
+
+
+def test_error_info_build_handles_mngr_error() -> None:
+    """Test that ErrorInfo.build handles MngrError subclasses."""
+
+    class CustomMngrError(MngrError):
+        """Custom test error."""
+
+    exception = CustomMngrError("Custom error")
+
+    error_info = ErrorInfo.build(exception)
+
+    assert error_info.exception_type == "CustomMngrError"
+    assert error_info.message == "Custom error"
+
+
+def test_provider_error_info_build_for_provider() -> None:
+    """Test that ProviderErrorInfo.build_for_provider creates error with provider context."""
+    exception = RuntimeError("Provider failed")
+    provider_name = ProviderInstanceName("test-provider")
+
+    error_info = ProviderErrorInfo.build_for_provider(exception, provider_name)
+
+    assert error_info.exception_type == "RuntimeError"
+    assert error_info.message == "Provider failed"
+    assert error_info.provider_name == provider_name
+
+
+def test_host_error_info_build_for_host() -> None:
+    """Test that HostErrorInfo.build_for_host creates error with host context."""
+    exception = RuntimeError("Host failed")
+    host_id = HostId.generate()
+
+    error_info = HostErrorInfo.build_for_host(exception, host_id)
+
+    assert error_info.exception_type == "RuntimeError"
+    assert error_info.message == "Host failed"
+    assert error_info.host_id == host_id
+
+
+def test_agent_error_info_build_for_agent() -> None:
+    """Test that AgentErrorInfo.build_for_agent creates error with agent context."""
+    exception = RuntimeError("Agent failed")
+    agent_id = AgentId.generate()
+
+    error_info = AgentErrorInfo.build_for_agent(exception, agent_id)
+
+    assert error_info.exception_type == "RuntimeError"
+    assert error_info.message == "Agent failed"
+    assert error_info.agent_id == agent_id
+
+
+def test_list_result_defaults_to_empty_lists() -> None:
+    """Test that ListResult defaults to empty lists."""
+    result = ListResult()
+
+    assert result.agents == []
+    assert result.errors == []
+
+
+def test_agent_to_cel_context_basic_fields() -> None:
+    """Test that _agent_to_cel_context converts basic AgentInfo fields."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        host=host_info,
+    )
+
+    context = _agent_to_cel_context(agent_info)
+
+    assert context["type"] == "agent"
+    assert context["name"] == "test-agent"
+    assert context["host_name"] == "test-host"
+    assert context["host_provider"] == "local"
+    assert "age" in context
+
+
+def test_agent_to_cel_context_with_runtime() -> None:
+    """Test that _agent_to_cel_context includes runtime when available."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        runtime_seconds=123.45,
+        host=host_info,
+    )
+
+    context = _agent_to_cel_context(agent_info)
+
+    assert context["runtime"] == 123.45
+
+
+def test_agent_to_cel_context_with_activity_time() -> None:
+    """Test that _agent_to_cel_context computes idle from activity times."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    activity_time = datetime.now(timezone.utc)
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        user_activity_time=activity_time,
+        host=host_info,
+    )
+
+    context = _agent_to_cel_context(agent_info)
+
+    # Idle should be computed and be very small (just computed)
+    assert "idle" in context
+    assert context["idle"] >= 0
+
+
+def test_agent_to_cel_context_with_lifecycle_state() -> None:
+    """Test that _agent_to_cel_context flattens lifecycle state."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.STOPPED,
+        host=host_info,
+    )
+
+    context = _agent_to_cel_context(agent_info)
+
+    assert context["state"] == "stopped"
+
+
+def test_apply_cel_filters_with_include_filter() -> None:
+    """Test that _apply_cel_filters includes matching agents."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("my-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        host=host_info,
+    )
+
+    include_filters, exclude_filters = compile_cel_filters(
+        include_filters=('name == "my-agent"',),
+        exclude_filters=(),
+    )
+
+    result = _apply_cel_filters(agent_info, include_filters, exclude_filters)
+
+    assert result is True
+
+
+def test_apply_cel_filters_with_non_matching_include() -> None:
+    """Test that _apply_cel_filters excludes non-matching agents."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("other-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        host=host_info,
+    )
+
+    include_filters, exclude_filters = compile_cel_filters(
+        include_filters=('name == "my-agent"',),
+        exclude_filters=(),
+    )
+
+    result = _apply_cel_filters(agent_info, include_filters, exclude_filters)
+
+    assert result is False
+
+
+def test_apply_cel_filters_with_exclude_filter() -> None:
+    """Test that _apply_cel_filters excludes matching agents."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("excluded-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        host=host_info,
+    )
+
+    include_filters, exclude_filters = compile_cel_filters(
+        include_filters=(),
+        exclude_filters=('name == "excluded-agent"',),
+    )
+
+    result = _apply_cel_filters(agent_info, include_filters, exclude_filters)
+
+    assert result is False
+
+
+def test_apply_cel_filters_with_state_filter() -> None:
+    """Test filtering by lifecycle state."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        host=host_info,
+    )
+
+    include_filters, exclude_filters = compile_cel_filters(
+        include_filters=('state == "running"',),
+        exclude_filters=(),
+    )
+
+    result = _apply_cel_filters(agent_info, include_filters, exclude_filters)
+
+    assert result is True
+
+
+def test_apply_cel_filters_with_host_provider_filter() -> None:
+    """Test filtering by host provider."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        host=host_info,
+    )
+
+    include_filters, exclude_filters = compile_cel_filters(
+        include_filters=('host_provider == "local"',),
+        exclude_filters=(),
+    )
+
+    result = _apply_cel_filters(agent_info, include_filters, exclude_filters)
+
+    assert result is True
+
+
+def test_list_agents_returns_empty_when_no_agents(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Test that list_agents returns empty result when no agents exist."""
+    result = list_agents(
+        mngr_ctx=temp_mngr_ctx,
+    )
+
+    assert result.agents == []
+    assert result.errors == []
+
+
+def test_list_agents_with_agent(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_mngr_ctx: MngrContext,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that list_agents returns agents that exist."""
+    agent_name = f"test-list-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent first
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 847291",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
+
+        # Now list agents
+        result = list_agents(mngr_ctx=temp_mngr_ctx)
+
+        assert len(result.agents) >= 1
+        agent_names = [a.name for a in result.agents]
+        assert AgentName(agent_name) in agent_names
+
+
+def test_list_agents_with_include_filter(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_mngr_ctx: MngrContext,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that list_agents applies include filters correctly."""
+    agent_name = f"test-filter-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 938274",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with filter that matches
+        result = list_agents(
+            mngr_ctx=temp_mngr_ctx,
+            include_filters=(f'name == "{agent_name}"',),
+        )
+
+        assert len(result.agents) == 1
+        assert result.agents[0].name == AgentName(agent_name)
+
+
+def test_list_agents_with_exclude_filter(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_mngr_ctx: MngrContext,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that list_agents applies exclude filters correctly."""
+    agent_name = f"test-exclude-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 726485",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with filter that excludes the agent
+        result = list_agents(
+            mngr_ctx=temp_mngr_ctx,
+            exclude_filters=(f'name == "{agent_name}"',),
+        )
+
+        agent_names = [a.name for a in result.agents]
+        assert AgentName(agent_name) not in agent_names
+
+
+def test_list_agents_with_callbacks(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_mngr_ctx: MngrContext,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that list_agents calls on_agent callback for each agent."""
+    agent_name = f"test-callback-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    agents_received: list[AgentInfo] = []
+
+    def on_agent(agent: AgentInfo) -> None:
+        agents_received.append(agent)
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 619274",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with callback
+        result = list_agents(
+            mngr_ctx=temp_mngr_ctx,
+            on_agent=on_agent,
+        )
+
+        # Callback should have been called for each agent
+        assert len(agents_received) == len(result.agents)
+        if result.agents:
+            assert agents_received[0].name == result.agents[0].name
+
+
+def test_list_agents_with_error_behavior_continue(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Test that list_agents with CONTINUE error behavior doesn't raise."""
+    # This should not raise even if there are issues
+    result = list_agents(
+        mngr_ctx=temp_mngr_ctx,
+        error_behavior=ErrorBehavior.CONTINUE,
+    )
+
+    # Should return a result, possibly empty
+    assert isinstance(result, ListResult)

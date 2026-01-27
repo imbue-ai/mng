@@ -8,6 +8,11 @@ import modal
 from loguru import logger
 from modal._output import OutputManager
 
+from imbue.mngr.utils.logging import register_build_level
+
+# Ensure BUILD level is registered (in case this module is imported before logging.py)
+register_build_level()
+
 
 def _write_to_multiple_files(
     files: Sequence[Any],
@@ -72,12 +77,7 @@ class _ModalLoguruWriter:
         stripped = text.strip()
         if stripped == "":
             return len(text)
-        extra = {
-            "source": "modal",
-            "app_id": self.app_id,
-            "app_name": self.app_name,
-        }
-        logger.bind(**extra).debug("{}", stripped)
+        logger.log("BUILD", "{}", stripped, source="modal", app_id=self.app_id, app_name=self.app_name)
         return len(text)
 
     def flush(self) -> None:

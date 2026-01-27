@@ -3,8 +3,11 @@ from __future__ import annotations
 import fcntl
 import io
 import json
+import os
 import platform
 import shlex
+import subprocess
+import tempfile
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -24,12 +27,14 @@ from pydantic import Field
 from pyinfra.api.command import StringCommand
 from pyinfra.connectors.util import CommandOutput
 
+from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.agents.agent_registry import get_agent_class
 from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
+from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
@@ -54,6 +59,7 @@ from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
+from imbue.mngr.utils.git_utils import get_current_git_branch
 
 LOCAL_CONNECTOR_NAME: Final[str] = "LocalConnector"
 
@@ -227,6 +233,8 @@ class Host(HostInterface):
         timeout_seconds: float | None = None,
     ) -> CommandResult:
         """Execute a command and return the result."""
+        logger.debug("Executing command on host {}: {}", self.id, command)
+        logger.trace("Command details: user={}, cwd={}, env={}, timeout={}", user, cwd, env, timeout_seconds)
         success, output = self._run_shell_command(
             StringCommand(command),
             _su_user=user,
@@ -255,21 +263,32 @@ class Host(HostInterface):
 
     def write_file(self, path: Path, content: bytes, mode: str | None = None) -> None:
         """Write bytes content to a file, creating parent directories as needed."""
-        parent_dir = str(path.parent)
-        result = self.execute_command(f"mkdir -p '{parent_dir}'")
-        if not result.success:
-            raise MngrError(
-                f"Failed to create parent directory '{parent_dir}' on host {self.id} because: {result.stderr}"
-            )
-        # this shortcut reduces the number of file descriptors opened on local hosts and speeds things up considerably
+        # Try to write first, only create parent directory if the write fails.
+        # This avoids an extra subprocess call for mkdir -p on every write.
         if self.is_local:
-            path.write_bytes(content)
+            try:
+                path.write_bytes(content)
+            except FileNotFoundError:
+                # Parent directory doesn't exist, create it and retry
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
         else:
-            is_success = self._put_file(io.BytesIO(content), str(path))
+            try:
+                is_success = self._put_file(io.BytesIO(content), str(path))
+            except IOError:
+                # pyinfra/paramiko raises IOError when the parent directory doesn't exist
+                is_success = False
             if not is_success:
-                raise MngrError(f"Failed to write file '{str(path)}' on host {self.id}'")
-            else:
-                pass
+                # May have failed because parent directory doesn't exist, create it and retry
+                parent_dir = str(path.parent)
+                result = self.execute_command(f"mkdir -p '{parent_dir}'")
+                if not result.success:
+                    raise MngrError(
+                        f"Failed to create parent directory '{parent_dir}' on host {self.id} because: {result.stderr}"
+                    )
+                is_success = self._put_file(io.BytesIO(content), str(path))
+                if not is_success:
+                    raise MngrError(f"Failed to write file '{str(path)}' on host {self.id}'")
         if mode is not None:
             self.execute_command(f"chmod {mode} '{str(path)}'")
 
@@ -301,6 +320,10 @@ class Host(HostInterface):
                 pass
         return None
 
+    def get_file_mtime(self, path: Path) -> datetime | None:
+        """Return the modification time of a file, or None if the file doesn't exist."""
+        return self._get_file_mtime(path)
+
     def _path_exists(self, path: Path) -> bool:
         """Check if a path exists on the host."""
         result = self.execute_command(f"test -e '{str(path)}'")
@@ -325,6 +348,28 @@ class Host(HostInterface):
     def _mkdir(self, path: Path) -> None:
         """Create a directory on the host."""
         self.execute_command(f"mkdir -p '{str(path)}'")
+
+    def _mkdirs(self, paths: Sequence[Path]) -> None:
+        """Create multiple directories on the host."""
+        joined_dirs = " ".join(f"'{str(p)}'" for p in paths)
+        self.execute_command(f"mkdir -p {joined_dirs}")
+
+    def _get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
+        """Get SSH connection info for this host if it's remote.
+
+        Returns (user, hostname, port, private_key_path) if remote, None if local.
+        """
+        if self.is_local:
+            return None
+
+        host_data = self.connector.host.data
+        user = host_data.get("ssh_user", "root")
+        hostname = self.connector.host.name
+        port = host_data.get("ssh_port", 22)
+        key_path_str = host_data.get("ssh_key", "")
+        assert key_path_str, "SSH key path must be set for remote hosts"
+
+        return (user, hostname, port, Path(key_path_str))
 
     # =========================================================================
     # Activity Configuration
@@ -368,15 +413,28 @@ class Host(HostInterface):
         return self._get_file_mtime(activity_path)
 
     def record_activity(self, activity_type: ActivitySource) -> None:
-        """Record activity of the given type. Only BOOT and CREATE are valid."""
-        if activity_type not in (ActivitySource.BOOT, ActivitySource.CREATE):
-            raise InvalidActivityTypeError(
-                f"Only BOOT and CREATE activity can be recorded on host, got: {activity_type}"
-            )
+        """Record activity by writing JSON with timestamp and metadata.
+
+        Only BOOT is valid for host-level activity.
+
+        The JSON contains:
+        - time: milliseconds since Unix epoch (int)
+        - host_id: the host's ID (for debugging)
+
+        Note: The authoritative activity time is the file's mtime, not the
+        JSON content. The JSON is for debugging/auditing purposes.
+        """
+        if activity_type != ActivitySource.BOOT:
+            raise InvalidActivityTypeError(f"Only BOOT activity can be recorded on host, got: {activity_type}")
 
         logger.trace("Recording {} activity on host {}", activity_type, self.id)
         activity_path = self.host_dir / "activity" / activity_type.value.lower()
-        self.write_text_file(activity_path, datetime.now(timezone.utc).isoformat())
+        now = datetime.now(timezone.utc)
+        data = {
+            "time": int(now.timestamp() * 1000),
+            "host_id": str(self.id),
+        }
+        self.write_text_file(activity_path, json.dumps(data, indent=2))
 
     def get_reported_activity_content(self, activity_type: ActivitySource) -> str | None:
         """Get the content of the activity file."""
@@ -662,30 +720,348 @@ class Host(HostInterface):
         options: CreateAgentOptions,
     ) -> Path:
         """Create the work_dir directory for a new agent."""
-        logger.debug("Creating agent work directory with copy_mode={}", options.copy_mode)
-        if options.copy_mode == WorkDirCopyMode.WORKTREE:
+        copy_mode = options.git.copy_mode if options.git else WorkDirCopyMode.COPY
+        logger.debug("Creating agent work directory", copy_mode=str(copy_mode))
+        if copy_mode == WorkDirCopyMode.WORKTREE:
             return self._create_work_dir_as_git_worktree(host, path, options)
+        elif copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE):
+            return self._create_work_dir_as_copy(host, path, options)
+        else:
+            raise SwitchError(f"Unsupported work dir copy mode: {copy_mode}")
 
+    def _create_work_dir_as_copy(
+        self,
+        source_host: HostInterface,
+        source_path: Path,
+        options: CreateAgentOptions,
+    ) -> Path:
         # Check if source and target are on the same host
-        source_is_same_host = host.id == self.id
+        source_is_same_host = source_host.id == self.id
 
         # If target path is specified, use it; otherwise use source path
         if options.target_path:
-            work_dir_path = options.target_path
+            target_path = options.target_path
             # If target equals source and same host, it's in-place
-            is_generated_work_dir = not (source_is_same_host and path == work_dir_path)
+            is_generated_work_dir = not (source_is_same_host and source_path == target_path)
         else:
             # No target path specified, use source path directly (in-place if same host)
-            work_dir_path = path
+            target_path = source_path
             is_generated_work_dir = not source_is_same_host
 
-        self._mkdir(work_dir_path)
+        self._mkdir(target_path)
 
         # Track generated work directories at the host level
         if is_generated_work_dir:
-            self._add_generated_work_dir(work_dir_path)
+            self._add_generated_work_dir(target_path)
 
-        return work_dir_path
+        # If source and target are same path on same host, nothing to transfer
+        if source_is_same_host and source_path == target_path:
+            logger.debug("Source and target are the same path, no file transfer needed")
+            return target_path
+
+        # Check if source has a .git directory
+        if source_host.is_local:
+            source_has_git = (source_path / ".git").exists()
+        else:
+            result = source_host.execute_command(f"test -d {shlex.quote(str(source_path / '.git'))}")
+            source_has_git = result.success
+
+        # Transfer files based on whether source has .git and whether we want to include it
+        is_git_synced = options.git is not None and options.git.is_git_synced
+        # Exclude .git from rsync if user has specified any git options (they're making an explicit choice)
+        # If options.git is None, include .git (simple file copy of everything)
+        has_git_options = options.git is not None
+        if is_git_synced:
+            # fall back to file copy if source is not a git repo
+            if not source_has_git:
+                logger.warning("Source path is not a git repository, falling back to file copy")
+                self._rsync_files(source_host, source_path, target_path, "--delete", exclude_git=True)
+            # Source is a git repo, transfer via git
+            else:
+                self._transfer_git_repo(source_host, source_path, target_path, options)
+                self._transfer_extra_files(source_host, source_path, target_path, options)
+
+        # Run rsync if enabled. This is designed for adding extra files (e.g., data files not in git),
+        # not for full directory sync. By default, rsync does NOT use --delete, so existing files
+        # in the target won't be removed. Users can add --delete to rsync_args if they want
+        # full sync behavior with file deletion.
+        # Exclude .git from rsync if user specified git options (they're making an explicit choice about git handling)
+        if options.data_options.is_rsync_enabled:
+            self._rsync_files(
+                source_host,
+                source_path,
+                target_path,
+                extra_args=options.data_options.rsync_args,
+                exclude_git=has_git_options,
+            )
+
+        return target_path
+
+    def _transfer_git_repo(
+        self,
+        source_host: HostInterface,
+        source_path: Path,
+        target_path: Path,
+        options: CreateAgentOptions,
+    ) -> None:
+        """Transfer a git repository from source to target."""
+        new_branch_name = self._determine_branch_name(options)
+        if options.git and options.git.base_branch:
+            base_branch_name = options.git.base_branch
+        elif source_host.is_local:
+            base_branch_name = get_current_git_branch(source_path) or "main"
+        else:
+            result = source_host.execute_command(
+                "git rev-parse --abbrev-ref HEAD",
+                cwd=source_path,
+            )
+            base_branch_name = result.stdout.strip() if result.success else "main"
+
+        logger.debug(
+            "Transferring git repository",
+            source=str(source_path),
+            target=str(target_path),
+            base_branch=base_branch_name,
+            new_branch=new_branch_name,
+        )
+
+        # Check if target already has a .git directory
+        if self.is_local:
+            target_has_git = (target_path / ".git").exists()
+        else:
+            result = self.execute_command(f"test -d {shlex.quote(str(target_path / '.git'))}")
+            target_has_git = result.success
+
+        if target_has_git:
+            logger.debug("Target already has .git")
+        else:
+            logger.debug("Initializing bare git repo on target")
+            result = self.execute_command(
+                f"git init --bare {shlex.quote(str(target_path / '.git'))} && git config --global --add safe.directory {target_path}"
+            )
+            if not result.success:
+                raise MngrError(f"Failed to initialize git repo on target: {result.stderr}")
+
+        self._git_push_to_target(source_host, source_path, target_path)
+
+        logger.debug("Configuring target git repo")
+        result = self.execute_command(
+            f"git config --bool core.bare false && git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch_name)}",
+            cwd=target_path,
+        )
+        if not result.success:
+            raise MngrError(f"Failed to configure git repo on target: {result.stderr}")
+
+    def _git_push_to_target(
+        self,
+        source_host: HostInterface,
+        source_path: Path,
+        target_path: Path,
+    ) -> None:
+        """Push git repo from source to target using git push --mirror."""
+        target_ssh_info = self._get_ssh_connection_info()
+
+        if target_ssh_info is None:
+            if source_host.is_local:
+                git_url = str(target_path / ".git")
+            else:
+                source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
+                if source_ssh_info is None:
+                    raise MngrError("Cannot determine SSH connection info for remote source host")
+                user, hostname, port, key_path = source_ssh_info
+                logger.debug("Fetching from remote source to local target")
+                git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
+                env = {"GIT_SSH_COMMAND": git_ssh_cmd}
+                remote_url = f"ssh://{user}@{hostname}:{port}{source_path}/.git"
+                result = subprocess.run(
+                    ["git", "clone", "--mirror", remote_url, str(target_path / ".git")],
+                    capture_output=True,
+                    text=True,
+                    env={**os.environ, **env},
+                )
+                if result.returncode != 0:
+                    raise MngrError(f"Failed to clone from remote source: {result.stderr}")
+                return
+        else:
+            user, hostname, port, key_path = target_ssh_info
+            git_url = f"ssh://{user}@{hostname}:{port}{target_path}/.git"
+
+        if source_host.is_local:
+            logger.debug("Pushing git repo to target: {}", git_url)
+            env: dict[str, str] = {}
+            if target_ssh_info is not None:
+                user, hostname, port, key_path = target_ssh_info
+                git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
+                env["GIT_SSH_COMMAND"] = git_ssh_cmd
+
+            # don't bother pushing LFS objects - they can be transferred later as needed,
+            # and without this, it can take a ridiculously long time.
+            env["GIT_LFS_SKIP_PUSH"] = "1"
+
+            command_args = ["git", "-C", str(source_path), "push", "--mirror", git_url]
+            logger.trace(" ".join(command_args))
+            logger.trace("Running git push --mirror from local source to target with env: {}", env)
+            result = subprocess.run(
+                command_args,
+                capture_output=True,
+                text=True,
+                env={**os.environ, **env} if env else None,
+            )
+            if result.returncode != 0:
+                raise MngrError(f"Failed to push git repo: {result.stderr}")
+        else:
+            if target_ssh_info is not None:
+                user, hostname, port, key_path = target_ssh_info
+                git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
+                result = source_host.execute_command(
+                    f"GIT_SSH_COMMAND={shlex.quote(git_ssh_cmd)} git push --mirror {shlex.quote(git_url)}",
+                    cwd=source_path,
+                )
+            else:
+                result = source_host.execute_command(
+                    f"git push --mirror {shlex.quote(git_url)}",
+                    cwd=source_path,
+                )
+            if not result.success:
+                raise MngrError(f"Failed to push git repo from remote source: {result.stderr}")
+
+    def _transfer_extra_files(
+        self,
+        source_host: HostInterface,
+        source_path: Path,
+        target_path: Path,
+        options: CreateAgentOptions,
+    ) -> None:
+        """Transfer extra files that aren't in git (untracked, modified, gitignored)."""
+        files_to_include: list[str] = []
+
+        is_include_unclean = options.git.is_include_unclean if options.git else True
+        if is_include_unclean:
+            if source_host.is_local:
+                result = subprocess.run(
+                    ["git", "-C", str(source_path), "status", "--porcelain"],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split("\n"):
+                        if line:
+                            # git status --porcelain format: "XY filename" (2 status chars + space + filename)
+                            filename = line[3:]
+                            if " -> " in filename:
+                                filename = filename.split(" -> ")[1]
+                            files_to_include.append(filename)
+            else:
+                result = source_host.execute_command("git status --porcelain", cwd=source_path)
+                if result.success:
+                    for line in result.stdout.split("\n"):
+                        if line:
+                            # git status --porcelain format: "XY filename" (2 status chars + space + filename)
+                            filename = line[3:]
+                            if " -> " in filename:
+                                filename = filename.split(" -> ")[1]
+                            files_to_include.append(filename)
+
+        is_include_gitignored = options.git.is_include_gitignored if options.git else False
+        if is_include_gitignored:
+            if source_host.is_local:
+                result = subprocess.run(
+                    ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split("\n"):
+                        if line:
+                            files_to_include.append(line)
+            else:
+                result = source_host.execute_command(
+                    "git ls-files --others --ignored --exclude-standard",
+                    cwd=source_path,
+                )
+                if result.success:
+                    for line in result.stdout.split("\n"):
+                        if line:
+                            files_to_include.append(line)
+
+        files_to_include = list(set(files_to_include))
+
+        if not files_to_include:
+            logger.debug("No extra files to transfer")
+            return
+
+        logger.debug("Transferring extra files", count=len(files_to_include))
+
+        # Write files to a temp file to avoid command line length limits
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            files_from_path = Path(f.name)
+            for file_path in files_to_include:
+                f.write(file_path + "\n")
+
+        try:
+            self._rsync_files(source_host, source_path, target_path, files_from=files_from_path, exclude_git=True)
+        finally:
+            files_from_path.unlink(missing_ok=True)
+
+    def _rsync_files(
+        self,
+        source_host: HostInterface,
+        source_path: Path,
+        target_path: Path,
+        extra_args: str | None = None,
+        files_from: Path | None = None,
+        exclude_git: bool = False,
+    ) -> None:
+        """Run rsync to transfer files from source to target.
+
+        Always runs rsync from the source host, which simplifies the logic:
+        - If source is local, run rsync locally (pushing to target via SSH if remote)
+        - If source is remote, run rsync on source host (pushing to target via SSH if different host)
+        """
+
+        # Build rsync arguments
+        rsync_args = ["rsync", "-rlpt"]
+        if exclude_git:
+            rsync_args.extend(["--exclude", ".git"])
+        if extra_args:
+            rsync_args.extend(shlex.split(extra_args))
+        if files_from is not None:
+            rsync_args.extend(["--files-from", str(files_from)])
+
+        source_path_str = str(source_path).rstrip("/") + "/"
+        target_path_str = str(target_path).rstrip("/") + "/"
+
+        if source_host.is_local and self.is_local:
+            # Local to local
+            logger.debug("rsync: local to local")
+            rsync_args.extend([source_path_str, target_path_str])
+        elif source_host.is_local and not self.is_local:
+            # Local to remote
+            target_ssh_info = self._get_ssh_connection_info()
+            assert target_ssh_info is not None
+            user, hostname, port, key_path = target_ssh_info
+            logger.debug("rsync: local to remote {}@{}:{}", user, hostname, port)
+            rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
+            rsync_args.extend([source_path_str, f"{user}@{hostname}:{target_path_str}"])
+        elif not source_host.is_local and self.is_local:
+            # Remote to local
+            source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
+            assert source_ssh_info is not None
+            user, hostname, port, key_path = source_ssh_info
+            logger.debug("rsync: remote to local {}@{}:{}", user, hostname, port)
+            rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
+            rsync_args.extend([f"{user}@{hostname}:{source_path_str}", target_path_str])
+        else:
+            # FIXME: we could implement this, but would need to support a few options:
+            #  1. slow, safe: sync locally, then sync to target
+            #  2. fast, safe: rsync directly between two remote hosts (requires both hosts to have SSH access to each other)
+            #  3. fast, unsafe: forward SSH auth from source to target (requires SSH agent forwarding), then sync between them
+            raise NotImplementedError("rsync between two remote hosts is not supported right now")
+
+        logger.trace(" ".join(rsync_args))
+        result = subprocess.run(rsync_args, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise MngrError(f"rsync failed: {result.stderr}")
 
     def _create_work_dir_as_git_worktree(
         self,
@@ -706,10 +1082,10 @@ class Host(HostInterface):
 
         branch_name = self._determine_branch_name(options)
 
-        logger.debug("Creating git worktree at {} with branch {}", work_dir_path, branch_name)
+        logger.debug("Creating git worktree", path=str(work_dir_path), branch=branch_name)
         cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
 
-        if options.git.base_branch:
+        if options.git and options.git.base_branch:
             cmd += f" {shlex.quote(options.git.base_branch)}"
 
         result = self.execute_command(cmd)
@@ -722,13 +1098,13 @@ class Host(HostInterface):
         return work_dir_path
 
     def _determine_branch_name(self, options: CreateAgentOptions) -> str:
-        """Determine the branch name for a worktree."""
-        if options.git.new_branch_name:
+        """Determine the branch name for a new work_dir."""
+        if options.git and options.git.new_branch_name:
             return options.git.new_branch_name
 
         agent_name = options.name or AgentName("agent")
         provider_name = self.provider_instance.name
-        branch_prefix = options.git.new_branch_prefix
+        branch_prefix = options.git.new_branch_prefix if options.git else "mngr/"
 
         return f"{branch_prefix}{agent_name}-{provider_name}"
 
@@ -739,9 +1115,14 @@ class Host(HostInterface):
     ) -> AgentInterface:
         """Create the agent state directory and return the agent."""
         agent_id = AgentId.generate()
-        agent_name = options.name or AgentName(f"agent-{str(agent_id)[:8]}")
+        agent_name = options.name or AgentName(f"agent-{str(agent_id)}")
         agent_type = options.agent_type or AgentTypeName("claude")
-        logger.debug("Creating agent state: id={} name={} type={}", agent_id, agent_name, agent_type)
+        logger.debug(
+            "Creating agent state",
+            agent_id=str(agent_id),
+            agent_name=str(agent_name),
+            agent_type=str(agent_type),
+        )
 
         agent_class = get_agent_class(str(agent_type))
         config_class = get_agent_config_class(str(agent_type))
@@ -751,7 +1132,7 @@ class Host(HostInterface):
             agent_config = config_class()
 
         state_dir = self.host_dir / "agents" / str(agent_id)
-        self._mkdir(state_dir)
+        self._mkdirs([state_dir, state_dir / "logs", state_dir / "events"])
 
         create_time = datetime.now(timezone.utc)
 
@@ -767,16 +1148,12 @@ class Host(HostInterface):
             agent_config=agent_config,
         )
 
-        # FIXME: this whole block of code is nonsense. Agents MUST have a a command--they literally ARE commands. assemble_command() should be changed to require a non-None return type.
-        if options.command is not None or agent_config.command is not None:
-            command = agent.assemble_command(
-                host=self,
-                agent_args=options.agent_args,
-                command_override=options.command,
-            )
-            command_str = str(command)
-        else:
-            command_str = None
+        command = agent.assemble_command(
+            host=self,
+            agent_args=options.agent_args,
+            command_override=options.command,
+        )
+        command_str = str(command)
 
         data = {
             "id": str(agent_id),
@@ -796,8 +1173,8 @@ class Host(HostInterface):
         data_path = state_dir / "data.json"
         self.write_text_file(data_path, json.dumps(data, indent=2))
 
-        self._mkdir(state_dir / "logs")
-        self._mkdir(state_dir / "events")
+        # Record CREATE activity for idle detection
+        agent.record_activity(ActivitySource.CREATE)
 
         return agent
 
@@ -837,7 +1214,7 @@ class Host(HostInterface):
         env_vars["MNGR_AGENT_WORK_DIR"] = str(agent.work_dir)
 
         # 2. Add programmatic defaults
-        env_vars["GIT_BASE_BRANCH"] = options.git.base_branch or ""
+        env_vars["GIT_BASE_BRANCH"] = (options.git.base_branch if options.git else None) or ""
 
         # 3. Load from env_files
         for env_file in options.environment.env_files:
@@ -859,7 +1236,7 @@ class Host(HostInterface):
         env_path = self._get_agent_env_path(agent)
         content = _format_env_file(env_vars)
         self.write_text_file(env_path, content)
-        logger.debug("Wrote {} env vars to {}", len(env_vars), env_path)
+        logger.debug("Wrote env vars", count=len(env_vars), path=str(env_path))
 
     def _build_source_env_commands(self, agent: AgentInterface) -> list[str]:
         """Build shell commands that source host and agent env files.
@@ -926,14 +1303,14 @@ class Host(HostInterface):
 
         provisioning = options.provisioning
         logger.debug(
-            "Provisioning agent {} with user commands: {} dirs, {} uploads, {} appends, {} prepends, {} sudo cmds, {} user cmds",
-            agent.name,
-            len(provisioning.create_directories),
-            len(provisioning.upload_files),
-            len(provisioning.append_to_files),
-            len(provisioning.prepend_to_files),
-            len(provisioning.sudo_commands),
-            len(provisioning.user_commands),
+            "Applying user provisioning commands",
+            agent_name=str(agent.name),
+            dirs=len(provisioning.create_directories),
+            uploads=len(provisioning.upload_files),
+            appends=len(provisioning.append_to_files),
+            prepends=len(provisioning.prepend_to_files),
+            sudo_cmds=len(provisioning.sudo_commands),
+            user_cmds=len(provisioning.user_commands),
         )
 
         # 5. Create directories
@@ -1049,7 +1426,7 @@ class Host(HostInterface):
 
     def destroy_agent(self, agent: AgentInterface) -> None:
         """Destroy an agent and clean up its resources."""
-        logger.debug("Destroying agent id={} name={}", agent.id, agent.name)
+        logger.debug("Destroying agent", agent_id=str(agent.id), agent_name=str(agent.name))
         self.stop_agents([agent.id])
         state_dir = self.host_dir / "agents" / str(agent.id)
         self._remove_directory(state_dir)
@@ -1127,9 +1504,6 @@ class Host(HostInterface):
         - Sources the user's default ~/.tmux.conf if it exists
         - Adds a Ctrl-q binding to detach and destroy the current agent
         """
-        # FIXME: The execute_command calls in this method do not check for success.
-        # If tmux new-session fails, the code continues trying to send keys to a
-        # non-existent session. Should check result.success and raise an error.
         logger.debug("Starting {} agent(s)", len(agent_ids))
 
         # Create the host-level tmux config (shared by all agents on this host)
@@ -1163,21 +1537,31 @@ class Host(HostInterface):
             # The -f flag specifies our custom tmux config with the exit hotkey binding
             # Note: env_shell_cmd must be quoted so it's passed as a single argument to tmux
             # The -d flag creates a detached session; tmux returns after the session is created
-            self.execute_command(
+            result = self.execute_command(
                 f"{unset_env_args}tmux -f {shlex.quote(str(tmux_config_path))} new-session -d -s '{session_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
             )
+            if not result.success:
+                raise AgentStartError(str(agent.name), f"tmux new-session failed: {result.stderr}")
 
             # Set the session's default-command so any new window/pane created
             # by the user will automatically source the env files
             # Note: env_shell_cmd needs to be quoted as a single argument for tmux
-            self.execute_command(f"tmux set-option -t '{session_name}' default-command {shlex.quote(env_shell_cmd)}")
+            result = self.execute_command(
+                f"tmux set-option -t '{session_name}' default-command {shlex.quote(env_shell_cmd)}"
+            )
+            if not result.success:
+                raise AgentStartError(str(agent.name), f"tmux set-option failed: {result.stderr}")
 
             # Send the command as literal keys (tmux will handle escaping)
             # Using -l flag to send literal characters
-            self.execute_command(f"tmux send-keys -t '{session_name}' -l {shlex.quote(command)}")
+            result = self.execute_command(f"tmux send-keys -t '{session_name}' -l {shlex.quote(command)}")
+            if not result.success:
+                raise AgentStartError(str(agent.name), f"tmux send-keys failed: {result.stderr}")
 
             # Send Enter to execute the command
-            self.execute_command(f"tmux send-keys -t '{session_name}' Enter")
+            result = self.execute_command(f"tmux send-keys -t '{session_name}' Enter")
+            if not result.success:
+                raise AgentStartError(str(agent.name), f"tmux send-keys Enter failed: {result.stderr}")
 
             # Create additional windows for each additional command
             for idx, named_cmd in enumerate(additional_commands):
@@ -1190,21 +1574,91 @@ class Host(HostInterface):
 
                 # Create a new window with a shell that has env vars sourced
                 # Note: env_shell_cmd must be quoted so it's passed as a single argument to tmux
-                self.execute_command(
+                result = self.execute_command(
                     f"tmux new-window -t '{session_name}' -n '{window_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
                 )
+                if not result.success:
+                    raise AgentStartError(
+                        str(agent.name), f"tmux new-window failed for {window_name}: {result.stderr}"
+                    )
 
                 # Send the additional command as literal keys
-                self.execute_command(
+                result = self.execute_command(
                     f"tmux send-keys -t '{session_name}:{window_name}' -l {shlex.quote(str(named_cmd.command))}"
                 )
+                if not result.success:
+                    raise AgentStartError(str(agent.name), f"tmux send-keys failed for {window_name}: {result.stderr}")
 
                 # Send Enter to execute the command
-                self.execute_command(f"tmux send-keys -t '{session_name}:{window_name}' Enter")
+                result = self.execute_command(f"tmux send-keys -t '{session_name}:{window_name}' Enter")
+                if not result.success:
+                    raise AgentStartError(
+                        str(agent.name), f"tmux send-keys Enter failed for {window_name}: {result.stderr}"
+                    )
 
             # If we created additional windows, select the first window (the main agent)
             if additional_commands:
-                self.execute_command(f"tmux select-window -t '{session_name}:0'")
+                result = self.execute_command(f"tmux select-window -t '{session_name}:0'")
+                if not result.success:
+                    raise AgentStartError(str(agent.name), f"tmux select-window failed: {result.stderr}")
+
+            # Record START activity for idle detection
+            agent.record_activity(ActivitySource.START)
+
+            # Start background process activity monitor
+            self._start_process_activity_monitor(agent, session_name)
+
+    def _start_process_activity_monitor(self, agent: AgentInterface, session_name: str) -> None:
+        """Start a background process that writes PROCESS activity while the agent is alive.
+
+        This launches a detached bash script on the host that:
+        1. Gets the tmux pane PID for the agent's session
+        2. Loops while that PID is alive, writing PROCESS activity every ~5 seconds
+        3. Exits when the pane process exits
+
+        The activity file contains JSON with:
+        - time: milliseconds since Unix epoch (int)
+        - pane_pid: the tmux pane PID being monitored (for debugging)
+        - agent_id: the agent's ID (for debugging)
+
+        Note: The authoritative activity time is the file's mtime, not the JSON content.
+        """
+        activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value
+        agent_id = str(agent.id)
+
+        # Build a bash script that monitors the process and writes activity
+        # We use nohup and redirect output to /dev/null to fully detach
+        # The script:
+        # 1. Gets the pane PID using tmux list-panes
+        # 2. While the PID exists, write activity JSON and sleep
+        # 3. Uses date +%s for seconds since epoch, multiply by 1000 for milliseconds
+        # FIXME: this script really ought to wait for up to X seconds for the PANE_PID to appear (since it can take a little bit)
+        monitor_script = f"""
+PANE_PID=$(tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null | head -n 1)
+if [ -z "$PANE_PID" ]; then
+    exit 0
+fi
+ACTIVITY_PATH={shlex.quote(str(activity_path))}
+AGENT_ID={shlex.quote(agent_id)}
+mkdir -p "$(dirname "$ACTIVITY_PATH")"
+while kill -0 "$PANE_PID" 2>/dev/null; do
+    TIME_MS=$(($(date +%s) * 1000))
+    printf '{{\\n  "time": %d,\\n  "pane_pid": %s,\\n  "agent_id": "%s"\\n}}\\n' "$TIME_MS" "$PANE_PID" "$AGENT_ID" > "$ACTIVITY_PATH"
+    sleep 5
+done
+"""
+        # Run the script in the background, fully detached
+        # nohup ensures it survives if the parent shell exits
+        # Redirect all output to /dev/null and background with &
+        cmd = f"nohup bash -c {shlex.quote(monitor_script)} </dev/null >/dev/null 2>&1 &"
+
+        result = self.execute_command(cmd)
+        if not result.success:
+            logger.warning(
+                "Failed to start process activity monitor for agent {}: {}",
+                agent.name,
+                result.stderr,
+            )
 
     def _get_all_descendant_pids(self, parent_pid: str) -> list[str]:
         """Recursively get all descendant PIDs of a given parent PID."""
@@ -1336,14 +1790,28 @@ class Host(HostInterface):
     # =========================================================================
 
     def get_idle_seconds(self) -> float:
-        """Get the number of seconds since last activity."""
+        """Get the number of seconds since last activity.
+
+        Checks both host-level activity files (like BOOT) and agent-level
+        activity files (like CREATE, START, AGENT). Returns the time since
+        the most recent activity from any source.
+        """
         latest_activity: datetime | None = None
 
+        # Check host-level activity files
         for activity_type in ActivitySource:
             activity_time = self.get_reported_activity_time(activity_type)
             if activity_time is not None:
                 if latest_activity is None or activity_time > latest_activity:
                     latest_activity = activity_time
+
+        # Check agent-level activity files for all agents on this host
+        for agent in self.get_agents():
+            for activity_type in ActivitySource:
+                activity_time = agent.get_reported_activity_time(activity_type)
+                if activity_time is not None:
+                    if latest_activity is None or activity_time > latest_activity:
+                        latest_activity = activity_time
 
         if latest_activity is None:
             return float("inf")

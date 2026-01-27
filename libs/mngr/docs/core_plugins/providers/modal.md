@@ -32,6 +32,9 @@ mngr create my-agent --in modal --build-args "gpu=h100 cpu=2 memory=8"
 | `memory` | Memory in GB | 1.0 |
 | `image` | Base container image | debian:bookworm-slim |
 | `timeout` | Sandbox timeout in seconds | 900 (15 minutes) |
+| `region` | Region to run the sandbox in (e.g., `us-east`, `us-west`, `eu-west`) | auto |
+| `context-dir` | Build context directory for Dockerfile COPY/ADD instructions | Dockerfile's directory |
+| `secret` | Environment variable name to pass as a secret during image build (can be specified multiple times) | None |
 
 ### Examples
 
@@ -46,33 +49,58 @@ mngr create my-agent --in modal -b cpu=4 -b memory=16
 mngr create my-agent --in modal -b image=python:3.11-slim -b timeout=3600
 ```
 
+### Using Secrets During Image Build
+
+The `secret` build argument allows passing environment variables as secrets to the image build process. This is useful for installing private packages or accessing authenticated resources during the Dockerfile build:
+
+```bash
+# Pass a single secret
+mngr create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN
+
+# Pass multiple secrets
+mngr create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN -b secret=GITHUB_TOKEN
+```
+
+In your Dockerfile, access the secret using `--mount=type=secret`:
+
+```dockerfile
+FROM python:3.11-slim
+
+# Install a private npm package using NPM_TOKEN
+RUN --mount=type=secret,id=NPM_TOKEN \
+    npm config set //registry.npmjs.org/:_authToken=$(cat /run/secrets/NPM_TOKEN) && \
+    npm install -g @myorg/private-package
+
+# Install a private pip package using GITHUB_TOKEN
+RUN --mount=type=secret,id=GITHUB_TOKEN \
+    pip install git+https://$(cat /run/secrets/GITHUB_TOKEN)@github.com/myorg/private-repo.git
+```
+
 ## Snapshots
 
-The Modal provider supports snapshots via Modal's `sandbox.snapshot_filesystem()` API. Snapshots capture the complete filesystem state and allow restoration after sandbox termination.
+Modal sandboxes support filesystem snapshots for preserving state:
 
 ```bash
 # Create a snapshot
-mngr snapshot create my-agent
+mngr snapshot create my-host
 
 # List snapshots
-mngr snapshot list my-agent
+mngr snapshot list my-host
 
-# Restore from snapshot
-mngr start my-agent --snapshot snapshot-name
+# Start from a snapshot (restores the sandbox state)
+mngr start my-host --snapshot <snapshot-id>
 ```
 
-Snapshot metadata is persisted on a Modal Volume, allowing snapshots to survive sandbox termination and be shared across mngr installations.
+Snapshots are stored as Modal images and persist even after the sandbox is terminated.
 
 ## Limitations
 
 - Sandboxes have a maximum lifetime (timeout) after which they are automatically terminated by Modal
-- Sandboxes cannot be stopped and resumed - they can only be terminated
-- Volumes (persistent storage) are not supported
+- Sandboxes cannot be stopped and resumed directly - use snapshots to preserve state before termination
 
 ## TODOs
 
-- Document `--dockerfile` build argument for custom Dockerfile-based images
+- Document `--dockerfile` build argument for custom Dockerfile-based images in the Available Build Arguments table
 - Document host tag management capabilities (get/set/add/remove tags)
 - Document host renaming functionality
-- Add examples for snapshot workflows
 - Add troubleshooting section for common Modal authentication issues

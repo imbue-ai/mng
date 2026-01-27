@@ -12,7 +12,6 @@ from pydantic import Field
 
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostConnectionError
-from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import SendMessageError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.agent import AgentStatus
@@ -40,14 +39,19 @@ class BaseAgent(AgentInterface):
         agent_args: tuple[str, ...],
         command_override: CommandString | None,
     ) -> CommandString:
-        """Default: command_override or config.command, then append cli_args and agent_args."""
+        """Default: command_override or config.command or agent_type, then append cli_args and agent_args.
+
+        If no explicit command is defined, falls back to using the agent_type as a command.
+        This allows using arbitrary commands as agent types (e.g., 'mngr create my-agent echo').
+        """
         logger.trace("Assembling command for agent {} (type={}) on host {}", self.name, self.agent_type, host.id)
         if command_override is not None:
             base = str(command_override)
         elif self.agent_config.command is not None:
             base = str(self.agent_config.command)
         else:
-            raise NoCommandDefinedError(f"No command defined for agent type '{self.agent_type}'")
+            # Fall back to using the agent type as a command (documented "Direct command" behavior)
+            base = str(self.agent_type)
 
         parts = [base]
         if self.agent_config.cli_args:
@@ -333,19 +337,33 @@ class BaseAgent(AgentInterface):
     # =========================================================================
 
     def get_reported_activity_time(self, activity_type: ActivitySource) -> datetime | None:
+        """Return the last activity time using file modification time.
+
+        Activity time is determined by mtime, not by parsing the JSON content.
+        This ensures consistency across all activity writers (Python, bash, lua)
+        and allows simple scripts to just touch files without writing JSON.
+        """
         activity_path = self._get_agent_dir() / "activity" / activity_type.value
-        try:
-            content = self.host.read_text_file(activity_path)
-            data = json.loads(content)
-            return datetime.fromisoformat(data["time"])
-        except (FileNotFoundError, KeyError, ValueError):
-            return None
+        return self.host.get_file_mtime(activity_path)
 
     def record_activity(self, activity_type: ActivitySource) -> None:
+        """Record activity by writing JSON with timestamp and metadata.
+
+        The JSON contains:
+        - time: milliseconds since Unix epoch (int)
+        - agent_id: the agent's ID (for debugging)
+        - agent_name: the agent's name (for debugging)
+
+        Note: The authoritative activity time is the file's mtime, not the
+        JSON content. The JSON is for debugging/auditing purposes.
+        """
         logger.trace("Recording {} activity for agent {}", activity_type, self.name)
         activity_path = self._get_agent_dir() / "activity" / activity_type.value
+        now = datetime.now(timezone.utc)
         data = {
-            "time": datetime.now(timezone.utc).isoformat(),
+            "time": int(now.timestamp() * 1000),
+            "agent_id": str(self.id),
+            "agent_name": str(self.name),
         }
         self.host.write_text_file(activity_path, json.dumps(data, indent=2))
 

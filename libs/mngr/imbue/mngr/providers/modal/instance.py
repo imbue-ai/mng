@@ -10,6 +10,7 @@ Only host_id and host_name are stored as sandbox tags for discovery purposes.
 
 import argparse
 import io
+import os
 import socket
 import tempfile
 import time
@@ -18,7 +19,6 @@ from datetime import datetime
 from datetime import timezone
 from functools import wraps
 from pathlib import Path
-from typing import Any
 from typing import Final
 from typing import Mapping
 from typing import ParamSpec
@@ -30,6 +30,8 @@ import modal
 import modal.exception
 from dockerfile_parse import DockerfileParser
 from loguru import logger
+from modal.stream_type import StreamType
+from pydantic import ConfigDict
 from pydantic import Field
 from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
@@ -48,6 +50,7 @@ from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ImageReference
@@ -55,9 +58,13 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
+from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
+from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
+from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
+from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
 
 # Constants
 CONTAINER_SSH_PORT = 22
@@ -75,6 +82,49 @@ TAG_USER_PREFIX: Final[str] = "mngr_user_"
 
 P = ParamSpec("P")
 T = TypeVar("T")
+
+
+def build_sandbox_tags(
+    host_id: HostId,
+    name: HostName,
+    user_tags: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """Build the tags dict to store on a Modal sandbox.
+
+    Only stores host_id, host_name, and user tags. All other metadata
+    (SSH info, config, snapshots) is stored on the Modal Volume.
+    """
+    tags: dict[str, str] = {
+        TAG_HOST_ID: str(host_id),
+        TAG_HOST_NAME: str(name),
+    }
+
+    # Store user tags with a prefix to separate them from mngr tags
+    if user_tags:
+        for key, value in user_tags.items():
+            tags[TAG_USER_PREFIX + key] = value
+
+    return tags
+
+
+def parse_sandbox_tags(
+    tags: dict[str, str],
+) -> tuple[HostId, HostName, dict[str, str]]:
+    """Parse tags from a Modal sandbox into structured data.
+
+    Returns (host_id, name, user_tags). All other metadata is read from the volume.
+    """
+    host_id = HostId(tags[TAG_HOST_ID])
+    name = HostName(tags[TAG_HOST_NAME])
+
+    # Extract user tags (those with the user prefix)
+    user_tags: dict[str, str] = {}
+    for key, value in tags.items():
+        if key.startswith(TAG_USER_PREFIX):
+            user_key = key[len(TAG_USER_PREFIX) :]
+            user_tags[user_key] = value
+
+    return host_id, name, user_tags
 
 
 def handle_modal_auth_error(func: Callable[P, T]) -> Callable[P, T]:
@@ -103,6 +153,12 @@ class SandboxConfig(FrozenModel):
     image: str | None = None
     dockerfile: str | None = None
     timeout: int = DEFAULT_SANDBOX_TIMEOUT
+    region: str | None = None
+    context_dir: str | None = None
+    secrets: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Environment variable names to pass as secrets during image build",
+    )
 
 
 class SnapshotRecord(FrozenModel):
@@ -131,6 +187,40 @@ class HostRecord(FrozenModel):
     snapshots: list[SnapshotRecord] = Field(default_factory=list, description="List of snapshots")
 
 
+class ModalProviderApp(FrozenModel):
+    """Encapsulates a Modal app and its associated resources.
+
+    This class manages the lifecycle of a Modal app, including:
+    - The Modal app itself and its run context
+    - Output capture for detecting build failures
+    - The state volume for persisting host records
+
+    Instances are created by ModalProviderBackend and passed to ModalProviderInstance.
+    Multiple ModalProviderInstance objects can share the same ModalProviderApp if they
+    use the same app_name.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    app_name: str = Field(frozen=True, description="The name of the Modal app")
+    app: modal.App = Field(frozen=True, description="The Modal app instance")
+    volume: modal.Volume = Field(frozen=True, description="The Modal volume for state storage")
+    close_callback: Callable[[], None] = Field(frozen=True, description="Callback to clean up the app context")
+    get_output_callback: Callable[[], str] = Field(frozen=True, description="Callback to get the log output buffer")
+
+    def get_captured_output(self) -> str:
+        """Get all captured Modal output.
+
+        Returns the contents of the output buffer that has been capturing Modal
+        logs since the app was created. This can be used to detect build failures
+        or other issues by inspecting the captured output.
+        """
+        return self.get_output_callback()
+
+    def close(self) -> None:
+        self.close_callback()
+
+
 class ModalProviderInstance(BaseProviderInstance):
     """Provider instance for managing Modal sandboxes as hosts.
 
@@ -143,12 +233,8 @@ class ModalProviderInstance(BaseProviderInstance):
     and user tags are stored as sandbox tags for discovery via Sandbox.list().
     """
 
-    app_name: str = Field(frozen=True, description="Modal app name for sandboxes")
-    default_timeout: int = Field(frozen=True, description="Default sandbox timeout in seconds")
-    default_cpu: float = Field(frozen=True, description="Default CPU cores")
-    default_memory: float = Field(frozen=True, description="Default memory in GB")
-    # Reference to the backend class for calling its methods (typed as Any to avoid circular import)
-    backend_cls: Any = Field(frozen=True, description="Backend class reference")
+    config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
+    modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
 
     @property
     def supports_snapshots(self) -> bool:
@@ -163,11 +249,15 @@ class ModalProviderInstance(BaseProviderInstance):
         return True
 
     @property
+    def app_name(self) -> str:
+        """Get the Modal app name from the modal_app manager."""
+        return self.modal_app.app_name
+
+    @property
     def _keys_dir(self) -> Path:
         config_dir = self.mngr_ctx.config.default_host_dir.expanduser()
         return config_dir / "providers" / "modal"
 
-    # FIXME: this is strange--we should at least have a key for the client and the host. This appears to be using the same key for both this function and _get_host_keypair?
     def _get_ssh_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH keypair for this provider instance."""
         return load_or_create_ssh_keypair(self._keys_dir)
@@ -195,7 +285,7 @@ class ModalProviderInstance(BaseProviderInstance):
         The volume is used to persist host records (including snapshots) across
         sandbox termination. This allows multiple mngr instances to share state.
         """
-        return self.backend_cls.get_volume_for_app(self.app_name)
+        return self.modal_app.volume
 
     def _get_host_record_path(self, host_id: HostId) -> str:
         """Get the path for a host record on the volume."""
@@ -246,6 +336,8 @@ class ModalProviderInstance(BaseProviderInstance):
         self,
         base_image: str | None = None,
         dockerfile: Path | None = None,
+        context_dir: Path | None = None,
+        secrets: Sequence[str] = (),
     ) -> modal.Image:
         """Build a Modal image.
 
@@ -256,16 +348,27 @@ class ModalProviderInstance(BaseProviderInstance):
         Elif base_image is provided (e.g., "python:3.11-slim"), uses that as the
         base. Otherwise uses debian:bookworm-slim.
 
+        The context_dir specifies the directory for Dockerfile COPY/ADD instructions.
+        If not provided, defaults to the Dockerfile's parent directory.
+
+        The secrets parameter is a sequence of environment variable names whose values
+        will be read from the current environment and passed to the Modal image build
+        process. These are available during Dockerfile RUN commands via --mount=type=secret.
+
         SSH and tmux setup is handled at runtime in _start_sshd_in_sandbox to
         allow warning if these tools are not pre-installed in the base image.
         """
+        # Build modal secrets from environment variables
+        modal_secrets = _build_modal_secrets_from_env(secrets)
+
         if dockerfile is not None:
             dockerfile_contents = dockerfile.read_text()
-            context_dir = dockerfile.parent
+            effective_context_dir = context_dir if context_dir is not None else dockerfile.parent
             image = _build_image_from_dockerfile_contents(
                 dockerfile_contents,
-                context_dir=context_dir,
+                context_dir=effective_context_dir,
                 is_each_layer_cached=True,
+                secrets=modal_secrets,
             )
         elif base_image:
             image = modal.Image.from_registry(base_image)
@@ -280,59 +383,25 @@ class ModalProviderInstance(BaseProviderInstance):
     ) -> None:
         """Check for required packages and install if missing, with warnings.
 
-        Checks for sshd and tmux. If either is missing, logs a warning and
-        installs via apt. This allows users to pre-configure their base images
+        Uses a single shell command to check for all packages and install missing ones,
+        which is faster than multiple exec calls and allows the logic to be reused
+        by other providers.
+
+        Checks for sshd, tmux, curl, rsync, and git. If any is missing, logs a warning
+        and installs via apt. This allows users to pre-configure their base images
         for faster startup while supporting images without these tools.
         """
-        # FIXME: consolidate this duplicated logic that is checking for packages into a shared utility function or more sensible for loop over the expected packages and the commands to test for them
-        # Check if sshd is installed
-        sshd_check = sandbox.exec("sh", "-c", "test -x /usr/sbin/sshd && echo yes || echo no")
-        is_sshd_installed = sshd_check.stdout.read().strip() == "yes"
+        # Build and execute the combined check-and-install command
+        check_install_cmd = build_check_and_install_packages_command(str(self.host_dir))
+        process = sandbox.exec("sh", "-c", check_install_cmd)
 
-        # Check if tmux is installed
-        tmux_check = sandbox.exec("sh", "-c", "command -v tmux >/dev/null 2>&1 && echo yes || echo no")
-        is_tmux_installed = tmux_check.stdout.read().strip() == "yes"
+        # Read output (implicitly waits for completion)
+        stdout = process.stdout.read()
 
-        # Check if curl is installed
-        curl_check = sandbox.exec("sh", "-c", "command -v curl >/dev/null 2>&1 && echo yes || echo no")
-        is_curl_installed = curl_check.stdout.read().strip() == "yes"
-
-        # Determine which packages need installation
-        packages_to_install: list[str] = []
-        if not is_sshd_installed:
-            logger.warning(
-                "openssh-server is not pre-installed in the base image. "
-                "Installing at runtime. For faster startup, consider using an image with openssh-server pre-installed."
-            )
-            packages_to_install.append("openssh-server")
-
-        if not is_tmux_installed:
-            logger.warning(
-                "tmux is not pre-installed in the base image. "
-                "Installing at runtime. For faster startup, consider using an image with tmux pre-installed."
-            )
-            packages_to_install.append("tmux")
-
-        if not is_curl_installed:
-            logger.warning(
-                "curl is not pre-installed in the base image. "
-                "Installing at runtime. For faster startup, consider using an image with curl pre-installed."
-            )
-            packages_to_install.append("curl")
-
-        # Install missing packages
-        if packages_to_install:
-            logger.debug("Installing packages: {}", packages_to_install)
-            # Wait for apt-get commands to complete by calling .wait() on the result
-            sandbox.exec("apt-get", "update", "-qq").wait()
-            sandbox.exec("apt-get", "install", "-y", "-qq", *packages_to_install).wait()
-
-        # Create sshd run directory (required for sshd to start)
-        # Wait for the command to complete before proceeding
-        sandbox.exec("mkdir", "-p", "/run/sshd").wait()
-
-        # Create mngr host directory
-        sandbox.exec("mkdir", "-p", str(self.host_dir)).wait()
+        # Parse warnings from output and log them
+        warnings = parse_warnings_from_output(stdout)
+        for warning in warnings:
+            logger.warning(warning)
 
     def _start_sshd_in_sandbox(
         self,
@@ -340,40 +409,36 @@ class ModalProviderInstance(BaseProviderInstance):
         client_public_key: str,
         host_private_key: str,
         host_public_key: str,
+        ssh_user: str = "root",
     ) -> None:
         """Set up SSH access and start sshd in the sandbox.
 
         This method handles the complete SSH setup including package installation
         (if needed), key configuration, and starting the sshd daemon.
+
+        All setup (except starting sshd) is done via a single shell command for
+        speed and to allow reuse by other providers.
         """
         # Check for required packages and install if missing
         self._check_and_install_packages(sandbox)
 
-        # Create .ssh directory
-        sandbox.exec("mkdir", "-p", "/root/.ssh").wait()
+        logger.debug("Configuring SSH keys in sandbox", ssh_user=ssh_user)
 
-        # Write the authorized_keys file (for client authentication)
-        with sandbox.open("/root/.ssh/authorized_keys", "wb") as f:
-            f.write(client_public_key.encode("utf-8"))
+        # Build and execute the SSH configuration command
+        configure_ssh_cmd = build_configure_ssh_command(
+            user=ssh_user,
+            client_public_key=client_public_key,
+            host_private_key=host_private_key,
+            host_public_key=host_public_key,
+        )
+        sandbox.exec("sh", "-c", configure_ssh_cmd).wait()
 
-        # Remove any existing host keys first to ensure we use our key
-        # This is important for restored sandboxes which may have old keys from the snapshot
-        sandbox.exec("rm", "-f", "/etc/ssh/ssh_host_*").wait()
+        logger.debug("Starting sshd in sandbox")
 
-        # Install the host key (for host identification)
-        # This ensures all Modal sandboxes use the same host key that we control
-        with sandbox.open("/etc/ssh/ssh_host_ed25519_key", "wb") as f:
-            f.write(host_private_key.encode("utf-8"))
-
-        with sandbox.open("/etc/ssh/ssh_host_ed25519_key.pub", "wb") as f:
-            f.write(host_public_key.encode("utf-8"))
-
-        # Set correct permissions on host key
-        sandbox.exec("chmod", "600", "/etc/ssh/ssh_host_ed25519_key").wait()
-        sandbox.exec("chmod", "644", "/etc/ssh/ssh_host_ed25519_key.pub").wait()
-
-        # Start sshd (-D: don't detach, -e: print errors to stdout)
-        sandbox.exec("/usr/sbin/sshd", "-D", "-e")
+        # Start sshd (-D: don't detach)
+        # suppress all output--we don't want Modal tracking this for performance and stability reasons.
+        # yes, this is annoying for debugging, sorry--feel free to modify this code when debugging
+        sandbox.exec("/usr/sbin/sshd", "-D", stdout=StreamType.DEVNULL, stderr=StreamType.DEVNULL)
 
     def _get_ssh_info_from_sandbox(self, sandbox: modal.Sandbox) -> tuple[str, int]:
         """Extract SSH connection info from a running sandbox."""
@@ -430,6 +495,65 @@ class ModalProviderInstance(BaseProviderInstance):
 
         return pyinfra_host
 
+    def _setup_sandbox_ssh_and_create_host(
+        self,
+        sandbox: modal.Sandbox,
+        host_id: HostId,
+        host_name: HostName,
+        user_tags: Mapping[str, str] | None,
+    ) -> tuple[Host, str, int, str]:
+        """Set up SSH in a sandbox and create a Host object.
+
+        This helper consolidates the common logic for setting up SSH access
+        after a sandbox is created, used by both create_host and start_host.
+
+        Returns a tuple of (Host, ssh_host, ssh_port, host_public_key) so callers
+        can use the SSH info for creating/updating host records.
+        """
+        # Get SSH keypairs
+        private_key_path, client_public_key = self._get_ssh_keypair()
+        host_key_path, host_public_key = self._get_host_keypair()
+        host_private_key = host_key_path.read_text()
+
+        # Start sshd with our host key
+        self._start_sshd_in_sandbox(sandbox, client_public_key, host_private_key, host_public_key)
+
+        # Get SSH connection info
+        ssh_host, ssh_port = self._get_ssh_info_from_sandbox(sandbox)
+        logger.debug("SSH endpoint available", ssh_host=ssh_host, ssh_port=ssh_port)
+
+        # Add the host to our known_hosts file before waiting for sshd
+        logger.debug("Adding host to known_hosts", ssh_host=ssh_host, ssh_port=ssh_port)
+        add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
+
+        # Wait for sshd to be ready
+        logger.debug("Waiting for sshd to be ready...")
+        self._wait_for_sshd(ssh_host, ssh_port)
+        logger.debug("sshd is ready")
+
+        # Set sandbox tags
+        sandbox_tags = self._build_sandbox_tags(
+            host_id=host_id,
+            name=host_name,
+            user_tags=user_tags,
+        )
+        logger.debug("Setting sandbox tags: {}", list(sandbox_tags.keys()))
+        sandbox.set_tags(sandbox_tags)
+
+        # Create pyinfra host and connector
+        pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
+        connector = PyinfraConnector(pyinfra_host)
+
+        # Create the Host object
+        host = Host(
+            id=host_id,
+            connector=connector,
+            provider_instance=self,
+            mngr_ctx=self.mngr_ctx,
+        )
+
+        return host, ssh_host, ssh_port, host_public_key
+
     def _parse_build_args(
         self,
         build_args: Sequence[str] | None,
@@ -442,19 +566,10 @@ class ModalProviderInstance(BaseProviderInstance):
 
         Both formats can be mixed. Unknown arguments raise an error.
         """
-        if not build_args:
-            return SandboxConfig(
-                gpu=None,
-                cpu=self.default_cpu,
-                memory=self.default_memory,
-                image=None,
-                dockerfile=None,
-                timeout=self.default_timeout,
-            )
 
         # Normalize arguments: convert "key=value" to "--key=value"
         normalized_args: list[str] = []
-        for arg in build_args:
+        for arg in build_args or []:
             if "=" in arg and not arg.startswith("-"):
                 # Simple key=value format, convert to --key=value
                 normalized_args.append(f"--{arg}")
@@ -467,12 +582,15 @@ class ModalProviderInstance(BaseProviderInstance):
             add_help=False,
             exit_on_error=False,
         )
-        parser.add_argument("--gpu", type=str, default=None)
-        parser.add_argument("--cpu", type=float, default=self.default_cpu)
-        parser.add_argument("--memory", type=float, default=self.default_memory)
-        parser.add_argument("--image", type=str, default=None)
+        parser.add_argument("--gpu", type=str, default=self.config.default_gpu)
+        parser.add_argument("--cpu", type=float, default=self.config.default_cpu)
+        parser.add_argument("--memory", type=float, default=self.config.default_memory)
+        parser.add_argument("--image", type=str, default=self.config.default_image)
         parser.add_argument("--dockerfile", type=str, default=None)
-        parser.add_argument("--timeout", type=int, default=self.default_timeout)
+        parser.add_argument("--timeout", type=int, default=self.config.default_timeout)
+        parser.add_argument("--region", type=str, default=self.config.default_region)
+        parser.add_argument("--context-dir", type=str, default=None)
+        parser.add_argument("--secret", type=str, action="append", default=[])
 
         try:
             parsed, unknown = parser.parse_known_args(normalized_args)
@@ -489,6 +607,9 @@ class ModalProviderInstance(BaseProviderInstance):
             image=parsed.image,
             dockerfile=parsed.dockerfile,
             timeout=parsed.timeout,
+            region=parsed.region,
+            context_dir=parsed.context_dir,
+            secrets=tuple(parsed.secret),
         )
 
     # =========================================================================
@@ -501,55 +622,27 @@ class ModalProviderInstance(BaseProviderInstance):
         name: HostName,
         user_tags: Mapping[str, str] | None,
     ) -> dict[str, str]:
-        """Build the tags dict to store on a Modal sandbox.
-
-        Only stores host_id, host_name, and user tags. All other metadata
-        (SSH info, config, snapshots) is stored on the Modal Volume.
-        """
-        tags: dict[str, str] = {
-            TAG_HOST_ID: str(host_id),
-            TAG_HOST_NAME: str(name),
-        }
-
-        # Store user tags with a prefix to separate them from mngr tags
-        if user_tags:
-            for key, value in user_tags.items():
-                tags[TAG_USER_PREFIX + key] = value
-
-        return tags
+        """Build the tags dict to store on a Modal sandbox."""
+        return build_sandbox_tags(host_id, name, user_tags)
 
     def _parse_sandbox_tags(
         self,
         tags: dict[str, str],
     ) -> tuple[HostId, HostName, dict[str, str]]:
-        """Parse tags from a Modal sandbox into structured data.
-
-        Returns (host_id, name, user_tags). All other metadata is read from the volume.
-        """
-        host_id = HostId(tags[TAG_HOST_ID])
-        name = HostName(tags[TAG_HOST_NAME])
-
-        # Extract user tags (those with the user prefix)
-        user_tags: dict[str, str] = {}
-        for key, value in tags.items():
-            if key.startswith(TAG_USER_PREFIX):
-                user_key = key[len(TAG_USER_PREFIX) :]
-                user_tags[user_key] = value
-
-        return host_id, name, user_tags
+        """Parse tags from a Modal sandbox into structured data."""
+        return parse_sandbox_tags(tags)
 
     def _get_modal_app(self) -> modal.App:
         """Get or create the Modal app for this provider instance.
 
-        The app is lazily created by the backend when first needed. This allows
-        basic property tests to run without Modal credentials.
+        The app is lazily created by the modal_app manager when first needed.
+        This allows basic property tests to run without Modal credentials.
 
-        Modal output is captured at the backend level.
+        Modal output is captured at the modal_app level.
 
         Raises modal.exception.AuthError if Modal credentials are not configured.
         """
-        app, _ = self.backend_cls._get_or_create_app(self.app_name)
-        return app
+        return self.modal_app.app
 
     def get_captured_output(self) -> str:
         """Get all captured Modal output for this provider instance.
@@ -560,7 +653,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
         Returns an empty string if no app has been created yet.
         """
-        return self.backend_cls.get_captured_output_for_app(self.app_name)
+        return self.modal_app.get_captured_output()
 
     def _find_sandbox_by_host_id(self, host_id: HostId) -> modal.Sandbox | None:
         """Find a Modal sandbox by its mngr host_id tag."""
@@ -647,37 +740,35 @@ class ModalProviderInstance(BaseProviderInstance):
         start_args: Sequence[str] | None = None,
     ) -> Host:
         """Create a new Modal sandbox host."""
-        logger.info("Creating Modal sandbox host: name={}", name)
+        # Generate host ID
+        host_id = HostId.generate()
+
+        if start_args:
+            # someday we can allow this by understanding if these result in a different configuration for the sandbox,
+            # and if so, first building, then snapshotting, then starting a second sandbox from that snapshot
+            # (with the right start args for that second sandbox)
+            raise NotImplementedError(
+                "separate start_args are not yet supported for Modal provider: use build_args instead"
+            )
+
+        logger.info("Creating host {} in {} ...", name, self.name)
 
         # Parse build arguments (including --dockerfile if specified)
         config = self._parse_build_args(build_args)
         base_image = str(image) if image else config.image
         dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
-
-        # Get SSH client keypair (for authentication)
-        private_key_path, client_public_key = self._get_ssh_keypair()
-        logger.debug("Using SSH client key: {}", private_key_path)
-
-        # Get SSH host keypair (for host identification)
-        host_key_path, host_public_key = self._get_host_keypair()
-        host_private_key = host_key_path.read_text()
-        logger.debug("Using SSH host key: {}", host_key_path)
+        context_dir_path = Path(config.context_dir) if config.context_dir else None
 
         # Build the Modal image
         logger.debug("Building Modal image...")
-        modal_image = self._build_modal_image(base_image, dockerfile_path)
+        modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
 
         # Get or create the Modal app (uses singleton pattern with context manager)
-        logger.debug("Getting Modal app: {}", self.app_name)
+        logger.debug("Getting Modal app", app_name=self.app_name)
         app = self._get_modal_app()
 
         # Create the sandbox
-        logger.debug(
-            "Creating Modal sandbox with timeout={}s, cpu={}, memory={}GB",
-            config.timeout,
-            config.cpu,
-            config.memory,
-        )
+        logger.debug("Creating Modal sandbox", timeout=config.timeout, cpu=config.cpu, memory_gb=config.memory)
 
         # Memory is in GB but Modal expects MB
         memory_mb = int(config.memory * 1024)
@@ -690,39 +781,19 @@ class ModalProviderInstance(BaseProviderInstance):
                 memory=memory_mb,
                 unencrypted_ports=[CONTAINER_SSH_PORT],
                 gpu=config.gpu,
+                region=config.region,
             )
         except modal.exception.RemoteError as e:
             raise MngrError(f"Failed to create Modal sandbox: {e}\n{self.get_captured_output()}") from None
-        logger.info("Created sandbox: {}", sandbox.object_id)
+        logger.debug("Created Modal sandbox", sandbox_id=sandbox.object_id)
 
-        # Start sshd with our host key
-        logger.debug("Starting sshd in sandbox...")
-        self._start_sshd_in_sandbox(sandbox, client_public_key, host_private_key, host_public_key)
-
-        # Get SSH connection info
-        ssh_host, ssh_port = self._get_ssh_info_from_sandbox(sandbox)
-        logger.debug("SSH endpoint: {}:{}", ssh_host, ssh_port)
-
-        # Add the host to our known_hosts file before waiting for sshd
-        logger.debug("Adding host to known_hosts: {}:{}", ssh_host, ssh_port)
-        add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
-
-        # Wait for sshd to be ready
-        logger.debug("Waiting for sshd to be ready...")
-        self._wait_for_sshd(ssh_host, ssh_port)
-        logger.debug("sshd is ready")
-
-        # Generate host ID
-        host_id = HostId.generate()
-
-        # Store only host_id, host_name, and user tags on the sandbox
-        sandbox_tags = self._build_sandbox_tags(
+        # Set up SSH and create host object using shared helper
+        host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
+            sandbox=sandbox,
             host_id=host_id,
-            name=name,
+            host_name=name,
             user_tags=tags,
         )
-        logger.debug("Setting sandbox tags: {}", list(sandbox_tags.keys()))
-        sandbox.set_tags(sandbox_tags)
 
         # Store full host metadata on the volume for persistence
         host_record = HostRecord(
@@ -735,22 +806,12 @@ class ModalProviderInstance(BaseProviderInstance):
             user_tags=dict(tags) if tags else {},
             snapshots=[],
         )
-        logger.debug("Writing host record to volume for host_id={}", host_id)
+        logger.debug("Writing host record to volume", host_id=str(host_id))
         self._write_host_record(host_record)
 
-        # Create pyinfra host
-        pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
-        connector = PyinfraConnector(pyinfra_host)
+        # Record BOOT activity for idle detection
+        host.record_activity(ActivitySource.BOOT)
 
-        # Create and return the Host object
-        host = Host(
-            id=host_id,
-            connector=connector,
-            provider_instance=self,
-            mngr_ctx=self.mngr_ctx,
-        )
-
-        logger.info("Modal host created: id={}, name={}, ssh={}:{}", host_id, name, ssh_host, ssh_port)
         return host
 
     @handle_modal_auth_error
@@ -775,7 +836,7 @@ class ModalProviderInstance(BaseProviderInstance):
             except modal.exception.Error as e:
                 logger.warning("Error terminating sandbox: {}", e)
         else:
-            logger.debug("No sandbox found with host_id={}, may already be terminated", host_id)
+            logger.debug("No sandbox found, may already be terminated", host_id=str(host_id))
 
     @handle_modal_auth_error
     def start_host(
@@ -831,12 +892,7 @@ class ModalProviderInstance(BaseProviderInstance):
         if not modal_image_id:
             raise MngrError(f"Snapshot {snapshot_id} does not contain a Modal image ID for restoration.")
 
-        logger.info("Restoring Modal sandbox from snapshot: host_id={}, snapshot_id={}", host_id, snapshot_id)
-
-        # Get SSH keypairs
-        private_key_path, client_public_key = self._get_ssh_keypair()
-        host_key_path, host_public_key = self._get_host_keypair()
-        host_private_key = host_key_path.read_text()
+        logger.info("Restoring Modal sandbox from snapshot", host_id=str(host_id), snapshot_id=str(snapshot_id))
 
         # Use configuration from host record
         config = host_record.config
@@ -844,7 +900,7 @@ class ModalProviderInstance(BaseProviderInstance):
         user_tags = host_record.user_tags
 
         # Create the image reference from the snapshot
-        logger.debug("Creating sandbox from snapshot image: {}", modal_image_id)
+        logger.debug("Creating sandbox from snapshot image", image_id=modal_image_id)
         # Cast needed because modal.Image.from_id returns Self which the type checker can't resolve
         modal_image = cast(modal.Image, modal.Image.from_id(modal_image_id))
 
@@ -862,6 +918,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 memory=memory_mb,
                 unencrypted_ports=[CONTAINER_SSH_PORT],
                 gpu=config.gpu,
+                region=config.region,
             )
         else:
             new_sandbox = modal.Sandbox.create(
@@ -871,28 +928,17 @@ class ModalProviderInstance(BaseProviderInstance):
                 cpu=config.cpu,
                 memory=memory_mb,
                 unencrypted_ports=[CONTAINER_SSH_PORT],
+                region=config.region,
             )
-        logger.info("Created sandbox from snapshot: {}", new_sandbox.object_id)
+        logger.info("Created sandbox from snapshot", sandbox_id=new_sandbox.object_id)
 
-        # Start sshd
-        self._start_sshd_in_sandbox(new_sandbox, client_public_key, host_private_key, host_public_key)
-
-        # Get SSH connection info
-        ssh_host, ssh_port = self._get_ssh_info_from_sandbox(new_sandbox)
-
-        # Add to known hosts
-        add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
-
-        # Wait for sshd
-        self._wait_for_sshd(ssh_host, ssh_port)
-
-        # Store only host_id and host_name as tags
-        sandbox_tags = self._build_sandbox_tags(
+        # Set up SSH and create host object using shared helper
+        restored_host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
+            sandbox=new_sandbox,
             host_id=host_id,
-            name=host_name,
+            host_name=host_name,
             user_tags=user_tags,
         )
-        new_sandbox.set_tags(sandbox_tags)
 
         # Update host record on volume with new SSH info
         updated_host_record = host_record.model_copy(
@@ -904,18 +950,11 @@ class ModalProviderInstance(BaseProviderInstance):
         )
         self._write_host_record(updated_host_record)
 
-        # Create pyinfra host and return
-        pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
-        connector = PyinfraConnector(pyinfra_host)
+        logger.info("Restored Modal host from snapshot", host_id=str(host_id), host_name=str(host_name))
 
-        restored_host = Host(
-            id=host_id,
-            connector=connector,
-            provider_instance=self,
-            mngr_ctx=self.mngr_ctx,
-        )
+        # Record BOOT activity for idle detection
+        restored_host.record_activity(ActivitySource.BOOT)
 
-        logger.info("Restored Modal host from snapshot: id={}, name={}", host_id, host_name)
         return restored_host
 
     @handle_modal_auth_error
@@ -1020,7 +1059,7 @@ class ModalProviderInstance(BaseProviderInstance):
         sandbox termination and sharing between mngr instances.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
-        logger.debug("Creating snapshot for Modal sandbox: host_id={}", host_id)
+        logger.debug("Creating snapshot for Modal sandbox", host_id=str(host_id))
 
         sandbox = self._find_sandbox_by_host_id(host_id)
         if sandbox is None:
@@ -1111,7 +1150,7 @@ class ModalProviderInstance(BaseProviderInstance):
         by Modal when no longer referenced.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
-        logger.debug("Deleting snapshot {} from Modal sandbox: host_id={}", snapshot_id, host_id)
+        logger.debug("Deleting snapshot from Modal sandbox", snapshot_id=str(snapshot_id), host_id=str(host_id))
 
         # Read host record from volume
         host_record = self._read_host_record(host_id)
@@ -1129,7 +1168,7 @@ class ModalProviderInstance(BaseProviderInstance):
         updated_host_record = host_record.model_copy(update={"snapshots": updated_snapshots})
         self._write_host_record(updated_host_record)
 
-        logger.info("Deleted snapshot: {}", snapshot_id)
+        logger.info("Deleted snapshot", snapshot_id=str(snapshot_id))
 
     # =========================================================================
     # Volume Methods (not supported)
@@ -1327,7 +1366,41 @@ class ModalProviderInstance(BaseProviderInstance):
         Exits the app.run() context manager if one was created for this app_name.
         This makes the app ephemeral and prevents accumulation.
         """
-        self.backend_cls.close_app(self.app_name)
+        self.modal_app.close()
+
+
+def _build_modal_secrets_from_env(
+    env_var_names: Sequence[str],
+) -> list[modal.Secret]:
+    """Build Modal secrets from environment variable names.
+
+    Reads the values of the specified environment variables from the current
+    environment and creates a Modal secret containing them. This allows
+    Dockerfiles to access secrets during build via --mount=type=secret.
+
+    Raises MngrError if any specified environment variable is not set.
+    """
+    if not env_var_names:
+        return []
+
+    secret_dict: dict[str, str | None] = {}
+    missing_vars: list[str] = []
+
+    for var_name in env_var_names:
+        value = os.environ.get(var_name)
+        if value is None:
+            missing_vars.append(var_name)
+        else:
+            secret_dict[var_name] = value
+
+    if missing_vars:
+        raise MngrError(
+            f"Environment variable(s) not set for secrets: {', '.join(missing_vars)}. "
+            "Set these environment variables before building."
+        )
+
+    logger.debug("Creating Modal secrets from environment variables", count=len(secret_dict))
+    return [modal.Secret.from_dict(secret_dict)]
 
 
 def _build_image_from_dockerfile_contents(
@@ -1339,12 +1412,17 @@ def _build_image_from_dockerfile_contents(
     # if True, apply each instruction separately for per-layer caching; if False, apply
     # all instructions at once (faster but no intermediate caching on failure)
     is_each_layer_cached: bool = True,
+    # Modal secrets to make available during Dockerfile RUN commands
+    secrets: Sequence[modal.Secret] = (),
 ) -> modal.Image:
     """Build a Modal image from Dockerfile contents with optional per-layer caching.
 
     When is_each_layer_cached=True (the default), each instruction is applied separately,
     allowing Modal to cache intermediate layers. This means if a build fails at step N,
     steps 1 through N-1 don't need to be re-run. Multistage dockerfiles are not supported.
+
+    Secrets are passed to dockerfile_commands and are available during RUN commands
+    via --mount=type=secret,id=<env_var_name>.
     """
     # DockerfileParser writes to a file, so use a temp directory to avoid conflicts
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1369,20 +1447,24 @@ def _build_image_from_dockerfile_contents(
             modal_image = initial_image
 
         if len(instructions) > 0:
+            secrets_list = list(secrets)
+            expanded_context_dir = context_dir.expanduser() if context_dir is not None else None
             if is_each_layer_cached:
                 for instr in instructions:
                     if instr["instruction"] == "COMMENT":
                         continue
                     modal_image = modal_image.dockerfile_commands(
                         [instr["content"]],
-                        context_dir=context_dir,
+                        context_dir=expanded_context_dir,
+                        secrets=secrets_list,
                     )
             else:
                 # The downside of doing them all at once is that if any one fails,
                 # Modal will re-run all of them
                 modal_image = modal_image.dockerfile_commands(
                     [x["content"] for x in instructions if x["instruction"] != "COMMENT"],
-                    context_dir=context_dir,
+                    context_dir=expanded_context_dir,
+                    secrets=secrets_list,
                 )
 
         return modal_image

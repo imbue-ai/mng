@@ -40,6 +40,7 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import AgentDataOptions
 from imbue.mngr.interfaces.host import AgentEnvironmentOptions
 from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import AgentLifecycleOptions
@@ -49,7 +50,6 @@ from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import FileModificationSpec
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import NamedCommand
-from imbue.mngr.interfaces.host import SourceDataOptions
 from imbue.mngr.interfaces.host import UploadFileSpec
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
@@ -69,11 +69,14 @@ from imbue.mngr.primitives import Permission
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import WorkDirCopyMode
+from imbue.mngr.utils.editor import EditorSession
+from imbue.mngr.utils.logging import LoggingSuppressor
 from imbue.mngr.utils.git_utils import derive_project_name_from_path
 from imbue.mngr.utils.git_utils import find_git_worktree_root
 from imbue.mngr.utils.git_utils import get_current_git_branch
 from imbue.mngr.utils.name_generator import generate_agent_name
 from imbue.mngr.utils.name_generator import generate_host_name
+from imbue.mngr.utils.polling import wait_for
 
 
 @deal.has()
@@ -124,6 +127,7 @@ class CreateCliOptions(CommonCliOptions):
     agent_type: str | None
     connect: bool
     await_ready: bool | None
+    await_agent_stopped: bool | None
     copy_work_dir: bool | None
     ensure_clean: bool
     snapshot_source: bool | None
@@ -142,10 +146,8 @@ class CreateCliOptions(CommonCliOptions):
     copy_source: bool
     clone: bool
     worktree: bool
-    include: tuple[str, ...]
-    exclude: tuple[str, ...]
-    include_file: str | None
-    exclude_file: str | None
+    rsync: bool | None
+    rsync_args: str | None
     include_git: bool
     include_unclean: bool | None
     include_gitignored: bool
@@ -175,6 +177,7 @@ class CreateCliOptions(CommonCliOptions):
     interactive: bool | None
     message: str | None
     message_file: str | None
+    edit_message: bool
     retry: int
     retry_delay: str
     attach_command: str | None
@@ -226,6 +229,9 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--host", "--target-host", help="Use an existing host (by name or ID) [default: local]")
 @optgroup.option("--target", help="Target [HOST][:PATH]. Defaults to current dir if no other target args are given")
 @optgroup.option("--target-path", help="Directory to mount source inside agent host")
+@optgroup.option(
+    "--in-place", "in_place", is_flag=True, help="Run directly in source directory (no copy/clone/worktree)"
+)
 # FIXME: you can get yourself in a bit of a screwy situation if you DONT specify --project and you DO use a remote source (which comes from a different project)
 #   currently we have this assumption that your local dir and source are for the same project
 #   we should at least validate that, for remote sources, they end up having the exact same project inferred as locally
@@ -252,6 +258,12 @@ class CreateCliOptions(CommonCliOptions):
     help="Wait until agent is ready before returning [default: no-await-ready if --no-connect]",
 )
 @optgroup.option(
+    "--await-agent-stopped/--no-await-agent-stopped",
+    "await_agent_stopped",
+    default=None,
+    help="Wait until agent has completely finished running before exiting [default: no-await-agent-stopped]",
+)
+@optgroup.option(
     "--ensure-clean/--no-ensure-clean", default=True, show_default=True, help="Abort if working tree is dirty"
 )
 @optgroup.option(
@@ -266,7 +278,7 @@ class CreateCliOptions(CommonCliOptions):
     default=None,
     help="Copy source work_dir immediately [default: copy if --no-connect]",
 )
-@optgroup.group("Agent Work Dir")
+@optgroup.group("Agent Source Work Dir")
 @optgroup.option(
     "--from",
     "--source",
@@ -277,18 +289,41 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--source-host", help="Source host")
 @optgroup.option("--source-path", help="Source path")
 @optgroup.option(
-    "--in-place", "in_place", is_flag=True, help="Run directly in source directory (no copy/clone/worktree)"
+    "--rsync/--no-rsync",
+    default=None,
+    help="Use rsync for file transfer [default: yes if rsync-args are present or if git is disabled]",
 )
+@optgroup.option("--rsync-args", help="Additional arguments to pass to rsync")
+@optgroup.group("Agent Git Configuration")
 @optgroup.option("--copy", "copy_source", is_flag=True, help="Copy source to isolated directory before running")
 @optgroup.option("--clone", is_flag=True, help="Create a git clone that just shares objects with original repo")
 @optgroup.option(
-    "--worktree", is_flag=True, help="Create a git worktree that shares objects and index with original repo"
+    "--worktree",
+    is_flag=True,
+    help="Create a git worktree that shares objects and index with original repo. Requires --new-branch",
 )
-@optgroup.option("--include", multiple=True, help="Include additional files matching glob pattern [repeatable]")
-@optgroup.option("--exclude", multiple=True, help="Exclude files matching glob pattern [repeatable]")
-@optgroup.option("--include-file", type=click.Path(exists=True), help="Read include patterns from file")
-@optgroup.option("--exclude-file", type=click.Path(exists=True), help="Read exclude patterns from file")
 @optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
+@optgroup.option("--base-branch", help="The starting point for the agent [default: current branch]")
+@optgroup.option(
+    "--new-branch",
+    "new_branch",
+    is_flag=False,
+    flag_value="",
+    default="",
+    help="Create a fresh branch (named TEXT if provided, otherwise auto-generated) [default: new branch]",
+)
+@optgroup.option(
+    "--no-new-branch",
+    "new_branch",
+    flag_value=None,
+    is_flag=True,
+    help="Do not create a new branch; use the current branch directly. Incompatible with --worktree",
+)
+@optgroup.option(
+    "--new-branch-prefix", default="mngr/", show_default=True, help="Prefix for auto-generated branch names"
+)
+@optgroup.option("--depth", type=int, help="Shallow clone depth [default: full]")
+@optgroup.option("--shallow-since", help="Shallow clone since date")
 @optgroup.option(
     "--include-unclean/--exclude-unclean",
     "include_unclean",
@@ -301,22 +336,6 @@ class CreateCliOptions(CommonCliOptions):
     show_default=True,
     help="Include gitignored files",
 )
-@optgroup.group("Agent Git Configuration")
-@optgroup.option("--base-branch", help="The starting point for the agent [default: current branch]")
-@optgroup.option(
-    "--new-branch",
-    "new_branch",
-    is_flag=False,
-    flag_value="",
-    default=None,
-    help="Create a fresh branch (named TEXT if provided, otherwise auto-generated) [default: no new branch]",
-)
-@optgroup.option("--no-new-branch", "new_branch", flag_value=None, is_flag=True, hidden=True)
-@optgroup.option(
-    "--new-branch-prefix", default="mngr/", show_default=True, help="Prefix for auto-generated branch names"
-)
-@optgroup.option("--depth", type=int, help="Shallow clone depth [default: full]")
-@optgroup.option("--shallow-since", help="Shallow clone since date")
 @optgroup.group("Agent Environment Variables")
 @optgroup.option("--env", "--agent-env", "agent_env", multiple=True, help="Set environment variable KEY=VALUE")
 @optgroup.option(
@@ -390,6 +409,11 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--message", help="Initial message to send after the agent starts")
 @optgroup.option("--message-file", type=click.Path(exists=True), help="File containing initial message to send")
 @optgroup.option(
+    "--edit-message",
+    is_flag=True,
+    help="Open an editor to compose the initial message (uses $EDITOR)",
+)
+@optgroup.option(
     "--message-delay",
     type=float,
     default=1.0,
@@ -423,15 +447,37 @@ def create(ctx: click.Context, **kwargs) -> None:
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
 
-    # Read message from file if --message-file is provided
-    initial_message: str | None
+    # validate that we're not waiting for the agent to stop and trying to connect:
+    if opts.await_agent_stopped and opts.connect:
+        raise UserInputError(
+            "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
+        )
+
+    # Read message from file if --message-file is provided (used as initial content for editor if --edit-message)
+    initial_message_content: str | None
     if opts.message_file is not None:
         message_file_path = Path(opts.message_file)
-        initial_message = message_file_path.read_text()
+        initial_message_content = message_file_path.read_text()
     elif opts.message is not None:
-        initial_message = opts.message
+        initial_message_content = opts.message
     else:
+        initial_message_content = None
+
+    # If --edit-message is set, start the editor immediately
+    # The editor runs in parallel with agent creation
+    # We suppress logging while the editor is open to avoid writing to the terminal
+    editor_session: EditorSession | None = None
+    if opts.edit_message:
+        editor_session = EditorSession.create(initial_content=initial_message_content)
+        # Enable logging suppression before starting the editor so that
+        # log messages don't interfere with the editor's terminal output
+        LoggingSuppressor.enable(output_opts)
+        # Start editor with callback that restores logging when it exits
+        editor_session.start(on_exit=_on_editor_exit)
+        # When using editor, don't pass message to api_create (we'll send it after editor finishes)
         initial_message = None
+    else:
+        initial_message = initial_message_content
 
     # Create a lazy loader for agents grouped by host (only loads if needed)
     @lru_cache
@@ -504,12 +550,26 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     # Determine whether to wait for agent to be ready
     # Default: --no-await-ready when --no-connect, --await-ready when --connect
+    # Note: --await-agent-stopped implies --await-ready (we need the agent to be ready first)
     should_await_ready = opts.await_ready
     if should_await_ready is None:
-        should_await_ready = opts.connect
+        if opts.await_agent_stopped:
+            should_await_ready = True
+        else:
+            should_await_ready = opts.connect
 
     # If --no-connect and --no-await-ready, run api_create in background
     if not opts.connect and not should_await_ready:
+        # --edit-message is incompatible with background creation
+        if editor_session is not None:
+            # Disable logging suppression before showing the error
+            if LoggingSuppressor.is_suppressed():
+                LoggingSuppressor.disable_and_replay(clear_screen=True)
+            editor_session.cleanup()
+            raise UserInputError(
+                "--edit-message cannot be used with background creation (--no-connect --no-await-ready). "
+                "Use --await-ready to wait for agent creation."
+            )
         _create_agent_in_background(
             final_source_location,
             resolved_target_host,
@@ -521,13 +581,33 @@ def create(ctx: click.Context, **kwargs) -> None:
         return
 
     # Call the API create function (synchronously)
-    create_result = api_create(
-        source_location=final_source_location,
-        target_host=resolved_target_host,
-        agent_options=agent_opts,
-        mngr_ctx=mngr_ctx,
-        create_work_dir=not is_work_dir_created,
-    )
+    # Wrap in try/finally to ensure editor cleanup on failure
+    try:
+        create_result = api_create(
+            source_location=final_source_location,
+            target_host=resolved_target_host,
+            agent_options=agent_opts,
+            mngr_ctx=mngr_ctx,
+            create_work_dir=not is_work_dir_created,
+        )
+
+        # If --edit-message was used, wait for editor and send the message
+        if editor_session is not None:
+            _handle_editor_message(
+                editor_session=editor_session,
+                agent=create_result.agent,
+            )
+    finally:
+        # Clean up editor session on success or failure
+        if editor_session is not None and not editor_session.is_finished():
+            editor_session.cleanup()
+        # Ensure logging suppression is disabled on any exit path
+        if LoggingSuppressor.is_suppressed():
+            LoggingSuppressor.disable_and_replay(clear_screen=True)
+
+    # If --await-agent-stopped is set, wait for the agent to finish running
+    if opts.await_agent_stopped:
+        _await_agent_stopped(create_result.agent)
 
     # If --connect is set, connect to the agent
     if opts.connect:
@@ -535,6 +615,54 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     # Output result
     _output_result(create_result, output_opts)
+
+
+def _on_editor_exit() -> None:
+    """Callback invoked when the editor process exits.
+
+    Restores logging by disabling suppression and replaying buffered messages.
+    This is called from a background thread as soon as the editor exits.
+    """
+    LoggingSuppressor.disable_and_replay(clear_screen=True)
+
+
+def _handle_editor_message(
+    editor_session: EditorSession,
+    agent: AgentInterface,
+) -> None:
+    """Wait for the editor to finish and send the edited message to the agent.
+
+    If the editor exits with a non-zero code, is cancelled, or the content is empty,
+    no message is sent and a warning is logged.
+
+    Note: No message delay is applied here because by the time the user finishes
+    editing, the agent has been running in parallel and is already ready.
+
+    Logging suppression is disabled automatically by the editor's on_exit callback
+    as soon as the editor process exits. By the time wait_for_result() returns,
+    the callback has already restored logging.
+    """
+    try:
+        logger.debug("Waiting for editor to finish...")
+        edited_message = editor_session.wait_for_result()
+
+        # By this point, the on_exit callback has already restored logging
+        # (it's called as soon as the editor process exits)
+
+        if edited_message is None:
+            logger.warning("No message to send (editor was closed without saving or content is empty)")
+            return
+
+        logger.info("Sending edited message...")
+        agent.send_message(edited_message)
+        logger.debug("Message sent successfully")
+
+    finally:
+        editor_session.cleanup()
+        # Make sure suppression is disabled even if an exception occurred
+        # (e.g., if the callback wasn't called for some reason)
+        if LoggingSuppressor.is_suppressed():
+            LoggingSuppressor.disable_and_replay(clear_screen=True)
 
 
 def _create_agent_in_background(
@@ -765,37 +893,40 @@ def _parse_agent_opts(
     # new_branch: None = no new branch, "" = auto-generate name, "name" = use specified name
     is_new_branch = opts.new_branch is not None
 
-    # --worktree implies --new-branch
+    # --worktree requires a new branch; error if --no-new-branch is used with --worktree
     if copy_mode == WorkDirCopyMode.WORKTREE and not is_new_branch:
-        is_new_branch = True
-        new_branch = ""
-    else:
-        new_branch = opts.new_branch
+        raise UserInputError("--worktree requires a new branch. Cannot use --no-new-branch with --worktree.")
 
-    git = AgentGitOptions(
-        base_branch=opts.base_branch or _get_current_git_branch(source_location),
-        is_new_branch=is_new_branch,
-        new_branch_name=new_branch if new_branch else None,
-        new_branch_prefix=opts.new_branch_prefix,
-        depth=opts.depth,
-        shallow_since=opts.shallow_since,
-    )
+    new_branch = opts.new_branch
 
-    # if the user didn't specify whether to include unclea, then infer from ensure_clean,
+    # if the user didn't specify whether to include unclean, then infer from ensure_clean
     if opts.include_unclean is None:
         is_include_unclean = False if opts.ensure_clean else True
     else:
         is_include_unclean = opts.include_unclean
 
+    # Build git options (None if copy_mode is None, meaning --in-place)
+    git: AgentGitOptions | None
+    if copy_mode is None:
+        git = None
+    else:
+        git = AgentGitOptions(
+            copy_mode=copy_mode,
+            base_branch=opts.base_branch or _get_current_git_branch(source_location),
+            is_new_branch=is_new_branch,
+            new_branch_name=new_branch if new_branch else None,
+            new_branch_prefix=opts.new_branch_prefix,
+            depth=opts.depth,
+            shallow_since=opts.shallow_since,
+            is_git_synced=opts.include_git,
+            is_include_unclean=is_include_unclean,
+            is_include_gitignored=opts.include_gitignored,
+        )
+
     # parse source data options
-    data_options = SourceDataOptions(
-        include_patterns=opts.include,
-        exclude_patterns=opts.exclude,
-        include_patterns_file=Path(opts.include_file) if opts.include_file else None,
-        exclude_patterns_file=Path(opts.exclude_file) if opts.exclude_file else None,
-        is_include_git=opts.include_git,
-        is_include_unclean=is_include_unclean,
-        is_include_gitignored=opts.include_gitignored,
+    data_options = AgentDataOptions(
+        is_rsync_enabled=bool(opts.rsync or opts.rsync_args or git is None),
+        rsync_args=opts.rsync_args or "",
     )
 
     # Parse environment options
@@ -886,7 +1017,6 @@ def _parse_agent_opts(
         agent_args=resolved_agent_args,
         user=opts.user,
         target_path=parsed_target_path,
-        copy_mode=copy_mode,
         is_copy_immediate=should_copy,
         initial_message=initial_message,
         message_delay_seconds=opts.message_delay,
@@ -1039,6 +1169,37 @@ def _assemble_result(
     return (agent_id, host_id)
 
 
+def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str:
+    """Build a shell script that tracks SSH activity while running tmux.
+
+    The script:
+    1. Creates the activity directory if needed
+    2. Starts a background loop that writes JSON activity to activity/ssh
+    3. Runs tmux attach (foreground, blocking)
+    4. Kills the activity tracker when tmux exits
+
+    The activity file contains JSON with:
+    - time: milliseconds since Unix epoch (int)
+    - ssh_pid: the PID of the SSH activity tracker process (for debugging)
+
+    Note: The authoritative activity time is the file's mtime, not the JSON content.
+    """
+    activity_dir = host_dir / "activity"
+    activity_file = activity_dir / "ssh"
+    # Use single quotes around most things to avoid shell expansion issues,
+    # but the paths need to be interpolated
+    return (
+        f"mkdir -p '{activity_dir}'; "
+        f"(while true; do "
+        f"TIME_MS=$(($(date +%s) * 1000)); "
+        f"printf '{{\\n  \"time\": %d,\\n  \"ssh_pid\": %d\\n}}\\n' \"$TIME_MS\" \"$$\" > '{activity_file}'; "
+        f"sleep 5; done) & "
+        "MNGR_ACTIVITY_PID=$!; "
+        f"tmux attach -t '{session_name}'; "
+        "kill $MNGR_ACTIVITY_PID 2>/dev/null"
+    )
+
+
 def _connect_to_agent(
     agent: AgentInterface,
     host: HostInterface,
@@ -1048,10 +1209,14 @@ def _connect_to_agent(
     """Connect to the created agent by replacing the current process with tmux attach.
 
     For local agents, executes: tmux attach -t <session_name>
-    For remote agents, executes: ssh <host> tmux attach -t <session_name>
+    For remote agents, executes: ssh <host> <activity_wrapper_script>
+
+    The activity wrapper script tracks SSH activity by writing timestamps to the
+    host's activity/ssh file while the SSH connection is open.
 
     This function does not return - it replaces the current process.
     """
+    logger.info("Connecting to agent...")
 
     session_name = f"{mngr_ctx.config.prefix}{agent.name}"
 
@@ -1089,9 +1254,35 @@ def _connect_to_agent(
         else:
             ssh_args.append(ssh_host)
 
-        ssh_args.extend(["-t", "tmux", "attach", "-t", session_name])
+        # Build wrapper script that tracks SSH activity while running tmux
+        wrapper_script = _build_ssh_activity_wrapper_script(session_name, host.host_dir)
+        ssh_args.extend(["-t", "bash", "-c", wrapper_script])
 
         os.execvp("ssh", ssh_args)
+
+
+def _await_agent_stopped(
+    agent: AgentInterface,
+    poll_interval_seconds: float = 0.1,
+    timeout_seconds: float = 300.0,
+) -> None:
+    """Wait for an agent to completely finish running.
+
+    Polls the agent's is_running() status until it returns False.
+    This is useful for scripting and testing when you need to wait
+    for the agent to exit before proceeding.
+    """
+    logger.info("Waiting for agent to stop...")
+    try:
+        wait_for(
+            condition=lambda: not agent.is_running(),
+            timeout=timeout_seconds,
+            poll_interval=poll_interval_seconds,
+            error_message=f"Timeout waiting for agent {agent.name} to stop after {timeout_seconds} seconds",
+        )
+        logger.debug("Agent {} has stopped", agent.name)
+    except TimeoutError as e:
+        raise click.ClickException(str(e)) from e
 
 
 def _find_agent_in_host(host: HostInterface, agent_id: AgentId) -> AgentInterface:
@@ -1115,8 +1306,7 @@ def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
         case OutputFormat.JSONL:
             emit_event("created", result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
-            logger.info("Created agent: {}", result.agent.id)
-            logger.info("  Host: {}", result.host.id)
+            logger.info("Done.")
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -1127,7 +1317,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     one_line_description="Create and run an agent",
     synopsis="""mngr create [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
-    [--include <PATTERN>] [--exclude <PATTERN>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
+    [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot]

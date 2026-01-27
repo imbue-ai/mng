@@ -1,5 +1,9 @@
+import subprocess
+import sys
 import uuid
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
 from pathlib import Path
 from typing import Any
 from typing import TypeVar
@@ -41,6 +45,7 @@ class CommonCliOptions(FrozenModel):
     output_format: str
     quiet: bool
     verbose: int
+    log_file: str | None
     log_commands: bool | None
     log_command_output: bool | None
     log_env_vars: bool | None
@@ -56,6 +61,7 @@ def add_common_options(command: TDecorated) -> TDecorated:
     - --format: Output format (human/json/jsonl)
     - -q, --quiet: Suppress console output
     - -v, --verbose: Increase verbosity
+    - --log-file: Override log file path
     - --log-commands: Log executed commands
     - --log-command-output: Log command output
     - --log-env-vars: Log environment variables
@@ -84,7 +90,13 @@ def add_common_options(command: TDecorated) -> TDecorated:
     command = optgroup.option(
         "--log-commands/--no-log-commands", default=None, help="Log commands that were executed"
     )(command)
-    command = optgroup.option("-v", "--verbose", count=True, help="Increase verbosity; -v for DEBUG, -vv for TRACE")(
+    command = optgroup.option(
+        "--log-file",
+        type=click.Path(),
+        default=None,
+        help="Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json)",
+    )(command)
+    command = optgroup.option("-v", "--verbose", count=True, help="Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE")(
         command
     )
     command = optgroup.option("-q", "--quiet", is_flag=True, help="Suppress all console output")(command)
@@ -120,13 +132,26 @@ def setup_command_context(
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
     pm = ctx.obj
     # FIXME: stop passing the pm in here--all it's doing is ending up in the MngrContext, which we should assemble at this level instead (ie, load_config should return a MngrConfig, not a MngrContext). We'll need to update all of the tests to account for this as well.
-    mngr_ctx = load_config(pm, context_dir, initial_opts.plugin, initial_opts.disable_plugin)
+    # Determine if we're running interactively (stdout is a TTY)
+    try:
+        is_interactive = sys.stdout.isatty()
+    except (ValueError, AttributeError):
+        # Handle cases where stdout is uninitialized (e.g., xdist workers)
+        is_interactive = False
+    mngr_ctx = load_config(
+        pm,
+        context_dir,
+        initial_opts.plugin,
+        initial_opts.disable_plugin,
+        is_interactive=is_interactive,
+    )
 
     # Parse output options
     output_opts = parse_output_options(
         output_format=initial_opts.output_format,
         quiet=initial_opts.quiet,
         verbose=initial_opts.verbose,
+        log_file=initial_opts.log_file,
         log_commands=initial_opts.log_commands,
         log_command_output=initial_opts.log_command_output,
         log_env_vars=initial_opts.log_env_vars,
@@ -145,6 +170,9 @@ def setup_command_context(
     # Re-create options with config defaults applied
     opts = command_class(**updated_params)
 
+    # Run pre-command scripts if configured for this command
+    _run_pre_command_scripts(mngr_ctx.config, command_name)
+
     return mngr_ctx, output_opts, opts
 
 
@@ -152,6 +180,7 @@ def parse_output_options(
     output_format: str,
     quiet: bool,
     verbose: int,
+    log_file: str | None,
     log_commands: bool | None,
     log_command_output: bool | None,
     log_env_vars: bool | None,
@@ -171,6 +200,9 @@ def parse_output_options(
     else:
         console_level = config.logging.console_level
 
+    # Parse log file path
+    log_file_path = Path(log_file) if log_file else None
+
     # Use CLI overrides if provided, otherwise use config
     is_log_commands = log_commands if log_commands is not None else config.logging.is_logging_commands
 
@@ -183,6 +215,7 @@ def parse_output_options(
     return OutputOptions(
         output_format=parsed_output_format,
         console_level=console_level,
+        log_file_path=log_file_path,
         is_log_commands=is_log_commands,
         is_log_command_output=is_log_command_output,
         is_log_env_vars=is_log_env_vars,
@@ -194,6 +227,10 @@ def apply_config_defaults(ctx: click.Context, config: MngrConfig, command_name: 
 
     Uses ctx.get_parameter_source() to detect which parameters came from defaults.
     Only overrides parameters that came from DEFAULT source, not COMMANDLINE or ENVIRONMENT.
+
+    Special handling for tuple/list parameters:
+    - An empty string value ("") clears the list (sets it to an empty tuple)
+    - This allows env vars like MNGR_COMMANDS_CREATE_ADD_COMMAND= to clear config defaults
     """
     # Get command defaults from config
     command_defaults = config.commands.get(command_name)
@@ -215,7 +252,12 @@ def apply_config_defaults(ctx: click.Context, config: MngrConfig, command_name: 
 
         # Only override if the value came from the default
         if source == ParameterSource.DEFAULT:
-            updated_params[param_name] = config_value
+            # Handle empty string for tuple/list parameters (clears the list)
+            current_value = ctx.params[param_name]
+            if isinstance(current_value, tuple) and config_value == "":
+                updated_params[param_name] = ()
+            else:
+                updated_params[param_name] = config_value
 
     return updated_params
 
@@ -236,6 +278,46 @@ def _apply_plugin_option_overrides(
         command_class=command_class,
         params=params,
     )
+
+
+def _run_single_script(script: str) -> tuple[str, int, str, str]:
+    """Run a single script and return (script, exit_code, stdout, stderr)."""
+    result = subprocess.run(
+        script,
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+    return (script, result.returncode, result.stdout, result.stderr)
+
+
+def _run_pre_command_scripts(config: MngrConfig, command_name: str) -> None:
+    """Run pre-command scripts configured for this command.
+
+    Scripts are run in parallel and all must succeed (exit code 0).
+    Raises click.ClickException if any script fails.
+    """
+    scripts = config.pre_command_scripts.get(command_name)
+    if not scripts:
+        return
+
+    # Run all scripts in parallel
+    failures: list[tuple[str, int, str, str]] = []
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(_run_single_script, script) for script in scripts]
+        for future in as_completed(futures):
+            script, exit_code, _stdout, stderr = future.result()
+            if exit_code != 0:
+                failures.append((script, exit_code, _stdout, stderr))
+
+    if failures:
+        error_lines = [f"Pre-command script(s) failed for '{command_name}':"]
+        for script, exit_code, _stdout, stderr in failures:
+            error_lines.append(f"  Script: {script}")
+            error_lines.append(f"  Exit code: {exit_code}")
+            if stderr.strip():
+                error_lines.append(f"  Stderr: {stderr.strip()}")
+        raise click.ClickException("\n".join(error_lines))
 
 
 def create_group_title_option(group: OptionGroup) -> click.Option:

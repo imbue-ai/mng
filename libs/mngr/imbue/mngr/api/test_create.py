@@ -200,12 +200,16 @@ def test_agent_state_is_persisted(
 # =============================================================================
 
 
-def test_create_agent_without_command_uses_none(
+def test_create_agent_with_unknown_type_uses_type_as_command(
     temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,
 ) -> None:
-    """Test that creating an agent without a command is handled."""
-    agent_name = AgentName(f"test-no-cmd-{int(time.time())}")
+    """Test that creating an agent with an unknown type uses the type name as the command.
+
+    This verifies the documented "Direct command" fallback behavior where an unrecognized
+    agent type (e.g., 'echo') is treated as a command to run.
+    """
+    agent_name = AgentName(f"test-direct-cmd-{int(time.time())}")
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
@@ -216,8 +220,9 @@ def test_create_agent_without_command_uses_none(
             path=temp_work_dir,
         )
 
+        # Use a custom agent type name that will be treated as a command
         agent_options = CreateAgentOptions(
-            agent_type=AgentTypeName("no-command"),
+            agent_type=AgentTypeName("my-custom-command"),
             name=agent_name,
         )
 
@@ -228,8 +233,11 @@ def test_create_agent_without_command_uses_none(
             mngr_ctx=temp_mngr_ctx,
         )
 
+        # The agent should be created successfully
         assert result.agent.id is not None
         assert result.host.id is not None
+        # The command should be the agent type name since no explicit command was provided
+        assert result.agent.get_command() == "my-custom-command"
 
 
 # =============================================================================
@@ -282,7 +290,7 @@ def test_create_agent_with_worktree(
                 agent_type=AgentTypeName("worktree-test"),
                 name=agent_name,
                 command=CommandString("sleep 527146"),
-                copy_mode=WorkDirCopyMode.WORKTREE,
+                git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
             )
 
             result = create(
@@ -380,8 +388,8 @@ def test_worktree_with_custom_branch_name(
                 agent_type=AgentTypeName("worktree-test"),
                 name=agent_name,
                 command=CommandString("sleep 60"),
-                copy_mode=WorkDirCopyMode.WORKTREE,
                 git=AgentGitOptions(
+                    copy_mode=WorkDirCopyMode.WORKTREE,
                     base_branch=current_branch,
                     is_new_branch=True,
                     new_branch_name=custom_branch,
@@ -519,7 +527,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
                 agent_type=AgentTypeName("worktree-gen-test"),
                 name=agent_name,
                 command=CommandString("sleep 60"),
-                copy_mode=WorkDirCopyMode.WORKTREE,
+                git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
             )
 
             result = create(

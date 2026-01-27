@@ -1,7 +1,10 @@
 """Tests for logging utilities."""
 
+import os
 import tempfile
 from pathlib import Path
+
+from loguru import logger
 
 from imbue.mngr.config.data_types import LoggingConfig
 from imbue.mngr.config.data_types import MngrConfig
@@ -13,8 +16,12 @@ from imbue.mngr.utils.logging import _format_arg_value
 from imbue.mngr.utils.logging import _format_user_message
 from imbue.mngr.utils.logging import _resolve_log_dir
 from imbue.mngr.utils.logging import _rotate_old_logs
+from imbue.mngr.utils.logging import BUILD_COLOR
+from imbue.mngr.utils.logging import BufferedMessage
+from imbue.mngr.utils.logging import DEBUG_COLOR
 from imbue.mngr.utils.logging import ERROR_COLOR
 from imbue.mngr.utils.logging import log_call
+from imbue.mngr.utils.logging import LoggingSuppressor
 from imbue.mngr.utils.logging import RESET_COLOR
 from imbue.mngr.utils.logging import setup_logging
 from imbue.mngr.utils.logging import WARNING_COLOR
@@ -119,6 +126,68 @@ def test_setup_logging_creates_log_file(temp_mngr_ctx: MngrContext) -> None:
     assert len(log_files) >= 1
 
 
+def test_setup_logging_uses_custom_log_file_path(temp_mngr_ctx: MngrContext) -> None:
+    """setup_logging should create log file at custom path when log_file_path is provided."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        custom_log_path = Path(tmpdir) / "custom_log.json"
+
+        output_opts = OutputOptions(
+            output_format=OutputFormat.HUMAN,
+            console_level=LogLevel.INFO,
+            log_file_path=custom_log_path,
+            is_log_commands=True,
+            is_log_command_output=False,
+        )
+
+        setup_logging(output_opts, temp_mngr_ctx)
+
+        assert custom_log_path.exists()
+
+
+def test_setup_logging_creates_parent_dirs_for_custom_log_path(temp_mngr_ctx: MngrContext) -> None:
+    """setup_logging should create parent directories for custom log file path."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        custom_log_path = Path(tmpdir) / "nested" / "dirs" / "custom_log.json"
+
+        assert not custom_log_path.parent.exists()
+
+        output_opts = OutputOptions(
+            output_format=OutputFormat.HUMAN,
+            console_level=LogLevel.INFO,
+            log_file_path=custom_log_path,
+            is_log_commands=True,
+            is_log_command_output=False,
+        )
+
+        setup_logging(output_opts, temp_mngr_ctx)
+
+        assert custom_log_path.parent.exists()
+        assert custom_log_path.exists()
+
+
+def test_setup_logging_expands_user_in_custom_log_path(temp_mngr_ctx: MngrContext) -> None:
+    """setup_logging should expand ~ in custom log file path."""
+    home_dir = Path(os.path.expanduser("~"))
+
+    with tempfile.TemporaryDirectory(dir=home_dir) as tmpdir:
+        # Get the relative path from home
+        relative_path = Path(tmpdir).relative_to(home_dir)
+        tilde_path = Path("~") / relative_path / "expanded_log.json"
+
+        output_opts = OutputOptions(
+            output_format=OutputFormat.HUMAN,
+            console_level=LogLevel.INFO,
+            log_file_path=tilde_path,
+            is_log_commands=True,
+            is_log_command_output=False,
+        )
+
+        setup_logging(output_opts, temp_mngr_ctx)
+
+        expanded_path = home_dir / relative_path / "expanded_log.json"
+        assert expanded_path.exists()
+
+
 # =============================================================================
 # Tests for _format_arg_value
 # =============================================================================
@@ -212,13 +281,27 @@ def test_format_user_message_returns_plain_message_for_info() -> None:
     assert WARNING_COLOR not in result
 
 
-def test_format_user_message_returns_plain_message_for_debug() -> None:
-    """_format_user_message should return plain message for DEBUG level."""
+def test_format_user_message_returns_blue_message_for_debug() -> None:
+    """_format_user_message should return blue-colored message for DEBUG level."""
     record = {"level": type("Level", (), {"name": "DEBUG"})()}
 
     result = _format_user_message(record)
 
-    assert result == "{message}\n"
+    assert "{message}" in result
+    assert DEBUG_COLOR in result
+    assert RESET_COLOR in result
+    assert "WARNING" not in result
+
+
+def test_format_user_message_returns_gray_message_for_build() -> None:
+    """_format_user_message should return gray-colored message for BUILD level."""
+    record = {"level": type("Level", (), {"name": "BUILD"})()}
+
+    result = _format_user_message(record)
+
+    assert "{message}" in result
+    assert BUILD_COLOR in result
+    assert RESET_COLOR in result
     assert "WARNING" not in result
 
 
@@ -233,3 +316,144 @@ def test_format_user_message_adds_error_prefix_for_errors() -> None:
     assert ERROR_COLOR in result
     assert RESET_COLOR in result
     assert "WARNING" not in result
+
+
+# =============================================================================
+# Tests for LoggingSuppressor
+# =============================================================================
+
+
+def test_logging_suppressor_initial_state() -> None:
+    """LoggingSuppressor should start unsuppressed."""
+    assert not LoggingSuppressor.is_suppressed()
+
+
+def test_logging_suppressor_enable_sets_suppressed() -> None:
+    """Enable should set suppressed state to True."""
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+    )
+
+    try:
+        LoggingSuppressor.enable(output_opts)
+        assert LoggingSuppressor.is_suppressed()
+    finally:
+        LoggingSuppressor.disable_and_replay(clear_screen=False)
+
+
+def test_logging_suppressor_disable_clears_suppressed() -> None:
+    """Disable should set suppressed state to False."""
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+    )
+
+    LoggingSuppressor.enable(output_opts)
+    assert LoggingSuppressor.is_suppressed()
+
+    LoggingSuppressor.disable_and_replay(clear_screen=False)
+    assert not LoggingSuppressor.is_suppressed()
+
+
+def test_logging_suppressor_buffers_messages() -> None:
+    """Suppressor should buffer messages while suppression is enabled."""
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+    )
+
+    try:
+        LoggingSuppressor.enable(output_opts)
+
+        # Log some messages
+        logger.info("Test message 1")
+        logger.info("Test message 2")
+
+        # Check that messages were buffered
+        buffered = LoggingSuppressor.get_buffered_messages()
+        assert len(buffered) >= 2
+        assert any("Test message 1" in msg.formatted_message for msg in buffered)
+        assert any("Test message 2" in msg.formatted_message for msg in buffered)
+    finally:
+        LoggingSuppressor.disable_and_replay(clear_screen=False)
+
+
+def test_logging_suppressor_respects_buffer_size() -> None:
+    """Suppressor should limit buffer to specified size."""
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+    )
+
+    try:
+        # Enable with small buffer
+        LoggingSuppressor.enable(output_opts, buffer_size=3)
+
+        # Log more messages than buffer size
+        for i in range(10):
+            logger.info("Message {}", i)
+
+        # Check buffer doesn't exceed limit
+        buffered = LoggingSuppressor.get_buffered_messages()
+        assert len(buffered) <= 3
+    finally:
+        LoggingSuppressor.disable_and_replay(clear_screen=False)
+
+
+def test_logging_suppressor_clears_buffer_on_disable() -> None:
+    """Suppressor should clear buffer after disable_and_replay."""
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+    )
+
+    LoggingSuppressor.enable(output_opts)
+    logger.info("Test message")
+    assert len(LoggingSuppressor.get_buffered_messages()) >= 1
+
+    LoggingSuppressor.disable_and_replay(clear_screen=False)
+    assert len(LoggingSuppressor.get_buffered_messages()) == 0
+
+
+def test_logging_suppressor_enable_is_idempotent() -> None:
+    """Calling enable twice should not reset buffer."""
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+    )
+
+    try:
+        LoggingSuppressor.enable(output_opts)
+        logger.info("First message")
+        initial_count = len(LoggingSuppressor.get_buffered_messages())
+
+        # Enable again (should be no-op)
+        LoggingSuppressor.enable(output_opts)
+        assert len(LoggingSuppressor.get_buffered_messages()) == initial_count
+    finally:
+        LoggingSuppressor.disable_and_replay(clear_screen=False)
+
+
+def test_logging_suppressor_disable_is_idempotent() -> None:
+    """Calling disable_and_replay twice should be safe."""
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+    )
+
+    LoggingSuppressor.enable(output_opts)
+    LoggingSuppressor.disable_and_replay(clear_screen=False)
+
+    # Second disable should not error
+    LoggingSuppressor.disable_and_replay(clear_screen=False)
+    assert not LoggingSuppressor.is_suppressed()
+
+
+def test_buffered_message_tracks_stderr_destination() -> None:
+    """BufferedMessage should track whether message goes to stderr."""
+    stdout_msg = BufferedMessage("stdout message", is_stderr=False)
+    stderr_msg = BufferedMessage("stderr message", is_stderr=True)
+
+    assert not stdout_msg.is_stderr
+    assert stderr_msg.is_stderr

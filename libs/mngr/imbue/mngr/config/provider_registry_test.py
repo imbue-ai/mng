@@ -1,42 +1,36 @@
-"""Tests for provider registry."""
+"""Tests for provider config classes and registry."""
 
 import pytest
 
-from imbue.mngr.config.provider_registry import DockerProviderConfig
-from imbue.mngr.config.provider_registry import LocalProviderConfig
-from imbue.mngr.config.provider_registry import ModalProviderConfig
-from imbue.mngr.config.provider_registry import get_provider_config_class
 from imbue.mngr.errors import ConfigParseError
 from imbue.mngr.errors import UnknownBackendError
 from imbue.mngr.primitives import ProviderBackendName
+from imbue.mngr.providers.docker.config import DockerProviderConfig
+from imbue.mngr.providers.local.config import LocalProviderConfig
+from imbue.mngr.providers.modal.config import ModalProviderConfig
+from imbue.mngr.providers.registry import get_config_class
 
 # =============================================================================
-# Tests for get_provider_config_class
+# Tests for get_config_class
 # =============================================================================
 
 
-def test_get_provider_config_class_returns_local_config() -> None:
-    """get_provider_config_class should return LocalProviderConfig for 'local'."""
-    config_class = get_provider_config_class("local")
+def test_get_config_class_returns_local_config() -> None:
+    """get_config_class should return LocalProviderConfig for 'local'."""
+    config_class = get_config_class("local")
     assert config_class is LocalProviderConfig
 
 
-def test_get_provider_config_class_returns_docker_config() -> None:
-    """get_provider_config_class should return DockerProviderConfig for 'docker'."""
-    config_class = get_provider_config_class("docker")
+def test_get_config_class_returns_docker_config() -> None:
+    """get_config_class should return DockerProviderConfig for 'docker'."""
+    config_class = get_config_class("docker")
     assert config_class is DockerProviderConfig
 
 
-def test_get_provider_config_class_returns_modal_config() -> None:
-    """get_provider_config_class should return ModalProviderConfig for 'modal'."""
-    config_class = get_provider_config_class("modal")
-    assert config_class is ModalProviderConfig
-
-
-def test_get_provider_config_class_raises_for_unknown_backend() -> None:
-    """get_provider_config_class should raise UnknownBackendError for unknown backend."""
+def test_get_config_class_raises_for_unknown_backend() -> None:
+    """get_config_class should raise UnknownBackendError for unknown backend."""
     with pytest.raises(UnknownBackendError, match="Unknown provider backend"):
-        get_provider_config_class("nonexistent")
+        get_config_class("nonexistent")
 
 
 # =============================================================================
@@ -64,12 +58,6 @@ def test_local_provider_config_merge_with_raises_for_different_type() -> None:
     override = DockerProviderConfig()
     with pytest.raises(ConfigParseError, match="Cannot merge LocalProviderConfig"):
         base.merge_with(override)
-
-
-def test_local_provider_config_register_hook() -> None:
-    """LocalProviderConfig.register_provider_config should return correct tuple."""
-    result = LocalProviderConfig.register_provider_config()
-    assert result == ("local", LocalProviderConfig)
 
 
 # =============================================================================
@@ -101,12 +89,6 @@ def test_docker_provider_config_merge_with_raises_for_different_type() -> None:
         base.merge_with(override)
 
 
-def test_docker_provider_config_register_hook() -> None:
-    """DockerProviderConfig.register_provider_config should return correct tuple."""
-    result = DockerProviderConfig.register_provider_config()
-    assert result == ("docker", DockerProviderConfig)
-
-
 # =============================================================================
 # Tests for ModalProviderConfig
 # =============================================================================
@@ -134,9 +116,3 @@ def test_modal_provider_config_merge_with_raises_for_different_type() -> None:
     override = LocalProviderConfig()
     with pytest.raises(ConfigParseError, match="Cannot merge ModalProviderConfig"):
         base.merge_with(override)
-
-
-def test_modal_provider_config_register_hook() -> None:
-    """ModalProviderConfig.register_provider_config should return correct tuple."""
-    result = ModalProviderConfig.register_provider_config()
-    assert result == ("modal", ModalProviderConfig)

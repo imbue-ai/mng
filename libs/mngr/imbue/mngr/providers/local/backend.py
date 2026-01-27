@@ -1,12 +1,13 @@
-import os
-from typing import Any
+from pathlib import Path
 
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.local.config import LocalProviderConfig
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
 LOCAL_BACKEND_NAME = ProviderBackendName("local")
@@ -29,6 +30,10 @@ class LocalProviderBackend(ProviderBackendInterface):
         return "Runs agents directly on your local machine with no isolation"
 
     @staticmethod
+    def get_config_class() -> type[ProviderInstanceConfig]:
+        return LocalProviderConfig
+
+    @staticmethod
     def get_build_args_help() -> str:
         return "No build arguments are supported for the local provider."
 
@@ -39,17 +44,18 @@ class LocalProviderBackend(ProviderBackendInterface):
     @staticmethod
     def build_provider_instance(
         name: ProviderInstanceName,
-        instance_configuration: dict[str, Any],
+        config: ProviderInstanceConfig,
         mngr_ctx: MngrContext,
     ) -> ProviderInstanceInterface:
-        """Build a local provider instance.
-
-        The instance_configuration may contain:
-        - host_dir: Base directory for mngr data (defaults to mngr_ctx.config.default_host_dir)
-        """
-        host_dir = instance_configuration.get("host_dir", mngr_ctx.config.default_host_dir)
+        """Build a local provider instance."""
+        # Get host_dir from typed config, falling back to default
+        # FIXME: we can just assert isinstance here since it should be impossible to get a different type
+        if isinstance(config, LocalProviderConfig) and config.host_dir is not None:
+            host_dir = config.host_dir
+        else:
+            host_dir = mngr_ctx.config.default_host_dir
         # Expand ~ to the actual home directory
-        host_dir = os.path.expanduser(host_dir)
+        host_dir = Path(host_dir).expanduser()
         return LocalProviderInstance(
             name=name,
             host_dir=host_dir,
@@ -58,6 +64,6 @@ class LocalProviderBackend(ProviderBackendInterface):
 
 
 @hookimpl
-def register_provider_backend() -> type[ProviderBackendInterface]:
+def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]:
     """Register the local provider backend."""
-    return LocalProviderBackend
+    return (LocalProviderBackend, LocalProviderConfig)

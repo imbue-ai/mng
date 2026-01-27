@@ -1,9 +1,9 @@
+import os
 import subprocess
-import time
-from collections.abc import Callable
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from uuid import uuid4
 
 import pluggy
 
@@ -11,6 +11,36 @@ from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+
+
+# FIXME: this is stupid--replace with a context manager instead. Do we already have one? Is there a built-in pytest fixture for this?
+def restore_env_var(name: str, original_value: str | None) -> None:
+    """Restore an environment variable to its original value.
+
+    Use this in test cleanup to restore environment variables that were modified
+    during test execution. Pass the original value (or None if it was not set).
+    """
+    if original_value is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = original_value
+
+
+def get_subprocess_test_env(root_name: str = "mngr-test") -> dict[str, str]:
+    """Get environment variables for subprocess calls that prevent loading project config.
+
+    Sets MNGR_ROOT_NAME to a value that doesn't have a corresponding config directory,
+    preventing subprocess tests from picking up .mngr/settings.toml which might have
+    settings like add_command that would interfere with tests.
+
+    The root_name parameter defaults to "mngr-test" but can be set to a descriptive
+    name for your test category (e.g., "mngr-acceptance-test", "mngr-release-test").
+
+    Returns a copy of os.environ with MNGR_ROOT_NAME set to the specified value.
+    """
+    env = os.environ.copy()
+    env["MNGR_ROOT_NAME"] = root_name
+    return env
 
 
 def cleanup_tmux_session(session_name: str) -> None:
@@ -49,26 +79,6 @@ def tmux_session_exists(session_name: str) -> bool:
     return result.returncode == 0
 
 
-def wait_for(
-    condition: Callable[[], bool],
-    timeout: float = 5.0,
-    poll_interval: float = 0.1,
-    error_message: str = "Condition not met within timeout",
-) -> None:
-    """Wait for a condition to become true, polling at regular intervals.
-
-    Raises TimeoutError if the condition is not met within the timeout period.
-    """
-    start_time = time.time()
-    elapsed_time = 0.0
-    while elapsed_time < timeout:
-        if condition():
-            return
-        time.sleep(poll_interval)
-        elapsed_time = time.time() - start_time
-    raise TimeoutError(error_message)
-
-
 def make_local_provider(
     host_dir: Path,
     config: MngrConfig,
@@ -89,3 +99,7 @@ def make_mngr_ctx(default_host_dir: Path, prefix: str) -> MngrContext:
     config = MngrConfig(default_host_dir=default_host_dir, prefix=prefix)
     pm = pluggy.PluginManager("mngr")
     return MngrContext(config=config, pm=pm)
+
+
+def get_short_random_string() -> str:
+    return uuid4().hex[:8]

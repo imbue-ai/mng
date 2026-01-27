@@ -101,6 +101,15 @@ class SendMessageError(AgentError):
         super().__init__(f"Failed to send message to agent {agent_name}: {reason}")
 
 
+class AgentStartError(AgentError):
+    """Failed to start an agent's tmux session."""
+
+    def __init__(self, agent_name: str, reason: str) -> None:
+        self.agent_name = agent_name
+        self.reason = reason
+        super().__init__(f"Failed to start agent {agent_name}: {reason}")
+
+
 class ProviderError(MngrError):
     """Base class for all provider-related errors."""
 

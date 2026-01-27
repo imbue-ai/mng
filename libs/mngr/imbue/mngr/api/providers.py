@@ -8,6 +8,7 @@ from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.registry import build_provider_instance
+from imbue.mngr.providers.registry import get_config_class
 from imbue.mngr.providers.registry import list_backends
 
 # Track all created provider instances for cleanup at exit
@@ -63,7 +64,7 @@ def get_provider_instance(
         instance = build_provider_instance(
             instance_name=name,
             backend_name=provider_config.backend,
-            instance_configuration=provider_config.model_dump(),
+            config=provider_config,
             mngr_ctx=mngr_ctx,
         )
         _created_instances.append(instance)
@@ -71,11 +72,14 @@ def get_provider_instance(
 
     # Otherwise, treat the name as a backend name and use defaults
     # This supports the common case of just specifying "--in local" or "--in docker"
+    backend_name = ProviderBackendName(str(name))
+    config_class = get_config_class(backend_name)
+    default_config = config_class(backend=backend_name)
     logger.trace("Building provider instance {} using backend name as default", name)
     instance = build_provider_instance(
         instance_name=name,
-        backend_name=ProviderBackendName(str(name)),
-        instance_configuration={},
+        backend_name=backend_name,
+        config=default_config,
         mngr_ctx=mngr_ctx,
     )
     _created_instances.append(instance)
