@@ -6,6 +6,9 @@ This function is deployed as a Modal web endpoint and can be invoked to:
 3. Terminate the sandbox
 
 All code is self-contained in this file - no imports from the mngr codebase.
+
+Required environment variable:
+- MNGR_MODAL_APP_NAME: The Modal app name (e.g., "mngr-<user_id>-modal")
 """
 
 import json
@@ -16,10 +19,19 @@ from datetime import timezone
 from typing import Any
 
 import modal
+from fastapi import HTTPException
+
+
+class ConfigurationError(RuntimeError):
+    """Raised when required configuration is missing."""
+
 
 # Get configuration from environment variables
-# These should be set when deploying the function
-APP_NAME = os.environ.get("MNGR_MODAL_APP_NAME", "mngr-8caed3bc40df435fae5817ea0afdbf77-modal")
+# The app name MUST be set - fail early if not configured
+APP_NAME = os.environ.get("MNGR_MODAL_APP_NAME")
+if APP_NAME is None:
+    raise ConfigurationError("MNGR_MODAL_APP_NAME environment variable must be set")
+
 VOLUME_NAME = f"{APP_NAME}-state"
 
 # Create the Modal app and volume reference
@@ -65,9 +77,9 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     snapshot_name = request_body.get("snapshot_name")
 
     if not sandbox_id:
-        return {"success": False, "error": "sandbox_id is required"}
+        raise HTTPException(status_code=400, detail="sandbox_id is required")
     if not host_id:
-        return {"success": False, "error": "host_id is required"}
+        raise HTTPException(status_code=400, detail="host_id is required")
 
     try:
         # Get the sandbox by ID
@@ -88,10 +100,10 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
         # Read existing host record
         host_record = _read_host_record(host_id)
         if host_record is None:
-            return {
-                "success": False,
-                "error": f"Host record not found for host_id: {host_id}",
-            }
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host record not found for host_id: {host_id}",
+            )
 
         # Add the new snapshot to the record
         new_snapshot = {
@@ -118,7 +130,9 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
             "snapshot_name": snapshot_name,
         }
 
+    except HTTPException:
+        raise
     except modal.exception.NotFoundError as e:
-        return {"success": False, "error": f"Sandbox not found: {e}"}
+        raise HTTPException(status_code=404, detail=f"Sandbox not found: {e}") from None
     except modal.exception.Error as e:
-        return {"success": False, "error": f"Modal error: {e}"}
+        raise HTTPException(status_code=500, detail=f"Modal error: {e}") from None
