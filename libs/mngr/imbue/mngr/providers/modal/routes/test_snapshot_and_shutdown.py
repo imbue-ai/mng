@@ -1,7 +1,8 @@
-"""Acceptance tests for the snapshot_and_shutdown Modal function.
+"""Release tests for the snapshot_and_shutdown Modal function.
 
 These tests deploy the function to Modal and verify end-to-end functionality.
-Marked as acceptance tests since they require Modal credentials and network access.
+Marked as release tests since they involve deploying Modal infrastructure and
+can experience cold starts that take longer than acceptance test timeouts.
 """
 
 import io
@@ -172,7 +173,7 @@ def deployed_snapshot_function() -> Generator[tuple[str, str], None, None]:
         _stop_app(app_name)
 
 
-@pytest.mark.acceptance
+@pytest.mark.release
 @pytest.mark.timeout(300)
 def test_snapshot_and_shutdown_success(
     deployed_snapshot_function: tuple[str, str],
@@ -235,8 +236,8 @@ def test_snapshot_and_shutdown_success(
             pass
 
 
-@pytest.mark.acceptance
-@pytest.mark.timeout(120)
+@pytest.mark.release
+@pytest.mark.timeout(300)
 def test_snapshot_and_shutdown_missing_sandbox_id(
     deployed_snapshot_function: tuple[str, str],
 ) -> None:
@@ -253,8 +254,8 @@ def test_snapshot_and_shutdown_missing_sandbox_id(
     assert "sandbox_id" in response.text.lower()
 
 
-@pytest.mark.acceptance
-@pytest.mark.timeout(120)
+@pytest.mark.release
+@pytest.mark.timeout(300)
 def test_snapshot_and_shutdown_missing_host_id(
     deployed_snapshot_function: tuple[str, str],
 ) -> None:
@@ -271,8 +272,8 @@ def test_snapshot_and_shutdown_missing_host_id(
     assert "host_id" in response.text.lower()
 
 
-@pytest.mark.acceptance
-@pytest.mark.timeout(120)
+@pytest.mark.release
+@pytest.mark.timeout(300)
 def test_snapshot_and_shutdown_nonexistent_sandbox(
     deployed_snapshot_function: tuple[str, str],
 ) -> None:
@@ -296,8 +297,8 @@ def test_snapshot_and_shutdown_nonexistent_sandbox(
     assert "sandbox" in response.text.lower() or "not found" in response.text.lower()
 
 
-@pytest.mark.acceptance
-@pytest.mark.timeout(120)
+@pytest.mark.release
+@pytest.mark.timeout(300)
 def test_snapshot_and_shutdown_nonexistent_host_record(
     deployed_snapshot_function: tuple[str, str],
 ) -> None:
