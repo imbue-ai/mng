@@ -35,4 +35,4 @@ stat -c %Y "$MNGR_HOST_DIR/activity/user" 2>/dev/null || stat -f %m "$MNGR_HOST_
 ### Activity File Locations
 
 - Host-level: `$MNGR_HOST_DIR/activity/{type}` (boot, user, ssh)
-- Agent-level: `$MNGR_HOST_DIR/agents/{id}/activity/{type}` (create, start, agent, process, user)
+- Agent-level: `$MNGR_HOST_DIR/agents/{id}/activity/{type}` (create, start, agent, process)
