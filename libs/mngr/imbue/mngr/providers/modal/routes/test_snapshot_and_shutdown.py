@@ -4,10 +4,10 @@ These tests deploy the function to Modal and verify end-to-end functionality.
 Marked as acceptance tests since they require Modal credentials and network access.
 """
 
+import io
 import json
 import os
 import subprocess
-import time
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -17,7 +17,16 @@ import modal
 import pytest
 
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
+from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import get_short_random_string
+
+
+class DeploymentError(RuntimeError):
+    """Raised when deploying the Modal function fails."""
+
+
+class URLParseError(RuntimeError):
+    """Raised when the function URL cannot be parsed from deploy output."""
 
 
 def _get_test_app_name() -> str:
@@ -50,7 +59,7 @@ def _deploy_snapshot_function(app_name: str) -> str:
     )
 
     if result.returncode != 0:
-        raise RuntimeError(f"Failed to deploy function: {result.stderr}\n{result.stdout}")
+        raise DeploymentError(f"Failed to deploy function: {result.stderr}\n{result.stdout}")
 
     # Parse the URL from the deploy output
     # Output contains lines like: "Created web function snapshot_and_shutdown => https://..."
@@ -62,7 +71,7 @@ def _deploy_snapshot_function(app_name: str) -> str:
                 url = line[url_start:].split()[0].rstrip(")")
                 return url
 
-    raise RuntimeError(f"Could not find function URL in deploy output: {result.stdout}")
+    raise URLParseError(f"Could not find function URL in deploy output: {result.stdout}")
 
 
 def _stop_app(app_name: str) -> None:
@@ -102,9 +111,6 @@ def _write_host_record_to_volume(app_name: str, host_id: str) -> None:
         "sandbox_id": "",
         "snapshots": [],
     }
-
-    # Use batch_upload to write the file
-    import io
 
     content = json.dumps(host_record, indent=2).encode("utf-8")
     with volume.batch_upload() as batch:
@@ -185,12 +191,13 @@ def test_snapshot_and_shutdown_success(
         assert host_record["snapshots"][0]["id"] == result["snapshot_id"]
         assert host_record["snapshots"][0]["modal_image_id"] == result["modal_image_id"]
 
-        # Verify the sandbox was terminated (give it a moment to shut down)
-        time.sleep(2)
-        refreshed_sandbox = modal.Sandbox.from_id(sandbox_id)
-        # A terminated sandbox will have returncode set
-        poll_result = refreshed_sandbox.poll()
-        assert poll_result is not None, "Sandbox should be terminated"
+        # Verify the sandbox was terminated by polling for termination
+        def sandbox_terminated() -> bool:
+            refreshed_sandbox = modal.Sandbox.from_id(sandbox_id)
+            poll_result = refreshed_sandbox.poll()
+            return poll_result is not None
+
+        wait_for(sandbox_terminated, timeout=10.0, poll_interval=0.5, error_message="Sandbox should be terminated")
 
     finally:
         # Clean up sandbox if still running
