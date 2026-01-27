@@ -83,16 +83,24 @@ def _find_agent_by_name_or_id(
             if agent_ref.agent_name == agent_name:
                 provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                 host = provider.get_host(host_ref.host_id)
+                # Find the specific agent by ID (not name, to avoid duplicates)
                 for agent in host.get_agents():
-                    if agent.name == agent_name:
+                    if agent.id == agent_ref.agent_id:
                         matching.append((agent, host))
+                        break
 
     if not matching:
         raise UserInputError(f"No agent found with name or ID: {agent_str}")
 
     if len(matching) > 1:
+        # Build helpful error message showing the matching agents
+        agent_list = "\n".join([f"  - {agent.id} (on {host.connector.name})" for agent, host in matching])
         raise UserInputError(
-            f"Multiple agents found with name '{agent_str}'. Please use the agent ID instead, or specify the host."
+            f"Multiple agents found with name '{agent_str}':\n{agent_list}\n\n"
+            f"Please use the agent ID instead:\n"
+            f"  mngr pull <agent-id> <path>\n\n"
+            f"To see all agent IDs, run:\n"
+            f"  mngr list --fields id,name,host"
         )
 
     return matching[0]
