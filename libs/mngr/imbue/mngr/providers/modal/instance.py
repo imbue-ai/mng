@@ -65,6 +65,7 @@ from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
+from imbue.mngr.utils.polling import wait_for
 
 # Constants
 CONTAINER_SSH_PORT = 22
@@ -661,17 +662,48 @@ class ModalProviderInstance(BaseProviderInstance):
         """
         return self.modal_app.get_captured_output()
 
-    def _find_sandbox_by_host_id(self, host_id: HostId) -> modal.Sandbox | None:
+    def _lookup_sandbox_by_host_id_once(
+        self, host_id: HostId, result_container: list[modal.Sandbox]
+    ) -> bool:
+        """Perform a single lookup of a sandbox by host_id tag.
+
+        This is a helper for _find_sandbox_by_host_id that does not retry.
+        If the sandbox is found, it is appended to result_container and True is returned.
+        Otherwise, returns False.
+        """
+        app = self._get_modal_app()
+        for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
+            result_container.append(sandbox)
+            return True
+        return False
+
+    def _find_sandbox_by_host_id(
+        self, host_id: HostId, timeout: float = 5.0, poll_interval: float = 1.0
+    ) -> modal.Sandbox | None:
         """Find a Modal sandbox by its mngr host_id tag.
 
         The app_id identifies the app within its environment, so sandboxes created
         in that app's environment will be found via app_id alone.
+
+        Due to Modal's eventual consistency, tags may not be immediately visible
+        after a sandbox is created. This method polls for the sandbox with delays
+        to handle this race condition.
         """
         logger.trace("Looking up sandbox with host_id={} in env={}", host_id, self.environment_name)
-        app = self._get_modal_app()
-        for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
-            return sandbox
-        return None
+
+        # Use a mutable container to capture the result from the condition
+        result: list[modal.Sandbox] = []
+
+        try:
+            wait_for(
+                lambda: self._lookup_sandbox_by_host_id_once(host_id, result),
+                timeout=timeout,
+                poll_interval=poll_interval,
+            )
+            return result[0]
+        except TimeoutError:
+            logger.trace("Sandbox with host_id={} not found after {}s", host_id, timeout)
+            return None
 
     def _find_sandbox_by_name(self, name: HostName) -> modal.Sandbox | None:
         """Find a Modal sandbox by its mngr host_name tag.
