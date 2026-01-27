@@ -566,22 +566,10 @@ class ModalProviderInstance(BaseProviderInstance):
 
         Both formats can be mixed. Unknown arguments raise an error.
         """
-        if not build_args:
-            return SandboxConfig(
-                gpu=None,
-                cpu=self.config.default_cpu,
-                memory=self.config.default_memory,
-                image=None,
-                dockerfile=None,
-                timeout=self.config.default_timeout,
-                region=None,
-                context_dir=None,
-                secrets=(),
-            )
 
         # Normalize arguments: convert "key=value" to "--key=value"
         normalized_args: list[str] = []
-        for arg in build_args:
+        for arg in build_args or []:
             if "=" in arg and not arg.startswith("-"):
                 # Simple key=value format, convert to --key=value
                 normalized_args.append(f"--{arg}")
@@ -594,6 +582,7 @@ class ModalProviderInstance(BaseProviderInstance):
             add_help=False,
             exit_on_error=False,
         )
+        # FIXME: obviously we should add the rest of the defaults here (ie to the config, rather than having default=None anywhere below)
         parser.add_argument("--gpu", type=str, default=None)
         parser.add_argument("--cpu", type=float, default=self.config.default_cpu)
         parser.add_argument("--memory", type=float, default=self.config.default_memory)
