@@ -298,6 +298,23 @@ def register_modal_test_app(app_name: str) -> None:
         _worker_modal_app_names.append(app_name)
 
 
+# Track Modal volume names that were created during tests for cleanup verification.
+# This enables detection of leaked volumes that weren't properly cleaned up.
+# Unlike Modal Apps, volumes are global to the account (not app-specific), so they
+# must be tracked and cleaned up separately.
+_worker_modal_volume_names: list[str] = []
+
+
+def register_modal_test_volume(volume_name: str) -> None:
+    """Register a Modal volume name for cleanup verification.
+
+    Call this when creating a Modal volume during tests to enable leak detection.
+    The volume_name should match the name used when creating the Modal volume.
+    """
+    if volume_name not in _worker_modal_volume_names:
+        _worker_modal_volume_names.append(volume_name)
+
+
 def _get_leaked_modal_apps() -> list[tuple[str, str]]:
     """Get Modal apps that were registered and are still running.
 
@@ -359,6 +376,65 @@ def _stop_modal_apps(apps: list[tuple[str, str]]) -> None:
             pass
 
 
+def _get_leaked_modal_volumes() -> list[str]:
+    """Get Modal volumes that were registered and still exist.
+
+    Returns a list of volume names for volumes that were created during
+    tests and still exist (not yet deleted).
+
+    Uses 'uv run modal volume list --json' to query the current state of all volumes.
+    """
+    if not _worker_modal_volume_names:
+        return []
+
+    try:
+        result = subprocess.run(
+            ["uv", "run", "modal", "volume", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return []
+
+        volumes = json.loads(result.stdout)
+        leaked: list[str] = []
+
+        for volume in volumes:
+            volume_name = volume.get("Name", "")
+
+            # Check if this volume was created by our tests
+            if volume_name in _worker_modal_volume_names:
+                leaked.append(volume_name)
+
+        return leaked
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+        return []
+
+
+def _delete_modal_volumes(volume_names: list[str]) -> None:
+    """Delete the specified Modal volumes.
+
+    Takes a list of volume names and deletes each volume using
+    'uv run modal volume delete <volume_name> --yes'.
+
+    This function is defensive and will silently skip any volumes that cannot
+    be deleted.
+    """
+    if not volume_names:
+        return
+
+    for volume_name in volume_names:
+        try:
+            subprocess.run(
+                ["uv", "run", "modal", "volume", "delete", volume_name, "--yes"],
+                capture_output=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            pass
+
+
 @pytest.fixture(scope="session", autouse=True)
 def session_cleanup() -> Generator[None, None, None]:
     """Session-scoped fixture to detect and clean up leaked test resources.
@@ -368,6 +444,7 @@ def session_cleanup() -> Generator[None, None, None]:
     1. Leftover child processes (excluding xdist workers on the leader)
     2. Leftover tmux sessions created by this worker's tests
     3. Leftover Modal apps created by this worker's tests
+    4. Leftover Modal volumes created by this worker's tests
 
     If any leaked resources are found:
     - An error is raised to fail the test suite
@@ -429,7 +506,17 @@ def session_cleanup() -> Generator[None, None, None]:
             "Tests should destroy their Modal hosts before completing.\n" + "\n".join(app_info)
         )
 
-    # 4. Clean up leaked resources (last-ditch safety measure)
+    # 4. Check for leftover Modal volumes from this worker's tests
+    leftover_volumes = _get_leaked_modal_volumes()
+
+    if leftover_volumes:
+        volume_info = [f"  {volume_name}" for volume_name in leftover_volumes]
+        errors.append(
+            "Leftover Modal volumes found!\n"
+            "Tests should delete their Modal volumes before completing.\n" + "\n".join(volume_info)
+        )
+
+    # 5. Clean up leaked resources (last-ditch safety measure)
     for proc in leftover_processes:
         try:
             proc.kill()
@@ -438,8 +525,9 @@ def session_cleanup() -> Generator[None, None, None]:
 
     _kill_tmux_sessions(leftover_sessions)
     _stop_modal_apps(leftover_apps)
+    _delete_modal_volumes(leftover_volumes)
 
-    # 5. Fail the test suite if any issues were found
+    # 6. Fail the test suite if any issues were found
     if errors:
         raise AssertionError(
             "=" * 70 + "\n"

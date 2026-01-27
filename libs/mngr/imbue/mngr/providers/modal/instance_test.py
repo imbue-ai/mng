@@ -22,6 +22,7 @@ import pytest
 
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.conftest import register_modal_test_app
+from imbue.mngr.conftest import register_modal_test_volume
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
@@ -211,15 +212,21 @@ def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProvid
 def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Generator[ModalProviderInstance, None, None]:
     """Create a ModalProviderInstance with real Modal for acceptance tests.
 
-    This fixture registers the Modal app name for leak detection. If the test
-    doesn't properly clean up its hosts, the session_cleanup fixture will
-    detect the still-running app and stop it.
+    This fixture registers the Modal app name and volume name for leak detection.
+    If the test doesn't properly clean up its hosts, the session_cleanup fixture
+    will detect the still-running app or leftover volume and clean them up.
     """
     app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     provider = make_modal_provider_real(temp_mngr_ctx, app_name)
 
     # Register the app name for cleanup verification
     register_modal_test_app(app_name)
+
+    # Register the volume name for cleanup verification.
+    # Modal volumes are global (not app-specific), so they must be tracked separately.
+    # The volume name follows the pattern from backend.py: {app_name}-state
+    volume_name = f"{app_name}-state"
+    register_modal_test_volume(volume_name)
 
     yield provider
 
