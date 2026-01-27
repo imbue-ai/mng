@@ -62,14 +62,25 @@ def _deploy_snapshot_function(app_name: str) -> str:
         raise DeploymentError(f"Failed to deploy function: {result.stderr}\n{result.stdout}")
 
     # Parse the URL from the deploy output
-    # Output contains lines like: "Created web function snapshot_and_shutdown => https://..."
-    for line in result.stdout.split("\n"):
-        if "snapshot_and_shutdown" in line and "https://" in line:
-            url_start = line.find("https://")
-            if url_start >= 0:
-                # Extract URL (might have trailing text)
+    # The URL may be on the same line as "snapshot_and_shutdown =>" or on the next line
+    # Example formats:
+    #   "Created web function snapshot_and_shutdown => https://..."
+    #   "Created web function snapshot_and_shutdown => \n    https://..."
+    lines = result.stdout.split("\n")
+    for i, line in enumerate(lines):
+        if "snapshot_and_shutdown" in line:
+            # Check if URL is on this line
+            if "https://" in line:
+                url_start = line.find("https://")
                 url = line[url_start:].split()[0].rstrip(")")
                 return url
+            # Check if URL is on the next line
+            if i + 1 < len(lines):
+                next_line = lines[i + 1]
+                if "https://" in next_line:
+                    url_start = next_line.find("https://")
+                    url = next_line[url_start:].split()[0].rstrip(")")
+                    return url
 
     raise URLParseError(f"Could not find function URL in deploy output: {result.stdout}")
 
