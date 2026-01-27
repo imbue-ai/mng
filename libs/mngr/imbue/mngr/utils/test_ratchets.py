@@ -404,8 +404,6 @@ def test_prevent_importing_underscore_prefixed_names_in_non_test_code() -> None:
 def test_prevent_init_methods_in_non_exception_classes() -> None:
     chunks = find_init_methods_in_non_exception_classes(_get_mngr_source_dir(), _THIS_FILE)
 
-    # Snapshot is 2: PyinfraConnector (wraps pyinfra Host) and BufferingStreamWrapper (wraps TextIO)
-    # Both are legitimate cases where we wrap external types that can't use Pydantic models
     assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
         rule_name="__init__ methods in non-Exception/Error classes",
         rule_description="Do not define __init__ methods in non-Exception/Error classes. Use Pydantic models instead, which handle initialization automatically",
