@@ -48,7 +48,7 @@ else:
     app_name_secret = modal.Secret.from_dict({})
 
 # Create the Modal app and volume reference
-image = modal.Image.debian_slim().pip_install("fastapi[standard]")
+image = modal.Image.debian_slim().uv_pip_install("fastapi[standard]")
 app = modal.App(name=APP_NAME, image=image)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 
@@ -101,6 +101,14 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="host_id is required")
 
     try:
+        # Verify host record exists BEFORE creating snapshot to avoid orphaned images
+        host_record = _read_host_record(host_id)
+        if host_record is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host record not found for host_id: {host_id}",
+            )
+
         # Get the sandbox by ID
         sandbox = modal.Sandbox.from_id(sandbox_id)
 
@@ -115,14 +123,6 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
         if snapshot_name is None:
             short_id = mngr_snapshot_id[-8:]
             snapshot_name = f"snapshot-{short_id}"
-
-        # Read existing host record
-        host_record = _read_host_record(host_id)
-        if host_record is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Host record not found for host_id: {host_id}",
-            )
 
         # Add the new snapshot to the record
         new_snapshot = {
