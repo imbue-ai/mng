@@ -9,6 +9,7 @@ Only host_id and host_name are stored as sandbox tags for discovery purposes.
 """
 
 import argparse
+import concurrent.futures
 import io
 import os
 import socket
@@ -81,6 +82,23 @@ SSH_CONNECT_TIMEOUT = 60
 TAG_HOST_ID: Final[str] = "mngr_host_id"
 TAG_HOST_NAME: Final[str] = "mngr_host_name"
 TAG_USER_PREFIX: Final[str] = "mngr_user_"
+
+# Timeout for volume read operations. Modal's eventual consistency can cause
+# read_file to hang if the write hasn't propagated yet.
+VOLUME_READ_TIMEOUT_SECONDS: Final[int] = 30
+
+
+def _read_volume_file(volume: modal.Volume, path: str) -> bytes:
+    """Read a file from a Modal volume, returning the full contents as bytes.
+
+    This is a helper function used by _read_host_record to run the read operation
+    in a separate thread with a timeout.
+    """
+    chunks: list[bytes] = []
+    for chunk in volume.read_file(path):
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -322,20 +340,32 @@ class ModalProviderInstance(BaseProviderInstance):
         """Read a host record from the volume.
 
         Returns None if the host record doesn't exist.
+
+        Uses a timeout to handle Modal's eventual consistency, where volume.read_file
+        can hang if the write hasn't propagated yet.
         """
         volume = self._get_volume()
         path = self._get_host_record_path(host_id)
         logger.trace("Reading host record from volume: {}", path)
 
+        # Use a thread pool to enforce a timeout on the read operation.
+        # Modal's volume.read_file can hang if the volume hasn't propagated yet.
+        # We don't use a context manager because we need shutdown(wait=False) on timeout
+        # to avoid blocking while the hung thread completes.
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            # Read file returns a generator that yields bytes chunks
-            chunks: list[bytes] = []
-            for chunk in volume.read_file(path):
-                chunks.append(chunk)
-            data = b"".join(chunks)
+            future = executor.submit(_read_volume_file, volume, path)
+            data = future.result(timeout=VOLUME_READ_TIMEOUT_SECONDS)
+            executor.shutdown(wait=True)
             return HostRecord.model_validate_json(data)
         except FileNotFoundError:
+            executor.shutdown(wait=True)
             return None
+        except concurrent.futures.TimeoutError as e:
+            # Don't wait for the hung thread - just abandon it
+            executor.shutdown(wait=False, cancel_futures=True)
+            logger.warning("Volume read timed out after {}s for {}", VOLUME_READ_TIMEOUT_SECONDS, path)
+            raise MngrError(f"Volume read timed out after {VOLUME_READ_TIMEOUT_SECONDS}s") from e
 
     def _delete_host_record(self, host_id: HostId) -> None:
         """Delete a host record from the volume."""
