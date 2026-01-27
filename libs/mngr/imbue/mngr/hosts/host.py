@@ -411,9 +411,7 @@ class Host(HostInterface):
     def record_activity(self, activity_type: ActivitySource) -> None:
         """Record activity of the given type. Only BOOT is valid for host-level activity."""
         if activity_type != ActivitySource.BOOT:
-            raise InvalidActivityTypeError(
-                f"Only BOOT activity can be recorded on host, got: {activity_type}"
-            )
+            raise InvalidActivityTypeError(f"Only BOOT activity can be recorded on host, got: {activity_type}")
 
         logger.trace("Recording {} activity on host {}", activity_type, self.id)
         activity_path = self.host_dir / "activity" / activity_type.value.lower()
@@ -1607,7 +1605,8 @@ class Host(HostInterface):
         # 1. Gets the pane PID using tmux list-panes
         # 2. While the PID exists, write activity JSON and sleep
         # 3. Uses date -u for UTC ISO format timestamps
-        monitor_script = f'''
+        # FIXME: this script really ought to wait for up to X seconds for the PANE_PID to appear (since it can take a little bit)
+        monitor_script = f"""
 PANE_PID=$(tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null | head -n 1)
 if [ -z "$PANE_PID" ]; then
     exit 0
@@ -1619,7 +1618,7 @@ while kill -0 "$PANE_PID" 2>/dev/null; do
     printf '{{\\n  "time": "%s"\\n}}\\n' "$TIMESTAMP" > "$ACTIVITY_PATH"
     sleep 5
 done
-'''
+"""
         # Run the script in the background, fully detached
         # nohup ensures it survives if the parent shell exits
         # Redirect all output to /dev/null and background with &
