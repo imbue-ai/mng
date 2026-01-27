@@ -16,6 +16,7 @@ import os
 import uuid
 from datetime import datetime
 from datetime import timezone
+from pathlib import Path
 from typing import Any
 
 import modal
@@ -26,30 +27,22 @@ class ConfigurationError(RuntimeError):
     """Raised when required configuration is missing."""
 
 
-# Get configuration from environment variables
-# When running locally (during `modal deploy`), this must be set.
-# When running in Modal's cloud, the app/volume names are already bound
-# by Modal's infrastructure, so we use a placeholder.
-APP_NAME = os.environ.get("MNGR_MODAL_APP_NAME")
-
 if modal.is_local():
-    # During deployment, we need the real app name
+    APP_NAME = os.environ.get("MNGR_MODAL_APP_NAME")
     if APP_NAME is None:
         raise ConfigurationError("MNGR_MODAL_APP_NAME environment variable must be set")
-    VOLUME_NAME = f"{APP_NAME}-state"
-    # Create a secret that passes the app name to the remote function
-    app_name_secret = modal.Secret.from_dict({"MNGR_MODAL_APP_NAME": APP_NAME})
+    Path(".mngr/dev/build/app_name").write_text(APP_NAME)
 else:
-    # When running in Modal's cloud, the env var is injected by the secret
-    # For module-level code, we use placeholder values since the actual
-    # resources are already bound by Modal's infrastructure
-    APP_NAME = APP_NAME if APP_NAME is not None else "mngr-placeholder"
-    VOLUME_NAME = f"{APP_NAME}-state"
-    app_name_secret = modal.Secret.from_dict({})
+    APP_NAME = Path("/deployment/app_name").read_text().strip()
 
-# Create the Modal app and volume reference
-image = modal.Image.debian_slim().uv_pip_install("fastapi[standard]")
+image = (
+    modal.Image.debian_slim()
+    .uv_pip_install("fastapi[standard]")
+    .add_local_file(".mngr/dev/build/app_name", "/deployment/app_name", copy=True)
+)
+
 app = modal.App(name=APP_NAME, image=image)
+VOLUME_NAME = f"{APP_NAME}-state"
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 
 
@@ -83,7 +76,7 @@ def _write_host_record(host_record: dict[str, Any]) -> None:
     volume.commit()
 
 
-@app.function(volumes={"/vol": volume}, secrets=[app_name_secret])
+@app.function(volumes={"/vol": volume})
 @modal.fastapi_endpoint(method="POST", docs=True)
 def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     """Snapshot a Modal sandbox and shut it down.
