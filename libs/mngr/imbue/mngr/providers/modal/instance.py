@@ -755,6 +755,14 @@ class ModalProviderInstance(BaseProviderInstance):
         # Generate host ID
         host_id = HostId.generate()
 
+        if start_args:
+            # someday we can allow this by understanding if these result in a different configuration for the sandbox,
+            # and if so, first building, then snapshotting, then starting a second sandbox from that snapshot
+            # (with the right start args for that second sandbox)
+            raise NotImplementedError(
+                "separate start_args are not yet supported for Modal provider: use build_args instead"
+            )
+
         logger.info("Creating host {} in {} ...", name, self.name)
 
         # Parse build arguments (including --dockerfile if specified)
