@@ -20,7 +20,6 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.primitives import LogLevel
 
-
 # ANSI color codes that work well on both light and dark backgrounds.
 # Using 256-color palette codes with bold for better visibility.
 # Falls back gracefully in terminals that don't support 256 colors.
@@ -28,10 +27,12 @@ from imbue.mngr.primitives import LogLevel
 # ERROR_COLOR: Bold red (256-color code 196)
 # BUILD_COLOR: Medium gray (256-color code 245) - visible on both black and white backgrounds
 # DEBUG_COLOR: Solid blue (256-color code 33)
+# TRACE COLOR: Purple (256-color code 99)
 WARNING_COLOR = "\x1b[1;38;5;178m"
 ERROR_COLOR = "\x1b[1;38;5;196m"
 BUILD_COLOR = "\x1b[38;5;245m"
 DEBUG_COLOR = "\x1b[38;5;33m"
+TRACE_COLOR = "\x1b[38;5;99m"
 RESET_COLOR = "\x1b[0m"
 
 # Custom loguru log level number for BUILD (between DEBUG=10 and INFO=20)
@@ -83,6 +84,8 @@ def _format_user_message(record: Any) -> str:
         return f"{BUILD_COLOR}{{message}}{RESET_COLOR}\n"
     if level_name == "DEBUG":
         return f"{DEBUG_COLOR}{{message}}{RESET_COLOR}\n"
+    if level_name == "TRACE":
+        return f"{TRACE_COLOR}{{message}}{RESET_COLOR}\n"
     return "{message}\n"
 
 
