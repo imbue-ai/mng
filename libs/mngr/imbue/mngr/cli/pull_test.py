@@ -182,15 +182,31 @@ def test_find_agent_by_name_or_id_raises_for_multiple_matches() -> None:
         host_ref2: [agent_ref2],
     }
 
-    # Mock get_provider_instance to return mock providers
-    mock_provider = MagicMock()
-    mock_host = MagicMock()
-    mock_agent = MagicMock()
-    mock_agent.name = agent_name
-    mock_host.get_agents.return_value = [mock_agent]
-    mock_provider.get_host.return_value = mock_host
+    # Mock get_provider_instance to return mock providers with correct agent IDs
+    def mock_get_provider(provider_name, ctx):
+        mock_provider = MagicMock()
+        mock_host = MagicMock()
 
-    with patch("imbue.mngr.cli.pull.get_provider_instance", return_value=mock_provider):
+        # Return different agents based on which host is requested
+        def mock_get_host(host_id):
+            mock_host_instance = MagicMock()
+            if host_id == host1_id:
+                mock_agent1 = MagicMock()
+                mock_agent1.id = agent_ref1.agent_id
+                mock_agent1.name = agent_name
+                mock_host_instance.get_agents.return_value = [mock_agent1]
+            else:
+                mock_agent2 = MagicMock()
+                mock_agent2.id = agent_ref2.agent_id
+                mock_agent2.name = agent_name
+                mock_host_instance.get_agents.return_value = [mock_agent2]
+            mock_host_instance.connector.name = "mock-host"
+            return mock_host_instance
+
+        mock_provider.get_host.side_effect = mock_get_host
+        return mock_provider
+
+    with patch("imbue.mngr.cli.pull.get_provider_instance", side_effect=mock_get_provider):
         with pytest.raises(UserInputError, match="Multiple agents found"):
             _find_agent_by_name_or_id("my-agent", agents_by_host, mock_ctx)
 
