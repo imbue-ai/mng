@@ -107,10 +107,17 @@ def emit_final_json(data: dict[str, Any]) -> None:
 
 
 def format_mngr_error_for_cli(error: Exception, user_help_text: str | None) -> str:
-    """Format a MngrError for display in the CLI.
+    """Format an error for display in the CLI.
 
     Produces a user-friendly error message without a stack trace.
     If the error has user_help_text, it is appended after the error message.
+
+    Note: This function adds "Error: " prefix for general exception formatting.
+    However, when used with MngrError (which inherits from ClickException),
+    ClickException also adds "Error: " when displaying, resulting in
+    "Error: Error: ..." being shown to users. This is a known issue but the
+    prefix must be kept for the function to work correctly with non-MngrError
+    exceptions (e.g., ValueError, TypeError, etc.).
     """
     lines = [f"Error: {error}"]
     if user_help_text:
