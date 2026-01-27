@@ -273,7 +273,11 @@ class Host(HostInterface):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(content)
         else:
-            is_success = self._put_file(io.BytesIO(content), str(path))
+            try:
+                is_success = self._put_file(io.BytesIO(content), str(path))
+            except IOError:
+                # pyinfra/paramiko raises IOError when the parent directory doesn't exist
+                is_success = False
             if not is_success:
                 # May have failed because parent directory doesn't exist, create it and retry
                 parent_dir = str(path.parent)
@@ -405,11 +409,9 @@ class Host(HostInterface):
         return self._get_file_mtime(activity_path)
 
     def record_activity(self, activity_type: ActivitySource) -> None:
-        """Record activity of the given type. Only BOOT and CREATE are valid."""
-        if activity_type not in (ActivitySource.BOOT, ActivitySource.CREATE):
-            raise InvalidActivityTypeError(
-                f"Only BOOT and CREATE activity can be recorded on host, got: {activity_type}"
-            )
+        """Record activity of the given type. Only BOOT is valid for host-level activity."""
+        if activity_type != ActivitySource.BOOT:
+            raise InvalidActivityTypeError(f"Only BOOT activity can be recorded on host, got: {activity_type}")
 
         logger.trace("Recording {} activity on host {}", activity_type, self.id)
         activity_path = self.host_dir / "activity" / activity_type.value.lower()
@@ -700,7 +702,7 @@ class Host(HostInterface):
     ) -> Path:
         """Create the work_dir directory for a new agent."""
         copy_mode = options.git.copy_mode if options.git else WorkDirCopyMode.COPY
-        logger.debug("Creating agent work directory with copy_mode={}", copy_mode)
+        logger.debug("Creating agent work directory", copy_mode=str(copy_mode))
         if copy_mode == WorkDirCopyMode.WORKTREE:
             return self._create_work_dir_as_git_worktree(host, path, options)
         elif copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE):
@@ -784,8 +786,6 @@ class Host(HostInterface):
         options: CreateAgentOptions,
     ) -> None:
         """Transfer a git repository from source to target."""
-        logger.debug("Transferring git repository from {} to {}", source_path, target_path)
-
         new_branch_name = self._determine_branch_name(options)
         if options.git and options.git.base_branch:
             base_branch_name = options.git.base_branch
@@ -798,7 +798,13 @@ class Host(HostInterface):
             )
             base_branch_name = result.stdout.strip() if result.success else "main"
 
-        logger.debug("Git transfer: base_branch={}, new_branch={}", base_branch_name, new_branch_name)
+        logger.debug(
+            "Transferring git repository",
+            source=str(source_path),
+            target=str(target_path),
+            base_branch=base_branch_name,
+            new_branch=new_branch_name,
+        )
 
         # Check if target already has a .git directory
         if self.is_local:
@@ -965,7 +971,7 @@ class Host(HostInterface):
             logger.debug("No extra files to transfer")
             return
 
-        logger.debug("Transferring {} extra files", len(files_to_include))
+        logger.debug("Transferring extra files", count=len(files_to_include))
 
         # Write files to a temp file to avoid command line length limits
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
@@ -1057,7 +1063,7 @@ class Host(HostInterface):
 
         branch_name = self._determine_branch_name(options)
 
-        logger.debug("Creating git worktree at {} with branch {}", work_dir_path, branch_name)
+        logger.debug("Creating git worktree", path=str(work_dir_path), branch=branch_name)
         cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
 
         if options.git and options.git.base_branch:
@@ -1092,7 +1098,12 @@ class Host(HostInterface):
         agent_id = AgentId.generate()
         agent_name = options.name or AgentName(f"agent-{str(agent_id)}")
         agent_type = options.agent_type or AgentTypeName("claude")
-        logger.debug("Creating agent state: id={} name={} type={}", agent_id, agent_name, agent_type)
+        logger.debug(
+            "Creating agent state",
+            agent_id=str(agent_id),
+            agent_name=str(agent_name),
+            agent_type=str(agent_type),
+        )
 
         agent_class = get_agent_class(str(agent_type))
         config_class = get_agent_config_class(str(agent_type))
@@ -1142,6 +1153,9 @@ class Host(HostInterface):
 
         data_path = state_dir / "data.json"
         self.write_text_file(data_path, json.dumps(data, indent=2))
+
+        # Record CREATE activity for idle detection
+        agent.record_activity(ActivitySource.CREATE)
 
         return agent
 
@@ -1203,7 +1217,7 @@ class Host(HostInterface):
         env_path = self._get_agent_env_path(agent)
         content = _format_env_file(env_vars)
         self.write_text_file(env_path, content)
-        logger.debug("Wrote {} env vars to {}", len(env_vars), env_path)
+        logger.debug("Wrote env vars", count=len(env_vars), path=str(env_path))
 
     def _build_source_env_commands(self, agent: AgentInterface) -> list[str]:
         """Build shell commands that source host and agent env files.
@@ -1270,14 +1284,14 @@ class Host(HostInterface):
 
         provisioning = options.provisioning
         logger.debug(
-            "Provisioning agent {} with user commands: {} dirs, {} uploads, {} appends, {} prepends, {} sudo cmds, {} user cmds",
-            agent.name,
-            len(provisioning.create_directories),
-            len(provisioning.upload_files),
-            len(provisioning.append_to_files),
-            len(provisioning.prepend_to_files),
-            len(provisioning.sudo_commands),
-            len(provisioning.user_commands),
+            "Applying user provisioning commands",
+            agent_name=str(agent.name),
+            dirs=len(provisioning.create_directories),
+            uploads=len(provisioning.upload_files),
+            appends=len(provisioning.append_to_files),
+            prepends=len(provisioning.prepend_to_files),
+            sudo_cmds=len(provisioning.sudo_commands),
+            user_cmds=len(provisioning.user_commands),
         )
 
         # 5. Create directories
@@ -1393,7 +1407,7 @@ class Host(HostInterface):
 
     def destroy_agent(self, agent: AgentInterface) -> None:
         """Destroy an agent and clean up its resources."""
-        logger.debug("Destroying agent id={} name={}", agent.id, agent.name)
+        logger.debug("Destroying agent", agent_id=str(agent.id), agent_name=str(agent.name))
         self.stop_agents([agent.id])
         state_dir = self.host_dir / "agents" / str(agent.id)
         self._remove_directory(state_dir)
@@ -1569,6 +1583,55 @@ class Host(HostInterface):
                 if not result.success:
                     raise AgentStartError(str(agent.name), f"tmux select-window failed: {result.stderr}")
 
+            # Record START activity for idle detection
+            agent.record_activity(ActivitySource.START)
+
+            # Start background process activity monitor
+            self._start_process_activity_monitor(agent, session_name)
+
+    def _start_process_activity_monitor(self, agent: AgentInterface, session_name: str) -> None:
+        """Start a background process that writes PROCESS activity while the agent is alive.
+
+        This launches a detached bash script on the host that:
+        1. Gets the tmux pane PID for the agent's session
+        2. Loops while that PID is alive, writing PROCESS activity every ~5 seconds
+        3. Exits when the pane process exits
+        """
+        activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value
+
+        # Build a bash script that monitors the process and writes activity
+        # We use nohup and redirect output to /dev/null to fully detach
+        # The script:
+        # 1. Gets the pane PID using tmux list-panes
+        # 2. While the PID exists, write activity JSON and sleep
+        # 3. Uses date -u for UTC ISO format timestamps
+        # FIXME: this script really ought to wait for up to X seconds for the PANE_PID to appear (since it can take a little bit)
+        monitor_script = f"""
+PANE_PID=$(tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null | head -n 1)
+if [ -z "$PANE_PID" ]; then
+    exit 0
+fi
+ACTIVITY_PATH={shlex.quote(str(activity_path))}
+mkdir -p "$(dirname "$ACTIVITY_PATH")"
+while kill -0 "$PANE_PID" 2>/dev/null; do
+    TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%6N+00:00" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S+00:00")
+    printf '{{\\n  "time": "%s"\\n}}\\n' "$TIMESTAMP" > "$ACTIVITY_PATH"
+    sleep 5
+done
+"""
+        # Run the script in the background, fully detached
+        # nohup ensures it survives if the parent shell exits
+        # Redirect all output to /dev/null and background with &
+        cmd = f"nohup bash -c {shlex.quote(monitor_script)} </dev/null >/dev/null 2>&1 &"
+
+        result = self.execute_command(cmd)
+        if not result.success:
+            logger.warning(
+                "Failed to start process activity monitor for agent {}: {}",
+                agent.name,
+                result.stderr,
+            )
+
     def _get_all_descendant_pids(self, parent_pid: str) -> list[str]:
         """Recursively get all descendant PIDs of a given parent PID."""
         descendant_pids: list[str] = []
@@ -1699,14 +1762,28 @@ class Host(HostInterface):
     # =========================================================================
 
     def get_idle_seconds(self) -> float:
-        """Get the number of seconds since last activity."""
+        """Get the number of seconds since last activity.
+
+        Checks both host-level activity files (like BOOT) and agent-level
+        activity files (like CREATE, START, AGENT). Returns the time since
+        the most recent activity from any source.
+        """
         latest_activity: datetime | None = None
 
+        # Check host-level activity files
         for activity_type in ActivitySource:
             activity_time = self.get_reported_activity_time(activity_type)
             if activity_time is not None:
                 if latest_activity is None or activity_time > latest_activity:
                     latest_activity = activity_time
+
+        # Check agent-level activity files for all agents on this host
+        for agent in self.get_agents():
+            for activity_type in ActivitySource:
+                activity_time = agent.get_reported_activity_time(activity_type)
+                if activity_time is not None:
+                    if latest_activity is None or activity_time > latest_activity:
+                        latest_activity = activity_time
 
         if latest_activity is None:
             return float("inf")

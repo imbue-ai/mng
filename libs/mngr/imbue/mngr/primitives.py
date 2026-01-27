@@ -49,6 +49,7 @@ class LogLevel(UpperCaseStrEnum):
 
     TRACE = auto()
     DEBUG = auto()
+    BUILD = auto()
     INFO = auto()
     WARN = auto()
     ERROR = auto()

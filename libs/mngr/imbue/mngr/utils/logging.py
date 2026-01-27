@@ -26,9 +26,37 @@ from imbue.mngr.primitives import LogLevel
 # Falls back gracefully in terminals that don't support 256 colors.
 # WARNING_COLOR: Bold gold/orange (256-color code 178)
 # ERROR_COLOR: Bold red (256-color code 196)
+# BUILD_COLOR: Medium gray (256-color code 245) - visible on both black and white backgrounds
+# DEBUG_COLOR: Solid blue (256-color code 33)
 WARNING_COLOR = "\x1b[1;38;5;178m"
 ERROR_COLOR = "\x1b[1;38;5;196m"
+BUILD_COLOR = "\x1b[38;5;245m"
+DEBUG_COLOR = "\x1b[38;5;33m"
 RESET_COLOR = "\x1b[0m"
+
+# Custom loguru log level number for BUILD (between DEBUG=10 and INFO=20)
+BUILD_LEVEL_NO: Final[int] = 15
+
+
+def register_build_level() -> None:
+    """Register the custom BUILD log level with loguru.
+
+    This is called at module import time to ensure the BUILD level is always
+    available when using logger.log("BUILD", ...). The function is idempotent
+    and can be called multiple times safely.
+
+    The BUILD level (severity 15) sits between DEBUG (10) and INFO (20),
+    intended for image build output (Modal, Docker, etc).
+    """
+    try:
+        logger.level("BUILD")
+    except ValueError:
+        # Level doesn't exist, create it
+        logger.level("BUILD", no=BUILD_LEVEL_NO, color="<white>")
+
+
+# Register BUILD level at module import time
+register_build_level()
 
 # Default buffer size for suppressed log messages
 DEFAULT_BUFFER_SIZE: Final[int] = 500
@@ -51,6 +79,10 @@ def _format_user_message(record: Any) -> str:
         return f"{WARNING_COLOR}WARNING: {{message}}{RESET_COLOR}\n"
     if level_name == "ERROR":
         return f"{ERROR_COLOR}ERROR: {{message}}{RESET_COLOR}\n"
+    if level_name == "BUILD":
+        return f"{BUILD_COLOR}{{message}}{RESET_COLOR}\n"
+    if level_name == "DEBUG":
+        return f"{DEBUG_COLOR}{{message}}{RESET_COLOR}\n"
     return "{message}\n"
 
 
@@ -67,10 +99,13 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     # Remove default handler
     logger.remove()
 
+    # BUILD level is registered at module import time via register_build_level()
+
     # Map our LogLevel enum to loguru levels
     level_map = {
         LogLevel.TRACE: "TRACE",
         LogLevel.DEBUG: "DEBUG",
+        LogLevel.BUILD: "BUILD",
         LogLevel.INFO: "INFO",
         LogLevel.WARN: "WARNING",
         LogLevel.ERROR: "ERROR",
@@ -196,8 +231,8 @@ def _format_arg_value(value: Any) -> str:
 def log_call(func: Callable[P, R]) -> Callable[P, R]:
     """Decorator that logs function calls with inputs and outputs at debug level.
 
-    Logs the function name, all arguments (with values truncated if too long),
-    and the return value. Useful for API entry points to trace execution.
+    Logs the function name and binds arguments as structured logging fields.
+    Useful for API entry points to trace execution.
     """
     # Get the function name once at decoration time
     func_name = getattr(func, "__name__", repr(func))
@@ -209,15 +244,13 @@ def log_call(func: Callable[P, R]) -> Callable[P, R]:
         bound_args = sig.bind(*args, **kwargs)
         bound_args.apply_defaults()
 
-        # Format arguments for logging
-        arg_strs = [f"{name}={_format_arg_value(value)}" for name, value in bound_args.arguments.items()]
-        args_str = ", ".join(arg_strs)
-
-        logger.debug("Calling {}({})", func_name, args_str)
+        # Build structured logging fields from arguments
+        log_fields = {name: _format_arg_value(value) for name, value in bound_args.arguments.items()}
+        logger.debug("Calling {}", func_name, **log_fields)
 
         result = func(*args, **kwargs)
 
-        logger.debug("{} returned {}", func_name, _format_arg_value(result))
+        logger.debug("{} returned", func_name, result=_format_arg_value(result))
 
         return result
 
@@ -295,6 +328,7 @@ class LoggingSuppressor:
             level_map = {
                 LogLevel.TRACE: "TRACE",
                 LogLevel.DEBUG: "DEBUG",
+                LogLevel.BUILD: "BUILD",
                 LogLevel.INFO: "INFO",
                 LogLevel.WARN: "WARNING",
                 LogLevel.ERROR: "ERROR",
@@ -373,6 +407,7 @@ class LoggingSuppressor:
                 level_map = {
                     LogLevel.TRACE: "TRACE",
                     LogLevel.DEBUG: "DEBUG",
+                    LogLevel.BUILD: "BUILD",
                     LogLevel.INFO: "INFO",
                     LogLevel.WARN: "WARNING",
                     LogLevel.ERROR: "ERROR",

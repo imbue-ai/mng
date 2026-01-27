@@ -16,7 +16,9 @@ from imbue.mngr.utils.logging import _format_arg_value
 from imbue.mngr.utils.logging import _format_user_message
 from imbue.mngr.utils.logging import _resolve_log_dir
 from imbue.mngr.utils.logging import _rotate_old_logs
+from imbue.mngr.utils.logging import BUILD_COLOR
 from imbue.mngr.utils.logging import BufferedMessage
+from imbue.mngr.utils.logging import DEBUG_COLOR
 from imbue.mngr.utils.logging import ERROR_COLOR
 from imbue.mngr.utils.logging import log_call
 from imbue.mngr.utils.logging import LoggingSuppressor
@@ -279,13 +281,27 @@ def test_format_user_message_returns_plain_message_for_info() -> None:
     assert WARNING_COLOR not in result
 
 
-def test_format_user_message_returns_plain_message_for_debug() -> None:
-    """_format_user_message should return plain message for DEBUG level."""
+def test_format_user_message_returns_blue_message_for_debug() -> None:
+    """_format_user_message should return blue-colored message for DEBUG level."""
     record = {"level": type("Level", (), {"name": "DEBUG"})()}
 
     result = _format_user_message(record)
 
-    assert result == "{message}\n"
+    assert "{message}" in result
+    assert DEBUG_COLOR in result
+    assert RESET_COLOR in result
+    assert "WARNING" not in result
+
+
+def test_format_user_message_returns_gray_message_for_build() -> None:
+    """_format_user_message should return gray-colored message for BUILD level."""
+    record = {"level": type("Level", (), {"name": "BUILD"})()}
+
+    result = _format_user_message(record)
+
+    assert "{message}" in result
+    assert BUILD_COLOR in result
+    assert RESET_COLOR in result
     assert "WARNING" not in result
 
 

@@ -105,7 +105,7 @@ def test_config_get_with_nested_key(
 
     assert result.exit_code == 0
     # Console level should be one of the valid log levels
-    assert any(level in result.output.upper() for level in ["INFO", "DEBUG", "WARN", "ERROR", "TRACE"])
+    assert any(level in result.output.upper() for level in ["INFO", "DEBUG", "BUILD", "WARN", "ERROR", "TRACE"])
 
 
 def test_config_get_nonexistent_key_fails(
