@@ -31,7 +31,9 @@ if modal.is_local():
     APP_NAME = os.environ.get("MNGR_MODAL_APP_NAME")
     if APP_NAME is None:
         raise ConfigurationError("MNGR_MODAL_APP_NAME environment variable must be set")
-    Path(".mngr/dev/build/app_name").write_text(APP_NAME)
+    output_app_name_file = Path(".mngr/dev/build/app_name")
+    output_app_name_file.parent.mkdir(parents=True, exist_ok=True)
+    output_app_name_file.write_text(APP_NAME)
 else:
     APP_NAME = Path("/deployment/app_name").read_text().strip()
 
