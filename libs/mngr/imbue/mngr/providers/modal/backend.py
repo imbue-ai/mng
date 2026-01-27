@@ -5,6 +5,7 @@ from typing import ClassVar
 from uuid import uuid4
 
 import modal
+import modal.exception
 from loguru import logger
 from pydantic import Field
 
@@ -26,6 +27,23 @@ MODAL_BACKEND_NAME = ProviderBackendName("modal")
 USER_ID_FILENAME = "user_id"
 STATE_VOLUME_SUFFIX = "-state"
 MODAL_NAME_MAX_LENGTH = 64
+
+
+def _ensure_environment_exists(environment_name: str) -> None:
+    """Ensure a Modal environment exists, creating it if necessary.
+
+    Modal environments must be created before they can be used to scope resources
+    like apps, volumes, and sandboxes.
+    """
+    try:
+        # Try to look up the environment - if it exists, this succeeds
+        modal.Environment.lookup(environment_name)
+        logger.trace("Modal environment already exists: {}", environment_name)
+    except modal.exception.NotFoundError:
+        # Environment doesn't exist, create it
+        logger.debug("Creating Modal environment: {}", environment_name)
+        modal.Environment.create(environment_name)
+        logger.info("Created Modal environment: {}", environment_name)
 
 
 class ModalAppContextHandle(FrozenModel):
@@ -140,6 +158,9 @@ class ModalProviderBackend(ProviderBackendInterface):
             return cls._app_registry[app_name]
 
         logger.debug("Creating ephemeral Modal app with output capture: {} (env: {})", app_name, environment_name)
+
+        # Ensure the environment exists before trying to use it
+        _ensure_environment_exists(environment_name)
 
         # Enter the output capture context first
         output_capture_context = enable_modal_output_capture(is_logging_to_loguru=True)
