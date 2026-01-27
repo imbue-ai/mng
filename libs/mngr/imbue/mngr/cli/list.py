@@ -317,14 +317,9 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
 
 
 def _get_field_value(agent: AgentInfo, field: str) -> str:
-    """Extract a field value from an AgentInfo object.
+    """Extract a field value from an AgentInfo object and return as string.
 
-    Args:
-        agent: The agent to extract the field from
-        field: The field name (supports nested fields like "host.name")
-
-    Returns:
-        The field value as a string
+    Supports nested fields like "host.name" and handles field aliases.
     """
     # Handle special field aliases for backward compatibility and convenience
     field_aliases = {
@@ -353,10 +348,10 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
         if value is None:
             return ""
         elif isinstance(value, Enum):
-            # For enums like lifecycle_state
             return str(value.value).lower()
-        elif hasattr(value, "line"):  # For AgentStatus
-            return value.line
+        elif hasattr(value, "line"):
+            # For AgentStatus objects which have a 'line' attribute
+            return str(value.line)
         elif isinstance(value, str):
             return value
         else:
