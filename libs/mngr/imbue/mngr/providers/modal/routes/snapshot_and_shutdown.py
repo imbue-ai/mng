@@ -10,8 +10,10 @@ All code is self-contained in this file - no imports from the mngr codebase.
 
 import json
 import os
+import uuid
 from datetime import datetime
 from datetime import timezone
+from typing import Any
 
 import modal
 
@@ -28,16 +30,11 @@ volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 
 def _generate_snapshot_id() -> str:
     """Generate a unique snapshot ID in the format snap-<random_hex>."""
-    import uuid
-
     return f"snap-{uuid.uuid4().hex}"
 
 
-def _read_host_record(host_id: str) -> dict | None:
-    """Read a host record from the volume.
-
-    Returns None if the host record doesn't exist.
-    """
+def _read_host_record(host_id: str) -> dict[str, Any] | None:
+    """Read a host record from the volume."""
     path = f"/vol/{host_id}.json"
     try:
         with open(path) as f:
@@ -46,7 +43,7 @@ def _read_host_record(host_id: str) -> dict | None:
         return None
 
 
-def _write_host_record(host_record: dict) -> None:
+def _write_host_record(host_record: dict[str, Any]) -> None:
     """Write a host record to the volume."""
     host_id = host_record["host_id"]
     path = f"/vol/{host_id}.json"
@@ -57,19 +54,11 @@ def _write_host_record(host_record: dict) -> None:
 
 @app.function(volumes={"/vol": volume})
 @modal.fastapi_endpoint(method="POST", docs=True)
-def snapshot_and_shutdown(request_body: dict) -> dict:
+def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     """Snapshot a Modal sandbox and shut it down.
 
-    Request body should contain:
-    - sandbox_id: The Modal sandbox object ID (e.g., "sb-...")
-    - host_id: The mngr host ID (e.g., "host-...")
-    - snapshot_name: Optional name for the snapshot (auto-generated if not provided)
-
-    Returns:
-    - success: Whether the operation succeeded
-    - snapshot_id: The mngr snapshot ID (if successful)
-    - modal_image_id: The Modal image ID for the snapshot (if successful)
-    - error: Error message (if failed)
+    Request body should contain sandbox_id (Modal sandbox object ID) and
+    host_id (mngr host ID). Optionally accepts snapshot_name.
     """
     sandbox_id = request_body.get("sandbox_id")
     host_id = request_body.get("host_id")
@@ -131,5 +120,5 @@ def snapshot_and_shutdown(request_body: dict) -> dict:
 
     except modal.exception.NotFoundError as e:
         return {"success": False, "error": f"Sandbox not found: {e}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    except modal.exception.Error as e:
+        return {"success": False, "error": f"Modal error: {e}"}
