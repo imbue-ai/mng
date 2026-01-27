@@ -288,3 +288,194 @@ def test_list_command_on_error_abort(
     )
 
     assert result.exit_code == 0
+
+
+def test_list_command_with_basic_fields(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with basic field selection."""
+    agent_name = f"test-list-fields-basic-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 302171",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with specific fields
+        result = cli_runner.invoke(
+            list_command,
+            ["--fields", "id,name"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "ID" in result.output
+        assert "NAME" in result.output
+        assert agent_name in result.output
+        # Should not show default fields like STATE or STATUS
+        assert "STATE" not in result.output
+        assert "STATUS" not in result.output
+
+
+def test_list_command_with_nested_fields(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with nested field selection."""
+    agent_name = f"test-list-fields-nested-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 201060",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with nested fields
+        result = cli_runner.invoke(
+            list_command,
+            ["--fields", "name,host.name,host.provider_name"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "NAME" in result.output
+        assert "HOST_NAME" in result.output
+        assert "HOST_PROVIDER_NAME" in result.output
+        assert agent_name in result.output
+        assert "@local" in result.output
+        assert "local" in result.output
+
+
+def test_list_command_with_field_aliases(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with field aliases."""
+    agent_name = f"test-list-fields-aliases-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 109949",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with field aliases
+        result = cli_runner.invoke(
+            list_command,
+            ["--fields", "name,state,host,provider"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "NAME" in result.output
+        assert "STATE" in result.output
+        assert "HOST" in result.output
+        assert "PROVIDER" in result.output
+        assert agent_name in result.output
+        # State should show "running" or "stopped" in lowercase
+        assert "running" in result.output or "stopped" in result.output
+
+
+def test_list_command_with_invalid_fields(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with invalid field shows empty column."""
+    agent_name = f"test-list-fields-invalid-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 008838",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with invalid field
+        result = cli_runner.invoke(
+            list_command,
+            ["--fields", "name,invalid_field"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        # Should not fail, just show empty column
+        assert result.exit_code == 0
+        assert "NAME" in result.output
+        assert "INVALID_FIELD" in result.output
+        assert agent_name in result.output
