@@ -217,30 +217,14 @@ def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProvid
     return make_modal_provider_with_mocks(temp_mngr_ctx, app_name)
 
 
-@pytest.fixture
-def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Generator[ModalProviderInstance, None, None]:
-    """Create a ModalProviderInstance with real Modal for acceptance tests.
+def _cleanup_modal_test_resources(app_name: str, volume_name: str, environment_name: str) -> None:
+    """Clean up Modal test resources after a test completes.
 
-    This fixture creates a Modal environment and cleans it up after the test.
-    Cleanup happens in the fixture teardown (not at session end) to prevent
-    environment leaks and reduce the time spent on cleanup.
+    This helper performs cleanup in the correct order:
+    1. Close the Modal app context
+    2. Delete the volume (must be done before environment deletion)
+    3. Delete the environment (cleans up any remaining resources)
     """
-    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
-    provider = make_modal_provider_real(temp_mngr_ctx, app_name)
-    environment_name = provider.environment_name
-    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
-
-    # Register resources for leak detection (safety net in case cleanup fails)
-    register_modal_test_app(app_name)
-    register_modal_test_environment(environment_name)
-    register_modal_test_volume(volume_name)
-
-    yield provider
-
-    # Clean up resources immediately after the test completes.
-    # This is faster than waiting until session end because we clean up one
-    # environment at a time instead of listing and deleting all at once.
-
     # Close the Modal app context first
     ModalProviderBackend.close_app(app_name)
 
@@ -266,6 +250,29 @@ def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Genera
 
 
 @pytest.fixture
+def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Generator[ModalProviderInstance, None, None]:
+    """Create a ModalProviderInstance with real Modal for acceptance tests.
+
+    This fixture creates a Modal environment and cleans it up after the test.
+    Cleanup happens in the fixture teardown (not at session end) to prevent
+    environment leaks and reduce the time spent on cleanup.
+    """
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
+    provider = make_modal_provider_real(temp_mngr_ctx, app_name)
+    environment_name = provider.environment_name
+    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
+
+    # Register resources for leak detection (safety net in case cleanup fails)
+    register_modal_test_app(app_name)
+    register_modal_test_environment(environment_name)
+    register_modal_test_volume(volume_name)
+
+    yield provider
+
+    _cleanup_modal_test_resources(app_name, volume_name, environment_name)
+
+
+@pytest.fixture
 def persistent_modal_provider(
     temp_mngr_ctx: MngrContext, mngr_test_id: str
 ) -> Generator[ModalProviderInstance, None, None]:
@@ -286,26 +293,7 @@ def persistent_modal_provider(
 
     yield provider
 
-    # Clean up resources
-    ModalProviderBackend.close_app(app_name)
-
-    try:
-        subprocess.run(
-            ["uv", "run", "modal", "volume", "delete", volume_name, "--yes"],
-            capture_output=True,
-            timeout=30,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
-        pass
-
-    try:
-        subprocess.run(
-            ["uv", "run", "modal", "environment", "delete", environment_name, "--yes"],
-            capture_output=True,
-            timeout=30,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
-        pass
+    _cleanup_modal_test_resources(app_name, volume_name, environment_name)
 
 
 # =============================================================================
