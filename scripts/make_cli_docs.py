@@ -5,7 +5,7 @@ Usage:
     uv run python scripts/make_cli_docs.py
 
 This script uses mkdocs-click to generate markdown documentation
-for all CLI commands and writes them to docs/cli/.
+for all CLI commands and writes them to libs/mngr/docs/commands/.
 """
 
 from pathlib import Path
@@ -15,6 +15,10 @@ from mkdocs_click._docs import make_command_docs
 from imbue.mngr.cli.help_formatter import get_help_metadata
 from imbue.mngr.main import BUILTIN_COMMANDS
 from imbue.mngr.main import cli
+
+# Commands categorized by their documentation location
+PRIMARY_COMMANDS = {"connect", "create", "destroy", "list", "pull"}
+SECONDARY_COMMANDS = {"config", "gc", "message"}
 
 
 def fix_sentinel_defaults(content: str) -> str:
@@ -62,8 +66,24 @@ def format_additional_sections(command_name: str) -> str:
     return "\n".join(sections)
 
 
-def generate_command_doc(command_name: str, output_dir: Path) -> None:
+def get_output_dir(command_name: str, base_dir: Path) -> Path:
+    """Determine the output directory for a command based on its category."""
+    if command_name in PRIMARY_COMMANDS:
+        return base_dir / "primary"
+    elif command_name in SECONDARY_COMMANDS:
+        return base_dir / "secondary"
+    else:
+        # Commands not in either category don't get docs generated
+        return None
+
+
+def generate_command_doc(command_name: str, base_dir: Path) -> None:
     """Generate markdown documentation for a single command."""
+    output_dir = get_output_dir(command_name, base_dir)
+    if output_dir is None:
+        print(f"Skipping: {command_name} (not in PRIMARY_COMMANDS or SECONDARY_COMMANDS)")
+        return
+
     # Get the command from the CLI group
     cmd = cli.commands.get(command_name)
     if cmd is None:
@@ -85,33 +105,20 @@ def generate_command_doc(command_name: str, output_dir: Path) -> None:
     content += format_examples(command_name)
 
     # Write to file
+    output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"{command_name}.md"
     output_file.write_text(content)
     print(f"Generated: {output_file}")
 
 
 def main() -> None:
-    # Determine output directory
-    output_dir = Path(__file__).parent.parent / "docs" / "cli"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Base output directory
+    base_dir = Path(__file__).parent.parent / "libs" / "mngr" / "docs" / "commands"
 
     # Generate docs for each built-in command
     for cmd in BUILTIN_COMMANDS:
         if cmd.name is not None:
-            generate_command_doc(cmd.name, output_dir)
-
-    # Also generate the top-level CLI doc
-    lines = make_command_docs(
-        prog_name="mngr",
-        command=cli,
-        depth=0,
-        style="table",
-    )
-    content = "\n".join(lines)
-    content = fix_sentinel_defaults(content)
-    output_file = output_dir / "index.md"
-    output_file.write_text(content)
-    print(f"Generated: {output_file}")
+            generate_command_doc(cmd.name, base_dir)
 
 
 if __name__ == "__main__":

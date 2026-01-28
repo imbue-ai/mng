@@ -1,51 +1,97 @@
-# mngr gc - CLI Options Reference
+# mngr gc
 
 Garbage collect unused resources.
 
-Automatically removes containers, old snapshots, unused hosts, cached images, and any resources that are associated with destroyed hosts and agents.
+Automatically removes unused resources from providers and mngr itself.
 
-`mngr destroy` automatically cleans up resources when an agent is deleted. `mngr gc` can be used to manually trigger garbage collection of unused resources at any time.
+Examples:
 
-For interactive cleanup (e.g. to help you decide which agents and hosts to destroy), see `mngr cleanup`.
+  mngr gc --work-dirs --dry-run
 
-## Usage
+  mngr gc --all-agent-resources
 
+  mngr gc --machines --snapshots --provider docker
+
+  mngr gc --logs --build-cache
+
+**Usage:**
+
+```text
+mngr gc [OPTIONS]
 ```
-mngr gc
+
+**Options:**
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--all-agent-resources` | boolean | Clean all agent resource types (machines, snapshots, volumes, work dirs) | `False` |
+| `--machines` | boolean | Remove unused containers, instances, and sandboxes | `False` |
+| `--snapshots` | boolean | Remove unused snapshots | `False` |
+| `--volumes` | boolean | Remove unused volumes | `False` |
+| `--work-dirs` | boolean | Remove work directories (git worktrees/clones) not in use by any agent | `False` |
+| `--logs` | boolean | Remove log files from destroyed agents/hosts | `False` |
+| `--build-cache` | boolean | Remove build cache entries | `False` |
+| `--include` | text | Only clean resources matching CEL filter (repeatable) | None |
+| `--exclude` | text | Exclude resources matching CEL filter (repeatable) | None |
+| `--all-providers` | boolean | Clean resources across all providers | `False` |
+| `--provider` | text | Clean resources for a specific provider (repeatable) | None |
+| `--dry-run` | boolean | Show what would be cleaned without actually cleaning | `False` |
+| `--on-error` | choice (`abort` &#x7C; `continue`) | What to do when errors occur: abort (stop immediately) or continue (keep going) | `abort` |
+| `-w`, `--watch` | integer | Re-run garbage collection at the specified interval (seconds) | None |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## CEL Filter Examples
+
+CEL filters let you control which resources are cleaned. Use `x` to reference each resource.
+
+**For snapshots, use `x.recency_idx` to filter by age:**
+- `x.recency_idx == 0` - the most recent snapshot
+- `x.recency_idx < 5` - the 5 most recent snapshots
+- To keep only the 5 most recent: `--exclude "x.recency_idx < 5"`
+
+**Filter by resource properties:**
+- `x.name.contains("test")` - resources with "test" in the name
+- `x.provider_name == "docker"` - Docker resources only
+
+
+## Examples
+
+**Preview what would be cleaned (dry run)**
+
+```bash
+$ mngr gc --work-dirs --dry-run
 ```
 
-## What to Clean
+**Clean all agent resources**
 
-Agent resources:
+```bash
+$ mngr gc --all-agent-resources
+```
 
-- `--all-agent-resources`: Clean all the below resource types (machines, snapshots, volumes, work dirs)
-- `--machines`: Remove unused containers, instances, and sandboxes
-- `--snapshots`: Remove unused snapshots
-- `--volumes`: Remove unused volumes
-- `--work-dirs`: Remove work directories (git worktrees/clones) not in use by any agent
+**Clean machines and snapshots for Docker**
 
-Mngr resources:
+```bash
+$ mngr gc --machines --snapshots --provider docker
+```
 
-- `--logs`: Remove log files from destroyed agents/hosts (global)
-- `--build-cache`: Remove build cache entries (per-provider)
-- `--machine-cache`: Remove build cache entries (per-provider)
+**Clean logs and build cache**
 
-## Filtering
+```bash
+$ mngr gc --logs --build-cache
+```
 
-- `--include FILTER`: Only clean resources matching CEL filter (use "x.type == '...' && ..." to filter down to specific resources if matching multiple) [repeatable]
-- `--exclude FILTER`: Exclude resources from cleanup that match a CEL filter (use "x.type != '...' || ..." to filter down to specific resources if matching multiple) [repeatable]
+**Keep only the 5 most recent snapshots**
 
-For snapshots, you can use `x.recency_idx` in filters to select based on snapshot age within each host:
-- `x.recency_idx == 0` matches the most recent snapshot
-- `x.recency_idx < 5` matches the 5 most recent snapshots
-- To keep only the 5 most recent snapshots, use: `--exclude "x.recency_idx < 5"`
-
-## Scope
-
-- `--all-providers`: Clean resources across all providers
-- `--provider PROVIDER`: Clean resources for a specific provider (e.g., `docker`, `modal`) [repeatable]
-
-## Safety
-
-- `--dry-run`: Show what would be cleaned without actually cleaning
-- `-w, --watch SECONDS`: Re-run garbage collection at the specified interval
+```bash
+$ mngr gc --snapshots --exclude "x.recency_idx < 5"
+```

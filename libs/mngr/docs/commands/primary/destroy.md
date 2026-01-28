@@ -1,39 +1,45 @@
-# mngr destroy - CLI Options Reference
+# mngr destroy
 
-Destroys existing agent(s) and their associated resources.
+Destroy agent(s) and clean up resources.
 
-When the last agent on a host is destroyed, the host itself is also destroyed (including containers, volumes, snapshots, and any remote infrastructure).
+When the last agent on a host is destroyed, the host itself is also destroyed.
 
-Use with caution! This operation is irreversible.
+Examples:
 
-**Alias:** `rm`
+  mngr destroy my-agent
 
-## Usage
+  mngr destroy agent1 agent2 agent3
 
+  mngr destroy --agent my-agent --agent another-agent
+
+  mngr destroy --session mngr-my-agent
+
+  mngr destroy --all --force
+
+**Usage:**
+
+```text
+mngr destroy [OPTIONS] [AGENTS]...
 ```
-mngr destroy [options] [[--agent] agent ...]
-```
 
-Agents can be specified as positional arguments for convenience. The following are equivalent:
+**Options:**
 
-```
-mngr destroy my-agent
-mngr destroy --agent my-agent
-mngr destroy my-agent another-agent
-mngr destroy --agent my-agent --agent another-agent
-```
-
-## General
-
-- `--agent AGENT`: Specify agent(s) to destroy. Positional arguments are also accepted as a shorthand. [repeatable]
-- `-f, --force`: Skip confirmation prompts and override safety checks (e.g., automatically stop a running agent before destroying)
-- `-a, --all, --all-agents`: Destroy all agents
-- `--session SESSION`: Destroy the agent by specifying its tmux session name. The agent name is extracted by stripping the configured prefix (e.g., "mngr-") from the session name. This is used by the Ctrl-q hotkey binding to destroy the correct agent. [repeatable]
-- `--include FILTER`: Filter agents to destroy by tags, names, types, hosts, etc.
-- `--exclude FILTER`: Exclude agents matching filter from destruction
-- `--stdin`: Read agents and hosts (ids or names) from stdin (one per line)
-- `--dry-run`: Show what would be destroyed without actually destroying
-
-## Resource Cleanup
-
-See [resource cleanup options](../generic/resource_cleanup.md) to control which associated resources are also destroyed (defaults to all).
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--agent` | text | Agent name or ID to destroy (can be specified multiple times) | None |
+| `-a`, `--all`, `--all-agents` | boolean | Destroy all agents | `False` |
+| `--session` | text | Tmux session name to destroy (can be specified multiple times). The agent name is extracted by stripping the configured prefix from the session name. | None |
+| `-f`, `--force` | boolean | Skip confirmation prompts and force destroy running agents | `False` |
+| `--dry-run` | boolean | Show what would be destroyed without actually destroying | `False` |
+| `--gc` / `--no-gc` | boolean | Run garbage collection after destroying agents to clean up orphaned resources (default: enabled) | `True` |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `--help` | boolean | Show this message and exit. | `False` |
