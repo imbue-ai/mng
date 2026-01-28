@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -424,8 +425,8 @@ def test_pull_files_excludes_git_directory() -> None:
     assert "--exclude=.git" in call_args
 
 
-def test_pull_files_with_clobber_mode_does_not_check_git() -> None:
-    """Test that clobber mode proceeds without checking git status."""
+def test_pull_files_with_clobber_mode_ignores_uncommitted_changes() -> None:
+    """Test that clobber mode proceeds even when uncommitted changes exist."""
     mock_agent = MagicMock()
     mock_agent.work_dir = Path("/agent/work")
 
@@ -436,16 +437,17 @@ def test_pull_files_with_clobber_mode_does_not_check_git() -> None:
         stderr="",
     )
 
-    # Use clobber mode - should not check for uncommitted changes
-    result = pull_files(
-        agent=mock_agent,
-        host=mock_host,
-        destination=Path("/dest"),
-        source_path=None,
-        dry_run=False,
-        delete=False,
-        uncommitted_changes=UncommittedChangesMode.CLOBBER,
-    )
+    # Mock _has_uncommitted_changes to return True
+    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=True):
+        result = pull_files(
+            agent=mock_agent,
+            host=mock_host,
+            destination=Path("/dest"),
+            source_path=None,
+            dry_run=False,
+            delete=False,
+            uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        )
 
     assert result.files_transferred == 0
     assert result.bytes_transferred == 100
@@ -483,3 +485,159 @@ def test_pull_files_default_uncommitted_changes_mode_is_fail() -> None:
     )
 
     assert result.files_transferred == 0
+
+
+def test_pull_files_fail_mode_raises_when_uncommitted_changes_exist() -> None:
+    """Test that FAIL mode raises UncommittedChangesError when uncommitted changes exist."""
+    mock_agent = MagicMock()
+    mock_agent.work_dir = Path("/agent/work")
+
+    mock_host = MagicMock()
+    mock_host.execute_command.return_value = MagicMock(
+        success=True,
+        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
+        stderr="",
+    )
+
+    # Mock _has_uncommitted_changes to return True
+    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=True):
+        with pytest.raises(UncommittedChangesError) as exc_info:
+            pull_files(
+                agent=mock_agent,
+                host=mock_host,
+                destination=Path("/dest"),
+                source_path=None,
+                dry_run=False,
+                delete=False,
+                uncommitted_changes=UncommittedChangesMode.FAIL,
+            )
+
+    assert exc_info.value.destination == Path("/dest")
+
+
+def test_pull_files_stash_mode_stashes_and_leaves_stashed() -> None:
+    """Test that STASH mode stashes changes and leaves them stashed after pull."""
+    mock_agent = MagicMock()
+    mock_agent.work_dir = Path("/agent/work")
+
+    mock_host = MagicMock()
+    mock_host.execute_command.return_value = MagicMock(
+        success=True,
+        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
+        stderr="",
+    )
+
+    # Mock the git helper functions
+    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=True):
+        with patch("imbue.mngr.api.pull._git_stash", return_value=True) as mock_stash:
+            with patch("imbue.mngr.api.pull._git_stash_pop") as mock_pop:
+                result = pull_files(
+                    agent=mock_agent,
+                    host=mock_host,
+                    destination=Path("/dest"),
+                    source_path=None,
+                    dry_run=False,
+                    delete=False,
+                    uncommitted_changes=UncommittedChangesMode.STASH,
+                )
+
+    # Verify stash was called but pop was NOT called (changes remain stashed)
+    mock_stash.assert_called_once_with(Path("/dest"))
+    mock_pop.assert_not_called()
+    assert result.files_transferred == 0
+
+
+def test_pull_files_merge_mode_stashes_and_restores() -> None:
+    """Test that MERGE mode stashes changes before pull and restores them after."""
+    mock_agent = MagicMock()
+    mock_agent.work_dir = Path("/agent/work")
+
+    mock_host = MagicMock()
+    mock_host.execute_command.return_value = MagicMock(
+        success=True,
+        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
+        stderr="",
+    )
+
+    # Mock the git helper functions
+    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=True):
+        with patch("imbue.mngr.api.pull._git_stash", return_value=True) as mock_stash:
+            with patch("imbue.mngr.api.pull._git_stash_pop") as mock_pop:
+                result = pull_files(
+                    agent=mock_agent,
+                    host=mock_host,
+                    destination=Path("/dest"),
+                    source_path=None,
+                    dry_run=False,
+                    delete=False,
+                    uncommitted_changes=UncommittedChangesMode.MERGE,
+                )
+
+    # Verify both stash and pop were called
+    mock_stash.assert_called_once_with(Path("/dest"))
+    mock_pop.assert_called_once_with(Path("/dest"))
+    assert result.files_transferred == 0
+
+
+def test_pull_files_merge_mode_restores_stash_on_rsync_failure() -> None:
+    """Test that MERGE mode attempts to restore stash when rsync fails."""
+    mock_agent = MagicMock()
+    mock_agent.work_dir = Path("/agent/work")
+
+    mock_host = MagicMock()
+    mock_host.execute_command.return_value = MagicMock(
+        success=False,
+        stdout="",
+        stderr="rsync: connection refused",
+    )
+
+    # Mock the git helper functions
+    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=True):
+        with patch("imbue.mngr.api.pull._git_stash", return_value=True) as mock_stash:
+            with patch("imbue.mngr.api.pull._git_stash_pop") as mock_pop:
+                with pytest.raises(MngrError, match="rsync failed"):
+                    pull_files(
+                        agent=mock_agent,
+                        host=mock_host,
+                        destination=Path("/dest"),
+                        source_path=None,
+                        dry_run=False,
+                        delete=False,
+                        uncommitted_changes=UncommittedChangesMode.MERGE,
+                    )
+
+    # Verify stash was called and pop was attempted even on failure
+    mock_stash.assert_called_once_with(Path("/dest"))
+    mock_pop.assert_called_once_with(Path("/dest"))
+
+
+def test_pull_files_stash_mode_does_not_restore_on_rsync_failure() -> None:
+    """Test that STASH mode does NOT restore stash when rsync fails (leaves stashed)."""
+    mock_agent = MagicMock()
+    mock_agent.work_dir = Path("/agent/work")
+
+    mock_host = MagicMock()
+    mock_host.execute_command.return_value = MagicMock(
+        success=False,
+        stdout="",
+        stderr="rsync: connection refused",
+    )
+
+    # Mock the git helper functions
+    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=True):
+        with patch("imbue.mngr.api.pull._git_stash", return_value=True) as mock_stash:
+            with patch("imbue.mngr.api.pull._git_stash_pop") as mock_pop:
+                with pytest.raises(MngrError, match="rsync failed"):
+                    pull_files(
+                        agent=mock_agent,
+                        host=mock_host,
+                        destination=Path("/dest"),
+                        source_path=None,
+                        dry_run=False,
+                        delete=False,
+                        uncommitted_changes=UncommittedChangesMode.STASH,
+                    )
+
+    # Verify stash was called but pop was NOT called
+    mock_stash.assert_called_once_with(Path("/dest"))
+    mock_pop.assert_not_called()
