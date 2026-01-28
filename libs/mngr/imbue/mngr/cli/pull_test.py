@@ -7,11 +7,12 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
+from imbue.mngr.api.find import find_agent_by_name_or_id
 from imbue.mngr.api.pull import PullResult
 from imbue.mngr.cli.pull import PullCliOptions
-from imbue.mngr.api.find import find_agent_by_name_or_id
 from imbue.mngr.cli.pull import _output_result
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.main import cli
 from imbue.mngr.primitives import AgentId
@@ -143,6 +144,18 @@ def test_find_agent_by_name_or_id_raises_for_empty_agents() -> None:
 
     with pytest.raises(UserInputError, match="No agent found with name or ID"):
         find_agent_by_name_or_id("nonexistent-agent", agents_by_host, mock_ctx, "test")
+
+
+def test_find_agent_by_name_or_id_raises_agent_not_found_for_valid_id() -> None:
+    """Test that find_agent_by_name_or_id raises AgentNotFoundError for valid but nonexistent ID."""
+    mock_ctx = MagicMock()
+    agents_by_host: dict[HostReference, list[AgentReference]] = {}
+
+    # Generate a valid agent ID that doesn't exist in the empty agents_by_host
+    nonexistent_id = AgentId.generate()
+
+    with pytest.raises(AgentNotFoundError):
+        find_agent_by_name_or_id(str(nonexistent_id), agents_by_host, mock_ctx, "test")
 
 
 def test_find_agent_by_name_or_id_raises_for_multiple_matches() -> None:
