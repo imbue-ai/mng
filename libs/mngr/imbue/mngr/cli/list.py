@@ -167,7 +167,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("Running list command")
 
-    # TODO: Implement custom format templates
+    # FIXME: Implement custom format templates
     # --format-template FORMAT: Output format as a string template, mutually exclusive with --format
     # Template can reference any field from the Available Fields list (see CommandHelpMetadata)
     if opts.format_template:
@@ -178,7 +178,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     if opts.fields:
         fields = [f.strip() for f in opts.fields.split(",") if f.strip()]
 
-    # TODO: Implement watch mode
+    # FIXME: Implement watch mode
     # -w, --watch SECONDS: Continuously watch and update status at interval [default: 2]
     # Should refresh the agent list display periodically until interrupted
     if opts.watch:
@@ -201,7 +201,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             combined_filter = " || ".join(ref_filters)
             include_filters.append(combined_filter)
 
-    # TODO: Implement convenience filter aliases
+    # FIXME: Implement convenience filter aliases
     # --running: alias for --include 'state == "running"'
     # --stopped: alias for --include 'state == "stopped"'
     # --local: alias for --include 'host_provider == "local"'
@@ -209,13 +209,13 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     if opts.running or opts.stopped or opts.local or opts.remote:
         raise NotImplementedError("Convenience filter aliases not implemented yet")
 
-    # TODO: Implement custom sorting
+    # FIXME: Implement custom sorting
     # --sort FIELD: Sort by any available field [default: create_time]
     # --sort-order ORDER: Sort order (asc, desc) [default: asc]
     if opts.sort != "create_time":
         raise NotImplementedError("Custom sorting not implemented yet")
 
-    # TODO: Implement result limiting
+    # FIXME: Implement result limiting
     # --limit N: Limit number of results returned
     if opts.limit:
         raise NotImplementedError("Result limiting not implemented yet")
@@ -467,7 +467,7 @@ For CEL filters (flattened):
 )
 
 
-# TODO: Expand HostInfo to include more fields for richer list output and filtering:
+# FIXME: Expand HostInfo to include more fields for richer list output and filtering:
 # - host.host - Hostname where the host is running
 # - host.state - Current host state (building, starting, running, etc.)
 # - host.image - Host image (Docker image name, Modal image ID, etc.)

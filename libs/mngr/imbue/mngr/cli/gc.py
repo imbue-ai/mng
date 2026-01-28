@@ -97,7 +97,7 @@ class GcCliOptions(CommonCliOptions):
     is_flag=True,
     help="Remove build cache entries",
 )
-# TODO: Add --machine-cache option
+# FIXME: Add --machine-cache option
 # @optgroup.option(
 #     "--machine-cache",
 #     is_flag=True,
@@ -105,7 +105,7 @@ class GcCliOptions(CommonCliOptions):
 # )
 # Also add machine_cache: bool to GcCliOptions and wire it through to the API
 #
-# TODO: Implement "mngr cleanup" command as a separate command
+# FIXME: Implement "mngr cleanup" command as a separate command
 # mngr cleanup: Interactive cleanup command to help decide which agents and hosts to destroy
 # Should show agents/hosts with details and prompt user for which to clean up
 @optgroup.group("Filtering")
