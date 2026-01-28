@@ -169,7 +169,6 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("Running list command")
 
-    # FIXME: Implement custom format templates
     # --format-template FORMAT: Output format as a string template, mutually exclusive with --format
     # Template can reference any field from the Available Fields list (see CommandHelpMetadata)
     if opts.format_template:
@@ -180,7 +179,6 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     if opts.fields:
         fields = [f.strip() for f in opts.fields.split(",") if f.strip()]
 
-    # FIXME: Implement watch mode
     # -w, --watch SECONDS: Continuously watch and update status at interval [default: 2]
     # Should refresh the agent list display periodically until interrupted
     if opts.watch:
@@ -203,7 +201,6 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             combined_filter = " || ".join(ref_filters)
             include_filters.append(combined_filter)
 
-    # FIXME: Implement convenience filter aliases
     # --running: alias for --include 'state == "running"'
     # --stopped: alias for --include 'state == "stopped"'
     # --local: alias for --include 'host.provider == "local"'
@@ -211,13 +208,11 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     if opts.running or opts.stopped or opts.local or opts.remote:
         raise NotImplementedError("Convenience filter aliases not implemented yet")
 
-    # FIXME: Implement custom sorting
     # --sort FIELD: Sort by any available field [default: create_time]
     # --sort-order ORDER: Sort order (asc, desc) [default: asc]
     if opts.sort != "create_time":
         raise NotImplementedError("Custom sorting not implemented yet")
 
-    # FIXME: Implement result limiting
     # --limit N: Limit number of results returned
     if opts.limit:
         raise NotImplementedError("Result limiting not implemented yet")
