@@ -240,6 +240,9 @@ def list_agents(
 
                         agent_status = agent.get_reported_status()
 
+                        # Get idle_mode from host's activity config
+                        activity_config = host.get_activity_config()
+
                         agent_info = AgentInfo(
                             id=agent.id,
                             name=agent.name,
@@ -257,7 +260,7 @@ def list_agents(
                             agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
                             ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
                             idle_seconds=None,
-                            idle_mode=None,
+                            idle_mode=activity_config.idle_mode.value.lower(),
                             host=host_info,
                             plugin={},
                         )

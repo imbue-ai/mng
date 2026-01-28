@@ -764,3 +764,163 @@ def test_apply_cel_filters_with_host_tags_filter() -> None:
     result = _apply_cel_filters(agent_info, include_filters, exclude_filters)
 
     assert result is True
+
+
+# =============================================================================
+# Idle Mode and Idle Seconds Tests
+# =============================================================================
+
+
+def test_agent_to_cel_context_with_idle_mode() -> None:
+    """Test that _agent_to_cel_context includes idle_mode field."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        idle_mode="agent",
+        host=host_info,
+    )
+
+    context = _agent_to_cel_context(agent_info)
+
+    assert context["idle_mode"] == "agent"
+
+
+def test_agent_to_cel_context_with_idle_seconds() -> None:
+    """Test that _agent_to_cel_context includes idle_seconds field."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        idle_seconds=300.5,
+        host=host_info,
+    )
+
+    context = _agent_to_cel_context(agent_info)
+
+    assert context["idle_seconds"] == 300.5
+
+
+def test_apply_cel_filters_with_idle_mode_filter() -> None:
+    """Test filtering by idle_mode."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        idle_mode="user",
+        host=host_info,
+    )
+
+    include_filters, exclude_filters = compile_cel_filters(
+        include_filters=('idle_mode == "user"',),
+        exclude_filters=(),
+    )
+
+    result = _apply_cel_filters(agent_info, include_filters, exclude_filters)
+
+    assert result is True
+
+
+def test_apply_cel_filters_with_idle_seconds_filter() -> None:
+    """Test filtering by idle_seconds."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        idle_seconds=600.0,
+        host=host_info,
+    )
+
+    # Filter for agents idle more than 5 minutes (300 seconds)
+    include_filters, exclude_filters = compile_cel_filters(
+        include_filters=("idle_seconds > 300",),
+        exclude_filters=(),
+    )
+
+    result = _apply_cel_filters(agent_info, include_filters, exclude_filters)
+
+    assert result is True
+
+
+def test_list_agents_populates_idle_mode(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_mngr_ctx: MngrContext,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that list_agents populates idle_mode from the host's activity config."""
+    agent_name = f"test-idle-mode-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 123456",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
+
+        # List agents and check idle_mode is populated
+        result = list_agents(mngr_ctx=temp_mngr_ctx)
+
+        # Find our agent
+        our_agent = next((a for a in result.agents if a.name == AgentName(agent_name)), None)
+        assert our_agent is not None, f"Agent {agent_name} not found in list"
+
+        # idle_mode should be populated (default is "agent")
+        assert our_agent.idle_mode is not None
+        assert our_agent.idle_mode == "agent"
