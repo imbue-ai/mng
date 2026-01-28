@@ -18,10 +18,10 @@
 #   RUN: CREATE, START, BOOT, PROCESS
 #   DISABLED: (never idle - script exits immediately)
 #
-# Host-level activity files: <host_data_dir>/activity/<source_name>
+# Host-level activity files (lowercase): <host_data_dir>/activity/<source_name>
 #   - boot, user, ssh
-# Agent-level activity files: <host_data_dir>/agents/<agent_id>/activity/<source_name>
-#   - create, start, agent, process
+# Agent-level activity files (uppercase): <host_data_dir>/agents/<agent_id>/activity/<SOURCE_NAME>
+#   - CREATE, START, AGENT, PROCESS
 #
 # The script checks activity every 60 seconds. When all relevant activity files
 # have mtimes older than (current_time - idle_timeout_seconds), the script calls
@@ -91,8 +91,8 @@ get_activity_sources() {
 }
 
 # Check if a source is host-level (vs agent-level)
-# Host-level: boot, user, ssh
-# Agent-level: create, start, agent, process
+# Host-level: BOOT, USER, SSH (files are lowercase on disk)
+# Agent-level: CREATE, START, AGENT, PROCESS (files are uppercase on disk)
 is_host_level_source() {
     local source="$1"
     case "$source" in
@@ -103,6 +103,19 @@ is_host_level_source() {
             return 1  # false
             ;;
     esac
+}
+
+# Convert source name to file path format
+# Host-level sources use lowercase filenames, agent-level use uppercase
+get_activity_filename() {
+    local source="$1"
+    if is_host_level_source "$source"; then
+        # Host-level: lowercase (e.g., BOOT -> boot)
+        echo "$source" | tr '[:upper:]' '[:lower:]'
+    else
+        # Agent-level: uppercase as-is (e.g., CREATE -> CREATE)
+        echo "$source"
+    fi
 }
 
 # Get the maximum mtime across all relevant activity files
@@ -121,7 +134,9 @@ get_max_activity_mtime() {
     # Check host-level activity files
     for source in $sources; do
         if is_host_level_source "$source"; then
-            local activity_file="$HOST_DATA_DIR/activity/$source"
+            local filename
+            filename=$(get_activity_filename "$source")
+            local activity_file="$HOST_DATA_DIR/activity/$filename"
             local mtime
             mtime=$(get_mtime "$activity_file")
             if [ "$mtime" -gt "$max_mtime" ]; then
@@ -137,7 +152,9 @@ get_max_activity_mtime() {
             if [ -d "$agent_dir" ]; then
                 for source in $sources; do
                     if ! is_host_level_source "$source"; then
-                        local activity_file="$agent_dir/activity/$source"
+                        local filename
+                        filename=$(get_activity_filename "$source")
+                        local activity_file="$agent_dir/activity/$filename"
                         local mtime
                         mtime=$(get_mtime "$activity_file")
                         if [ "$mtime" -gt "$max_mtime" ]; then
