@@ -23,6 +23,8 @@ mngr list [OPTIONS]
 
 **Options:**
 
+### Filtering
+
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--include` | text | Include agents matching CEL expression (repeatable) | None |
@@ -33,23 +35,48 @@ mngr list [OPTIONS]
 | `--remote` | boolean | Show only remote agents (alias for --exclude 'host_provider == "local"') | `False` |
 | `--provider` | text | Show only agents using specified provider (repeatable) | None |
 | `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
+
+### Output Format
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
 | `--format-template` | text | Output format as a string template (mutually exclusive with --format) | None |
 | `--fields` | text | Which fields to include (comma-separated) | None |
 | `--sort` | text | Sort by field [default: create_time] | `create_time` |
 | `--sort-order` | choice (`asc` &#x7C; `desc`) | Sort order [default: asc] | `asc` |
 | `--limit` | integer | Limit number of results | None |
+
+### Watch Mode
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
 | `-w`, `--watch` | integer | Continuously watch and update status at specified interval (seconds) [default: 2] | None |
+
+### Error Handling
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
 | `--on-error` | choice (`abort` &#x7C; `continue`) | What to do when errors occur: abort (stop immediately) or continue (keep going) | `abort` |
+
+### Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
 | `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
-| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
 | `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
-| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
-| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
-| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+### Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## CEL Filter Examples

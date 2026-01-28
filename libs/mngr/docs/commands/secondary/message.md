@@ -28,6 +28,8 @@ mngr message [OPTIONS] [AGENTS]...
 
 **Options:**
 
+### Target Selection
+
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--agent` | text | Agent name or ID to send message to (can be specified multiple times) | None |
@@ -35,16 +37,30 @@ mngr message [OPTIONS] [AGENTS]...
 | `--include` | text | Include agents matching CEL expression (repeatable) | None |
 | `--exclude` | text | Exclude agents matching CEL expression (repeatable) | None |
 | `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
+
+### Message Content
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
 | `-m`, `--message` | text | The message content to send | None |
+
+### Error Handling
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
 | `--on-error` | choice (`abort` &#x7C; `continue`) | What to do when errors occur: abort (stop immediately) or continue (keep going) | `continue` |
+
+### Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
 | `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
-| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
 | `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
-| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
-| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
-| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-| `--help` | boolean | Show this message and exit. | `False` |

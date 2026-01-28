@@ -4,14 +4,18 @@
 Usage:
     uv run python scripts/make_cli_docs.py
 
-This script uses mkdocs-click to generate markdown documentation
-for all CLI commands and writes them to libs/mngr/docs/commands/.
+This script generates markdown documentation for all CLI commands
+and writes them to libs/mngr/docs/commands/. It preserves option
+groups defined via click_option_group in the generated markdown.
 """
 
 from pathlib import Path
 
+import click
+from click_option_group import GroupedOption
 from mkdocs_click._docs import make_command_docs
 
+from imbue.mngr.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
 from imbue.mngr.cli.help_formatter import get_help_metadata
 from imbue.mngr.main import BUILTIN_COMMANDS
 from imbue.mngr.main import cli
@@ -28,6 +32,142 @@ def fix_sentinel_defaults(content: str) -> str:
     and "default is None". We replace it with "None" for cleaner docs.
     """
     return content.replace("`Sentinel.UNSET`", "None")
+
+
+def _escape_markdown_table(text: str) -> str:
+    """Escape characters that would break markdown table formatting."""
+    return text.replace("|", "&#x7C;")
+
+
+def _format_option_names(option: click.Option) -> str:
+    """Format option names for display (e.g., '-n', '--name')."""
+    names = []
+    for opt in option.opts:
+        names.append(f"`{opt}`")
+    for opt in option.secondary_opts:
+        names.append(f"`{opt}`")
+    return ", ".join(names)
+
+
+def _format_option_type(option: click.Option) -> str:
+    """Format option type for display."""
+    if option.is_flag:
+        return "boolean"
+    if option.type is not None:
+        type_name = option.type.name.lower()
+        if hasattr(option.type, "choices"):
+            choices = " &#x7C; ".join(f"`{c}`" for c in option.type.choices)
+            return f"choice ({choices})"
+        return type_name
+    return "text"
+
+
+def _format_option_default(option: click.Option) -> str:
+    """Format option default value for display."""
+    if option.default is None:
+        return "None"
+    if isinstance(option.default, bool):
+        return f"`{option.default}`"
+    if isinstance(option.default, str):
+        if option.default == "":
+            return "``"
+        return f"`{option.default}`"
+    if isinstance(option.default, (int, float)):
+        return f"`{option.default}`"
+    return f"`{option.default}`"
+
+
+def _collect_options_by_group(command: click.Command) -> dict[str | None, list[click.Option]]:
+    """Collect command options organized by their option group."""
+    options_by_group: dict[str | None, list[click.Option]] = {}
+
+    for param in command.params:
+        if not isinstance(param, click.Option):
+            continue
+
+        if isinstance(param, GroupedOption):
+            group_name = param.group.name
+        else:
+            group_name = None
+
+        if group_name not in options_by_group:
+            options_by_group[group_name] = []
+        options_by_group[group_name].append(param)
+
+    return options_by_group
+
+
+def _order_option_groups(options_by_group: dict[str | None, list[click.Option]]) -> list[str | None]:
+    """Order option groups: named groups first, Common last, ungrouped at the end."""
+    group_names = list(options_by_group.keys())
+    ordered: list[str | None] = []
+
+    # First: named groups (except Common)
+    for name in group_names:
+        if name is not None and name != COMMON_OPTIONS_GROUP_NAME:
+            ordered.append(name)
+
+    # Then: Common group
+    if COMMON_OPTIONS_GROUP_NAME in group_names:
+        ordered.append(COMMON_OPTIONS_GROUP_NAME)
+
+    # Finally: ungrouped options (None)
+    if None in group_names:
+        ordered.append(None)
+
+    return ordered
+
+
+def _generate_options_table(options: list[click.Option]) -> str:
+    """Generate a markdown table for a list of options."""
+    lines = [
+        "| Name | Type | Description | Default |",
+        "| ---- | ---- | ----------- | ------- |",
+    ]
+
+    for option in options:
+        if option.hidden:
+            continue
+
+        names = _format_option_names(option)
+        opt_type = _format_option_type(option)
+        description = _escape_markdown_table(option.help or "")
+        default = _format_option_default(option)
+
+        lines.append(f"| {names} | {opt_type} | {description} | {default} |")
+
+    return "\n".join(lines)
+
+
+def generate_grouped_options_markdown(command: click.Command) -> str:
+    """Generate markdown for options organized by groups."""
+    options_by_group = _collect_options_by_group(command)
+    ordered_groups = _order_option_groups(options_by_group)
+
+    lines: list[str] = []
+
+    for group_name in ordered_groups:
+        options = options_by_group[group_name]
+        if not options:
+            continue
+
+        # Filter out hidden options
+        visible_options = [o for o in options if not o.hidden]
+        if not visible_options:
+            continue
+
+        # Add group heading
+        if group_name is not None:
+            lines.append(f"### {group_name}")
+        else:
+            lines.append("### Other Options")
+        lines.append("")
+
+        # Add options table
+        lines.append(_generate_options_table(visible_options))
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 def format_examples(command_name: str) -> str:
@@ -128,6 +268,41 @@ def get_output_dir(command_name: str, base_dir: Path) -> Path | None:
         return None
 
 
+def _extract_sections(lines: list[str]) -> tuple[str, int, str]:
+    """Extract sections from mkdocs-click output.
+
+    Returns:
+        - header_content: Everything before **Options:**
+        - options_start_idx: Index where options start
+        - subcommands_content: Everything from the first subcommand (## heading) onwards
+    """
+    options_start_idx = None
+    subcommands_start_idx = None
+
+    for i, line in enumerate(lines):
+        if options_start_idx is None and line.strip() == "**Options:**":
+            options_start_idx = i
+        # After finding **Options:**, look for subcommand sections (## headings)
+        # that indicate subcommand documentation
+        elif options_start_idx is not None and subcommands_start_idx is None:
+            if line.startswith("## "):
+                subcommands_start_idx = i
+                break
+
+    if options_start_idx is None:
+        # No options section found, return everything as header
+        return "\n".join(lines), len(lines), ""
+
+    header_content = "\n".join(lines[:options_start_idx])
+
+    if subcommands_start_idx is not None:
+        subcommands_content = "\n".join(lines[subcommands_start_idx:])
+    else:
+        subcommands_content = ""
+
+    return header_content, options_start_idx, subcommands_content
+
+
 def generate_command_doc(command_name: str, base_dir: Path) -> None:
     """Generate markdown documentation for a single command."""
     output_dir = get_output_dir(command_name, base_dir)
@@ -141,17 +316,36 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
         print(f"Warning: Command '{command_name}' not found")
         return
 
-    # Generate markdown using mkdocs-click
-    lines = make_command_docs(
-        prog_name=f"mngr {command_name}",
-        command=cmd,
-        depth=0,
-        style="table",  # Use table style for options
+    # Generate markdown using mkdocs-click for header/usage/description
+    mkdocs_lines = list(
+        make_command_docs(
+            prog_name=f"mngr {command_name}",
+            command=cmd,
+            depth=0,
+            style="table",
+        )
     )
 
-    # Combine mkdocs-click output with additional sections, see also, and examples
-    content = "\n".join(lines)
+    # Extract header, options start, and subcommands content
+    header_content, _, subcommands_content = _extract_sections(mkdocs_lines)
+
+    # Build the final content
+    content_parts = [header_content]
+
+    # Add grouped options section
+    content_parts.append("**Options:**")
+    content_parts.append("")
+    content_parts.append(generate_grouped_options_markdown(cmd))
+
+    # Add subcommands documentation if present (from mkdocs-click)
+    if subcommands_content:
+        content_parts.append(subcommands_content)
+
+    # Combine all parts
+    content = "\n".join(content_parts)
     content = fix_sentinel_defaults(content)
+
+    # Add additional sections from metadata
     content += format_additional_sections(command_name)
     content += format_see_also_section(command_name)
     content += format_examples(command_name)
