@@ -144,6 +144,8 @@ def destroy(ctx: click.Context, **kwargs) -> None:
 
     When the last agent on a host is destroyed, the host itself is also destroyed.
 
+    Use with caution! This operation is irreversible.
+
     Examples:
 
       mngr destroy my-agent

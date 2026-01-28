@@ -16,6 +16,8 @@ Destroy agent(s) and clean up resources.
 
 When the last agent on a host is destroyed, the host itself is also destroyed.
 
+Use with caution! This operation is irreversible.
+
 Examples:
 
   mngr destroy my-agent
