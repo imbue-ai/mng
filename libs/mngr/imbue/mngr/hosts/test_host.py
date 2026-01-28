@@ -3,12 +3,15 @@
 Note: Unit tests for env file parsing are in utils/env_utils_test.py
 """
 
+import datetime as dt
 import fcntl
 import json
 import os
 import stat
 import subprocess
 import threading
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 
 import pluggy
@@ -470,6 +473,37 @@ def test_get_uptime(host_with_temp_dir: tuple[Host, Path]) -> None:
     host, _ = host_with_temp_dir
     uptime = host.get_uptime_seconds()
     assert uptime > 0
+
+
+def test_get_boot_time(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test getting host boot time."""
+    host, _ = host_with_temp_dir
+    boot_time = host.get_boot_time()
+    assert boot_time is not None
+    # Boot time should be in the past
+    now = datetime.now(timezone.utc)
+    assert boot_time < now
+    # Boot time should be within a reasonable range (not more than 1 year ago)
+    one_year_ago = now - dt.timedelta(days=365)
+    assert boot_time > one_year_ago
+
+
+def test_get_boot_time_and_uptime_are_consistent(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that boot_time and uptime_seconds give consistent results."""
+    host, _ = host_with_temp_dir
+
+    boot_time = host.get_boot_time()
+    uptime = host.get_uptime_seconds()
+
+    assert boot_time is not None
+
+    # Calculate expected boot time from uptime
+    now = datetime.now(timezone.utc)
+    expected_boot_time = now - dt.timedelta(seconds=uptime)
+
+    # They should be within 1 second of each other
+    diff = abs((boot_time - expected_boot_time).total_seconds())
+    assert diff < 1, f"boot_time and uptime differ by {diff} seconds"
 
 
 # =============================================================================

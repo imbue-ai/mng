@@ -100,6 +100,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 **Compound expressions:**
 - `state == "running" && host.provider == "modal"` - Running agents on Modal
 - `state == "stopped" || state == "failed"` - Stopped or failed agents
+- `host.provider == "docker" && name.startsWith("test-")` - Docker agents with names starting with "test-"
 
 **String operations:**
 - `name.contains("prod")` - Agent names containing "prod"
@@ -108,6 +109,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 
 **Numeric comparisons:**
 - `runtime_seconds > 3600` - Agents running for more than an hour
+- `idle_seconds < 300` - Agents active in the last 5 minutes
 - `host.resource.memory_gb >= 8` - Agents on hosts with 8GB+ memory
 - `host.uptime_seconds > 86400` - Agents on hosts running for more than a day
 
@@ -140,7 +142,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `idle_mode` - Idle detection mode
 - `start_on_boot` - Whether the agent is set to start on host boot
 - `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
-- `plugin` - Plugin-defined fields (dict)
+- `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):
 - `host.name` - Host name
@@ -154,6 +156,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `host.resource.*` - Resource limits (cpu.count, memory_gb, disk_gb, gpu)
 - `host.ssh.*` - SSH access details (user, host, port, key_path, command)
 - `host.snapshots` - List of available snapshots
+- `host.plugin.$PLUGIN_NAME.*` - Host plugin fields (e.g., `host.plugin.aws.iam_user`)
 
 
 ## See Also

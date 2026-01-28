@@ -709,9 +709,11 @@ class Host(HostInterface):
     def get_uptime_seconds(self) -> float:
         """Get host uptime in seconds."""
         if _is_macos():
-            # macOS: use sysctl kern.boottime
+            # macOS: use sysctl kern.boottime to get boot time, then compute uptime
+            # Output format: { sec = 1234567890, usec = 123456 } ...
+            # Use awk to reliably extract the sec value (not usec)
             result = self.execute_command(
-                "sysctl -n kern.boottime 2>/dev/null | sed 's/.*sec = \\([0-9]*\\).*/\\1/' && date +%s"
+                "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}' && date +%s"
             )
             if result.success:
                 output_lines = result.stdout.strip().split("\n")
@@ -736,7 +738,11 @@ class Host(HostInterface):
         """
         if _is_macos():
             # macOS: use sysctl kern.boottime which gives boot time directly
-            result = self.execute_command("sysctl -n kern.boottime 2>/dev/null | sed 's/.*sec = \\([0-9]*\\).*/\\1/'")
+            # Output format: { sec = 1234567890, usec = 123456 } ...
+            # Use awk to reliably extract the sec value (not usec)
+            result = self.execute_command(
+                "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}'"
+            )
             if result.success:
                 try:
                     boot_timestamp = int(result.stdout.strip())
