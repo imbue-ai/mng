@@ -63,6 +63,10 @@ CEL filters let you control which resources are cleaned. Use `x` to reference ea
 - `x.name.contains("test")` - resources with "test" in the name
 - `x.provider_name == "docker"` - Docker resources only
 
+**Filter by resource type (when cleaning multiple types):**
+- `--include "x.type == 'snapshot' && x.recency_idx > 5"` - only old snapshots
+- `--exclude "x.type != 'machine' || x.name.contains('keep')"` - exclude non-machines or those named 'keep'
+
 
 ## Examples
 

@@ -479,9 +479,16 @@ Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
 the agent's machine and attaching to the tmux session. Use `mngr open` to
 open an agent's URLs in a web browser instead.
 
+Both local and remote connections track activity to understand when the
+agent should be considered idle.
+
 If no agent is specified, shows an interactive selector to choose from
 available agents. The selector allows typeahead search to filter agents
-by name.""",
+by name.
+
+The agent can be specified as a positional argument or via --agent:
+  mngr connect my-agent
+  mngr connect --agent my-agent""",
     examples=(
         ("Connect to an agent by name", "mngr connect my-agent"),
         ("Connect without auto-starting if stopped", "mngr connect my-agent --no-start"),
