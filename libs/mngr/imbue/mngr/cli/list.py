@@ -1,4 +1,6 @@
+import re
 import sys
+from collections.abc import Sequence
 from enum import Enum
 from typing import Any
 
@@ -333,10 +335,67 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
     logger.info("\n" + table)
 
 
+def _parse_slice_spec(spec: str) -> int | slice | None:
+    """Parse a bracket slice specification like '0', '-1', ':3', '1:3', or '1:'.
+
+    Returns an int for single index, slice object for ranges, or None if invalid.
+    """
+    spec = spec.strip()
+
+    try:
+        # Check if it's a slice (contains ':')
+        if ":" in spec:
+            parts = spec.split(":")
+            if len(parts) == 2:
+                start_str, stop_str = parts
+                start = int(start_str) if start_str else None
+                stop = int(stop_str) if stop_str else None
+                return slice(start, stop)
+            elif len(parts) == 3:
+                start_str, stop_str, step_str = parts
+                start = int(start_str) if start_str else None
+                stop = int(stop_str) if stop_str else None
+                step = int(step_str) if step_str else None
+                return slice(start, stop, step)
+            else:
+                # Invalid slice format (too many colons)
+                return None
+        else:
+            # Simple index
+            return int(spec)
+    except ValueError:
+        # Could not parse integers in the spec
+        return None
+
+
+def _format_value_as_string(value: Any) -> str:
+    """Convert a value to string representation for display."""
+    if value is None:
+        return ""
+    elif isinstance(value, Enum):
+        return str(value.value).lower()
+    elif hasattr(value, "line"):
+        # For AgentStatus objects which have a 'line' attribute
+        return str(value.line)
+    elif hasattr(value, "name") and hasattr(value, "id"):
+        # For objects like SnapshotInfo that have both name and id, prefer name
+        return str(value.name)
+    elif isinstance(value, str):
+        return value
+    else:
+        return str(value)
+
+
+# Pattern to match a field part with optional bracket notation
+# Matches: "fieldname", "fieldname[0]", "fieldname[-1]", "fieldname[:3]", "fieldname[1:3]", etc.
+_BRACKET_PATTERN = re.compile(r"^([^\[]+)(?:\[([^\]]+)\])?$")
+
+
 def _get_field_value(agent: AgentInfo, field: str) -> str:
     """Extract a field value from an AgentInfo object and return as string.
 
-    Supports nested fields like "host.name" and handles field aliases.
+    Supports nested fields like "host.name", handles field aliases, and supports
+    list slicing syntax like "host.snapshots[0]" or "host.snapshots[:3]".
     """
     # Handle special field aliases for backward compatibility and convenience
     # Note: host.provider maps to host.provider_name for consistency with CEL filters
@@ -351,30 +410,46 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
     if field in field_aliases:
         field = field_aliases[field]
 
-    # Handle nested fields (e.g., "host.name")
+    # Handle nested fields (e.g., "host.name") with optional bracket notation
     parts = field.split(".")
     value: Any = agent
 
     try:
         for part in parts:
-            if hasattr(value, part):
-                value = getattr(value, part)
+            # Parse the part for bracket notation
+            match = _BRACKET_PATTERN.match(part)
+            if not match:
+                return ""
+
+            field_name = match.group(1)
+            # bracket_spec may be None if no brackets present in the part
+            bracket_spec = match.group(2)
+
+            # Get the field value
+            if hasattr(value, field_name):
+                value = getattr(value, field_name)
             else:
                 return ""
 
-        # Convert various types to string
-        # Check for enums first (before str check, since some enums inherit from str)
-        if value is None:
-            return ""
-        elif isinstance(value, Enum):
-            return str(value.value).lower()
-        elif hasattr(value, "line"):
-            # For AgentStatus objects which have a 'line' attribute
-            return str(value.line)
-        elif isinstance(value, str):
-            return value
-        else:
-            return str(value)
+            # Apply bracket indexing/slicing if present
+            if bracket_spec is not None:
+                if not isinstance(value, (list, tuple, Sequence)) or isinstance(value, str):
+                    return ""
+
+                index_or_slice = _parse_slice_spec(bracket_spec)
+                if index_or_slice is None:
+                    return ""
+
+                try:
+                    value = value[index_or_slice]
+                except IndexError:
+                    return ""
+
+                # If the result is a list (from slicing), format each element
+                if isinstance(value, (list, tuple)) and not isinstance(value, str):
+                    return ", ".join(_format_value_as_string(item) for item in value)
+
+        return _format_value_as_string(value)
     except (AttributeError, KeyError):
         return ""
 
@@ -480,10 +555,6 @@ All agent fields from the "Available Fields" section can be used in filter expre
 # FIXME: Remaining host fields that need additional infrastructure:
 # - host.is_locked, host.locked_time - Lock status (needs lock file inspection logic)
 # - host.plugin.$PLUGIN_NAME.* - Plugin-defined fields (requires plugin field evaluation)
-
-# FIXME: Implement list field slicing syntax in _get_field_value
-# - Support syntax like host.snapshots[0] for accessing list elements
-# - Support Python-style slicing like host.snapshots[:3] for first 3 items
 
 register_help_metadata("list", _LIST_HELP_METADATA)
 
