@@ -72,11 +72,13 @@ def _is_macos() -> bool:
 
 
 # Activity sources that are host-level (vs agent-level)
-_HOST_LEVEL_ACTIVITY_SOURCES: Final[frozenset[ActivitySource]] = frozenset({
-    ActivitySource.BOOT,
-    ActivitySource.USER,
-    ActivitySource.SSH,
-})
+_HOST_LEVEL_ACTIVITY_SOURCES: Final[frozenset[ActivitySource]] = frozenset(
+    {
+        ActivitySource.BOOT,
+        ActivitySource.USER,
+        ActivitySource.SSH,
+    }
+)
 
 
 def _get_activity_sources_for_idle_mode(idle_mode: IdleMode) -> tuple[ActivitySource, ...]:
