@@ -26,7 +26,11 @@ def restore_env_var(name: str, original_value: str | None) -> None:
         os.environ[name] = original_value
 
 
-def get_subprocess_test_env(root_name: str = "mngr-test") -> dict[str, str]:
+def get_subprocess_test_env(
+    root_name: str = "mngr-test",
+    prefix: str | None = None,
+    host_dir: Path | None = None,
+) -> dict[str, str]:
     """Get environment variables for subprocess calls that prevent loading project config.
 
     Sets MNGR_ROOT_NAME to a value that doesn't have a corresponding config directory,
@@ -36,10 +40,20 @@ def get_subprocess_test_env(root_name: str = "mngr-test") -> dict[str, str]:
     The root_name parameter defaults to "mngr-test" but can be set to a descriptive
     name for your test category (e.g., "mngr-acceptance-test", "mngr-release-test").
 
-    Returns a copy of os.environ with MNGR_ROOT_NAME set to the specified value.
+    The prefix parameter, if provided, sets MNGR_PREFIX to a unique value. This is
+    important for Modal tests to ensure each test gets its own environment.
+
+    The host_dir parameter, if provided, sets MNGR_HOST_DIR to a unique directory.
+    This is important for isolating the user_id file between tests.
+
+    Returns a copy of os.environ with the specified environment variables set.
     """
     env = os.environ.copy()
     env["MNGR_ROOT_NAME"] = root_name
+    if prefix is not None:
+        env["MNGR_PREFIX"] = prefix
+    if host_dir is not None:
+        env["MNGR_HOST_DIR"] = str(host_dir)
     return env
 
 

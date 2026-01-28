@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Generator
+from typing import NamedTuple
 from uuid import uuid4
 
 import pluggy
@@ -25,6 +26,7 @@ from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
+from imbue.mngr.utils.testing import get_subprocess_test_env
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
@@ -333,6 +335,68 @@ def register_modal_test_environment(environment_name: str) -> None:
     """
     if environment_name not in _worker_modal_environment_names:
         _worker_modal_environment_names.append(environment_name)
+
+
+# =============================================================================
+# Modal subprocess test environment fixture
+# =============================================================================
+
+
+class ModalSubprocessTestEnv(NamedTuple):
+    """Environment configuration for Modal subprocess tests."""
+
+    env: dict[str, str]
+    prefix: str
+    host_dir: Path
+
+
+@pytest.fixture
+def modal_subprocess_env(
+    tmp_path: Path,
+    mngr_test_id: str,
+) -> Generator[ModalSubprocessTestEnv, None, None]:
+    """Create a subprocess test environment with unique prefix for Modal tests.
+
+    This fixture:
+    1. Creates a unique MNGR_PREFIX so each test gets its own Modal environment
+    2. Creates a unique MNGR_HOST_DIR so each test gets its own user_id file
+    3. Cleans up the Modal environment after the test completes
+
+    This ensures Modal environments don't leak between tests.
+    """
+    prefix = f"mngr_{mngr_test_id}-"
+    host_dir = tmp_path / "mngr"
+    host_dir.mkdir()
+
+    env = get_subprocess_test_env(
+        root_name="mngr-acceptance-test",
+        prefix=prefix,
+        host_dir=host_dir,
+    )
+
+    yield ModalSubprocessTestEnv(env=env, prefix=prefix, host_dir=host_dir)
+
+    # Clean up Modal environment after the test.
+    # The environment name is {prefix}{user_id}, but since we used a unique host_dir,
+    # the user_id was just created for this test. We need to read it to get the full name.
+    user_id_file = host_dir / "user_id"
+    if user_id_file.exists():
+        user_id = user_id_file.read_text().strip()
+        environment_name = f"{prefix}{user_id}"
+
+        # Truncate environment_name if needed (Modal has 64 char limit)
+        if len(environment_name) > 64:
+            environment_name = environment_name[:64]
+
+        # Delete the environment (this also cleans up any remaining resources in it)
+        try:
+            subprocess.run(
+                ["uv", "run", "modal", "environment", "delete", environment_name, "--yes"],
+                capture_output=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+            pass
 
 
 def _get_leaked_modal_apps() -> list[tuple[str, str]]:

@@ -16,12 +16,7 @@ from uuid import uuid4
 
 import pytest
 
-from imbue.mngr.utils.testing import get_subprocess_test_env
-
-
-def _get_test_env() -> dict[str, str]:
-    """Get environment variables for subprocess calls that prevent loading project config."""
-    return get_subprocess_test_env("mngr-release-test")
+from imbue.mngr.conftest import ModalSubprocessTestEnv
 
 
 @pytest.fixture
@@ -36,7 +31,10 @@ def temp_source_dir() -> Generator[Path, None, None]:
 
 @pytest.mark.release
 @pytest.mark.timeout(600)
-def test_claude_agent_provisioning_on_modal(temp_source_dir: Path) -> None:
+def test_claude_agent_provisioning_on_modal(
+    temp_source_dir: Path,
+    modal_subprocess_env: ModalSubprocessTestEnv,
+) -> None:
     """Test creating a claude agent on Modal.
 
     This is an end-to-end release test that verifies:
@@ -79,7 +77,7 @@ def test_claude_agent_provisioning_on_modal(temp_source_dir: Path) -> None:
         capture_output=True,
         text=True,
         timeout=600,
-        env=_get_test_env(),
+        env=modal_subprocess_env.env,
     )
 
     # Check that the command succeeded
