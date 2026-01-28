@@ -423,9 +423,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
         ),
         (
             "Available Fields",
-            """The following fields can be used with `--fields` and in CEL filter expressions.
-
-**Agent fields:**
+            """**Agent fields** (same syntax for `--fields` and CEL filters):
 - `name` - Agent name
 - `id` - Agent ID
 - `type` - Agent type (claude, codex, etc.)
@@ -446,7 +444,14 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
 - `plugin` - Plugin-defined fields (dict)
 
-**Host fields (for CEL filters, use flattened names):**
+**Host fields** (different syntax for `--fields` vs CEL filters):
+
+For `--fields` (dot notation):
+- `host.name` - Host name
+- `host.id` - Host ID
+- `host.provider_name` - Host provider
+
+For CEL filters (flattened):
 - `host_name` - Host name
 - `host_id` - Host ID
 - `host_provider` - Host provider (local, docker, modal, etc.)
