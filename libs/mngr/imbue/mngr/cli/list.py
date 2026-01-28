@@ -339,10 +339,12 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
     Supports nested fields like "host.name" and handles field aliases.
     """
     # Handle special field aliases for backward compatibility and convenience
+    # Note: host.provider maps to host.provider_name for consistency with CEL filters
     field_aliases = {
         "state": "lifecycle_state",
         "host": "host.name",
         "provider": "host.provider_name",
+        "host.provider": "host.provider_name",
     }
 
     # Apply alias if it exists
@@ -440,6 +442,8 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `user_activity_time` - Timestamp of the last user activity
 - `agent_activity_time` - Timestamp of the last agent activity
 - `ssh_activity_time` - Timestamp when we last noticed an active SSH connection
+- `idle_seconds` - How long since the agent was active
+- `idle_mode` - Idle detection mode
 - `start_on_boot` - Whether the agent is set to start on host boot
 - `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
 - `plugin` - Plugin-defined fields (dict)

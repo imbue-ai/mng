@@ -126,6 +126,8 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `user_activity_time` - Timestamp of the last user activity
 - `agent_activity_time` - Timestamp of the last agent activity
 - `ssh_activity_time` - Timestamp when we last noticed an active SSH connection
+- `idle_seconds` - How long since the agent was active
+- `idle_mode` - Idle detection mode
 - `start_on_boot` - Whether the agent is set to start on host boot
 - `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
 - `plugin` - Plugin-defined fields (dict)
