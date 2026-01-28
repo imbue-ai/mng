@@ -13,6 +13,7 @@ Or to run all tests including Modal tests:
 import subprocess
 from io import StringIO
 from pathlib import Path
+from typing import Any
 from typing import Generator
 from typing import cast
 from unittest.mock import MagicMock
@@ -670,6 +671,61 @@ def test_build_modal_secrets_from_env_partial_missing_vars(monkeypatch: pytest.M
     error_message = str(exc_info.value)
     assert "MISSING_VAR" in error_message
     assert "SET_VAR" not in error_message
+
+
+# =============================================================================
+# Tests for _create_shutdown_script helper method
+# =============================================================================
+
+
+def test_create_shutdown_script_generates_correct_content(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_create_shutdown_script should generate a script with correct content."""
+    # Create a simple mock host that captures the written content
+    written_content: dict[str, str] = {}
+    written_modes: dict[str, str] = {}
+
+    class MockHost:
+        host_dir = Path("/mngr")
+
+        def write_text_file(self, path: Path, content: str, mode: str | None = None) -> None:
+            written_content[str(path)] = content
+            if mode:
+                written_modes[str(path)] = mode
+
+    mock_host = MockHost()
+
+    # Create a mock sandbox with an object_id
+    mock_sandbox = MagicMock()
+    mock_sandbox.object_id = "sb-test-sandbox-123"
+
+    # Call the method with a test URL
+    host_id = HostId.generate()
+    snapshot_url = "https://test--app-snapshot-and-shutdown.modal.run"
+
+    modal_provider._create_shutdown_script(
+        cast(Any, mock_host),
+        mock_sandbox,
+        host_id,
+        snapshot_url,
+    )
+
+    # Verify the script was written to the correct path
+    expected_path = "/mngr/commands/shutdown.sh"
+    assert expected_path in written_content
+
+    # Verify the script content
+    script = written_content[expected_path]
+    assert "#!/bin/bash" in script
+    assert snapshot_url in script
+    assert "sb-test-sandbox-123" in script
+    assert str(host_id) in script
+    assert "curl" in script
+    assert "Content-Type: application/json" in script
+
+    # Verify the mode is executable
+    assert written_modes[expected_path] == "755"
 
 
 # =============================================================================
