@@ -276,6 +276,10 @@ def find_agent_by_name_or_id(
     # Try parsing as an AgentId first
     try:
         agent_id = AgentId(agent_str)
+    except ValueError:
+        agent_id = None
+
+    if agent_id is not None:
         for host_ref, agent_refs in agents_by_host.items():
             for agent_ref in agent_refs:
                 if agent_ref.agent_id == agent_id:
@@ -285,8 +289,6 @@ def find_agent_by_name_or_id(
                         if agent.id == agent_id:
                             return agent, host
         raise AgentNotFoundError(agent_id)
-    except ValueError:
-        pass
 
     # Try matching by name
     agent_name = AgentName(agent_str)
