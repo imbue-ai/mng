@@ -1037,12 +1037,14 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         host: HostInterface | HostId,
         snapshot_id: SnapshotId | None = None,
     ) -> Host:
-        """Start a stopped host, optionally restoring from a snapshot.
+        """Start a stopped host, optionally restoring from a specific snapshot.
 
         If the sandbox is still running, returns the existing host. If the
-        sandbox has been terminated and a snapshot_id is provided, creates
-        a new sandbox from the snapshot image. Without a snapshot_id, a
-        terminated sandbox cannot be restarted.
+        sandbox has been terminated, creates a new sandbox from a snapshot.
+        When snapshot_id is provided, that specific snapshot is used. When
+        snapshot_id is None, the most recent snapshot is automatically used
+        (every host has at least an initial snapshot created during host
+        creation).
         """
         host_id = host.id if isinstance(host, HostInterface) else host
 
