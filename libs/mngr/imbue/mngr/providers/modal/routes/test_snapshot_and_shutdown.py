@@ -7,10 +7,8 @@ Modal credentials.
 
 import io
 import json
-import os
 import subprocess
 from collections.abc import Generator
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -19,6 +17,7 @@ import pytest
 
 from imbue.mngr.conftest import register_modal_test_volume
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
+from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import get_short_random_string
 
@@ -34,57 +33,6 @@ class URLParseError(RuntimeError):
 def _get_test_app_name() -> str:
     """Generate a unique test app name with the mngr-test prefix."""
     return f"{MODAL_TEST_APP_PREFIX}snapshot-{get_short_random_string()}"
-
-
-def _deploy_snapshot_function(app_name: str) -> str:
-    """Deploy the snapshot_and_shutdown function and return its URL.
-
-    Deploys to Modal with the given app name and waits for it to be ready.
-    """
-    script_path = Path(__file__).parent / "snapshot_and_shutdown.py"
-
-    result = subprocess.run(
-        [
-            "uv",
-            "run",
-            "modal",
-            "deploy",
-            str(script_path),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=180,
-        env={
-            **os.environ,
-            "MNGR_MODAL_APP_NAME": app_name,
-        },
-    )
-
-    if result.returncode != 0:
-        raise DeploymentError(f"Failed to deploy function: {result.stderr}\n{result.stdout}")
-
-    # Parse the URL from the deploy output
-    # The URL may be on the same line as "snapshot_and_shutdown =>" or on the next line
-    # Example formats:
-    #   "Created web function snapshot_and_shutdown => https://..."
-    #   "Created web function snapshot_and_shutdown => \n    https://..."
-    lines = result.stdout.split("\n")
-    for i, line in enumerate(lines):
-        if "snapshot_and_shutdown" in line:
-            # Check if URL is on this line
-            if "https://" in line:
-                url_start = line.find("https://")
-                url = line[url_start:].split()[0].rstrip(")")
-                return url
-            # Check if URL is on the next line
-            if i + 1 < len(lines):
-                next_line = lines[i + 1]
-                if "https://" in next_line:
-                    url_start = next_line.find("https://")
-                    url = next_line[url_start:].split()[0].rstrip(")")
-                    return url
-
-    raise URLParseError(f"Could not find function URL in deploy output: {result.stdout}")
 
 
 def _stop_app(app_name: str) -> None:
@@ -168,7 +116,7 @@ def deployed_snapshot_function() -> Generator[tuple[str, str], None, None]:
     app_name = _get_test_app_name()
 
     try:
-        url = _deploy_snapshot_function(app_name)
+        url = deploy_function("snapshot_and_shutdown", app_name, None)
         # Warm up the function to avoid cold start timeouts in tests
         _warmup_function(url)
         yield (app_name, url)

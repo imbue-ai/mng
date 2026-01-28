@@ -1,22 +1,18 @@
-"""Utilities for deploying Modal functions."""
-
 import os
 import subprocess
 from pathlib import Path
 
 from loguru import logger
-from modal.functions import Function
+from modal import Function
 
 
-def deploy_snapshot_function(app_name: str, environment_name: str) -> str | None:
-    """Deploy the snapshot_and_shutdown function and return its URL.
-
-    Deploys to Modal with the given app name and returns the URL.
+def deploy_function(function: str, app_name: str, environment_name: str | None) -> str | None:
+    """Deploys a Function to Modal with the given app name and returns the URL.
     Returns None if deployment fails.
     """
-    script_path = Path(__file__).parent / "routes" / "snapshot_and_shutdown.py"
+    script_path = Path(__file__).parent / f"{function}.py"
 
-    logger.debug("Deploying snapshot_and_shutdown function for app: {}", app_name)
+    logger.debug("Deploying {} function for app: {}", function, app_name)
     try:
         result = subprocess.run(
             [
@@ -24,8 +20,7 @@ def deploy_snapshot_function(app_name: str, environment_name: str) -> str | None
                 "run",
                 "modal",
                 "deploy",
-                "--env",
-                environment_name,
+                *(["--env", environment_name] if environment_name else []),
                 str(script_path),
             ],
             capture_output=True,
@@ -38,11 +33,11 @@ def deploy_snapshot_function(app_name: str, environment_name: str) -> str | None
         )
 
         if result.returncode != 0:
-            logger.warning("Failed to deploy snapshot function: {}", result.stderr)
+            logger.warning("Failed to deploy {} function: {}", function, result.stderr)
             return None
 
         # get the URL out of the resulting Function object
-        func = Function.from_name(name="snapshot_and_shutdown", app_name=app_name, environment_name=environment_name)
+        func = Function.from_name(name=function, app_name=app_name, environment_name=environment_name)
         web_url = func.get_web_url()
         if web_url:
             return web_url
@@ -51,5 +46,5 @@ def deploy_snapshot_function(app_name: str, environment_name: str) -> str | None
         return None
 
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
-        logger.warning("Failed to deploy snapshot function: {}", e)
+        logger.warning("Failed to deploy {} function: {}", function, e)
         return None

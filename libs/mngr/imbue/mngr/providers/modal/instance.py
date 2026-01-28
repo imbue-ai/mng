@@ -60,7 +60,7 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.modal.config import ModalProviderConfig
-from imbue.mngr.providers.modal.deploy_utils import deploy_snapshot_function
+from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
@@ -980,7 +980,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # For persistent apps, deploy the snapshot function and create shutdown script
         if self.config.is_persistent:
-            snapshot_url = deploy_snapshot_function(self.app_name, self.environment_name)
+            snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
             if snapshot_url:
                 self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
 
