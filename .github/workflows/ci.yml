@@ -131,7 +131,6 @@ jobs:
   # Acceptance tests - runs on all branches (except main, since release tests are a superset)
   test-acceptance:
     if: github.ref != 'refs/heads/main'
-    needs: cleanup-modal-environments
     runs-on: ubuntu-latest
     env:
       MODAL_TOKEN_ID: ${{ vars.MODAL_TOKEN_ID }}
@@ -165,37 +164,9 @@ jobs:
       - name: Run acceptance tests
         run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 -m "not release"' --no-cov -v --tb=short --splits 8 --group ${{ matrix.group }} --splitting-algorithm=least_duration
 
-  # Clean up old Modal test environments for release tests
-  cleanup-modal-environments-release:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    env:
-      MODAL_TOKEN_ID: ${{ vars.MODAL_TOKEN_ID }}
-      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: "latest"
-
-      - name: Install Python dependencies
-        run: uv sync --all-packages
-
-      - name: Clean up old Modal test environments
-        run: uv run python scripts/cleanup_old_modal_test_environments.py --max-age-hours 1.0
-
   # Release tests - runs only on main branch pushes
   test-release:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: cleanup-modal-environments-release
     runs-on: ubuntu-latest
     env:
       MODAL_TOKEN_ID: ${{ vars.MODAL_TOKEN_ID }}
