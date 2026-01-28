@@ -31,6 +31,7 @@ STATE_VOLUME_SUFFIX = "-state"
 MODAL_NAME_MAX_LENGTH = 64
 
 
+# FIXME: this should just be renamed to _create_environment, and we should delete the first check, since it is only called when the env is missing
 def _ensure_environment_exists(environment_name: str) -> None:
     """Ensure a Modal environment exists, creating it if necessary.
 
