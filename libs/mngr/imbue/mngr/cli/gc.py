@@ -15,6 +15,9 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
@@ -465,3 +468,47 @@ def _get_selected_providers(mngr_ctx: MngrContext, opts: GcCliOptions) -> list[P
         return providers
 
     return list(get_all_provider_instances(mngr_ctx))
+
+
+# Register help metadata for git-style help formatting
+_GC_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-gc",
+    one_line_description="Garbage collect unused resources",
+    synopsis="mngr gc [OPTIONS]",
+    description="""Garbage collect unused resources.
+
+Automatically removes containers, old snapshots, unused hosts, cached images,
+and any resources that are associated with destroyed hosts and agents.
+
+`mngr destroy` automatically cleans up resources when an agent is deleted.
+`mngr gc` can be used to manually trigger garbage collection of unused
+resources at any time.""",
+    examples=(
+        ("Preview what would be cleaned (dry run)", "mngr gc --work-dirs --dry-run"),
+        ("Clean all agent resources", "mngr gc --all-agent-resources"),
+        ("Clean machines and snapshots for Docker", "mngr gc --machines --snapshots --provider docker"),
+        ("Clean logs and build cache", "mngr gc --logs --build-cache"),
+        ("Keep only the 5 most recent snapshots", 'mngr gc --snapshots --exclude "x.recency_idx < 5"'),
+    ),
+    additional_sections=(
+        (
+            "CEL Filter Examples",
+            """CEL filters let you control which resources are cleaned. Use `x` to reference each resource.
+
+**For snapshots, use `x.recency_idx` to filter by age:**
+- `x.recency_idx == 0` - the most recent snapshot
+- `x.recency_idx < 5` - the 5 most recent snapshots
+- To keep only the 5 most recent: `--exclude "x.recency_idx < 5"`
+
+**Filter by resource properties:**
+- `x.name.contains("test")` - resources with "test" in the name
+- `x.provider_name == "docker"` - Docker resources only
+""",
+        ),
+    ),
+)
+
+register_help_metadata("gc", _GC_HELP_METADATA)
+
+# Add pager-enabled help option to the gc command
+add_pager_help_option(gc)

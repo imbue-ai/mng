@@ -221,7 +221,7 @@ class CreateCliOptions(CommonCliOptions):
     "--add-command",
     "add_command",
     multiple=True,
-    help='Run extra command in additional window. Use name="command" to set window name',
+    help='Run extra command in additional window. Use name="command" to set window name. Note: ALL_UPPERCASE names (e.g., FOO="bar") are treated as env var assignments, not window names',
 )
 @optgroup.option("--user", help="Override which user to run the agent as")
 @optgroup.group("Host Options")
@@ -1192,7 +1192,7 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str
         f"mkdir -p '{activity_dir}'; "
         f"(while true; do "
         f"TIME_MS=$(($(date +%s) * 1000)); "
-        f"printf '{{\\n  \"time\": %d,\\n  \"ssh_pid\": %d\\n}}\\n' \"$TIME_MS\" \"$$\" > '{activity_file}'; "
+        f'printf \'{{\\n  "time": %d,\\n  "ssh_pid": %d\\n}}\\n\' "$TIME_MS" "$$" > \'{activity_file}\'; '
         f"sleep 5; done) & "
         "MNGR_ACTIVITY_PID=$!; "
         f"tmux attach -t '{session_name}'; "

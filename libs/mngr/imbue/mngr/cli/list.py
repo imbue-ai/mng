@@ -13,6 +13,9 @@ from imbue.mngr.api.list import list_agents as api_list_agents
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.primitives import ErrorBehavior
@@ -356,3 +359,68 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
             return str(value)
     except (AttributeError, KeyError):
         return ""
+
+
+# Register help metadata for git-style help formatting
+_LIST_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-list",
+    one_line_description="List all agents managed by mngr",
+    synopsis="mngr list [OPTIONS]",
+    description="""List all agents managed by mngr.
+
+Displays agents with their status, host information, and other metadata.
+Supports filtering, sorting, and multiple output formats.""",
+    examples=(
+        ("List all agents", "mngr list"),
+        ("List only running agents", "mngr list --running"),
+        ("List agents on Docker hosts", "mngr list --provider docker"),
+        ("List agents as JSON", "mngr list --format json"),
+        ("Filter with CEL expression", "mngr list --include 'name.contains(\"prod\")'"),
+    ),
+    additional_sections=(
+        (
+            "CEL Filter Examples",
+            """CEL (Common Expression Language) filters allow powerful, expressive filtering of agents.
+
+**Simple equality filters:**
+- `name == "my-agent"` - Match agent by exact name
+- `state == "running"` - Match running agents
+- `host.provider == "docker"` - Match agents on Docker hosts
+
+**Compound expressions:**
+- `state == "running" && host.provider == "modal"` - Running agents on Modal
+- `state == "stopped" || state == "failed"` - Stopped or failed agents
+
+**String operations:**
+- `name.contains("prod")` - Agent names containing "prod"
+- `name.startsWith("staging-")` - Agent names starting with "staging-"
+""",
+        ),
+        (
+            "Available Fields",
+            """The following fields can be used with `--fields` and in CEL filter expressions:
+
+**Agent fields:**
+- `name` - Agent name
+- `id` - Agent ID
+- `type` - Agent type (claude, codex, etc.)
+- `state` - Lifecycle state (running, stopped, etc.)
+- `status` - Status as reported by the agent
+- `work_dir` - Working directory for this agent
+- `create_time` - Creation timestamp
+- `start_time` - Timestamp for when the agent was last started
+
+**Host fields:**
+- `host.name` - Host name
+- `host.id` - Host ID
+- `host.provider` - Host provider (local, docker, modal, etc.)
+- `host.state` - Current host state
+""",
+        ),
+    ),
+)
+
+register_help_metadata("list", _LIST_HELP_METADATA)
+
+# Add pager-enabled help option to the list command
+add_pager_help_option(list_command)

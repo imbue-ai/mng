@@ -28,7 +28,12 @@ class CommandHelpMetadata(FrozenModel):
     one_line_description: str = Field(description="Brief one-line description of the command")
     synopsis: str = Field(description="Usage synopsis showing command patterns")
     description: str = Field(description="Detailed description of the command")
-    examples: tuple[tuple[str, str], ...] = Field(description="List of (description, command) example tuples")
+    examples: tuple[tuple[str, str], ...] = Field(
+        default=(), description="List of (description, command) example tuples"
+    )
+    additional_sections: tuple[tuple[str, str], ...] = Field(
+        default=(), description="Additional documentation sections as (title, markdown_content) tuples"
+    )
 
 
 # Registry of help metadata for commands that have been configured

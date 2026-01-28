@@ -28,6 +28,9 @@ from imbue.mngr.api.list import list_agents
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -440,3 +443,30 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 
     logger.info("Connecting to agent: {}", agent.name)
     _connect_to_local_agent(agent, mngr_ctx)
+
+
+# Register help metadata for git-style help formatting
+_CONNECT_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-connect",
+    one_line_description="Connect to an existing agent via the terminal",
+    synopsis="mngr connect [OPTIONS] [AGENT]",
+    description="""Connect to an existing agent via the terminal.
+
+Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
+the agent's machine and attaching to the tmux session. Use `mngr open` to
+open an agent's URLs in a web browser instead.
+
+If no agent is specified, shows an interactive selector to choose from
+available agents. The selector allows typeahead search to filter agents
+by name.""",
+    examples=(
+        ("Connect to an agent by name", "mngr connect my-agent"),
+        ("Connect without auto-starting if stopped", "mngr connect my-agent --no-start"),
+        ("Show interactive agent selector", "mngr connect"),
+    ),
+)
+
+register_help_metadata("connect", _CONNECT_HELP_METADATA)
+
+# Add pager-enabled help option to the connect command
+add_pager_help_option(connect)

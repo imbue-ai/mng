@@ -454,22 +454,28 @@ def _emit_config_set_result(
     """Emit the result of a config set operation."""
     match output_opts.output_format:
         case OutputFormat.JSON:
-            emit_final_json({
-                "key": key,
-                "value": value,
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-            })
+            emit_final_json(
+                {
+                    "key": key,
+                    "value": value,
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
         case OutputFormat.JSONL:
-            emit_final_json({
-                "event": "config_set",
-                "key": key,
-                "value": value,
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-            })
+            emit_final_json(
+                {
+                    "event": "config_set",
+                    "key": key,
+                    "value": value,
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
         case OutputFormat.HUMAN:
-            logger.info("Set {} = {} in {} ({})", key, _format_value_for_display(value), scope.value.lower(), config_path)
+            logger.info(
+                "Set {} = {} in {} ({})", key, _format_value_for_display(value), scope.value.lower(), config_path
+            )
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -542,18 +548,22 @@ def _emit_config_unset_result(
     """Emit the result of a config unset operation."""
     match output_opts.output_format:
         case OutputFormat.JSON:
-            emit_final_json({
-                "key": key,
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-            })
+            emit_final_json(
+                {
+                    "key": key,
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
         case OutputFormat.JSONL:
-            emit_final_json({
-                "event": "config_unset",
-                "key": key,
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-            })
+            emit_final_json(
+                {
+                    "event": "config_unset",
+                    "key": key,
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
         case OutputFormat.HUMAN:
             logger.info("Removed {} from {} ({})", key, scope.value.lower(), config_path)
         case _ as unreachable:
@@ -634,16 +644,20 @@ def _config_edit_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     match output_opts.output_format:
         case OutputFormat.JSON:
-            emit_final_json({
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-            })
+            emit_final_json(
+                {
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
         case OutputFormat.JSONL:
-            emit_final_json({
-                "event": "config_edited",
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-            })
+            emit_final_json(
+                {
+                    "event": "config_edited",
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
         case OutputFormat.HUMAN:
             pass
         case _ as unreachable:
@@ -743,18 +757,22 @@ def _config_path_impl(ctx: click.Context, **kwargs: Any) -> None:
         for scope in ConfigScope:
             try:
                 config_path = _get_config_path(scope, root_name)
-                paths.append({
-                    "scope": scope.value.lower(),
-                    "path": str(config_path),
-                    "exists": config_path.exists(),
-                })
+                paths.append(
+                    {
+                        "scope": scope.value.lower(),
+                        "path": str(config_path),
+                        "exists": config_path.exists(),
+                    }
+                )
             except ConfigNotFoundError:
-                paths.append({
-                    "scope": scope.value.lower(),
-                    "path": None,
-                    "exists": False,
-                    "error": f"No git repository found for {scope.value.lower()} config",
-                })
+                paths.append(
+                    {
+                        "scope": scope.value.lower(),
+                        "path": None,
+                        "exists": False,
+                        "error": f"No git repository found for {scope.value.lower()} config",
+                    }
+                )
         _emit_all_paths(paths, output_opts)
 
 
@@ -762,18 +780,22 @@ def _emit_single_path(scope: ConfigScope, config_path: Path, output_opts: Output
     """Emit a single config path."""
     match output_opts.output_format:
         case OutputFormat.JSON:
-            emit_final_json({
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-                "exists": config_path.exists(),
-            })
+            emit_final_json(
+                {
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                    "exists": config_path.exists(),
+                }
+            )
         case OutputFormat.JSONL:
-            emit_final_json({
-                "event": "config_path",
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-                "exists": config_path.exists(),
-            })
+            emit_final_json(
+                {
+                    "event": "config_path",
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                    "exists": config_path.exists(),
+                }
+            )
         case OutputFormat.HUMAN:
             logger.info("{}", config_path)
         case _ as unreachable:
