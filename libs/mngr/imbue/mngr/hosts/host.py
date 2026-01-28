@@ -1720,7 +1720,7 @@ class Host(HostInterface):
 
         Note: The authoritative activity time is the file's mtime, not the JSON content.
         """
-        activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value
+        activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value.lower()
         agent_id = str(agent.id)
 
         # Build a bash script that monitors the process and writes activity
