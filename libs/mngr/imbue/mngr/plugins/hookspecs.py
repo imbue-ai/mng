@@ -7,18 +7,16 @@ import pluggy
 
 from imbue.mngr.api.data_types import OnBeforeCreateArgs
 from imbue.mngr.cli.data_types import OptionStackItem
+from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
-from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 
 hookspec = pluggy.HookspecMarker("mngr")
 
 
 @hookspec
-def register_provider_backend() -> (
-    tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]] | None
-):
+def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]] | None:
     """Register a provider backend with mngr.
 
     Plugins should implement this hook to register provider backends along with
