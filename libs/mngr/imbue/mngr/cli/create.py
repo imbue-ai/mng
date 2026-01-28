@@ -280,7 +280,7 @@ class CreateCliOptions(CommonCliOptions):
     "--copy-work-dir/--no-copy-work-dir",
     "copy_work_dir",
     default=None,
-    help="Copy source work_dir immediately [default: copy if --no-connect]",
+    help="Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect]",
 )
 @optgroup.group("Agent Source Work Dir")
 @optgroup.option(
@@ -308,7 +308,7 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option(
     "--worktree",
     is_flag=True,
-    help="Create a git worktree that shares objects and index with original repo. Requires --new-branch",
+    help="Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]. Requires --new-branch (which is the default)",
 )
 @optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
 @optgroup.option("--base-branch", help="The starting point for the agent [default: current branch]")
