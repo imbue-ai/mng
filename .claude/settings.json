@@ -5,6 +5,14 @@
         "hooks": [
           {
             "type": "command",
+            "command": "./scripts/claude_session_start.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "uv sync --all-packages"
           }
         ]
