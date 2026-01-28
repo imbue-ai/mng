@@ -111,6 +111,14 @@ def get_snapshot_function_url(app_name: str) -> str | None:
     return _snapshot_function_url_cache.get(app_name)
 
 
+def reset_snapshot_function_url_cache() -> None:
+    """Reset the snapshot function URL cache.
+
+    This is primarily used for test isolation to ensure a clean state between tests.
+    """
+    _snapshot_function_url_cache.clear()
+
+
 def _ensure_environment_exists(environment_name: str, app_name: str) -> None:
     """Ensure a Modal environment exists, creating it if necessary.
 

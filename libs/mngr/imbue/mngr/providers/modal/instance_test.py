@@ -650,6 +650,94 @@ def test_build_modal_secrets_from_env_partial_missing_vars(monkeypatch: pytest.M
 
 
 # =============================================================================
+# Tests for _create_shutdown_script helper method
+# =============================================================================
+
+
+def test_create_shutdown_script_skips_when_no_url(temp_mngr_ctx: MngrContext) -> None:
+    """_create_shutdown_script should skip creation when snapshot_function_url is None."""
+    # Create a mock modal app with no snapshot URL
+    mock_modal_app = MagicMock(spec=ModalProviderApp)
+    mock_modal_app.app_name = "test-app"
+    mock_modal_app.environment_name = "test-env"
+    mock_modal_app.snapshot_function_url = None
+
+    # Create the provider instance with the mock
+    provider = ModalProviderInstance(
+        name=ProviderInstanceName("test"),
+        host_dir=Path("/mngr"),
+        mngr_ctx=temp_mngr_ctx,
+        config=ModalProviderConfig(),
+        modal_app=mock_modal_app,
+    )
+
+    # Create a mock host
+    mock_host = MagicMock()
+    mock_host.host_dir = Path("/mngr")
+
+    # Create a mock sandbox
+    mock_sandbox = MagicMock()
+    mock_sandbox.object_id = "sb-test-123"
+
+    # Call the method - it should not raise and should not write any file
+    provider._create_shutdown_script(mock_host, mock_sandbox, HostId.generate())
+
+    # Verify write_text_file was never called
+    mock_host.write_text_file.assert_not_called()
+
+
+def test_create_shutdown_script_creates_correct_script(temp_mngr_ctx: MngrContext) -> None:
+    """_create_shutdown_script should create a script with the correct content."""
+    # Create a mock modal app with a snapshot URL
+    mock_modal_app = MagicMock(spec=ModalProviderApp)
+    mock_modal_app.app_name = "test-app"
+    mock_modal_app.environment_name = "test-env"
+    mock_modal_app.snapshot_function_url = "https://test--app-snapshot.modal.run"
+
+    # Create the provider instance with the mock
+    provider = ModalProviderInstance(
+        name=ProviderInstanceName("test"),
+        host_dir=Path("/mngr"),
+        mngr_ctx=temp_mngr_ctx,
+        config=ModalProviderConfig(),
+        modal_app=mock_modal_app,
+    )
+
+    # Create a mock host
+    mock_host = MagicMock()
+    mock_host.host_dir = Path("/mngr")
+
+    # Create a mock sandbox
+    mock_sandbox = MagicMock()
+    mock_sandbox.object_id = "sb-test-123"
+
+    # Create a test host_id
+    host_id = HostId.generate()
+
+    # Call the method
+    provider._create_shutdown_script(mock_host, mock_sandbox, host_id)
+
+    # Verify write_text_file was called with correct arguments
+    mock_host.write_text_file.assert_called_once()
+    call_args = mock_host.write_text_file.call_args
+
+    # Check the path
+    expected_path = Path("/mngr/commands/shutdown.sh")
+    assert call_args[0][0] == expected_path
+
+    # Check the content contains expected values
+    script_content = call_args[0][1]
+    assert "https://test--app-snapshot.modal.run" in script_content
+    assert "sb-test-123" in script_content
+    assert str(host_id) in script_content
+    assert "curl" in script_content
+    assert "#!/bin/bash" in script_content
+
+    # Check the mode is executable
+    assert call_args[1]["mode"] == "755"
+
+
+# =============================================================================
 # Acceptance tests (require Modal network access)
 # =============================================================================
 
