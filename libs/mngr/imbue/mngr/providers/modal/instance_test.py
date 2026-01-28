@@ -964,20 +964,25 @@ def test_create_and_list_snapshots(real_modal_provider: ModalProviderInstance) -
     try:
         host = real_modal_provider.create_host(HostName("test-host"))
 
-        # Initially no snapshots
+        # Initially there is one snapshot (the initial snapshot created during host creation)
         snapshots = real_modal_provider.list_snapshots(host)
-        assert snapshots == []
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "initial"
 
         # Create a snapshot
         snapshot_id = real_modal_provider.create_snapshot(host, SnapshotName("test-snapshot"))
         assert snapshot_id is not None
 
-        # Verify it appears in the list
+        # Verify it appears in the list (now 2 snapshots)
         snapshots = real_modal_provider.list_snapshots(host)
-        assert len(snapshots) == 1
+        assert len(snapshots) == 2
+        # Most recent snapshot is first (recency_idx == 0)
         assert snapshots[0].id == snapshot_id
         assert snapshots[0].name == SnapshotName("test-snapshot")
         assert snapshots[0].recency_idx == 0
+        # Initial snapshot is second
+        assert snapshots[1].name == "initial"
+        assert snapshots[1].recency_idx == 1
 
     finally:
         if host:
@@ -986,13 +991,14 @@ def test_create_and_list_snapshots(real_modal_provider: ModalProviderInstance) -
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_list_snapshots_returns_empty_initially(real_modal_provider: ModalProviderInstance) -> None:
-    """list_snapshots should return empty list for a new host."""
+def test_list_snapshots_returns_initial_snapshot(real_modal_provider: ModalProviderInstance) -> None:
+    """list_snapshots should return the initial snapshot for a new host."""
     host = None
     try:
         host = real_modal_provider.create_host(HostName("test-host"))
         snapshots = real_modal_provider.list_snapshots(host)
-        assert snapshots == []
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "initial"
 
     finally:
         if host:
@@ -1007,13 +1013,17 @@ def test_delete_snapshot(real_modal_provider: ModalProviderInstance) -> None:
     try:
         host = real_modal_provider.create_host(HostName("test-host"))
 
-        # Create a snapshot
-        snapshot_id = real_modal_provider.create_snapshot(host)
+        # Initially there's 1 snapshot (the initial snapshot)
         assert len(real_modal_provider.list_snapshots(host)) == 1
 
-        # Delete it
+        # Create a snapshot
+        snapshot_id = real_modal_provider.create_snapshot(host)
+        assert len(real_modal_provider.list_snapshots(host)) == 2
+
+        # Delete the created snapshot
         real_modal_provider.delete_snapshot(host, snapshot_id)
-        assert len(real_modal_provider.list_snapshots(host)) == 0
+        # Should be back to just the initial snapshot
+        assert len(real_modal_provider.list_snapshots(host)) == 1
 
     finally:
         if host:
@@ -1055,9 +1065,10 @@ def test_start_host_restores_from_snapshot(real_modal_provider: ModalProviderIns
         # Create a snapshot
         snapshot_id = real_modal_provider.create_snapshot(host, SnapshotName("test-restore"))
 
-        # Verify snapshot exists
+        # Verify snapshot exists (2 total: initial + test-restore)
         snapshots = real_modal_provider.list_snapshots(host)
-        assert len(snapshots) == 1
+        assert len(snapshots) == 2
+        # Most recent is first
         assert snapshots[0].id == snapshot_id
 
         # Stop the host (terminates the sandbox)
