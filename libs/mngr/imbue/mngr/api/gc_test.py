@@ -5,16 +5,20 @@ from datetime import timedelta
 from datetime import timezone
 from pathlib import Path
 
+from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.api.gc import _apply_cel_filters
 from imbue.mngr.api.gc import _resource_to_cel_context
+from imbue.mngr.api.gc import gc_machines
 from imbue.mngr.interfaces.data_types import LogFileInfo
 from imbue.mngr.interfaces.data_types import SizeBytes
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
+from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
+from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.cel_utils import compile_cel_filters
 
 
@@ -176,3 +180,21 @@ def test_compile_and_apply_cel_filters_include_not_matching() -> None:
     )
 
     assert not _apply_cel_filters(snapshot, include_filters, exclude_filters)
+
+
+def test_gc_machines_skips_local_hosts(local_provider: LocalProviderInstance) -> None:
+    """Test that gc_machines skips local hosts even when they have no agents."""
+    result = GcResult()
+
+    gc_machines(
+        providers=[local_provider],
+        include_filters=(),
+        exclude_filters=(),
+        dry_run=False,
+        error_behavior=ErrorBehavior.ABORT,
+        result=result,
+    )
+
+    # Local host should be skipped, not destroyed
+    assert len(result.machines_destroyed) == 0
+    assert len(result.errors) == 0
