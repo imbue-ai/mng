@@ -994,6 +994,11 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
 
+        # Create an initial snapshot so the host can always be restarted after being stopped
+        # The initial image state is captured as a snapshot for restoration
+        logger.debug("Creating initial snapshot for host", host_id=str(host_id))
+        self._create_initial_snapshot(sandbox, host_id)
+
         return host
 
     @handle_modal_auth_error
@@ -1054,12 +1059,24 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                     )
                 return host_obj
 
-        # Sandbox is not running - try to restore from snapshot if provided
+        # Sandbox is not running - restore from snapshot
+        # If no snapshot_id provided, use the most recent snapshot
         if snapshot_id is None:
-            raise NoSnapshotsModalMngrError(
-                f"Modal sandbox {host_id} is not running and cannot be restarted. "
-                "Provide a snapshot_id to restore from a snapshot, or create a new host."
-            )
+            # Load host record to get available snapshots
+            host_record = self._read_host_record(host_id)
+            if host_record is None:
+                raise HostNotFoundError(host_id)
+
+            if not host_record.snapshots:
+                raise NoSnapshotsModalMngrError(
+                    f"Modal sandbox {host_id} is not running and has no snapshots. "
+                    "Cannot restart. Create a new host instead."
+                )
+
+            # Use the most recent snapshot (sorted by created_at descending)
+            sorted_snapshots = sorted(host_record.snapshots, key=lambda s: s.created_at, reverse=True)
+            snapshot_id = SnapshotId(sorted_snapshots[0].id)
+            logger.info("Using most recent snapshot for restart", snapshot_id=str(snapshot_id))
 
         # Load host record from volume
         host_record = self._read_host_record(host_id)
@@ -1240,6 +1257,52 @@ curl -s -X POST "$SNAPSHOT_URL" \\
     # =========================================================================
     # Snapshot Methods
     # =========================================================================
+
+    def _create_initial_snapshot(
+        self,
+        sandbox: modal.Sandbox,
+        host_id: HostId,
+    ) -> SnapshotId:
+        """Create an initial snapshot of a newly created host.
+
+        This is called during host creation to ensure every host has at least
+        one snapshot, allowing the host to be restarted after being stopped.
+        The initial state after SSH setup is captured as the "initial" snapshot.
+        """
+        # Read existing host record from volume
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            raise HostNotFoundError(host_id)
+
+        # Create the filesystem snapshot
+        logger.debug("Creating initial filesystem snapshot")
+        modal_image = sandbox.snapshot_filesystem()
+        modal_image_id = modal_image.object_id
+
+        # Generate mngr snapshot ID and metadata
+        snapshot_id = SnapshotId.generate()
+        created_at = datetime.now(timezone.utc)
+        snapshot_name = SnapshotName("initial")
+
+        new_snapshot = SnapshotRecord(
+            id=str(snapshot_id),
+            name=str(snapshot_name),
+            created_at=created_at.isoformat(),
+            modal_image_id=modal_image_id,
+        )
+
+        # Update host record with new snapshot and write to volume
+        updated_host_record = host_record.model_copy(
+            update={"snapshots": list(host_record.snapshots) + [new_snapshot]}
+        )
+        self._write_host_record(updated_host_record)
+
+        logger.debug(
+            "Created initial snapshot: id={}, modal_image_id={}",
+            snapshot_id,
+            modal_image_id,
+        )
+        return snapshot_id
 
     @handle_modal_auth_error
     def create_snapshot(

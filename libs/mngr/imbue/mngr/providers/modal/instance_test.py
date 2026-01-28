@@ -39,7 +39,6 @@ from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.modal.backend import STATE_VOLUME_SUFFIX
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
-from imbue.mngr.providers.modal.errors import NoSnapshotsModalMngrError
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.instance import TAG_HOST_ID
@@ -1102,22 +1101,42 @@ def test_start_host_on_running_host(real_modal_provider: ModalProviderInstance) 
             real_modal_provider.destroy_host(host)
 
 
-# FIXME: actually, this test is incorrect--we SHOULD be able to restart a stopped host
-#  The reason is that there should ALWAYS be a snapshot associated with any started host, because the initial image should be considered a snapshot when we're first creating the host
-#  Please fix the code, and then update this test accordingly
 @pytest.mark.acceptance
-@pytest.mark.timeout(180)
-def test_start_host_on_stopped_host_raises_error(real_modal_provider: ModalProviderInstance) -> None:
-    """start_host on a terminated host should raise an error."""
-    host = real_modal_provider.create_host(HostName("test-host"))
-    host_id = host.id
+@pytest.mark.timeout(300)
+def test_start_host_on_stopped_host_uses_initial_snapshot(real_modal_provider: ModalProviderInstance) -> None:
+    """start_host on a terminated host should restart from the initial snapshot."""
+    host = None
+    restarted_host = None
+    try:
+        host = real_modal_provider.create_host(HostName("test-host"))
+        host_id = host.id
 
-    # Stop/destroy the host
-    real_modal_provider.stop_host(host)
+        # Verify an initial snapshot was created
+        snapshots = real_modal_provider.list_snapshots(host)
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "initial"
 
-    # Trying to start it should fail
-    with pytest.raises(NoSnapshotsModalMngrError):
-        real_modal_provider.start_host(host_id)
+        # Stop the host
+        real_modal_provider.stop_host(host)
+
+        # Start it again without specifying a snapshot - should use the initial snapshot
+        restarted_host = real_modal_provider.start_host(host_id)
+
+        # Verify the host was restarted with the same ID
+        assert restarted_host.id == host_id
+
+        # Verify we can execute commands on the restarted host
+        result = restarted_host.execute_command("echo 'restarted successfully'")
+        assert result.success
+        assert "restarted successfully" in result.stdout
+
+    finally:
+        if restarted_host:
+            real_modal_provider.destroy_host(restarted_host)
+        elif host:
+            real_modal_provider.destroy_host(host)
+        else:
+            pass
 
 
 @pytest.mark.acceptance
