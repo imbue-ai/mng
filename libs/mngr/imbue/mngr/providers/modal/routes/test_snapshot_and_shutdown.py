@@ -45,6 +45,15 @@ def _stop_app(app_name: str) -> None:
     )
 
 
+def _delete_volume(volume_name: str) -> None:
+    """Delete a Modal volume."""
+    subprocess.run(
+        ["uv", "run", "modal", "volume", "delete", volume_name, "--yes"],
+        capture_output=True,
+        timeout=60,
+    )
+
+
 def _warmup_function(url: str) -> None:
     """Send a warmup request to trigger cold start before tests run.
 
@@ -115,6 +124,9 @@ def deployed_snapshot_function() -> Generator[tuple[str, str], None, None]:
     Yields a tuple of (app_name, function_url).
     """
     app_name = _get_test_app_name()
+    # The deployed function creates a volume named {app_name}-state
+    volume_name = f"{app_name}-state"
+    register_modal_test_volume(volume_name)
 
     try:
         url = deploy_function("snapshot_and_shutdown", app_name, None)
@@ -123,6 +135,7 @@ def deployed_snapshot_function() -> Generator[tuple[str, str], None, None]:
         yield (app_name, url)
     finally:
         _stop_app(app_name)
+        _delete_volume(volume_name)
 
 
 @pytest.mark.acceptance
