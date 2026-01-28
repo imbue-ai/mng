@@ -98,3 +98,45 @@ def test_gc_work_dirs_with_cel_filter(
     assert "Work directories: 1" in result.output
     assert orphaned_dir1.exists(), "temp directory should still exist (excluded)"
     assert not orphaned_dir2.exists(), "prod directory should be removed"
+
+
+def test_gc_work_dirs_with_provider_name_filter(
+    cli_runner: CliRunner,
+    temp_host_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test gc work-dirs with provider_name CEL filter.
+
+    This test verifies that the documented CEL field name 'provider_name' works correctly.
+    The gc CEL context is flat (no x. prefix needed), so filters use field names directly.
+    """
+    # Create orphaned work directory
+    orphaned_dir = temp_host_dir / "worktrees" / "orphaned-provider-test"
+    orphaned_dir.mkdir(parents=True, exist_ok=True)
+
+    certified_data = CertifiedHostData(generated_work_dirs=(str(orphaned_dir),))
+    data_path = temp_host_dir / "data.json"
+    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True), indent=2))
+
+    # Filter by provider_name - should match local provider
+    result = cli_runner.invoke(
+        gc,
+        ["--work-dirs", "--include", 'provider_name == "local"', "--dry-run"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert "Work directories: 1" in result.output
+
+    # Filter by non-matching provider_name - should find nothing
+    result_no_match = cli_runner.invoke(
+        gc,
+        ["--work-dirs", "--include", 'provider_name == "docker"', "--dry-run"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result_no_match.exit_code == 0
+    # When no resources match, gc says "No resources found to destroy"
+    assert "No resources found" in result_no_match.output or "Work directories: 0" in result_no_match.output

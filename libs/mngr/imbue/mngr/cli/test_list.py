@@ -260,6 +260,111 @@ def test_list_command_with_exclude_filter(
         assert agent_name not in result.output
 
 
+def test_list_command_with_host_provider_filter(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with host_provider CEL filter.
+
+    This test verifies that the documented CEL field name 'host_provider' works correctly.
+    The CEL context uses flattened field names (host_provider, host_name, host_id),
+    NOT dot notation (host.provider_name would not work).
+    """
+    agent_name = f"test-list-host-provider-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent (will be on local provider)
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 403183",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with host_provider filter - should find the agent
+        result = cli_runner.invoke(
+            list_command,
+            ["--include", 'host_provider == "local"'],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name in result.output
+
+        # List with non-matching host_provider filter - should NOT find the agent
+        result_no_match = cli_runner.invoke(
+            list_command,
+            ["--include", 'host_provider == "docker"'],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result_no_match.exit_code == 0
+        assert agent_name not in result_no_match.output
+
+
+def test_list_command_with_host_name_filter(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with host_name CEL filter.
+
+    Verifies that the flattened 'host_name' field works in CEL filters.
+    """
+    agent_name = f"test-list-host-name-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 403184",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with host_name filter - local host is named "@local"
+        result = cli_runner.invoke(
+            list_command,
+            ["--include", 'host_name == "@local"'],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name in result.output
+
+
 def test_list_command_on_error_continue(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
