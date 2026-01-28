@@ -170,6 +170,25 @@ def generate_grouped_options_markdown(command: click.Command) -> str:
     return "\n".join(lines)
 
 
+def format_synopsis(command_name: str) -> str:
+    """Format synopsis section from CommandHelpMetadata if available.
+
+    The synopsis shows the command usage pattern with common options,
+    matching what's shown at the top of --help output.
+    """
+    metadata = get_help_metadata(command_name)
+    if metadata is None or not metadata.synopsis:
+        return ""
+
+    lines = ["", "**Synopsis:**", "", "```text"]
+    for line in metadata.synopsis.strip().split("\n"):
+        lines.append(line)
+    lines.append("```")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 def format_examples(command_name: str) -> str:
     """Format examples section from CommandHelpMetadata if available."""
     metadata = get_help_metadata(command_name)
@@ -358,6 +377,17 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
     # Combine all parts
     content = "\n".join(content_parts)
     content = fix_sentinel_defaults(content)
+
+    # Insert synopsis after the title line (first line starting with #)
+    synopsis = format_synopsis(command_name)
+    if synopsis:
+        content_lines = content.split("\n")
+        # Find the title line and insert synopsis after it
+        for i, line in enumerate(content_lines):
+            if line.startswith("# "):
+                content_lines.insert(i + 1, synopsis)
+                break
+        content = "\n".join(content_lines)
 
     # Add additional sections from metadata
     content += format_additional_sections(command_name)

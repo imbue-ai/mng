@@ -1,5 +1,12 @@
 # mngr gc
 
+**Synopsis:**
+
+```text
+mngr gc [OPTIONS]
+```
+
+
 Garbage collect unused resources.
 
 Automatically removes unused resources from providers and mngr itself.

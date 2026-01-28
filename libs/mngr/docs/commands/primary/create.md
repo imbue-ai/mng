@@ -1,5 +1,18 @@
 # mngr create
 
+**Synopsis:**
+
+```text
+mngr create [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
+    [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
+    [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
+    [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
+    [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
+    [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot]
+    [--] [<AGENT_ARGS>...]
+```
+
+
 Create and run an agent.
 
 Sets up the agent's work_dir, optionally provisions a new host (or uses

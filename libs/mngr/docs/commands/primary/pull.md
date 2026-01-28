@@ -1,5 +1,12 @@
 # mngr pull
 
+**Synopsis:**
+
+```text
+mngr pull [SOURCE] [DESTINATION] [--source-agent <AGENT>] [--dry-run] [--stop]
+```
+
+
 Pull files from an agent to local machine.
 
 Syncs files from an agent's working directory to a local directory.

@@ -1,5 +1,12 @@
 # mngr destroy
 
+**Synopsis:**
+
+```text
+mngr destroy [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]
+```
+
+
 Destroy agent(s) and clean up resources.
 
 When the last agent on a host is destroyed, the host itself is also destroyed.
