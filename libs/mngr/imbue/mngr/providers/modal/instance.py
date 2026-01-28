@@ -60,6 +60,7 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.modal.config import ModalProviderConfig
+from imbue.mngr.providers.modal.deploy_utils import deploy_snapshot_function
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
@@ -570,6 +571,43 @@ class ModalProviderInstance(BaseProviderInstance):
 
         return host, ssh_host, ssh_port, host_public_key
 
+    def _create_shutdown_script(
+        self,
+        host: Host,
+        sandbox: modal.Sandbox,
+        host_id: HostId,
+        snapshot_url: str,
+    ) -> None:
+        """Create the shutdown.sh script on the host.
+
+        The script uses curl to call the deployed snapshot_and_shutdown endpoint,
+        passing the sandbox_id and host_id as JSON payload.
+        """
+        sandbox_id = sandbox.object_id
+
+        # Create the shutdown script content
+        # The script sends a POST request to the snapshot_and_shutdown endpoint
+        script_content = f'''#!/bin/bash
+# Auto-generated shutdown script for mngr Modal host
+# This script snapshots and shuts down the host by calling the deployed Modal function
+
+SNAPSHOT_URL="{snapshot_url}"
+SANDBOX_ID="{sandbox_id}"
+HOST_ID="{host_id}"
+
+# Send the shutdown request
+curl -s -X POST "$SNAPSHOT_URL" \\
+    -H "Content-Type: application/json" \\
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'"}}'
+'''
+
+        # Write the script to the host
+        commands_dir = host.host_dir / "commands"
+        script_path = commands_dir / "shutdown.sh"
+
+        logger.debug("Creating shutdown script at {}", script_path)
+        host.write_text_file(script_path, script_content, mode="755")
+
     def _parse_build_args(
         self,
         build_args: Sequence[str] | None,
@@ -939,6 +977,12 @@ class ModalProviderInstance(BaseProviderInstance):
         )
         logger.debug("Writing host record to volume", host_id=str(host_id))
         self._write_host_record(host_record)
+
+        # For persistent apps, deploy the snapshot function and create shutdown script
+        if self.config.is_persistent:
+            snapshot_url = deploy_snapshot_function(self.app_name, self.environment_name)
+            if snapshot_url:
+                self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
 
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
