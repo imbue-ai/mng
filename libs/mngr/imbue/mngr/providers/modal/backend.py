@@ -267,7 +267,10 @@ class ModalProviderBackend(ProviderBackendInterface):
             "Creating/getting state volume: {} (env: {})", context_handle.volume_name, context_handle.environment_name
         )
         volume = modal.Volume.from_name(
-            context_handle.volume_name, create_if_missing=True, environment_name=context_handle.environment_name
+            context_handle.volume_name,
+            create_if_missing=True,
+            environment_name=context_handle.environment_name,
+            version=2,
         )
 
         # Cache the volume in the context handle (need to update the registry entry)
