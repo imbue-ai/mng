@@ -343,7 +343,7 @@ class BaseAgent(AgentInterface):
         This ensures consistency across all activity writers (Python, bash, lua)
         and allows simple scripts to just touch files without writing JSON.
         """
-        activity_path = self._get_agent_dir() / "activity" / activity_type.value
+        activity_path = self._get_agent_dir() / "activity" / activity_type.value.lower()
         return self.host.get_file_mtime(activity_path)
 
     def record_activity(self, activity_type: ActivitySource) -> None:
@@ -358,7 +358,7 @@ class BaseAgent(AgentInterface):
         JSON content. The JSON is for debugging/auditing purposes.
         """
         logger.trace("Recording {} activity for agent {}", activity_type, self.name)
-        activity_path = self._get_agent_dir() / "activity" / activity_type.value
+        activity_path = self._get_agent_dir() / "activity" / activity_type.value.lower()
         now = datetime.now(timezone.utc)
         data = {
             "time": int(now.timestamp() * 1000),
@@ -368,7 +368,7 @@ class BaseAgent(AgentInterface):
         self.host.write_text_file(activity_path, json.dumps(data, indent=2))
 
     def get_reported_activity_record(self, activity_type: ActivitySource) -> str | None:
-        activity_path = self._get_agent_dir() / "activity" / activity_type.value
+        activity_path = self._get_agent_dir() / "activity" / activity_type.value.lower()
         try:
             return self.host.read_text_file(activity_path)
         except FileNotFoundError:

@@ -737,13 +737,13 @@ def test_start_agent_starts_process_activity_monitor(
     host.start_agents([agent.id])
 
     try:
-        # The process activity monitor should write PROCESS activity within ~5-6 seconds
-        activity_path = temp_host_dir / "agents" / str(agent.id) / "activity" / "PROCESS"
+        # The process activity monitor should write process activity within ~5-6 seconds
+        activity_path = temp_host_dir / "agents" / str(agent.id) / "activity" / "process"
 
         def activity_file_exists() -> bool:
             return activity_path.exists()
 
-        wait_for(activity_file_exists, timeout=10.0, error_message="PROCESS activity file not created")
+        wait_for(activity_file_exists, timeout=10.0, error_message="process activity file not created")
 
         # Verify the activity file has valid JSON content with time in milliseconds
         content = activity_path.read_text()

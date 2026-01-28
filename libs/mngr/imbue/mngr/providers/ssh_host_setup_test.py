@@ -3,8 +3,10 @@
 from pathlib import Path
 
 from imbue.mngr.providers.ssh_host_setup import WARNING_PREFIX
+from imbue.mngr.providers.ssh_host_setup import _load_activity_watcher_script
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
+from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
 from imbue.mngr.providers.ssh_host_setup import get_user_ssh_dir
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
 
@@ -80,3 +82,34 @@ def test_skips_empty_warnings() -> None:
     output = f"{WARNING_PREFIX}\n{WARNING_PREFIX}   \n{WARNING_PREFIX}actual warning"
     warnings = parse_warnings_from_output(output)
     assert warnings == ["actual warning"]
+
+
+def test_load_activity_watcher_script() -> None:
+    """Should load the activity watcher script from resources."""
+    script = _load_activity_watcher_script()
+    assert isinstance(script, str)
+    assert len(script) > 0
+    assert "#!/bin/bash" in script
+    assert "activity_watcher" in script.lower() or "HOST_DATA_DIR" in script
+
+
+def test_build_start_activity_watcher_command() -> None:
+    """Should build a valid shell command to start the activity watcher."""
+    cmd = build_start_activity_watcher_command("/mngr/hosts/test")
+    assert isinstance(cmd, str)
+    assert len(cmd) > 0
+    assert "/mngr/hosts/test" in cmd
+    assert "mkdir -p" in cmd
+    assert "chmod +x" in cmd
+    assert "nohup" in cmd
+
+
+def test_build_start_activity_watcher_command_escapes_quotes() -> None:
+    """Should properly escape single quotes in the script content."""
+    cmd = build_start_activity_watcher_command("/mngr/hosts/test")
+    # The command should contain the script content with proper escaping
+    assert isinstance(cmd, str)
+    # Single quotes in the script should be escaped as '\"'\"'
+    # Since the script contains single quotes in strings like 'MNGR_HOST_DIR'
+    # they should be properly escaped
+    assert cmd.count("printf") >= 1

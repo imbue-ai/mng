@@ -57,6 +57,7 @@ from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import HostState
+from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.git_utils import get_current_git_branch
@@ -68,6 +69,86 @@ LOCAL_CONNECTOR_NAME: Final[str] = "LocalConnector"
 def _is_macos() -> bool:
     """Check if the current system is macOS (Darwin)."""
     return platform.system() == "Darwin"
+
+
+# Activity sources that are host-level (vs agent-level)
+_HOST_LEVEL_ACTIVITY_SOURCES: Final[frozenset[ActivitySource]] = frozenset({
+    ActivitySource.BOOT,
+    ActivitySource.USER,
+    ActivitySource.SSH,
+})
+
+
+def _get_activity_sources_for_idle_mode(idle_mode: IdleMode) -> tuple[ActivitySource, ...]:
+    """Get the activity sources that should be monitored for a given idle mode.
+
+    This mapping is defined in docs/concepts/idle_detection.md.
+    """
+    if idle_mode == IdleMode.IO:
+        return (
+            ActivitySource.USER,
+            ActivitySource.AGENT,
+            ActivitySource.SSH,
+            ActivitySource.CREATE,
+            ActivitySource.START,
+            ActivitySource.BOOT,
+        )
+    elif idle_mode == IdleMode.USER:
+        return (
+            ActivitySource.USER,
+            ActivitySource.SSH,
+            ActivitySource.CREATE,
+            ActivitySource.START,
+            ActivitySource.BOOT,
+        )
+    elif idle_mode == IdleMode.AGENT:
+        return (
+            ActivitySource.AGENT,
+            ActivitySource.SSH,
+            ActivitySource.CREATE,
+            ActivitySource.START,
+            ActivitySource.BOOT,
+        )
+    elif idle_mode == IdleMode.SSH:
+        return (
+            ActivitySource.SSH,
+            ActivitySource.CREATE,
+            ActivitySource.START,
+            ActivitySource.BOOT,
+        )
+    elif idle_mode == IdleMode.CREATE:
+        return (ActivitySource.CREATE,)
+    elif idle_mode == IdleMode.BOOT:
+        return (ActivitySource.BOOT,)
+    elif idle_mode == IdleMode.START:
+        return (ActivitySource.START, ActivitySource.BOOT)
+    elif idle_mode == IdleMode.RUN:
+        return (
+            ActivitySource.CREATE,
+            ActivitySource.START,
+            ActivitySource.BOOT,
+            ActivitySource.PROCESS,
+        )
+    elif idle_mode == IdleMode.DISABLED:
+        return ()
+    else:
+        raise SwitchError(idle_mode)
+
+
+def _generate_activity_file_patterns(host_dir: Path, activity_sources: tuple[ActivitySource, ...]) -> list[str]:
+    """Generate file path patterns for the given activity sources.
+
+    Host-level sources get explicit paths like: <host_dir>/activity/boot
+    Agent-level sources get glob patterns like: <host_dir>/agents/*/activity/create
+    """
+    patterns: list[str] = []
+    for source in activity_sources:
+        source_name = source.value.lower()
+        if source in _HOST_LEVEL_ACTIVITY_SOURCES:
+            patterns.append(str(host_dir / "activity" / source_name))
+        else:
+            patterns.append(str(host_dir / "agents" / "*" / "activity" / source_name))
+    return patterns
 
 
 class HostLocation(FrozenModel):
@@ -385,7 +466,13 @@ class Host(HostInterface):
         )
 
     def set_activity_config(self, config: ActivityConfig) -> None:
-        """Set the activity configuration for this host."""
+        """Set the activity configuration for this host.
+
+        In addition to saving to data.json, this also writes two helper files
+        for the activity watcher script:
+        - activity_files: newline-delimited list of activity file patterns to monitor
+        - idle_timeout: the idle timeout in seconds
+        """
         logger.debug(
             "Setting activity config for host {}: idle_mode={}, idle_timeout={}s",
             self.id,
@@ -402,6 +489,16 @@ class Host(HostInterface):
         )
         data_path = self.host_dir / "data.json"
         self.write_text_file(data_path, json.dumps(updated_data.model_dump(by_alias=True), indent=2))
+
+        # Write helper files for the activity watcher script
+        activity_sources = _get_activity_sources_for_idle_mode(config.idle_mode)
+        activity_patterns = _generate_activity_file_patterns(self.host_dir, activity_sources)
+
+        activity_files_path = self.host_dir / "activity_files"
+        self.write_text_file(activity_files_path, "\n".join(activity_patterns) + "\n" if activity_patterns else "")
+
+        idle_timeout_path = self.host_dir / "idle_timeout"
+        self.write_text_file(idle_timeout_path, str(config.idle_timeout_seconds))
 
     # =========================================================================
     # Activity Times
@@ -1623,7 +1720,7 @@ class Host(HostInterface):
 
         Note: The authoritative activity time is the file's mtime, not the JSON content.
         """
-        activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value
+        activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value.lower()
         agent_id = str(agent.id)
 
         # Build a bash script that monitors the process and writes activity

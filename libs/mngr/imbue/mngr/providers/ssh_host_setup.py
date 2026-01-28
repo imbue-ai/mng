@@ -5,10 +5,13 @@ These utilities are designed to be reusable across different providers (Modal, D
 that need to configure SSH access on newly created hosts.
 """
 
+import importlib.resources
 from pathlib import Path
 from typing import Final
 
 import deal
+
+from imbue.mngr import resources
 
 # Prefix used in shell output to identify warnings that should be shown to the user
 WARNING_PREFIX: Final[str] = "MNGR_WARN:"
@@ -153,3 +156,51 @@ def parse_warnings_from_output(output: str) -> list[str]:
             if warning_message:
                 warnings.append(warning_message)
     return warnings
+
+
+def _load_activity_watcher_script() -> str:
+    """Load the activity watcher script from resources."""
+    resource_files = importlib.resources.files(resources)
+    script_path = resource_files.joinpath("activity_watcher.sh")
+    return script_path.read_text()
+
+
+@deal.has()
+def build_start_activity_watcher_command(
+    mngr_host_dir: str,
+) -> str:
+    """Build a shell command that installs and starts the activity watcher.
+
+    The activity watcher monitors activity files and calls the shutdown script
+    when the host becomes idle (based on idle_mode and idle_timeout_seconds
+    from data.json).
+
+    This command:
+    1. Creates the commands directory
+    2. Writes the activity watcher script to the host
+    3. Makes it executable
+    4. Starts it in the background with nohup
+
+    Returns a shell command string that can be executed via sh -c.
+    """
+    script_content = _load_activity_watcher_script()
+
+    # Escape single quotes in script content
+    escaped_script = script_content.replace("'", "'\"'\"'")
+
+    script_path = f"{mngr_host_dir}/commands/activity_watcher.sh"
+    log_path = f"{mngr_host_dir}/logs/activity_watcher.log"
+
+    script_lines = [
+        # Create commands and logs directories
+        f"mkdir -p '{mngr_host_dir}/commands'",
+        f"mkdir -p '{mngr_host_dir}/logs'",
+        # Write the activity watcher script
+        f"printf '%s' '{escaped_script}' > '{script_path}'",
+        # Make it executable
+        f"chmod +x '{script_path}'",
+        # Start the activity watcher in the background, redirecting output to log
+        f"nohup '{script_path}' '{mngr_host_dir}' > '{log_path}' 2>&1 &",
+    ]
+
+    return "; ".join(script_lines)

@@ -67,6 +67,7 @@ from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
+from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
 from imbue.mngr.utils.polling import wait_for
 
@@ -450,6 +451,11 @@ class ModalProviderInstance(BaseProviderInstance):
             host_public_key=host_public_key,
         )
         sandbox.exec("sh", "-c", configure_ssh_cmd).wait()
+
+        # Start the activity watcher
+        logger.debug("Starting activity watcher in sandbox")
+        start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
+        sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
 
         logger.debug("Starting sshd in sandbox")
 
