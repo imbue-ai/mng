@@ -167,17 +167,24 @@ def destroy(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("Running destroy command")
 
-    # Check for not-yet-implemented options
+    # Filter agents to destroy using CEL expressions like:
+    # --include 'name.startsWith("test-")' or --include 'host.provider == "docker"'
+    # See mngr list --include for the pattern to follow
     if opts.include:
         raise NotImplementedError(
             "The --include option is not yet implemented. "
             "See https://github.com/imbue-ai/mngr/issues/XXX for progress."
         )
+    # Exclude agents matching CEL expressions from destruction:
+    # --exclude 'state == "running"' to skip running agents
+    # See mngr list --exclude for the pattern to follow
     if opts.exclude:
         raise NotImplementedError(
             "The --exclude option is not yet implemented. "
             "See https://github.com/imbue-ai/mngr/issues/XXX for progress."
         )
+    # Read agent names/IDs from stdin to allow piping agent lists:
+    # mngr list --format jsonl | jq -r .name | mngr destroy --stdin
     if opts.stdin:
         raise NotImplementedError(
             "The --stdin option is not yet implemented. See https://github.com/imbue-ai/mngr/issues/XXX for progress."
@@ -394,20 +401,6 @@ def _run_post_destroy_gc(mngr_ctx: MngrContext, output_opts: OutputOptions) -> N
     except MngrError as e:
         logger.warning("Garbage collection failed: {}", e)
         logger.debug("This does not affect the destroy operation, which completed successfully")
-
-
-# FIXME: Add --include FILTER option for CEL expression filtering
-# This would allow filtering agents to destroy using CEL expressions like:
-# --include 'name.startsWith("test-")' or --include 'host.provider == "docker"'
-# See mngr list --include for the pattern to follow
-
-# FIXME: Add --exclude FILTER option for CEL expression filtering
-# This would exclude agents matching CEL expressions from destruction:
-# --exclude 'state == "running"' to skip running agents
-# See mngr list --exclude for the pattern to follow
-
-# FIXME: Add --stdin option to read agent names/IDs from stdin
-# This would allow piping agent lists: mngr list --format jsonl | jq -r .name | mngr destroy --stdin
 
 
 # Register help metadata for git-style help formatting
