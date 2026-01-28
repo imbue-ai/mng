@@ -10,6 +10,7 @@ Or to run all tests including Modal tests:
     pytest --timeout=180
 """
 
+import subprocess
 from io import StringIO
 from pathlib import Path
 from typing import Generator
@@ -218,26 +219,48 @@ def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProvid
 def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Generator[ModalProviderInstance, None, None]:
     """Create a ModalProviderInstance with real Modal for acceptance tests.
 
-    This fixture registers the Modal app name, environment name, and volume name
-    for leak detection. If the test doesn't properly clean up its hosts, the
-    session_cleanup fixture will detect the still-running resources and clean them up.
+    This fixture creates a Modal environment and cleans it up after the test.
+    Cleanup happens in the fixture teardown (not at session end) to prevent
+    environment leaks and reduce the time spent on cleanup.
     """
     app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     provider = make_modal_provider_real(temp_mngr_ctx, app_name)
-
-    # Register the app name for cleanup verification
-    register_modal_test_app(app_name)
-
-    # Register the environment name for cleanup verification.
-    # The environment is used to scope all Modal resources for isolation.
-    register_modal_test_environment(provider.environment_name)
-
-    # Register the volume name for cleanup verification.
-    # Modal volumes are global (not app-specific), so they must be tracked separately.
+    environment_name = provider.environment_name
     volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
+
+    # Register resources for leak detection (safety net in case cleanup fails)
+    register_modal_test_app(app_name)
+    register_modal_test_environment(environment_name)
     register_modal_test_volume(volume_name)
 
     yield provider
+
+    # Clean up resources immediately after the test completes.
+    # This is faster than waiting until session end because we clean up one
+    # environment at a time instead of listing and deleting all at once.
+
+    # Close the Modal app context first
+    ModalProviderBackend.close_app(app_name)
+
+    # Delete the volume (must be done before environment deletion)
+    try:
+        subprocess.run(
+            ["uv", "run", "modal", "volume", "delete", volume_name, "--yes"],
+            capture_output=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        pass
+
+    # Delete the environment (this also cleans up any remaining resources in it)
+    try:
+        subprocess.run(
+            ["uv", "run", "modal", "environment", "delete", environment_name, "--yes"],
+            capture_output=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        pass
 
 
 # =============================================================================
