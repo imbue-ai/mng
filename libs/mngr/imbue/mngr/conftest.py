@@ -366,7 +366,7 @@ def modal_subprocess_env(
     """
     prefix = f"mngr_{mngr_test_id}-"
     host_dir = tmp_path / "mngr"
-    host_dir.mkdir()
+    host_dir.mkdir(exist_ok=True)
 
     env = get_subprocess_test_env(
         root_name="mngr-acceptance-test",
