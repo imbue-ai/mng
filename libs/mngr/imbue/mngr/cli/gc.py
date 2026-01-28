@@ -97,6 +97,8 @@ class GcCliOptions(CommonCliOptions):
     is_flag=True,
     help="Remove build cache entries",
 )
+# TODO: Add --machine-cache option (documented in libs/mngr/docs/commands/secondary/gc.md)
+# TODO: Implement "mngr cleanup" command for interactive cleanup (documented in libs/mngr/docs/commands/secondary/gc.md)
 @optgroup.group("Filtering")
 @optgroup.option(
     "--include",

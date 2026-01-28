@@ -167,6 +167,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("Running list command")
 
+    # TODO: Implement custom format templates (documented in libs/mngr/docs/commands/primary/list.md)
     if opts.format_template:
         raise NotImplementedError("Custom format templates not implemented yet")
 
@@ -175,6 +176,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     if opts.fields:
         fields = [f.strip() for f in opts.fields.split(",") if f.strip()]
 
+    # TODO: Implement watch mode with default 2 second interval (documented in libs/mngr/docs/commands/primary/list.md)
     if opts.watch:
         raise NotImplementedError("Watch mode not implemented yet")
 
@@ -195,12 +197,19 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             combined_filter = " || ".join(ref_filters)
             include_filters.append(combined_filter)
 
+    # TODO: Implement convenience filter aliases (documented in libs/mngr/docs/commands/primary/list.md)
+    # --running should expand to --include 'state == "running"'
+    # --stopped should expand to --include 'state == "stopped"'
+    # --local should expand to --include 'host.provider == "local"'
+    # --remote should expand to --exclude 'host.provider == "local"'
     if opts.running or opts.stopped or opts.local or opts.remote:
         raise NotImplementedError("Convenience filter aliases not implemented yet")
 
+    # TODO: Implement custom sorting by any field (documented in libs/mngr/docs/commands/primary/list.md)
     if opts.sort != "create_time":
         raise NotImplementedError("Custom sorting not implemented yet")
 
+    # TODO: Implement result limiting (documented in libs/mngr/docs/commands/primary/list.md)
     if opts.limit:
         raise NotImplementedError("Result limiting not implemented yet")
 

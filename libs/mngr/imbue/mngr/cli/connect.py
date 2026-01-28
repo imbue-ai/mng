@@ -384,24 +384,38 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     )
     logger.debug("Running connect command")
 
+    # TODO: Implement --message to send initial message after connecting
+    # (documented in libs/mngr/docs/commands/primary/connect.md)
     if opts.message is not None:
         raise NotImplementedError("--message is not implemented yet")
 
+    # TODO: Implement --message-file to send initial message from file
+    # (documented in libs/mngr/docs/commands/primary/connect.md)
     if opts.message_file is not None:
         raise NotImplementedError("--message-file is not implemented yet")
 
+    # TODO: Implement custom --message-delay values
+    # (documented in libs/mngr/docs/commands/primary/connect.md)
     if opts.message_delay != 1.0:
         raise NotImplementedError("--message-delay with non-default value is not implemented yet")
 
+    # TODO: Implement custom --retry values for connection retries
+    # (documented in libs/mngr/docs/commands/primary/connect.md)
     if opts.retry != 3:
         raise NotImplementedError("--retry with non-default value is not implemented yet")
 
+    # TODO: Implement custom --retry-delay values
+    # (documented in libs/mngr/docs/commands/primary/connect.md)
     if opts.retry_delay != "5s":
         raise NotImplementedError("--retry-delay with non-default value is not implemented yet")
 
+    # TODO: Implement --attach-command to run custom command instead of tmux attach
+    # (documented in libs/mngr/docs/commands/primary/connect.md)
     if opts.attach_command is not None:
         raise NotImplementedError("--attach-command is not implemented yet")
 
+    # TODO: Implement --no-reconnect to disable automatic reconnection
+    # (documented in libs/mngr/docs/commands/primary/connect.md)
     if not opts.reconnect:
         raise NotImplementedError("--no-reconnect is not implemented yet")
 
@@ -413,6 +427,9 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     if opts.agent is not None:
         agent, host = find_agent_by_name_or_id(opts.agent, agents_by_host, mngr_ctx, "connect")
     elif not sys.stdin.isatty():
+        # TODO: Consider defaulting to most recently created agent instead of error
+        # (documented behavior in libs/mngr/docs/commands/primary/connect.md says:
+        # "If not specified, connects to the most recently created agent")
         raise UserInputError("No agent specified and not running in interactive mode")
     else:
         list_result = list_agents(mngr_ctx)
@@ -426,6 +443,8 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 
         agent, host = find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "connect")
 
+    # TODO: Implement connecting to remote agents via SSH
+    # (implied by libs/mngr/docs/commands/primary/connect.md which mentions SSH'ing into the agent's machine)
     if not host.is_local:
         raise NotImplementedError("Connecting to remote agents is not implemented yet")
 
