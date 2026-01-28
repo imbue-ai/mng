@@ -603,6 +603,50 @@ mngr connect [OPTIONS] [AGENT]
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
+## connect
+
+Connect to an existing agent via the terminal.
+
+Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
+the agent's machine and attaching to the tmux session. Use `mngr open` to
+open an agent's URLs in a web browser instead.
+
+If no agent is specified, shows an interactive selector to choose from
+available agents.
+
+Alias: conn
+
+**Usage:**
+
+```text
+mngr connect [OPTIONS] [AGENT]
+```
+
+**Options:**
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--agent` | text | The agent to connect to (by name or ID) | None |
+| `--start` / `--no-start` | boolean | Automatically start the agent if stopped | `True` |
+| `--reconnect` / `--no-reconnect` | boolean | Automatically reconnect if dropped | `True` |
+| `--message` | text | Initial message to send after connecting | None |
+| `--message-file` | path | File containing initial message to send | None |
+| `--message-delay` | float | Seconds to wait before sending initial message | `1.0` |
+| `--retry` | integer | Number of connection retries | `3` |
+| `--retry-delay` | text | Delay between retries | `5s` |
+| `--attach-command` | text | Command to run instead of attaching to main session | None |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
 ## create
 
 Create and run an agent.
@@ -893,6 +937,60 @@ mngr gc [OPTIONS]
 | `--dry-run` | boolean | Show what would be cleaned without actually cleaning | `False` |
 | `--on-error` | choice (`abort` &#x7C; `continue`) | What to do when errors occur: abort (stop immediately) or continue (keep going) | `abort` |
 | `-w`, `--watch` | integer | Re-run garbage collection at the specified interval (seconds) | None |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## list
+
+List all agents managed by mngr.
+
+Displays agents with their status, host information, and other metadata.
+Supports filtering, sorting, and multiple output formats.
+
+Examples:
+
+  mngr list
+
+  mngr list --running
+
+  mngr list --provider docker
+
+  mngr list --format json
+
+**Usage:**
+
+```text
+mngr list [OPTIONS]
+```
+
+**Options:**
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--include` | text | Include agents matching CEL expression (repeatable) | None |
+| `--exclude` | text | Exclude agents matching CEL expression (repeatable) | None |
+| `--running` | boolean | Show only running agents (alias for --include state == "running") | `False` |
+| `--stopped` | boolean | Show only stopped agents (alias for --include state == "stopped") | `False` |
+| `--local` | boolean | Show only local agents (alias for --include host.provider == "local") | `False` |
+| `--remote` | boolean | Show only remote agents (alias for --exclude host.provider == "local") | `False` |
+| `--provider` | text | Show only agents using specified provider (repeatable) | None |
+| `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
+| `--format-template` | text | Output format as a string template (mutually exclusive with --format) | None |
+| `--fields` | text | Which fields to include (comma-separated) | None |
+| `--sort` | text | Sort by field [default: create_time] | `create_time` |
+| `--sort-order` | choice (`asc` &#x7C; `desc`) | Sort order [default: asc] | `asc` |
+| `--limit` | integer | Limit number of results | None |
+| `-w`, `--watch` | integer | Continuously watch and update status at specified interval (seconds) [default: 2] | None |
+| `--on-error` | choice (`abort` &#x7C; `continue`) | What to do when errors occur: abort (stop immediately) or continue (keep going) | `abort` |
 | `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
 | `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
