@@ -1,4 +1,9 @@
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
+
 # mngr create
+
+**Alias:** `c`
 
 **Synopsis:**
 
@@ -38,7 +43,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `--agent-type` | text | Which type of agent to run [default: claude] | None |
 | `--agent-cmd`, `--agent-command` | text | Run a literal command using the generic agent type (mutually exclusive with --agent-type) | None |
 | `-c`, `--add-cmd`, `--add-command` | text | Run extra command in additional window. Use name="command" to set window name. Note: ALL_UPPERCASE names (e.g., FOO="bar") are treated as env var assignments, not window names | None |
-| `--user` | text | Override which user to run the agent as | None |
+| `--user` | text | Override which user to run the agent as [default: current user for local, provider-defined or root for remote] | None |
 
 ### Host Options
 
@@ -60,7 +65,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | ---- | ---- | ----------- | ------- |
 | `--connect`, `--no-connect` | boolean | Connect to the agent after creation [default: connect] | `True` |
 | `--await-ready`, `--no-await-ready` | boolean | Wait until agent is ready before returning [default: no-await-ready if --no-connect] | None |
-| `--await-agent-stopped`, `--no-await-agent-stopped` | boolean | Wait until agent has completely finished running before exiting [default: no-await-agent-stopped] | None |
+| `--await-agent-stopped`, `--no-await-agent-stopped` | boolean | Wait until agent has completely finished running before exiting. Useful for testing and scripting. First waits for agent to become ready, then waits for it to stop. [default: no-await-agent-stopped] | None |
 | `--ensure-clean`, `--no-ensure-clean` | boolean | Abort if working tree is dirty | `True` |
 | `--snapshot-source`, `--no-snapshot-source` | boolean | Snapshot source agent first [default: yes if --source-agent and not local] | None |
 | `--copy-work-dir`, `--no-copy-work-dir` | boolean | Copy source work_dir immediately [default: copy if --no-connect] | None |
@@ -81,7 +86,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--copy` | boolean | Copy source to isolated directory before running | `False` |
-| `--clone` | boolean | Create a git clone that just shares objects with original repo | `False` |
+| `--clone` | boolean | Create a git clone that shares objects with original repo (only works for local agents) | `False` |
 | `--worktree` | boolean | Create a git worktree that shares objects and index with original repo. Requires --new-branch | `False` |
 | `--include-git`, `--no-include-git` | boolean | Include .git directory | `True` |
 | `--base-branch` | text | The starting point for the agent [default: current branch] | None |
@@ -148,7 +153,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `--interactive`, `--no-interactive` | boolean | Enable interactive mode [default: yes if TTY] | None |
 | `--message` | text | Initial message to send after the agent starts | None |
 | `--message-file` | path | File containing initial message to send | None |
-| `--edit-message` | boolean | Open an editor to compose the initial message (uses $EDITOR) | `False` |
+| `--edit-message` | boolean | Open an editor to compose the initial message (uses $EDITOR). Editor runs in parallel with agent creation. If --message or --message-file is provided, their content is used as initial editor content. | `False` |
 | `--message-delay` | float | Seconds to wait before sending initial message | `1.0` |
 | `--retry` | integer | Number of connection retries | `3` |
 | `--retry-delay` | text | Delay between retries (e.g., 5s, 1m) | `5s` |
@@ -174,6 +179,11 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## Related Documentation
+
+- [Limit Options](../secondary/limit.md) - Configure resource limits for agents
+- [Provision Options](../secondary/provision.md) - Configure host provisioning
 
 ## See Also
 

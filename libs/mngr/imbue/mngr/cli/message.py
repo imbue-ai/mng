@@ -10,6 +10,9 @@ from imbue.mngr.api.message import send_message_to_agents
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
@@ -267,3 +270,43 @@ def _emit_json_output(result: MessageResult) -> None:
         "total_failed": len(result.failed_agents),
     }
     emit_final_json(output_data)
+
+
+# Register help metadata for git-style help formatting
+_MESSAGE_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-message",
+    one_line_description="Send a message to one or more agents",
+    synopsis="mngr message [AGENTS...] [--agent <AGENT>] [--all] [-m <MESSAGE>]",
+    description="""Send a message to one or more agents.
+
+Agent IDs can be specified as positional arguments for convenience. The
+message is sent to the agent's stdin.
+
+If no message is specified with --message, reads from stdin (if not a tty)
+or opens an editor (if interactive).""",
+    aliases=("msg",),
+    examples=(
+        ("Send a message to an agent", 'mngr message my-agent --message "Hello"'),
+        ("Send to multiple agents", 'mngr message agent1 agent2 --message "Hello to all"'),
+        ("Send to all agents", 'mngr message --all --message "Hello everyone"'),
+        ("Pipe message from stdin", 'echo "Hello" | mngr message my-agent'),
+    ),
+    see_also=(
+        ("connect", "Connect to an agent interactively"),
+        ("list", "List available agents"),
+    ),
+    additional_sections=(
+        (
+            "Related Documentation",
+            """- [Multi-target Options](../generic/multi_target.md) - Behavior when some agents fail to receive the message""",
+        ),
+    ),
+)
+
+register_help_metadata("message", _MESSAGE_HELP_METADATA)
+# Also register under alias for consistent help output
+for alias in _MESSAGE_HELP_METADATA.aliases:
+    register_help_metadata(alias, _MESSAGE_HELP_METADATA)
+
+# Add pager-enabled help option to the message command
+add_pager_help_option(message)

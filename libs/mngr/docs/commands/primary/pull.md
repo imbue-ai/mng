@@ -1,3 +1,6 @@
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
+
 # mngr pull
 
 **Synopsis:**
@@ -52,6 +55,49 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | `--delete`, `--no-delete` | boolean | Delete files in destination that don't exist in source | `False` |
 | `--sync-mode` | choice (`files` &#x7C; `state` &#x7C; `full`) | What to sync: files (working directory only), state (agent state), or full (everything) | `files` |
 | `--exclude` | text | Patterns to exclude from sync [repeatable] | None |
+
+### Target (for agent-to-agent sync)
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--target` | text | Target specification: AGENT, AGENT.HOST, AGENT.HOST:PATH, or HOST:PATH [NOT YET IMPLEMENTED] | None |
+| `--target-agent` | text | Target agent name or ID [NOT YET IMPLEMENTED] | None |
+| `--target-host` | text | Target host name or ID [NOT YET IMPLEMENTED] | None |
+| `--target-path` | text | Path within target to sync to [NOT YET IMPLEMENTED] | None |
+
+### Multi-source
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--stdin` | boolean | Read source agents/hosts from stdin, one per line [NOT YET IMPLEMENTED] | `False` |
+
+### File Filtering
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--include` | text | Include files matching glob pattern [repeatable] [NOT YET IMPLEMENTED] | None |
+| `--include-gitignored` | boolean | Include files that match .gitignore patterns [NOT YET IMPLEMENTED] | `False` |
+| `--include-file` | path | Read include patterns from file [NOT YET IMPLEMENTED] | None |
+| `--exclude-file` | path | Read exclude patterns from file [NOT YET IMPLEMENTED] | None |
+
+### Rsync Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--rsync-arg` | text | Additional argument to pass to rsync [repeatable] [NOT YET IMPLEMENTED] | None |
+| `--rsync-args` | text | Additional arguments to pass to rsync (as a single string) [NOT YET IMPLEMENTED] | None |
+
+### Git Sync Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--branch` | text | Pull a specific branch [repeatable] [NOT YET IMPLEMENTED] | None |
+| `--all-branches` | boolean | Pull all remote branches [NOT YET IMPLEMENTED] | `False` |
+| `--tags` | boolean | Include git tags in sync [NOT YET IMPLEMENTED] | `False` |
+| `--force-git` | boolean | Force overwrite local git state (use with caution) [NOT YET IMPLEMENTED] | `False` |
+| `--merge` | boolean | Merge remote changes with local changes [NOT YET IMPLEMENTED] | `False` |
+| `--rebase` | boolean | Rebase local changes onto remote changes [NOT YET IMPLEMENTED] | `False` |
+| `--uncommitted-source` | choice (`warn` &#x7C; `error`) | Warn or error if source has uncommitted changes [NOT YET IMPLEMENTED] | None |
 
 ### Common
 

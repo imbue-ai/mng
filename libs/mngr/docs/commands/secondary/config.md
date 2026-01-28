@@ -1,4 +1,16 @@
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
+
 # mngr config
+
+**Alias:** `cfg`
+
+**Synopsis:**
+
+```text
+mngr config <subcommand> [OPTIONS]
+```
+
 
 Manage mngr configuration.
 
@@ -310,3 +322,39 @@ mngr config path [OPTIONS]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
+
+## See Also
+
+- [mngr create](../primary/create.md) - Create a new agent with configuration
+
+## Examples
+
+**List all configuration values**
+
+```bash
+$ mngr config list
+```
+
+**Get a specific value**
+
+```bash
+$ mngr config get provider.docker.image
+```
+
+**Set a value at user scope**
+
+```bash
+$ mngr config set --user provider.docker.image my-image:latest
+```
+
+**Edit config in your editor**
+
+```bash
+$ mngr config edit
+```
+
+**Show config file paths**
+
+```bash
+$ mngr config path
+```

@@ -224,7 +224,10 @@ class CreateCliOptions(CommonCliOptions):
     multiple=True,
     help='Run extra command in additional window. Use name="command" to set window name. Note: ALL_UPPERCASE names (e.g., FOO="bar") are treated as env var assignments, not window names',
 )
-@optgroup.option("--user", help="Override which user to run the agent as")
+@optgroup.option(
+    "--user",
+    help="Override which user to run the agent as [default: current user for local, provider-defined or root for remote]",
+)
 @optgroup.group("Host Options")
 @optgroup.option("--in", "--new-host", "new_host", help="Create a new host using provider (docker, modal, ...)")
 @optgroup.option("--host", "--target-host", help="Use an existing host (by name or ID) [default: local]")
@@ -262,7 +265,7 @@ class CreateCliOptions(CommonCliOptions):
     "--await-agent-stopped/--no-await-agent-stopped",
     "await_agent_stopped",
     default=None,
-    help="Wait until agent has completely finished running before exiting [default: no-await-agent-stopped]",
+    help="Wait until agent has completely finished running before exiting. Useful for testing and scripting. First waits for agent to become ready, then waits for it to stop. [default: no-await-agent-stopped]",
 )
 @optgroup.option(
     "--ensure-clean/--no-ensure-clean", default=True, show_default=True, help="Abort if working tree is dirty"
@@ -297,7 +300,11 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--rsync-args", help="Additional arguments to pass to rsync")
 @optgroup.group("Agent Git Configuration")
 @optgroup.option("--copy", "copy_source", is_flag=True, help="Copy source to isolated directory before running")
-@optgroup.option("--clone", is_flag=True, help="Create a git clone that just shares objects with original repo")
+@optgroup.option(
+    "--clone",
+    is_flag=True,
+    help="Create a git clone that shares objects with original repo (only works for local agents)",
+)
 @optgroup.option(
     "--worktree",
     is_flag=True,
@@ -412,7 +419,7 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option(
     "--edit-message",
     is_flag=True,
-    help="Open an editor to compose the initial message (uses $EDITOR)",
+    help="Open an editor to compose the initial message (uses $EDITOR). Editor runs in parallel with agent creation. If --message or --message-file is provided, their content is used as initial editor content.",
 )
 @optgroup.option(
     "--message-delay",
@@ -1338,6 +1345,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot]
     [--] [<AGENT_ARGS>...]""",
+    aliases=("c",),
     description="""Create a new agent and optionally connect to it.
 
 This command sets up an agent's working directory, optionally provisions a
@@ -1372,9 +1380,19 @@ the working directory is copied to the remote host.""",
         ("list", "List existing agents"),
         ("destroy", "Destroy agents"),
     ),
+    additional_sections=(
+        (
+            "Related Documentation",
+            """- [Limit Options](../secondary/limit.md) - Configure resource limits for agents
+- [Provision Options](../secondary/provision.md) - Configure host provisioning""",
+        ),
+    ),
 )
 
 register_help_metadata("create", _CREATE_HELP_METADATA)
+# Also register under alias for consistent help output
+for alias in _CREATE_HELP_METADATA.aliases:
+    register_help_metadata(alias, _CREATE_HELP_METADATA)
 
 # Add pager-enabled help option to the create command
 add_pager_help_option(create)

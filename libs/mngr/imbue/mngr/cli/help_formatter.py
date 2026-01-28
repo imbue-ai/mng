@@ -28,6 +28,7 @@ class CommandHelpMetadata(FrozenModel):
     one_line_description: str = Field(description="Brief one-line description of the command")
     synopsis: str = Field(description="Usage synopsis showing command patterns")
     description: str = Field(description="Detailed description of the command")
+    aliases: tuple[str, ...] = Field(default=(), description="Command aliases (e.g., ('c',) for 'create')")
     examples: tuple[tuple[str, str], ...] = Field(
         default=(), description="List of (description, command) example tuples"
     )
@@ -188,6 +189,9 @@ def _write_git_style_help(
     # NAME section
     output.write(f"{_format_section_title('Name')}\n")
     output.write(f"       {metadata.name} - {metadata.one_line_description}\n")
+    if metadata.aliases:
+        alias_str = ", ".join(metadata.aliases)
+        output.write(f"       Alias: {alias_str}\n")
     output.write("\n")
 
     # SYNOPSIS section

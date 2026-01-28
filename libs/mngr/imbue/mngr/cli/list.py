@@ -388,6 +388,7 @@ _LIST_HELP_METADATA = CommandHelpMetadata(
 
 Displays agents with their status, host information, and other metadata.
 Supports filtering, sorting, and multiple output formats.""",
+    aliases=("ls",),
     examples=(
         ("List all agents", "mngr list"),
         ("List only running agents", "mngr list --running"),
@@ -456,17 +457,38 @@ All agent fields from the "Available Fields" section can be used in filter expre
 **Host fields** (dot notation for both `--fields` and CEL filters):
 - `host.name` - Host name
 - `host.id` - Host ID
+- `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
 - `host.provider` - Host provider (local, docker, modal, etc.)
 - `host.state` - Current host state (running, stopped, building, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host
 - `host.boot_time` - When the host was last started
 - `host.uptime_seconds` - How long the host has been running
-- `host.resource.*` - Resource limits (cpu.count, memory_gb, disk_gb, gpu)
-- `host.ssh.*` - SSH access details (user, host, port, key_path, command)
+- `host.resource` - Resource limits for the host
+  - `host.resource.cpu.count` - Number of CPUs
+  - `host.resource.cpu.frequency_ghz` - CPU frequency in GHz
+  - `host.resource.memory_gb` - Memory in GB
+  - `host.resource.disk_gb` - Disk space in GB
+  - `host.resource.gpu.count` - Number of GPUs
+  - `host.resource.gpu.model` - GPU model name
+  - `host.resource.gpu.memory_gb` - GPU memory in GB
+- `host.ssh` - SSH access details (remote hosts only)
+  - `host.ssh.command` - Full SSH command to connect
+  - `host.ssh.host` - SSH hostname
+  - `host.ssh.port` - SSH port
+  - `host.ssh.user` - SSH username
+  - `host.ssh.key_path` - Path to SSH private key
 - `host.snapshots` - List of available snapshots
 - `host.plugin.$PLUGIN_NAME.*` - Host plugin fields (e.g., `host.plugin.aws.iam_user`)
+
+**Notes:**
+- You can use Python-style list slicing for list fields (e.g., `host.snapshots[0]` for the first snapshot, `host.snapshots[:3]` for the first 3)
 """,
+        ),
+        (
+            "Related Documentation",
+            """- [Multi-target Options](../generic/multi_target.md) - Behavior when some agents cannot be accessed
+- [Common Options](../generic/common.md) - Common CLI options for output format, logging, etc.""",
         ),
     ),
     see_also=(
@@ -486,6 +508,9 @@ All agent fields from the "Available Fields" section can be used in filter expre
 # - Support Python-style slicing like host.snapshots[:3] for first 3 items
 
 register_help_metadata("list", _LIST_HELP_METADATA)
+# Also register under alias for consistent help output
+for alias in _LIST_HELP_METADATA.aliases:
+    register_help_metadata(alias, _LIST_HELP_METADATA)
 
 # Add pager-enabled help option to the list command
 add_pager_help_option(list_command)

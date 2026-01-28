@@ -1,4 +1,16 @@
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
+
 # mngr message
+
+**Alias:** `msg`
+
+**Synopsis:**
+
+```text
+mngr message [AGENTS...] [--agent <AGENT>] [--all] [-m <MESSAGE>]
+```
+
 
 Send a message to one or more agents.
 
@@ -64,3 +76,44 @@ mngr message [OPTIONS] [AGENTS]...
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+### Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## Related Documentation
+
+- [Multi-target Options](../generic/multi_target.md) - Behavior when some agents fail to receive the message
+
+## See Also
+
+- [mngr connect](../primary/connect.md) - Connect to an agent interactively
+- [mngr list](../primary/list.md) - List available agents
+
+## Examples
+
+**Send a message to an agent**
+
+```bash
+$ mngr message my-agent --message "Hello"
+```
+
+**Send to multiple agents**
+
+```bash
+$ mngr message agent1 agent2 --message "Hello to all"
+```
+
+**Send to all agents**
+
+```bash
+$ mngr message --all --message "Hello everyone"
+```
+
+**Pipe message from stdin**
+
+```bash
+$ echo "Hello" | mngr message my-agent
+```

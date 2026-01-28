@@ -75,6 +75,10 @@ class DestroyCliOptions(CommonCliOptions):
     dry_run: bool
     gc: bool
     sessions: tuple[str, ...]
+    # Planned features (not yet implemented)
+    include: tuple[str, ...]
+    exclude: tuple[str, ...]
+    stdin: bool
 
 
 @click.command(name="destroy")
@@ -100,6 +104,21 @@ class DestroyCliOptions(CommonCliOptions):
     multiple=True,
     help="Tmux session name to destroy (can be specified multiple times). The agent name is extracted by "
     "stripping the configured prefix from the session name.",
+)
+@optgroup.option(
+    "--include",
+    multiple=True,
+    help="Filter agents to destroy by CEL expression (repeatable). [NOT YET IMPLEMENTED]",
+)
+@optgroup.option(
+    "--exclude",
+    multiple=True,
+    help="Exclude agents matching CEL expression from destruction (repeatable). [NOT YET IMPLEMENTED]",
+)
+@optgroup.option(
+    "--stdin",
+    is_flag=True,
+    help="Read agent names/IDs from stdin, one per line. [NOT YET IMPLEMENTED]",
 )
 @optgroup.group("Behavior")
 @optgroup.option(
@@ -145,6 +164,22 @@ def destroy(ctx: click.Context, **kwargs) -> None:
         command_class=DestroyCliOptions,
     )
     logger.debug("Running destroy command")
+
+    # Check for not-yet-implemented options
+    if opts.include:
+        raise NotImplementedError(
+            "The --include option is not yet implemented. "
+            "See https://github.com/imbue-ai/mngr/issues/XXX for progress."
+        )
+    if opts.exclude:
+        raise NotImplementedError(
+            "The --exclude option is not yet implemented. "
+            "See https://github.com/imbue-ai/mngr/issues/XXX for progress."
+        )
+    if opts.stdin:
+        raise NotImplementedError(
+            "The --stdin option is not yet implemented. See https://github.com/imbue-ai/mngr/issues/XXX for progress."
+        )
 
     # Validate input
     agent_identifiers = list(opts.agents) + list(opts.agent_list)
@@ -388,6 +423,7 @@ Use with caution! This operation is irreversible.
 By default, running agents cannot be destroyed. Use --force to stop and destroy
 running agents. The command will prompt for confirmation before destroying
 agents unless --force is specified.""",
+    aliases=("rm",),
     examples=(
         ("Destroy an agent by name", "mngr destroy my-agent"),
         ("Destroy multiple agents", "mngr destroy agent1 agent2 agent3"),
@@ -399,9 +435,19 @@ agents unless --force is specified.""",
         ("list", "List existing agents"),
         ("gc", "Garbage collect orphaned resources"),
     ),
+    additional_sections=(
+        (
+            "Related Documentation",
+            """- [Resource Cleanup Options](../generic/resource_cleanup.md) - Control which associated resources are destroyed
+- [Multi-target Options](../generic/multi_target.md) - Behavior when targeting multiple agents""",
+        ),
+    ),
 )
 
 register_help_metadata("destroy", _DESTROY_HELP_METADATA)
+# Also register under alias for consistent help output
+for alias in _DESTROY_HELP_METADATA.aliases:
+    register_help_metadata(alias, _DESTROY_HELP_METADATA)
 
 # Add pager-enabled help option to the destroy command
 add_pager_help_option(destroy)

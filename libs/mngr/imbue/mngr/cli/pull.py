@@ -45,6 +45,25 @@ class PullCliOptions(CommonCliOptions):
     delete: bool
     sync_mode: str
     exclude: tuple[str, ...]
+    # Planned features (not yet implemented)
+    target: str | None
+    target_agent: str | None
+    target_host: str | None
+    target_path: str | None
+    stdin: bool
+    include: tuple[str, ...]
+    include_gitignored: bool
+    include_file: str | None
+    exclude_file: str | None
+    rsync_arg: tuple[str, ...]
+    rsync_args: str | None
+    branch: tuple[str, ...]
+    all_branches: bool
+    tags: bool
+    force_git: bool
+    merge: bool
+    rebase: bool
+    uncommitted_source: str | None
 
 
 def _select_agent_for_pull(mngr_ctx: MngrContext) -> tuple[AgentInterface, HostInterface] | None:
@@ -132,6 +151,47 @@ def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
     multiple=True,
     help="Patterns to exclude from sync [repeatable]",
 )
+@optgroup.group("Target (for agent-to-agent sync)")
+@optgroup.option(
+    "--target", help="Target specification: AGENT, AGENT.HOST, AGENT.HOST:PATH, or HOST:PATH [NOT YET IMPLEMENTED]"
+)
+@optgroup.option("--target-agent", help="Target agent name or ID [NOT YET IMPLEMENTED]")
+@optgroup.option("--target-host", help="Target host name or ID [NOT YET IMPLEMENTED]")
+@optgroup.option("--target-path", help="Path within target to sync to [NOT YET IMPLEMENTED]")
+@optgroup.group("Multi-source")
+@optgroup.option(
+    "--stdin", is_flag=True, help="Read source agents/hosts from stdin, one per line [NOT YET IMPLEMENTED]"
+)
+@optgroup.group("File Filtering")
+@optgroup.option(
+    "--include", multiple=True, help="Include files matching glob pattern [repeatable] [NOT YET IMPLEMENTED]"
+)
+@optgroup.option(
+    "--include-gitignored", is_flag=True, help="Include files that match .gitignore patterns [NOT YET IMPLEMENTED]"
+)
+@optgroup.option("--include-file", type=click.Path(), help="Read include patterns from file [NOT YET IMPLEMENTED]")
+@optgroup.option("--exclude-file", type=click.Path(), help="Read exclude patterns from file [NOT YET IMPLEMENTED]")
+@optgroup.group("Rsync Options")
+@optgroup.option(
+    "--rsync-arg", multiple=True, help="Additional argument to pass to rsync [repeatable] [NOT YET IMPLEMENTED]"
+)
+@optgroup.option(
+    "--rsync-args", help="Additional arguments to pass to rsync (as a single string) [NOT YET IMPLEMENTED]"
+)
+@optgroup.group("Git Sync Options")
+@optgroup.option("--branch", multiple=True, help="Pull a specific branch [repeatable] [NOT YET IMPLEMENTED]")
+@optgroup.option("--all-branches", is_flag=True, help="Pull all remote branches [NOT YET IMPLEMENTED]")
+@optgroup.option("--tags", is_flag=True, help="Include git tags in sync [NOT YET IMPLEMENTED]")
+@optgroup.option(
+    "--force-git", is_flag=True, help="Force overwrite local git state (use with caution) [NOT YET IMPLEMENTED]"
+)
+@optgroup.option("--merge", is_flag=True, help="Merge remote changes with local changes [NOT YET IMPLEMENTED]")
+@optgroup.option("--rebase", is_flag=True, help="Rebase local changes onto remote changes [NOT YET IMPLEMENTED]")
+@optgroup.option(
+    "--uncommitted-source",
+    type=click.Choice(["warn", "error"], case_sensitive=False),
+    help="Warn or error if source has uncommitted changes [NOT YET IMPLEMENTED]",
+)
 @add_common_options
 @click.pass_context
 def pull(ctx: click.Context, **kwargs) -> None:
@@ -165,6 +225,52 @@ def pull(ctx: click.Context, **kwargs) -> None:
 
     if opts.source_host is not None:
         raise NotImplementedError("--source-host is not implemented yet (only local agents are supported)")
+
+    # Planned features - target options (for agent-to-agent sync)
+    if opts.target is not None:
+        raise NotImplementedError("--target is not implemented yet (agent-to-agent sync is planned)")
+    if opts.target_agent is not None:
+        raise NotImplementedError("--target-agent is not implemented yet (agent-to-agent sync is planned)")
+    if opts.target_host is not None:
+        raise NotImplementedError("--target-host is not implemented yet (agent-to-agent sync is planned)")
+    if opts.target_path is not None:
+        raise NotImplementedError("--target-path is not implemented yet (agent-to-agent sync is planned)")
+
+    # Planned features - multi-source
+    if opts.stdin:
+        raise NotImplementedError("--stdin is not implemented yet")
+
+    # Planned features - file filtering
+    if opts.include:
+        raise NotImplementedError("--include is not implemented yet")
+    if opts.include_gitignored:
+        raise NotImplementedError("--include-gitignored is not implemented yet")
+    if opts.include_file is not None:
+        raise NotImplementedError("--include-file is not implemented yet")
+    if opts.exclude_file is not None:
+        raise NotImplementedError("--exclude-file is not implemented yet")
+
+    # Planned features - rsync options
+    if opts.rsync_arg:
+        raise NotImplementedError("--rsync-arg is not implemented yet")
+    if opts.rsync_args is not None:
+        raise NotImplementedError("--rsync-args is not implemented yet")
+
+    # Planned features - git sync options
+    if opts.branch:
+        raise NotImplementedError("--branch is not implemented yet (git sync is planned)")
+    if opts.all_branches:
+        raise NotImplementedError("--all-branches is not implemented yet (git sync is planned)")
+    if opts.tags:
+        raise NotImplementedError("--tags is not implemented yet (git sync is planned)")
+    if opts.force_git:
+        raise NotImplementedError("--force-git is not implemented yet (git sync is planned)")
+    if opts.merge:
+        raise NotImplementedError("--merge is not implemented yet (git sync is planned)")
+    if opts.rebase:
+        raise NotImplementedError("--rebase is not implemented yet (git sync is planned)")
+    if opts.uncommitted_source is not None:
+        raise NotImplementedError("--uncommitted-source is not implemented yet (git sync is planned)")
 
     # Parse source specification
     agent_identifier: str | None = None

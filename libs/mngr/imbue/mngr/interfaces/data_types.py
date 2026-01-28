@@ -270,6 +270,10 @@ class HostInfo(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
 
     # Extended fields (all optional for backwards compatibility)
+    host: str | None = Field(
+        default=None,
+        description="Hostname where the host is running (ssh.host for remote, localhost for local)",
+    )
     state: str | None = Field(default=None, description="Current host state (running, stopped, etc.)")
     image: str | None = Field(default=None, description="Host image (Docker image name, Modal image ID, etc.)")
     tags: dict[str, str] = Field(default_factory=dict, description="Metadata tags for the host")

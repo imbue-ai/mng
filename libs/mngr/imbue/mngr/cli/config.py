@@ -17,6 +17,8 @@ from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import OutputOptions
@@ -822,3 +824,35 @@ def _emit_all_paths(paths: list[dict[str, Any]], output_opts: OutputOptions) -> 
                     logger.info("{}: {}", scope, error)
         case _ as unreachable:
             assert_never(unreachable)
+
+
+# Register help metadata for git-style help formatting
+_CONFIG_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-config",
+    one_line_description="Manage mngr configuration",
+    synopsis="mngr config <subcommand> [OPTIONS]",
+    description="""Manage mngr configuration.
+
+View, edit, and modify mngr configuration settings at the user, project, or
+local level. Much like a simpler version of `git config`, this command allows
+you to manage configuration settings at different scopes.
+
+Configuration is stored in TOML files:
+- User: ~/.mngr/settings.toml
+- Project: .mngr/settings.toml (in your git root)
+- Local: .mngr/settings.local.toml (git-ignored, for local overrides)""",
+    aliases=("cfg",),
+    examples=(
+        ("List all configuration values", "mngr config list"),
+        ("Get a specific value", "mngr config get provider.docker.image"),
+        ("Set a value at user scope", "mngr config set --user provider.docker.image my-image:latest"),
+        ("Edit config in your editor", "mngr config edit"),
+        ("Show config file paths", "mngr config path"),
+    ),
+    see_also=(("create", "Create a new agent with configuration"),),
+)
+
+register_help_metadata("config", _CONFIG_HELP_METADATA)
+# Also register under alias for consistent help output
+for alias in _CONFIG_HELP_METADATA.aliases:
+    register_help_metadata(alias, _CONFIG_HELP_METADATA)

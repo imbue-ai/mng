@@ -486,6 +486,7 @@ by name.
 The agent can be specified as a positional argument or via --agent:
   mngr connect my-agent
   mngr connect --agent my-agent""",
+    aliases=("conn",),
     examples=(
         ("Connect to an agent by name", "mngr connect my-agent"),
         ("Connect without auto-starting if stopped", "mngr connect my-agent --no-start"),
@@ -498,6 +499,9 @@ The agent can be specified as a positional argument or via --agent:
 )
 
 register_help_metadata("connect", _CONNECT_HELP_METADATA)
+# Also register under alias for consistent help output
+for alias in _CONNECT_HELP_METADATA.aliases:
+    register_help_metadata(alias, _CONNECT_HELP_METADATA)
 
 # Add pager-enabled help option to the connect command
 add_pager_help_option(connect)

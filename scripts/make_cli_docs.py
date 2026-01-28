@@ -77,7 +77,9 @@ def _format_option_default(option: click.Option) -> str:
     return f"`{option.default}`"
 
 
-def _collect_options_by_group(command: click.Command) -> dict[str | None, list[click.Option]]:
+def _collect_options_by_group(
+    command: click.Command,
+) -> dict[str | None, list[click.Option]]:
     """Collect command options organized by their option group."""
     options_by_group: dict[str | None, list[click.Option]] = {}
 
@@ -97,7 +99,9 @@ def _collect_options_by_group(command: click.Command) -> dict[str | None, list[c
     return options_by_group
 
 
-def _order_option_groups(options_by_group: dict[str | None, list[click.Option]]) -> list[str | None]:
+def _order_option_groups(
+    options_by_group: dict[str | None, list[click.Option]],
+) -> list[str | None]:
     """Order option groups: named groups first, Common last, ungrouped at the end."""
     group_names = list(options_by_group.keys())
     ordered: list[str | None] = []
@@ -168,6 +172,16 @@ def generate_grouped_options_markdown(command: click.Command) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+def format_alias(command_name: str) -> str:
+    """Format alias line from CommandHelpMetadata if available."""
+    metadata = get_help_metadata(command_name)
+    if metadata is None or not metadata.aliases:
+        return ""
+
+    alias_str = ", ".join(f"`{a}`" for a in metadata.aliases)
+    return f"\n**Alias:** {alias_str}\n"
 
 
 def format_synopsis(command_name: str) -> str:
@@ -378,14 +392,17 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
     content = "\n".join(content_parts)
     content = fix_sentinel_defaults(content)
 
-    # Insert synopsis after the title line (first line starting with #)
+    # Insert alias and synopsis after the title line (first line starting with #)
+    alias_line = format_alias(command_name)
     synopsis = format_synopsis(command_name)
-    if synopsis:
+    if alias_line or synopsis:
         content_lines = content.split("\n")
-        # Find the title line and insert synopsis after it
+        # Find the title line and insert alias/synopsis after it
         for i, line in enumerate(content_lines):
             if line.startswith("# "):
-                content_lines.insert(i + 1, synopsis)
+                # Insert in order: alias first, then synopsis
+                insert_content = alias_line + synopsis
+                content_lines.insert(i + 1, insert_content)
                 break
         content = "\n".join(content_lines)
 
@@ -393,6 +410,13 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
     content += format_additional_sections(command_name)
     content += format_see_also_section(command_name)
     content += format_examples(command_name)
+
+    # Add generation comment at the top
+    generation_comment = (
+        "<!-- This file is auto-generated. Do not edit directly. -->\n"
+        "<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->\n\n"
+    )
+    content = generation_comment + content
 
     # Write to file
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -1,3 +1,6 @@
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
+
 # mngr gc
 
 **Synopsis:**

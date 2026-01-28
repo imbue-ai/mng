@@ -191,9 +191,11 @@ def list_agents(
 
                 # Build SSH info if this is a remote host
                 ssh_info: SSHInfo | None = None
+                host_hostname: str = "localhost"  # Default for local hosts
                 ssh_connection = host._get_ssh_connection_info()
                 if ssh_connection is not None:
                     user, hostname, port, key_path = ssh_connection
+                    host_hostname = hostname
                     ssh_info = SSHInfo(
                         user=user,
                         host=hostname,
@@ -206,6 +208,7 @@ def list_agents(
                     id=host.id,
                     name=host.connector.name,
                     provider_name=host_ref.provider_name,
+                    host=host_hostname,
                     state=host.get_state().value.lower(),
                     image=host.get_image(),
                     tags=host.get_tags(),

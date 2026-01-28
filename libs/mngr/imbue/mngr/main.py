@@ -21,8 +21,60 @@ from imbue.mngr.providers.registry import load_all_registries
 # Using a dict avoids the need for the 'global' keyword while still allowing module-level state.
 _plugin_manager_container: dict[str, pluggy.PluginManager | None] = {"pm": None}
 
+# Command aliases - maps canonical command names to their aliases
+# This is used by the help formatter to display aliases
+COMMAND_ALIASES: dict[str, list[str]] = {
+    "create": ["c"],
+    "config": ["cfg"],
+    "destroy": ["rm"],
+    "message": ["msg"],
+    "list": ["ls"],
+    "connect": ["conn"],
+}
 
-@click.group()
+# Build reverse mapping: alias -> canonical name
+_ALIAS_TO_CANONICAL: dict[str, str] = {}
+for canonical, aliases in COMMAND_ALIASES.items():
+    for alias in aliases:
+        _ALIAS_TO_CANONICAL[alias] = canonical
+
+
+class AliasAwareGroup(click.Group):
+    """Custom click.Group that shows aliases inline with commands in --help."""
+
+    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        """Write the command list with aliases shown inline."""
+        commands: list[tuple[str, click.Command]] = []
+        for subcommand in self.list_commands(ctx):
+            cmd = self.get_command(ctx, subcommand)
+            if cmd is None or cmd.hidden:
+                continue
+            # Skip alias entries - we'll show them with the main command
+            if subcommand in _ALIAS_TO_CANONICAL:
+                continue
+            commands.append((subcommand, cmd))
+
+        if not commands:
+            return
+
+        # Calculate max width for alignment
+        limit = formatter.width - 6 - max(len(cmd[0]) for cmd in commands)
+
+        rows: list[tuple[str, str]] = []
+        for subcommand, cmd in commands:
+            help_text = cmd.get_short_help_str(limit=limit)
+            # Add aliases if this command has them
+            aliases = COMMAND_ALIASES.get(subcommand, [])
+            if aliases:
+                subcommand = ", ".join([subcommand] + aliases)
+            rows.append((subcommand, help_text))
+
+        if rows:
+            with formatter.section("Commands"):
+                formatter.write_dl(rows)
+
+
+@click.command(cls=AliasAwareGroup)
 @click.version_option(prog_name="mngr", message="%(prog)s %(version)s")
 @click.pass_context
 def cli(ctx: click.Context) -> None:
@@ -164,6 +216,7 @@ for cmd in BUILTIN_COMMANDS:
 # Add command aliases
 cli.add_command(create, name="c")
 cli.add_command(config, name="cfg")
+cli.add_command(destroy, name="rm")
 cli.add_command(message, name="msg")
 cli.add_command(list_command, name="ls")
 cli.add_command(connect, name="conn")

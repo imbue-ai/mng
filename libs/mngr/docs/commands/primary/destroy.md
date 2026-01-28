@@ -1,4 +1,9 @@
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
+
 # mngr destroy
+
+**Alias:** `rm`
 
 **Synopsis:**
 
@@ -38,6 +43,9 @@ mngr destroy [OPTIONS] [AGENTS]...
 | `--agent` | text | Agent name or ID to destroy (can be specified multiple times) | None |
 | `-a`, `--all`, `--all-agents` | boolean | Destroy all agents | `False` |
 | `--session` | text | Tmux session name to destroy (can be specified multiple times). The agent name is extracted by stripping the configured prefix from the session name. | None |
+| `--include` | text | Filter agents to destroy by CEL expression (repeatable). [NOT YET IMPLEMENTED] | None |
+| `--exclude` | text | Exclude agents matching CEL expression from destruction (repeatable). [NOT YET IMPLEMENTED] | None |
+| `--stdin` | boolean | Read agent names/IDs from stdin, one per line. [NOT YET IMPLEMENTED] | `False` |
 
 ### Behavior
 
@@ -67,6 +75,11 @@ mngr destroy [OPTIONS] [AGENTS]...
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## Related Documentation
+
+- [Resource Cleanup Options](../generic/resource_cleanup.md) - Control which associated resources are destroyed
+- [Multi-target Options](../generic/multi_target.md) - Behavior when targeting multiple agents
 
 ## See Also
 

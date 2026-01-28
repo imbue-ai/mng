@@ -31,3 +31,9 @@ def test_msg_alias_exists() -> None:
     """The 'msg' command should be an alias for 'message'."""
     assert "msg" in cli.commands
     assert cli.commands["msg"] is cli.commands["message"]
+
+
+def test_rm_alias_exists() -> None:
+    """The 'rm' command should be an alias for 'destroy'."""
+    assert "rm" in cli.commands
+    assert cli.commands["rm"] is cli.commands["destroy"]
