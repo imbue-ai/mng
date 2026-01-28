@@ -52,13 +52,12 @@ class UncommittedChangesError(MngrError):
 
 
 def _has_uncommitted_changes(destination: Path) -> bool:
-    """Check if the destination directory has uncommitted git changes."""
-    # Check if destination is a git repo
-    git_dir = destination / ".git"
-    if not git_dir.exists():
-        return False
+    """Check if the destination directory has uncommitted git changes.
 
-    # Check for uncommitted changes using git status
+    Works correctly even when destination is a subdirectory within a git repository.
+    """
+    # Run git status to check for uncommitted changes
+    # This works from any subdirectory within a git worktree
     result = subprocess.run(
         ["git", "status", "--porcelain"],
         cwd=destination,
@@ -66,7 +65,7 @@ def _has_uncommitted_changes(destination: Path) -> bool:
         text=True,
     )
     if result.returncode != 0:
-        # If git status fails, assume no changes (not a git repo or other issue)
+        # If git status fails, assume no changes (not inside a git repo)
         return False
 
     # If output is non-empty, there are changes
@@ -120,10 +119,10 @@ def pull_files(
     logger.debug("Pulling files from {} to {}", actual_source_path, destination)
 
     # Handle uncommitted changes in the destination
-    has_changes = _has_uncommitted_changes(destination)
+    is_uncommitted = _has_uncommitted_changes(destination)
     did_stash = False
 
-    if has_changes:
+    if is_uncommitted:
         match uncommitted_changes:
             case UncommittedChangesMode.FAIL:
                 raise UncommittedChangesError(destination)

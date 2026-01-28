@@ -1,6 +1,7 @@
 """Unit tests for pull API functions."""
 
 from pathlib import Path
+from typing import Generator
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -12,6 +13,62 @@ from imbue.mngr.api.pull import _parse_rsync_output
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import UncommittedChangesMode
+
+
+# Standard rsync output used across tests
+RSYNC_SUCCESS_OUTPUT = "sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000"
+
+
+@pytest.fixture
+def mock_agent() -> MagicMock:
+    """Create a mock agent with a standard work_dir."""
+    agent = MagicMock()
+    agent.work_dir = Path("/agent/work")
+    return agent
+
+
+@pytest.fixture
+def mock_host_success() -> MagicMock:
+    """Create a mock host that returns successful rsync output."""
+    host = MagicMock()
+    host.execute_command.return_value = MagicMock(
+        success=True,
+        stdout=RSYNC_SUCCESS_OUTPUT,
+        stderr="",
+    )
+    return host
+
+
+@pytest.fixture
+def mock_host_failure() -> MagicMock:
+    """Create a mock host that returns failed rsync output."""
+    host = MagicMock()
+    host.execute_command.return_value = MagicMock(
+        success=False,
+        stdout="",
+        stderr="rsync: connection refused",
+    )
+    return host
+
+
+@pytest.fixture(autouse=True)
+def patch_no_uncommitted_changes() -> Generator[MagicMock, None, None]:
+    """Patch _has_uncommitted_changes to return False by default.
+
+    This prevents tests from actually running git status on test paths.
+    Tests that need uncommitted changes behavior should use patch_has_uncommitted_changes.
+    """
+    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=False) as mock:
+        yield mock
+
+
+@pytest.fixture
+def patch_has_uncommitted_changes(
+    patch_no_uncommitted_changes: MagicMock,
+) -> Generator[MagicMock, None, None]:
+    """Override the autouse fixture to return True for uncommitted changes."""
+    patch_no_uncommitted_changes.return_value = True
+    yield patch_no_uncommitted_changes
 
 
 def test_parse_rsync_output_with_files() -> None:
@@ -82,7 +139,6 @@ sent 5,000 bytes  received 200 bytes  5,200.00 bytes/sec
 total size is 15,000  speedup is 2.88
 """
     files, bytes_transferred = _parse_rsync_output(output)
-    # src/, src/main.py, src/utils.py, tests/, tests/test_main.py = 5 entries
     assert files == 5
     assert bytes_transferred == 5000
 
@@ -175,130 +231,93 @@ def test_parse_rsync_output_whitespace_only() -> None:
     assert bytes_transferred == 0
 
 
-def test_pull_files_uses_agent_work_dir_as_default_source() -> None:
+def test_pull_files_uses_agent_work_dir_as_default_source(
+    mock_agent: MagicMock,
+    mock_host_success: MagicMock,
+) -> None:
     """Test that pull_files uses agent work_dir when source_path is None."""
-    mock_agent = MagicMock()
     mock_agent.work_dir = Path("/agent/work/dir")
-
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=True,
-        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
-        stderr="",
-    )
 
     result = pull_files(
         agent=mock_agent,
-        host=mock_host,
+        host=mock_host_success,
         destination=Path("/local/dest"),
         source_path=None,
         dry_run=False,
         delete=False,
     )
 
-    # Verify the rsync command was called with agent's work_dir
-    call_args = mock_host.execute_command.call_args[0][0]
+    call_args = mock_host_success.execute_command.call_args[0][0]
     assert "/agent/work/dir/" in call_args
     assert result.source_path == Path("/agent/work/dir")
 
 
-def test_pull_files_uses_provided_source_path() -> None:
+def test_pull_files_uses_provided_source_path(
+    mock_agent: MagicMock,
+    mock_host_success: MagicMock,
+) -> None:
     """Test that pull_files uses provided source_path when given."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work/dir")
-
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=True,
-        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
-        stderr="",
-    )
-
     custom_source = Path("/custom/source/path")
     result = pull_files(
         agent=mock_agent,
-        host=mock_host,
+        host=mock_host_success,
         destination=Path("/local/dest"),
         source_path=custom_source,
         dry_run=False,
         delete=False,
     )
 
-    # Verify the rsync command was called with custom source path
-    call_args = mock_host.execute_command.call_args[0][0]
+    call_args = mock_host_success.execute_command.call_args[0][0]
     assert "/custom/source/path/" in call_args
     assert result.source_path == custom_source
 
 
-def test_pull_files_with_dry_run_flag() -> None:
+def test_pull_files_with_dry_run_flag(
+    mock_agent: MagicMock,
+    mock_host_success: MagicMock,
+) -> None:
     """Test that pull_files adds --dry-run flag when dry_run=True."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work/dir")
-
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=True,
-        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000 (DRY RUN)",
-        stderr="",
-    )
-
     result = pull_files(
         agent=mock_agent,
-        host=mock_host,
+        host=mock_host_success,
         destination=Path("/local/dest"),
         source_path=None,
         dry_run=True,
         delete=False,
     )
 
-    # Verify the rsync command includes --dry-run
-    call_args = mock_host.execute_command.call_args[0][0]
+    call_args = mock_host_success.execute_command.call_args[0][0]
     assert "--dry-run" in call_args
     assert result.is_dry_run is True
 
 
-def test_pull_files_with_delete_flag() -> None:
+def test_pull_files_with_delete_flag(
+    mock_agent: MagicMock,
+    mock_host_success: MagicMock,
+) -> None:
     """Test that pull_files adds --delete flag when delete=True."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work/dir")
-
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=True,
-        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
-        stderr="",
-    )
-
     pull_files(
         agent=mock_agent,
-        host=mock_host,
+        host=mock_host_success,
         destination=Path("/local/dest"),
         source_path=None,
         dry_run=False,
         delete=True,
     )
 
-    # Verify the rsync command includes --delete
-    call_args = mock_host.execute_command.call_args[0][0]
+    call_args = mock_host_success.execute_command.call_args[0][0]
     assert "--delete" in call_args
 
 
-def test_pull_files_raises_on_rsync_failure() -> None:
+def test_pull_files_raises_on_rsync_failure(
+    mock_agent: MagicMock,
+    mock_host_failure: MagicMock,
+) -> None:
     """Test that pull_files raises MngrError when rsync fails."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work/dir")
-
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=False,
-        stdout="",
-        stderr="rsync: connection refused",
-    )
-
     with pytest.raises(MngrError, match="rsync failed"):
         pull_files(
             agent=mock_agent,
-            host=mock_host,
+            host=mock_host_failure,
             destination=Path("/local/dest"),
             source_path=None,
             dry_run=False,
@@ -306,29 +325,23 @@ def test_pull_files_raises_on_rsync_failure() -> None:
         )
 
 
-def test_pull_files_rsync_command_format() -> None:
+def test_pull_files_rsync_command_format(
+    mock_agent: MagicMock,
+    mock_host_success: MagicMock,
+) -> None:
     """Test that pull_files builds the correct rsync command format."""
-    mock_agent = MagicMock()
     mock_agent.work_dir = Path("/src")
-
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=True,
-        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
-        stderr="",
-    )
 
     pull_files(
         agent=mock_agent,
-        host=mock_host,
+        host=mock_host_success,
         destination=Path("/dst"),
         source_path=None,
         dry_run=False,
         delete=False,
     )
 
-    # Verify rsync command structure
-    call_args = mock_host.execute_command.call_args[0][0]
+    call_args = mock_host_success.execute_command.call_args[0][0]
     assert call_args.startswith("rsync")
     assert "-avz" in call_args
     assert "--progress" in call_args
@@ -336,9 +349,10 @@ def test_pull_files_rsync_command_format() -> None:
     assert "/dst" in call_args
 
 
-def test_pull_files_returns_correct_result_with_file_count() -> None:
+def test_pull_files_returns_correct_result_with_file_count(
+    mock_agent: MagicMock,
+) -> None:
     """Test that pull_files returns the correct result with file count from rsync output."""
-    mock_agent = MagicMock()
     mock_agent.work_dir = Path("/agent/work/dir")
 
     mock_host = MagicMock()
@@ -371,83 +385,59 @@ total size is 15,000  speedup is 2.88
     assert result.is_dry_run is False
 
 
-def test_pull_files_with_all_flags() -> None:
+def test_pull_files_with_all_flags(
+    mock_agent: MagicMock,
+    mock_host_success: MagicMock,
+) -> None:
     """Test that pull_files works with both dry_run and delete flags."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work")
-
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=True,
-        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000 (DRY RUN)",
-        stderr="",
-    )
-
     result = pull_files(
         agent=mock_agent,
-        host=mock_host,
+        host=mock_host_success,
         destination=Path("/dest"),
         source_path=None,
         dry_run=True,
         delete=True,
     )
 
-    # Verify the rsync command includes both flags
-    call_args = mock_host.execute_command.call_args[0][0]
+    call_args = mock_host_success.execute_command.call_args[0][0]
     assert "--dry-run" in call_args
     assert "--delete" in call_args
     assert result.is_dry_run is True
 
 
-def test_pull_files_excludes_git_directory() -> None:
+def test_pull_files_excludes_git_directory(
+    mock_agent: MagicMock,
+    mock_host_success: MagicMock,
+) -> None:
     """Test that pull_files excludes .git directory from rsync."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work")
-
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=True,
-        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
-        stderr="",
-    )
-
     pull_files(
         agent=mock_agent,
-        host=mock_host,
+        host=mock_host_success,
         destination=Path("/dest"),
         source_path=None,
         dry_run=False,
         delete=False,
     )
 
-    # Verify the rsync command includes --exclude=.git
-    call_args = mock_host.execute_command.call_args[0][0]
+    call_args = mock_host_success.execute_command.call_args[0][0]
     assert "--exclude=.git" in call_args
 
 
-def test_pull_files_with_clobber_mode_ignores_uncommitted_changes() -> None:
+def test_pull_files_with_clobber_mode_ignores_uncommitted_changes(
+    mock_agent: MagicMock,
+    mock_host_success: MagicMock,
+    patch_has_uncommitted_changes: MagicMock,
+) -> None:
     """Test that clobber mode proceeds even when uncommitted changes exist."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work")
-
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=True,
-        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
-        stderr="",
+    result = pull_files(
+        agent=mock_agent,
+        host=mock_host_success,
+        destination=Path("/dest"),
+        source_path=None,
+        dry_run=False,
+        delete=False,
+        uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
-
-    # Mock _has_uncommitted_changes to return True
-    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=True):
-        result = pull_files(
-            agent=mock_agent,
-            host=mock_host,
-            destination=Path("/dest"),
-            source_path=None,
-            dry_run=False,
-            delete=False,
-            uncommitted_changes=UncommittedChangesMode.CLOBBER,
-        )
 
     assert result.files_transferred == 0
     assert result.bytes_transferred == 100
@@ -462,22 +452,15 @@ def test_uncommitted_changes_error_has_user_help_text() -> None:
     assert error.destination == Path("/some/path")
 
 
-def test_pull_files_default_uncommitted_changes_mode_is_fail() -> None:
+def test_pull_files_default_uncommitted_changes_mode_is_fail(
+    mock_agent: MagicMock,
+    mock_host_success: MagicMock,
+) -> None:
     """Test that the default uncommitted changes mode is FAIL."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work")
-
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=True,
-        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
-        stderr="",
-    )
-
-    # When there are no uncommitted changes (no .git directory), FAIL mode should succeed
+    # When there are no uncommitted changes, FAIL mode should succeed
     result = pull_files(
         agent=mock_agent,
-        host=mock_host,
+        host=mock_host_success,
         destination=Path("/nonexistent/dest"),
         source_path=None,
         dry_run=False,
@@ -487,85 +470,84 @@ def test_pull_files_default_uncommitted_changes_mode_is_fail() -> None:
     assert result.files_transferred == 0
 
 
-def test_pull_files_fail_mode_raises_when_uncommitted_changes_exist() -> None:
+def test_pull_files_fail_mode_raises_when_uncommitted_changes_exist(
+    mock_agent: MagicMock,
+    mock_host_success: MagicMock,
+    patch_has_uncommitted_changes: MagicMock,
+) -> None:
     """Test that FAIL mode raises UncommittedChangesError when uncommitted changes exist."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work")
-
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=True,
-        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
-        stderr="",
-    )
-
-    # Mock _has_uncommitted_changes to return True
-    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=True):
-        with pytest.raises(UncommittedChangesError) as exc_info:
-            pull_files(
-                agent=mock_agent,
-                host=mock_host,
-                destination=Path("/dest"),
-                source_path=None,
-                dry_run=False,
-                delete=False,
-                uncommitted_changes=UncommittedChangesMode.FAIL,
-            )
+    with pytest.raises(UncommittedChangesError) as exc_info:
+        pull_files(
+            agent=mock_agent,
+            host=mock_host_success,
+            destination=Path("/dest"),
+            source_path=None,
+            dry_run=False,
+            delete=False,
+            uncommitted_changes=UncommittedChangesMode.FAIL,
+        )
 
     assert exc_info.value.destination == Path("/dest")
 
 
-def test_pull_files_stash_mode_stashes_and_leaves_stashed() -> None:
+def test_pull_files_stash_mode_stashes_and_leaves_stashed(
+    mock_agent: MagicMock,
+    mock_host_success: MagicMock,
+    patch_has_uncommitted_changes: MagicMock,
+) -> None:
     """Test that STASH mode stashes changes and leaves them stashed after pull."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work")
+    with patch("imbue.mngr.api.pull._git_stash", return_value=True) as mock_stash:
+        with patch("imbue.mngr.api.pull._git_stash_pop") as mock_pop:
+            result = pull_files(
+                agent=mock_agent,
+                host=mock_host_success,
+                destination=Path("/dest"),
+                source_path=None,
+                dry_run=False,
+                delete=False,
+                uncommitted_changes=UncommittedChangesMode.STASH,
+            )
 
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=True,
-        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
-        stderr="",
-    )
-
-    # Mock the git helper functions
-    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=True):
-        with patch("imbue.mngr.api.pull._git_stash", return_value=True) as mock_stash:
-            with patch("imbue.mngr.api.pull._git_stash_pop") as mock_pop:
-                result = pull_files(
-                    agent=mock_agent,
-                    host=mock_host,
-                    destination=Path("/dest"),
-                    source_path=None,
-                    dry_run=False,
-                    delete=False,
-                    uncommitted_changes=UncommittedChangesMode.STASH,
-                )
-
-    # Verify stash was called but pop was NOT called (changes remain stashed)
     mock_stash.assert_called_once_with(Path("/dest"))
     mock_pop.assert_not_called()
     assert result.files_transferred == 0
 
 
-def test_pull_files_merge_mode_stashes_and_restores() -> None:
+def test_pull_files_merge_mode_stashes_and_restores(
+    mock_agent: MagicMock,
+    mock_host_success: MagicMock,
+    patch_has_uncommitted_changes: MagicMock,
+) -> None:
     """Test that MERGE mode stashes changes before pull and restores them after."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work")
+    with patch("imbue.mngr.api.pull._git_stash", return_value=True) as mock_stash:
+        with patch("imbue.mngr.api.pull._git_stash_pop") as mock_pop:
+            result = pull_files(
+                agent=mock_agent,
+                host=mock_host_success,
+                destination=Path("/dest"),
+                source_path=None,
+                dry_run=False,
+                delete=False,
+                uncommitted_changes=UncommittedChangesMode.MERGE,
+            )
 
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=True,
-        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
-        stderr="",
-    )
+    mock_stash.assert_called_once_with(Path("/dest"))
+    mock_pop.assert_called_once_with(Path("/dest"))
+    assert result.files_transferred == 0
 
-    # Mock the git helper functions
-    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=True):
-        with patch("imbue.mngr.api.pull._git_stash", return_value=True) as mock_stash:
-            with patch("imbue.mngr.api.pull._git_stash_pop") as mock_pop:
-                result = pull_files(
+
+def test_pull_files_merge_mode_restores_stash_on_rsync_failure(
+    mock_agent: MagicMock,
+    mock_host_failure: MagicMock,
+    patch_has_uncommitted_changes: MagicMock,
+) -> None:
+    """Test that MERGE mode attempts to restore stash when rsync fails."""
+    with patch("imbue.mngr.api.pull._git_stash", return_value=True) as mock_stash:
+        with patch("imbue.mngr.api.pull._git_stash_pop") as mock_pop:
+            with pytest.raises(MngrError, match="rsync failed"):
+                pull_files(
                     agent=mock_agent,
-                    host=mock_host,
+                    host=mock_host_failure,
                     destination=Path("/dest"),
                     source_path=None,
                     dry_run=False,
@@ -573,71 +555,28 @@ def test_pull_files_merge_mode_stashes_and_restores() -> None:
                     uncommitted_changes=UncommittedChangesMode.MERGE,
                 )
 
-    # Verify both stash and pop were called
-    mock_stash.assert_called_once_with(Path("/dest"))
-    mock_pop.assert_called_once_with(Path("/dest"))
-    assert result.files_transferred == 0
-
-
-def test_pull_files_merge_mode_restores_stash_on_rsync_failure() -> None:
-    """Test that MERGE mode attempts to restore stash when rsync fails."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work")
-
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=False,
-        stdout="",
-        stderr="rsync: connection refused",
-    )
-
-    # Mock the git helper functions
-    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=True):
-        with patch("imbue.mngr.api.pull._git_stash", return_value=True) as mock_stash:
-            with patch("imbue.mngr.api.pull._git_stash_pop") as mock_pop:
-                with pytest.raises(MngrError, match="rsync failed"):
-                    pull_files(
-                        agent=mock_agent,
-                        host=mock_host,
-                        destination=Path("/dest"),
-                        source_path=None,
-                        dry_run=False,
-                        delete=False,
-                        uncommitted_changes=UncommittedChangesMode.MERGE,
-                    )
-
-    # Verify stash was called and pop was attempted even on failure
     mock_stash.assert_called_once_with(Path("/dest"))
     mock_pop.assert_called_once_with(Path("/dest"))
 
 
-def test_pull_files_stash_mode_does_not_restore_on_rsync_failure() -> None:
+def test_pull_files_stash_mode_does_not_restore_on_rsync_failure(
+    mock_agent: MagicMock,
+    mock_host_failure: MagicMock,
+    patch_has_uncommitted_changes: MagicMock,
+) -> None:
     """Test that STASH mode does NOT restore stash when rsync fails (leaves stashed)."""
-    mock_agent = MagicMock()
-    mock_agent.work_dir = Path("/agent/work")
+    with patch("imbue.mngr.api.pull._git_stash", return_value=True) as mock_stash:
+        with patch("imbue.mngr.api.pull._git_stash_pop") as mock_pop:
+            with pytest.raises(MngrError, match="rsync failed"):
+                pull_files(
+                    agent=mock_agent,
+                    host=mock_host_failure,
+                    destination=Path("/dest"),
+                    source_path=None,
+                    dry_run=False,
+                    delete=False,
+                    uncommitted_changes=UncommittedChangesMode.STASH,
+                )
 
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(
-        success=False,
-        stdout="",
-        stderr="rsync: connection refused",
-    )
-
-    # Mock the git helper functions
-    with patch("imbue.mngr.api.pull._has_uncommitted_changes", return_value=True):
-        with patch("imbue.mngr.api.pull._git_stash", return_value=True) as mock_stash:
-            with patch("imbue.mngr.api.pull._git_stash_pop") as mock_pop:
-                with pytest.raises(MngrError, match="rsync failed"):
-                    pull_files(
-                        agent=mock_agent,
-                        host=mock_host,
-                        destination=Path("/dest"),
-                        source_path=None,
-                        dry_run=False,
-                        delete=False,
-                        uncommitted_changes=UncommittedChangesMode.STASH,
-                    )
-
-    # Verify stash was called but pop was NOT called
     mock_stash.assert_called_once_with(Path("/dest"))
     mock_pop.assert_not_called()
