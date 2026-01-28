@@ -32,7 +32,7 @@ mngr gc [OPTIONS]
 
 **Options:**
 
-### What to Clean - Agent Resources
+## What to Clean - Agent Resources
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -42,7 +42,7 @@ mngr gc [OPTIONS]
 | `--volumes` | boolean | Remove unused volumes | `False` |
 | `--work-dirs` | boolean | Remove work directories (git worktrees/clones) not in use by any agent | `False` |
 
-### What to Clean - Mngr Resources
+## What to Clean - Mngr Resources
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -50,21 +50,21 @@ mngr gc [OPTIONS]
 | `--build-cache` | boolean | Remove build cache entries | `False` |
 | `--machine-cache` | boolean | Remove machine cache entries (per-provider) | `False` |
 
-### Filtering
+## Filtering
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--include` | text | Only clean resources matching CEL filter (repeatable) | None |
 | `--exclude` | text | Exclude resources matching CEL filter (repeatable) | None |
 
-### Scope
+## Scope
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--all-providers` | boolean | Clean resources across all providers | `False` |
 | `--provider` | text | Clean resources for a specific provider (repeatable) | None |
 
-### Safety
+## Safety
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -72,7 +72,7 @@ mngr gc [OPTIONS]
 | `--on-error` | choice (`abort` &#x7C; `continue`) | What to do when errors occur: abort (stop immediately) or continue (keep going) | `abort` |
 | `-w`, `--watch` | integer | Re-run garbage collection at the specified interval (seconds) | None |
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -87,7 +87,7 @@ mngr gc [OPTIONS]
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |

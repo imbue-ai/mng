@@ -32,9 +32,15 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
             [AGENT_ARGS]...
 ```
 
+## Arguments
+
+- `NAME`: Name for the agent (auto-generated if not provided)
+- `AGENT_TYPE`: Which type of agent to run (default: `claude`). Can also be specified via `--agent-type`
+- `AGENT_ARGS`: Additional arguments passed to the agent
+
 **Options:**
 
-### Agent Options
+## Agent Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -45,21 +51,20 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `-c`, `--add-cmd`, `--add-command` | text | Run extra command in additional window. Use name="command" to set window name. Note: ALL_UPPERCASE names (e.g., FOO="bar") are treated as env var assignments, not window names | None |
 | `--user` | text | Override which user to run the agent as [default: current user for local, provider-defined or root for remote] | None |
 
-### Host Options
+## Host Options
+
+By default, `mngr create` uses the "local" host. Use these options to change that behavior.
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--in`, `--new-host` | text | Create a new host using provider (docker, modal, ...) | None |
 | `--host`, `--target-host` | text | Use an existing host (by name or ID) [default: local] | None |
-| `--target` | text | Target [HOST][:PATH]. Defaults to current dir if no other target args are given | None |
-| `--target-path` | text | Directory to mount source inside agent host | None |
-| `--in-place` | boolean | Run directly in source directory (no copy/clone/worktree) | `False` |
 | `--project` | text | Project name for the agent [default: derived from git remote origin or folder name] | None |
 | `--tag` | text | Metadata tag KEY=VALUE [repeatable] | None |
 | `--host-name` | text | Name for the new host | None |
 | `--host-name-style` | choice (`astronomy` &#x7C; `places` &#x7C; `cities` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `scientists`) | Auto-generated host name style | `astronomy` |
 
-### Behavior
+## Behavior
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -70,7 +75,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `--snapshot-source`, `--no-snapshot-source` | boolean | Snapshot source agent first [default: yes if --source-agent and not local] | None |
 | `--copy-work-dir`, `--no-copy-work-dir` | boolean | Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect] | None |
 
-### Agent Source Work Dir
+## Agent Source Data (what to include in the new agent)
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -80,25 +85,33 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `--source-path` | text | Source path | None |
 | `--rsync`, `--no-rsync` | boolean | Use rsync for file transfer [default: yes if rsync-args are present or if git is disabled] | None |
 | `--rsync-args` | text | Additional arguments to pass to rsync | None |
+| `--include-git`, `--no-include-git` | boolean | Include .git directory | `True` |
+| `--include-unclean`, `--exclude-unclean` | boolean | Include uncommitted files [default: include if --no-ensure-clean] | None |
+| `--include-gitignored`, `--no-include-gitignored` | boolean | Include gitignored files | `False` |
 
-### Agent Git Configuration
+## Agent Target (where to put the new agent)
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--copy` | boolean | Copy source to isolated directory before running | `False` |
+| `--target` | text | Target [HOST][:PATH]. Defaults to current dir if no other target args are given | None |
+| `--target-path` | text | Directory to mount source inside agent host. Incompatible with --in-place | None |
+| `--in-place` | boolean | Run directly in source directory. Incompatible with --target-path | `False` |
+| `--copy` | boolean | Copy source to isolated directory before running [default for remote agents, and for local agents if not in a git repo] | `False` |
 | `--clone` | boolean | Create a git clone that shares objects with original repo (only works for local agents) | `False` |
 | `--worktree` | boolean | Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]. Requires --new-branch (which is the default) | `False` |
-| `--include-git`, `--no-include-git` | boolean | Include .git directory | `True` |
+
+## Agent Git Configuration
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
 | `--base-branch` | text | The starting point for the agent [default: current branch] | None |
 | `--new-branch` | text | Create a fresh branch (named TEXT if provided, otherwise auto-generated) [default: new branch] | `` |
 | `--no-new-branch` | boolean | Do not create a new branch; use the current branch directly. Incompatible with --worktree | None |
 | `--new-branch-prefix` | text | Prefix for auto-generated branch names | `mngr/` |
 | `--depth` | integer | Shallow clone depth [default: full] | None |
 | `--shallow-since` | text | Shallow clone since date | None |
-| `--include-unclean`, `--exclude-unclean` | boolean | Include uncommitted files [default: include if --no-ensure-clean] | None |
-| `--include-gitignored`, `--no-include-gitignored` | boolean | Include gitignored files | `False` |
 
-### Agent Environment Variables
+## Agent Environment Variables
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -106,7 +119,9 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `--env-file`, `--agent-env-file` | path | Load env | None |
 | `--pass-env`, `--pass-agent-env` | text | Forward variable from shell | None |
 
-### Agent Provisioning
+## Agent Provisioning
+
+See [Provision Options](../secondary/provision.md) for full details.
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -118,7 +133,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `--prepend-to-file` | text | Prepend REMOTE:TEXT to file [repeatable] | None |
 | `--create-directory` | text | Create directory on remote [repeatable] | None |
 
-### New Host Environment Variables
+## New Host Environment Variables
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -126,7 +141,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `--host-env-file` | path | Load env file for host [repeatable] | None |
 | `--pass-host-env` | text | Forward variable from shell for host [repeatable] | None |
 
-### New Host Build
+## New Host Build
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -136,7 +151,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `-s`, `--start`, `--start-arg` | text | Argument for start [repeatable] | None |
 | `--start-args` | text | Space-separated start arguments (alternative to -s) | None |
 
-### New Host Lifecycle
+## New Host Lifecycle
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -145,7 +160,9 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `--activity-sources` | text | Activity sources for idle detection (comma-separated) | None |
 | `--start-on-boot`, `--no-start-on-boot` | boolean | Restart on host boot [default: no] | None |
 
-### Connection Options
+## Connection Options
+
+See [connect options](./connect.md) for full details (only applies if `--connect` is specified).
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -159,7 +176,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `--retry-delay` | text | Delay between retries (e.g., 5s, 1m) | `5s` |
 | `--attach-command` | text | Command to run instead of attaching to main session | None |
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -174,16 +191,15 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
-## Related Documentation
+## Agent Limits
 
-- [Limit Options](../secondary/limit.md) - Configure resource limits for agents
-- [Provision Options](../secondary/provision.md) - Configure host provisioning
+See [Limit Options](../secondary/limit.md)
 
 ## See Also
 

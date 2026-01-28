@@ -143,10 +143,21 @@ def _generate_options_table(options: list[click.Option]) -> str:
     return "\n".join(lines)
 
 
-def generate_grouped_options_markdown(command: click.Command) -> str:
-    """Generate markdown for options organized by groups."""
+def generate_grouped_options_markdown(
+    command: click.Command,
+    group_intros: dict[str, str] | None = None,
+) -> str:
+    """Generate markdown for options organized by groups.
+
+    Args:
+        command: The click command to document.
+        group_intros: Optional dict mapping group names to intro text (markdown).
+    """
     options_by_group = _collect_options_by_group(command)
     ordered_groups = _order_option_groups(options_by_group)
+
+    if group_intros is None:
+        group_intros = {}
 
     lines: list[str] = []
 
@@ -160,18 +171,72 @@ def generate_grouped_options_markdown(command: click.Command) -> str:
         if not visible_options:
             continue
 
-        # Add group heading
+        # Add group heading (use ## for top-level sections)
         if group_name is not None:
-            lines.append(f"### {group_name}")
+            lines.append(f"## {group_name}")
         else:
-            lines.append("### Other Options")
+            lines.append("## Other Options")
         lines.append("")
+
+        # Add group intro if provided
+        if group_name is not None and group_name in group_intros:
+            lines.append(group_intros[group_name])
+            lines.append("")
 
         # Add options table
         lines.append(_generate_options_table(visible_options))
         lines.append("")
 
     return "\n".join(lines)
+
+
+def generate_arguments_section(command: click.Command, command_name: str) -> str:
+    """Generate markdown for the Arguments section.
+
+    Shows positional arguments with their descriptions.
+    """
+    # Check if metadata provides a custom arguments description
+    metadata = get_help_metadata(command_name)
+    if metadata is not None and metadata.arguments_description is not None:
+        return f"## Arguments\n\n{metadata.arguments_description}\n"
+
+    # Collect click.Argument params
+    arguments = [p for p in command.params if isinstance(p, click.Argument)]
+    if not arguments:
+        return ""
+
+    lines = ["## Arguments", ""]
+
+    for arg in arguments:
+        # Get argument name (uppercase for display)
+        arg_name = arg.name.upper() if arg.name else "ARG"
+        # Try to get help text (arguments don't have help in click, but we can infer from name)
+        # or use a generic description
+        description = _infer_argument_description(arg)
+        lines.append(f"- `{arg_name}`: {description}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _infer_argument_description(arg: click.Argument) -> str:
+    """Infer a description for an argument based on its properties."""
+    name = arg.name or "arg"
+
+    # Common argument patterns
+    if "name" in name.lower():
+        if arg.required:
+            return "Name for the resource"
+        return "Name for the resource (auto-generated if not provided)"
+    if "type" in name.lower():
+        return "Type to use"
+    if "args" in name.lower():
+        return "Additional arguments passed through"
+
+    # Generic fallback
+    if arg.required:
+        return f"The {name.replace('_', ' ')}"
+    return f"The {name.replace('_', ' ')} (optional)"
 
 
 def format_alias(command_name: str) -> str:
@@ -377,10 +442,21 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
     # Build the final content
     content_parts = [header_content]
 
+    # Add Arguments section if the command has positional arguments
+    arguments_section = generate_arguments_section(cmd, command_name)
+    if arguments_section:
+        content_parts.append(arguments_section)
+
+    # Get group intros from metadata
+    metadata = get_help_metadata(command_name)
+    group_intros: dict[str, str] = {}
+    if metadata is not None and metadata.group_intros:
+        group_intros = dict(metadata.group_intros)
+
     # Add grouped options section
     content_parts.append("**Options:**")
     content_parts.append("")
-    content_parts.append(generate_grouped_options_markdown(cmd))
+    content_parts.append(generate_grouped_options_markdown(cmd, group_intros))
 
     # Add subcommand documentation with grouped options
     if isinstance(cmd, click.Group) and cmd.commands:

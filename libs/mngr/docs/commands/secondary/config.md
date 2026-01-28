@@ -37,7 +37,7 @@ mngr config [OPTIONS] COMMAND [ARGS]...
 
 **Options:**
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -52,7 +52,7 @@ mngr config [OPTIONS] COMMAND [ARGS]...
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -81,7 +81,7 @@ mngr config list [OPTIONS]
 
 **Options:**
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -96,7 +96,7 @@ mngr config list [OPTIONS]
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -125,7 +125,7 @@ mngr config get [OPTIONS] KEY
 
 **Options:**
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -140,7 +140,7 @@ mngr config get [OPTIONS] KEY
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -172,7 +172,7 @@ mngr config set [OPTIONS] KEY VALUE
 
 **Options:**
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -187,7 +187,7 @@ mngr config set [OPTIONS] KEY VALUE
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -214,7 +214,7 @@ mngr config unset [OPTIONS] KEY
 
 **Options:**
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -229,7 +229,7 @@ mngr config unset [OPTIONS] KEY
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -260,7 +260,7 @@ mngr config edit [OPTIONS]
 
 **Options:**
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -275,7 +275,7 @@ mngr config edit [OPTIONS]
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -302,7 +302,7 @@ mngr config path [OPTIONS]
 
 **Options:**
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -317,7 +317,7 @@ mngr config path [OPTIONS]
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |

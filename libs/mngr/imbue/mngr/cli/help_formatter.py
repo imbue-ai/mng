@@ -29,11 +29,20 @@ class CommandHelpMetadata(FrozenModel):
     synopsis: str = Field(description="Usage synopsis showing command patterns")
     description: str = Field(description="Detailed description of the command")
     aliases: tuple[str, ...] = Field(default=(), description="Command aliases (e.g., ('c',) for 'create')")
+    arguments_description: str | None = Field(
+        default=None,
+        description="Description of positional arguments (markdown). If None, auto-generated from click arguments.",
+    )
     examples: tuple[tuple[str, str], ...] = Field(
         default=(), description="List of (description, command) example tuples"
     )
     additional_sections: tuple[tuple[str, str], ...] = Field(
         default=(), description="Additional documentation sections as (title, markdown_content) tuples"
+    )
+    group_intros: tuple[tuple[str, str], ...] = Field(
+        default=(),
+        description="Introductory text for option groups as (group_name, markdown_content) tuples. "
+        "The intro text appears before the options table for that group.",
     )
     see_also: tuple[tuple[str, str], ...] = Field(
         default=(),

@@ -231,11 +231,6 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.group("Host Options")
 @optgroup.option("--in", "--new-host", "new_host", help="Create a new host using provider (docker, modal, ...)")
 @optgroup.option("--host", "--target-host", help="Use an existing host (by name or ID) [default: local]")
-@optgroup.option("--target", help="Target [HOST][:PATH]. Defaults to current dir if no other target args are given")
-@optgroup.option("--target-path", help="Directory to mount source inside agent host")
-@optgroup.option(
-    "--in-place", "in_place", is_flag=True, help="Run directly in source directory (no copy/clone/worktree)"
-)
 # FIXME: you can get yourself in a bit of a screwy situation if you DONT specify --project and you DO use a remote source (which comes from a different project)
 #   currently we have this assumption that your local dir and source are for the same project
 #   we should at least validate that, for remote sources, they end up having the exact same project inferred as locally
@@ -282,7 +277,7 @@ class CreateCliOptions(CommonCliOptions):
     default=None,
     help="Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect]",
 )
-@optgroup.group("Agent Source Work Dir")
+@optgroup.group("Agent Source Data (what to include in the new agent)")
 @optgroup.option(
     "--from",
     "--source",
@@ -298,8 +293,31 @@ class CreateCliOptions(CommonCliOptions):
     help="Use rsync for file transfer [default: yes if rsync-args are present or if git is disabled]",
 )
 @optgroup.option("--rsync-args", help="Additional arguments to pass to rsync")
-@optgroup.group("Agent Git Configuration")
-@optgroup.option("--copy", "copy_source", is_flag=True, help="Copy source to isolated directory before running")
+@optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
+@optgroup.option(
+    "--include-unclean/--exclude-unclean",
+    "include_unclean",
+    default=None,
+    help="Include uncommitted files [default: include if --no-ensure-clean]",
+)
+@optgroup.option(
+    "--include-gitignored/--no-include-gitignored",
+    default=False,
+    show_default=True,
+    help="Include gitignored files",
+)
+@optgroup.group("Agent Target (where to put the new agent)")
+@optgroup.option("--target", help="Target [HOST][:PATH]. Defaults to current dir if no other target args are given")
+@optgroup.option("--target-path", help="Directory to mount source inside agent host. Incompatible with --in-place")
+@optgroup.option(
+    "--in-place", "in_place", is_flag=True, help="Run directly in source directory. Incompatible with --target-path"
+)
+@optgroup.option(
+    "--copy",
+    "copy_source",
+    is_flag=True,
+    help="Copy source to isolated directory before running [default for remote agents, and for local agents if not in a git repo]",
+)
 @optgroup.option(
     "--clone",
     is_flag=True,
@@ -310,7 +328,7 @@ class CreateCliOptions(CommonCliOptions):
     is_flag=True,
     help="Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]. Requires --new-branch (which is the default)",
 )
-@optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
+@optgroup.group("Agent Git Configuration")
 @optgroup.option("--base-branch", help="The starting point for the agent [default: current branch]")
 @optgroup.option(
     "--new-branch",
@@ -332,18 +350,6 @@ class CreateCliOptions(CommonCliOptions):
 )
 @optgroup.option("--depth", type=int, help="Shallow clone depth [default: full]")
 @optgroup.option("--shallow-since", help="Shallow clone since date")
-@optgroup.option(
-    "--include-unclean/--exclude-unclean",
-    "include_unclean",
-    default=None,
-    help="Include uncommitted files [default: include if --no-ensure-clean]",
-)
-@optgroup.option(
-    "--include-gitignored/--no-include-gitignored",
-    default=False,
-    show_default=True,
-    help="Include gitignored files",
-)
 @optgroup.group("Agent Environment Variables")
 @optgroup.option("--env", "--agent-env", "agent_env", multiple=True, help="Set environment variable KEY=VALUE")
 @optgroup.option(
@@ -1346,6 +1352,9 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot]
     [--] [<AGENT_ARGS>...]""",
     aliases=("c",),
+    arguments_description="""- `NAME`: Name for the agent (auto-generated if not provided)
+- `AGENT_TYPE`: Which type of agent to run (default: `claude`). Can also be specified via `--agent-type`
+- `AGENT_ARGS`: Additional arguments passed to the agent""",
     description="""Create a new agent and optionally connect to it.
 
 This command sets up an agent's working directory, optionally provisions a
@@ -1380,11 +1389,24 @@ the working directory is copied to the remote host.""",
         ("list", "List existing agents"),
         ("destroy", "Destroy agents"),
     ),
+    group_intros=(
+        (
+            "Connection Options",
+            "See [connect options](./connect.md) for full details (only applies if `--connect` is specified).",
+        ),
+        (
+            "Agent Provisioning",
+            "See [Provision Options](../secondary/provision.md) for full details.",
+        ),
+        (
+            "Host Options",
+            'By default, `mngr create` uses the "local" host. Use these options to change that behavior.',
+        ),
+    ),
     additional_sections=(
         (
-            "Related Documentation",
-            """- [Limit Options](../secondary/limit.md) - Configure resource limits for agents
-- [Provision Options](../secondary/provision.md) - Configure host provisioning""",
+            "Agent Limits",
+            "See [Limit Options](../secondary/limit.md)",
         ),
     ),
 )

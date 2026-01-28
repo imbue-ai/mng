@@ -35,7 +35,7 @@ mngr list [OPTIONS]
 
 **Options:**
 
-### Filtering
+## Filtering
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -48,7 +48,7 @@ mngr list [OPTIONS]
 | `--provider` | text | Show only agents using specified provider (repeatable) | None |
 | `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
 
-### Output Format
+## Output Format
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -58,19 +58,19 @@ mngr list [OPTIONS]
 | `--sort-order` | choice (`asc` &#x7C; `desc`) | Sort order [default: asc] | `asc` |
 | `--limit` | integer | Limit number of results | None |
 
-### Watch Mode
+## Watch Mode
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `-w`, `--watch` | integer | Continuously watch and update status at specified interval (seconds) [default: 2] | None |
 
-### Error Handling
+## Error Handling
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--on-error` | choice (`abort` &#x7C; `continue`) | What to do when errors occur: abort (stop immediately) or continue (keep going) | `abort` |
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -85,7 +85,7 @@ mngr list [OPTIONS]
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |

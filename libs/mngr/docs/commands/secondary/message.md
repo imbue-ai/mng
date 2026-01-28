@@ -38,9 +38,13 @@ Examples:
 mngr message [OPTIONS] [AGENTS]...
 ```
 
+## Arguments
+
+- `AGENTS`: The agents (optional)
+
 **Options:**
 
-### Target Selection
+## Target Selection
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -50,19 +54,19 @@ mngr message [OPTIONS] [AGENTS]...
 | `--exclude` | text | Exclude agents matching CEL expression (repeatable) | None |
 | `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
 
-### Message Content
+## Message Content
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `-m`, `--message` | text | The message content to send | None |
 
-### Error Handling
+## Error Handling
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--on-error` | choice (`abort` &#x7C; `continue`) | What to do when errors occur: abort (stop immediately) or continue (keep going) | `continue` |
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -77,7 +81,7 @@ mngr message [OPTIONS] [AGENTS]...
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |

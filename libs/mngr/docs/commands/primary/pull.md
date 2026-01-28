@@ -29,9 +29,14 @@ Examples:
 mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 ```
 
+## Arguments
+
+- `SOURCE`: The source (optional)
+- `DESTINATION`: The destination (optional)
+
 **Options:**
 
-### Source Selection
+## Source Selection
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -40,13 +45,13 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | `--source-host` | text | Source host name or ID | None |
 | `--source-path` | text | Path within the agent's work directory | None |
 
-### Destination
+## Destination
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--destination` | path | Local destination directory [default: .] | None |
 
-### Sync Options
+## Sync Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -56,7 +61,7 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | `--sync-mode` | choice (`files` &#x7C; `state` &#x7C; `full`) | What to sync: files (working directory only), state (agent state), or full (everything) | `files` |
 | `--exclude` | text | Patterns to exclude from sync [repeatable] | None |
 
-### Target (for agent-to-agent sync)
+## Target (for agent-to-agent sync)
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -65,13 +70,13 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | `--target-host` | text | Target host name or ID [NOT YET IMPLEMENTED] | None |
 | `--target-path` | text | Path within target to sync to [NOT YET IMPLEMENTED] | None |
 
-### Multi-source
+## Multi-source
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--stdin` | boolean | Read source agents/hosts from stdin, one per line [NOT YET IMPLEMENTED] | `False` |
 
-### File Filtering
+## File Filtering
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -80,14 +85,14 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | `--include-file` | path | Read include patterns from file [NOT YET IMPLEMENTED] | None |
 | `--exclude-file` | path | Read exclude patterns from file [NOT YET IMPLEMENTED] | None |
 
-### Rsync Options
+## Rsync Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--rsync-arg` | text | Additional argument to pass to rsync [repeatable] [NOT YET IMPLEMENTED] | None |
 | `--rsync-args` | text | Additional arguments to pass to rsync (as a single string) [NOT YET IMPLEMENTED] | None |
 
-### Git Sync Options
+## Git Sync Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -99,7 +104,7 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | `--rebase` | boolean | Rebase local changes onto remote changes [NOT YET IMPLEMENTED] | `False` |
 | `--uncommitted-source` | choice (`warn` &#x7C; `error`) | Warn or error if source has uncommitted changes [NOT YET IMPLEMENTED] | None |
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -114,7 +119,7 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |

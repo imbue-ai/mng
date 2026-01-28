@@ -36,9 +36,13 @@ Examples:
 mngr destroy [OPTIONS] [AGENTS]...
 ```
 
+## Arguments
+
+- `AGENTS`: The agents (optional)
+
 **Options:**
 
-### Target Selection
+## Target Selection
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -49,7 +53,7 @@ mngr destroy [OPTIONS] [AGENTS]...
 | `--exclude` | text | Exclude agents matching CEL expression from destruction (repeatable). [NOT YET IMPLEMENTED] | None |
 | `--stdin` | boolean | Read agent names/IDs from stdin, one per line. [NOT YET IMPLEMENTED] | `False` |
 
-### Behavior
+## Behavior
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -57,7 +61,7 @@ mngr destroy [OPTIONS] [AGENTS]...
 | `--dry-run` | boolean | Show what would be destroyed without actually destroying | `False` |
 | `--gc`, `--no-gc` | boolean | Run garbage collection after destroying agents to clean up orphaned resources (default: enabled) | `True` |
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -72,7 +76,7 @@ mngr destroy [OPTIONS] [AGENTS]...
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |

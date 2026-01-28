@@ -29,16 +29,20 @@ Alias: conn
 mngr connect [OPTIONS] [AGENT]
 ```
 
+## Arguments
+
+- `AGENT`: The agent (optional)
+
 **Options:**
 
-### General
+## General
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--agent` | text | The agent to connect to (by name or ID) | None |
 | `--start`, `--no-start` | boolean | Automatically start the agent if stopped | `True` |
 
-### Options
+## Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -50,7 +54,7 @@ mngr connect [OPTIONS] [AGENT]
 | `--retry-delay` | text | Delay between retries | `5s` |
 | `--attach-command` | text | Command to run instead of attaching to main session | None |
 
-### Common
+## Common
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
@@ -65,7 +69,7 @@ mngr connect [OPTIONS] [AGENT]
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-### Other Options
+## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
