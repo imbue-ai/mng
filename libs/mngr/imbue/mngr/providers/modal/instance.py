@@ -60,6 +60,7 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.modal.config import ModalProviderConfig
+from imbue.mngr.providers.modal.errors import NoSnapshotsModalMngrError
 from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
@@ -1049,7 +1050,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Sandbox is not running - try to restore from snapshot if provided
         if snapshot_id is None:
-            raise MngrError(
+            raise NoSnapshotsModalMngrError(
                 f"Modal sandbox {host_id} is not running and cannot be restarted. "
                 "Provide a snapshot_id to restore from a snapshot, or create a new host."
             )
