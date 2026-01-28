@@ -457,6 +457,12 @@ For CEL filters (flattened):
 - `host_provider` - Host provider (local, docker, modal, etc.)
 """,
         ),
+        (
+            "See Also",
+            """- `mngr create --help` - Create a new agent
+- `mngr connect --help` - Connect to an existing agent
+- `mngr destroy --help` - Destroy agents""",
+        ),
     ),
 )
 

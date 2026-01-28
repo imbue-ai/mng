@@ -43,4 +43,36 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-| `--help` | boolean | Show this message and exit. | `False` |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## See Also
+
+- `mngr create --help` - Create a new agent
+- `mngr list --help` - List agents to find one to pull from
+- `mngr connect --help` - Connect to an agent interactively
+
+## Examples
+
+**Pull from agent to current directory**
+
+```bash
+$ mngr pull my-agent
+```
+
+**Pull to specific local directory**
+
+```bash
+$ mngr pull my-agent ./local-copy
+```
+
+**Pull specific subdirectory**
+
+```bash
+$ mngr pull my-agent:src ./local-src
+```
+
+**Preview what would be transferred**
+
+```bash
+$ mngr pull my-agent --dry-run
+```

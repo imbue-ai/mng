@@ -42,4 +42,36 @@ mngr destroy [OPTIONS] [AGENTS]...
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-| `--help` | boolean | Show this message and exit. | `False` |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## See Also
+
+- `mngr create --help` - Create a new agent
+- `mngr list --help` - List existing agents
+- `mngr gc --help` - Garbage collect orphaned resources
+
+## Examples
+
+**Destroy an agent by name**
+
+```bash
+$ mngr destroy my-agent
+```
+
+**Destroy multiple agents**
+
+```bash
+$ mngr destroy agent1 agent2 agent3
+```
+
+**Destroy all agents**
+
+```bash
+$ mngr destroy --all --force
+```
+
+**Preview what would be destroyed**
+
+```bash
+$ mngr destroy my-agent --dry-run
+```

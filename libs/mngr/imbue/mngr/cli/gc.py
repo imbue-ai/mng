@@ -516,6 +516,11 @@ resources at any time.""",
 - `provider_name == "docker"` - Docker resources only
 """,
         ),
+        (
+            "See Also",
+            """- `mngr destroy --help` - Destroy agents (includes automatic GC)
+- `mngr list --help` - List agents to find unused resources""",
+        ),
     ),
 )
 

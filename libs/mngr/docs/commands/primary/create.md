@@ -100,6 +100,12 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
+## See Also
+
+- `mngr connect --help` - Connect to an existing agent
+- `mngr list --help` - List existing agents
+- `mngr destroy --help` - Destroy agents
+
 ## Examples
 
 **Create an agent locally in a new git worktree (default)**

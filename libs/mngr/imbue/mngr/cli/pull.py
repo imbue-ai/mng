@@ -15,6 +15,9 @@ from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
 from imbue.mngr.cli.connect import select_agent_interactively
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
@@ -238,3 +241,40 @@ def pull(ctx: click.Context, **kwargs) -> None:
         emit_info("Agent stopped", output_opts.output_format)
 
     _output_result(pull_result, output_opts)
+
+
+# Register help metadata for git-style help formatting
+_PULL_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-pull",
+    one_line_description="Pull files from an agent to local machine",
+    synopsis="mngr pull [SOURCE] [DESTINATION] [--source-agent <AGENT>] [--dry-run] [--stop]",
+    description="""Pull files from an agent to local machine.
+
+Syncs files from an agent's working directory to a local directory.
+Default behavior uses rsync for efficient incremental file transfer.
+
+If no source is specified, shows an interactive selector to choose an agent.
+
+Note: Only file sync (--sync-mode=files) is currently implemented. Git sync
+and agent-to-agent sync are planned for future releases. See
+specs/commands/pull.md for the full planned feature set.""",
+    examples=(
+        ("Pull from agent to current directory", "mngr pull my-agent"),
+        ("Pull to specific local directory", "mngr pull my-agent ./local-copy"),
+        ("Pull specific subdirectory", "mngr pull my-agent:src ./local-src"),
+        ("Preview what would be transferred", "mngr pull my-agent --dry-run"),
+    ),
+    additional_sections=(
+        (
+            "See Also",
+            """- `mngr create --help` - Create a new agent
+- `mngr list --help` - List agents to find one to pull from
+- `mngr connect --help` - Connect to an agent interactively""",
+        ),
+    ),
+)
+
+register_help_metadata("pull", _PULL_HELP_METADATA)
+
+# Add pager-enabled help option to the pull command
+add_pager_help_option(pull)

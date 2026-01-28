@@ -70,10 +70,10 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.editor import EditorSession
-from imbue.mngr.utils.logging import LoggingSuppressor
 from imbue.mngr.utils.git_utils import derive_project_name_from_path
 from imbue.mngr.utils.git_utils import find_git_worktree_root
 from imbue.mngr.utils.git_utils import get_current_git_branch
+from imbue.mngr.utils.logging import LoggingSuppressor
 from imbue.mngr.utils.name_generator import generate_agent_name
 from imbue.mngr.utils.name_generator import generate_host_name
 from imbue.mngr.utils.polling import wait_for
@@ -1350,6 +1350,14 @@ the working directory is copied to the remote host.""",
         ("Run directly in-place (no worktree)", "mngr create my-agent --in-place"),
         ("Create without connecting", "mngr create my-agent --no-connect"),
         ("Add extra tmux windows", 'mngr create my-agent -c server="npm run dev"'),
+    ),
+    additional_sections=(
+        (
+            "See Also",
+            """- `mngr connect --help` - Connect to an existing agent
+- `mngr list --help` - List existing agents
+- `mngr destroy --help` - Destroy agents""",
+        ),
     ),
 )
 

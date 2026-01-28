@@ -371,6 +371,9 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     the agent's machine and attaching to the tmux session. Use `mngr open` to
     open an agent's URLs in a web browser instead.
 
+    Both local and remote connections track activity to understand when the
+    agent should be considered idle (for auto-shutdown features).
+
     If no agent is specified, shows an interactive selector to choose from
     available agents.
 
@@ -479,6 +482,9 @@ Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
 the agent's machine and attaching to the tmux session. Use `mngr open` to
 open an agent's URLs in a web browser instead.
 
+Both local and remote connections track activity to understand when the
+agent should be considered idle (for auto-shutdown features).
+
 If no agent is specified, shows an interactive selector to choose from
 available agents. The selector allows typeahead search to filter agents
 by name.
@@ -490,6 +496,13 @@ The agent can be specified as a positional argument or via --agent:
         ("Connect to an agent by name", "mngr connect my-agent"),
         ("Connect without auto-starting if stopped", "mngr connect my-agent --no-start"),
         ("Show interactive agent selector", "mngr connect"),
+    ),
+    additional_sections=(
+        (
+            "See Also",
+            """- `mngr create --help` - Create and connect to a new agent
+- `mngr list --help` - List available agents""",
+        ),
     ),
 )
 

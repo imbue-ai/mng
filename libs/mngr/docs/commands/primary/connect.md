@@ -6,6 +6,9 @@ Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
 the agent's machine and attaching to the tmux session. Use `mngr open` to
 open an agent's URLs in a web browser instead.
 
+Both local and remote connections track activity to understand when the
+agent should be considered idle (for auto-shutdown features).
+
 If no agent is specified, shows an interactive selector to choose from
 available agents.
 
@@ -41,6 +44,11 @@ mngr connect [OPTIONS] [AGENT]
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## See Also
+
+- `mngr create --help` - Create and connect to a new agent
+- `mngr list --help` - List available agents
 
 ## Examples
 
