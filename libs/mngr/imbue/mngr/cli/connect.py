@@ -384,39 +384,32 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     )
     logger.debug("Running connect command")
 
-    # FIXME: Implement --message TEXT
     # Send the specified text as an initial message after the agent starts
     # Should wait for message_delay seconds before sending
     if opts.message is not None:
         raise NotImplementedError("--message is not implemented yet")
 
-    # FIXME: Implement --message-file PATH
     # Read initial message content from the specified file and send after agent starts
     if opts.message_file is not None:
         raise NotImplementedError("--message-file is not implemented yet")
 
-    # FIXME: Implement --message-delay SECONDS [default: 1.0]
     # Wait this many seconds before sending the initial message
     if opts.message_delay != 1.0:
         raise NotImplementedError("--message-delay with non-default value is not implemented yet")
 
-    # FIXME: Implement --retry N [default: 3]
     # Number of times to retry connection on failure before giving up
     if opts.retry != 3:
         raise NotImplementedError("--retry with non-default value is not implemented yet")
 
-    # FIXME: Implement --retry-delay DURATION [default: 5s]
     # Delay between connection retries (supports durations like "5s", "1m")
     if opts.retry_delay != "5s":
         raise NotImplementedError("--retry-delay with non-default value is not implemented yet")
 
-    # FIXME: Implement --attach-command TEXT
     # Run this command instead of the default tmux attach
     # Useful for running a different shell or command in the agent's environment
     if opts.attach_command is not None:
         raise NotImplementedError("--attach-command is not implemented yet")
 
-    # FIXME: Implement --no-reconnect
     # Disable automatic reconnection if the connection is dropped
     # Default behavior (--reconnect) should automatically reconnect
     if not opts.reconnect:
@@ -446,7 +439,6 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 
         agent, host = find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "connect")
 
-    # FIXME: Implement connecting to remote agents
     # For remote hosts, should SSH into the agent's machine and attach to the tmux session
     # Both local and remote modes should track activity for idle detection
     if not host.is_local:

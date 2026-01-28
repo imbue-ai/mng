@@ -50,6 +50,7 @@ class GcCliOptions(CommonCliOptions):
     work_dirs: bool
     logs: bool
     build_cache: bool
+    machine_cache: bool
     include: tuple[str, ...]
     exclude: tuple[str, ...]
     dry_run: bool
@@ -97,14 +98,11 @@ class GcCliOptions(CommonCliOptions):
     is_flag=True,
     help="Remove build cache entries",
 )
-# FIXME: Add --machine-cache option
-# @optgroup.option(
-#     "--machine-cache",
-#     is_flag=True,
-#     help="Remove machine cache entries (per-provider)",
-# )
-# Also add machine_cache: bool to GcCliOptions and wire it through to the API
-#
+@optgroup.option(
+    "--machine-cache",
+    is_flag=True,
+    help="Remove machine cache entries (per-provider)",
+)
 # FIXME: Implement "mngr cleanup" command as a separate command
 # mngr cleanup: Interactive cleanup command to help decide which agents and hosts to destroy
 # Should show agents/hosts with details and prompt user for which to clean up
@@ -183,6 +181,11 @@ def _gc_impl(ctx: click.Context, **kwargs) -> None:
         command_class=GcCliOptions,
     )
     logger.debug("Running gc command")
+
+    # Remove machine cache entries (per-provider)
+    # Wire this through to the API when implemented
+    if opts.machine_cache:
+        raise NotImplementedError("--machine-cache is not implemented yet")
 
     has_any_resource_type = (
         opts.all_agent_resources
