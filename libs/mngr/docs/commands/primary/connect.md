@@ -1,5 +1,12 @@
 # mngr connect
 
+**Synopsis:**
+
+```text
+mngr connect [OPTIONS] [AGENT]
+```
+
+
 Connect to an existing agent via the terminal.
 
 Attaches to the agent's tmux session, roughly equivalent to SSH'ing into

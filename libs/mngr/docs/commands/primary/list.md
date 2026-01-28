@@ -1,5 +1,12 @@
 # mngr list
 
+**Synopsis:**
+
+```text
+mngr list [OPTIONS]
+```
+
+
 List all agents managed by mngr.
 
 Displays agents with their status, host information, and other metadata.
