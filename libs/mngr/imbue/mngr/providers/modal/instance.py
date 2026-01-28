@@ -671,9 +671,7 @@ class ModalProviderInstance(BaseProviderInstance):
         """
         return self.modal_app.get_captured_output()
 
-    def _lookup_sandbox_by_host_id_once(
-        self, host_id: HostId, result_container: list[modal.Sandbox]
-    ) -> bool:
+    def _lookup_sandbox_by_host_id_once(self, host_id: HostId, result_container: list[modal.Sandbox]) -> bool:
         """Perform a single lookup of a sandbox by host_id tag.
 
         This is a helper for _find_sandbox_by_host_id that does not retry.
@@ -744,9 +742,7 @@ class ModalProviderInstance(BaseProviderInstance):
             logger.trace("Sandbox with host_id={} not found after {}s", host_id, timeout)
             return None
 
-    def _lookup_sandbox_by_name_once(
-        self, name: HostName, result_container: list[modal.Sandbox]
-    ) -> bool:
+    def _lookup_sandbox_by_name_once(self, name: HostName, result_container: list[modal.Sandbox]) -> bool:
         """Perform a single lookup of a sandbox by host_name tag.
 
         This is a helper for _find_sandbox_by_name that does not retry.
@@ -906,7 +902,8 @@ class ModalProviderInstance(BaseProviderInstance):
             sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
-                environment_name=self.environment_name,
+                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
+                # environment_name=self.environment_name,
                 timeout=config.timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
@@ -1053,7 +1050,8 @@ class ModalProviderInstance(BaseProviderInstance):
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
-                environment_name=self.environment_name,
+                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
+                # environment_name=self.environment_name,
                 timeout=config.timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
@@ -1065,7 +1063,8 @@ class ModalProviderInstance(BaseProviderInstance):
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
-                environment_name=self.environment_name,
+                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
+                #                 environment_name=self.environment_name,
                 timeout=config.timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
