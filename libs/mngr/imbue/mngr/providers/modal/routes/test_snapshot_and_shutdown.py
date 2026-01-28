@@ -81,6 +81,7 @@ def _write_host_record_to_volume(app_name: str, host_id: str) -> None:
     Creates a minimal host record that the snapshot function can update.
     """
     volume_name = f"{app_name}-state"
+    register_modal_test_volume(volume_name)
     volume = modal.Volume.from_name(volume_name, create_if_missing=True)
 
     host_record = {
