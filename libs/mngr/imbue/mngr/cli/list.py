@@ -66,22 +66,22 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--running",
     is_flag=True,
-    help='Show only running agents (alias for --include state == "running")',
+    help="Show only running agents (alias for --include 'state == \"running\"')",
 )
 @optgroup.option(
     "--stopped",
     is_flag=True,
-    help='Show only stopped agents (alias for --include state == "stopped")',
+    help="Show only stopped agents (alias for --include 'state == \"stopped\"')",
 )
 @optgroup.option(
     "--local",
     is_flag=True,
-    help='Show only local agents (alias for --include host_provider == "local")',
+    help="Show only local agents (alias for --include 'host_provider == \"local\"')",
 )
 @optgroup.option(
     "--remote",
     is_flag=True,
-    help='Show only remote agents (alias for --exclude host_provider == "local")',
+    help="Show only remote agents (alias for --exclude 'host_provider == \"local\"')",
 )
 @optgroup.option(
     "--provider",
@@ -192,10 +192,10 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         stdin_refs = [line.strip() for line in sys.stdin if line.strip()]
         if stdin_refs:
             # Create a CEL filter that matches any of the provided refs against
-            # host.name, host.id, agent.name, or agent.id
+            # host_name, host_id, name, or id (using flattened field names for CEL)
             ref_filters = []
             for ref in stdin_refs:
-                ref_filter = f'(name == "{ref}" || id == "{ref}" || host.name == "{ref}" || host.id == "{ref}")'
+                ref_filter = f'(name == "{ref}" || id == "{ref}" || host_name == "{ref}" || host_id == "{ref}")'
                 ref_filters.append(ref_filter)
             # Combine all ref filters with OR
             combined_filter = " || ".join(ref_filters)
