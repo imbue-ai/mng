@@ -437,7 +437,9 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
 
                 try:
                     value = value[index_or_slice]
-                except IndexError:
+                except (IndexError, ValueError):
+                    # IndexError: out of bounds index
+                    # ValueError: slice step cannot be zero
                     return ""
 
                 # If the result is a list (from slicing), format each element

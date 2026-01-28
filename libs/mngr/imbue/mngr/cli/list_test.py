@@ -319,3 +319,129 @@ def test_get_field_value_too_many_colons_in_slice() -> None:
     agent = _create_test_agent(snapshots)
     result = _get_field_value(agent, "host.snapshots[1:2:3:4]")
     assert result == ""
+
+
+# =============================================================================
+# Edge case tests for slicing
+# =============================================================================
+
+
+def test_get_field_value_step_zero_returns_empty() -> None:
+    """_get_field_value should return empty string for step=0 (invalid slice)."""
+    snapshots = [
+        _create_test_snapshot("snap-0", 0),
+        _create_test_snapshot("snap-1", 1),
+    ]
+    agent = _create_test_agent(snapshots)
+    # [::0] is invalid in Python - slice step cannot be zero
+    result = _get_field_value(agent, "host.snapshots[::0]")
+    assert result == ""
+
+
+def test_get_field_value_empty_brackets_returns_empty() -> None:
+    """_get_field_value should return empty string for empty brackets []."""
+    snapshots = [_create_test_snapshot("snap-0", 0)]
+    agent = _create_test_agent(snapshots)
+    result = _get_field_value(agent, "host.snapshots[]")
+    assert result == ""
+
+
+def test_get_field_value_multiple_brackets_returns_empty() -> None:
+    """_get_field_value should return empty string for multiple brackets [0][1]."""
+    snapshots = [_create_test_snapshot("snap-0", 0)]
+    agent = _create_test_agent(snapshots)
+    result = _get_field_value(agent, "host.snapshots[0][0]")
+    assert result == ""
+
+
+def test_get_field_value_reverse_slice() -> None:
+    """_get_field_value should support reverse slice [::-1]."""
+    snapshots = [
+        _create_test_snapshot("snap-0", 0),
+        _create_test_snapshot("snap-1", 1),
+        _create_test_snapshot("snap-2", 2),
+    ]
+    agent = _create_test_agent(snapshots)
+    result = _get_field_value(agent, "host.snapshots[::-1]")
+    assert result == "snap-2, snap-1, snap-0"
+
+
+def test_get_field_value_negative_slice_bounds() -> None:
+    """_get_field_value should support negative slice bounds [-3:-1]."""
+    snapshots = [
+        _create_test_snapshot("snap-0", 0),
+        _create_test_snapshot("snap-1", 1),
+        _create_test_snapshot("snap-2", 2),
+        _create_test_snapshot("snap-3", 3),
+    ]
+    agent = _create_test_agent(snapshots)
+    result = _get_field_value(agent, "host.snapshots[-3:-1]")
+    assert result == "snap-1, snap-2"
+
+
+def test_get_field_value_slice_with_step() -> None:
+    """_get_field_value should support slice with step [::2]."""
+    snapshots = [
+        _create_test_snapshot("snap-0", 0),
+        _create_test_snapshot("snap-1", 1),
+        _create_test_snapshot("snap-2", 2),
+        _create_test_snapshot("snap-3", 3),
+    ]
+    agent = _create_test_agent(snapshots)
+    result = _get_field_value(agent, "host.snapshots[::2]")
+    assert result == "snap-0, snap-2"
+
+
+def test_get_field_value_whitespace_in_brackets() -> None:
+    """_get_field_value should handle whitespace inside brackets."""
+    snapshots = [
+        _create_test_snapshot("snap-0", 0),
+        _create_test_snapshot("snap-1", 1),
+    ]
+    agent = _create_test_agent(snapshots)
+    result = _get_field_value(agent, "host.snapshots[ 0 ]")
+    assert result == "snap-0"
+
+
+def test_get_field_value_float_index_returns_empty() -> None:
+    """_get_field_value should return empty string for float index [1.5]."""
+    snapshots = [_create_test_snapshot("snap-0", 0)]
+    agent = _create_test_agent(snapshots)
+    result = _get_field_value(agent, "host.snapshots[1.5]")
+    assert result == ""
+
+
+def test_get_field_value_slice_beyond_list_length() -> None:
+    """_get_field_value should return available elements for slice beyond list."""
+    snapshots = [
+        _create_test_snapshot("snap-0", 0),
+        _create_test_snapshot("snap-1", 1),
+    ]
+    agent = _create_test_agent(snapshots)
+    # Slice [0:100] on a 2-element list should return both elements
+    result = _get_field_value(agent, "host.snapshots[0:100]")
+    assert result == "snap-0, snap-1"
+
+
+def test_get_field_value_slice_no_match_returns_empty() -> None:
+    """_get_field_value should return empty string for slice with no matching elements."""
+    snapshots = [
+        _create_test_snapshot("snap-0", 0),
+        _create_test_snapshot("snap-1", 1),
+    ]
+    agent = _create_test_agent(snapshots)
+    # Slice [10:20] on a 2-element list should return empty
+    result = _get_field_value(agent, "host.snapshots[10:20]")
+    assert result == ""
+
+
+def test_parse_slice_spec_negative_step() -> None:
+    """_parse_slice_spec should parse negative step."""
+    result = _parse_slice_spec("::-1")
+    assert result == slice(None, None, -1)
+
+
+def test_parse_slice_spec_negative_start_and_stop() -> None:
+    """_parse_slice_spec should parse negative start and stop."""
+    result = _parse_slice_spec("-3:-1")
+    assert result == slice(-3, -1)
