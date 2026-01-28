@@ -12,6 +12,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.primitives import LogLevel
 from imbue.mngr.primitives import OutputFormat
+from imbue.mngr.utils.logging import _console_handler_ids
 from imbue.mngr.utils.logging import _format_arg_value
 from imbue.mngr.utils.logging import _format_user_message
 from imbue.mngr.utils.logging import _resolve_log_dir
@@ -22,6 +23,7 @@ from imbue.mngr.utils.logging import DEBUG_COLOR
 from imbue.mngr.utils.logging import ERROR_COLOR
 from imbue.mngr.utils.logging import log_call
 from imbue.mngr.utils.logging import LoggingSuppressor
+from imbue.mngr.utils.logging import remove_console_handlers
 from imbue.mngr.utils.logging import RESET_COLOR
 from imbue.mngr.utils.logging import setup_logging
 from imbue.mngr.utils.logging import WARNING_COLOR
@@ -457,3 +459,51 @@ def test_buffered_message_tracks_stderr_destination() -> None:
 
     assert not stdout_msg.is_stderr
     assert stderr_msg.is_stderr
+
+
+# =============================================================================
+# Tests for remove_console_handlers
+# =============================================================================
+
+
+def test_remove_console_handlers_clears_handler_ids(temp_mngr_ctx: MngrContext) -> None:
+    """remove_console_handlers should clear _console_handler_ids dict."""
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+    )
+
+    # Setup logging to populate console handler IDs
+    setup_logging(output_opts, temp_mngr_ctx)
+    assert len(_console_handler_ids) > 0
+
+    # Remove handlers
+    remove_console_handlers()
+
+    # Handler IDs dict should be empty
+    assert len(_console_handler_ids) == 0
+
+
+def test_remove_console_handlers_is_idempotent(temp_mngr_ctx: MngrContext) -> None:
+    """Calling remove_console_handlers twice should not error."""
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+    )
+
+    setup_logging(output_opts, temp_mngr_ctx)
+    remove_console_handlers()
+
+    # Second call should not raise an error
+    remove_console_handlers()
+    assert len(_console_handler_ids) == 0
+
+
+def test_remove_console_handlers_when_no_handlers_exist() -> None:
+    """remove_console_handlers should not error when no handlers exist."""
+    # Clear any existing handlers
+    _console_handler_ids.clear()
+
+    # Should not raise an error
+    remove_console_handlers()
+    assert len(_console_handler_ids) == 0
