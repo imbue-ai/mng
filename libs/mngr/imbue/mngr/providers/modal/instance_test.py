@@ -10,6 +10,7 @@ Or to run all tests including Modal tests:
     pytest --timeout=180
 """
 
+import subprocess
 from io import StringIO
 from pathlib import Path
 from typing import Generator
@@ -22,6 +23,8 @@ import pytest
 
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.conftest import register_modal_test_app
+from imbue.mngr.conftest import register_modal_test_environment
+from imbue.mngr.conftest import register_modal_test_volume
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
@@ -32,6 +35,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
+from imbue.mngr.providers.modal.backend import STATE_VOLUME_SUFFIX
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
 from imbue.mngr.providers.modal.instance import ModalProviderApp
@@ -150,9 +154,13 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
     mock_volume = MagicMock()
     output_buffer = StringIO()
 
+    # Create a mock environment name for testing
+    mock_environment_name = f"test-env-{app_name}"
+
     # Create ModalProviderApp using model_construct to skip validation
     modal_app = ModalProviderApp.model_construct(
         app_name=app_name,
+        environment_name=mock_environment_name,
         app=mock_app,
         volume=mock_volume,
         close_callback=MagicMock(),
@@ -211,17 +219,48 @@ def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProvid
 def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Generator[ModalProviderInstance, None, None]:
     """Create a ModalProviderInstance with real Modal for acceptance tests.
 
-    This fixture registers the Modal app name for leak detection. If the test
-    doesn't properly clean up its hosts, the session_cleanup fixture will
-    detect the still-running app and stop it.
+    This fixture creates a Modal environment and cleans it up after the test.
+    Cleanup happens in the fixture teardown (not at session end) to prevent
+    environment leaks and reduce the time spent on cleanup.
     """
     app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     provider = make_modal_provider_real(temp_mngr_ctx, app_name)
+    environment_name = provider.environment_name
+    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
 
-    # Register the app name for cleanup verification
+    # Register resources for leak detection (safety net in case cleanup fails)
     register_modal_test_app(app_name)
+    register_modal_test_environment(environment_name)
+    register_modal_test_volume(volume_name)
 
     yield provider
+
+    # Clean up resources immediately after the test completes.
+    # This is faster than waiting until session end because we clean up one
+    # environment at a time instead of listing and deleting all at once.
+
+    # Close the Modal app context first
+    ModalProviderBackend.close_app(app_name)
+
+    # Delete the volume (must be done before environment deletion)
+    try:
+        subprocess.run(
+            ["uv", "run", "modal", "volume", "delete", volume_name, "--yes"],
+            capture_output=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        pass
+
+    # Delete the environment (this also cleans up any remaining resources in it)
+    try:
+        subprocess.run(
+            ["uv", "run", "modal", "environment", "delete", environment_name, "--yes"],
+            capture_output=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        pass
 
 
 # =============================================================================
@@ -452,8 +491,12 @@ def make_modal_provider_with_config_defaults(
     mock_volume = MagicMock()
     output_buffer = StringIO()
 
+    # Create a mock environment name for testing
+    mock_environment_name = f"test-env-{app_name}"
+
     modal_app = ModalProviderApp.model_construct(
         app_name=app_name,
+        environment_name=mock_environment_name,
         app=mock_app,
         volume=mock_volume,
         close_callback=MagicMock(),

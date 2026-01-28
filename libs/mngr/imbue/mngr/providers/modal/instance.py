@@ -19,6 +19,7 @@ from datetime import datetime
 from datetime import timezone
 from functools import wraps
 from pathlib import Path
+from typing import ClassVar
 from typing import Final
 from typing import Mapping
 from typing import ParamSpec
@@ -65,6 +66,7 @@ from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
+from imbue.mngr.utils.polling import wait_for
 
 # Constants
 CONTAINER_SSH_PORT = 22
@@ -203,6 +205,7 @@ class ModalProviderApp(FrozenModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     app_name: str = Field(frozen=True, description="The name of the Modal app")
+    environment_name: str = Field(frozen=True, description="The Modal environment name for user isolation")
     app: modal.App = Field(frozen=True, description="The Modal app instance")
     volume: modal.Volume = Field(frozen=True, description="The Modal volume for state storage")
     close_callback: Callable[[], None] = Field(frozen=True, description="Callback to clean up the app context")
@@ -231,7 +234,15 @@ class ModalProviderInstance(BaseProviderInstance):
     Host metadata (SSH info, config, snapshots) is stored on a Modal Volume
     for persistence and sharing between mngr instances. Only host_id, host_name,
     and user tags are stored as sandbox tags for discovery via Sandbox.list().
+
+    A class-level cache maps host_id to sandbox objects to avoid relying on Modal's
+    eventually consistent tag queries for recently created sandboxes.
     """
+
+    # Class-level caches of sandboxes. These avoid the need to query
+    # Modal's eventually consistent tag API for recently created sandboxes.
+    _sandbox_cache_by_id: ClassVar[dict[HostId, modal.Sandbox]] = {}
+    _sandbox_cache_by_name: ClassVar[dict[HostName, modal.Sandbox]] = {}
 
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
@@ -252,6 +263,11 @@ class ModalProviderInstance(BaseProviderInstance):
     def app_name(self) -> str:
         """Get the Modal app name from the modal_app manager."""
         return self.modal_app.app_name
+
+    @property
+    def environment_name(self) -> str:
+        """Get the Modal environment name from the modal_app manager."""
+        return self.modal_app.environment_name
 
     @property
     def _keys_dir(self) -> Path:
@@ -655,25 +671,135 @@ class ModalProviderInstance(BaseProviderInstance):
         """
         return self.modal_app.get_captured_output()
 
-    def _find_sandbox_by_host_id(self, host_id: HostId) -> modal.Sandbox | None:
-        """Find a Modal sandbox by its mngr host_id tag."""
-        logger.trace("Looking up sandbox with host_id={}", host_id)
+    def _lookup_sandbox_by_host_id_once(self, host_id: HostId, result_container: list[modal.Sandbox]) -> bool:
+        """Perform a single lookup of a sandbox by host_id tag.
+
+        This is a helper for _find_sandbox_by_host_id that does not retry.
+        If the sandbox is found, it is appended to result_container and True is returned.
+        Otherwise, returns False.
+        """
         app = self._get_modal_app()
         for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
-            return sandbox
-        return None
+            result_container.append(sandbox)
+            return True
+        return False
 
-    def _find_sandbox_by_name(self, name: HostName) -> modal.Sandbox | None:
-        """Find a Modal sandbox by its mngr host_name tag."""
-        logger.trace("Looking up sandbox with name={}", name)
+    def _cache_sandbox(self, host_id: HostId, name: HostName, sandbox: modal.Sandbox) -> None:
+        """Cache a sandbox by host_id and name for fast lookup."""
+        ModalProviderInstance._sandbox_cache_by_id[host_id] = sandbox
+        ModalProviderInstance._sandbox_cache_by_name[name] = sandbox
+
+    def _uncache_sandbox(self, host_id: HostId, name: HostName | None = None) -> None:
+        """Remove a sandbox from the caches."""
+        ModalProviderInstance._sandbox_cache_by_id.pop(host_id, None)
+        if name is not None:
+            ModalProviderInstance._sandbox_cache_by_name.pop(name, None)
+
+    @classmethod
+    def reset_sandbox_cache(cls) -> None:
+        """Reset the sandbox caches.
+
+        This is primarily used for test isolation to ensure a clean state between tests.
+        """
+        cls._sandbox_cache_by_id.clear()
+        cls._sandbox_cache_by_name.clear()
+
+    def _find_sandbox_by_host_id(
+        self, host_id: HostId, timeout: float = 5.0, poll_interval: float = 1.0
+    ) -> modal.Sandbox | None:
+        """Find a Modal sandbox by its mngr host_id tag.
+
+        First checks the local cache (populated when sandboxes are created), then
+        falls back to querying Modal's API. The cache avoids Modal's eventual
+        consistency issues for recently created sandboxes.
+
+        The app_id identifies the app within its environment, so sandboxes created
+        in that app's environment will be found via app_id alone.
+
+        Due to Modal's eventual consistency, tags may not be immediately visible
+        after a sandbox is created. This method polls for the sandbox with delays
+        to handle this race condition when the sandbox isn't in the cache.
+        """
+        logger.trace("Looking up sandbox with host_id={} in env={}", host_id, self.environment_name)
+
+        # Check cache first - this avoids eventual consistency issues for recently created sandboxes
+        if host_id in ModalProviderInstance._sandbox_cache_by_id:
+            sandbox = ModalProviderInstance._sandbox_cache_by_id[host_id]
+            logger.trace("Found sandbox in cache for host_id={}", host_id)
+            return sandbox
+
+        # Fall back to querying Modal's API with retries
+        result: list[modal.Sandbox] = []
+
+        try:
+            wait_for(
+                lambda: self._lookup_sandbox_by_host_id_once(host_id, result),
+                timeout=timeout,
+                poll_interval=poll_interval,
+            )
+            return result[0]
+        except TimeoutError:
+            logger.trace("Sandbox with host_id={} not found after {}s", host_id, timeout)
+            return None
+
+    def _lookup_sandbox_by_name_once(self, name: HostName, result_container: list[modal.Sandbox]) -> bool:
+        """Perform a single lookup of a sandbox by host_name tag.
+
+        This is a helper for _find_sandbox_by_name that does not retry.
+        If the sandbox is found, it is appended to result_container and True is returned.
+        Otherwise, returns False.
+        """
         app = self._get_modal_app()
         for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_NAME: str(name)}):
+            result_container.append(sandbox)
+            return True
+        return False
+
+    def _find_sandbox_by_name(
+        self, name: HostName, timeout: float = 5.0, poll_interval: float = 1.0
+    ) -> modal.Sandbox | None:
+        """Find a Modal sandbox by its mngr host_name tag.
+
+        First checks the local cache (populated when sandboxes are created), then
+        falls back to querying Modal's API. The cache avoids Modal's eventual
+        consistency issues for recently created sandboxes.
+
+        The app_id identifies the app within its environment, so sandboxes created
+        in that app's environment will be found via app_id alone.
+
+        Due to Modal's eventual consistency, tags may not be immediately visible
+        after a sandbox is created. This method polls for the sandbox with delays
+        to handle this race condition when the sandbox isn't in the cache.
+        """
+        logger.trace("Looking up sandbox with name={} in env={}", name, self.environment_name)
+
+        # Check cache first - this avoids eventual consistency issues for recently created sandboxes
+        if name in ModalProviderInstance._sandbox_cache_by_name:
+            sandbox = ModalProviderInstance._sandbox_cache_by_name[name]
+            logger.trace("Found sandbox in cache for name={}", name)
             return sandbox
-        return None
+
+        # Fall back to querying Modal's API with retries
+        result: list[modal.Sandbox] = []
+
+        try:
+            wait_for(
+                lambda: self._lookup_sandbox_by_name_once(name, result),
+                timeout=timeout,
+                poll_interval=poll_interval,
+            )
+            return result[0]
+        except TimeoutError:
+            logger.trace("Sandbox with name={} not found after {}s", name, timeout)
+            return None
 
     def _list_sandboxes(self) -> list[modal.Sandbox]:
-        """List all Modal sandboxes managed by this mngr provider instance."""
-        logger.trace("Listing all mngr sandboxes for app={}", self.app_name)
+        """List all Modal sandboxes managed by this mngr provider instance.
+
+        The app_id identifies the app within its environment, so sandboxes created
+        in that app's environment will be found via app_id alone.
+        """
+        logger.trace("Listing all mngr sandboxes for app={} in env={}", self.app_name, self.environment_name)
         app = self._get_modal_app()
         sandboxes: list[modal.Sandbox] = []
         for sandbox in modal.Sandbox.list(app_id=app.app_id):
@@ -776,6 +902,8 @@ class ModalProviderInstance(BaseProviderInstance):
             sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
+                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
+                # environment_name=self.environment_name,
                 timeout=config.timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
@@ -786,6 +914,9 @@ class ModalProviderInstance(BaseProviderInstance):
         except modal.exception.RemoteError as e:
             raise MngrError(f"Failed to create Modal sandbox: {e}\n{self.get_captured_output()}") from None
         logger.debug("Created Modal sandbox", sandbox_id=sandbox.object_id)
+
+        # Cache the sandbox for fast lookup (avoids Modal's eventual consistency issues)
+        self._cache_sandbox(host_id, name, sandbox)
 
         # Set up SSH and create host object using shared helper
         host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
@@ -837,6 +968,12 @@ class ModalProviderInstance(BaseProviderInstance):
                 logger.warning("Error terminating sandbox: {}", e)
         else:
             logger.debug("No sandbox found, may already be terminated", host_id=str(host_id))
+
+        # Remove from cache since the sandbox is now terminated
+        # Read host record to get the name for cache cleanup
+        host_record = self._read_host_record(host_id)
+        host_name = HostName(host_record.host_name) if host_record else None
+        self._uncache_sandbox(host_id, host_name)
 
     @handle_modal_auth_error
     def start_host(
@@ -913,6 +1050,8 @@ class ModalProviderInstance(BaseProviderInstance):
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
+                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
+                # environment_name=self.environment_name,
                 timeout=config.timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
@@ -924,6 +1063,8 @@ class ModalProviderInstance(BaseProviderInstance):
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
+                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
+                #                 environment_name=self.environment_name,
                 timeout=config.timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
@@ -931,6 +1072,9 @@ class ModalProviderInstance(BaseProviderInstance):
                 region=config.region,
             )
         logger.info("Created sandbox from snapshot", sandbox_id=new_sandbox.object_id)
+
+        # Cache the sandbox for fast lookup (avoids Modal's eventual consistency issues)
+        self._cache_sandbox(host_id, host_name, new_sandbox)
 
         # Set up SSH and create host object using shared helper
         restored_host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(

@@ -20,13 +20,8 @@ from pathlib import Path
 import pytest
 
 from imbue.mngr import resources
+from imbue.mngr.conftest import ModalSubprocessTestEnv
 from imbue.mngr.utils.testing import get_short_random_string
-from imbue.mngr.utils.testing import get_subprocess_test_env
-
-
-def _get_test_env() -> dict[str, str]:
-    """Get environment variables for subprocess calls that prevent loading project config."""
-    return get_subprocess_test_env("mngr-acceptance-test")
 
 
 @pytest.fixture
@@ -41,7 +36,10 @@ def temp_source_dir() -> Generator[Path, None, None]:
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-def test_mngr_create_echo_command_on_modal(temp_source_dir: Path) -> None:
+def test_mngr_create_echo_command_on_modal(
+    temp_source_dir: Path,
+    modal_subprocess_env: ModalSubprocessTestEnv,
+) -> None:
     """Test creating an agent with echo command on Modal using the CLI.
 
     This is an end-to-end acceptance test that verifies the full flow:
@@ -79,7 +77,7 @@ def test_mngr_create_echo_command_on_modal(temp_source_dir: Path) -> None:
         capture_output=True,
         text=True,
         timeout=300,
-        env=_get_test_env(),
+        env=modal_subprocess_env.env,
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
@@ -88,7 +86,10 @@ def test_mngr_create_echo_command_on_modal(temp_source_dir: Path) -> None:
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-def test_mngr_create_with_worktree_flag_on_modal_raises_error(temp_source_dir: Path) -> None:
+def test_mngr_create_with_worktree_flag_on_modal_raises_error(
+    temp_source_dir: Path,
+    modal_subprocess_env: ModalSubprocessTestEnv,
+) -> None:
     """Test that explicitly requesting --worktree on modal raises an error.
 
     The --worktree flag only works when source and target are on the same host.
@@ -118,7 +119,7 @@ def test_mngr_create_with_worktree_flag_on_modal_raises_error(temp_source_dir: P
         capture_output=True,
         text=True,
         timeout=300,
-        env=_get_test_env(),
+        env=modal_subprocess_env.env,
     )
 
     # Should fail with an error about worktree mode
@@ -130,7 +131,10 @@ def test_mngr_create_with_worktree_flag_on_modal_raises_error(temp_source_dir: P
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-def test_mngr_create_with_build_args_on_modal(temp_source_dir: Path) -> None:
+def test_mngr_create_with_build_args_on_modal(
+    temp_source_dir: Path,
+    modal_subprocess_env: ModalSubprocessTestEnv,
+) -> None:
     """Test creating an agent on Modal with custom build args (cpu, memory).
 
     This verifies that build arguments are passed correctly to the Modal sandbox.
@@ -167,7 +171,7 @@ def test_mngr_create_with_build_args_on_modal(temp_source_dir: Path) -> None:
         capture_output=True,
         text=True,
         timeout=300,
-        env=_get_test_env(),
+        env=modal_subprocess_env.env,
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
@@ -176,7 +180,10 @@ def test_mngr_create_with_build_args_on_modal(temp_source_dir: Path) -> None:
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-def test_mngr_create_with_dockerfile_on_modal(temp_source_dir: Path) -> None:
+def test_mngr_create_with_dockerfile_on_modal(
+    temp_source_dir: Path,
+    modal_subprocess_env: ModalSubprocessTestEnv,
+) -> None:
     """Test creating an agent on Modal using a custom Dockerfile.
 
     This verifies that:
@@ -228,7 +235,7 @@ RUN echo "custom-dockerfile-marker" > /dockerfile-marker.txt
         capture_output=True,
         text=True,
         timeout=300,
-        env=_get_test_env(),
+        env=modal_subprocess_env.env,
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
@@ -237,7 +244,10 @@ RUN echo "custom-dockerfile-marker" > /dockerfile-marker.txt
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-def test_mngr_create_with_failing_dockerfile_shows_build_failure(temp_source_dir: Path) -> None:
+def test_mngr_create_with_failing_dockerfile_shows_build_failure(
+    temp_source_dir: Path,
+    modal_subprocess_env: ModalSubprocessTestEnv,
+) -> None:
     """Test that a failing Dockerfile command shows the build failure in output.
 
     When a Dockerfile has a command that fails during the build process, mngr should:
@@ -283,7 +293,7 @@ RUN echo "About to fail with marker: {unique_failure_marker}" && exit 1
         capture_output=True,
         text=True,
         timeout=300,
-        env=_get_test_env(),
+        env=modal_subprocess_env.env,
     )
 
     # The command should fail because the Dockerfile build fails
@@ -295,6 +305,8 @@ RUN echo "About to fail with marker: {unique_failure_marker}" && exit 1
     # The combined output should contain the unique marker from the failing command
     # so the user can see what actually failed in the build
     combined_output = result.stdout + result.stderr
+    # FIXME: this assertion has flaked in CI. It almost certainly happened because put_log_content was not called in _QuietOutputManager before the output buffer was closed
+    #  It's not *entirely* clear to me how to fix this--ideally we wait for that output to be flushed, but I'm not sure how to do that in this context...
     assert unique_failure_marker in combined_output, (
         f"Expected the failing build command's output to be visible in mngr output. "
         f"Looking for unique marker '{unique_failure_marker}' in output.\n"
@@ -331,7 +343,10 @@ def temp_git_source_dir() -> Generator[Path, None, None]:
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-def test_mngr_create_transfers_git_repo_with_untracked_files(temp_git_source_dir: Path) -> None:
+def test_mngr_create_transfers_git_repo_with_untracked_files(
+    temp_git_source_dir: Path,
+    modal_subprocess_env: ModalSubprocessTestEnv,
+) -> None:
     """Test that agent creation with git repo source succeeds on Modal.
 
     This tests that the file transfer flow completes without error:
@@ -370,7 +385,7 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(temp_git_source_dir
         capture_output=True,
         text=True,
         timeout=300,
-        env=_get_test_env(),
+        env=modal_subprocess_env.env,
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
@@ -379,7 +394,10 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(temp_git_source_dir
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-def test_mngr_create_transfers_git_repo_with_new_branch(temp_git_source_dir: Path) -> None:
+def test_mngr_create_transfers_git_repo_with_new_branch(
+    temp_git_source_dir: Path,
+    modal_subprocess_env: ModalSubprocessTestEnv,
+) -> None:
     """Test that git transfer creates a new branch on the remote.
 
     This tests the git branch creation functionality during transfer:
@@ -410,7 +428,7 @@ def test_mngr_create_transfers_git_repo_with_new_branch(temp_git_source_dir: Pat
         capture_output=True,
         text=True,
         timeout=300,
-        env=_get_test_env(),
+        env=modal_subprocess_env.env,
     )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
@@ -427,7 +445,10 @@ def _get_mngr_default_dockerfile_path() -> Path:
 
 @pytest.mark.release
 @pytest.mark.timeout(600)
-def test_mngr_create_with_default_dockerfile_on_modal(temp_source_dir: Path) -> None:
+def test_mngr_create_with_default_dockerfile_on_modal(
+    temp_source_dir: Path,
+    modal_subprocess_env: ModalSubprocessTestEnv,
+) -> None:
     """Test creating an agent on Modal using the mngr default Dockerfile.
 
     This verifies that the default Dockerfile in libs/mngr/imbue/mngr/resources/Dockerfile:
@@ -457,7 +478,7 @@ def test_mngr_create_with_default_dockerfile_on_modal(temp_source_dir: Path) -> 
             capture_output=True,
             text=True,
             timeout=600,
-            env=_get_test_env(),
+            env=modal_subprocess_env.env,
         )
         # now we can try making the agent
         result = subprocess.run(
@@ -487,7 +508,7 @@ def test_mngr_create_with_default_dockerfile_on_modal(temp_source_dir: Path) -> 
             capture_output=True,
             text=True,
             timeout=600,
-            env=_get_test_env(),
+            env=modal_subprocess_env.env,
         )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"

@@ -17,6 +17,7 @@ import httpx
 import modal
 import pytest
 
+from imbue.mngr.conftest import register_modal_test_volume
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import get_short_random_string
@@ -148,6 +149,7 @@ def _write_host_record_to_volume(app_name: str, host_id: str) -> None:
 def _read_host_record_from_volume(app_name: str, host_id: str) -> dict[str, Any] | None:
     """Read a host record from the Modal volume."""
     volume_name = f"{app_name}-state"
+    register_modal_test_volume(volume_name)
     volume = modal.Volume.from_name(volume_name)
 
     try:
