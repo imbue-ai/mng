@@ -108,9 +108,12 @@ All agent fields from the "Available Fields" section can be used in filter expre
 
 **Numeric comparisons:**
 - `runtime_seconds > 3600` - Agents running for more than an hour
+- `host.resource.memory_gb >= 8` - Agents on hosts with 8GB+ memory
+- `host.uptime_seconds > 86400` - Agents on hosts running for more than a day
 
 **Existence checks:**
 - `has(url)` - Agents that have a URL set
+- `has(host.ssh)` - Agents on remote hosts with SSH access
 
 
 
@@ -143,6 +146,14 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `host.name` - Host name
 - `host.id` - Host ID
 - `host.provider` - Host provider (local, docker, modal, etc.)
+- `host.state` - Current host state (running, stopped, building, etc.)
+- `host.image` - Host image (Docker image name, Modal image ID, etc.)
+- `host.tags` - Metadata tags for the host
+- `host.boot_time` - When the host was last started
+- `host.uptime_seconds` - How long the host has been running
+- `host.resource.*` - Resource limits (cpu.count, memory_gb, disk_gb, gpu)
+- `host.ssh.*` - SSH access details (user, host, port, key_path, command)
+- `host.snapshots` - List of available snapshots
 
 
 ## See Also

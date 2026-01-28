@@ -252,12 +252,37 @@ class BuildCacheInfo(FrozenModel):
     created_at: datetime = Field(description="When the cache entry was created")
 
 
+class SSHInfo(FrozenModel):
+    """SSH connection information for a remote host."""
+
+    user: str = Field(description="SSH username")
+    host: str = Field(description="SSH hostname")
+    port: int = Field(description="SSH port")
+    key_path: Path = Field(description="Path to SSH private key")
+    command: str = Field(description="Full SSH command to connect")
+
+
 class HostInfo(FrozenModel):
     """Information about a host/machine."""
 
     id: HostId = Field(description="Host ID")
     name: str = Field(description="Host name")
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
+
+    # Extended fields (all optional for backwards compatibility)
+    state: str | None = Field(default=None, description="Current host state (running, stopped, etc.)")
+    image: str | None = Field(default=None, description="Host image (Docker image name, Modal image ID, etc.)")
+    tags: dict[str, str] = Field(default_factory=dict, description="Metadata tags for the host")
+    boot_time: datetime | None = Field(default=None, description="When the host was last started")
+    uptime_seconds: float | None = Field(default=None, description="How long the host has been running")
+    resource: HostResources | None = Field(default=None, description="Resource limits for the host")
+    ssh: SSHInfo | None = Field(default=None, description="SSH access details (remote hosts only)")
+    snapshots: list[SnapshotInfo] = Field(default_factory=list, description="List of available snapshots")
+
+    # FIXME: Implement these fields which require additional infrastructure:
+    # - is_locked: bool | None - Whether the host is currently locked for an operation
+    # - locked_time: datetime | None - When the host was locked
+    # - plugin: dict[str, Any] - Plugin-defined fields (requires plugin field evaluation)
 
 
 class RelativePath(PurePosixPath):

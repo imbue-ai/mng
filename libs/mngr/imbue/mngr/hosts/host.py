@@ -728,6 +728,33 @@ class Host(HostInterface):
 
         return 0.0
 
+    def get_boot_time(self) -> datetime | None:
+        """Get the host boot time as a datetime.
+
+        Returns the actual boot time from the OS, not computed from uptime,
+        to avoid timing inconsistencies.
+        """
+        if _is_macos():
+            # macOS: use sysctl kern.boottime which gives boot time directly
+            result = self.execute_command("sysctl -n kern.boottime 2>/dev/null | sed 's/.*sec = \\([0-9]*\\).*/\\1/'")
+            if result.success:
+                try:
+                    boot_timestamp = int(result.stdout.strip())
+                    return datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
+                except (ValueError, OSError):
+                    pass
+        else:
+            # Linux: use /proc/stat which has btime (boot time as Unix timestamp)
+            result = self.execute_command("grep '^btime ' /proc/stat 2>/dev/null | awk '{print $2}'")
+            if result.success:
+                try:
+                    boot_timestamp = int(result.stdout.strip())
+                    return datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
+                except (ValueError, OSError):
+                    pass
+
+        return None
+
     def get_provider_resources(self) -> HostResources:
         """Get resources from the provider."""
         return self.provider_instance.get_host_resources(self)

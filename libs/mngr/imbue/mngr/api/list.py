@@ -19,6 +19,7 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
+from imbue.mngr.interfaces.data_types import SSHInfo
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
@@ -188,10 +189,31 @@ def list_agents(
 
                 host = provider.get_host(host_ref.host_id)
 
+                # Build SSH info if this is a remote host
+                ssh_info: SSHInfo | None = None
+                ssh_connection = host._get_ssh_connection_info()
+                if ssh_connection is not None:
+                    user, hostname, port, key_path = ssh_connection
+                    ssh_info = SSHInfo(
+                        user=user,
+                        host=hostname,
+                        port=port,
+                        key_path=key_path,
+                        command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
+                    )
+
                 host_info = HostInfo(
                     id=host.id,
                     name=host.connector.name,
                     provider_name=host_ref.provider_name,
+                    state=host.get_state().value.lower(),
+                    image=host.get_image(),
+                    tags=host.get_tags(),
+                    boot_time=host.get_boot_time(),
+                    uptime_seconds=host.get_uptime_seconds(),
+                    resource=host.get_provider_resources(),
+                    ssh=ssh_info,
+                    snapshots=host.get_snapshots(),
                 )
 
                 # Get all agents on this host
