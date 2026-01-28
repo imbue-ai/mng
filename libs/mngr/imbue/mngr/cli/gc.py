@@ -499,21 +499,21 @@ resources at any time.""",
         ("Clean all agent resources", "mngr gc --all-agent-resources"),
         ("Clean machines and snapshots for Docker", "mngr gc --machines --snapshots --provider docker"),
         ("Clean logs and build cache", "mngr gc --logs --build-cache"),
-        ("Keep only the 5 most recent snapshots", 'mngr gc --snapshots --exclude "x.recency_idx < 5"'),
+        ("Keep only the 5 most recent snapshots", 'mngr gc --snapshots --exclude "recency_idx < 5"'),
     ),
     additional_sections=(
         (
             "CEL Filter Examples",
-            """CEL filters let you control which resources are cleaned. Use `x` to reference each resource.
+            """CEL filters let you control which resources are cleaned.
 
-**For snapshots, use `x.recency_idx` to filter by age:**
-- `x.recency_idx == 0` - the most recent snapshot
-- `x.recency_idx < 5` - the 5 most recent snapshots
-- To keep only the 5 most recent: `--exclude "x.recency_idx < 5"`
+**For snapshots, use `recency_idx` to filter by age:**
+- `recency_idx == 0` - the most recent snapshot
+- `recency_idx < 5` - the 5 most recent snapshots
+- To keep only the 5 most recent: `--exclude "recency_idx < 5"`
 
 **Filter by resource properties:**
-- `x.name.contains("test")` - resources with "test" in the name
-- `x.provider_name == "docker"` - Docker resources only
+- `name.contains("test")` - resources with "test" in the name
+- `provider_name == "docker"` - Docker resources only
 """,
         ),
     ),
