@@ -29,6 +29,7 @@ from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import OutputFormat
+from imbue.mngr.primitives import UncommittedChangesMode
 
 
 class PullCliOptions(CommonCliOptions):
@@ -47,6 +48,7 @@ class PullCliOptions(CommonCliOptions):
     delete: bool
     sync_mode: str
     exclude: tuple[str, ...]
+    uncommitted_changes: str
 
 
 def _find_agent_by_name_or_id(
@@ -183,6 +185,13 @@ def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
     multiple=True,
     help="Patterns to exclude from sync [repeatable]",
 )
+@optgroup.option(
+    "--uncommitted-changes",
+    type=click.Choice(["stash", "clobber", "merge", "fail"], case_sensitive=False),
+    default="fail",
+    show_default=True,
+    help="How to handle uncommitted changes in the destination: stash (stash and leave stashed), clobber (overwrite), merge (stash, pull, unstash), fail (error if changes exist)",
+)
 @add_common_options
 @click.pass_context
 def pull(ctx: click.Context, **kwargs) -> None:
@@ -275,6 +284,9 @@ def pull(ctx: click.Context, **kwargs) -> None:
         else:
             parsed_source_path = agent.work_dir / parsed_path
 
+    # Parse uncommitted changes mode
+    uncommitted_changes_mode = UncommittedChangesMode(opts.uncommitted_changes.upper())
+
     # Perform the pull
     pull_result = pull_files(
         agent=agent,
@@ -283,6 +295,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
         source_path=parsed_source_path,
         dry_run=opts.dry_run,
         delete=opts.delete,
+        uncommitted_changes=uncommitted_changes_mode,
     )
 
     # Stop agent if requested

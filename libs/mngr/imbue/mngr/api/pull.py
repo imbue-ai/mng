@@ -1,4 +1,6 @@
+import subprocess
 from pathlib import Path
+from typing import assert_never
 
 import deal
 from loguru import logger
@@ -9,6 +11,7 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.primitives import UncommittedChangesMode
 
 
 class PullResult(FrozenModel):
@@ -34,6 +37,70 @@ class PullResult(FrozenModel):
     )
 
 
+class UncommittedChangesError(MngrError):
+    """Raised when there are uncommitted changes and mode is FAIL."""
+
+    user_help_text = (
+        "Use --uncommitted-changes=stash to stash changes before pulling, "
+        "--uncommitted-changes=clobber to overwrite changes, "
+        "or --uncommitted-changes=merge to stash, pull, then unstash."
+    )
+
+    def __init__(self, destination: Path) -> None:
+        self.destination = destination
+        super().__init__(f"Uncommitted changes in destination: {destination}")
+
+
+def _has_uncommitted_changes(destination: Path) -> bool:
+    """Check if the destination directory has uncommitted git changes."""
+    # Check if destination is a git repo
+    git_dir = destination / ".git"
+    if not git_dir.exists():
+        return False
+
+    # Check for uncommitted changes using git status
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=destination,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        # If git status fails, assume no changes (not a git repo or other issue)
+        return False
+
+    # If output is non-empty, there are changes
+    return len(result.stdout.strip()) > 0
+
+
+def _git_stash(destination: Path) -> bool:
+    """Stash uncommitted changes. Returns True if something was stashed."""
+    result = subprocess.run(
+        ["git", "stash", "push", "-m", "mngr-pull-stash"],
+        cwd=destination,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise MngrError(f"git stash failed: {result.stderr}")
+
+    # Check if something was actually stashed by looking at the output
+    # "No local changes to save" means nothing was stashed
+    return "No local changes to save" not in result.stdout
+
+
+def _git_stash_pop(destination: Path) -> None:
+    """Pop the most recent stash."""
+    result = subprocess.run(
+        ["git", "stash", "pop"],
+        cwd=destination,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise MngrError(f"git stash pop failed: {result.stderr}")
+
+
 def pull_files(
     agent: AgentInterface,
     host: HostInterface,
@@ -44,18 +111,41 @@ def pull_files(
     dry_run: bool = False,
     # If True, delete files in destination that don't exist in source
     delete: bool = False,
+    # How to handle uncommitted changes in the destination
+    uncommitted_changes: UncommittedChangesMode = UncommittedChangesMode.FAIL,
 ) -> PullResult:
     """Pull files from an agent's work directory to a local directory using rsync."""
     # Determine source path
     actual_source_path = source_path if source_path is not None else agent.work_dir
     logger.debug("Pulling files from {} to {}", actual_source_path, destination)
 
+    # Handle uncommitted changes in the destination
+    has_changes = _has_uncommitted_changes(destination)
+    did_stash = False
+
+    if has_changes:
+        match uncommitted_changes:
+            case UncommittedChangesMode.FAIL:
+                raise UncommittedChangesError(destination)
+            case UncommittedChangesMode.STASH:
+                logger.debug("Stashing uncommitted changes")
+                did_stash = _git_stash(destination)
+            case UncommittedChangesMode.MERGE:
+                logger.debug("Stashing uncommitted changes for merge")
+                did_stash = _git_stash(destination)
+            case UncommittedChangesMode.CLOBBER:
+                logger.debug("Clobbering uncommitted changes")
+                # Do nothing - rsync will overwrite
+            case _ as unreachable:
+                assert_never(unreachable)
+
     # Build rsync command
     # -a: archive mode (recursive, preserves permissions, etc.)
     # -v: verbose
     # -z: compress during transfer
     # --progress: show progress
-    rsync_cmd = ["rsync", "-avz", "--progress"]
+    # --exclude=.git: exclude git directory to avoid conflicts
+    rsync_cmd = ["rsync", "-avz", "--progress", "--exclude=.git"]
 
     if dry_run:
         rsync_cmd.append("--dry-run")
@@ -78,10 +168,21 @@ def pull_files(
     result: CommandResult = host.execute_command(cmd_str)
 
     if not result.success:
+        # If we stashed and rsync failed, try to restore the stash for merge mode
+        if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
+            try:
+                _git_stash_pop(destination)
+            except MngrError:
+                logger.warning("Failed to restore stashed changes after rsync failure")
         raise MngrError(f"rsync failed: {result.stderr}")
 
     # Parse rsync output to extract statistics
     files_transferred, bytes_transferred = _parse_rsync_output(result.stdout)
+
+    # For merge mode, restore the stashed changes
+    if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
+        logger.debug("Restoring stashed changes")
+        _git_stash_pop(destination)
 
     logger.info(
         "Pull complete: {} files, {} bytes transferred{}",

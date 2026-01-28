@@ -124,6 +124,15 @@ class WorkDirCopyMode(UpperCaseStrEnum):
     WORKTREE = auto()
 
 
+class UncommittedChangesMode(UpperCaseStrEnum):
+    """Mode for handling uncommitted changes in the host repo when pulling files."""
+
+    STASH = auto()
+    CLOBBER = auto()
+    MERGE = auto()
+    FAIL = auto()
+
+
 # === ID Types ===
 
 

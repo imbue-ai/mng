@@ -6,9 +6,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from imbue.mngr.api.pull import PullResult
+from imbue.mngr.api.pull import UncommittedChangesError
 from imbue.mngr.api.pull import _parse_rsync_output
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.errors import MngrError
+from imbue.mngr.primitives import UncommittedChangesMode
 
 
 def test_parse_rsync_output_with_files() -> None:
@@ -394,3 +396,90 @@ def test_pull_files_with_all_flags() -> None:
     assert "--dry-run" in call_args
     assert "--delete" in call_args
     assert result.is_dry_run is True
+
+
+def test_pull_files_excludes_git_directory() -> None:
+    """Test that pull_files excludes .git directory from rsync."""
+    mock_agent = MagicMock()
+    mock_agent.work_dir = Path("/agent/work")
+
+    mock_host = MagicMock()
+    mock_host.execute_command.return_value = MagicMock(
+        success=True,
+        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
+        stderr="",
+    )
+
+    pull_files(
+        agent=mock_agent,
+        host=mock_host,
+        destination=Path("/dest"),
+        source_path=None,
+        dry_run=False,
+        delete=False,
+    )
+
+    # Verify the rsync command includes --exclude=.git
+    call_args = mock_host.execute_command.call_args[0][0]
+    assert "--exclude=.git" in call_args
+
+
+def test_pull_files_with_clobber_mode_does_not_check_git() -> None:
+    """Test that clobber mode proceeds without checking git status."""
+    mock_agent = MagicMock()
+    mock_agent.work_dir = Path("/agent/work")
+
+    mock_host = MagicMock()
+    mock_host.execute_command.return_value = MagicMock(
+        success=True,
+        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
+        stderr="",
+    )
+
+    # Use clobber mode - should not check for uncommitted changes
+    result = pull_files(
+        agent=mock_agent,
+        host=mock_host,
+        destination=Path("/dest"),
+        source_path=None,
+        dry_run=False,
+        delete=False,
+        uncommitted_changes=UncommittedChangesMode.CLOBBER,
+    )
+
+    assert result.files_transferred == 0
+    assert result.bytes_transferred == 100
+
+
+def test_uncommitted_changes_error_has_user_help_text() -> None:
+    """Test that UncommittedChangesError has helpful user text."""
+    error = UncommittedChangesError(Path("/some/path"))
+    assert "stash" in error.user_help_text
+    assert "clobber" in error.user_help_text
+    assert "merge" in error.user_help_text
+    assert error.destination == Path("/some/path")
+
+
+def test_pull_files_default_uncommitted_changes_mode_is_fail() -> None:
+    """Test that the default uncommitted changes mode is FAIL."""
+    mock_agent = MagicMock()
+    mock_agent.work_dir = Path("/agent/work")
+
+    mock_host = MagicMock()
+    mock_host.execute_command.return_value = MagicMock(
+        success=True,
+        stdout="sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000",
+        stderr="",
+    )
+
+    # When there are no uncommitted changes (no .git directory), FAIL mode should succeed
+    result = pull_files(
+        agent=mock_agent,
+        host=mock_host,
+        destination=Path("/nonexistent/dest"),
+        source_path=None,
+        dry_run=False,
+        delete=False,
+    )
+
+    assert result.files_transferred == 0
