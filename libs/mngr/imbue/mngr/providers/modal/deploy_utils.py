@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from loguru import logger
+from modal.functions import Function
 
 
 def deploy_snapshot_function(app_name: str, environment_name: str) -> str | None:
@@ -40,26 +41,11 @@ def deploy_snapshot_function(app_name: str, environment_name: str) -> str | None
             logger.warning("Failed to deploy snapshot function: {}", result.stderr)
             return None
 
-        # Parse the URL from the deploy output
-        # Example formats:
-        #   "Created web function snapshot_and_shutdown => https://..."
-        lines = result.stdout.split("\n")
-        for i, line in enumerate(lines):
-            if "snapshot_and_shutdown" in line:
-                # Check if URL is on this line
-                if "https://" in line:
-                    url_start = line.find("https://")
-                    url = line[url_start:].split()[0].rstrip(")")
-                    logger.info("Deployed snapshot_and_shutdown function: {}", url)
-                    return url
-                # Check if URL is on the next line
-                if i + 1 < len(lines):
-                    next_line = lines[i + 1]
-                    if "https://" in next_line:
-                        url_start = next_line.find("https://")
-                        url = next_line[url_start:].split()[0].rstrip(")")
-                        logger.info("Deployed snapshot_and_shutdown function: {}", url)
-                        return url
+        # get the URL out of the resulting Function object
+        func = Function.from_name(name="snapshot_and_shutdown", app_name=app_name, environment_name=environment_name)
+        web_url = func.get_web_url()
+        if web_url:
+            return web_url
 
         logger.warning("Could not find function URL in deploy output: {}", result.stdout)
         return None
