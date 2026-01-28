@@ -39,6 +39,7 @@ from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.modal.backend import STATE_VOLUME_SUFFIX
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
+from imbue.mngr.providers.modal.errors import NoSnapshotsModalMngrError
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.instance import TAG_HOST_ID
@@ -1101,6 +1102,9 @@ def test_start_host_on_running_host(real_modal_provider: ModalProviderInstance) 
             real_modal_provider.destroy_host(host)
 
 
+# FIXME: actually, this test is incorrect--we SHOULD be able to restart a stopped host
+#  The reason is that there should ALWAYS be a snapshot associated with any started host, because the initial image should be considered a snapshot when we're first creating the host
+#  Please fix the code, and then update this test accordingly
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_start_host_on_stopped_host_raises_error(real_modal_provider: ModalProviderInstance) -> None:
@@ -1112,7 +1116,7 @@ def test_start_host_on_stopped_host_raises_error(real_modal_provider: ModalProvi
     real_modal_provider.stop_host(host)
 
     # Trying to start it should fail
-    with pytest.raises(MngrError):
+    with pytest.raises(NoSnapshotsModalMngrError):
         real_modal_provider.start_host(host_id)
 
 
