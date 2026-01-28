@@ -81,6 +81,11 @@ def cleanup_tmux_session(session_name: str) -> None:
     )
 
 
+# FIXME: When xdist workers crash (as observed during stress testing), this context manager's
+# finally block may not execute, leaving orphaned tmux sessions. This contributes to resource
+# leaks and contention in parallel test runs. Consider adding a pytest hook or fixture that
+# cleans up all test-prefixed tmux sessions at the start/end of the test run, or using
+# worker-specific tmux socket paths (TMUX_TMPDIR) to isolate workers from each other.
 @contextmanager
 def tmux_session_cleanup(session_name: str) -> Generator[str, None, None]:
     """Context manager that cleans up a tmux session on exit."""
