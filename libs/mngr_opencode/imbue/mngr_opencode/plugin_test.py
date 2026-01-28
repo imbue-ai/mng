@@ -3,6 +3,8 @@
 from imbue.mngr_opencode.plugin import OpenCodeAgentConfig
 
 
+# FIXME: This test has been observed to be flaky - it failed once during a test run
+# but passed when re-run. Investigate the root cause.
 def test_opencode_agent_config_has_correct_defaults() -> None:
     """Verify that OpenCodeAgentConfig has the expected default values."""
     config = OpenCodeAgentConfig()

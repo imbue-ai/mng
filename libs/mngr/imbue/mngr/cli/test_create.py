@@ -364,6 +364,8 @@ def test_single_line_message_uses_echo(
         )
 
 
+# FIXME: This test has been observed to be flaky - it failed once during a test run
+# but passed when re-run individually. Investigate the root cause.
 def test_no_await_ready_creates_agent_in_background(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -659,6 +661,8 @@ def test_edit_message_sends_edited_content(
         restore_env_var("VISUAL", original_visual)
 
 
+# FIXME: This test has been observed to be flaky - it failed once during a test run
+# but passed when re-run. Investigate the root cause.
 def test_edit_message_with_initial_content(
     cli_runner: CliRunner,
     temp_work_dir: Path,
