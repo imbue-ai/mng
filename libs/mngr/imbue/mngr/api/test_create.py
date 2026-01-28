@@ -7,6 +7,7 @@ import json
 import subprocess
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pluggy
 
@@ -17,6 +18,7 @@ from imbue.mngr.api.data_types import NewHostOptions
 from imbue.mngr.api.data_types import OnBeforeCreateArgs
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import AgentStartError
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
@@ -842,3 +844,188 @@ def test_on_before_create_hooks_chain_in_order(
 # provision, on_after_provisioning) are covered by agent-type specific tests since these are
 # methods on the agent class rather than plugin hooks. See the "Provisioning Lifecycle Tests"
 # section in claude_agent_test.py.
+
+
+# =============================================================================
+# Atomic Creation / Cleanup Tests
+# =============================================================================
+
+
+def test_atomic_create_cleans_up_on_start_failure(
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+) -> None:
+    """Test that when start_agents fails, cleanup removes agent state and work directory."""
+    agent_name = AgentName(f"test-atomic-{int(time.time())}")
+
+    local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
+    local_host = local_provider.get_host(HostName("local"))
+    source_location = HostLocation(
+        host=local_host,
+        path=temp_work_dir,
+    )
+
+    # Use a different target path so we can verify cleanup
+    target_path = temp_work_dir.parent / "generated_work_dir"
+
+    agent_options = CreateAgentOptions(
+        agent_type=AgentTypeName("test"),
+        name=agent_name,
+        command=CommandString("sleep 60"),
+        target_path=target_path,
+    )
+
+    # Mock start_agents to fail
+    with patch.object(local_host.__class__, "start_agents", side_effect=AgentStartError(str(agent_name), "test error")):
+        try:
+            create(
+                source_location=source_location,
+                target_host=local_host,
+                agent_options=agent_options,
+                mngr_ctx=temp_mngr_ctx,
+            )
+            raise AssertionError("Expected AgentStartError to be raised")
+        except AgentStartError:
+            pass
+
+    # Verify cleanup happened
+    agents_dir = temp_host_dir / "agents"
+    if agents_dir.exists():
+        agent_dirs = list(agents_dir.iterdir())
+        assert len(agent_dirs) == 0, "Agent state directory should have been cleaned up"
+
+    # Verify work directory was cleaned up (if it was created)
+    assert not target_path.exists() or not any(target_path.iterdir()), (
+        "Generated work directory should have been cleaned up"
+    )
+
+
+def test_atomic_create_cleans_up_worktree_on_failure(
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+) -> None:
+    """Test that when creation fails with worktree mode, both worktree and branch are cleaned up."""
+    agent_name = AgentName(f"test-atomic-wt-{int(time.time())}")
+
+    # Initialize git repo
+    subprocess.run(["git", "init"], cwd=temp_work_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=temp_work_dir,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=temp_work_dir,
+        check=True,
+        capture_output=True,
+    )
+    test_file = temp_work_dir / "test.txt"
+    test_file.write_text("test content")
+    subprocess.run(["git", "add", "."], cwd=temp_work_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=temp_work_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
+    local_host = local_provider.get_host(HostName("local"))
+    source_location = HostLocation(
+        host=local_host,
+        path=temp_work_dir,
+    )
+
+    branch_prefix = f"mngr/{agent_name}-"
+
+    agent_options = CreateAgentOptions(
+        agent_type=AgentTypeName("worktree-atomic-test"),
+        name=agent_name,
+        command=CommandString("sleep 60"),
+        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    )
+
+    # Mock start_agents to fail
+    with patch.object(local_host.__class__, "start_agents", side_effect=AgentStartError(str(agent_name), "test error")):
+        try:
+            create(
+                source_location=source_location,
+                target_host=local_host,
+                agent_options=agent_options,
+                mngr_ctx=temp_mngr_ctx,
+            )
+            raise AssertionError("Expected AgentStartError to be raised")
+        except AgentStartError:
+            pass
+
+    # Verify agent state was cleaned up
+    agents_dir = temp_host_dir / "agents"
+    if agents_dir.exists():
+        agent_dirs = list(agents_dir.iterdir())
+        assert len(agent_dirs) == 0, "Agent state directory should have been cleaned up"
+
+    # Verify worktree was cleaned up
+    worktrees_dir = temp_host_dir / "worktrees"
+    if worktrees_dir.exists():
+        worktree_dirs = list(worktrees_dir.iterdir())
+        assert len(worktree_dirs) == 0, "Worktree directory should have been cleaned up"
+
+    # Verify branch was cleaned up
+    result = subprocess.run(
+        ["git", "branch", "--list"],
+        cwd=temp_work_dir,
+        capture_output=True,
+        text=True,
+    )
+    branches = result.stdout.strip().split("\n")
+    for branch in branches:
+        branch = branch.strip().lstrip("* ")
+        assert not branch.startswith(branch_prefix), f"Branch {branch} should have been cleaned up"
+
+
+def test_atomic_create_no_cleanup_needed_for_in_place_mode(
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+) -> None:
+    """Test that in-place mode doesn't remove the source directory on failure."""
+    agent_name = AgentName(f"test-inplace-fail-{int(time.time())}")
+
+    # Create a marker file to verify the directory isn't deleted
+    marker_file = temp_work_dir / "marker.txt"
+    marker_file.write_text("should not be deleted")
+
+    local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
+    local_host = local_provider.get_host(HostName("local"))
+    source_location = HostLocation(
+        host=local_host,
+        path=temp_work_dir,
+    )
+
+    agent_options = CreateAgentOptions(
+        agent_type=AgentTypeName("test"),
+        name=agent_name,
+        command=CommandString("sleep 60"),
+    )
+
+    # Mock start_agents to fail
+    with patch.object(local_host.__class__, "start_agents", side_effect=AgentStartError(str(agent_name), "test error")):
+        try:
+            create(
+                source_location=source_location,
+                target_host=local_host,
+                agent_options=agent_options,
+                mngr_ctx=temp_mngr_ctx,
+            )
+            raise AssertionError("Expected AgentStartError to be raised")
+        except AgentStartError:
+            pass
+
+    # Verify the source directory and marker file still exist (in-place mode should not delete it)
+    assert temp_work_dir.exists(), "Source directory should still exist"
+    assert marker_file.exists(), "Marker file should still exist - source directory should not be cleaned up"
+    assert marker_file.read_text() == "should not be deleted"
