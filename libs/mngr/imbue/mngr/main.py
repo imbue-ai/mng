@@ -28,8 +28,6 @@ _plugin_manager_container: dict[str, pluggy.PluginManager | None] = {"pm": None}
 def cli(ctx: click.Context) -> None:
     """
     Initial entry point for mngr CLI commands.
-
-    Makes the plugin manager available in the command context.
     """
     # expose the plugin manager in the command context so that all commands have access to it
     # This uses the singleton that was already created during command registration
