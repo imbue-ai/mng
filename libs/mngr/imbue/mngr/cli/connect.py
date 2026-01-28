@@ -479,9 +479,6 @@ Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
 the agent's machine and attaching to the tmux session. Use `mngr open` to
 open an agent's URLs in a web browser instead.
 
-Both local and remote connections track activity to understand when the
-agent should be considered idle.
-
 If no agent is specified, shows an interactive selector to choose from
 available agents. The selector allows typeahead search to filter agents
 by name.

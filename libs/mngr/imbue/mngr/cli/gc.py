@@ -493,10 +493,7 @@ and any resources that are associated with destroyed hosts and agents.
 
 `mngr destroy` automatically cleans up resources when an agent is deleted.
 `mngr gc` can be used to manually trigger garbage collection of unused
-resources at any time.
-
-For interactive cleanup (e.g. to help you decide which agents and hosts to
-destroy), see `mngr cleanup`.""",
+resources at any time.""",
     examples=(
         ("Preview what would be cleaned (dry run)", "mngr gc --work-dirs --dry-run"),
         ("Clean all agent resources", "mngr gc --all-agent-resources"),
@@ -517,10 +514,6 @@ destroy), see `mngr cleanup`.""",
 **Filter by resource properties:**
 - `x.name.contains("test")` - resources with "test" in the name
 - `x.provider_name == "docker"` - Docker resources only
-
-**Filter by resource type (when cleaning multiple types):**
-- `--include "x.type == 'snapshot' && x.recency_idx > 5"` - only old snapshots
-- `--exclude "x.type != 'machine' || x.name.contains('keep')"` - exclude non-machines or those named 'keep'
 """,
         ),
     ),
