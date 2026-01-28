@@ -31,6 +31,7 @@ STATE_VOLUME_SUFFIX = "-state"
 MODAL_NAME_MAX_LENGTH = 64
 
 
+# FIXME: this should just be renamed to _create_environment, and we should delete the first check, since it is only called when the env is missing
 def _ensure_environment_exists(environment_name: str) -> None:
     """Ensure a Modal environment exists, creating it if necessary.
 
@@ -383,6 +384,7 @@ Supported build arguments for the modal provider:
         # Create the ModalProviderApp that manages the Modal app and its resources
         app, context_handle = ModalProviderBackend._get_or_create_app(app_name, environment_name, config.is_persistent)
         volume = ModalProviderBackend.get_volume_for_app(app_name)
+
         modal_app = ModalProviderApp(
             app_name=app_name,
             environment_name=environment_name,

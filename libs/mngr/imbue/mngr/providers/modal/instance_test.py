@@ -13,6 +13,7 @@ Or to run all tests including Modal tests:
 import subprocess
 from io import StringIO
 from pathlib import Path
+from typing import Any
 from typing import Generator
 from typing import cast
 from unittest.mock import MagicMock
@@ -189,16 +190,17 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
     return instance
 
 
-def make_modal_provider_real(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
+def make_modal_provider_real(
+    mngr_ctx: MngrContext, app_name: str, is_persistent: bool = False
+) -> ModalProviderInstance:
     """Create a ModalProviderInstance with real Modal for acceptance tests."""
-    # Set is_persistent=False for testing to enable cleanup
     config = ModalProviderConfig(
         app_name=app_name,
         host_dir=Path("/mngr"),
         default_timeout=300,
         default_cpu=0.5,
         default_memory=0.5,
-        is_persistent=False,
+        is_persistent=is_persistent,
     )
     instance = ModalProviderBackend.build_provider_instance(
         name=ProviderInstanceName("modal-test"),
@@ -215,30 +217,14 @@ def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProvid
     return make_modal_provider_with_mocks(temp_mngr_ctx, app_name)
 
 
-@pytest.fixture
-def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Generator[ModalProviderInstance, None, None]:
-    """Create a ModalProviderInstance with real Modal for acceptance tests.
+def _cleanup_modal_test_resources(app_name: str, volume_name: str, environment_name: str) -> None:
+    """Clean up Modal test resources after a test completes.
 
-    This fixture creates a Modal environment and cleans it up after the test.
-    Cleanup happens in the fixture teardown (not at session end) to prevent
-    environment leaks and reduce the time spent on cleanup.
+    This helper performs cleanup in the correct order:
+    1. Close the Modal app context
+    2. Delete the volume (must be done before environment deletion)
+    3. Delete the environment (cleans up any remaining resources)
     """
-    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
-    provider = make_modal_provider_real(temp_mngr_ctx, app_name)
-    environment_name = provider.environment_name
-    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
-
-    # Register resources for leak detection (safety net in case cleanup fails)
-    register_modal_test_app(app_name)
-    register_modal_test_environment(environment_name)
-    register_modal_test_volume(volume_name)
-
-    yield provider
-
-    # Clean up resources immediately after the test completes.
-    # This is faster than waiting until session end because we clean up one
-    # environment at a time instead of listing and deleting all at once.
-
     # Close the Modal app context first
     ModalProviderBackend.close_app(app_name)
 
@@ -261,6 +247,53 @@ def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Genera
         )
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
         pass
+
+
+@pytest.fixture
+def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Generator[ModalProviderInstance, None, None]:
+    """Create a ModalProviderInstance with real Modal for acceptance tests.
+
+    This fixture creates a Modal environment and cleans it up after the test.
+    Cleanup happens in the fixture teardown (not at session end) to prevent
+    environment leaks and reduce the time spent on cleanup.
+    """
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
+    provider = make_modal_provider_real(temp_mngr_ctx, app_name)
+    environment_name = provider.environment_name
+    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
+
+    # Register resources for leak detection (safety net in case cleanup fails)
+    register_modal_test_app(app_name)
+    register_modal_test_environment(environment_name)
+    register_modal_test_volume(volume_name)
+
+    yield provider
+
+    _cleanup_modal_test_resources(app_name, volume_name, environment_name)
+
+
+@pytest.fixture
+def persistent_modal_provider(
+    temp_mngr_ctx: MngrContext, mngr_test_id: str
+) -> Generator[ModalProviderInstance, None, None]:
+    """Create a persistent ModalProviderInstance for testing shutdown script creation.
+
+    This fixture is similar to real_modal_provider but uses is_persistent=True,
+    which enables the shutdown script feature.
+    """
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
+    provider = make_modal_provider_real(temp_mngr_ctx, app_name, is_persistent=True)
+    environment_name = provider.environment_name
+    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
+
+    # Register resources for leak detection
+    register_modal_test_app(app_name)
+    register_modal_test_environment(environment_name)
+    register_modal_test_volume(volume_name)
+
+    yield provider
+
+    _cleanup_modal_test_resources(app_name, volume_name, environment_name)
 
 
 # =============================================================================
@@ -673,6 +706,61 @@ def test_build_modal_secrets_from_env_partial_missing_vars(monkeypatch: pytest.M
 
 
 # =============================================================================
+# Tests for _create_shutdown_script helper method
+# =============================================================================
+
+
+def test_create_shutdown_script_generates_correct_content(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_create_shutdown_script should generate a script with correct content."""
+    # Create a simple mock host that captures the written content
+    written_content: dict[str, str] = {}
+    written_modes: dict[str, str] = {}
+
+    class MockHost:
+        host_dir = Path("/mngr")
+
+        def write_text_file(self, path: Path, content: str, mode: str | None = None) -> None:
+            written_content[str(path)] = content
+            if mode:
+                written_modes[str(path)] = mode
+
+    mock_host = MockHost()
+
+    # Create a mock sandbox with an object_id
+    mock_sandbox = MagicMock()
+    mock_sandbox.object_id = "sb-test-sandbox-123"
+
+    # Call the method with a test URL
+    host_id = HostId.generate()
+    snapshot_url = "https://test--app-snapshot-and-shutdown.modal.run"
+
+    modal_provider._create_shutdown_script(
+        cast(Any, mock_host),
+        mock_sandbox,
+        host_id,
+        snapshot_url,
+    )
+
+    # Verify the script was written to the correct path
+    expected_path = "/mngr/commands/shutdown.sh"
+    assert expected_path in written_content
+
+    # Verify the script content
+    script = written_content[expected_path]
+    assert "#!/bin/bash" in script
+    assert snapshot_url in script
+    assert "sb-test-sandbox-123" in script
+    assert str(host_id) in script
+    assert "curl" in script
+    assert "Content-Type: application/json" in script
+
+    # Verify the mode is executable
+    assert written_modes[expected_path] == "755"
+
+
+# =============================================================================
 # Acceptance tests (require Modal network access)
 # =============================================================================
 
@@ -704,6 +792,50 @@ def test_create_host_creates_sandbox_with_ssh(real_modal_provider: ModalProvider
     finally:
         if host:
             real_modal_provider.destroy_host(host)
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(300)
+def test_persistent_host_creates_shutdown_script(
+    persistent_modal_provider: ModalProviderInstance,
+) -> None:
+    """Persistent Modal host should have a shutdown script created.
+
+    This test verifies that when using a persistent Modal app (is_persistent=True),
+    the snapshot_and_shutdown function is deployed and a shutdown script is written
+    to the host at <host_dir>/commands/shutdown.sh.
+    """
+    host = None
+    try:
+        host = persistent_modal_provider.create_host(HostName("test-host"))
+
+        # Verify host was created
+        assert host.id is not None
+
+        # Check that the shutdown script exists on the host
+        result = host.execute_command("test -f /mngr/commands/shutdown.sh && echo 'exists'")
+        assert result.success
+        assert "exists" in result.stdout
+
+        # Verify the script content contains expected values
+        result = host.execute_command("cat /mngr/commands/shutdown.sh")
+        assert result.success
+        script_content = result.stdout
+
+        # Check script has expected structure
+        assert "#!/bin/bash" in script_content
+        assert "curl" in script_content
+        assert "snapshot_and_shutdown" in script_content or "modal.run" in script_content
+        assert str(host.id) in script_content
+
+        # Verify the script is executable
+        result = host.execute_command("test -x /mngr/commands/shutdown.sh && echo 'executable'")
+        assert result.success
+        assert "executable" in result.stdout
+
+    finally:
+        if host:
+            persistent_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
