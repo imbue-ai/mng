@@ -1,6 +1,5 @@
 import contextlib
 import json
-import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -31,105 +30,14 @@ USER_ID_FILENAME = "user_id"
 STATE_VOLUME_SUFFIX = "-state"
 MODAL_NAME_MAX_LENGTH = 64
 
-# Cache for deployed snapshot function URLs by app_name
-_snapshot_function_url_cache: dict[str, str] = {}
 
-
-def _deploy_snapshot_function(app_name: str, environment_name: str) -> str | None:
-    """Deploy the snapshot_and_shutdown function and return its URL.
-
-    Deploys to Modal with the given app name and returns the URL.
-    Returns None if deployment fails.
-    """
-    # Check cache first
-    if app_name in _snapshot_function_url_cache:
-        return _snapshot_function_url_cache[app_name]
-
-    script_path = Path(__file__).parent / "routes" / "snapshot_and_shutdown.py"
-
-    logger.debug("Deploying snapshot_and_shutdown function for app: {}", app_name)
-    try:
-        result = subprocess.run(
-            [
-                "uv",
-                "run",
-                "modal",
-                "deploy",
-                "--env",
-                environment_name,
-                str(script_path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,
-            env={
-                **os.environ,
-                "MNGR_MODAL_APP_NAME": app_name,
-            },
-        )
-
-        if result.returncode != 0:
-            logger.warning("Failed to deploy snapshot function: {}", result.stderr)
-            return None
-
-        # Parse the URL from the deploy output
-        # Example formats:
-        #   "Created web function snapshot_and_shutdown => https://..."
-        lines = result.stdout.split("\n")
-        for i, line in enumerate(lines):
-            if "snapshot_and_shutdown" in line:
-                # Check if URL is on this line
-                if "https://" in line:
-                    url_start = line.find("https://")
-                    url = line[url_start:].split()[0].rstrip(")")
-                    _snapshot_function_url_cache[app_name] = url
-                    logger.info("Deployed snapshot_and_shutdown function: {}", url)
-                    return url
-                # Check if URL is on the next line
-                if i + 1 < len(lines):
-                    next_line = lines[i + 1]
-                    if "https://" in next_line:
-                        url_start = next_line.find("https://")
-                        url = next_line[url_start:].split()[0].rstrip(")")
-                        _snapshot_function_url_cache[app_name] = url
-                        logger.info("Deployed snapshot_and_shutdown function: {}", url)
-                        return url
-
-        logger.warning("Could not find function URL in deploy output: {}", result.stdout)
-        return None
-
-    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
-        logger.warning("Failed to deploy snapshot function: {}", e)
-        return None
-
-
-def get_snapshot_function_url(app_name: str) -> str | None:
-    """Get the cached URL for the snapshot_and_shutdown function.
-
-    Returns None if the function hasn't been deployed yet.
-    """
-    return _snapshot_function_url_cache.get(app_name)
-
-
-def reset_snapshot_function_url_cache() -> None:
-    """Reset the snapshot function URL cache.
-
-    This is primarily used for test isolation to ensure a clean state between tests.
-    """
-    _snapshot_function_url_cache.clear()
-
-
-def _ensure_environment_exists(environment_name: str, app_name: str) -> None:
+def _ensure_environment_exists(environment_name: str) -> None:
     """Ensure a Modal environment exists, creating it if necessary.
-
-    Also deploys the snapshot_and_shutdown function for agent self-management.
 
     Modal environments must be created before they can be used to scope resources
     like apps, volumes, and sandboxes. Since the Modal Python SDK doesn't provide
     an API for managing environments, we use the CLI.
     """
-    is_new_environment = False
-
     # Check if the environment exists by listing environments
     try:
         result = subprocess.run(
@@ -140,41 +48,31 @@ def _ensure_environment_exists(environment_name: str, app_name: str) -> None:
         )
         if result.returncode == 0:
             environments = json.loads(result.stdout)
-            env_exists = False
             for env in environments:
                 if env.get("name") == environment_name:
-                    env_exists = True
                     logger.trace("Modal environment already exists: {}", environment_name)
-                    break
-            if not env_exists:
-                is_new_environment = True
+                    return
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError):
         # If we can't list environments, try to create anyway
-        is_new_environment = True
+        pass
 
     # Environment doesn't exist, create it
-    if is_new_environment:
-        logger.debug("Creating Modal environment: {}", environment_name)
-        try:
-            result = subprocess.run(
-                ["uv", "run", "modal", "environment", "create", environment_name],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if result.returncode == 0:
-                logger.info("Created Modal environment: {}", environment_name)
-            else:
-                # If creation fails, it might already exist (race condition) or there's an error
-                # We'll let the subsequent Modal API calls fail with a more specific error if needed
-                logger.debug("Modal environment create returned non-zero: {}", result.stderr)
-        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
-            logger.warning("Failed to create Modal environment via CLI: {}", e)
-
-    # Deploy the snapshot_and_shutdown function for agent self-management
-    # We do this whenever the environment is created or on first use
-    if app_name not in _snapshot_function_url_cache:
-        _deploy_snapshot_function(app_name, environment_name)
+    logger.debug("Creating Modal environment: {}", environment_name)
+    try:
+        result = subprocess.run(
+            ["uv", "run", "modal", "environment", "create", environment_name],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            logger.info("Created Modal environment: {}", environment_name)
+        else:
+            # If creation fails, it might already exist (race condition) or there's an error
+            # We'll let the subsequent Modal API calls fail with a more specific error if needed
+            logger.debug("Modal environment create returned non-zero: {}", result.stderr)
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
+        logger.warning("Failed to create Modal environment via CLI: {}", e)
 
 
 class ModalAppContextHandle(FrozenModel):
@@ -300,7 +198,7 @@ class ModalProviderBackend(ProviderBackendInterface):
                 app = modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
             except modal.exception.NotFoundError:
                 # Ensure the environment exists before trying to use it
-                _ensure_environment_exists(environment_name, app_name)
+                _ensure_environment_exists(environment_name)
                 app = modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
             run_context = None
         else:
@@ -315,7 +213,7 @@ class ModalProviderBackend(ProviderBackendInterface):
                 run_context.__enter__()
             except modal.exception.NotFoundError:
                 # Ensure the environment exists before trying to use it
-                _ensure_environment_exists(environment_name, app_name)
+                _ensure_environment_exists(environment_name)
                 run_context = app.run(environment_name=environment_name)
                 run_context.__enter__()
 
@@ -486,9 +384,6 @@ Supported build arguments for the modal provider:
         app, context_handle = ModalProviderBackend._get_or_create_app(app_name, environment_name, config.is_persistent)
         volume = ModalProviderBackend.get_volume_for_app(app_name)
 
-        # Get the snapshot function URL that was deployed when the environment was created
-        snapshot_function_url = get_snapshot_function_url(app_name)
-
         modal_app = ModalProviderApp(
             app_name=app_name,
             environment_name=environment_name,
@@ -496,7 +391,6 @@ Supported build arguments for the modal provider:
             volume=volume,
             close_callback=lambda: ModalProviderBackend.close_app(app_name),
             get_output_callback=lambda: context_handle.output_buffer.getvalue(),
-            snapshot_function_url=snapshot_function_url,
         )
 
         return ModalProviderInstance(

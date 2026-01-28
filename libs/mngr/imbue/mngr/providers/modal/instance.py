@@ -60,6 +60,7 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.modal.config import ModalProviderConfig
+from imbue.mngr.providers.modal.deploy_utils import deploy_snapshot_function
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
@@ -210,9 +211,6 @@ class ModalProviderApp(FrozenModel):
     volume: modal.Volume = Field(frozen=True, description="The Modal volume for state storage")
     close_callback: Callable[[], None] = Field(frozen=True, description="Callback to clean up the app context")
     get_output_callback: Callable[[], str] = Field(frozen=True, description="Callback to get the log output buffer")
-    snapshot_function_url: str | None = Field(
-        frozen=True, default=None, description="URL of the deployed snapshot_and_shutdown function"
-    )
 
     def get_captured_output(self) -> str:
         """Get all captured Modal output.
@@ -571,9 +569,6 @@ class ModalProviderInstance(BaseProviderInstance):
             mngr_ctx=self.mngr_ctx,
         )
 
-        # Create the shutdown script on the host
-        self._create_shutdown_script(host, sandbox, host_id)
-
         return host, ssh_host, ssh_port, host_public_key
 
     def _create_shutdown_script(
@@ -581,18 +576,13 @@ class ModalProviderInstance(BaseProviderInstance):
         host: Host,
         sandbox: modal.Sandbox,
         host_id: HostId,
+        snapshot_url: str,
     ) -> None:
         """Create the shutdown.sh script on the host.
 
         The script uses curl to call the deployed snapshot_and_shutdown endpoint,
         passing the sandbox_id and host_id as JSON payload.
         """
-        # Get the deployed function URL from the ModalProviderApp
-        snapshot_url = self.modal_app.snapshot_function_url
-        if snapshot_url is None:
-            logger.warning("Snapshot function URL not available, skipping shutdown script creation")
-            return
-
         sandbox_id = sandbox.object_id
 
         # Create the shutdown script content
@@ -987,6 +977,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         )
         logger.debug("Writing host record to volume", host_id=str(host_id))
         self._write_host_record(host_record)
+
+        # For persistent apps, deploy the snapshot function and create shutdown script
+        if self.config.is_persistent:
+            snapshot_url = deploy_snapshot_function(self.app_name, self.environment_name)
+            if snapshot_url:
+                self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
 
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
