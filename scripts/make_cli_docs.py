@@ -55,7 +55,7 @@ def _format_option_type(option: click.Option) -> str:
         return "boolean"
     if option.type is not None:
         type_name = option.type.name.lower()
-        if hasattr(option.type, "choices"):
+        if isinstance(option.type, click.Choice):
             choices = " &#x7C; ".join(f"`{c}`" for c in option.type.choices)
             return f"choice ({choices})"
         return type_name
