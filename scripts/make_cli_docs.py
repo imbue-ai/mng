@@ -49,21 +49,72 @@ def format_examples(command_name: str) -> str:
 
 
 def format_additional_sections(command_name: str) -> str:
-    """Format additional documentation sections from CommandHelpMetadata."""
+    """Format additional documentation sections from CommandHelpMetadata.
+
+    Note: "See Also" sections are handled separately by format_see_also_section,
+    so they are excluded here.
+    """
     metadata = get_help_metadata(command_name)
     if metadata is None:
         return ""
 
     sections = []
 
-    # Add additional_sections if present
+    # Add additional_sections if present (excluding "See Also" which is handled separately)
     if hasattr(metadata, "additional_sections") and metadata.additional_sections:
         for title, content in metadata.additional_sections:
+            if title == "See Also":
+                continue
             sections.append(f"\n## {title}\n")
             sections.append(content)
             sections.append("")
 
     return "\n".join(sections)
+
+
+def get_command_category(command_name: str) -> str | None:
+    """Get the category (primary/secondary) for a command."""
+    if command_name in PRIMARY_COMMANDS:
+        return "primary"
+    elif command_name in SECONDARY_COMMANDS:
+        return "secondary"
+    return None
+
+
+def get_relative_link(from_command: str, to_command: str) -> str:
+    """Get the relative markdown link path from one command's doc to another.
+
+    Examples:
+        get_relative_link("connect", "create") -> "./create.md" (both in primary)
+        get_relative_link("connect", "gc") -> "../secondary/gc.md" (primary to secondary)
+        get_relative_link("gc", "destroy") -> "../primary/destroy.md" (secondary to primary)
+    """
+    from_category = get_command_category(from_command)
+    to_category = get_command_category(to_command)
+
+    if to_category is None:
+        # Target command doesn't have docs, just return the command name
+        return f"mngr {to_command}"
+
+    if from_category == to_category:
+        return f"./{to_command}.md"
+    else:
+        return f"../{to_category}/{to_command}.md"
+
+
+def format_see_also_section(command_name: str) -> str:
+    """Format the See Also section from CommandHelpMetadata with markdown links."""
+    metadata = get_help_metadata(command_name)
+    if metadata is None or not metadata.see_also:
+        return ""
+
+    lines = ["", "## See Also", ""]
+    for ref_command, description in metadata.see_also:
+        link = get_relative_link(command_name, ref_command)
+        lines.append(f"- [mngr {ref_command}]({link}) - {description}")
+
+    lines.append("")
+    return "\n".join(lines)
 
 
 def get_output_dir(command_name: str, base_dir: Path) -> Path | None:
@@ -98,10 +149,11 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
         style="table",  # Use table style for options
     )
 
-    # Combine mkdocs-click output with additional sections and examples
+    # Combine mkdocs-click output with additional sections, see also, and examples
     content = "\n".join(lines)
     content = fix_sentinel_defaults(content)
     content += format_additional_sections(command_name)
+    content += format_see_also_section(command_name)
     content += format_examples(command_name)
 
     # Write to file

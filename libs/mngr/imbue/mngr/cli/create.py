@@ -1362,13 +1362,10 @@ the working directory is copied to the remote host.""",
         ("Create without connecting", "mngr create my-agent --no-connect"),
         ("Add extra tmux windows", 'mngr create my-agent -c server="npm run dev"'),
     ),
-    additional_sections=(
-        (
-            "See Also",
-            """- `mngr connect --help` - Connect to an existing agent
-- `mngr list --help` - List existing agents
-- `mngr destroy --help` - Destroy agents""",
-        ),
+    see_also=(
+        ("connect", "Connect to an existing agent"),
+        ("list", "List existing agents"),
+        ("destroy", "Destroy agents"),
     ),
 )
 

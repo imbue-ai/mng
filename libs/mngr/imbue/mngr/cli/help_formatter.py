@@ -34,6 +34,11 @@ class CommandHelpMetadata(FrozenModel):
     additional_sections: tuple[tuple[str, str], ...] = Field(
         default=(), description="Additional documentation sections as (title, markdown_content) tuples"
     )
+    see_also: tuple[tuple[str, str], ...] = Field(
+        default=(),
+        description="See Also references as (command_name, description) tuples. "
+        "Command name is just the subcommand (e.g., 'create' not 'mngr create').",
+    )
 
 
 # Registry of help metadata for commands that have been configured
@@ -200,6 +205,21 @@ def _write_git_style_help(
     # OPTIONS section
     output.write(f"{_format_section_title('Options')}\n")
     _write_options_section(output, ctx, command, width)
+
+    # ADDITIONAL SECTIONS (if provided)
+    if metadata.additional_sections:
+        for title, content in metadata.additional_sections:
+            output.write(f"{_format_section_title(title)}\n")
+            for line in content.strip().split("\n"):
+                output.write(f"       {line}\n")
+            output.write("\n")
+
+    # SEE ALSO section (if provided)
+    if metadata.see_also:
+        output.write(f"{_format_section_title('See Also')}\n")
+        for command_name, description in metadata.see_also:
+            output.write(f"       mngr {command_name} --help - {description}\n")
+        output.write("\n")
 
     # EXAMPLES section (if provided)
     if metadata.examples:

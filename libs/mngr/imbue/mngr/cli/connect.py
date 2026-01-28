@@ -491,12 +491,9 @@ The agent can be specified as a positional argument or via --agent:
         ("Connect without auto-starting if stopped", "mngr connect my-agent --no-start"),
         ("Show interactive agent selector", "mngr connect"),
     ),
-    additional_sections=(
-        (
-            "See Also",
-            """- `mngr create --help` - Create and connect to a new agent
-- `mngr list --help` - List available agents""",
-        ),
+    see_also=(
+        ("create", "Create and connect to a new agent"),
+        ("list", "List available agents"),
     ),
 )
 

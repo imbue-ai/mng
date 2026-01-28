@@ -394,13 +394,10 @@ agents unless --force is specified.""",
         ("Destroy all agents", "mngr destroy --all --force"),
         ("Preview what would be destroyed", "mngr destroy my-agent --dry-run"),
     ),
-    additional_sections=(
-        (
-            "See Also",
-            """- `mngr create --help` - Create a new agent
-- `mngr list --help` - List existing agents
-- `mngr gc --help` - Garbage collect orphaned resources""",
-        ),
+    see_also=(
+        ("create", "Create a new agent"),
+        ("list", "List existing agents"),
+        ("gc", "Garbage collect orphaned resources"),
     ),
 )
 

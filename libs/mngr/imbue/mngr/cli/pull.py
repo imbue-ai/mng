@@ -264,13 +264,10 @@ specs/commands/pull.md for the full planned feature set.""",
         ("Pull specific subdirectory", "mngr pull my-agent:src ./local-src"),
         ("Preview what would be transferred", "mngr pull my-agent --dry-run"),
     ),
-    additional_sections=(
-        (
-            "See Also",
-            """- `mngr create --help` - Create a new agent
-- `mngr list --help` - List agents to find one to pull from
-- `mngr connect --help` - Connect to an agent interactively""",
-        ),
+    see_also=(
+        ("create", "Create a new agent"),
+        ("list", "List agents to find one to pull from"),
+        ("connect", "Connect to an agent interactively"),
     ),
 )
 

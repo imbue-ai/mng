@@ -44,8 +44,8 @@ mngr connect [OPTIONS] [AGENT]
 
 ## See Also
 
-- `mngr create --help` - Create and connect to a new agent
-- `mngr list --help` - List available agents
+- [mngr create](./create.md) - Create and connect to a new agent
+- [mngr list](./list.md) - List available agents
 
 ## Examples
 

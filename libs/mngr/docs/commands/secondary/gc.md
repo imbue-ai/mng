@@ -64,11 +64,10 @@ CEL filters let you control which resources are cleaned.
 - `provider_name == "docker"` - Docker resources only
 
 
-
 ## See Also
 
-- `mngr destroy --help` - Destroy agents (includes automatic GC)
-- `mngr list --help` - List agents to find unused resources
+- [mngr destroy](../primary/destroy.md) - Destroy agents (includes automatic GC)
+- [mngr list](../primary/list.md) - List agents to find unused resources
 
 ## Examples
 

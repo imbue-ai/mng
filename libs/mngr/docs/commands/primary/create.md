@@ -102,9 +102,9 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 
 ## See Also
 
-- `mngr connect --help` - Connect to an existing agent
-- `mngr list --help` - List existing agents
-- `mngr destroy --help` - Destroy agents
+- [mngr connect](./connect.md) - Connect to an existing agent
+- [mngr list](./list.md) - List existing agents
+- [mngr destroy](./destroy.md) - Destroy agents
 
 ## Examples
 

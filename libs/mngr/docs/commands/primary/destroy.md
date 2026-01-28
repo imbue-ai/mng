@@ -46,9 +46,9 @@ mngr destroy [OPTIONS] [AGENTS]...
 
 ## See Also
 
-- `mngr create --help` - Create a new agent
-- `mngr list --help` - List existing agents
-- `mngr gc --help` - Garbage collect orphaned resources
+- [mngr create](./create.md) - Create a new agent
+- [mngr list](./list.md) - List existing agents
+- [mngr gc](../secondary/gc.md) - Garbage collect orphaned resources
 
 ## Examples
 
