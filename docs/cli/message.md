@@ -1,0 +1,50 @@
+# mngr message
+
+Send a message to one or more agents.
+
+Agent IDs can be specified as positional arguments for convenience.
+The message is sent to the agent's stdin.
+
+If no message is specified with --message, reads from stdin (if not a tty)
+or opens an editor (if interactive).
+
+Examples:
+
+  mngr message my-agent --message "Hello"
+
+  mngr message agent1 agent2 --message "Hello to all"
+
+  mngr message --agent my-agent --agent another-agent --message "Hello"
+
+  mngr message --all --message "Hello everyone"
+
+  echo "Hello" | mngr message my-agent
+
+**Usage:**
+
+```text
+mngr message [OPTIONS] [AGENTS]...
+```
+
+**Options:**
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--agent` | text | Agent name or ID to send message to (can be specified multiple times) | None |
+| `-a`, `--all`, `--all-agents` | boolean | Send message to all agents | `False` |
+| `--include` | text | Include agents matching CEL expression (repeatable) | None |
+| `--exclude` | text | Exclude agents matching CEL expression (repeatable) | None |
+| `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
+| `-m`, `--message` | text | The message content to send | None |
+| `--on-error` | choice (`abort` &#x7C; `continue`) | What to do when errors occur: abort (stop immediately) or continue (keep going) | `continue` |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `--help` | boolean | Show this message and exit. | `False` |

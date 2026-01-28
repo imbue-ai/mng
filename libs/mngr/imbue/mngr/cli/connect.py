@@ -384,38 +384,41 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     )
     logger.debug("Running connect command")
 
-    # TODO: Implement --message to send initial message after connecting
-    # (documented in libs/mngr/docs/commands/primary/connect.md)
+    # TODO: Implement --message TEXT
+    # Send the specified text as an initial message after the agent starts
+    # Should wait for message_delay seconds before sending
     if opts.message is not None:
         raise NotImplementedError("--message is not implemented yet")
 
-    # TODO: Implement --message-file to send initial message from file
-    # (documented in libs/mngr/docs/commands/primary/connect.md)
+    # TODO: Implement --message-file PATH
+    # Read initial message content from the specified file and send after agent starts
     if opts.message_file is not None:
         raise NotImplementedError("--message-file is not implemented yet")
 
-    # TODO: Implement custom --message-delay values
-    # (documented in libs/mngr/docs/commands/primary/connect.md)
+    # TODO: Implement --message-delay SECONDS [default: 1.0]
+    # Wait this many seconds before sending the initial message
     if opts.message_delay != 1.0:
         raise NotImplementedError("--message-delay with non-default value is not implemented yet")
 
-    # TODO: Implement custom --retry values for connection retries
-    # (documented in libs/mngr/docs/commands/primary/connect.md)
+    # TODO: Implement --retry N [default: 3]
+    # Number of times to retry connection on failure before giving up
     if opts.retry != 3:
         raise NotImplementedError("--retry with non-default value is not implemented yet")
 
-    # TODO: Implement custom --retry-delay values
-    # (documented in libs/mngr/docs/commands/primary/connect.md)
+    # TODO: Implement --retry-delay DURATION [default: 5s]
+    # Delay between connection retries (supports durations like "5s", "1m")
     if opts.retry_delay != "5s":
         raise NotImplementedError("--retry-delay with non-default value is not implemented yet")
 
-    # TODO: Implement --attach-command to run custom command instead of tmux attach
-    # (documented in libs/mngr/docs/commands/primary/connect.md)
+    # TODO: Implement --attach-command TEXT
+    # Run this command instead of the default tmux attach
+    # Useful for running a different shell or command in the agent's environment
     if opts.attach_command is not None:
         raise NotImplementedError("--attach-command is not implemented yet")
 
-    # TODO: Implement --no-reconnect to disable automatic reconnection
-    # (documented in libs/mngr/docs/commands/primary/connect.md)
+    # TODO: Implement --no-reconnect
+    # Disable automatic reconnection if the connection is dropped
+    # Default behavior (--reconnect) should automatically reconnect
     if not opts.reconnect:
         raise NotImplementedError("--no-reconnect is not implemented yet")
 
@@ -427,9 +430,9 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     if opts.agent is not None:
         agent, host = find_agent_by_name_or_id(opts.agent, agents_by_host, mngr_ctx, "connect")
     elif not sys.stdin.isatty():
-        # TODO: Consider defaulting to most recently created agent instead of error
-        # (documented behavior in libs/mngr/docs/commands/primary/connect.md says:
-        # "If not specified, connects to the most recently created agent")
+        # TODO: Default to most recently created agent instead of error
+        # When no agent is specified and not running interactively, should connect
+        # to the most recently created agent automatically
         raise UserInputError("No agent specified and not running in interactive mode")
     else:
         list_result = list_agents(mngr_ctx)
@@ -443,8 +446,9 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 
         agent, host = find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "connect")
 
-    # TODO: Implement connecting to remote agents via SSH
-    # (implied by libs/mngr/docs/commands/primary/connect.md which mentions SSH'ing into the agent's machine)
+    # TODO: Implement connecting to remote agents
+    # For remote hosts, should SSH into the agent's machine and attach to the tmux session
+    # Both local and remote modes should track activity for idle detection
     if not host.is_local:
         raise NotImplementedError("Connecting to remote agents is not implemented yet")
 

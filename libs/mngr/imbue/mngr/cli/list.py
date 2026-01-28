@@ -167,7 +167,9 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("Running list command")
 
-    # TODO: Implement custom format templates (documented in libs/mngr/docs/commands/primary/list.md)
+    # TODO: Implement custom format templates
+    # --format-template FORMAT: Output format as a string template, mutually exclusive with --format
+    # Template can reference any field from the Available Fields list (see CommandHelpMetadata)
     if opts.format_template:
         raise NotImplementedError("Custom format templates not implemented yet")
 
@@ -176,7 +178,9 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     if opts.fields:
         fields = [f.strip() for f in opts.fields.split(",") if f.strip()]
 
-    # TODO: Implement watch mode with default 2 second interval (documented in libs/mngr/docs/commands/primary/list.md)
+    # TODO: Implement watch mode
+    # -w, --watch SECONDS: Continuously watch and update status at interval [default: 2]
+    # Should refresh the agent list display periodically until interrupted
     if opts.watch:
         raise NotImplementedError("Watch mode not implemented yet")
 
@@ -197,19 +201,22 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             combined_filter = " || ".join(ref_filters)
             include_filters.append(combined_filter)
 
-    # TODO: Implement convenience filter aliases (documented in libs/mngr/docs/commands/primary/list.md)
-    # --running should expand to --include 'state == "running"'
-    # --stopped should expand to --include 'state == "stopped"'
-    # --local should expand to --include 'host.provider == "local"'
-    # --remote should expand to --exclude 'host.provider == "local"'
+    # TODO: Implement convenience filter aliases
+    # --running: alias for --include 'state == "running"'
+    # --stopped: alias for --include 'state == "stopped"'
+    # --local: alias for --include 'host.provider == "local"'
+    # --remote: alias for --exclude 'host.provider == "local"'
     if opts.running or opts.stopped or opts.local or opts.remote:
         raise NotImplementedError("Convenience filter aliases not implemented yet")
 
-    # TODO: Implement custom sorting by any field (documented in libs/mngr/docs/commands/primary/list.md)
+    # TODO: Implement custom sorting
+    # --sort FIELD: Sort by any available field [default: create_time]
+    # --sort-order ORDER: Sort order (asc, desc) [default: asc]
     if opts.sort != "create_time":
         raise NotImplementedError("Custom sorting not implemented yet")
 
-    # TODO: Implement result limiting (documented in libs/mngr/docs/commands/primary/list.md)
+    # TODO: Implement result limiting
+    # --limit N: Limit number of results returned
     if opts.limit:
         raise NotImplementedError("Result limiting not implemented yet")
 

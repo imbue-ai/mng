@@ -167,8 +167,10 @@ for cmd in BUILTIN_COMMANDS:
 cli.add_command(create, name="c")
 cli.add_command(config, name="cfg")
 cli.add_command(message, name="msg")
-# TODO: Add "ls" alias for "list" (documented in libs/mngr/docs/commands/primary/list.md)
-# TODO: Add "conn" alias for "connect" (documented in libs/mngr/docs/commands/primary/connect.md)
+# TODO: Add "ls" alias for "list"
+# cli.add_command(list_command, name="ls")
+# TODO: Add "conn" alias for "connect"
+# cli.add_command(connect, name="conn")
 
 # Register plugin commands after built-in commands but before applying CLI options.
 # This ordering allows plugins to add CLI options to other plugin commands.
