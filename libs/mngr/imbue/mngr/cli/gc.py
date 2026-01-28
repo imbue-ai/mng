@@ -105,9 +105,9 @@ class GcCliOptions(CommonCliOptions):
 # )
 # Also add machine_cache: bool to GcCliOptions and wire it through to the API
 #
-# FIXME: Implement "mngr cleanup" command as a separate command
-# mngr cleanup: Interactive cleanup command to help decide which agents and hosts to destroy
-# Should show agents/hosts with details and prompt user for which to clean up
+# FIXME: When "mngr cleanup" is implemented, add a cross-reference in the gc command's
+# help text pointing users to it for interactive cleanup. See the spec at:
+# docs/commands/secondary/cleanup.md
 @optgroup.group("Filtering")
 @optgroup.option(
     "--include",
