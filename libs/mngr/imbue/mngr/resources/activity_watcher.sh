@@ -7,17 +7,21 @@
 # The script reads idle_mode and max_idle_seconds from <host_data_dir>/data.json
 # and monitors the relevant activity files based on the idle mode.
 #
-# Activity sources per idle mode:
-#   IO: USER_INPUT, AGENT_OUTPUT, SSH, AGENT_CREATE, AGENT_START, BOOT
-#   USER: USER_INPUT, SSH, AGENT_CREATE, AGENT_START, BOOT
-#   AGENT: AGENT_OUTPUT, AGENT_CREATE, AGENT_START, BOOT
-#   SSH_OR_USER: USER_INPUT, SSH, BOOT
-#   SSH: SSH, BOOT
+# Activity sources per idle mode (from docs/concepts/idle_detection.md):
+#   IO (default): USER, AGENT, SSH, CREATE, START, BOOT
+#   USER: USER, SSH, CREATE, START, BOOT
+#   AGENT: AGENT, SSH, CREATE, START, BOOT
+#   SSH: SSH, CREATE, START, BOOT
+#   CREATE: CREATE
 #   BOOT: BOOT
-#   NONE: (never idle - script exits immediately)
+#   START: START, BOOT
+#   RUN: CREATE, START, BOOT, PROCESS
+#   DISABLED: (never idle - script exits immediately)
 #
 # Host-level activity files: <host_data_dir>/activity/<source_name>
+#   - boot, user, ssh
 # Agent-level activity files: <host_data_dir>/agents/<agent_id>/activity/<source_name>
+#   - create, start, agent, process
 #
 # The script checks activity every 60 seconds. When all relevant activity files
 # have mtimes older than (current_time - idle_timeout_seconds), the script calls
@@ -48,43 +52,51 @@ get_mtime() {
 }
 
 # Get activity sources for a given idle mode
-# Returns space-separated list of source names (lowercase)
+# Returns space-separated list of source names (uppercase to match ActivitySource enum)
 get_activity_sources() {
     local idle_mode="$1"
     case "$idle_mode" in
         IO)
-            echo "user_input agent_output ssh agent_create agent_start boot"
+            echo "USER AGENT SSH CREATE START BOOT"
             ;;
         USER)
-            echo "user_input ssh agent_create agent_start boot"
+            echo "USER SSH CREATE START BOOT"
             ;;
         AGENT)
-            echo "agent_output agent_create agent_start boot"
-            ;;
-        SSH_OR_USER)
-            echo "user_input ssh boot"
+            echo "AGENT SSH CREATE START BOOT"
             ;;
         SSH)
-            echo "ssh boot"
+            echo "SSH CREATE START BOOT"
+            ;;
+        CREATE)
+            echo "CREATE"
             ;;
         BOOT)
-            echo "boot"
+            echo "BOOT"
             ;;
-        NONE)
+        START)
+            echo "START BOOT"
+            ;;
+        RUN)
+            echo "CREATE START BOOT PROCESS"
+            ;;
+        DISABLED)
             echo ""
             ;;
         *)
             # Default to AGENT mode if unknown
-            echo "agent_output agent_create agent_start boot"
+            echo "AGENT SSH CREATE START BOOT"
             ;;
     esac
 }
 
-# Check if a source is host-level or agent-level
+# Check if a source is host-level (vs agent-level)
+# Host-level: boot, user, ssh
+# Agent-level: create, start, agent, process
 is_host_level_source() {
     local source="$1"
     case "$source" in
-        boot|user_input|ssh)
+        BOOT|USER|SSH)
             return 0  # true
             ;;
         *)
@@ -100,7 +112,7 @@ get_max_activity_mtime() {
     local sources
     sources=$(get_activity_sources "$idle_mode")
 
-    # If no sources (NONE mode), return 0
+    # If no sources (DISABLED mode), return 0
     if [ -z "$sources" ]; then
         echo 0
         return
@@ -179,8 +191,8 @@ main() {
         idle_mode=$(echo "$config" | cut -d' ' -f1)
         idle_timeout_seconds=$(echo "$config" | cut -d' ' -f2)
 
-        # NONE mode means never idle - just sleep and continue
-        if [ "$idle_mode" = "NONE" ]; then
+        # DISABLED mode means never idle - just sleep and continue
+        if [ "$idle_mode" = "DISABLED" ]; then
             sleep "$CHECK_INTERVAL"
             continue
         fi
