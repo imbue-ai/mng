@@ -534,3 +534,19 @@ class LoggingSuppressor:
     def get_buffered_messages(cls) -> list[BufferedMessage]:
         """Get a copy of the current buffer contents."""
         return list(cls._buffer)
+
+
+def remove_console_handlers() -> None:
+    """Remove all console log handlers (stdout and stderr).
+
+    This is useful for daemon/background processes that detach from the terminal,
+    where the console file descriptors may become invalid after the parent exits.
+    File logging continues to work after calling this function.
+    """
+    for handler_id in list(_console_handler_ids.values()):
+        try:
+            logger.remove(handler_id)
+        except ValueError:
+            # Handler already removed
+            pass
+    _console_handler_ids.clear()
