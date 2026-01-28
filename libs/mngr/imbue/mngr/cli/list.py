@@ -76,12 +76,12 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--local",
     is_flag=True,
-    help='Show only local agents (alias for --include host.provider == "local")',
+    help='Show only local agents (alias for --include host_provider == "local")',
 )
 @optgroup.option(
     "--remote",
     is_flag=True,
-    help='Show only remote agents (alias for --exclude host.provider == "local")',
+    help='Show only remote agents (alias for --exclude host_provider == "local")',
 )
 @optgroup.option(
     "--provider",
@@ -204,8 +204,8 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     # TODO: Implement convenience filter aliases
     # --running: alias for --include 'state == "running"'
     # --stopped: alias for --include 'state == "stopped"'
-    # --local: alias for --include 'host.provider == "local"'
-    # --remote: alias for --exclude 'host.provider == "local"'
+    # --local: alias for --include 'host_provider == "local"'
+    # --remote: alias for --exclude 'host_provider == "local"'
     if opts.running or opts.stopped or opts.local or opts.remote:
         raise NotImplementedError("Convenience filter aliases not implemented yet")
 

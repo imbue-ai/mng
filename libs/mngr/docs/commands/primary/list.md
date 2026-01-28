@@ -29,8 +29,8 @@ mngr list [OPTIONS]
 | `--exclude` | text | Exclude agents matching CEL expression (repeatable) | None |
 | `--running` | boolean | Show only running agents (alias for --include state == "running") | `False` |
 | `--stopped` | boolean | Show only stopped agents (alias for --include state == "stopped") | `False` |
-| `--local` | boolean | Show only local agents (alias for --include host.provider == "local") | `False` |
-| `--remote` | boolean | Show only remote agents (alias for --exclude host.provider == "local") | `False` |
+| `--local` | boolean | Show only local agents (alias for --include host_provider == "local") | `False` |
+| `--remote` | boolean | Show only remote agents (alias for --exclude host_provider == "local") | `False` |
 | `--provider` | text | Show only agents using specified provider (repeatable) | None |
 | `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
 | `--format-template` | text | Output format as a string template (mutually exclusive with --format) | None |
