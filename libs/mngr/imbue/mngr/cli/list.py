@@ -402,11 +402,11 @@ All agent fields from the "Available Fields" section can be used in filter expre
 **Simple equality filters:**
 - `name == "my-agent"` - Match agent by exact name
 - `state == "running"` - Match running agents
-- `host.provider_name == "docker"` - Match agents on Docker hosts
+- `host_provider == "docker"` - Match agents on Docker hosts
 - `type == "claude"` - Match agents of type "claude"
 
 **Compound expressions:**
-- `state == "running" && host.provider_name == "modal"` - Running agents on Modal
+- `state == "running" && host_provider == "modal"` - Running agents on Modal
 - `state == "stopped" || state == "failed"` - Stopped or failed agents
 
 **String operations:**
@@ -446,10 +446,10 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
 - `plugin` - Plugin-defined fields (dict)
 
-**Host fields:**
-- `host.name` - Host name
-- `host.id` - Host ID
-- `host.provider_name` - Host provider (local, docker, modal, etc.)
+**Host fields (for CEL filters, use flattened names):**
+- `host_name` - Host name
+- `host_id` - Host ID
+- `host_provider` - Host provider (local, docker, modal, etc.)
 """,
         ),
     ),
