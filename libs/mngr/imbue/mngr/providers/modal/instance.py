@@ -210,6 +210,9 @@ class ModalProviderApp(FrozenModel):
     volume: modal.Volume = Field(frozen=True, description="The Modal volume for state storage")
     close_callback: Callable[[], None] = Field(frozen=True, description="Callback to clean up the app context")
     get_output_callback: Callable[[], str] = Field(frozen=True, description="Callback to get the log output buffer")
+    snapshot_function_url: str | None = Field(
+        frozen=True, default=None, description="URL of the deployed snapshot_and_shutdown function"
+    )
 
     def get_captured_output(self) -> str:
         """Get all captured Modal output.
@@ -568,7 +571,52 @@ class ModalProviderInstance(BaseProviderInstance):
             mngr_ctx=self.mngr_ctx,
         )
 
+        # Create the shutdown script on the host
+        self._create_shutdown_script(host, sandbox, host_id)
+
         return host, ssh_host, ssh_port, host_public_key
+
+    def _create_shutdown_script(
+        self,
+        host: Host,
+        sandbox: modal.Sandbox,
+        host_id: HostId,
+    ) -> None:
+        """Create the shutdown.sh script on the host.
+
+        The script uses curl to call the deployed snapshot_and_shutdown endpoint,
+        passing the sandbox_id and host_id as JSON payload.
+        """
+        # Get the deployed function URL from the ModalProviderApp
+        snapshot_url = self.modal_app.snapshot_function_url
+        if snapshot_url is None:
+            logger.warning("Snapshot function URL not available, skipping shutdown script creation")
+            return
+
+        sandbox_id = sandbox.object_id
+
+        # Create the shutdown script content
+        # The script sends a POST request to the snapshot_and_shutdown endpoint
+        script_content = f'''#!/bin/bash
+# Auto-generated shutdown script for mngr Modal host
+# This script snapshots and shuts down the host by calling the deployed Modal function
+
+SNAPSHOT_URL="{snapshot_url}"
+SANDBOX_ID="{sandbox_id}"
+HOST_ID="{host_id}"
+
+# Send the shutdown request
+curl -s -X POST "$SNAPSHOT_URL" \\
+    -H "Content-Type: application/json" \\
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'"}}'
+'''
+
+        # Write the script to the host
+        commands_dir = host.host_dir / "commands"
+        script_path = commands_dir / "shutdown.sh"
+
+        logger.debug("Creating shutdown script at {}", script_path)
+        host.write_text_file(script_path, script_content, mode="755")
 
     def _parse_build_args(
         self,
