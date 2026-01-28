@@ -123,8 +123,8 @@ def test_agent_to_cel_context_basic_fields() -> None:
 
     assert context["type"] == "agent"
     assert context["name"] == "test-agent"
-    assert context["host_name"] == "test-host"
-    assert context["host_provider"] == "local"
+    assert context["host"]["name"] == "test-host"
+    assert context["host"]["provider"] == "local"
     assert "age" in context
 
 
@@ -322,7 +322,7 @@ def test_apply_cel_filters_with_state_filter() -> None:
 
 
 def test_apply_cel_filters_with_host_provider_filter() -> None:
-    """Test filtering by host provider."""
+    """Test filtering by host provider using dot notation."""
     host_info = HostInfo(
         id=HostId.generate(),
         name="test-host",
@@ -341,7 +341,7 @@ def test_apply_cel_filters_with_host_provider_filter() -> None:
     )
 
     include_filters, exclude_filters = compile_cel_filters(
-        include_filters=('host_provider == "local"',),
+        include_filters=('host.provider == "local"',),
         exclude_filters=(),
     )
 

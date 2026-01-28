@@ -361,7 +361,7 @@ def _run_post_destroy_gc(mngr_ctx: MngrContext, output_opts: OutputOptions) -> N
 
 # FIXME: Add --include FILTER option for CEL expression filtering
 # This would allow filtering agents to destroy using CEL expressions like:
-# --include 'name.startsWith("test-")' or --include 'host_provider == "docker"'
+# --include 'name.startsWith("test-")' or --include 'host.provider == "docker"'
 # See mngr list --include for the pattern to follow
 
 # FIXME: Add --exclude FILTER option for CEL expression filtering

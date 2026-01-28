@@ -76,12 +76,12 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--local",
     is_flag=True,
-    help="Show only local agents (alias for --include 'host_provider == \"local\"')",
+    help="Show only local agents (alias for --include 'host.provider == \"local\"')",
 )
 @optgroup.option(
     "--remote",
     is_flag=True,
-    help="Show only remote agents (alias for --exclude 'host_provider == \"local\"')",
+    help="Show only remote agents (alias for --exclude 'host.provider == \"local\"')",
 )
 @optgroup.option(
     "--provider",
@@ -192,10 +192,10 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         stdin_refs = [line.strip() for line in sys.stdin if line.strip()]
         if stdin_refs:
             # Create a CEL filter that matches any of the provided refs against
-            # host_name, host_id, name, or id (using flattened field names for CEL)
+            # host.name, host.id, name, or id (using dot notation for nested fields)
             ref_filters = []
             for ref in stdin_refs:
-                ref_filter = f'(name == "{ref}" || id == "{ref}" || host_name == "{ref}" || host_id == "{ref}")'
+                ref_filter = f'(name == "{ref}" || id == "{ref}" || host.name == "{ref}" || host.id == "{ref}")'
                 ref_filters.append(ref_filter)
             # Combine all ref filters with OR
             combined_filter = " || ".join(ref_filters)
@@ -204,8 +204,8 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     # FIXME: Implement convenience filter aliases
     # --running: alias for --include 'state == "running"'
     # --stopped: alias for --include 'state == "stopped"'
-    # --local: alias for --include 'host_provider == "local"'
-    # --remote: alias for --exclude 'host_provider == "local"'
+    # --local: alias for --include 'host.provider == "local"'
+    # --remote: alias for --exclude 'host.provider == "local"'
     if opts.running or opts.stopped or opts.local or opts.remote:
         raise NotImplementedError("Convenience filter aliases not implemented yet")
 
@@ -402,11 +402,11 @@ All agent fields from the "Available Fields" section can be used in filter expre
 **Simple equality filters:**
 - `name == "my-agent"` - Match agent by exact name
 - `state == "running"` - Match running agents
-- `host_provider == "docker"` - Match agents on Docker hosts
+- `host.provider == "docker"` - Match agents on Docker hosts
 - `type == "claude"` - Match agents of type "claude"
 
 **Compound expressions:**
-- `state == "running" && host_provider == "modal"` - Running agents on Modal
+- `state == "running" && host.provider == "modal"` - Running agents on Modal
 - `state == "stopped" || state == "failed"` - Stopped or failed agents
 
 **String operations:**
@@ -444,17 +444,10 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
 - `plugin` - Plugin-defined fields (dict)
 
-**Host fields** (different syntax for `--fields` vs CEL filters):
-
-For `--fields` (dot notation):
+**Host fields** (dot notation for both `--fields` and CEL filters):
 - `host.name` - Host name
 - `host.id` - Host ID
-- `host.provider_name` - Host provider
-
-For CEL filters (flattened):
-- `host_name` - Host name
-- `host_id` - Host ID
-- `host_provider` - Host provider (local, docker, modal, etc.)
+- `host.provider` - Host provider (local, docker, modal, etc.)
 """,
         ),
     ),

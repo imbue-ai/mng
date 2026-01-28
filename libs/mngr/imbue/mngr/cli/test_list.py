@@ -266,11 +266,10 @@ def test_list_command_with_host_provider_filter(
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test list command with host_provider CEL filter.
+    """Test list command with host.provider CEL filter.
 
-    This test verifies that the documented CEL field name 'host_provider' works correctly.
-    The CEL context uses flattened field names (host_provider, host_name, host_id),
-    NOT dot notation (host.provider_name would not work).
+    This test verifies that the standard CEL dot notation 'host.provider' works correctly.
+    Nested dictionaries are automatically converted to CEL-compatible objects via json_to_cel().
     """
     agent_name = f"test-list-host-provider-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
@@ -296,10 +295,10 @@ def test_list_command_with_host_provider_filter(
         )
         assert create_result.exit_code == 0
 
-        # List with host_provider filter - should find the agent
+        # List with host.provider filter - should find the agent
         result = cli_runner.invoke(
             list_command,
-            ["--include", 'host_provider == "local"'],
+            ["--include", 'host.provider == "local"'],
             obj=plugin_manager,
             catch_exceptions=False,
         )
@@ -307,10 +306,10 @@ def test_list_command_with_host_provider_filter(
         assert result.exit_code == 0
         assert agent_name in result.output
 
-        # List with non-matching host_provider filter - should NOT find the agent
+        # List with non-matching host.provider filter - should NOT find the agent
         result_no_match = cli_runner.invoke(
             list_command,
-            ["--include", 'host_provider == "docker"'],
+            ["--include", 'host.provider == "docker"'],
             obj=plugin_manager,
             catch_exceptions=False,
         )
@@ -325,9 +324,9 @@ def test_list_command_with_host_name_filter(
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test list command with host_name CEL filter.
+    """Test list command with host.name CEL filter.
 
-    Verifies that the flattened 'host_name' field works in CEL filters.
+    Verifies that the standard CEL dot notation 'host.name' works in CEL filters.
     """
     agent_name = f"test-list-host-name-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
@@ -353,10 +352,10 @@ def test_list_command_with_host_name_filter(
         )
         assert create_result.exit_code == 0
 
-        # List with host_name filter - local host is named "@local"
+        # List with host.name filter - local host is named "@local"
         result = cli_runner.invoke(
             list_command,
-            ["--include", 'host_name == "@local"'],
+            ["--include", 'host.name == "@local"'],
             obj=plugin_manager,
             catch_exceptions=False,
         )

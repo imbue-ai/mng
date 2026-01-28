@@ -29,8 +29,8 @@ mngr list [OPTIONS]
 | `--exclude` | text | Exclude agents matching CEL expression (repeatable) | None |
 | `--running` | boolean | Show only running agents (alias for --include 'state == "running"') | `False` |
 | `--stopped` | boolean | Show only stopped agents (alias for --include 'state == "stopped"') | `False` |
-| `--local` | boolean | Show only local agents (alias for --include 'host_provider == "local"') | `False` |
-| `--remote` | boolean | Show only remote agents (alias for --exclude 'host_provider == "local"') | `False` |
+| `--local` | boolean | Show only local agents (alias for --include 'host.provider == "local"') | `False` |
+| `--remote` | boolean | Show only remote agents (alias for --exclude 'host.provider == "local"') | `False` |
 | `--provider` | text | Show only agents using specified provider (repeatable) | None |
 | `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
 | `--format-template` | text | Output format as a string template (mutually exclusive with --format) | None |
@@ -60,11 +60,11 @@ All agent fields from the "Available Fields" section can be used in filter expre
 **Simple equality filters:**
 - `name == "my-agent"` - Match agent by exact name
 - `state == "running"` - Match running agents
-- `host_provider == "docker"` - Match agents on Docker hosts
+- `host.provider == "docker"` - Match agents on Docker hosts
 - `type == "claude"` - Match agents of type "claude"
 
 **Compound expressions:**
-- `state == "running" && host_provider == "modal"` - Running agents on Modal
+- `state == "running" && host.provider == "modal"` - Running agents on Modal
 - `state == "stopped" || state == "failed"` - Stopped or failed agents
 
 **String operations:**
@@ -103,17 +103,10 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
 - `plugin` - Plugin-defined fields (dict)
 
-**Host fields** (different syntax for `--fields` vs CEL filters):
-
-For `--fields` (dot notation):
+**Host fields** (dot notation for both `--fields` and CEL filters):
 - `host.name` - Host name
 - `host.id` - Host ID
-- `host.provider_name` - Host provider
-
-For CEL filters (flattened):
-- `host_name` - Host name
-- `host_id` - Host ID
-- `host_provider` - Host provider (local, docker, modal, etc.)
+- `host.provider` - Host provider (local, docker, modal, etc.)
 
 
 ## See Also

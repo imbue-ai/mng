@@ -318,12 +318,11 @@ def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
         else:
             result["state"] = str(result["lifecycle_state"]).lower()
 
-    # Flatten host info for easier access
-    if result.get("host"):
+    # Normalize host.provider_name to host.provider for consistency
+    if result.get("host") and isinstance(result["host"], dict):
         host = result["host"]
-        result["host_name"] = host.get("name", "")
-        result["host_id"] = host.get("id", "")
-        result["host_provider"] = host.get("provider_name", "")
+        if "provider_name" in host:
+            host["provider"] = host.pop("provider_name")
 
     return result
 

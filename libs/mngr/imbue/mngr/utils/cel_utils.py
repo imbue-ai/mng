@@ -43,6 +43,17 @@ def compile_cel_filters(
     return compiled_includes, compiled_excludes
 
 
+def _convert_to_cel_value(value: Any) -> Any:
+    """Convert a Python value to a CEL-compatible value.
+
+    Nested dictionaries are converted using celpy.json_to_cel() to enable
+    dot notation access (e.g., host.provider instead of flattened host_provider).
+    """
+    if isinstance(value, dict):
+        return celpy.json_to_cel(value)
+    return value
+
+
 def apply_cel_filters_to_context(
     context: dict[str, Any],
     include_filters: Sequence[Any],
@@ -54,10 +65,16 @@ def apply_cel_filters_to_context(
 
     Returns True if the context should be included (matches all include filters
     and doesn't match any exclude filters).
+
+    Nested dictionaries in the context are automatically converted to CEL-compatible
+    objects, enabling standard CEL dot notation (e.g., host.provider == "local").
     """
+    # Convert nested dicts to CEL-compatible objects for dot notation support
+    cel_context = {k: _convert_to_cel_value(v) for k, v in context.items()}
+
     for prgm in include_filters:
         try:
-            result = prgm.evaluate(context)
+            result = prgm.evaluate(cel_context)
             if not result:
                 return False
         except CELEvalError as e:
@@ -66,7 +83,7 @@ def apply_cel_filters_to_context(
 
     for prgm in exclude_filters:
         try:
-            result = prgm.evaluate(context)
+            result = prgm.evaluate(cel_context)
             if result:
                 return False
         except CELEvalError as e:
