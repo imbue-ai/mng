@@ -66,7 +66,7 @@ def format_additional_sections(command_name: str) -> str:
     return "\n".join(sections)
 
 
-def get_output_dir(command_name: str, base_dir: Path) -> Path:
+def get_output_dir(command_name: str, base_dir: Path) -> Path | None:
     """Determine the output directory for a command based on its category."""
     if command_name in PRIMARY_COMMANDS:
         return base_dir / "primary"

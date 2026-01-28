@@ -453,6 +453,25 @@ def create(ctx: click.Context, **kwargs) -> None:
             "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
         )
 
+    # Early validation: --edit-message cannot be used with background creation
+    # Background creation happens when --no-connect and --no-await-ready (the default when --no-connect)
+    # We check this BEFORE creating the editor session to avoid starting an editor subprocess
+    # that would immediately need to be cleaned up (which causes race conditions and flaky tests)
+    if opts.edit_message:
+        # Compute should_await_ready the same way it's computed later
+        early_should_await_ready = opts.await_ready
+        if early_should_await_ready is None:
+            if opts.await_agent_stopped:
+                early_should_await_ready = True
+            else:
+                early_should_await_ready = opts.connect
+        # Check if this would be background creation
+        if not opts.connect and not early_should_await_ready:
+            raise UserInputError(
+                "--edit-message cannot be used with background creation (--no-connect --no-await-ready). "
+                "Use --await-ready to wait for agent creation."
+            )
+
     # Read message from file if --message-file is provided (used as initial content for editor if --edit-message)
     initial_message_content: str | None
     if opts.message_file is not None:
@@ -559,17 +578,9 @@ def create(ctx: click.Context, **kwargs) -> None:
             should_await_ready = opts.connect
 
     # If --no-connect and --no-await-ready, run api_create in background
+    # Note: --edit-message incompatibility is validated early (before editor creation) to avoid
+    # starting an editor subprocess that would need to be cleaned up
     if not opts.connect and not should_await_ready:
-        # --edit-message is incompatible with background creation
-        if editor_session is not None:
-            # Disable logging suppression before showing the error
-            if LoggingSuppressor.is_suppressed():
-                LoggingSuppressor.disable_and_replay(clear_screen=True)
-            editor_session.cleanup()
-            raise UserInputError(
-                "--edit-message cannot be used with background creation (--no-connect --no-await-ready). "
-                "Use --await-ready to wait for agent creation."
-            )
         _create_agent_in_background(
             final_source_location,
             resolved_target_host,
