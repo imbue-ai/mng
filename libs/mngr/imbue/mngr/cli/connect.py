@@ -21,23 +21,18 @@ from urwid.widget.text import Text
 from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mngr.api.find import find_agent_by_name_or_id
 from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import list_agents
-from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
-from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
-from imbue.mngr.primitives import AgentName
-from imbue.mngr.primitives import AgentReference
-from imbue.mngr.primitives import HostReference
 
 
 class ConnectCliOptions(CommonCliOptions):
@@ -326,57 +321,6 @@ def select_agent_interactively(agents: list[AgentInfo]) -> AgentInfo | None:
     return _run_agent_selector(agents)
 
 
-def _find_agent_by_name_or_id(
-    agent_str: str,
-    agents_by_host: dict[HostReference, list[AgentReference]],
-    mngr_ctx: MngrContext,
-) -> tuple[AgentInterface, HostInterface]:
-    """Find an agent by name or ID. Returns tuple of (agent, host) or raises error."""
-    try:
-        agent_id = AgentId(agent_str)
-        for host_ref, agent_refs in agents_by_host.items():
-            for agent_ref in agent_refs:
-                if agent_ref.agent_id == agent_id:
-                    provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
-                    host = provider.get_host(host_ref.host_id)
-                    for agent in host.get_agents():
-                        if agent.id == agent_id:
-                            return agent, host
-        raise AgentNotFoundError(agent_id)
-    except ValueError:
-        pass
-
-    agent_name = AgentName(agent_str)
-    matching: list[tuple[AgentInterface, HostInterface]] = []
-
-    for host_ref, agent_refs in agents_by_host.items():
-        for agent_ref in agent_refs:
-            if agent_ref.agent_name == agent_name:
-                provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
-                host = provider.get_host(host_ref.host_id)
-                # Find the specific agent by ID (not name, to avoid duplicates)
-                for agent in host.get_agents():
-                    if agent.id == agent_ref.agent_id:
-                        matching.append((agent, host))
-                        break
-
-    if not matching:
-        raise UserInputError(f"No agent found with name or ID: {agent_str}")
-
-    if len(matching) > 1:
-        # Build helpful error message showing the matching agents
-        agent_list = "\n".join([f"  - {agent.id} (on {host.connector.name})" for agent, host in matching])
-        raise UserInputError(
-            f"Multiple agents found with name '{agent_str}':\n{agent_list}\n\n"
-            f"Please use the agent ID instead:\n"
-            f"  mngr connect <agent-id>\n\n"
-            f"To see all agent IDs, run:\n"
-            f"  mngr list --fields id,name,host"
-        )
-
-    return matching[0]
-
-
 def _connect_to_local_agent(
     agent: AgentInterface,
     mngr_ctx: MngrContext,
@@ -464,7 +408,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     host: HostInterface
 
     if opts.agent is not None:
-        agent, host = _find_agent_by_name_or_id(opts.agent, agents_by_host, mngr_ctx)
+        agent, host = find_agent_by_name_or_id(opts.agent, agents_by_host, mngr_ctx, "connect")
     elif not sys.stdin.isatty():
         raise UserInputError("No agent specified and not running in interactive mode")
     else:
@@ -477,7 +421,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
             logger.info("No agent selected")
             return
 
-        agent, host = _find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx)
+        agent, host = find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "connect")
 
     if not host.is_local:
         raise NotImplementedError("Connecting to remote agents is not implemented yet")
