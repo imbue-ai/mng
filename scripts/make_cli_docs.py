@@ -268,39 +268,49 @@ def get_output_dir(command_name: str, base_dir: Path) -> Path | None:
         return None
 
 
-def _extract_sections(lines: list[str]) -> tuple[str, int, str]:
-    """Extract sections from mkdocs-click output.
-
-    Returns:
-        - header_content: Everything before **Options:**
-        - options_start_idx: Index where options start
-        - subcommands_content: Everything from the first subcommand (## heading) onwards
-    """
-    options_start_idx = None
-    subcommands_start_idx = None
-
+def _extract_header_before_options(lines: list[str]) -> str:
+    """Extract content before **Options:** from mkdocs-click output."""
     for i, line in enumerate(lines):
-        if options_start_idx is None and line.strip() == "**Options:**":
-            options_start_idx = i
-        # After finding **Options:**, look for subcommand sections (## headings)
-        # that indicate subcommand documentation
-        elif options_start_idx is not None and subcommands_start_idx is None:
-            if line.startswith("## "):
-                subcommands_start_idx = i
-                break
+        if line.strip() == "**Options:**":
+            return "\n".join(lines[:i])
+    # No options section found, return everything
+    return "\n".join(lines)
 
-    if options_start_idx is None:
-        # No options section found, return everything as header
-        return "\n".join(lines), len(lines), ""
 
-    header_content = "\n".join(lines[:options_start_idx])
+def generate_subcommand_docs(command: click.Group, prog_name: str) -> str:
+    """Generate documentation for all subcommands with grouped options."""
+    if not hasattr(command, "commands") or not command.commands:
+        return ""
 
-    if subcommands_start_idx is not None:
-        subcommands_content = "\n".join(lines[subcommands_start_idx:])
-    else:
-        subcommands_content = ""
+    lines: list[str] = []
 
-    return header_content, options_start_idx, subcommands_content
+    for subcmd_name, subcmd in command.commands.items():
+        # Generate mkdocs-click output for this subcommand
+        subcmd_lines = list(
+            make_command_docs(
+                prog_name=f"{prog_name} {subcmd_name}",
+                command=subcmd,
+                depth=1,  # depth=1 for subcommands (## heading)
+                style="table",
+            )
+        )
+
+        # Extract header (everything before **Options:**)
+        header = _extract_header_before_options(subcmd_lines)
+        lines.append(header)
+
+        # Add grouped options
+        lines.append("**Options:**")
+        lines.append("")
+        lines.append(generate_grouped_options_markdown(subcmd))
+
+        # If this subcommand has its own subcommands, recurse
+        if isinstance(subcmd, click.Group) and subcmd.commands:
+            nested_docs = generate_subcommand_docs(subcmd, f"{prog_name} {subcmd_name}")
+            if nested_docs:
+                lines.append(nested_docs)
+
+    return "\n".join(lines)
 
 
 def generate_command_doc(command_name: str, base_dir: Path) -> None:
@@ -316,18 +326,20 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
         print(f"Warning: Command '{command_name}' not found")
         return
 
+    prog_name = f"mngr {command_name}"
+
     # Generate markdown using mkdocs-click for header/usage/description
     mkdocs_lines = list(
         make_command_docs(
-            prog_name=f"mngr {command_name}",
+            prog_name=prog_name,
             command=cmd,
             depth=0,
             style="table",
         )
     )
 
-    # Extract header, options start, and subcommands content
-    header_content, _, subcommands_content = _extract_sections(mkdocs_lines)
+    # Extract header (everything before **Options:**)
+    header_content = _extract_header_before_options(mkdocs_lines)
 
     # Build the final content
     content_parts = [header_content]
@@ -337,9 +349,11 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
     content_parts.append("")
     content_parts.append(generate_grouped_options_markdown(cmd))
 
-    # Add subcommands documentation if present (from mkdocs-click)
-    if subcommands_content:
-        content_parts.append(subcommands_content)
+    # Add subcommand documentation with grouped options
+    if isinstance(cmd, click.Group) and cmd.commands:
+        subcommand_docs = generate_subcommand_docs(cmd, prog_name)
+        if subcommand_docs:
+            content_parts.append(subcommand_docs)
 
     # Combine all parts
     content = "\n".join(content_parts)

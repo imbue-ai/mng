@@ -46,85 +46,7 @@ mngr config [OPTIONS] COMMAND [ARGS]...
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
 
-## edit
-
-Open configuration file in editor.
-
-Opens the configuration file for the specified scope in your default
-editor (from $EDITOR or $VISUAL environment variable, or 'vi' as fallback).
-
-If the config file doesn't exist, it will be created with an empty template.
-
-Examples:
-
-  mngr config edit
-
-  mngr config edit --scope user
-
-  mngr config edit --scope local
-
-**Usage:**
-
-```text
-mngr config edit [OPTIONS]
-```
-
-**Options:**
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
-| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
-| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
-| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
-| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
-| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
-| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
-| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
-| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
-| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
-| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-| `--help` | boolean | Show this message and exit. | `False` |
-
-## get
-
-Get a configuration value.
-
-Retrieves the value of a specific configuration key. Use dot notation
-for nested keys (e.g., 'commands.create.connect').
-
-Examples:
-
-  mngr config get prefix
-
-  mngr config get commands.create.connect
-
-  mngr config get logging.console_level --scope user
-
-**Usage:**
-
-```text
-mngr config get [OPTIONS] KEY
-```
-
-**Options:**
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
-| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
-| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
-| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
-| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
-| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
-| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
-| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
-| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
-| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
-| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-| `--help` | boolean | Show this message and exit. | `False` |
-
-## list
+## mngr config list
 
 List all configuration values.
 
@@ -147,58 +69,72 @@ mngr config list [OPTIONS]
 
 **Options:**
 
+### Common
+
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
 | `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
-| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
 | `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
-| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
-| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
-| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-| `--help` | boolean | Show this message and exit. | `False` |
 
-## path
+### Other Options
 
-Show configuration file paths.
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
 
-Shows the paths to configuration files. If --scope is specified, shows
-only that scope's path. Otherwise shows all paths and whether they exist.
+## mngr config get
+
+Get a configuration value.
+
+Retrieves the value of a specific configuration key. Use dot notation
+for nested keys (e.g., 'commands.create.connect').
 
 Examples:
 
-  mngr config path
+  mngr config get prefix
 
-  mngr config path --scope user
+  mngr config get commands.create.connect
+
+  mngr config get logging.console_level --scope user
 
 **Usage:**
 
 ```text
-mngr config path [OPTIONS]
+mngr config get [OPTIONS] KEY
 ```
 
 **Options:**
 
+### Common
+
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
 | `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
-| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
 | `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
-| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
-| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
-| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-| `--help` | boolean | Show this message and exit. | `False` |
 
-## set
+### Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
+
+## mngr config set
 
 Set a configuration value.
 
@@ -224,22 +160,28 @@ mngr config set [OPTIONS] KEY VALUE
 
 **Options:**
 
+### Common
+
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
 | `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
-| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
 | `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
-| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
-| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
-| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-| `--help` | boolean | Show this message and exit. | `False` |
 
-## unset
+### Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
+
+## mngr config unset
 
 Remove a configuration value.
 
@@ -260,17 +202,111 @@ mngr config unset [OPTIONS] KEY
 
 **Options:**
 
+### Common
+
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
 | `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
-| `-v`, `--verbose` | integer range (`0` and above) | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
 | `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
-| `--log-commands` / `--no-log-commands` | boolean | Log commands that were executed | None |
-| `--log-command-output` / `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
-| `--log-env-vars` / `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-| `--help` | boolean | Show this message and exit. | `False` |
+
+### Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
+
+## mngr config edit
+
+Open configuration file in editor.
+
+Opens the configuration file for the specified scope in your default
+editor (from $EDITOR or $VISUAL environment variable, or 'vi' as fallback).
+
+If the config file doesn't exist, it will be created with an empty template.
+
+Examples:
+
+  mngr config edit
+
+  mngr config edit --scope user
+
+  mngr config edit --scope local
+
+**Usage:**
+
+```text
+mngr config edit [OPTIONS]
+```
+
+**Options:**
+
+### Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+### Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
+
+## mngr config path
+
+Show configuration file paths.
+
+Shows the paths to configuration files. If --scope is specified, shows
+only that scope's path. Otherwise shows all paths and whether they exist.
+
+Examples:
+
+  mngr config path
+
+  mngr config path --scope user
+
+**Usage:**
+
+```text
+mngr config path [OPTIONS]
+```
+
+**Options:**
+
+### Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+### Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
