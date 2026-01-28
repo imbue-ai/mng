@@ -4,6 +4,8 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Generator
 from typing import NamedTuple
@@ -26,7 +28,11 @@ from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
+from imbue.mngr.utils.testing import delete_modal_apps_in_environment
+from imbue.mngr.utils.testing import delete_modal_environment
+from imbue.mngr.utils.testing import delete_modal_volumes_in_environment
 from imbue.mngr.utils.testing import get_subprocess_test_env
+from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
@@ -338,8 +344,21 @@ def register_modal_test_environment(environment_name: str) -> None:
 
 
 # =============================================================================
-# Modal subprocess test environment fixture
+# Modal subprocess test environment fixture (session-scoped)
 # =============================================================================
+
+
+def _generate_modal_test_environment_name() -> str:
+    """Generate a Modal test environment name with current UTC timestamp.
+
+    Format: mngr_test-YYYY-MM-DD-HH-MM-SS
+
+    The name uses only digits and hyphens to be compatible with Modal's naming requirements.
+    Uses MODAL_TEST_ENV_PREFIX from testing.py to ensure consistency with cleanup logic.
+    """
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y-%m-%d-%H-%M-%S")
+    return f"{MODAL_TEST_ENV_PREFIX}{timestamp}"
 
 
 class ModalSubprocessTestEnv(NamedTuple):
@@ -350,23 +369,79 @@ class ModalSubprocessTestEnv(NamedTuple):
     host_dir: Path
 
 
+@pytest.fixture(scope="session")
+def modal_test_session_env_name() -> str:
+    """Generate a unique, timestamp-based environment name for this test session.
+
+    This fixture is session-scoped, so all tests in a session share the same
+    environment name. The name includes a UTC timestamp in the format:
+    mngr_test-YYYY-MM-DD-HH-MM-SS
+    """
+    return _generate_modal_test_environment_name()
+
+
+@pytest.fixture(scope="session")
+def modal_test_session_host_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Create a session-scoped host directory for Modal tests.
+
+    This ensures all tests in a session share the same user_id file,
+    which means they share the same Modal environment.
+    """
+    host_dir = tmp_path_factory.mktemp("modal_session") / "mngr"
+    host_dir.mkdir(parents=True, exist_ok=True)
+    return host_dir
+
+
+@pytest.fixture(scope="session")
+def modal_test_session_cleanup(
+    modal_test_session_env_name: str,
+    modal_test_session_host_dir: Path,
+) -> Generator[None, None, None]:
+    """Session-scoped fixture that cleans up the Modal environment at session end.
+
+    This fixture ensures the Modal environment created for tests is deleted
+    when the test session completes, including all apps and volumes.
+    """
+    yield
+
+    # Clean up Modal environment after the session.
+    # The environment name is {prefix}{user_id}, where prefix is based on the timestamp
+    # and user_id is from the shared host_dir.
+    user_id_file = modal_test_session_host_dir / "user_id"
+    if user_id_file.exists():
+        user_id = user_id_file.read_text().strip()
+        # The prefix for session-scoped tests uses the timestamp-based env name
+        prefix = f"{modal_test_session_env_name}-"
+        environment_name = f"{prefix}{user_id}"
+
+        # Truncate environment_name if needed (Modal has 64 char limit)
+        if len(environment_name) > 64:
+            environment_name = environment_name[:64]
+
+        # Delete apps, volumes, and environment using functions from testing.py
+        delete_modal_apps_in_environment(environment_name)
+        delete_modal_volumes_in_environment(environment_name)
+        delete_modal_environment(environment_name)
+
+
 @pytest.fixture
 def modal_subprocess_env(
-    tmp_path: Path,
-    mngr_test_id: str,
+    modal_test_session_env_name: str,
+    modal_test_session_host_dir: Path,
+    modal_test_session_cleanup: None,
 ) -> Generator[ModalSubprocessTestEnv, None, None]:
-    """Create a subprocess test environment with unique prefix for Modal tests.
+    """Create a subprocess test environment with session-scoped Modal environment.
 
     This fixture:
-    1. Creates a unique MNGR_PREFIX so each test gets its own Modal environment
-    2. Creates a unique MNGR_HOST_DIR so each test gets its own user_id file
-    3. Cleans up the Modal environment after the test completes
+    1. Uses a session-scoped MNGR_PREFIX based on UTC timestamp (mngr_test-YYYY-MM-DD-HH-MM-SS)
+    2. Uses a session-scoped MNGR_HOST_DIR so all tests share the same user_id file
+    3. Cleans up the Modal environment at the end of the session (not per-test)
 
-    This ensures Modal environments don't leak between tests.
+    Using session-scoped environments reduces the number of environments created
+    and makes cleanup easier (environments have timestamps in their names).
     """
-    prefix = f"mngr_{mngr_test_id}-"
-    host_dir = tmp_path / "mngr"
-    host_dir.mkdir(exist_ok=True)
+    prefix = f"{modal_test_session_env_name}-"
+    host_dir = modal_test_session_host_dir
 
     env = get_subprocess_test_env(
         root_name="mngr-acceptance-test",
@@ -375,28 +450,6 @@ def modal_subprocess_env(
     )
 
     yield ModalSubprocessTestEnv(env=env, prefix=prefix, host_dir=host_dir)
-
-    # Clean up Modal environment after the test.
-    # The environment name is {prefix}{user_id}, but since we used a unique host_dir,
-    # the user_id was just created for this test. We need to read it to get the full name.
-    user_id_file = host_dir / "user_id"
-    if user_id_file.exists():
-        user_id = user_id_file.read_text().strip()
-        environment_name = f"{prefix}{user_id}"
-
-        # Truncate environment_name if needed (Modal has 64 char limit)
-        if len(environment_name) > 64:
-            environment_name = environment_name[:64]
-
-        # Delete the environment (this also cleans up any remaining resources in it)
-        try:
-            subprocess.run(
-                ["uv", "run", "modal", "environment", "delete", environment_name, "--yes"],
-                capture_output=True,
-                timeout=30,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
-            pass
 
 
 def _get_leaked_modal_apps() -> list[tuple[str, str]]:
