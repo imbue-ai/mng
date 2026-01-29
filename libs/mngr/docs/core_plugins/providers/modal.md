@@ -97,10 +97,3 @@ Snapshots are stored as Modal images and persist even after the sandbox is termi
 
 - Sandboxes have a maximum lifetime (timeout) after which they are automatically terminated by Modal
 - Sandboxes cannot be stopped and resumed directly - use snapshots to preserve state before termination
-
-## TODOs
-
-- Document `--dockerfile` build argument for custom Dockerfile-based images in the Available Build Arguments table
-- Document host tag management capabilities (get/set/add/remove tags)
-- Document host renaming functionality
-- Add troubleshooting section for common Modal authentication issues

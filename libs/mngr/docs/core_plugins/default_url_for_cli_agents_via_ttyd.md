@@ -46,7 +46,7 @@ If no forwarding plugin is available, remote agent creation fails with an error 
 
 The following features are not yet implemented:
 
-- Plugin Python implementation (hook handlers for `on_after_agent_create`, `on_before_agent_destroy`, `agent_field_generators`)
+- Plugin Python implementation (hook handlers for `on_agent_created`, `on_agent_destroyed`; note: `agent_field_generators` hook does not yet exist)
 - Token generation and storage in agent state directory
 - ttyd process lifecycle management (start/stop, PID tracking)
 - `/usr/local/bin/mngr-ttyd-wrapper` authentication script

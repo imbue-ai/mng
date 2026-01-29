@@ -13,11 +13,3 @@ Commit early and often. Commits should bundle the test, implementation, and docu
 Run Black to format code before you commit:
 
     uv run black .
-
-## TODOs - Agent Session Features Not Yet Implemented
-
-- Agent-specific visual indicators in HTML output (no way to distinguish agent sessions from regular sessions in rendered transcripts)
-- Agent metadata handling (no special processing for agent configuration or behavior markers)
-- `--include-agents` flag for `local`, `json`, and `web` commands (currently only available on `all` command)
-- Documentation explaining what agent sessions are and why they're excluded by default
-- Agent-specific summary extraction or display formatting

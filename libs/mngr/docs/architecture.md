@@ -53,6 +53,6 @@ Features described above but not yet implemented:
 - **CLI commands**: `stop`, `push`, `pair` (spec exists but no implementation)
 - **Hang/failure detection**: `mngr enforce` command not implemented
 - **Host lifecycle**: Auto-stop daemon/background process for idle enforcement
-- **Provider backends**: Docker and Remote SSH providers (specs exist, no implementation)
+- **Provider backends**: Docker provider (spec exists, no implementation)
 - **Permissions**: Enforcement/validation logic not fully wired to CLI
 - **Locking**: Remote host locking not implemented (raises NotImplementedError)

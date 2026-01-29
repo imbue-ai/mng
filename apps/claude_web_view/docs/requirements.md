@@ -186,7 +186,6 @@ The following content block types mentioned in Technical Context are not yet par
 ### UI Features
 - Display attached files/images in message content
 - Session cost and duration summary display (data is in transcript but not shown in UI)
-- Remove ChatInput component (non-functional UI element - requirements specify no interactive features)
 
 ### Build/Distribution
 - Frontend must be built (`npm run build` in frontend/) to create frontend-dist directory before the app can run
