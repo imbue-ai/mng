@@ -29,6 +29,7 @@ from imbue.mngr.conftest import register_modal_test_volume
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
+from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -404,6 +405,53 @@ def test_list_hosts_returns_empty_list_when_not_authorized(
 
         # Should return empty list, not raise an error
         assert result == []
+
+
+def test_create_host_raises_provider_not_authorized_error_when_not_authorized(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """When not authorized, create_host should raise ProviderNotAuthorizedError."""
+    with patch.object(type(modal_provider), "is_authorized", new_callable=lambda: property(lambda self: False)):
+        with pytest.raises(ProviderNotAuthorizedError) as exc_info:
+            modal_provider.create_host(HostName("test-host"))
+
+        assert "modal token set" in str(exc_info.value).lower()
+
+
+def test_stop_host_raises_provider_not_authorized_error_when_not_authorized(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """When not authorized, stop_host should raise ProviderNotAuthorizedError."""
+    with patch.object(type(modal_provider), "is_authorized", new_callable=lambda: property(lambda self: False)):
+        with pytest.raises(ProviderNotAuthorizedError):
+            modal_provider.stop_host(HostId.generate())
+
+
+def test_start_host_raises_provider_not_authorized_error_when_not_authorized(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """When not authorized, start_host should raise ProviderNotAuthorizedError."""
+    with patch.object(type(modal_provider), "is_authorized", new_callable=lambda: property(lambda self: False)):
+        with pytest.raises(ProviderNotAuthorizedError):
+            modal_provider.start_host(HostId.generate())
+
+
+def test_destroy_host_raises_provider_not_authorized_error_when_not_authorized(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """When not authorized, destroy_host should raise ProviderNotAuthorizedError."""
+    with patch.object(type(modal_provider), "is_authorized", new_callable=lambda: property(lambda self: False)):
+        with pytest.raises(ProviderNotAuthorizedError):
+            modal_provider.destroy_host(HostId.generate())
+
+
+def test_get_host_raises_provider_not_authorized_error_when_not_authorized(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """When not authorized, get_host should raise ProviderNotAuthorizedError."""
+    with patch.object(type(modal_provider), "is_authorized", new_callable=lambda: property(lambda self: False)):
+        with pytest.raises(ProviderNotAuthorizedError):
+            modal_provider.get_host(HostId.generate())
 
 
 # =============================================================================
