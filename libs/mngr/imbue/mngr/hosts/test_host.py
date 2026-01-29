@@ -501,9 +501,14 @@ def test_get_boot_time_and_uptime_are_consistent(host_with_temp_dir: tuple[Host,
     now = datetime.now(timezone.utc)
     expected_boot_time = now - dt.timedelta(seconds=uptime)
 
-    # They should be within 1 second of each other
+    # They should be within 1.5 seconds of each other.
+    # We need > 1 second tolerance because:
+    # - get_uptime_seconds() uses `date +%s` which truncates to integer seconds
+    # - datetime.now() has microsecond precision
+    # - If these calls span a second boundary, we get ~1 second of error
+    # The extra 0.5s accounts for time elapsed between the calls.
     diff = abs((boot_time - expected_boot_time).total_seconds())
-    assert diff < 1, f"boot_time and uptime differ by {diff} seconds"
+    assert diff < 1.5, f"boot_time and uptime differ by {diff} seconds"
 
 
 # =============================================================================
