@@ -3,8 +3,11 @@
 **Effortlessly run Claude Code (or any agent) in a remote sandbox via the CLI, locally in a new worktree, or whatever you want!**
 
 ```bash
+# install
 # TODO: update installation instructions to be better before release
-cd ~ && git clone git@github.com:joshalbrecht/imbue.git && uv tool install -e imbue/libs/mngr # install
+git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages && uv tool install -e libs/mngr
+
+# then use mngr:
 mngr create my-agent --in modal  # create an agent in a Modal sandbox and instantly connect to it
 mngr create my-agent             # or just run locally in a new worktree to try it out!
 ```
@@ -51,15 +54,16 @@ mngr clone another-agent forked-agent  # or create a copy of any existing agent
 ## Installation
 
 ```bash
-# TODO: make these actually work before release, for now, see above for installation
+# for now, you can install like this:
+git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages && uv tool install -e libs/mngr
+
+# TODO: update installation instructions before release, for now, see above for installation
 # run immediately without installing
-uvx mngr
-
+# uvx mngr
 # or install as a tool
-uv tool install mngr
-
+# uv tool install mngr
 # or install globally so that you can use across your projects
-curl -fsSL https://imbue.com/mngr/install.sh | bash
+# curl -fsSL https://imbue.com/mngr/install.sh | bash
 ```
 
 ## Commands

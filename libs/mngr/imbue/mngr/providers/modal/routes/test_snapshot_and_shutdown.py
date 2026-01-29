@@ -7,17 +7,17 @@ Modal credentials.
 
 import io
 import json
-import os
 import subprocess
 from collections.abc import Generator
-from pathlib import Path
 from typing import Any
 
 import httpx
 import modal
 import pytest
 
+from imbue.mngr.conftest import register_modal_test_volume
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
+from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import get_short_random_string
 
@@ -35,62 +35,20 @@ def _get_test_app_name() -> str:
     return f"{MODAL_TEST_APP_PREFIX}snapshot-{get_short_random_string()}"
 
 
-def _deploy_snapshot_function(app_name: str) -> str:
-    """Deploy the snapshot_and_shutdown function and return its URL.
-
-    Deploys to Modal with the given app name and waits for it to be ready.
-    """
-    script_path = Path(__file__).parent / "snapshot_and_shutdown.py"
-
-    result = subprocess.run(
-        [
-            "uv",
-            "run",
-            "modal",
-            "deploy",
-            str(script_path),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=180,
-        env={
-            **os.environ,
-            "MNGR_MODAL_APP_NAME": app_name,
-        },
-    )
-
-    if result.returncode != 0:
-        raise DeploymentError(f"Failed to deploy function: {result.stderr}\n{result.stdout}")
-
-    # Parse the URL from the deploy output
-    # The URL may be on the same line as "snapshot_and_shutdown =>" or on the next line
-    # Example formats:
-    #   "Created web function snapshot_and_shutdown => https://..."
-    #   "Created web function snapshot_and_shutdown => \n    https://..."
-    lines = result.stdout.split("\n")
-    for i, line in enumerate(lines):
-        if "snapshot_and_shutdown" in line:
-            # Check if URL is on this line
-            if "https://" in line:
-                url_start = line.find("https://")
-                url = line[url_start:].split()[0].rstrip(")")
-                return url
-            # Check if URL is on the next line
-            if i + 1 < len(lines):
-                next_line = lines[i + 1]
-                if "https://" in next_line:
-                    url_start = next_line.find("https://")
-                    url = next_line[url_start:].split()[0].rstrip(")")
-                    return url
-
-    raise URLParseError(f"Could not find function URL in deploy output: {result.stdout}")
-
-
 def _stop_app(app_name: str) -> None:
     """Stop and clean up a Modal app."""
     subprocess.run(
         ["uv", "run", "modal", "app", "stop", app_name],
         input=b"y\n",
+        capture_output=True,
+        timeout=60,
+    )
+
+
+def _delete_volume(volume_name: str) -> None:
+    """Delete a Modal volume."""
+    subprocess.run(
+        ["uv", "run", "modal", "volume", "delete", volume_name, "--yes"],
         capture_output=True,
         timeout=60,
     )
@@ -132,6 +90,7 @@ def _write_host_record_to_volume(app_name: str, host_id: str) -> None:
     Creates a minimal host record that the snapshot function can update.
     """
     volume_name = f"{app_name}-state"
+    register_modal_test_volume(volume_name)
     volume = modal.Volume.from_name(volume_name, create_if_missing=True)
 
     host_record = {
@@ -148,6 +107,7 @@ def _write_host_record_to_volume(app_name: str, host_id: str) -> None:
 def _read_host_record_from_volume(app_name: str, host_id: str) -> dict[str, Any] | None:
     """Read a host record from the Modal volume."""
     volume_name = f"{app_name}-state"
+    register_modal_test_volume(volume_name)
     volume = modal.Volume.from_name(volume_name)
 
     try:
@@ -164,14 +124,18 @@ def deployed_snapshot_function() -> Generator[tuple[str, str], None, None]:
     Yields a tuple of (app_name, function_url).
     """
     app_name = _get_test_app_name()
+    # The deployed function creates a volume named {app_name}-state
+    volume_name = f"{app_name}-state"
+    register_modal_test_volume(volume_name)
 
     try:
-        url = _deploy_snapshot_function(app_name)
+        url = deploy_function("snapshot_and_shutdown", app_name, None)
         # Warm up the function to avoid cold start timeouts in tests
         _warmup_function(url)
         yield (app_name, url)
     finally:
         _stop_app(app_name)
+        _delete_volume(volume_name)
 
 
 @pytest.mark.acceptance

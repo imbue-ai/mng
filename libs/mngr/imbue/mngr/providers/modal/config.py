@@ -3,6 +3,8 @@ from pathlib import Path
 from pydantic import Field
 
 from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.primitives import ActivitySource
+from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderBackendName
 
 
@@ -28,6 +30,14 @@ class ModalProviderConfig(ProviderInstanceConfig):
     default_timeout: int = Field(
         default=900,
         description="Default sandbox timeout in seconds",
+    )
+    default_idle_mode: IdleMode = Field(
+        default=IdleMode.AGENT,
+        description="Default idle mode for hosts",
+    )
+    default_activity_sources: tuple[ActivitySource, ...] = Field(
+        default_factory=lambda: tuple(ActivitySource),
+        description="Default activity sources that count toward keeping host active",
     )
     default_cpu: float = Field(
         default=1.0,
@@ -56,5 +66,14 @@ class ModalProviderConfig(ProviderInstanceConfig):
             "the app is intended for production use. When False (set in tests), indicates "
             "the app is for testing and should be cleaned up. This field enables tests to "
             "signal their intent for easier identification and cleanup of test resources."
+        ),
+    )
+    is_snapshotted_after_create: bool = Field(
+        default=True,
+        description=(
+            "Whether to create an initial snapshot immediately after host creation. "
+            "When True (default), an 'initial' snapshot is created, allowing the host "
+            "to be restarted even if it's hard-killed. When False, the host can only "
+            "be restarted if it was stopped gracefully (which creates a snapshot)."
         ),
     )

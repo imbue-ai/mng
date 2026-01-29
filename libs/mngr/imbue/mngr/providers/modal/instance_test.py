@@ -10,8 +10,10 @@ Or to run all tests including Modal tests:
     pytest --timeout=180
 """
 
+import subprocess
 from io import StringIO
 from pathlib import Path
+from typing import Any
 from typing import Generator
 from typing import cast
 from unittest.mock import MagicMock
@@ -22,6 +24,8 @@ import pytest
 
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.conftest import register_modal_test_app
+from imbue.mngr.conftest import register_modal_test_environment
+from imbue.mngr.conftest import register_modal_test_volume
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
@@ -32,8 +36,10 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
+from imbue.mngr.providers.modal.backend import STATE_VOLUME_SUFFIX
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
+from imbue.mngr.providers.modal.errors import NoSnapshotsModalMngrError
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.instance import TAG_HOST_ID
@@ -150,9 +156,13 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
     mock_volume = MagicMock()
     output_buffer = StringIO()
 
+    # Create a mock environment name for testing
+    mock_environment_name = f"test-env-{app_name}"
+
     # Create ModalProviderApp using model_construct to skip validation
     modal_app = ModalProviderApp.model_construct(
         app_name=app_name,
+        environment_name=mock_environment_name,
         app=mock_app,
         volume=mock_volume,
         close_callback=MagicMock(),
@@ -161,6 +171,7 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
 
     # Create config for the provider instance
     # Set is_persistent=False for testing to enable cleanup
+    # Set is_snapshotted_after_create=False to speed up tests (no initial snapshot)
     config = ModalProviderConfig(
         app_name=app_name,
         host_dir=Path("/mngr"),
@@ -168,6 +179,7 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
         default_cpu=0.5,
         default_memory=0.5,
         is_persistent=False,
+        is_snapshotted_after_create=False,
     )
 
     # Create ModalProviderInstance using model_construct to skip validation
@@ -181,16 +193,26 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
     return instance
 
 
-def make_modal_provider_real(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
-    """Create a ModalProviderInstance with real Modal for acceptance tests."""
-    # Set is_persistent=False for testing to enable cleanup
+def make_modal_provider_real(
+    mngr_ctx: MngrContext,
+    app_name: str,
+    is_persistent: bool = False,
+    is_snapshotted_after_create: bool = False,
+) -> ModalProviderInstance:
+    """Create a ModalProviderInstance with real Modal for acceptance tests.
+
+    By default, is_snapshotted_after_create=False to speed up tests by not creating
+    an initial snapshot. Tests that specifically need to test initial snapshot
+    behavior should pass is_snapshotted_after_create=True.
+    """
     config = ModalProviderConfig(
         app_name=app_name,
         host_dir=Path("/mngr"),
         default_timeout=300,
         default_cpu=0.5,
         default_memory=0.5,
-        is_persistent=False,
+        is_persistent=is_persistent,
+        is_snapshotted_after_create=is_snapshotted_after_create,
     )
     instance = ModalProviderBackend.build_provider_instance(
         name=ProviderInstanceName("modal-test"),
@@ -207,21 +229,107 @@ def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProvid
     return make_modal_provider_with_mocks(temp_mngr_ctx, app_name)
 
 
+def _cleanup_modal_test_resources(app_name: str, volume_name: str, environment_name: str) -> None:
+    """Clean up Modal test resources after a test completes.
+
+    This helper performs cleanup in the correct order:
+    1. Close the Modal app context
+    2. Delete the volume (must be done before environment deletion)
+    3. Delete the environment (cleans up any remaining resources)
+    """
+    # Close the Modal app context first
+    ModalProviderBackend.close_app(app_name)
+
+    # Delete the volume (must be done before environment deletion)
+    try:
+        subprocess.run(
+            ["uv", "run", "modal", "volume", "delete", volume_name, "--yes"],
+            capture_output=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        pass
+
+    # Delete the environment (this also cleans up any remaining resources in it)
+    try:
+        subprocess.run(
+            ["uv", "run", "modal", "environment", "delete", environment_name, "--yes"],
+            capture_output=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        pass
+
+
 @pytest.fixture
 def real_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> Generator[ModalProviderInstance, None, None]:
     """Create a ModalProviderInstance with real Modal for acceptance tests.
 
-    This fixture registers the Modal app name for leak detection. If the test
-    doesn't properly clean up its hosts, the session_cleanup fixture will
-    detect the still-running app and stop it.
+    This fixture creates a Modal environment and cleans it up after the test.
+    Cleanup happens in the fixture teardown (not at session end) to prevent
+    environment leaks and reduce the time spent on cleanup.
     """
     app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     provider = make_modal_provider_real(temp_mngr_ctx, app_name)
+    environment_name = provider.environment_name
+    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
 
-    # Register the app name for cleanup verification
+    # Register resources for leak detection (safety net in case cleanup fails)
     register_modal_test_app(app_name)
+    register_modal_test_environment(environment_name)
+    register_modal_test_volume(volume_name)
 
     yield provider
+
+    _cleanup_modal_test_resources(app_name, volume_name, environment_name)
+
+
+@pytest.fixture
+def persistent_modal_provider(
+    temp_mngr_ctx: MngrContext, mngr_test_id: str
+) -> Generator[ModalProviderInstance, None, None]:
+    """Create a persistent ModalProviderInstance for testing shutdown script creation.
+
+    This fixture is similar to real_modal_provider but uses is_persistent=True,
+    which enables the shutdown script feature.
+    """
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
+    provider = make_modal_provider_real(temp_mngr_ctx, app_name, is_persistent=True)
+    environment_name = provider.environment_name
+    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
+
+    # Register resources for leak detection
+    register_modal_test_app(app_name)
+    register_modal_test_environment(environment_name)
+    register_modal_test_volume(volume_name)
+
+    yield provider
+
+    _cleanup_modal_test_resources(app_name, volume_name, environment_name)
+
+
+@pytest.fixture
+def initial_snapshot_provider(
+    temp_mngr_ctx: MngrContext, mngr_test_id: str
+) -> Generator[ModalProviderInstance, None, None]:
+    """Create a ModalProviderInstance with is_snapshotted_after_create=True.
+
+    Use this fixture for tests that specifically test initial snapshot behavior,
+    such as restarting a host after hard kill using the initial snapshot.
+    """
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
+    provider = make_modal_provider_real(temp_mngr_ctx, app_name, is_snapshotted_after_create=True)
+    environment_name = provider.environment_name
+    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
+
+    # Register resources for leak detection
+    register_modal_test_app(app_name)
+    register_modal_test_environment(environment_name)
+    register_modal_test_volume(volume_name)
+
+    yield provider
+
+    _cleanup_modal_test_resources(app_name, volume_name, environment_name)
 
 
 # =============================================================================
@@ -452,8 +560,12 @@ def make_modal_provider_with_config_defaults(
     mock_volume = MagicMock()
     output_buffer = StringIO()
 
+    # Create a mock environment name for testing
+    mock_environment_name = f"test-env-{app_name}"
+
     modal_app = ModalProviderApp.model_construct(
         app_name=app_name,
+        environment_name=mock_environment_name,
         app=mock_app,
         volume=mock_volume,
         close_callback=MagicMock(),
@@ -630,6 +742,61 @@ def test_build_modal_secrets_from_env_partial_missing_vars(monkeypatch: pytest.M
 
 
 # =============================================================================
+# Tests for _create_shutdown_script helper method
+# =============================================================================
+
+
+def test_create_shutdown_script_generates_correct_content(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_create_shutdown_script should generate a script with correct content."""
+    # Create a simple mock host that captures the written content
+    written_content: dict[str, str] = {}
+    written_modes: dict[str, str] = {}
+
+    class MockHost:
+        host_dir = Path("/mngr")
+
+        def write_text_file(self, path: Path, content: str, mode: str | None = None) -> None:
+            written_content[str(path)] = content
+            if mode:
+                written_modes[str(path)] = mode
+
+    mock_host = MockHost()
+
+    # Create a mock sandbox with an object_id
+    mock_sandbox = MagicMock()
+    mock_sandbox.object_id = "sb-test-sandbox-123"
+
+    # Call the method with a test URL
+    host_id = HostId.generate()
+    snapshot_url = "https://test--app-snapshot-and-shutdown.modal.run"
+
+    modal_provider._create_shutdown_script(
+        cast(Any, mock_host),
+        mock_sandbox,
+        host_id,
+        snapshot_url,
+    )
+
+    # Verify the script was written to the correct path
+    expected_path = "/mngr/commands/shutdown.sh"
+    assert expected_path in written_content
+
+    # Verify the script content
+    script = written_content[expected_path]
+    assert "#!/bin/bash" in script
+    assert snapshot_url in script
+    assert "sb-test-sandbox-123" in script
+    assert str(host_id) in script
+    assert "curl" in script
+    assert "Content-Type: application/json" in script
+
+    # Verify the mode is executable
+    assert written_modes[expected_path] == "755"
+
+
+# =============================================================================
 # Acceptance tests (require Modal network access)
 # =============================================================================
 
@@ -661,6 +828,50 @@ def test_create_host_creates_sandbox_with_ssh(real_modal_provider: ModalProvider
     finally:
         if host:
             real_modal_provider.destroy_host(host)
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(300)
+def test_persistent_host_creates_shutdown_script(
+    persistent_modal_provider: ModalProviderInstance,
+) -> None:
+    """Persistent Modal host should have a shutdown script created.
+
+    This test verifies that when using a persistent Modal app (is_persistent=True),
+    the snapshot_and_shutdown function is deployed and a shutdown script is written
+    to the host at <host_dir>/commands/shutdown.sh.
+    """
+    host = None
+    try:
+        host = persistent_modal_provider.create_host(HostName("test-host"))
+
+        # Verify host was created
+        assert host.id is not None
+
+        # Check that the shutdown script exists on the host
+        result = host.execute_command("test -f /mngr/commands/shutdown.sh && echo 'exists'")
+        assert result.success
+        assert "exists" in result.stdout
+
+        # Verify the script content contains expected values
+        result = host.execute_command("cat /mngr/commands/shutdown.sh")
+        assert result.success
+        script_content = result.stdout
+
+        # Check script has expected structure
+        assert "#!/bin/bash" in script_content
+        assert "curl" in script_content
+        assert "snapshot_and_shutdown" in script_content or "modal.run" in script_content
+        assert str(host.id) in script_content
+
+        # Verify the script is executable
+        result = host.execute_command("test -x /mngr/commands/shutdown.sh && echo 'executable'")
+        assert result.success
+        assert "executable" in result.stdout
+
+    finally:
+        if host:
+            persistent_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
@@ -789,9 +1000,9 @@ def test_create_and_list_snapshots(real_modal_provider: ModalProviderInstance) -
     try:
         host = real_modal_provider.create_host(HostName("test-host"))
 
-        # Initially no snapshots
+        # Initially there are no snapshots (is_snapshotted_after_create=False by default in tests)
         snapshots = real_modal_provider.list_snapshots(host)
-        assert snapshots == []
+        assert len(snapshots) == 0
 
         # Create a snapshot
         snapshot_id = real_modal_provider.create_snapshot(host, SnapshotName("test-snapshot"))
@@ -811,17 +1022,18 @@ def test_create_and_list_snapshots(real_modal_provider: ModalProviderInstance) -
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_list_snapshots_returns_empty_initially(real_modal_provider: ModalProviderInstance) -> None:
-    """list_snapshots should return empty list for a new host."""
+def test_list_snapshots_returns_initial_snapshot(initial_snapshot_provider: ModalProviderInstance) -> None:
+    """list_snapshots should return the initial snapshot when is_snapshotted_after_create=True."""
     host = None
     try:
-        host = real_modal_provider.create_host(HostName("test-host"))
-        snapshots = real_modal_provider.list_snapshots(host)
-        assert snapshots == []
+        host = initial_snapshot_provider.create_host(HostName("test-host"))
+        snapshots = initial_snapshot_provider.list_snapshots(host)
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "initial"
 
     finally:
         if host:
-            real_modal_provider.destroy_host(host)
+            initial_snapshot_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
@@ -832,12 +1044,16 @@ def test_delete_snapshot(real_modal_provider: ModalProviderInstance) -> None:
     try:
         host = real_modal_provider.create_host(HostName("test-host"))
 
+        # Initially no snapshots (is_snapshotted_after_create=False by default in tests)
+        assert len(real_modal_provider.list_snapshots(host)) == 0
+
         # Create a snapshot
         snapshot_id = real_modal_provider.create_snapshot(host)
         assert len(real_modal_provider.list_snapshots(host)) == 1
 
-        # Delete it
+        # Delete the created snapshot
         real_modal_provider.delete_snapshot(host, snapshot_id)
+        # Should be back to no snapshots
         assert len(real_modal_provider.list_snapshots(host)) == 0
 
     finally:
@@ -927,18 +1143,45 @@ def test_start_host_on_running_host(real_modal_provider: ModalProviderInstance) 
 
 
 @pytest.mark.acceptance
-@pytest.mark.timeout(180)
-def test_start_host_on_stopped_host_raises_error(real_modal_provider: ModalProviderInstance) -> None:
-    """start_host on a terminated host should raise an error."""
-    host = real_modal_provider.create_host(HostName("test-host"))
-    host_id = host.id
+@pytest.mark.timeout(300)
+def test_start_host_on_stopped_host_uses_initial_snapshot(initial_snapshot_provider: ModalProviderInstance) -> None:
+    """start_host on a terminated host should restart from the initial snapshot.
 
-    # Stop/destroy the host
-    real_modal_provider.stop_host(host)
+    This test uses initial_snapshot_provider (is_snapshotted_after_create=True) to
+    verify that hosts can be restarted using the initial snapshot.
+    """
+    host = None
+    restarted_host = None
+    try:
+        host = initial_snapshot_provider.create_host(HostName("test-host"))
+        host_id = host.id
 
-    # Trying to start it should fail
-    with pytest.raises(MngrError):
-        real_modal_provider.start_host(host_id)
+        # Verify an initial snapshot was created
+        snapshots = initial_snapshot_provider.list_snapshots(host)
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "initial"
+
+        # Stop the host (this will also create a "stop" snapshot, but we ignore it)
+        initial_snapshot_provider.stop_host(host)
+
+        # Start it again without specifying a snapshot - should use most recent snapshot
+        restarted_host = initial_snapshot_provider.start_host(host_id)
+
+        # Verify the host was restarted with the same ID
+        assert restarted_host.id == host_id
+
+        # Verify we can execute commands on the restarted host
+        result = restarted_host.execute_command("echo 'restarted successfully'")
+        assert result.success
+        assert "restarted successfully" in result.stdout
+
+    finally:
+        if restarted_host:
+            initial_snapshot_provider.destroy_host(restarted_host)
+        elif host:
+            initial_snapshot_provider.destroy_host(host)
+        else:
+            pass
 
 
 @pytest.mark.acceptance
@@ -954,3 +1197,141 @@ def test_get_host_by_name_not_found_raises_error(real_modal_provider: ModalProvi
     """Getting a non-existent host by name should raise HostNotFoundError."""
     with pytest.raises(HostNotFoundError):
         real_modal_provider.get_host(HostName("nonexistent-host"))
+
+
+# =============================================================================
+# Tests for is_snapshotted_after_create configuration
+# =============================================================================
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(300)
+def test_restart_after_hard_kill_with_initial_snapshot(initial_snapshot_provider: ModalProviderInstance) -> None:
+    """Host can restart after hard kill when initial snapshot is enabled.
+
+    This tests scenario 1: is_snapshotted_after_create=True.
+    Even if the sandbox is terminated directly (hard kill), the host should be
+    restartable because an initial snapshot exists.
+    """
+    host = None
+    restarted_host = None
+    try:
+        host = initial_snapshot_provider.create_host(HostName("test-host"))
+        host_id = host.id
+        host_name = HostName("test-host")
+
+        # Verify initial snapshot was created
+        snapshots = initial_snapshot_provider.list_snapshots(host)
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "initial"
+
+        # Hard kill: directly terminate the sandbox without using stop_host
+        sandbox = initial_snapshot_provider._find_sandbox_by_host_id(host_id)
+        assert sandbox is not None
+        sandbox.terminate()
+        initial_snapshot_provider._uncache_sandbox(host_id, host_name)
+
+        # Should be able to restart using the initial snapshot
+        restarted_host = initial_snapshot_provider.start_host(host_id)
+        assert restarted_host.id == host_id
+
+        # Verify the host is functional
+        result = restarted_host.execute_command("echo 'restarted after hard kill'")
+        assert result.success
+        assert "restarted after hard kill" in result.stdout
+
+    finally:
+        if restarted_host:
+            initial_snapshot_provider.destroy_host(restarted_host)
+        elif host:
+            initial_snapshot_provider.destroy_host(host)
+        else:
+            pass
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(300)
+def test_restart_after_graceful_stop_without_initial_snapshot(
+    real_modal_provider: ModalProviderInstance,
+) -> None:
+    """Host can restart after graceful stop even without initial snapshot.
+
+    This tests scenario 2: is_snapshotted_after_create=False (the test default).
+    When the host is stopped gracefully via stop_host(), a snapshot is created
+    during the stop process, allowing the host to be restarted.
+    """
+    host = None
+    restarted_host = None
+    try:
+        host = real_modal_provider.create_host(HostName("test-host"))
+        host_id = host.id
+
+        # Verify NO initial snapshot was created
+        snapshots = real_modal_provider.list_snapshots(host)
+        assert len(snapshots) == 0
+
+        # Write a marker file to verify snapshot state
+        result = host.execute_command("echo 'before-stop' > /tmp/marker.txt")
+        assert result.success
+
+        # Graceful stop - should create a snapshot
+        real_modal_provider.stop_host(host_id, create_snapshot=True)
+
+        # Verify snapshot was created during stop
+        snapshots = real_modal_provider.list_snapshots(host_id)
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "stop"
+
+        # Should be able to restart
+        restarted_host = real_modal_provider.start_host(host_id)
+        assert restarted_host.id == host_id
+
+        # Verify the marker file exists (state was preserved)
+        result = restarted_host.execute_command("cat /tmp/marker.txt")
+        assert result.success
+        assert "before-stop" in result.stdout
+
+    finally:
+        if restarted_host:
+            real_modal_provider.destroy_host(restarted_host)
+        elif host:
+            real_modal_provider.destroy_host(host)
+        else:
+            pass
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(180)
+def test_restart_fails_after_hard_kill_without_initial_snapshot(
+    real_modal_provider: ModalProviderInstance,
+) -> None:
+    """Host cannot restart after hard kill when no initial snapshot exists.
+
+    This tests scenario 3: is_snapshotted_after_create=False (the test default) + hard kill.
+    When the sandbox is terminated directly without stop_host() being called,
+    no snapshot exists, and the host cannot be restarted.
+    """
+    host = None
+    try:
+        host = real_modal_provider.create_host(HostName("test-host"))
+        host_id = host.id
+        host_name = HostName("test-host")
+
+        # Verify NO initial snapshot was created
+        snapshots = real_modal_provider.list_snapshots(host)
+        assert len(snapshots) == 0
+
+        # Hard kill: directly terminate the sandbox without using stop_host
+        sandbox = real_modal_provider._find_sandbox_by_host_id(host_id)
+        assert sandbox is not None
+        sandbox.terminate()
+        real_modal_provider._uncache_sandbox(host_id, host_name)
+
+        # Should fail to restart because no snapshots exist
+        with pytest.raises(NoSnapshotsModalMngrError):
+            real_modal_provider.start_host(host_id)
+
+    finally:
+        # Host record still exists on the volume, so clean up
+        if host:
+            real_modal_provider._delete_host_record(host.id)

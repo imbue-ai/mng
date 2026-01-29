@@ -15,6 +15,7 @@ from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 
+from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import SnapshotsNotSupportedError
 from imbue.mngr.hosts.host import Host
@@ -120,6 +121,7 @@ class SSHProviderInstance(BaseProviderInstance):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
+        lifecycle: HostLifecycleOptions | None = None,
     ) -> Host:
         raise NotImplementedError("SSH provider does not support creating hosts")
 

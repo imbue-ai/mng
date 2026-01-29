@@ -8,6 +8,7 @@ from pydantic import Field
 from pyinfra.api.host import Host as PyinfraHost
 
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import SnapshotInfo
@@ -71,6 +72,7 @@ class ProviderInstanceInterface(MutableModel, ABC):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
+        lifecycle: HostLifecycleOptions | None = None,
     ) -> HostInterface:
         """Create and start a new host with the given name and configuration."""
         ...

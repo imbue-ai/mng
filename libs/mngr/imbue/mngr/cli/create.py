@@ -12,9 +12,11 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.create import create as api_create
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.data_types import CreateAgentResult
+from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.data_types import NewHostBuildOptions
 from imbue.mngr.api.data_types import NewHostEnvironmentOptions
 from imbue.mngr.api.data_types import NewHostOptions
@@ -51,6 +53,7 @@ from imbue.mngr.interfaces.host import FileModificationSpec
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import NamedCommand
 from imbue.mngr.interfaces.host import UploadFileSpec
+from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentNameStyle
@@ -70,10 +73,11 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.editor import EditorSession
-from imbue.mngr.utils.logging import LoggingSuppressor
 from imbue.mngr.utils.git_utils import derive_project_name_from_path
 from imbue.mngr.utils.git_utils import find_git_worktree_root
 from imbue.mngr.utils.git_utils import get_current_git_branch
+from imbue.mngr.utils.logging import LoggingSuppressor
+from imbue.mngr.utils.logging import remove_console_handlers
 from imbue.mngr.utils.name_generator import generate_agent_name
 from imbue.mngr.utils.name_generator import generate_host_name
 from imbue.mngr.utils.polling import wait_for
@@ -491,11 +495,15 @@ def create(ctx: click.Context, **kwargs) -> None:
     # figure out the project label, in case we need that
     project_name = _parse_project_name(source_location, opts)
 
+    # Parse host lifecycle options (these go on the host, not the agent)
+    host_lifecycle = _parse_host_lifecycle_options(opts)
+
     # Parse target host (existing or new)
     target_host = _parse_target_host(
         opts=opts,
         project_name=project_name,
         agent_and_host_loader=agent_and_host_loader,
+        lifecycle=host_lifecycle,
     )
 
     # Parse agent options
@@ -611,7 +619,7 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     # If --connect is set, connect to the agent
     if opts.connect:
-        _connect_to_agent(create_result.agent, create_result.host, mngr_ctx, connection_opts)
+        connect_to_agent(create_result.agent, create_result.host, mngr_ctx, connection_opts)
 
     # Output result
     _output_result(create_result, output_opts)
@@ -690,6 +698,10 @@ def _create_agent_in_background(
     try:
         # Create a new session to detach from parent's terminal
         os.setsid()
+
+        # Remove console handlers from loguru to prevent "I/O operation on closed file"
+        # errors when the parent's terminal closes. File logging continues to work.
+        remove_console_handlers()
 
         # Call the API create function
         create_result = api_create(
@@ -939,15 +951,8 @@ def _parse_agent_opts(
         pass_env_vars=opts.pass_agent_env,
     )
 
-    # Parse lifecycle options
-    parsed_idle_mode = IdleMode(opts.idle_mode.upper()) if opts.idle_mode else None
-
-    parsed_activity_sources = tuple(opts.activity_sources.split(",")) if opts.activity_sources else None
-
+    # Parse agent lifecycle options
     lifecycle = AgentLifecycleOptions(
-        idle_timeout_seconds=opts.idle_timeout,
-        idle_mode=parsed_idle_mode,
-        activity_sources=parsed_activity_sources,
         is_start_on_boot=opts.start_on_boot,
     )
 
@@ -1030,10 +1035,30 @@ def _parse_agent_opts(
     return agent_opts
 
 
+def _parse_host_lifecycle_options(opts: CreateCliOptions) -> HostLifecycleOptions:
+    """Parse host lifecycle options from CLI args.
+
+    These options control when a host is considered idle and should be shut down.
+    They are separate from agent lifecycle options (like is_start_on_boot).
+    """
+    parsed_idle_mode = IdleMode(opts.idle_mode.upper()) if opts.idle_mode else None
+    parsed_activity_sources = (
+        tuple(ActivitySource(s.strip().upper()) for s in opts.activity_sources.split(","))
+        if opts.activity_sources
+        else None
+    )
+    return HostLifecycleOptions(
+        idle_timeout_seconds=opts.idle_timeout,
+        idle_mode=parsed_idle_mode,
+        activity_sources=parsed_activity_sources,
+    )
+
+
 def _parse_target_host(
     opts: CreateCliOptions,
     project_name: str | None,
     agent_and_host_loader: Callable[[], dict[HostReference, list[AgentReference]]],
+    lifecycle: HostLifecycleOptions,
 ) -> HostReference | NewHostOptions | None:
     parsed_target_host: HostReference | NewHostOptions | None
     if opts.host:
@@ -1103,6 +1128,7 @@ def _parse_target_host(
                 env_files=host_env_files,
                 pass_env_vars=opts.pass_host_env,
             ),
+            lifecycle=lifecycle,
         )
     else:
         # Default: local host
@@ -1167,98 +1193,6 @@ def _assemble_result(
 ) -> tuple[AgentId, HostId]:
     """Assemble the result for output."""
     return (agent_id, host_id)
-
-
-def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str:
-    """Build a shell script that tracks SSH activity while running tmux.
-
-    The script:
-    1. Creates the activity directory if needed
-    2. Starts a background loop that writes JSON activity to activity/ssh
-    3. Runs tmux attach (foreground, blocking)
-    4. Kills the activity tracker when tmux exits
-
-    The activity file contains JSON with:
-    - time: milliseconds since Unix epoch (int)
-    - ssh_pid: the PID of the SSH activity tracker process (for debugging)
-
-    Note: The authoritative activity time is the file's mtime, not the JSON content.
-    """
-    activity_dir = host_dir / "activity"
-    activity_file = activity_dir / "ssh"
-    # Use single quotes around most things to avoid shell expansion issues,
-    # but the paths need to be interpolated
-    return (
-        f"mkdir -p '{activity_dir}'; "
-        f"(while true; do "
-        f"TIME_MS=$(($(date +%s) * 1000)); "
-        f"printf '{{\\n  \"time\": %d,\\n  \"ssh_pid\": %d\\n}}\\n' \"$TIME_MS\" \"$$\" > '{activity_file}'; "
-        f"sleep 5; done) & "
-        "MNGR_ACTIVITY_PID=$!; "
-        f"tmux attach -t '{session_name}'; "
-        "kill $MNGR_ACTIVITY_PID 2>/dev/null"
-    )
-
-
-def _connect_to_agent(
-    agent: AgentInterface,
-    host: HostInterface,
-    mngr_ctx: MngrContext,
-    connection_opts: ConnectionOptions,
-) -> None:
-    """Connect to the created agent by replacing the current process with tmux attach.
-
-    For local agents, executes: tmux attach -t <session_name>
-    For remote agents, executes: ssh <host> <activity_wrapper_script>
-
-    The activity wrapper script tracks SSH activity by writing timestamps to the
-    host's activity/ssh file while the SSH connection is open.
-
-    This function does not return - it replaces the current process.
-    """
-    logger.info("Connecting to agent...")
-
-    session_name = f"{mngr_ctx.config.prefix}{agent.name}"
-
-    if host.is_local:
-        os.execvp("tmux", ["tmux", "attach", "-t", session_name])
-    else:
-        pyinfra_host = host.connector.host
-        ssh_host = pyinfra_host.name
-        ssh_user = pyinfra_host.data.get("ssh_user")
-        ssh_port = pyinfra_host.data.get("ssh_port")
-        ssh_key = pyinfra_host.data.get("ssh_key")
-        ssh_known_hosts_file = pyinfra_host.data.get("ssh_known_hosts_file")
-
-        ssh_args = ["ssh"]
-
-        if ssh_key:
-            ssh_args.extend(["-i", str(ssh_key)])
-
-        if ssh_port:
-            ssh_args.extend(["-p", str(ssh_port)])
-
-        # Use the known_hosts file if provided (for pre-trusted host keys)
-        if ssh_known_hosts_file and ssh_known_hosts_file != "/dev/null":
-            ssh_args.extend(["-o", f"UserKnownHostsFile={ssh_known_hosts_file}"])
-            ssh_args.extend(["-o", "StrictHostKeyChecking=yes"])
-        elif connection_opts.is_unknown_host_allowed:
-            # Fall back to disabling host key checking if no known_hosts file
-            ssh_args.extend(["-o", "StrictHostKeyChecking=no"])
-            ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
-        else:
-            raise MngrError("You must specify a known_hosts file to connect to this host securely.")
-
-        if ssh_user:
-            ssh_args.append(f"{ssh_user}@{ssh_host}")
-        else:
-            ssh_args.append(ssh_host)
-
-        # Build wrapper script that tracks SSH activity while running tmux
-        wrapper_script = _build_ssh_activity_wrapper_script(session_name, host.host_dir)
-        ssh_args.extend(["-t", "bash", "-c", wrapper_script])
-
-        os.execvp("ssh", ssh_args)
 
 
 def _await_agent_stopped(

@@ -19,6 +19,7 @@ from datetime import datetime
 from datetime import timezone
 from functools import wraps
 from pathlib import Path
+from typing import ClassVar
 from typing import Final
 from typing import Mapping
 from typing import ParamSpec
@@ -39,6 +40,7 @@ from pyinfra.api.inventory import Inventory
 from pyinfra.connectors.sshuserclient.client import get_host_keys
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
@@ -59,12 +61,16 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.modal.config import ModalProviderConfig
+from imbue.mngr.providers.modal.errors import NoSnapshotsModalMngrError
+from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
+from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
+from imbue.mngr.utils.polling import wait_for
 
 # Constants
 CONTAINER_SSH_PORT = 22
@@ -203,6 +209,7 @@ class ModalProviderApp(FrozenModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     app_name: str = Field(frozen=True, description="The name of the Modal app")
+    environment_name: str = Field(frozen=True, description="The Modal environment name for user isolation")
     app: modal.App = Field(frozen=True, description="The Modal app instance")
     volume: modal.Volume = Field(frozen=True, description="The Modal volume for state storage")
     close_callback: Callable[[], None] = Field(frozen=True, description="Callback to clean up the app context")
@@ -231,7 +238,15 @@ class ModalProviderInstance(BaseProviderInstance):
     Host metadata (SSH info, config, snapshots) is stored on a Modal Volume
     for persistence and sharing between mngr instances. Only host_id, host_name,
     and user tags are stored as sandbox tags for discovery via Sandbox.list().
+
+    A class-level cache maps host_id to sandbox objects to avoid relying on Modal's
+    eventually consistent tag queries for recently created sandboxes.
     """
+
+    # Class-level caches of sandboxes. These avoid the need to query
+    # Modal's eventually consistent tag API for recently created sandboxes.
+    _sandbox_cache_by_id: ClassVar[dict[HostId, modal.Sandbox]] = {}
+    _sandbox_cache_by_name: ClassVar[dict[HostName, modal.Sandbox]] = {}
 
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
@@ -252,6 +267,11 @@ class ModalProviderInstance(BaseProviderInstance):
     def app_name(self) -> str:
         """Get the Modal app name from the modal_app manager."""
         return self.modal_app.app_name
+
+    @property
+    def environment_name(self) -> str:
+        """Get the Modal environment name from the modal_app manager."""
+        return self.modal_app.environment_name
 
     @property
     def _keys_dir(self) -> Path:
@@ -433,6 +453,11 @@ class ModalProviderInstance(BaseProviderInstance):
         )
         sandbox.exec("sh", "-c", configure_ssh_cmd).wait()
 
+        # Start the activity watcher
+        logger.debug("Starting activity watcher in sandbox")
+        start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
+        sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
+
         logger.debug("Starting sshd in sandbox")
 
         # Start sshd (-D: don't detach)
@@ -554,6 +579,43 @@ class ModalProviderInstance(BaseProviderInstance):
 
         return host, ssh_host, ssh_port, host_public_key
 
+    def _create_shutdown_script(
+        self,
+        host: Host,
+        sandbox: modal.Sandbox,
+        host_id: HostId,
+        snapshot_url: str,
+    ) -> None:
+        """Create the shutdown.sh script on the host.
+
+        The script uses curl to call the deployed snapshot_and_shutdown endpoint,
+        passing the sandbox_id and host_id as JSON payload.
+        """
+        sandbox_id = sandbox.object_id
+
+        # Create the shutdown script content
+        # The script sends a POST request to the snapshot_and_shutdown endpoint
+        script_content = f'''#!/bin/bash
+# Auto-generated shutdown script for mngr Modal host
+# This script snapshots and shuts down the host by calling the deployed Modal function
+
+SNAPSHOT_URL="{snapshot_url}"
+SANDBOX_ID="{sandbox_id}"
+HOST_ID="{host_id}"
+
+# Send the shutdown request
+curl -s -X POST "$SNAPSHOT_URL" \\
+    -H "Content-Type: application/json" \\
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'"}}'
+'''
+
+        # Write the script to the host
+        commands_dir = host.host_dir / "commands"
+        script_path = commands_dir / "shutdown.sh"
+
+        logger.debug("Creating shutdown script at {}", script_path)
+        host.write_text_file(script_path, script_content, mode="755")
+
     def _parse_build_args(
         self,
         build_args: Sequence[str] | None,
@@ -655,25 +717,141 @@ class ModalProviderInstance(BaseProviderInstance):
         """
         return self.modal_app.get_captured_output()
 
-    def _find_sandbox_by_host_id(self, host_id: HostId) -> modal.Sandbox | None:
-        """Find a Modal sandbox by its mngr host_id tag."""
-        logger.trace("Looking up sandbox with host_id={}", host_id)
-        app = self._get_modal_app()
-        for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
-            return sandbox
-        return None
+    def _lookup_sandbox_by_host_id_once(self, host_id: HostId, result_container: list[modal.Sandbox]) -> bool:
+        """Perform a single lookup of a sandbox by host_id tag.
 
-    def _find_sandbox_by_name(self, name: HostName) -> modal.Sandbox | None:
-        """Find a Modal sandbox by its mngr host_name tag."""
-        logger.trace("Looking up sandbox with name={}", name)
+        This is a helper for _find_sandbox_by_host_id that does not retry.
+        If the sandbox is found, it is appended to result_container and True is returned.
+        Otherwise, returns False.
+        """
+        app = self._get_modal_app()
+        # FIXME: put this back--no idea why it wasn't working
+        # for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
+        #     result_container.append(sandbox)
+        #     return True
+        # return False
+        for sandbox in modal.Sandbox.list(app_id=app.app_id):
+            if sandbox.get_tags().get(TAG_HOST_ID) == str(host_id):
+                result_container.append(sandbox)
+                return True
+        return False
+
+    def _cache_sandbox(self, host_id: HostId, name: HostName, sandbox: modal.Sandbox) -> None:
+        """Cache a sandbox by host_id and name for fast lookup."""
+        ModalProviderInstance._sandbox_cache_by_id[host_id] = sandbox
+        ModalProviderInstance._sandbox_cache_by_name[name] = sandbox
+
+    def _uncache_sandbox(self, host_id: HostId, name: HostName | None = None) -> None:
+        """Remove a sandbox from the caches."""
+        ModalProviderInstance._sandbox_cache_by_id.pop(host_id, None)
+        if name is not None:
+            ModalProviderInstance._sandbox_cache_by_name.pop(name, None)
+
+    @classmethod
+    def reset_sandbox_cache(cls) -> None:
+        """Reset the sandbox caches.
+
+        This is primarily used for test isolation to ensure a clean state between tests.
+        """
+        cls._sandbox_cache_by_id.clear()
+        cls._sandbox_cache_by_name.clear()
+
+    def _find_sandbox_by_host_id(
+        self, host_id: HostId, timeout: float = 5.0, poll_interval: float = 1.0
+    ) -> modal.Sandbox | None:
+        """Find a Modal sandbox by its mngr host_id tag.
+
+        First checks the local cache (populated when sandboxes are created), then
+        falls back to querying Modal's API. The cache avoids Modal's eventual
+        consistency issues for recently created sandboxes.
+
+        The app_id identifies the app within its environment, so sandboxes created
+        in that app's environment will be found via app_id alone.
+
+        Due to Modal's eventual consistency, tags may not be immediately visible
+        after a sandbox is created. This method polls for the sandbox with delays
+        to handle this race condition when the sandbox isn't in the cache.
+        """
+        logger.trace("Looking up sandbox with host_id={} in env={}", host_id, self.environment_name)
+
+        # Check cache first - this avoids eventual consistency issues for recently created sandboxes
+        if host_id in ModalProviderInstance._sandbox_cache_by_id:
+            sandbox = ModalProviderInstance._sandbox_cache_by_id[host_id]
+            logger.trace("Found sandbox in cache for host_id={}", host_id)
+            return sandbox
+
+        # Fall back to querying Modal's API with retries
+        result: list[modal.Sandbox] = []
+
+        try:
+            wait_for(
+                lambda: self._lookup_sandbox_by_host_id_once(host_id, result),
+                timeout=timeout,
+                poll_interval=poll_interval,
+            )
+            return result[0]
+        except TimeoutError:
+            logger.trace("Sandbox with host_id={} not found after {}s", host_id, timeout)
+            return None
+
+    def _lookup_sandbox_by_name_once(self, name: HostName, result_container: list[modal.Sandbox]) -> bool:
+        """Perform a single lookup of a sandbox by host_name tag.
+
+        This is a helper for _find_sandbox_by_name that does not retry.
+        If the sandbox is found, it is appended to result_container and True is returned.
+        Otherwise, returns False.
+        """
         app = self._get_modal_app()
         for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_NAME: str(name)}):
+            result_container.append(sandbox)
+            return True
+        return False
+
+    def _find_sandbox_by_name(
+        self, name: HostName, timeout: float = 5.0, poll_interval: float = 1.0
+    ) -> modal.Sandbox | None:
+        """Find a Modal sandbox by its mngr host_name tag.
+
+        First checks the local cache (populated when sandboxes are created), then
+        falls back to querying Modal's API. The cache avoids Modal's eventual
+        consistency issues for recently created sandboxes.
+
+        The app_id identifies the app within its environment, so sandboxes created
+        in that app's environment will be found via app_id alone.
+
+        Due to Modal's eventual consistency, tags may not be immediately visible
+        after a sandbox is created. This method polls for the sandbox with delays
+        to handle this race condition when the sandbox isn't in the cache.
+        """
+        logger.trace("Looking up sandbox with name={} in env={}", name, self.environment_name)
+
+        # Check cache first - this avoids eventual consistency issues for recently created sandboxes
+        if name in ModalProviderInstance._sandbox_cache_by_name:
+            sandbox = ModalProviderInstance._sandbox_cache_by_name[name]
+            logger.trace("Found sandbox in cache for name={}", name)
             return sandbox
-        return None
+
+        # Fall back to querying Modal's API with retries
+        result: list[modal.Sandbox] = []
+
+        try:
+            wait_for(
+                lambda: self._lookup_sandbox_by_name_once(name, result),
+                timeout=timeout,
+                poll_interval=poll_interval,
+            )
+            return result[0]
+        except TimeoutError:
+            logger.trace("Sandbox with name={} not found after {}s", name, timeout)
+            return None
 
     def _list_sandboxes(self) -> list[modal.Sandbox]:
-        """List all Modal sandboxes managed by this mngr provider instance."""
-        logger.trace("Listing all mngr sandboxes for app={}", self.app_name)
+        """List all Modal sandboxes managed by this mngr provider instance.
+
+        The app_id identifies the app within its environment, so sandboxes created
+        in that app's environment will be found via app_id alone.
+        """
+        logger.trace("Listing all mngr sandboxes for app={} in env={}", self.app_name, self.environment_name)
         app = self._get_modal_app()
         sandboxes: list[modal.Sandbox] = []
         for sandbox in modal.Sandbox.list(app_id=app.app_id):
@@ -738,6 +916,7 @@ class ModalProviderInstance(BaseProviderInstance):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
+        lifecycle: HostLifecycleOptions | None = None,
     ) -> Host:
         """Create a new Modal sandbox host."""
         # Generate host ID
@@ -776,6 +955,8 @@ class ModalProviderInstance(BaseProviderInstance):
             sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
+                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
+                # environment_name=self.environment_name,
                 timeout=config.timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
@@ -786,6 +967,9 @@ class ModalProviderInstance(BaseProviderInstance):
         except modal.exception.RemoteError as e:
             raise MngrError(f"Failed to create Modal sandbox: {e}\n{self.get_captured_output()}") from None
         logger.debug("Created Modal sandbox", sandbox_id=sandbox.object_id)
+
+        # Cache the sandbox for fast lookup (avoids Modal's eventual consistency issues)
+        self._cache_sandbox(host_id, name, sandbox)
 
         # Set up SSH and create host object using shared helper
         host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
@@ -809,8 +993,29 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.debug("Writing host record to volume", host_id=str(host_id))
         self._write_host_record(host_record)
 
+        # Set up activity configuration for idle detection, merging CLI options with provider defaults
+        lifecycle_options = lifecycle if lifecycle is not None else HostLifecycleOptions()
+        activity_config = lifecycle_options.to_activity_config(
+            default_timeout=self.config.default_timeout,
+            default_mode=self.config.default_idle_mode,
+            default_sources=self.config.default_activity_sources,
+        )
+        host.set_activity_config(activity_config)
+
+        # For persistent apps, deploy the snapshot function and create shutdown script
+        if self.config.is_persistent:
+            snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
+            if snapshot_url:
+                self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
+
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
+
+        # Optionally create an initial snapshot based on config
+        # When enabled, this ensures the host can be restarted even after a hard kill
+        if self.config.is_snapshotted_after_create:
+            logger.debug("Creating initial snapshot for host", host_id=str(host_id))
+            self._create_initial_snapshot(sandbox, host_id)
 
         return host
 
@@ -824,13 +1029,22 @@ class ModalProviderInstance(BaseProviderInstance):
         """Stop a Modal sandbox.
 
         Note: Modal sandboxes cannot be stopped and resumed - they can only be
-        terminated. This method terminates the sandbox.
+        terminated. If create_snapshot is True (the default), a snapshot is
+        created before termination to allow the host to be restarted later.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
         logger.info("Stopping (terminating) Modal sandbox: {}", host_id)
 
         sandbox = self._find_sandbox_by_host_id(host_id)
         if sandbox:
+            # Create a snapshot before termination if requested
+            if create_snapshot:
+                try:
+                    logger.debug("Creating snapshot before termination", host_id=str(host_id))
+                    self.create_snapshot(host_id, SnapshotName("stop"))
+                except (MngrError, modal.exception.Error) as e:
+                    logger.warning("Failed to create snapshot before termination: {}", e)
+
             try:
                 sandbox.terminate()
             except modal.exception.Error as e:
@@ -838,18 +1052,32 @@ class ModalProviderInstance(BaseProviderInstance):
         else:
             logger.debug("No sandbox found, may already be terminated", host_id=str(host_id))
 
+        # Remove from cache since the sandbox is now terminated
+        # Read host record to get the name for cache cleanup
+        host_record = self._read_host_record(host_id)
+        host_name = HostName(host_record.host_name) if host_record else None
+        self._uncache_sandbox(host_id, host_name)
+
     @handle_modal_auth_error
     def start_host(
         self,
         host: HostInterface | HostId,
         snapshot_id: SnapshotId | None = None,
     ) -> Host:
-        """Start a stopped host, optionally restoring from a snapshot.
+        """Start a stopped host, optionally restoring from a specific snapshot.
 
         If the sandbox is still running, returns the existing host. If the
-        sandbox has been terminated and a snapshot_id is provided, creates
-        a new sandbox from the snapshot image. Without a snapshot_id, a
-        terminated sandbox cannot be restarted.
+        sandbox has been terminated, creates a new sandbox from a snapshot.
+        When snapshot_id is provided, that specific snapshot is used. When
+        snapshot_id is None, the most recent snapshot is automatically used.
+
+        Note: For a host to be restartable, it must have at least one snapshot.
+        Snapshots are created in two cases:
+        1. During host creation if is_snapshotted_after_create=True (default)
+        2. During stop_host() if create_snapshot=True (default)
+
+        If neither snapshot was created (e.g., is_snapshotted_after_create=False
+        and the sandbox was hard-killed), this method raises NoSnapshotsModalMngrError.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
 
@@ -866,12 +1094,24 @@ class ModalProviderInstance(BaseProviderInstance):
                     )
                 return host_obj
 
-        # Sandbox is not running - try to restore from snapshot if provided
+        # Sandbox is not running - restore from snapshot
+        # If no snapshot_id provided, use the most recent snapshot
         if snapshot_id is None:
-            raise MngrError(
-                f"Modal sandbox {host_id} is not running and cannot be restarted. "
-                "Provide a snapshot_id to restore from a snapshot, or create a new host."
-            )
+            # Load host record to get available snapshots
+            host_record = self._read_host_record(host_id)
+            if host_record is None:
+                raise HostNotFoundError(host_id)
+
+            if not host_record.snapshots:
+                raise NoSnapshotsModalMngrError(
+                    f"Modal sandbox {host_id} is not running and has no snapshots. "
+                    "Cannot restart. Create a new host instead."
+                )
+
+            # Use the most recent snapshot (sorted by created_at descending)
+            sorted_snapshots = sorted(host_record.snapshots, key=lambda s: s.created_at, reverse=True)
+            snapshot_id = SnapshotId(sorted_snapshots[0].id)
+            logger.info("Using most recent snapshot for restart", snapshot_id=str(snapshot_id))
 
         # Load host record from volume
         host_record = self._read_host_record(host_id)
@@ -913,6 +1153,8 @@ class ModalProviderInstance(BaseProviderInstance):
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
+                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
+                # environment_name=self.environment_name,
                 timeout=config.timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
@@ -924,6 +1166,8 @@ class ModalProviderInstance(BaseProviderInstance):
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
+                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
+                #                 environment_name=self.environment_name,
                 timeout=config.timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
@@ -931,6 +1175,9 @@ class ModalProviderInstance(BaseProviderInstance):
                 region=config.region,
             )
         logger.info("Created sandbox from snapshot", sandbox_id=new_sandbox.object_id)
+
+        # Cache the sandbox for fast lookup (avoids Modal's eventual consistency issues)
+        self._cache_sandbox(host_id, host_name, new_sandbox)
 
         # Set up SSH and create host object using shared helper
         restored_host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
@@ -1046,6 +1293,67 @@ class ModalProviderInstance(BaseProviderInstance):
     # Snapshot Methods
     # =========================================================================
 
+    def _record_snapshot(
+        self,
+        sandbox: modal.Sandbox,
+        host_id: HostId,
+        name: SnapshotName,
+    ) -> SnapshotId:
+        """Create a filesystem snapshot and record it in the host record.
+
+        This is the core snapshot logic used by both _create_initial_snapshot
+        and create_snapshot. It reads the host record from the volume, creates
+        a filesystem snapshot via Modal, records the snapshot metadata in the
+        host record, and writes the updated host record back to the volume.
+        """
+        # Read existing host record from volume
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            raise HostNotFoundError(host_id)
+
+        # Create the filesystem snapshot
+        logger.debug("Creating filesystem snapshot", name=str(name))
+        modal_image = sandbox.snapshot_filesystem()
+        modal_image_id = modal_image.object_id
+
+        # Generate mngr snapshot ID and metadata
+        snapshot_id = SnapshotId.generate()
+        created_at = datetime.now(timezone.utc)
+
+        new_snapshot = SnapshotRecord(
+            id=str(snapshot_id),
+            name=str(name),
+            created_at=created_at.isoformat(),
+            modal_image_id=modal_image_id,
+        )
+
+        # Update host record with new snapshot and write to volume
+        updated_host_record = host_record.model_copy(
+            update={"snapshots": list(host_record.snapshots) + [new_snapshot]}
+        )
+        self._write_host_record(updated_host_record)
+
+        logger.debug(
+            "Created snapshot: id={}, name={}, modal_image_id={}",
+            snapshot_id,
+            name,
+            modal_image_id,
+        )
+        return snapshot_id
+
+    def _create_initial_snapshot(
+        self,
+        sandbox: modal.Sandbox,
+        host_id: HostId,
+    ) -> SnapshotId:
+        """Create an initial snapshot of a newly created host.
+
+        This is called during host creation when is_snapshotted_after_create
+        is True, ensuring the host can be restarted after being stopped.
+        The initial state after SSH setup is captured as the "initial" snapshot.
+        """
+        return self._record_snapshot(sandbox, host_id, SnapshotName("initial"))
+
     @handle_modal_auth_error
     def create_snapshot(
         self,
@@ -1065,42 +1373,14 @@ class ModalProviderInstance(BaseProviderInstance):
         if sandbox is None:
             raise HostNotFoundError(host_id)
 
-        # Read existing host record from volume
-        host_record = self._read_host_record(host_id)
-        if host_record is None:
-            raise HostNotFoundError(host_id)
+        # Generate snapshot name if not provided
+        if name is None:
+            # Use last 8 characters of a generated ID as a short identifier
+            short_id = str(SnapshotId.generate())[-8:]
+            name = SnapshotName(f"snapshot-{short_id}")
 
-        # Create the filesystem snapshot
-        logger.debug("Calling snapshot_filesystem on sandbox")
-        modal_image = sandbox.snapshot_filesystem()
-        modal_image_id = modal_image.object_id
-
-        # Generate mngr snapshot ID and metadata
-        snapshot_id = SnapshotId.generate()
-        created_at = datetime.now(timezone.utc)
-        # Use last 8 characters of the snapshot ID as a short identifier for the default name
-        short_id = str(snapshot_id)[-8:]
-        snapshot_name = name if name is not None else SnapshotName(f"snapshot-{short_id}")
-
-        new_snapshot = SnapshotRecord(
-            id=str(snapshot_id),
-            name=str(snapshot_name),
-            created_at=created_at.isoformat(),
-            modal_image_id=modal_image_id,
-        )
-
-        # Update host record with new snapshot and write to volume
-        updated_host_record = host_record.model_copy(
-            update={"snapshots": list(host_record.snapshots) + [new_snapshot]}
-        )
-        self._write_host_record(updated_host_record)
-
-        logger.info(
-            "Created snapshot: id={}, name={}, modal_image_id={}",
-            snapshot_id,
-            snapshot_name,
-            modal_image_id,
-        )
+        snapshot_id = self._record_snapshot(sandbox, host_id, name)
+        logger.info("Created snapshot: id={}, name={}", snapshot_id, name)
         return snapshot_id
 
     def list_snapshots(
