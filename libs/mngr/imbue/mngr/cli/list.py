@@ -1,4 +1,8 @@
+import re
 import sys
+from collections.abc import Sequence
+from enum import Enum
+from typing import Any
 
 import click
 from click_option_group import optgroup
@@ -11,6 +15,9 @@ from imbue.mngr.api.list import list_agents as api_list_agents
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.primitives import ErrorBehavior
@@ -61,22 +68,22 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--running",
     is_flag=True,
-    help='Show only running agents (alias for --include state == "running")',
+    help="Show only running agents (alias for --include 'state == \"running\"') [future]",
 )
 @optgroup.option(
     "--stopped",
     is_flag=True,
-    help='Show only stopped agents (alias for --include state == "stopped")',
+    help="Show only stopped agents (alias for --include 'state == \"stopped\"') [future]",
 )
 @optgroup.option(
     "--local",
     is_flag=True,
-    help='Show only local agents (alias for --include host.provider == "local")',
+    help="Show only local agents (alias for --include 'host.provider == \"local\"') [future]",
 )
 @optgroup.option(
     "--remote",
     is_flag=True,
-    help='Show only remote agents (alias for --exclude host.provider == "local")',
+    help="Show only remote agents (alias for --exclude 'host.provider == \"local\"') [future]",
 )
 @optgroup.option(
     "--provider",
@@ -92,7 +99,7 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--format-template",
     "format_template",
-    help="Output format as a string template (mutually exclusive with --format)",
+    help="Output format as a string template (mutually exclusive with --format) [future]",
 )
 @optgroup.option(
     "--fields",
@@ -101,7 +108,7 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--sort",
     default="create_time",
-    help="Sort by field [default: create_time]",
+    help="Sort by field [default: create_time] [future]",
 )
 @optgroup.option(
     "--sort-order",
@@ -112,14 +119,14 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--limit",
     type=int,
-    help="Limit number of results",
+    help="Limit number of results [future]",
 )
 @optgroup.group("Watch Mode")
 @optgroup.option(
     "-w",
     "--watch",
     type=int,
-    help="Continuously watch and update status at specified interval (seconds) [default: 2]",
+    help="Continuously watch and update status at specified interval (seconds) [future]",
 )
 @optgroup.group("Error Handling")
 @optgroup.option(
@@ -162,12 +169,18 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("Running list command")
 
+    # --format-template FORMAT: Output format as a string template, mutually exclusive with --format
+    # Template can reference any field from the Available Fields list (see CommandHelpMetadata)
     if opts.format_template:
         raise NotImplementedError("Custom format templates not implemented yet")
 
+    # Parse fields if provided
+    fields = None
     if opts.fields:
-        raise NotImplementedError("Field selection not implemented yet")
+        fields = [f.strip() for f in opts.fields.split(",") if f.strip()]
 
+    # -w, --watch SECONDS: Continuously watch and update status at interval [default: 2]
+    # Should refresh the agent list display periodically until interrupted
     if opts.watch:
         raise NotImplementedError("Watch mode not implemented yet")
 
@@ -179,7 +192,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         stdin_refs = [line.strip() for line in sys.stdin if line.strip()]
         if stdin_refs:
             # Create a CEL filter that matches any of the provided refs against
-            # host.name, host.id, agent.name, or agent.id
+            # host.name, host.id, name, or id (using dot notation for nested fields)
             ref_filters = []
             for ref in stdin_refs:
                 ref_filter = f'(name == "{ref}" || id == "{ref}" || host.name == "{ref}" || host.id == "{ref}")'
@@ -188,12 +201,19 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             combined_filter = " || ".join(ref_filters)
             include_filters.append(combined_filter)
 
+    # --running: alias for --include 'state == "running"'
+    # --stopped: alias for --include 'state == "stopped"'
+    # --local: alias for --include 'host.provider == "local"'
+    # --remote: alias for --exclude 'host.provider == "local"'
     if opts.running or opts.stopped or opts.local or opts.remote:
         raise NotImplementedError("Convenience filter aliases not implemented yet")
 
+    # --sort FIELD: Sort by any available field [default: create_time]
+    # --sort-order ORDER: Sort order (asc, desc) [default: asc]
     if opts.sort != "create_time":
         raise NotImplementedError("Custom sorting not implemented yet")
 
+    # --limit N: Limit number of results returned
     if opts.limit:
         raise NotImplementedError("Result limiting not implemented yet")
 
@@ -242,7 +262,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         return
 
     if output_opts.output_format == OutputFormat.HUMAN:
-        _emit_human_output(result.agents)
+        _emit_human_output(result.agents, fields)
     elif output_opts.output_format == OutputFormat.JSON:
         _emit_json_output(result.agents, result.errors)
     else:
@@ -277,26 +297,288 @@ def _emit_jsonl_error(error: ErrorInfo) -> None:
     emit_final_json(error_data)
 
 
-def _emit_human_output(agents: list[AgentInfo]) -> None:
-    """Emit human-readable table output."""
+def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None) -> None:
+    """Emit human-readable table output with optional field selection.
+
+    If fields is None, uses default fields (name, state, status, host, provider).
+    """
     if not agents:
         return
 
-    # Build table data
-    headers = ["NAME", "STATE", "STATUS", "HOST", "PROVIDER"]
+    # Default fields if none specified
+    if fields is None:
+        fields = ["name", "state", "status", "host", "provider"]
+
+    # Build table data dynamically based on requested fields
+    headers = []
     rows = []
+
+    # Generate headers
+    for field in fields:
+        headers.append(field.upper().replace(".", "_"))
+
+    # Generate rows
     for agent in agents:
-        state_text = str(agent.lifecycle_state.value).lower()
-        status_text = agent.status.line if agent.status else ""
-        row = [
-            str(agent.name),
-            state_text,
-            status_text,
-            agent.host.name,
-            str(agent.host.provider_name),
-        ]
+        row = []
+        for field in fields:
+            value = _get_field_value(agent, field)
+            row.append(value)
         rows.append(row)
 
     # Generate table
     table = tabulate(rows, headers=headers, tablefmt="plain")
     logger.info("\n" + table)
+
+
+def _parse_slice_spec(spec: str) -> int | slice | None:
+    """Parse a bracket slice specification like '0', '-1', ':3', '1:3', or '1:'.
+
+    Returns an int for single index, slice object for ranges, or None if invalid.
+    """
+    spec = spec.strip()
+
+    try:
+        # Check if it's a slice (contains ':')
+        if ":" in spec:
+            parts = spec.split(":")
+            if len(parts) == 2:
+                start_str, stop_str = parts
+                start = int(start_str) if start_str else None
+                stop = int(stop_str) if stop_str else None
+                return slice(start, stop)
+            elif len(parts) == 3:
+                start_str, stop_str, step_str = parts
+                start = int(start_str) if start_str else None
+                stop = int(stop_str) if stop_str else None
+                step = int(step_str) if step_str else None
+                return slice(start, stop, step)
+            else:
+                # Invalid slice format (too many colons)
+                return None
+        else:
+            # Simple index
+            return int(spec)
+    except ValueError:
+        # Could not parse integers in the spec
+        return None
+
+
+def _format_value_as_string(value: Any) -> str:
+    """Convert a value to string representation for display."""
+    if value is None:
+        return ""
+    elif isinstance(value, Enum):
+        return str(value.value).lower()
+    elif hasattr(value, "line"):
+        # For AgentStatus objects which have a 'line' attribute
+        return str(value.line)
+    elif hasattr(value, "name") and hasattr(value, "id"):
+        # For objects like SnapshotInfo that have both name and id, prefer name
+        return str(value.name)
+    elif isinstance(value, str):
+        return value
+    else:
+        return str(value)
+
+
+# Pattern to match a field part with optional bracket notation
+# Matches: "fieldname", "fieldname[0]", "fieldname[-1]", "fieldname[:3]", "fieldname[1:3]", etc.
+_BRACKET_PATTERN = re.compile(r"^([^\[]+)(?:\[([^\]]+)\])?$")
+
+
+def _get_field_value(agent: AgentInfo, field: str) -> str:
+    """Extract a field value from an AgentInfo object and return as string.
+
+    Supports nested fields like "host.name", handles field aliases, and supports
+    list slicing syntax like "host.snapshots[0]" or "host.snapshots[:3]".
+    """
+    # Handle special field aliases for backward compatibility and convenience
+    # Note: host.provider maps to host.provider_name for consistency with CEL filters
+    field_aliases = {
+        "state": "lifecycle_state",
+        "host": "host.name",
+        "provider": "host.provider_name",
+        "host.provider": "host.provider_name",
+    }
+
+    # Apply alias if it exists
+    if field in field_aliases:
+        field = field_aliases[field]
+
+    # Handle nested fields (e.g., "host.name") with optional bracket notation
+    parts = field.split(".")
+    value: Any = agent
+
+    try:
+        for part in parts:
+            # Parse the part for bracket notation
+            match = _BRACKET_PATTERN.match(part)
+            if not match:
+                return ""
+
+            field_name = match.group(1)
+            # bracket_spec may be None if no brackets present in the part
+            bracket_spec = match.group(2)
+
+            # Get the field value
+            if hasattr(value, field_name):
+                value = getattr(value, field_name)
+            else:
+                return ""
+
+            # Apply bracket indexing/slicing if present
+            if bracket_spec is not None:
+                if not isinstance(value, (list, tuple, Sequence)) or isinstance(value, str):
+                    return ""
+
+                index_or_slice = _parse_slice_spec(bracket_spec)
+                if index_or_slice is None:
+                    return ""
+
+                try:
+                    value = value[index_or_slice]
+                except (IndexError, ValueError):
+                    # IndexError: out of bounds index
+                    # ValueError: slice step cannot be zero
+                    return ""
+
+                # If the result is a list (from slicing), format each element
+                if isinstance(value, (list, tuple)) and not isinstance(value, str):
+                    return ", ".join(_format_value_as_string(item) for item in value)
+
+        return _format_value_as_string(value)
+    except (AttributeError, KeyError):
+        return ""
+
+
+# Register help metadata for git-style help formatting
+_LIST_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-list",
+    one_line_description="List all agents managed by mngr",
+    synopsis="mngr [list|ls] [OPTIONS]",
+    description="""List all agents managed by mngr.
+
+Displays agents with their status, host information, and other metadata.
+Supports filtering, sorting, and multiple output formats.""",
+    aliases=("ls",),
+    examples=(
+        ("List all agents", "mngr list"),
+        ("List only running agents", "mngr list --running"),
+        ("List agents on Docker hosts", "mngr list --provider docker"),
+        ("List agents as JSON", "mngr list --format json"),
+        ("Filter with CEL expression", "mngr list --include 'name.contains(\"prod\")'"),
+    ),
+    additional_sections=(
+        (
+            "CEL Filter Examples",
+            """CEL (Common Expression Language) filters allow powerful, expressive filtering of agents.
+All agent fields from the "Available Fields" section can be used in filter expressions.
+
+**Simple equality filters:**
+- `name == "my-agent"` - Match agent by exact name
+- `state == "running"` - Match running agents
+- `host.provider == "docker"` - Match agents on Docker hosts
+- `type == "claude"` - Match agents of type "claude"
+
+**Compound expressions:**
+- `state == "running" && host.provider == "modal"` - Running agents on Modal
+- `state == "stopped" || state == "failed"` - Stopped or failed agents
+- `host.provider == "docker" && name.startsWith("test-")` - Docker agents with names starting with "test-"
+
+**String operations:**
+- `name.contains("prod")` - Agent names containing "prod"
+- `name.startsWith("staging-")` - Agent names starting with "staging-"
+- `name.endsWith("-dev")` - Agent names ending with "-dev"
+
+**Numeric comparisons:**
+- `runtime_seconds > 3600` - Agents running for more than an hour
+- `idle_seconds < 300` - Agents active in the last 5 minutes
+- `host.resource.memory_gb >= 8` - Agents on hosts with 8GB+ memory
+- `host.uptime_seconds > 86400` - Agents on hosts running for more than a day
+
+**Existence checks:**
+- `has(url)` - Agents that have a URL set
+- `has(host.ssh)` - Agents on remote hosts with SSH access
+""",
+        ),
+        (
+            "Available Fields",
+            """**Agent fields** (same syntax for `--fields` and CEL filters):
+- `name` - Agent name
+- `id` - Agent ID
+- `type` - Agent type (claude, codex, etc.)
+- `command` - The command used to start the agent
+- `url` - URL where the agent can be accessed (if reported)
+- `status` - Status as reported by the agent
+  - `status.line` - A single line summary
+  - `status.full` - A longer description of the current status
+  - `status.html` - Full HTML status report (if available)
+- `work_dir` - Working directory for this agent
+- `create_time` - Creation timestamp
+- `start_time` - Timestamp for when the agent was last started
+- `runtime_seconds` - How long the agent has been running
+- `user_activity_time` - Timestamp of the last user activity
+- `agent_activity_time` - Timestamp of the last agent activity
+- `ssh_activity_time` - Timestamp when we last noticed an active SSH connection
+- `idle_seconds` - How long since the agent was active
+- `idle_mode` - Idle detection mode
+- `start_on_boot` - Whether the agent is set to start on host boot
+- `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
+- `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
+
+**Host fields** (dot notation for both `--fields` and CEL filters):
+- `host.name` - Host name
+- `host.id` - Host ID
+- `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
+- `host.provider` - Host provider (local, docker, modal, etc.)
+- `host.state` - Current host state (running, stopped, building, etc.)
+- `host.image` - Host image (Docker image name, Modal image ID, etc.)
+- `host.tags` - Metadata tags for the host
+- `host.boot_time` - When the host was last started
+- `host.uptime_seconds` - How long the host has been running
+- `host.resource` - Resource limits for the host
+  - `host.resource.cpu.count` - Number of CPUs
+  - `host.resource.cpu.frequency_ghz` - CPU frequency in GHz
+  - `host.resource.memory_gb` - Memory in GB
+  - `host.resource.disk_gb` - Disk space in GB
+  - `host.resource.gpu.count` - Number of GPUs
+  - `host.resource.gpu.model` - GPU model name
+  - `host.resource.gpu.memory_gb` - GPU memory in GB
+- `host.ssh` - SSH access details (remote hosts only)
+  - `host.ssh.command` - Full SSH command to connect
+  - `host.ssh.host` - SSH hostname
+  - `host.ssh.port` - SSH port
+  - `host.ssh.user` - SSH username
+  - `host.ssh.key_path` - Path to SSH private key
+- `host.snapshots` - List of available snapshots
+- `host.plugin.$PLUGIN_NAME.*` - Host plugin fields (e.g., `host.plugin.aws.iam_user`)
+
+**Notes:**
+- You can use Python-style list slicing for list fields (e.g., `host.snapshots[0]` for the first snapshot, `host.snapshots[:3]` for the first 3)
+""",
+        ),
+        (
+            "Related Documentation",
+            """- [Multi-target Options](../generic/multi_target.md) - Behavior when some agents cannot be accessed
+- [Common Options](../generic/common.md) - Common CLI options for output format, logging, etc.""",
+        ),
+    ),
+    see_also=(
+        ("create", "Create a new agent"),
+        ("connect", "Connect to an existing agent"),
+        ("destroy", "Destroy agents"),
+    ),
+)
+
+
+# FIXME: Remaining host fields that need additional infrastructure:
+# - host.is_locked, host.locked_time - Lock status (needs lock file inspection logic)
+# - host.plugin.$PLUGIN_NAME.* - Plugin-defined fields (requires plugin field evaluation)
+
+register_help_metadata("list", _LIST_HELP_METADATA)
+# Also register under alias for consistent help output
+for alias in _LIST_HELP_METADATA.aliases:
+    register_help_metadata(alias, _LIST_HELP_METADATA)
+
+# Add pager-enabled help option to the list command
+add_pager_help_option(list_command)

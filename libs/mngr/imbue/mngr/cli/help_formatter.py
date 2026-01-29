@@ -28,7 +28,28 @@ class CommandHelpMetadata(FrozenModel):
     one_line_description: str = Field(description="Brief one-line description of the command")
     synopsis: str = Field(description="Usage synopsis showing command patterns")
     description: str = Field(description="Detailed description of the command")
-    examples: tuple[tuple[str, str], ...] = Field(description="List of (description, command) example tuples")
+    aliases: tuple[str, ...] = Field(default=(), description="Command aliases (e.g., ('c',) for 'create')")
+    arguments_description: str | None = Field(
+        default=None,
+        description="Description of positional arguments (markdown). If None, auto-generated from click arguments.",
+    )
+    examples: tuple[tuple[str, str], ...] = Field(
+        default=(), description="List of (description, command) example tuples"
+    )
+    additional_sections: tuple[tuple[str, str], ...] = Field(
+        default=(),
+        description="Additional documentation sections as (title, markdown_content) tuples",
+    )
+    group_intros: tuple[tuple[str, str], ...] = Field(
+        default=(),
+        description="Introductory text for option groups as (group_name, markdown_content) tuples. "
+        "The intro text appears before the options table for that group.",
+    )
+    see_also: tuple[tuple[str, str], ...] = Field(
+        default=(),
+        description="See Also references as (command_name, description) tuples. "
+        "Command name is just the subcommand (e.g., 'create' not 'mngr create').",
+    )
 
 
 # Registry of help metadata for commands that have been configured
@@ -195,6 +216,21 @@ def _write_git_style_help(
     # OPTIONS section
     output.write(f"{_format_section_title('Options')}\n")
     _write_options_section(output, ctx, command, width)
+
+    # ADDITIONAL SECTIONS (if provided)
+    if metadata.additional_sections:
+        for title, content in metadata.additional_sections:
+            output.write(f"{_format_section_title(title)}\n")
+            for line in content.strip().split("\n"):
+                output.write(f"       {line}\n")
+            output.write("\n")
+
+    # SEE ALSO section (if provided)
+    if metadata.see_also:
+        output.write(f"{_format_section_title('See Also')}\n")
+        for command_name, description in metadata.see_also:
+            output.write(f"       mngr {command_name} --help - {description}\n")
+        output.write("\n")
 
     # EXAMPLES section (if provided)
     if metadata.examples:

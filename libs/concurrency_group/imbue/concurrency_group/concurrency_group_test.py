@@ -18,7 +18,6 @@ from imbue.concurrency_group.local_process import RunningProcess
 from imbue.concurrency_group.test_utils import wait_interval
 from imbue.concurrency_group.thread_utils import ObservableThread
 
-
 TINY_SLEEP = 0.001
 SMALL_SLEEP = 0.1
 LARGE_SLEEP = 1.0
@@ -308,6 +307,9 @@ def _create_two_nested_concurrency_groups_that_expect_parent_failure(
                 closure["i"] += 1
 
 
+# FIXME: This test is flaky under xdist parallel execution. The exit_timeout_seconds=0.0001
+# (100 microseconds) is too short and creates race conditions - the test expects precise timing
+# behavior that isn't reliable under system load. Consider increasing the timeout to 0.1s or more.
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
 def test_parent_failures_propagate_recursively() -> None:
     closure: dict[str, Any] = {"i": 0}

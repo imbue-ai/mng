@@ -22,7 +22,9 @@ from imbue.mngr.utils.logging import log_call
 class MessageResult(MutableModel):
     """Result of sending messages to agents."""
 
-    successful_agents: list[str] = Field(default_factory=list, description="List of agent names that received messages")
+    successful_agents: list[str] = Field(
+        default_factory=list, description="List of agent names that received messages"
+    )
     failed_agents: list[tuple[str, str]] = Field(
         default_factory=list, description="List of (agent_name, error_message) tuples"
     )

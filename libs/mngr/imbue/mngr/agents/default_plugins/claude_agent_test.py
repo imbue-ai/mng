@@ -327,9 +327,7 @@ def test_get_provision_file_transfers_returns_empty_when_no_local_settings(
     assert list(transfers) == []
 
 
-def test_get_provision_file_transfers_returns_override_folder_files(
-    mngr_test_prefix: str, tmp_path: Path
-) -> None:
+def test_get_provision_file_transfers_returns_override_folder_files(mngr_test_prefix: str, tmp_path: Path) -> None:
     """get_provision_file_transfers should return files from override_settings_folder."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()

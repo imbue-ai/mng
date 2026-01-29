@@ -165,7 +165,8 @@ def test_format_mngr_error_for_cli_without_help_text() -> None:
     """format_mngr_error_for_cli should format error message without help text."""
     error = ValueError("Something went wrong")
     result = format_mngr_error_for_cli(error, None)
-    assert result == "Error: Something went wrong"
+    # No "Error:" prefix - Click adds that when displaying MngrError exceptions
+    assert result == "Something went wrong"
 
 
 def test_format_mngr_error_for_cli_with_help_text() -> None:
@@ -173,7 +174,8 @@ def test_format_mngr_error_for_cli_with_help_text() -> None:
     error = ValueError("Agent not found")
     help_text = "Use 'mngr list' to see available agents."
     result = format_mngr_error_for_cli(error, help_text)
-    assert "Error: Agent not found" in result
+    # No "Error:" prefix - Click adds that when displaying MngrError exceptions
+    assert "Agent not found" in result
     assert "Use 'mngr list' to see available agents." in result
 
 
@@ -184,7 +186,8 @@ def test_format_mngr_error_for_cli_separates_error_and_help_text() -> None:
     result = format_mngr_error_for_cli(error, help_text)
     lines = result.split("\n")
     assert len(lines) == 3
-    assert lines[0] == "Error: Test error"
+    # No "Error:" prefix - Click adds that when displaying MngrError exceptions
+    assert lines[0] == "Test error"
     assert lines[1] == ""
     assert lines[2] == "Help text here"
 
@@ -194,5 +197,6 @@ def test_format_mngr_error_for_cli_with_multiline_help_text() -> None:
     error = ValueError("Test error")
     help_text = "Line 1\nLine 2"
     result = format_mngr_error_for_cli(error, help_text)
-    assert "Error: Test error" in result
+    # No "Error:" prefix - Click adds that when displaying MngrError exceptions
+    assert "Test error" in result
     assert "Line 1\nLine 2" in result

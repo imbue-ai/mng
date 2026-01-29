@@ -157,12 +157,13 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
 
     # Set up file logging
     # Use provided log file path if specified, otherwise use default directory
-    is_using_custom_log_path = output_opts.log_file_path is not None
-    if is_using_custom_log_path:
+    if output_opts.log_file_path is not None:
         log_file = output_opts.log_file_path.expanduser()
         # Ensure parent directory exists
         log_file.parent.mkdir(parents=True, exist_ok=True)
+        is_using_custom_log_path = True
     else:
+        is_using_custom_log_path = False
         log_dir = _resolve_log_dir(mngr_ctx.config)
         log_dir.mkdir(parents=True, exist_ok=True)
         # Create log file path with timestamp and PID

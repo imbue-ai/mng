@@ -1,5 +1,8 @@
 """Tests for error classes."""
 
+import click
+from click.testing import CliRunner
+
 from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import HostNameConflictError
@@ -192,3 +195,24 @@ def test_provider_instance_not_found_error_has_user_help_text() -> None:
     error = ProviderInstanceNotFoundError(provider_name)
     assert error.user_help_text is not None
     assert "provider" in error.user_help_text.lower()
+
+
+def test_mngr_error_displays_single_error_prefix_via_click() -> None:
+    """MngrError should display exactly one 'Error: ' prefix when shown via Click.
+
+    Click automatically adds 'Error: ' when displaying ClickException subclasses,
+    so MngrError.format_message() should NOT add its own prefix.
+    """
+
+    @click.command()
+    def cmd() -> None:
+        raise AgentNotFoundError("test-agent")
+
+    runner = CliRunner()
+    result = runner.invoke(cmd)
+
+    # Should have exactly one "Error: " prefix, not "Error: Error: "
+    assert result.exit_code == 1
+    assert result.output.startswith("Error: ")
+    assert "Error: Error:" not in result.output
+    assert "Agent not found: test-agent" in result.output

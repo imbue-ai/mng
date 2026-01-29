@@ -225,17 +225,15 @@ class CreateCliOptions(CommonCliOptions):
     "--add-command",
     "add_command",
     multiple=True,
-    help='Run extra command in additional window. Use name="command" to set window name',
+    help='Run extra command in additional window. Use name="command" to set window name. Note: ALL_UPPERCASE names (e.g., FOO="bar") are treated as env var assignments, not window names',
 )
-@optgroup.option("--user", help="Override which user to run the agent as")
+@optgroup.option(
+    "--user",
+    help="Override which user to run the agent as [default: current user for local, provider-defined or root for remote]",
+)
 @optgroup.group("Host Options")
 @optgroup.option("--in", "--new-host", "new_host", help="Create a new host using provider (docker, modal, ...)")
 @optgroup.option("--host", "--target-host", help="Use an existing host (by name or ID) [default: local]")
-@optgroup.option("--target", help="Target [HOST][:PATH]. Defaults to current dir if no other target args are given")
-@optgroup.option("--target-path", help="Directory to mount source inside agent host")
-@optgroup.option(
-    "--in-place", "in_place", is_flag=True, help="Run directly in source directory (no copy/clone/worktree)"
-)
 # FIXME: you can get yourself in a bit of a screwy situation if you DONT specify --project and you DO use a remote source (which comes from a different project)
 #   currently we have this assumption that your local dir and source are for the same project
 #   we should at least validate that, for remote sources, they end up having the exact same project inferred as locally
@@ -265,7 +263,7 @@ class CreateCliOptions(CommonCliOptions):
     "--await-agent-stopped/--no-await-agent-stopped",
     "await_agent_stopped",
     default=None,
-    help="Wait until agent has completely finished running before exiting [default: no-await-agent-stopped]",
+    help="Wait until agent has completely finished running before exiting. Useful for testing and scripting. First waits for agent to become ready, then waits for it to stop. [default: no-await-agent-stopped]",
 )
 @optgroup.option(
     "--ensure-clean/--no-ensure-clean", default=True, show_default=True, help="Abort if working tree is dirty"
@@ -280,9 +278,9 @@ class CreateCliOptions(CommonCliOptions):
     "--copy-work-dir/--no-copy-work-dir",
     "copy_work_dir",
     default=None,
-    help="Copy source work_dir immediately [default: copy if --no-connect]",
+    help="Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect]",
 )
-@optgroup.group("Agent Source Work Dir")
+@optgroup.group("Agent Source Data (what to include in the new agent)")
 @optgroup.option(
     "--from",
     "--source",
@@ -298,15 +296,42 @@ class CreateCliOptions(CommonCliOptions):
     help="Use rsync for file transfer [default: yes if rsync-args are present or if git is disabled]",
 )
 @optgroup.option("--rsync-args", help="Additional arguments to pass to rsync")
-@optgroup.group("Agent Git Configuration")
-@optgroup.option("--copy", "copy_source", is_flag=True, help="Copy source to isolated directory before running")
-@optgroup.option("--clone", is_flag=True, help="Create a git clone that just shares objects with original repo")
+@optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
+@optgroup.option(
+    "--include-unclean/--exclude-unclean",
+    "include_unclean",
+    default=None,
+    help="Include uncommitted files [default: include if --no-ensure-clean]",
+)
+@optgroup.option(
+    "--include-gitignored/--no-include-gitignored",
+    default=False,
+    show_default=True,
+    help="Include gitignored files",
+)
+@optgroup.group("Agent Target (where to put the new agent)")
+@optgroup.option("--target", help="Target [HOST][:PATH]. Defaults to current dir if no other target args are given")
+@optgroup.option("--target-path", help="Directory to mount source inside agent host. Incompatible with --in-place")
+@optgroup.option(
+    "--in-place", "in_place", is_flag=True, help="Run directly in source directory. Incompatible with --target-path"
+)
+@optgroup.option(
+    "--copy",
+    "copy_source",
+    is_flag=True,
+    help="Copy source to isolated directory before running [default for remote agents, and for local agents if not in a git repo]",
+)
+@optgroup.option(
+    "--clone",
+    is_flag=True,
+    help="Create a git clone that shares objects with original repo (only works for local agents)",
+)
 @optgroup.option(
     "--worktree",
     is_flag=True,
-    help="Create a git worktree that shares objects and index with original repo. Requires --new-branch",
+    help="Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]. Requires --new-branch (which is the default)",
 )
-@optgroup.option("--include-git/--no-include-git", default=True, show_default=True, help="Include .git directory")
+@optgroup.group("Agent Git Configuration")
 @optgroup.option("--base-branch", help="The starting point for the agent [default: current branch]")
 @optgroup.option(
     "--new-branch",
@@ -328,18 +353,6 @@ class CreateCliOptions(CommonCliOptions):
 )
 @optgroup.option("--depth", type=int, help="Shallow clone depth [default: full]")
 @optgroup.option("--shallow-since", help="Shallow clone since date")
-@optgroup.option(
-    "--include-unclean/--exclude-unclean",
-    "include_unclean",
-    default=None,
-    help="Include uncommitted files [default: include if --no-ensure-clean]",
-)
-@optgroup.option(
-    "--include-gitignored/--no-include-gitignored",
-    default=False,
-    show_default=True,
-    help="Include gitignored files",
-)
 @optgroup.group("Agent Environment Variables")
 @optgroup.option("--env", "--agent-env", "agent_env", multiple=True, help="Set environment variable KEY=VALUE")
 @optgroup.option(
@@ -415,7 +428,7 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option(
     "--edit-message",
     is_flag=True,
-    help="Open an editor to compose the initial message (uses $EDITOR)",
+    help="Open an editor to compose the initial message (uses $EDITOR). Editor runs in parallel with agent creation. If --message or --message-file is provided, their content is used as initial editor content.",
 )
 @optgroup.option(
     "--message-delay",
@@ -456,6 +469,25 @@ def create(ctx: click.Context, **kwargs) -> None:
         raise UserInputError(
             "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
         )
+
+    # Early validation: --edit-message cannot be used with background creation
+    # Background creation happens when --no-connect and --no-await-ready (the default when --no-connect)
+    # We check this BEFORE creating the editor session to avoid starting an editor subprocess
+    # that would immediately need to be cleaned up (which causes race conditions and flaky tests)
+    if opts.edit_message:
+        # Compute should_await_ready the same way it's computed later
+        early_should_await_ready = opts.await_ready
+        if early_should_await_ready is None:
+            if opts.await_agent_stopped:
+                early_should_await_ready = True
+            else:
+                early_should_await_ready = opts.connect
+        # Check if this would be background creation
+        if not opts.connect and not early_should_await_ready:
+            raise UserInputError(
+                "--edit-message cannot be used with background creation (--no-connect --no-await-ready). "
+                "Use --await-ready to wait for agent creation."
+            )
 
     # Read message from file if --message-file is provided (used as initial content for editor if --edit-message)
     initial_message_content: str | None
@@ -567,17 +599,9 @@ def create(ctx: click.Context, **kwargs) -> None:
             should_await_ready = opts.connect
 
     # If --no-connect and --no-await-ready, run api_create in background
+    # Note: --edit-message incompatibility is validated early (before editor creation) to avoid
+    # starting an editor subprocess that would need to be cleaned up
     if not opts.connect and not should_await_ready:
-        # --edit-message is incompatible with background creation
-        if editor_session is not None:
-            # Disable logging suppression before showing the error
-            if LoggingSuppressor.is_suppressed():
-                LoggingSuppressor.disable_and_replay(clear_screen=True)
-            editor_session.cleanup()
-            raise UserInputError(
-                "--edit-message cannot be used with background creation (--no-connect --no-await-ready). "
-                "Use --await-ready to wait for agent creation."
-            )
         _create_agent_in_background(
             final_source_location,
             resolved_target_host,
@@ -1249,13 +1273,17 @@ def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
 _CREATE_HELP_METADATA = CommandHelpMetadata(
     name="mngr-create",
     one_line_description="Create and run an agent",
-    synopsis="""mngr create [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
+    synopsis="""mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot]
     [--] [<AGENT_ARGS>...]""",
+    aliases=("c",),
+    arguments_description="""- `NAME`: Name for the agent (auto-generated if not provided)
+- `AGENT_TYPE`: Which type of agent to run (default: `claude`). Can also be specified via `--agent-type`
+- `AGENT_ARGS`: Additional arguments passed to the agent""",
     description="""Create a new agent and optionally connect to it.
 
 This command sets up an agent's working directory, optionally provisions a
@@ -1285,9 +1313,37 @@ the working directory is copied to the remote host.""",
         ("Create without connecting", "mngr create my-agent --no-connect"),
         ("Add extra tmux windows", 'mngr create my-agent -c server="npm run dev"'),
     ),
+    see_also=(
+        ("connect", "Connect to an existing agent"),
+        ("list", "List existing agents"),
+        ("destroy", "Destroy agents"),
+    ),
+    group_intros=(
+        (
+            "Connection Options",
+            "See [connect options](./connect.md) for full details (only applies if `--connect` is specified).",
+        ),
+        (
+            "Agent Provisioning",
+            "See [Provision Options](../secondary/provision.md) for full details.",
+        ),
+        (
+            "Host Options",
+            'By default, `mngr create` uses the "local" host. Use these options to change that behavior.',
+        ),
+    ),
+    additional_sections=(
+        (
+            "Agent Limits",
+            "See [Limit Options](../secondary/limit.md)",
+        ),
+    ),
 )
 
 register_help_metadata("create", _CREATE_HELP_METADATA)
+# Also register under alias for consistent help output
+for alias in _CREATE_HELP_METADATA.aliases:
+    register_help_metadata(alias, _CREATE_HELP_METADATA)
 
 # Add pager-enabled help option to the create command
 add_pager_help_option(create)

@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
 from imbue.mngr.utils.testing import _parse_test_env_timestamp
 from imbue.mngr.utils.testing import make_mngr_ctx
-from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
 
 
 def test_wait_for_returns_immediately_when_condition_true() -> None:
@@ -29,6 +29,10 @@ def test_wait_for_custom_error_message() -> None:
         wait_for(lambda: False, timeout=0.1, poll_interval=0.05, error_message="Custom error")
 
 
+# FIXME: This test intermittently causes pytest-xdist worker crashes when running
+# with multiple workers. The crash manifests as "node down: Not properly terminated"
+# and appears to be related to plugin manager initialization or cleanup. The test
+# itself passes when run in isolation or with fewer parallel workers.
 def test_make_mngr_ctx_creates_context_with_default_host_dir(tmp_path: Path, mngr_test_prefix: str) -> None:
     """make_mngr_ctx should create MngrContext with provided default_host_dir and prefix."""
     ctx = make_mngr_ctx(tmp_path, mngr_test_prefix)

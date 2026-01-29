@@ -81,6 +81,11 @@ def cleanup_tmux_session(session_name: str) -> None:
     )
 
 
+# FIXME: When xdist workers crash (as observed during stress testing), this context manager's
+# finally block may not execute, leaving orphaned tmux sessions. This contributes to resource
+# leaks and contention in parallel test runs. Consider adding a pytest hook or fixture that
+# cleans up all test-prefixed tmux sessions at the start/end of the test run, or using
+# worker-specific tmux socket paths (TMUX_TMPDIR) to isolate workers from each other.
 @contextmanager
 def tmux_session_cleanup(session_name: str) -> Generator[str, None, None]:
     """Context manager that cleans up a tmux session on exit."""
@@ -277,7 +282,9 @@ def delete_modal_volumes_in_environment(environment_name: str) -> None:
                     )
                     logger.debug("Deleted Modal volume {} in environment {}", volume_name, environment_name)
                 except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
-                    logger.warning("Failed to delete Modal volume {} in environment {}: {}", volume_name, environment_name, e)
+                    logger.warning(
+                        "Failed to delete Modal volume {} in environment {}: {}", volume_name, environment_name, e
+                    )
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError) as e:
         logger.warning("Failed to list/delete Modal volumes in environment {}: {}", environment_name, e)
 

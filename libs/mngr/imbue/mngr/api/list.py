@@ -19,6 +19,7 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
+from imbue.mngr.interfaces.data_types import SSHInfo
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
@@ -188,10 +189,35 @@ def list_agents(
 
                 host = provider.get_host(host_ref.host_id)
 
+                # Build SSH info if this is a remote host
+                ssh_info: SSHInfo | None = None
+                # Default for local hosts
+                host_hostname: str = "localhost"
+                ssh_connection = host._get_ssh_connection_info()
+                if ssh_connection is not None:
+                    user, hostname, port, key_path = ssh_connection
+                    host_hostname = hostname
+                    ssh_info = SSHInfo(
+                        user=user,
+                        host=hostname,
+                        port=port,
+                        key_path=key_path,
+                        command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
+                    )
+
                 host_info = HostInfo(
                     id=host.id,
                     name=host.connector.name,
                     provider_name=host_ref.provider_name,
+                    host=host_hostname,
+                    state=host.get_state().value.lower(),
+                    image=host.get_image(),
+                    tags=host.get_tags(),
+                    boot_time=host.get_boot_time(),
+                    uptime_seconds=host.get_uptime_seconds(),
+                    resource=host.get_provider_resources(),
+                    ssh=ssh_info,
+                    snapshots=host.get_snapshots(),
                 )
 
                 # Get all agents on this host
@@ -214,6 +240,9 @@ def list_agents(
 
                         agent_status = agent.get_reported_status()
 
+                        # Get idle_mode from host's activity config
+                        activity_config = host.get_activity_config()
+
                         agent_info = AgentInfo(
                             id=agent.id,
                             name=agent.name,
@@ -231,7 +260,7 @@ def list_agents(
                             agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
                             ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
                             idle_seconds=None,
-                            idle_mode=None,
+                            idle_mode=activity_config.idle_mode.value.lower(),
                             host=host_info,
                             plugin={},
                         )
@@ -318,12 +347,11 @@ def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
         else:
             result["state"] = str(result["lifecycle_state"]).lower()
 
-    # Flatten host info for easier access
-    if result.get("host"):
+    # Normalize host.provider_name to host.provider for consistency
+    if result.get("host") and isinstance(result["host"], dict):
         host = result["host"]
-        result["host_name"] = host.get("name", "")
-        result["host_id"] = host.get("id", "")
-        result["host_provider"] = host.get("provider_name", "")
+        if "provider_name" in host:
+            host["provider"] = host.pop("provider_name")
 
     return result
 

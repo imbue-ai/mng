@@ -260,6 +260,110 @@ def test_list_command_with_exclude_filter(
         assert agent_name not in result.output
 
 
+def test_list_command_with_host_provider_filter(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with host.provider CEL filter.
+
+    This test verifies that the standard CEL dot notation 'host.provider' works correctly.
+    Nested dictionaries are automatically converted to CEL-compatible objects via json_to_cel().
+    """
+    agent_name = f"test-list-host-provider-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent (will be on local provider)
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 403183",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with host.provider filter - should find the agent
+        result = cli_runner.invoke(
+            list_command,
+            ["--include", 'host.provider == "local"'],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name in result.output
+
+        # List with non-matching host.provider filter - should NOT find the agent
+        result_no_match = cli_runner.invoke(
+            list_command,
+            ["--include", 'host.provider == "docker"'],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result_no_match.exit_code == 0
+        assert agent_name not in result_no_match.output
+
+
+def test_list_command_with_host_name_filter(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with host.name CEL filter.
+
+    Verifies that the standard CEL dot notation 'host.name' works in CEL filters.
+    """
+    agent_name = f"test-list-host-name-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 403184",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with host.name filter - local host is named "@local"
+        result = cli_runner.invoke(
+            list_command,
+            ["--include", 'host.name == "@local"'],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name in result.output
+
+
 def test_list_command_on_error_continue(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -288,3 +392,194 @@ def test_list_command_on_error_abort(
     )
 
     assert result.exit_code == 0
+
+
+def test_list_command_with_basic_fields(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with basic field selection."""
+    agent_name = f"test-list-fields-basic-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 302171",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with specific fields
+        result = cli_runner.invoke(
+            list_command,
+            ["--fields", "id,name"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "ID" in result.output
+        assert "NAME" in result.output
+        assert agent_name in result.output
+        # Should not show default fields like STATE or STATUS
+        assert "STATE" not in result.output
+        assert "STATUS" not in result.output
+
+
+def test_list_command_with_nested_fields(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with nested field selection."""
+    agent_name = f"test-list-fields-nested-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 201060",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with nested fields
+        result = cli_runner.invoke(
+            list_command,
+            ["--fields", "name,host.name,host.provider_name"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "NAME" in result.output
+        assert "HOST_NAME" in result.output
+        assert "HOST_PROVIDER_NAME" in result.output
+        assert agent_name in result.output
+        assert "@local" in result.output
+        assert "local" in result.output
+
+
+def test_list_command_with_field_aliases(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with field aliases."""
+    agent_name = f"test-list-fields-aliases-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 109949",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with field aliases
+        result = cli_runner.invoke(
+            list_command,
+            ["--fields", "name,state,host,provider"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "NAME" in result.output
+        assert "STATE" in result.output
+        assert "HOST" in result.output
+        assert "PROVIDER" in result.output
+        assert agent_name in result.output
+        # State should show "running" or "stopped" in lowercase
+        assert "running" in result.output or "stopped" in result.output
+
+
+def test_list_command_with_invalid_fields(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with invalid field shows empty column."""
+    agent_name = f"test-list-fields-invalid-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 008838",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with invalid field
+        result = cli_runner.invoke(
+            list_command,
+            ["--fields", "name,invalid_field"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        # Should not fail, just show empty column
+        assert result.exit_code == 0
+        assert "NAME" in result.output
+        assert "INVALID_FIELD" in result.output
+        assert agent_name in result.output

@@ -10,6 +10,9 @@ from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import MngrContext
@@ -72,6 +75,10 @@ class DestroyCliOptions(CommonCliOptions):
     dry_run: bool
     gc: bool
     sessions: tuple[str, ...]
+    # Planned features (not yet implemented)
+    include: tuple[str, ...]
+    exclude: tuple[str, ...]
+    stdin: bool
 
 
 @click.command(name="destroy")
@@ -98,6 +105,21 @@ class DestroyCliOptions(CommonCliOptions):
     help="Tmux session name to destroy (can be specified multiple times). The agent name is extracted by "
     "stripping the configured prefix from the session name.",
 )
+@optgroup.option(
+    "--include",
+    multiple=True,
+    help="Filter agents to destroy by CEL expression (repeatable). [future]",
+)
+@optgroup.option(
+    "--exclude",
+    multiple=True,
+    help="Exclude agents matching CEL expression from destruction (repeatable). [future]",
+)
+@optgroup.option(
+    "--stdin",
+    is_flag=True,
+    help="Read agent names/IDs from stdin, one per line. [future]",
+)
 @optgroup.group("Behavior")
 @optgroup.option(
     "-f",
@@ -122,6 +144,8 @@ def destroy(ctx: click.Context, **kwargs) -> None:
 
     When the last agent on a host is destroyed, the host itself is also destroyed.
 
+    Use with caution! This operation is irreversible.
+
     Examples:
 
       mngr destroy my-agent
@@ -142,6 +166,29 @@ def destroy(ctx: click.Context, **kwargs) -> None:
         command_class=DestroyCliOptions,
     )
     logger.debug("Running destroy command")
+
+    # Filter agents to destroy using CEL expressions like:
+    # --include 'name.startsWith("test-")' or --include 'host.provider == "docker"'
+    # See mngr list --include for the pattern to follow
+    if opts.include:
+        raise NotImplementedError(
+            "The --include option is not yet implemented. "
+            "See https://github.com/imbue-ai/mngr/issues/XXX for progress."
+        )
+    # Exclude agents matching CEL expressions from destruction:
+    # --exclude 'state == "running"' to skip running agents
+    # See mngr list --exclude for the pattern to follow
+    if opts.exclude:
+        raise NotImplementedError(
+            "The --exclude option is not yet implemented. "
+            "See https://github.com/imbue-ai/mngr/issues/XXX for progress."
+        )
+    # Read agent names/IDs from stdin to allow piping agent lists:
+    # mngr list --format jsonl | jq -r .name | mngr destroy --stdin
+    if opts.stdin:
+        raise NotImplementedError(
+            "The --stdin option is not yet implemented. See https://github.com/imbue-ai/mngr/issues/XXX for progress."
+        )
 
     # Validate input
     agent_identifiers = list(opts.agents) + list(opts.agent_list)
@@ -354,3 +401,48 @@ def _run_post_destroy_gc(mngr_ctx: MngrContext, output_opts: OutputOptions) -> N
     except MngrError as e:
         logger.warning("Garbage collection failed: {}", e)
         logger.debug("This does not affect the destroy operation, which completed successfully")
+
+
+# Register help metadata for git-style help formatting
+_DESTROY_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-destroy",
+    one_line_description="Destroy agent(s) and clean up resources",
+    synopsis="mngr [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]",
+    description="""Destroy one or more agents and clean up their resources.
+
+When the last agent on a host is destroyed, the host itself is also destroyed
+(including containers, volumes, snapshots, and any remote infrastructure).
+
+Use with caution! This operation is irreversible.
+
+By default, running agents cannot be destroyed. Use --force to stop and destroy
+running agents. The command will prompt for confirmation before destroying
+agents unless --force is specified.""",
+    aliases=("rm",),
+    examples=(
+        ("Destroy an agent by name", "mngr destroy my-agent"),
+        ("Destroy multiple agents", "mngr destroy agent1 agent2 agent3"),
+        ("Destroy all agents", "mngr destroy --all --force"),
+        ("Preview what would be destroyed", "mngr destroy my-agent --dry-run"),
+    ),
+    see_also=(
+        ("create", "Create a new agent"),
+        ("list", "List existing agents"),
+        ("gc", "Garbage collect orphaned resources"),
+    ),
+    additional_sections=(
+        (
+            "Related Documentation",
+            """- [Resource Cleanup Options](../generic/resource_cleanup.md) - Control which associated resources are destroyed
+- [Multi-target Options](../generic/multi_target.md) - Behavior when targeting multiple agents""",
+        ),
+    ),
+)
+
+register_help_metadata("destroy", _DESTROY_HELP_METADATA)
+# Also register under alias for consistent help output
+for alias in _DESTROY_HELP_METADATA.aliases:
+    register_help_metadata(alias, _DESTROY_HELP_METADATA)
+
+# Add pager-enabled help option to the destroy command
+add_pager_help_option(destroy)
