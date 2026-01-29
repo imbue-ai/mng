@@ -18,11 +18,11 @@ Environment variables in mngr exist in two separate contexts:
 The following environment variables are special because they control both the behavior of mngr (and the behavior of any recursive calls to mngr on the host):
 
 - `MNGR_ROOT_NAME` - Root name to use for complete isolation (default: `mngr`). This affects:
-  - **Config file locations**: Looks for `~/.config/{root_name}/settings.toml`, `.{root_name}/settings.toml`, and `.{root_name}/settings.local.toml`
+  - **Config file locations**: Looks for `~/.config/{root_name}/settings.toml`, `.{root_name}/settings.toml`, and `.{root_name}/settings.local.toml` [future]
   - **Default values**: Sets `MNGR_PREFIX={root_name}-` and `MNGR_HOST_DIR=~/.{root_name}` when not explicitly configured
   - **Use case**: Running multiple isolated mngr instances on the same machine
   - Example: `MNGR_ROOT_NAME=foo` results in:
-    - Config files: `~/.config/foo/settings.toml`, `.foo/settings.toml`, `.foo/settings.local.toml`
+    - Config files: `~/.config/foo/settings.toml`, `.foo/settings.toml`, `.foo/settings.local.toml` [future]
     - Defaults: `MNGR_PREFIX=foo-` and `MNGR_HOST_DIR=~/.foo`
   - Explicit `MNGR_PREFIX` or `MNGR_HOST_DIR` values override the derived defaults
 - `MNGR_PREFIX` - Prefix for naming resources (default: `mngr-`). Affects tmux session names, Docker container names, etc.
@@ -57,7 +57,7 @@ These environment variable overrides are applied after config files but before C
 1. Built-in defaults
 2. User config (`~/.config/mngr/settings.toml`)
 3. Project config (`.mngr/settings.toml`)
-4. Local config (`.mngr/settings.local.toml`)
+4. Local config (`.mngr/settings.local.toml`) [future]
 5. **Environment variables** (`MNGR_COMMANDS_*`)
 6. CLI arguments
 

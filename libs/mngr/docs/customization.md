@@ -8,7 +8,7 @@
 
 1. User config: `~/.config/mngr/settings.toml`
 2. Project config: `.mngr/settings.toml` (at git root or context dir)
-3. Local config: `.mngr/settings.local.toml` (at git root or context dir)
+3. Local config: `.mngr/settings.local.toml` [future] (at git root or context dir)
 4. Environment variables: `MNGR_PREFIX`, `MNGR_HOST_DIR`, `MNGR_ROOT_NAME`
 5. CLI arguments (highest precedence)
 

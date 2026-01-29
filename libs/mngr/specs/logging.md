@@ -32,7 +32,7 @@ mngr separates three distinct concerns:
 
 ## Configuration
 
-Logging behavior is configured via the `[logging]` section in config files:
+Logging behavior is configured via the `[logging]` section [future] in config files:
 
 ```toml
 [logging]

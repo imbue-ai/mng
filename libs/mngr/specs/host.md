@@ -49,4 +49,4 @@ Note that this includes many of the underlying fields required for idle detectio
 | `lock_time`           | mtime of the `host_lock` file                                                           | `host_lock`                             |
 | `plugin.*`            | Plugin-specific (reported) host state                                                   | `plugin/<plugin>/*`                     |
 
-**Important:** All access to host data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_provider()` [future], `get_name()` [future] vs `get_reported_idle_mode()`).
+**Important:** All access to host data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_provider()` [future], `get_name()` [future] vs `get_reported_idle_mode()`). Methods for accessing activity timestamps [future], cooperative locking [future], certified plugin state [future], environment variables [future], and tags [future] should follow this convention.

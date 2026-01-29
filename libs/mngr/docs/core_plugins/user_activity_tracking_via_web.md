@@ -23,7 +23,7 @@ The sole purpose is to know "when was the user last active?"—nothing more.
 You can customize the debounce interval in your mngr config:
 
 ```toml
-[plugins.user_activity_tracking_via_web]
+[plugins.user_activity_tracking_via_web]  # [future] plugin config not yet supported
 debounce_ms = 1000   # Minimum ms between activity reports (default)
 ```
 

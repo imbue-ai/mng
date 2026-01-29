@@ -24,7 +24,7 @@ The plugin supports multiple storage backends for saving the offline state:
 You can configure the plugin in your `mngr` config file:
 
 ```toml
-[plugins.offline_mngr_state]
+[plugins.offline_mngr_state]  # [future] plugin config not yet supported
 # Interval (in seconds) between automatic saves
 save_interval_seconds = 300
 # Storage backend: "local" or "s3"

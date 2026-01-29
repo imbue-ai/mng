@@ -79,4 +79,4 @@ Command defaults can also be set via environment variables using the pattern `MN
 
 The following validations are performed at load time: [future: validation rules not yet documented]
 
-Note: The following features are planned but not yet documented: `.mngr/settings.local.toml` support, `[logging]` section, `[plugins.plugin_name]` section, `pager`, `unset_vars`, `disabled_plugins` fields, and `command` field for agent types.
+Note: The following features are planned but not yet documented: `pager`, `unset_vars`, `disabled_plugins` fields, and `command` field for agent types.

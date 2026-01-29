@@ -63,5 +63,3 @@ The Host class intentionally excludes:
 - **Lifecycle management**: Creating, pausing, resuming, or destroying hosts. Handled by [ProviderInstance](./provider_instance.md).
 - **Caching**: File contents and command results are not cached. Each method call queries the host fresh.
 - **Connection pooling**: The class does not maintain persistent connections beyond what pyinfra manages.
-
-Note: The following features are planned but not yet documented: activity management methods, cooperative locking methods, certified data methods, plugin state methods, environment variable methods, and tags methods should be documented or evaluated for alignment with the minimal design philosophy.

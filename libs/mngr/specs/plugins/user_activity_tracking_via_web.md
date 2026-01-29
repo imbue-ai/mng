@@ -140,7 +140,7 @@ Stored in mngr config, passed to nginx via environment or generated config:
 | `debounce_ms` | 1000 | Minimum ms between activity reports |
 
 ```toml
-[plugins.user_activity_tracking_via_web]
+[plugins.user_activity_tracking_via_web]  # [future] plugin config not yet supported
 debounce_ms = 1000
 ```
 
