@@ -527,7 +527,8 @@ def test_unset_vars_applied_during_agent_start(
         options=CreateAgentOptions(
             name=AgentName("test-agent"),
             agent_type=AgentTypeName("generic"),
-            command=CommandString("sleep 736249"),
+            # Background the sleep so the shell remains interactive for our echo commands
+            command=CommandString("sleep 736249 &"),
         ),
     )
 
@@ -535,12 +536,12 @@ def test_unset_vars_applied_during_agent_start(
 
     session_name = f"{mngr_test_prefix}{agent.name}"
 
-    # Wait for the tmux session to be fully ready before sending keys
+    # Wait for the tmux session to exist
     def session_ready() -> bool:
         result = host.execute_command(f"tmux has-session -t '{session_name}'")
         return result.success
 
-    wait_for(session_ready, error_message="tmux session not ready")
+    wait_for(session_ready, timeout=30.0, poll_interval=0.5, error_message="tmux session not ready")
 
     host.execute_command(f"tmux send-keys -t '{session_name}' 'echo HISTFILE_VALUE=${{HISTFILE:-UNSET}}' Enter")
     host.execute_command(f"tmux send-keys -t '{session_name}' 'echo PROFILE_VALUE=${{PROFILE:-UNSET}}' Enter")
@@ -554,7 +555,7 @@ def test_unset_vars_applied_during_agent_start(
         has_profile = "PROFILE_VALUE=UNSET" in output or "PROFILE_VALUE=" in output
         return has_histfile and has_profile
 
-    wait_for(check_output, error_message="Expected environment variables not found in tmux output")
+    wait_for(check_output, timeout=30.0, poll_interval=0.5, error_message="Expected environment variables not found in tmux output")
 
     host.stop_agents([agent.id])
 

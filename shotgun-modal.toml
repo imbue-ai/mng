@@ -1,0 +1,26 @@
+# shotgun configuration for running mngr tests on Modal
+
+[shotgun]
+max_parallel = 100
+test_timeout_secs = 60
+retry_count = 4
+stream_output = true
+
+[provider]
+type = "default"
+create_command = "uv run --with=modal /Users/jacobkirmayer/imbue/mngr/scripts/shotgun/modal-create.py"
+exec_command = "uv run --with=modal /Users/jacobkirmayer/imbue/mngr/scripts/shotgun/modal-exec.py {sandbox_id} {command}"
+destroy_command = "uv run --with=modal /Users/jacobkirmayer/imbue/mngr/scripts/shotgun/modal-destroy.py {sandbox_id}"
+timeout_secs = 600
+
+[framework]
+type = "default"
+# Discover tests locally using pytest --collect-only, exclude acceptance and release tests
+discover_command = "uv run pytest --collect-only -q -m 'not acceptance and not release' 2>/dev/null | grep '::'"
+# Run tests in the sandbox (source is baked into /app)
+run_command = "pytest -v --tb=short --no-cov -p no:xdist -o addopts= {tests}"
+
+[report]
+output_dir = "test-results"
+junit = true
+junit_file = "junit.xml"
