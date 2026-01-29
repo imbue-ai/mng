@@ -16,6 +16,7 @@ from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.create import create as api_create
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.data_types import CreateAgentResult
+from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.data_types import NewHostBuildOptions
 from imbue.mngr.api.data_types import NewHostEnvironmentOptions
 from imbue.mngr.api.data_types import NewHostOptions
@@ -52,6 +53,7 @@ from imbue.mngr.interfaces.host import FileModificationSpec
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import NamedCommand
 from imbue.mngr.interfaces.host import UploadFileSpec
+from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentNameStyle
@@ -493,11 +495,15 @@ def create(ctx: click.Context, **kwargs) -> None:
     # figure out the project label, in case we need that
     project_name = _parse_project_name(source_location, opts)
 
+    # Parse host lifecycle options (these go on the host, not the agent)
+    host_lifecycle = _parse_host_lifecycle_options(opts)
+
     # Parse target host (existing or new)
     target_host = _parse_target_host(
         opts=opts,
         project_name=project_name,
         agent_and_host_loader=agent_and_host_loader,
+        lifecycle=host_lifecycle,
     )
 
     # Parse agent options
@@ -945,15 +951,8 @@ def _parse_agent_opts(
         pass_env_vars=opts.pass_agent_env,
     )
 
-    # Parse lifecycle options
-    parsed_idle_mode = IdleMode(opts.idle_mode.upper()) if opts.idle_mode else None
-
-    parsed_activity_sources = tuple(opts.activity_sources.split(",")) if opts.activity_sources else None
-
+    # Parse agent lifecycle options
     lifecycle = AgentLifecycleOptions(
-        idle_timeout_seconds=opts.idle_timeout,
-        idle_mode=parsed_idle_mode,
-        activity_sources=parsed_activity_sources,
         is_start_on_boot=opts.start_on_boot,
     )
 
@@ -1036,10 +1035,30 @@ def _parse_agent_opts(
     return agent_opts
 
 
+def _parse_host_lifecycle_options(opts: CreateCliOptions) -> HostLifecycleOptions:
+    """Parse host lifecycle options from CLI args.
+
+    These options control when a host is considered idle and should be shut down.
+    They are separate from agent lifecycle options (like is_start_on_boot).
+    """
+    parsed_idle_mode = IdleMode(opts.idle_mode.upper()) if opts.idle_mode else None
+    parsed_activity_sources = (
+        tuple(ActivitySource(s.strip().upper()) for s in opts.activity_sources.split(","))
+        if opts.activity_sources
+        else None
+    )
+    return HostLifecycleOptions(
+        idle_timeout_seconds=opts.idle_timeout,
+        idle_mode=parsed_idle_mode,
+        activity_sources=parsed_activity_sources,
+    )
+
+
 def _parse_target_host(
     opts: CreateCliOptions,
     project_name: str | None,
     agent_and_host_loader: Callable[[], dict[HostReference, list[AgentReference]]],
+    lifecycle: HostLifecycleOptions,
 ) -> HostReference | NewHostOptions | None:
     parsed_target_host: HostReference | NewHostOptions | None
     if opts.host:
@@ -1109,6 +1128,7 @@ def _parse_target_host(
                 env_files=host_env_files,
                 pass_env_vars=opts.pass_host_env,
             ),
+            lifecycle=lifecycle,
         )
     else:
         # Default: local host

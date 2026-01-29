@@ -40,6 +40,7 @@ from pyinfra.api.inventory import Inventory
 from pyinfra.connectors.sshuserclient.client import get_host_keys
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
@@ -982,6 +983,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
+        lifecycle: HostLifecycleOptions | None = None,
     ) -> Host:
         """Create a new Modal sandbox host."""
         # Generate host ID
@@ -1057,6 +1059,15 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         )
         logger.debug("Writing host record to volume", host_id=str(host_id))
         self._write_host_record(host_record)
+
+        # Set up activity configuration for idle detection, merging CLI options with provider defaults
+        lifecycle_options = lifecycle if lifecycle is not None else HostLifecycleOptions()
+        activity_config = lifecycle_options.to_activity_config(
+            default_timeout=self.config.default_timeout,
+            default_mode=self.config.default_idle_mode,
+            default_sources=self.config.default_activity_sources,
+        )
+        host.set_activity_config(activity_config)
 
         # For persistent apps, deploy the snapshot function and create shutdown script
         if self.config.is_persistent:
