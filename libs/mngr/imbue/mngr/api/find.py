@@ -2,12 +2,14 @@ from pathlib import Path
 
 import deal
 from loguru import logger
+from pyinfra.api.exceptions import ConnectError
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.primitives import AgentId
@@ -278,16 +280,22 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
                 provider_name=provider.name,
             )
 
-            agents = host.get_agents()
-            agent_refs = [
-                AgentReference(
-                    host_id=host.id,
-                    agent_id=agent.id,
-                    agent_name=agent.name,
-                    provider_name=provider.name,
-                )
-                for agent in agents
-            ]
+            # Try to get agents from the host. For stopped/unreachable hosts,
+            # connection will fail and we show the host with no agents.
+            try:
+                agents = host.get_agents()
+                agent_refs = [
+                    AgentReference(
+                        host_id=host.id,
+                        agent_id=agent.id,
+                        agent_name=agent.name,
+                        provider_name=provider.name,
+                    )
+                    for agent in agents
+                ]
+            except (ConnectError, HostConnectionError, OSError) as e:
+                logger.trace("Could not get agents from host {} (may be stopped): {}", host.id, e)
+                agent_refs = []
 
             agents_by_host[host_ref] = agent_refs
 

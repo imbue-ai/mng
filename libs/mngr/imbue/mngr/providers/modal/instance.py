@@ -366,10 +366,10 @@ class ModalProviderInstance(BaseProviderInstance):
             # List files at the root of the volume
             for entry in volume.listdir("/"):
                 filename = entry.path
-                # Host records are stored as /<host_id>.json
+                # Host records are stored as <host_id>.json
                 if filename.endswith(".json"):
-                    # Remove leading / and .json suffix
-                    host_id_str = filename[1:-5]
+                    # Remove .json suffix (and any leading / if present)
+                    host_id_str = filename.lstrip("/")[:-5]
                     try:
                         host_id = HostId(host_id_str)
                         host_record = self._read_host_record(host_id)
@@ -1296,24 +1296,39 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         self,
         host: HostId | HostName,
     ) -> Host:
-        """Get a host by ID or name."""
+        """Get a host by ID or name.
+
+        First tries to find a running sandbox. If not found, falls back to
+        the host record on the volume (for stopped hosts).
+        """
         if isinstance(host, HostId):
+            # Try to find a running sandbox first
             sandbox = self._find_sandbox_by_host_id(host)
-            if sandbox is None:
-                raise HostNotFoundError(host)
-            host_obj = self._create_host_from_sandbox(sandbox)
-            if host_obj is None:
-                raise HostNotFoundError(host)
-            return host_obj
+            if sandbox is not None:
+                host_obj = self._create_host_from_sandbox(sandbox)
+                if host_obj is not None:
+                    return host_obj
+
+            # No sandbox - try host record (for stopped hosts)
+            host_record = self._read_host_record(host)
+            if host_record is not None:
+                return self._create_host_from_host_record(host_record)
+
+            raise HostNotFoundError(host)
 
         # If it's a HostName, search by name
         sandbox = self._find_sandbox_by_name(host)
-        if sandbox is None:
-            raise HostNotFoundError(host)
-        host_obj = self._create_host_from_sandbox(sandbox)
-        if host_obj is None:
-            raise HostNotFoundError(host)
-        return host_obj
+        if sandbox is not None:
+            host_obj = self._create_host_from_sandbox(sandbox)
+            if host_obj is not None:
+                return host_obj
+
+        # No sandbox - search host records by name (for stopped hosts)
+        for host_record in self._list_all_host_records():
+            if host_record.host_name == str(host):
+                return self._create_host_from_host_record(host_record)
+
+        raise HostNotFoundError(host)
 
     @handle_modal_auth_error
     def list_hosts(

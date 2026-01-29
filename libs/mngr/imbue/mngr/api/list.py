@@ -15,8 +15,10 @@ from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
+from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
+from pyinfra.api.exceptions import ConnectError
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.primitives import ActivitySource
@@ -194,8 +196,17 @@ def list_agents(
                     provider_name=host_ref.provider_name,
                 )
 
+                # Skip hosts with no agents to process (e.g., stopped remote hosts)
+                if not agent_refs:
+                    continue
+
                 # Get all agents on this host
-                agents = host.get_agents()
+                try:
+                    agents = host.get_agents()
+                except (ConnectError, HostConnectionError, OSError) as e:
+                    # Host is unreachable (probably stopped) - skip its agents
+                    logger.trace("Could not get agents from host {} (may be stopped): {}", host.id, e)
+                    continue
 
                 for agent_ref in agent_refs:
                     try:
