@@ -1,6 +1,10 @@
 version = 1
 revision = 2
 requires-python = ">=3.11"
+resolution-markers = [
+    "python_full_version >= '3.14'",
+    "python_full_version < '3.14'",
+]
 
 [manifest]
 members = [
@@ -1687,7 +1691,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=42.0" },
     { name = "dockerfile-parse", specifier = ">=2.0.0" },
     { name = "imbue-common", editable = "libs/imbue_common" },
-    { name = "modal", specifier = ">=0.67" },
+    { name = "modal", specifier = ">=1.3.1" },
     { name = "pluggy", specifier = ">=1.5.0" },
     { name = "psutil", specifier = ">=5.9" },
     { name = "pydantic", specifier = ">=2.0" },
@@ -1710,7 +1714,7 @@ requires-dist = [{ name = "mngr", editable = "libs/mngr" }]
 
 [[package]]
 name = "modal"
-version = "1.3.0.post1"
+version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1728,9 +1732,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "watchfiles" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3f/28/4a6befa42cfa62eedb572b0bbc26edb76b664bf546ee1f9fca566448da8d/modal-1.3.0.post1.tar.gz", hash = "sha256:e86b62c6cfd5c4b40fdf7bcf078d24e4ed7730d2d0b7c70dc3225a36e85067a4", size = 649508, upload-time = "2025-12-20T02:47:56.237Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f1/3e/97805b561e37eaac6b8baae7ee58bf203225bde6e98c4969652c8c6178a9/modal-1.3.1.tar.gz", hash = "sha256:c15e9218d59f9b04224ab55561eba131c1c657ff02d0f797776f9be699145774", size = 659259, upload-time = "2026-01-22T16:15:52.638Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7c/87/3c4c9136c2d553307d8547e39bb2ed755e165b8a8272b6990af9912fef5c/modal-1.3.0.post1-py3-none-any.whl", hash = "sha256:98d338aade676bafd7c80645ef7b4302a6a7219338124ef8b210854a043ec7ed", size = 744342, upload-time = "2025-12-20T02:47:53.726Z" },
+    { url = "https://files.pythonhosted.org/packages/81/bb/6ad9a6df012cfc5adecfb639622b525c2b4d82833ff800cb62b7c462599a/modal-1.3.1-py3-none-any.whl", hash = "sha256:aae46d83d9b034e2ec28c82b0cbdd2e74e21aca3db18dbeb708e3ba36f726209", size = 755322, upload-time = "2026-01-22T16:15:50.668Z" },
 ]
 
 [[package]]
