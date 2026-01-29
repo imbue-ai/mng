@@ -1945,6 +1945,18 @@ done
         except (OSError, HostConnectionError):
             pass
 
+        # Host is not reachable - distinguish STOPPED vs DESTROYED
+        # For providers that support snapshots, check if any exist
+        if self.provider_instance.supports_snapshots:
+            try:
+                snapshots = self.get_snapshots()
+                if not snapshots:
+                    logger.trace("Host {} state=DESTROYED (no snapshots)", self.id)
+                    return HostState.DESTROYED
+            except (OSError, IOError, ConnectionError) as e:
+                # If we can't check snapshots, assume STOPPED (safer default)
+                logger.trace("Could not check snapshots for host {}: {}", self.id, e)
+
         logger.trace("Host {} state=STOPPED", self.id)
         return HostState.STOPPED
 
