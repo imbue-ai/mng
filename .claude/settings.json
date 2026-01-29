@@ -5,15 +5,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./scripts/claude_session_start.sh"
+            "command": "uv sync --all-packages"
           }
         ]
-      },
+      }
+    ],
+    "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "uv sync --all-packages"
+            "command": "./scripts/claude_request_start.sh"
           }
         ]
       }
