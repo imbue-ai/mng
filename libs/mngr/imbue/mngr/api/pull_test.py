@@ -75,7 +75,7 @@ def patch_has_uncommitted_changes(
     yield patch_no_uncommitted_changes
 
 
-def testparse_rsync_output_with_files() -> None:
+def test_parse_rsync_output_with_files() -> None:
     """Test parsing rsync output with file transfers."""
     output = """sending incremental file list
 file1.txt
@@ -90,7 +90,7 @@ total size is 5,678  speedup is 3.15
     assert bytes_transferred == 1234
 
 
-def testparse_rsync_output_empty() -> None:
+def test_parse_rsync_output_empty() -> None:
     """Test parsing rsync output with no files transferred."""
     output = """sending incremental file list
 
@@ -102,7 +102,7 @@ total size is 1,000  speedup is 6.67
     assert bytes_transferred == 100
 
 
-def testparse_rsync_output_dry_run() -> None:
+def test_parse_rsync_output_dry_run() -> None:
     """Test parsing rsync output in dry run mode."""
     output = """sending incremental file list
 file1.txt
@@ -117,7 +117,7 @@ total size is 10,000  speedup is 28.01 (DRY RUN)
     assert bytes_transferred == 345
 
 
-def testparse_rsync_output_large_numbers() -> None:
+def test_parse_rsync_output_large_numbers() -> None:
     """Test parsing rsync output with large byte counts."""
     output = """sending incremental file list
 large_file.bin
@@ -130,7 +130,7 @@ total size is 2,000,000,000  speedup is 1.62
     assert bytes_transferred == 1234567890
 
 
-def testparse_rsync_output_with_subdirectory() -> None:
+def test_parse_rsync_output_with_subdirectory() -> None:
     """Test parsing rsync output with subdirectories."""
     output = """sending incremental file list
 src/
@@ -195,7 +195,7 @@ def test_pull_result_model_serialization() -> None:
     assert data["is_dry_run"] is False
 
 
-def testparse_rsync_output_with_no_bytes_line() -> None:
+def test_parse_rsync_output_with_no_bytes_line() -> None:
     """Test parsing rsync output when bytes line is missing."""
     output = """sending incremental file list
 file1.txt
@@ -206,7 +206,7 @@ file2.txt
     assert bytes_transferred == 0
 
 
-def testparse_rsync_output_with_malformed_bytes() -> None:
+def test_parse_rsync_output_with_malformed_bytes() -> None:
     """Test parsing rsync output with malformed bytes line."""
     output = """sending incremental file list
 file1.txt
@@ -219,7 +219,7 @@ total size is 1,000
     assert bytes_transferred == 0
 
 
-def testparse_rsync_output_empty_string() -> None:
+def test_parse_rsync_output_empty_string() -> None:
     """Test parsing empty rsync output."""
     output = ""
     files, bytes_transferred = parse_rsync_output(output)
@@ -227,7 +227,7 @@ def testparse_rsync_output_empty_string() -> None:
     assert bytes_transferred == 0
 
 
-def testparse_rsync_output_whitespace_only() -> None:
+def test_parse_rsync_output_whitespace_only() -> None:
     """Test parsing rsync output with only whitespace."""
     output = "   \n  \n   "
     files, bytes_transferred = parse_rsync_output(output)

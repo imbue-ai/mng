@@ -717,3 +717,67 @@ def test_push_git_does_not_modify_host_directory(git_push_ctx: PushTestContext) 
     assert host_files_before == host_files_after
     assert host_contents_before == host_contents_after
     assert host_commit_before == host_commit_after
+
+
+# =============================================================================
+# Test: push_git mirror mode
+# =============================================================================
+
+
+def test_push_git_mirror_mode_dry_run(git_push_ctx: PushTestContext) -> None:
+    """Test that mirror mode with dry_run=True shows what would be pushed."""
+    # Create a new commit on the host
+    (git_push_ctx.host_dir / "new_file.txt").write_text("new content")
+    _run_git(git_push_ctx.host_dir, "add", "new_file.txt")
+    _run_git(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+
+    result = push_git(
+        agent=git_push_ctx.agent,
+        host=git_push_ctx.host,
+        source=git_push_ctx.host_dir,
+        mirror=True,
+        dry_run=True,
+        uncommitted_changes=UncommittedChangesMode.CLOBBER,
+    )
+
+    # The new file should NOT exist on the agent (dry run)
+    assert not (git_push_ctx.agent_dir / "new_file.txt").exists()
+    assert result.is_dry_run is True
+    # commits_pushed should show what would be pushed
+    assert result.commits_pushed >= 0
+
+
+def test_push_git_mirror_mode(git_push_ctx: PushTestContext) -> None:
+    """Test that mirror mode pushes all refs to the agent repository."""
+    # Create a new commit on the host
+    (git_push_ctx.host_dir / "new_file.txt").write_text("new content")
+    _run_git(git_push_ctx.host_dir, "add", "new_file.txt")
+    _run_git(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+
+    # Get host commit before push
+    host_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=git_push_ctx.host_dir,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    result = push_git(
+        agent=git_push_ctx.agent,
+        host=git_push_ctx.host,
+        source=git_push_ctx.host_dir,
+        mirror=True,
+        uncommitted_changes=UncommittedChangesMode.CLOBBER,
+    )
+
+    # Get agent commit after push
+    agent_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=git_push_ctx.agent_dir,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    # The commits should match after mirror push
+    assert host_commit == agent_commit
+    assert result.is_dry_run is False

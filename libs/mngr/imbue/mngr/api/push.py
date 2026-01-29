@@ -333,13 +333,15 @@ def push_git(
             if mirror:
                 # Mirror push - overwrites all refs (dangerous)
                 logger.debug("Performing mirror push to {}", target_git_dir)
+
+                # Count commits that would be pushed
+                commits_to_push = _count_commits_between_local(
+                    source,
+                    actual_target_branch,
+                    actual_source_branch,
+                )
+
                 if dry_run:
-                    # For dry run, just count commits that would be pushed
-                    commits_to_push = _count_commits_between_local(
-                        source,
-                        actual_target_branch,
-                        actual_source_branch,
-                    )
                     logger.info(
                         "Dry run: would push {} commits (mirror) from {} to {}",
                         commits_to_push,
