@@ -79,6 +79,7 @@ def load_config(
         providers={},
         plugins={},
         logging=LoggingConfig(),
+        commands={"create": CommandDefaults(defaults={"pass_host_env": ["EDITOR"]})},
     )
 
     # Load user config
