@@ -58,7 +58,7 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | `--dry-run` | boolean | Show what would be transferred without actually transferring | `False` |
 | `--stop` | boolean | Stop the agent after pulling (for state consistency) | `False` |
 | `--delete`, `--no-delete` | boolean | Delete files in destination that don't exist in source | `False` |
-| `--sync-mode` | choice (`files` &#x7C; `state` &#x7C; `full`) | What to sync: files (working directory only), state [future], or full [future] | `files` |
+| `--sync-mode` | choice (`files` &#x7C; `state` &#x7C; `full`) | What to sync: files (working directory only), git state [future], or both [future] | `files` |
 | `--exclude` | text | Patterns to exclude from sync [repeatable] [future] | None |
 
 ## Target (for agent-to-agent sync)

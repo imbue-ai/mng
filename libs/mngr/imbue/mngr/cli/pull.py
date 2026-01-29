@@ -67,7 +67,9 @@ class PullCliOptions(CommonCliOptions):
     uncommitted_source: str | None
 
 
-def _select_agent_for_pull(mngr_ctx: MngrContext) -> tuple[AgentInterface, HostInterface] | None:
+def _select_agent_for_pull(
+    mngr_ctx: MngrContext,
+) -> tuple[AgentInterface, HostInterface] | None:
     """Show interactive UI to select an agent for pulling.
 
     Returns tuple of (agent, host) or None if user quit without selecting.
@@ -101,7 +103,10 @@ def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
             emit_event("pull_complete", result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
             if result.is_dry_run:
-                logger.info("Dry run complete: {} files would be transferred", result.files_transferred)
+                logger.info(
+                    "Dry run complete: {} files would be transferred",
+                    result.files_transferred,
+                )
             else:
                 logger.info(
                     "Pull complete: {} files, {} bytes transferred",
@@ -121,7 +126,12 @@ def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
 @optgroup.option("--source-host", help="Source host name or ID [future]")
 @optgroup.option("--source-path", help="Path within the agent's work directory")
 @optgroup.group("Destination")
-@optgroup.option("--destination", "destination", type=click.Path(), help="Local destination directory [default: .]")
+@optgroup.option(
+    "--destination",
+    "destination",
+    type=click.Path(),
+    help="Local destination directory [default: .]",
+)
 @optgroup.group("Sync Options")
 @optgroup.option(
     "--dry-run",
@@ -145,7 +155,7 @@ def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
     type=click.Choice(["files", "state", "full"], case_sensitive=False),
     default="files",
     show_default=True,
-    help="What to sync: files (working directory only), state [future], or full [future]",
+    help="What to sync: files (working directory only), git state [future], or both [future]",
 )
 @optgroup.option(
     "--exclude",
@@ -153,26 +163,52 @@ def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
     help="Patterns to exclude from sync [repeatable] [future]",
 )
 @optgroup.group("Target (for agent-to-agent sync)")
-@optgroup.option("--target", help="Target specification: AGENT, AGENT.HOST, AGENT.HOST:PATH, or HOST:PATH [future]")
+@optgroup.option(
+    "--target",
+    help="Target specification: AGENT, AGENT.HOST, AGENT.HOST:PATH, or HOST:PATH [future]",
+)
 @optgroup.option("--target-agent", help="Target agent name or ID [future]")
 @optgroup.option("--target-host", help="Target host name or ID [future]")
 @optgroup.option("--target-path", help="Path within target to sync to [future]")
 @optgroup.group("Multi-source")
-@optgroup.option("--stdin", is_flag=True, help="Read source agents/hosts from stdin, one per line [future]")
+@optgroup.option(
+    "--stdin",
+    is_flag=True,
+    help="Read source agents/hosts from stdin, one per line [future]",
+)
 @optgroup.group("File Filtering")
-@optgroup.option("--include", multiple=True, help="Include files matching glob pattern [repeatable] [future]")
-@optgroup.option("--include-gitignored", is_flag=True, help="Include files that match .gitignore patterns [future]")
+@optgroup.option(
+    "--include",
+    multiple=True,
+    help="Include files matching glob pattern [repeatable] [future]",
+)
+@optgroup.option(
+    "--include-gitignored",
+    is_flag=True,
+    help="Include files that match .gitignore patterns [future]",
+)
 @optgroup.option("--include-file", type=click.Path(), help="Read include patterns from file [future]")
 @optgroup.option("--exclude-file", type=click.Path(), help="Read exclude patterns from file [future]")
 @optgroup.group("Rsync Options")
-@optgroup.option("--rsync-arg", multiple=True, help="Additional argument to pass to rsync [repeatable] [future]")
-@optgroup.option("--rsync-args", help="Additional arguments to pass to rsync (as a single string) [future]")
+@optgroup.option(
+    "--rsync-arg",
+    multiple=True,
+    help="Additional argument to pass to rsync [repeatable] [future]",
+)
+@optgroup.option(
+    "--rsync-args",
+    help="Additional arguments to pass to rsync (as a single string) [future]",
+)
 @optgroup.group("Git Sync Options")
 @optgroup.option("--branch", multiple=True, help="Pull a specific branch [repeatable] [future]")
 @optgroup.option("--target-branch", help="Pull a remote branch into a target branch [future]")
 @optgroup.option("--all-branches", "--all", is_flag=True, help="Pull all remote branches [future]")
 @optgroup.option("--tags", is_flag=True, help="Include git tags in sync [future]")
-@optgroup.option("--force-git", is_flag=True, help="Force overwrite local git state (use with caution) [future]")
+@optgroup.option(
+    "--force-git",
+    is_flag=True,
+    help="Force overwrite local git state (use with caution) [future]",
+)
 @optgroup.option("--merge", is_flag=True, help="Merge remote changes with local changes [future]")
 @optgroup.option("--rebase", is_flag=True, help="Rebase local changes onto remote changes [future]")
 @optgroup.option(
