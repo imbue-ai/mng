@@ -14,4 +14,3 @@ Note that **all** hosts can end up running until you call `mngr enforce` [future
 
 **Agents** on the same host are assumed to all have full access to all information and capabilities on the host. If you want isolation, use a separate host and restrict what information is shared with that host. The permissions and limits for a host are the **union** of all agents on that host.
 
-Note: The following security features are planned but not yet documented in the main text: plugin lifecycle hooks [future], host lifecycle state management (BUILDING, STARTING, STOPPING states) [future].

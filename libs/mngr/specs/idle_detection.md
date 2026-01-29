@@ -39,4 +39,3 @@ stat -c %Y "$MNGR_HOST_DIR/activity/user" 2>/dev/null || stat -f %m "$MNGR_HOST_
 - Host-level: `$MNGR_HOST_DIR/activity/{type}` (boot, user, ssh)
 - Agent-level: `$MNGR_HOST_DIR/agents/{id}/activity/{type}` (create, start, agent, process)
 
-Note: The following features are planned but not yet documented: `mngr limit` command for configuring idle detection, `mngr enforce` command for checking and enforcing idle timeouts, `mngr open` command for opening agent URLs with activity tracking, and applying `--idle-mode`, `--idle-timeout`, and `--activity-sources` flags from `mngr create`.

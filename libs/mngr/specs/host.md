@@ -49,6 +49,4 @@ Note that this includes many of the underlying fields required for idle detectio
 | `lock_time`           | mtime of the `host_lock` file                                                           | `host_lock`                             |
 | `plugin.*`            | Plugin-specific (reported) host state                                                   | `plugin/<plugin>/*`                     |
 
-**Important:** All access to host data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_provider` vs `get_reported_idle_mode`).
-
-Note: The following features are planned but not yet documented: Docker provider (only Local and Modal providers implemented), direct provider accessors (`get_provider()`, `get_name()` methods per naming convention).
+**Important:** All access to host data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_provider()` [future], `get_name()` [future] vs `get_reported_idle_mode()`).
