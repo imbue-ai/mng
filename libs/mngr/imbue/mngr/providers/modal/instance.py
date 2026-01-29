@@ -10,6 +10,7 @@ Only host_id and host_name are stored as sandbox tags for discovery purposes.
 
 import argparse
 import io
+import json
 import os
 import socket
 import tempfile
@@ -19,6 +20,7 @@ from datetime import datetime
 from datetime import timezone
 from functools import wraps
 from pathlib import Path
+from typing import Any
 from typing import ClassVar
 from typing import Final
 from typing import Mapping
@@ -383,6 +385,41 @@ class ModalProviderInstance(BaseProviderInstance):
 
         return host_records
 
+    def _list_agent_records_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
+        """List agent records stored on the volume for a given host.
+
+        Agent records are stored at /{host_id}/{agent_id}.json on the volume.
+        These are persisted when a host shuts down so that mngr list can
+        show agents on stopped hosts.
+        """
+        volume = self._get_volume()
+        logger.trace("Listing agent records for host {} from volume", host_id)
+
+        agent_records: list[dict[str, Any]] = []
+        host_dir = f"/{host_id}"
+        try:
+            for entry in volume.listdir(host_dir):
+                filename = entry.path
+                if filename.endswith(".json"):
+                    # Read the agent record
+                    agent_path = f"{host_dir}/{filename.lstrip('/')}"
+                    try:
+                        # Read file returns a generator that yields bytes chunks
+                        chunks: list[bytes] = []
+                        for chunk in volume.read_file(agent_path):
+                            chunks.append(chunk)
+                        content = b"".join(chunks).decode("utf-8")
+                        agent_data = json.loads(content)
+                        agent_records.append(agent_data)
+                    except (OSError, IOError, json.JSONDecodeError) as e:
+                        logger.trace("Skipping invalid agent record file {}: {}", agent_path, e)
+                        continue
+        except (OSError, IOError, modal.exception.Error) as e:
+            # Host directory might not exist yet (no agents persisted)
+            logger.trace("No agent records found for host {}: {}", host_id, e)
+
+        return agent_records
+
     def _build_modal_image(
         self,
         base_image: str | None = None,
@@ -623,21 +660,49 @@ class ModalProviderInstance(BaseProviderInstance):
         passing the sandbox_id and host_id as JSON payload.
         """
         sandbox_id = sandbox.object_id
+        host_dir_str = str(host.host_dir)
 
         # Create the shutdown script content
         # The script sends a POST request to the snapshot_and_shutdown endpoint
+        # It also gathers agent data from the agents directory to persist to the volume
         script_content = f'''#!/bin/bash
 # Auto-generated shutdown script for mngr Modal host
 # This script snapshots and shuts down the host by calling the deployed Modal function
+# It also gathers agent data to persist to the volume so agents show up in mngr list
 
 SNAPSHOT_URL="{snapshot_url}"
 SANDBOX_ID="{sandbox_id}"
 HOST_ID="{host_id}"
+HOST_DIR="{host_dir_str}"
 
-# Send the shutdown request
+# Gather agent data from all agent directories
+# This creates a JSON array of agent data objects
+gather_agents() {{
+    local agents_dir="$HOST_DIR/agents"
+    local first=true
+    echo -n "["
+    if [ -d "$agents_dir" ]; then
+        for agent_dir in "$agents_dir"/*/; do
+            if [ -f "${{agent_dir}}data.json" ]; then
+                if [ "$first" = true ]; then
+                    first=false
+                else
+                    echo -n ","
+                fi
+                cat "${{agent_dir}}data.json"
+            fi
+        done
+    fi
+    echo -n "]"
+}}
+
+# Build the JSON payload with agent data
+AGENTS=$(gather_agents)
+
+# Send the shutdown request with agent data
 curl -s -X POST "$SNAPSHOT_URL" \\
     -H "Content-Type: application/json" \\
-    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'"}}'
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "agents": '"$AGENTS"'}}'
 '''
 
         # Write the script to the host
