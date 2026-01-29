@@ -149,6 +149,18 @@ def test_build_and_parse_sandbox_tags_roundtrip() -> None:
     assert parsed_user_tags == user_tags
 
 
+class AuthorizedModalProviderInstance(ModalProviderInstance):
+    """Test subclass that always reports as authorized.
+
+    This is used for unit tests with mocked Modal dependencies where we don't
+    have real credentials but want to test the provider logic.
+    """
+
+    @property
+    def is_authorized(self) -> bool:
+        return True
+
+
 class UnauthorizedModalProviderInstance(ModalProviderInstance):
     """Test subclass that always reports as unauthorized.
 
@@ -226,9 +238,13 @@ def _make_modal_provider_with_mocks(
     return instance
 
 
-def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
-    """Create a ModalProviderInstance with mocked Modal dependencies for unit tests."""
-    return _make_modal_provider_with_mocks(mngr_ctx, app_name, ModalProviderInstance, "modal-test")
+def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> AuthorizedModalProviderInstance:
+    """Create an AuthorizedModalProviderInstance with mocked Modal dependencies for unit tests.
+
+    Uses AuthorizedModalProviderInstance so that is_authorized returns True, allowing
+    the provider methods to be tested without real Modal credentials.
+    """
+    return _make_modal_provider_with_mocks(mngr_ctx, app_name, AuthorizedModalProviderInstance, "modal-test")
 
 
 def make_unauthorized_modal_provider(mngr_ctx: MngrContext, app_name: str) -> UnauthorizedModalProviderInstance:
@@ -277,8 +293,12 @@ def make_modal_provider_real(
 
 
 @pytest.fixture
-def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProviderInstance:
-    """Create a ModalProviderInstance with mocked Modal for unit/integration tests."""
+def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> AuthorizedModalProviderInstance:
+    """Create an AuthorizedModalProviderInstance with mocked Modal for unit/integration tests.
+
+    Uses AuthorizedModalProviderInstance so that is_authorized returns True, allowing
+    the provider methods to be tested without real Modal credentials.
+    """
     app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     return make_modal_provider_with_mocks(temp_mngr_ctx, app_name)
 
