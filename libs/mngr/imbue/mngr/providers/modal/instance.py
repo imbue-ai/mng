@@ -1052,9 +1052,15 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         If the sandbox is still running, returns the existing host. If the
         sandbox has been terminated, creates a new sandbox from a snapshot.
         When snapshot_id is provided, that specific snapshot is used. When
-        snapshot_id is None, the most recent snapshot is automatically used
-        (every host has at least an initial snapshot created during host
-        creation).
+        snapshot_id is None, the most recent snapshot is automatically used.
+
+        Note: For a host to be restartable, it must have at least one snapshot.
+        Snapshots are created in two cases:
+        1. During host creation if is_snapshotted_after_create=True (default)
+        2. During stop_host() if create_snapshot=True (default)
+
+        If neither snapshot was created (e.g., is_snapshotted_after_create=False
+        and the sandbox was hard-killed), this method raises NoSnapshotsModalMngrError.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
 
@@ -1270,16 +1276,18 @@ curl -s -X POST "$SNAPSHOT_URL" \\
     # Snapshot Methods
     # =========================================================================
 
-    def _create_initial_snapshot(
+    def _record_snapshot(
         self,
         sandbox: modal.Sandbox,
         host_id: HostId,
+        name: SnapshotName,
     ) -> SnapshotId:
-        """Create an initial snapshot of a newly created host.
+        """Create a filesystem snapshot and record it in the host record.
 
-        This is called during host creation to ensure every host has at least
-        one snapshot, allowing the host to be restarted after being stopped.
-        The initial state after SSH setup is captured as the "initial" snapshot.
+        This is the core snapshot logic used by both _create_initial_snapshot
+        and create_snapshot. It reads the host record from the volume, creates
+        a filesystem snapshot via Modal, records the snapshot metadata in the
+        host record, and writes the updated host record back to the volume.
         """
         # Read existing host record from volume
         host_record = self._read_host_record(host_id)
@@ -1287,18 +1295,17 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             raise HostNotFoundError(host_id)
 
         # Create the filesystem snapshot
-        logger.debug("Creating initial filesystem snapshot")
+        logger.debug("Creating filesystem snapshot", name=str(name))
         modal_image = sandbox.snapshot_filesystem()
         modal_image_id = modal_image.object_id
 
         # Generate mngr snapshot ID and metadata
         snapshot_id = SnapshotId.generate()
         created_at = datetime.now(timezone.utc)
-        snapshot_name = SnapshotName("initial")
 
         new_snapshot = SnapshotRecord(
             id=str(snapshot_id),
-            name=str(snapshot_name),
+            name=str(name),
             created_at=created_at.isoformat(),
             modal_image_id=modal_image_id,
         )
@@ -1310,11 +1317,25 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         self._write_host_record(updated_host_record)
 
         logger.debug(
-            "Created initial snapshot: id={}, modal_image_id={}",
+            "Created snapshot: id={}, name={}, modal_image_id={}",
             snapshot_id,
+            name,
             modal_image_id,
         )
         return snapshot_id
+
+    def _create_initial_snapshot(
+        self,
+        sandbox: modal.Sandbox,
+        host_id: HostId,
+    ) -> SnapshotId:
+        """Create an initial snapshot of a newly created host.
+
+        This is called during host creation when is_snapshotted_after_create
+        is True, ensuring the host can be restarted after being stopped.
+        The initial state after SSH setup is captured as the "initial" snapshot.
+        """
+        return self._record_snapshot(sandbox, host_id, SnapshotName("initial"))
 
     @handle_modal_auth_error
     def create_snapshot(
@@ -1335,42 +1356,14 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         if sandbox is None:
             raise HostNotFoundError(host_id)
 
-        # Read existing host record from volume
-        host_record = self._read_host_record(host_id)
-        if host_record is None:
-            raise HostNotFoundError(host_id)
+        # Generate snapshot name if not provided
+        if name is None:
+            # Use last 8 characters of a generated ID as a short identifier
+            short_id = str(SnapshotId.generate())[-8:]
+            name = SnapshotName(f"snapshot-{short_id}")
 
-        # Create the filesystem snapshot
-        logger.debug("Calling snapshot_filesystem on sandbox")
-        modal_image = sandbox.snapshot_filesystem()
-        modal_image_id = modal_image.object_id
-
-        # Generate mngr snapshot ID and metadata
-        snapshot_id = SnapshotId.generate()
-        created_at = datetime.now(timezone.utc)
-        # Use last 8 characters of the snapshot ID as a short identifier for the default name
-        short_id = str(snapshot_id)[-8:]
-        snapshot_name = name if name is not None else SnapshotName(f"snapshot-{short_id}")
-
-        new_snapshot = SnapshotRecord(
-            id=str(snapshot_id),
-            name=str(snapshot_name),
-            created_at=created_at.isoformat(),
-            modal_image_id=modal_image_id,
-        )
-
-        # Update host record with new snapshot and write to volume
-        updated_host_record = host_record.model_copy(
-            update={"snapshots": list(host_record.snapshots) + [new_snapshot]}
-        )
-        self._write_host_record(updated_host_record)
-
-        logger.info(
-            "Created snapshot: id={}, name={}, modal_image_id={}",
-            snapshot_id,
-            snapshot_name,
-            modal_image_id,
-        )
+        snapshot_id = self._record_snapshot(sandbox, host_id, name)
+        logger.info("Created snapshot: id={}, name={}", snapshot_id, name)
         return snapshot_id
 
     def list_snapshots(
