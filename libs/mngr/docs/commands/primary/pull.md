@@ -75,3 +75,7 @@ The following features are documented but not yet implemented:
 
 **Multi-target:**
 - Multi-target operations referenced in documentation not supported
+
+**Undocumented Options:**
+- [SPEC] `--stop / --no-stop`: Stop the agent after pulling [default: no-stop]
+- [SPEC] `--interactive`: When enabled and no agent specified, show interactive TUI for agent selection

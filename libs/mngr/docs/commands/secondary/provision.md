@@ -38,3 +38,4 @@ The following documented features are not yet implemented:
 - `--bootstrap` / `--bootstrap-and-warn` / `--no-bootstrap`: Bootstrap options for auto-installing missing tools
 - `--[no-]destroy-on-fail`: Option to destroy host on provisioning failure
 - Standalone `mngr provision` command (provisioning options currently only available via `mngr create`)
+- [SPEC] When using `--no-bootstrap`, output a set of commands that users can run to manually install missing dependencies/packages
