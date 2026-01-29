@@ -1186,31 +1186,18 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Create the sandbox from the snapshot image
         memory_mb = int(config.memory * 1024)
-        if config.gpu:
-            new_sandbox = modal.Sandbox.create(
-                image=modal_image,
-                app=app,
-                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
-                # environment_name=self.environment_name,
-                timeout=config.timeout,
-                cpu=config.cpu,
-                memory=memory_mb,
-                unencrypted_ports=[CONTAINER_SSH_PORT],
-                gpu=config.gpu,
-                region=config.region,
-            )
-        else:
-            new_sandbox = modal.Sandbox.create(
-                image=modal_image,
-                app=app,
-                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
-                #                 environment_name=self.environment_name,
-                timeout=config.timeout,
-                cpu=config.cpu,
-                memory=memory_mb,
-                unencrypted_ports=[CONTAINER_SSH_PORT],
-                region=config.region,
-            )
+        new_sandbox = modal.Sandbox.create(
+            image=modal_image,
+            app=app,
+            # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
+            # environment_name=self.environment_name,
+            timeout=config.timeout,
+            cpu=config.cpu,
+            memory=memory_mb,
+            unencrypted_ports=[CONTAINER_SSH_PORT],
+            gpu=config.gpu,
+            region=config.region,
+        )
         logger.info("Created sandbox from snapshot", sandbox_id=new_sandbox.object_id)
 
         # Cache the sandbox for fast lookup (avoids Modal's eventual consistency issues)
