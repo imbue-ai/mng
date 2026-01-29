@@ -394,6 +394,12 @@ class Host(HostInterface):
 
     def _get_file_mtime(self, path: Path) -> datetime | None:
         """Get the mtime of a file on the host."""
+        if self.is_local:
+            try:
+                mtime = path.stat().st_mtime
+                return datetime.fromtimestamp(mtime, tz=timezone.utc)
+            except (FileNotFoundError, OSError):
+                return None
         result = self.execute_command(f"stat -c %Y '{str(path)}' 2>/dev/null || stat -f %m '{str(path)}' 2>/dev/null")
         if result.success and result.stdout.strip():
             try:
@@ -409,16 +415,25 @@ class Host(HostInterface):
 
     def _path_exists(self, path: Path) -> bool:
         """Check if a path exists on the host."""
+        if self.is_local:
+            return path.exists()
         result = self.execute_command(f"test -e '{str(path)}'")
         return result.success
 
     def _is_directory(self, path: Path) -> bool:
         """Check if a path is a directory on the host."""
+        if self.is_local:
+            return path.is_dir()
         result = self.execute_command(f"test -d '{str(path)}'")
         return result.success
 
     def _list_directory(self, path: Path) -> list[str]:
         """List files in a directory on the host."""
+        if self.is_local:
+            try:
+                return list(entry.name for entry in path.iterdir())
+            except (FileNotFoundError, OSError):
+                return []
         result = self.execute_command(f"ls -1 '{str(path)}' 2>/dev/null")
         if result.success and result.stdout.strip():
             return result.stdout.strip().split("\n")
