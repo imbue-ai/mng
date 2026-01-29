@@ -1,6 +1,6 @@
 # Idle Detection
 
-Hosts are automatically stopped [future] when idle to save resources (critical for cloud providers where running agents cost money).
+Hosts are automatically stopped when idle to save resources (critical for cloud providers where running agents cost money) [future].
 
 A host is considered "idle" if there has been no "activity" for a configured timeout period. If multiple agents share a host, activity from any agent may keep the host running.
 

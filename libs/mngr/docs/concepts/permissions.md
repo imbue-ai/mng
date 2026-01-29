@@ -20,5 +20,3 @@ The first part of the permission string is the plugin name (e.g., `github`, `ant
 ## Available Permissions
 
 Run [`limit --help`](../commands/secondary/limit.md) [future] for the full list of available permissions.
-
-Note: The following features are planned but not yet documented: `on_validate_permissions` hook, `--grant` flag application during agent creation.

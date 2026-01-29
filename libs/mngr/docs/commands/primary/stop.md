@@ -43,5 +43,3 @@ mngr stop --agent my-agent --agent another-agent
 
 - `--[no-]graceful`: Wait for agent to reach a clean state (finish processing messages) before stopping [default: graceful]
 - `--graceful-timeout DURATION`: Timeout for graceful stop (e.g., `30s`, `5m`) [default: 30s]
-
-Note: Infrastructure exists (host-level `stop_agents()` method and provider `stop_host()` methods are implemented).

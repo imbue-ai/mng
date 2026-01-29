@@ -9,8 +9,9 @@ How mngr handles git state during sync operations.
 
 ## Sync Modes
 
-- `--git-only` [future]: Only sync git state (refs, objects, etc.), not working tree files
-- `--files-only`: Only sync working tree files, explicitly excluding `.git` directory contents (default, only mode currently implemented)
+- `--sync-mode state`: Only sync git state (refs, objects, etc.), not working tree files
+- `--sync-mode files`: Only sync working tree files, explicitly excluding `.git` directory contents (default, only mode currently implemented)
+- `--sync-mode full`: Sync both state and files
 
 Syncing files-only can cause git to see the working tree as "dirty" (this is expected behavior).
 
@@ -47,4 +48,3 @@ Submodules are **not supported**. Recursive `.git` directories are ignored entir
 ## Partial Writes
 
 During rapid concurrent edits in pair mode, changes are debounced to avoid partial writes. [future]
-

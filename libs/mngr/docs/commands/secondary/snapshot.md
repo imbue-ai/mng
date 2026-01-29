@@ -2,7 +2,7 @@
 
 Create, destroy, and list snapshots of agents.
 
-Snapshots capture the complete state of the agent's host, allowing it to be restored later. Because the snapshot includes the filesystem, the state of all agents on the host will be saved.
+Snapshots capture the complete state of the agent's host, allowing it to be restored later. Because the snapshot includes the filesystem, the state of all agents on the host will be saved. 
 
 Useful for checkpointing work, creating restore points, or managing disk space.
 
@@ -61,5 +61,3 @@ mngr snapshot create --agent my-agent --agent another-agent
 - `--exclude FILTER`: Exclude snapshots matching filter from destruction
 - `-f, --force`: Skip confirmation prompts
 - `--dry-run`: Show which snapshots would be destroyed without actually deleting them
-
-Note: Currently, only the provider interface exists (used internally by `mngr create --snapshot` and `mngr gc --snapshots`).

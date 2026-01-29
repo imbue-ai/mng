@@ -51,4 +51,3 @@ permissions = ["github"]  # [future] not yet enforced
 ```
 
 For more details, see [Agent Types](./concepts/agent_types.md).
-

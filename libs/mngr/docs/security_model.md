@@ -13,4 +13,3 @@
 Note that **all** hosts can end up running until you call `mngr enforce` [future] (because the idle detection script [future] runs inside the host). Thus, untrusted code could potentially run indefinitely unless there is external enforcement of the idle policies (which can be done via `mngr enforce`).
 
 **Agents** on the same host are assumed to all have full access to all information and capabilities on the host. If you want isolation, use a separate host and restrict what information is shared with that host. The permissions and limits for a host are the **union** of all agents on that host.
-

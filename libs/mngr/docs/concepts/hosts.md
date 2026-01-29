@@ -46,7 +46,7 @@ building  →  starting   →  running  →  stopping  →  stopped
 | **running**   | While any agent is running and considered active                                 |
 | **stopping**  | When all agents become idle, the host is stopped (snapshotted, host shut down)   |
 | **stopped**   | Shut down but restartable (only consuming storage)                               |
-| **failed** [future]    | Something went wrong before the host could be created                            |
+| **failed**    | Something went wrong before the host could be created [future]                   |
 | **destroyed** | Host gone, resources freed                                                       |
 
 Transitional states have configurable timeouts. If exceeded, hosts auto-transition to `failed`, `stopped`, or `destroyed` (as appropriate).
@@ -135,4 +135,3 @@ See [host spec](../../specs/host.md) for the properties of hosts and their stora
 ## Interface
 
 See [`imbue/mngr/interfaces/host.py`](../../imbue/mngr/interfaces/host.py) for the host data structures.
-

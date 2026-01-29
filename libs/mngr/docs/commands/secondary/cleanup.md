@@ -40,5 +40,3 @@ mngr cleanup
 ## Resource Cleanup
 
 See [resource cleanup options](../generic/resource_cleanup.md) to control which associated resources are also destroyed (defaults to all).
-
-Note: Partial implementation exists in separate commands (`mngr destroy` has `--force`, `--dry-run`, basic target selection; `mngr gc` has `--include`, `--exclude`, `--provider`, `--dry-run`).

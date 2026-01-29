@@ -123,4 +123,3 @@ To include environment variables in logs (e.g., for debugging), use `--log-env-v
 ### Command Output Logging
 
 Command output logging (`is_logging_command_output`) is also disabled by default to prevent accidental leakage of sensitive data that might appear in stdout/stderr.
-

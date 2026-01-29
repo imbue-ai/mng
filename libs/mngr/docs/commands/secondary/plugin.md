@@ -2,6 +2,8 @@
 
 Manage available and active plugins.
 
+Right now, only `list` is implemented; other commands are placeholders for future functionality.
+
 **Alias:** `plug`
 
 ## Usage

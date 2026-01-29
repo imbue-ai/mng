@@ -34,11 +34,11 @@ Called at various points in the execution of any `mngr` command:
 |----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `on_post_install`          | Runs after the plugin is installed or upgraded. Good for setup tasks like prompting the user or downloading models.                                     |
 | `on_load_config`           | Runs when loading the global config. Receives the current config dict and can modify it before use.                                                     |
-| `on_validate_permissions`  | Runs when validating permissions. Should ensure that the correct environment variables and files are accessible.                                        |
+| `on_validate_permissions`  | Runs when validating permissions. Should ensure that the correct environment variables and files are accessible. [future]                               |
 | `on_startup`               | Runs when `mngr` starts up. Good for registering other callbacks. See [the `mngr` API](./api.md) for more details on registration hooks.                |
 | `on_before_<command>`      | Runs before any command executes. One hook per command. Receives the parsed args. Can modify args or abort execution.                                   |
 | `on_after_<command>`       | Runs after any command completes. One hook per command. Receives the args and result. Useful for logging, cleanup, or post-processing.                  |
-| `process_command_args`     | Called after argument parsing. Receives the command name and parsed args. Use this to validate or transform extended arguments before the command runs. |
+| `process_command_args` [future] | Called after argument parsing. Receives the command name and parsed args. Use this to validate or transform extended arguments before the command runs. (note: `override_command_options` may make this irrelevant) |
 | `on_before_custom_command` | Runs for custom commands defined by plugins. Receives the command name and parsed args. Can modify args or abort execution.                             |
 | `on_after_custom_command`  | Runs after custom commands defined by plugins complete. Receives the command name, args, and result. Useful for logging, cleanup, or post-processing.   |
 | `on_error`                 | Runs if any command raises an exception. Receives the args and exception. Good for custom error handling or reporting.                                  |

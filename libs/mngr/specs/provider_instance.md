@@ -87,4 +87,3 @@ This cache enables several important behaviors:
 3. **Performance**: Avoids repeatedly querying slow provider APIs
 
 The cache should persist for a configurable amount of time [future] (e.g., 24-48 hours by default). After this time, missing hosts are removed from the cache to avoid showing stale destroyed hosts indefinitely.
-

@@ -167,4 +167,3 @@ ClaudeWebView/
 6. Frontend connects to SSE endpoint for live updates
 7. File watcher detects changes to transcript, pushes new messages via SSE
 8. React app renders messages using Radix components and Sculptor-style SCSS
-

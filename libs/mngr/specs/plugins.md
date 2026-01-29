@@ -33,4 +33,3 @@ Plugins CAN use tools other than pyinfra for setting up their dependencies, but 
 - Reduces the benefits of pyinfra's idempotent operations
 
 **pyinfra should only be used for provisioning.** It should not be used for other operations like file syncing, command execution during normal operation, etc. Those operations should use direct SSH or other appropriate mechanisms.
-

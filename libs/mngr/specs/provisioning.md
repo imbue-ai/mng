@@ -89,4 +89,3 @@ To implement provisioning for a custom agent type:
 3. Register the agent type using the `register_agent_type` hook
 
 See `ClaudeAgent` in `agents/default_plugins/claude_agent.py` for a complete example.
-

@@ -132,10 +132,6 @@ def resolve_target_host(
             target_host.build.start_args,
             target_host.lifecycle,
         )
-        # FIXME: target_host.build.snapshot is not passed to create_host() - the --snapshot
-        # CLI option is parsed but unused. See create.md docs for the intended behavior.
-        # FIXME: target_host.environment is not passed to create_host() - the --host-env,
-        # --host-env-file, and --pass-host-env CLI options are parsed but unused.
         return provider.create_host(
             name=target_host.name,
             tags=target_host.tags,

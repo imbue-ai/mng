@@ -38,4 +38,3 @@ Provisioning is designed to be idempotent--the underlying tool ([pyinfra](https:
 ## Plugin provisioning implementation details
 
 For implementation details about package version checking, cross-platform installation, and plugin ordering during provisioning, see the [provisioning spec](../../specs/provisioning.md).
-

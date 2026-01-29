@@ -65,5 +65,3 @@ mngr limit --agent my-agent --agent another-agent --idle-timeout 30m
 - `--refresh-ssh-keys`: Refresh the SSH keys for the host
 - `--add-ssh-key FILE`: Add an SSH public key to the host for access [repeatable]
 - `--remove-ssh-key FILE`: Remove an SSH public key from the host [repeatable]
-
-Note: Supporting infrastructure exists (IdleMode, ActivitySource, ActivityConfig, host interface methods).

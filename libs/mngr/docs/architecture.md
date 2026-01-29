@@ -45,4 +45,3 @@ mngr is responsible for:
 
 While it's possible to run as multiple users (esp locally), no data is shared between different users on the same machine.
 This means that, when connecting to remote hosts, we need to be careful to expand the "~" in paths only once we know the user that we are running as.
-

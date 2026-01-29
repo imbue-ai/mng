@@ -19,8 +19,8 @@ Configuration uses TOML format. Files are loaded from:
 
 | Scope | Location |
 |-------|----------|
-| User | `~/.config/mngr/config.toml` [future: implementation uses `settings.toml`] |
-| Project | `.mngr/config.toml` [future: implementation uses `settings.toml`] (relative to project root) |
+| User | `~/.config/mngr/config.toml` [NOTE: implementation uses `settings.toml`] |
+| Project | `.mngr/config.toml` [NOTE: implementation uses `settings.toml`] (relative to project root) |
 
 If both files exist, they are merged with project scope taking precedence.
 
@@ -78,5 +78,3 @@ Command defaults can also be set via environment variables using the pattern `MN
 ## Validation Rules
 
 The following validations are performed at load time: [future: validation rules not yet documented]
-
-Note: The following features are planned but not yet documented: `pager`, `unset_vars`, `disabled_plugins` fields, and `command` field for agent types.

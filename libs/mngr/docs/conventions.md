@@ -22,4 +22,3 @@ Unless otherwise specified, `mngr` assumes:
 - `MNGR_AGENT_WORK_DIR` — The directory in which the agent is started, which contains your project files
 
 See [environment variables](./concepts/environment_variables.md) for the full list and how to set custom variables.
-

@@ -85,4 +85,3 @@ mngr plugin list    # Shows plugins and what types they provide [future]
 ```
 
 Built-in plugins provide `claude` and `codex` by default.
-

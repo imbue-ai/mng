@@ -38,4 +38,3 @@ What can be configured [future]:
 - Number of retries
 - Back-off exponent, strategy, etc.
 - Whether to treat PluginMngrError, AgentMngrError, and/or HostMngrError as warnings or errors
-

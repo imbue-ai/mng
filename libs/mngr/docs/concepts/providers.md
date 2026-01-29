@@ -65,5 +65,3 @@ This helps ensure that such state could be accessed by other (remote) `mngr` ins
 It also helps to keep `mngr` stateless (`mngr` should reconstruct the necessary state for any given command by querying provider instances, which then load the remote state).
 
 This state storage is typically accomplished via tags, remote disks/volumes, and other provider-specific metadata storage.
-
-Note: The **modal** provider backend is implemented but not documented here.

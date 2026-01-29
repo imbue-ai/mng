@@ -49,4 +49,3 @@ mngr snapshot destroy --agent my-agent --snapshot-id <id>  # [future]
 ```
 
 See [`mngr snapshot`](../commands/secondary/snapshot.md) for all options.
-
