@@ -1,4 +1,4 @@
-# User Activity Tracking via Web Spec
+# User Activity Tracking via Web Spec [future]
 
 This plugin tracks user activity in web interfaces to prevent hosts from idling while the user is active.
 
@@ -165,15 +165,3 @@ Requires nginx to be running, typically provided by [local_port_forwarding_via_f
 nginx requirements:
 - `ngx_http_sub_module` - For HTML injection (included in most nginx builds)
 - `ngx_http_lua_module` OR FastCGI - For handling activity endpoint
-
-## TODO
-
-This plugin is not yet implemented. Missing components:
-
-- Create Python plugin module with hookimpl decorators
-- Implement plugin configuration class for `debounce_ms` setting
-- Generate activity.js file with embedded debounce value
-- Create nginx configuration file with sub_filter and location blocks
-- Implement activity endpoint handler (lua or FastCGI)
-- Integrate with activity file writing to `$MNGR_HOST_DIR/activity/user`
-- Register plugin entry point in pyproject.toml

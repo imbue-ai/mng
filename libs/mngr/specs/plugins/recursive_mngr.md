@@ -1,4 +1,4 @@
-# Recursive mngr Invocation
+# Recursive mngr Invocation [future]
 
 This plugin enables agents to remote / untrusted child agents by invoking `mngr`.
 
@@ -56,16 +56,3 @@ The limits help with the first (though are not foolproof).
 ## Future Work
 
 This plugin effectively serves as a "control tower"--a centralized server for serving auth, creating hosts, doing things with API keys, etc.
-
-## TODOs
-
-**Status: NOT IMPLEMENTED** - This entire spec is a design document. No features are implemented yet.
-
-- [ ] Implement `max_depth` and `max_children` limits in `CreateAgentOptions` and agent validation
-- [ ] Add `parent_ids`, `is_orphanable`, and `created_by` properties to agent certified data
-- [ ] Implement orphan handling logic in destroy command based on `is_orphanable` flag
-- [ ] Design and implement config transfer mechanism for child agents (resolve open questions about work_dir-level configs)
-- [ ] Implement scoped-down credentials inheritance system with capability tracking
-- [ ] Create recursive_mngr plugin implementation using existing plugin hooks (`on_before_create`, `on_agent_created`, `on_agent_destroyed`)
-- [ ] Add parent-child relationship tracking and lineage management
-- [ ] Implement resource consumption protections against fork bombs

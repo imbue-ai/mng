@@ -1,4 +1,4 @@
-# Local Port Forwarding via FRP and Nginx Spec
+# Local Port Forwarding via FRP and Nginx Spec [future]
 
 This plugin exposes services running inside remote hosts to the user's local browser.
 
@@ -169,18 +169,3 @@ TODO: specify the exact set of permissions that are exposed by this plugin (eg. 
     - Though this interacts pretty badly with untrusted hosts...  TODO: figure out what to do here
 - Cookie lifetime (session vs persistent)?
   - Persistent
-
-## TODOs - Not Yet Implemented
-
-The following features from this spec are **not yet implemented**:
-
-- frps server setup and management
-- frpc configuration generation and management on remote hosts
-- `forward-service` command (add, list, remove subcommands)
-- Nginx configuration generation (nginx.conf, security.conf, forwarding.d/ location blocks)
-- `mngr auth` command and authentication flow
-- Auth endpoint for setting mngr_auth cookie
-- Token generation, storage (`~/.config/mngr/auth_token`), and validation
-- SSH tunnel management with autossh (reverse port forwarding)
-- Trust/permissions system for port forwarding access control
-- Config directory structure setup (`/etc/mngr/nginx/`, `/etc/mngr/frpc/`) on remote hosts

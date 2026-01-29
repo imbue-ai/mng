@@ -1,4 +1,4 @@
-# Remote Provider Spec
+# Remote Provider Spec [future]
 
 ## SSH Access
 
@@ -20,15 +20,3 @@ To prevent this, a heartbeat script must be provisioned into the remote environm
 - Acts as a safety mechanism to ensure remote hosts don't run indefinitely when orphaned
 
 The heartbeat mechanism should be coordinated with the idle detection system to avoid conflicting shutdown triggers.
-
-## TODO
-
-- [ ] Create remote provider implementation (no `/providers/remote/` exists yet)
-- [ ] Implement per-host SSH key storage at `~/.ssh/mngr/$HOST_ID`
-- [ ] Implement SSH key deletion on host destruction
-- [ ] Implement fallback logic to `~/.ssh/config` or agent forwarding
-- [ ] Create heartbeat script template/implementation
-- [ ] Implement heartbeat script provisioning into remote containers
-- [ ] Implement heartbeat signaling mechanism from controlling process
-- [ ] Implement timeout and auto-stop logic for orphaned hosts
-- [ ] Integrate heartbeat with idle detection system

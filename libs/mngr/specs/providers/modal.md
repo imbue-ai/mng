@@ -21,7 +21,7 @@ Tags are preserved across sandbox stop/start cycles and in snapshots.
 
 mngr discovers Modal hosts by listing sandboxes with the `mngr.agent-id` tag.
 
-## Agent Self-Management
+## Agent Self-Management [future]
 
 Modal sandboxes are isolated environments that don't have direct access to Modal's control plane APIs. To allow agents running inside Modal sandboxes to pause or stop themselves, mngr must deploy a Modal function that agents can call.
 
@@ -38,7 +38,4 @@ Modal provides native snapshot support. Snapshots are fully incremental since th
 
 To minimize the risk of work loss if a sandbox crashes, Modal sandshots should be taken fairly frequently while the agent is working. The frequency should be configurable but default to a reasonable interval (e.g., every 15-30 minutes of active work).
 
-## TODO
-
-- **Agent Self-Management**: Deploy Modal function bridge to allow agents to pause/stop/query themselves from within sandboxes
-- **Automatic Snapshots**: Implement periodic snapshot mechanism with configurable frequency (currently only on-demand snapshots work)
+Note: Automatic periodic snapshots [future] are not yet implemented (currently only on-demand snapshots work).

@@ -1,4 +1,4 @@
-# Docker Provider Spec
+# Docker Provider Spec [future]
 
 ## Metadata Storage
 
@@ -51,16 +51,3 @@ When any of these configurations are detected, mngr should either:
 2. Warn the user that snapshots may be incomplete and allow them to proceed
 
 The user should be able to explicitly disable snapshot warnings via configuration if they understand the risks.
-
-## TODOs
-
-The following features from this specification are not yet implemented:
-
-- **Docker provider backend/instance classes** - No `DockerProviderBackend` or `DockerProviderInstance` implementation exists
-- **Metadata storage** - Docker container label creation/reading not implemented
-- **Label size limit handling** - Warning and truncation for oversized metadata
-- **Label immutability enforcement** - Error handling for attempted label mutations
-- **Host discovery** - Container listing by `com.imbue.mngr.agent-id` label not implemented
-- **Snapshots via docker commit** - Snapshot creation and tagging not implemented
-- **Snapshot constraint detection** - Checking for bind mounts, GPU, volumes, network-attached storage
-- **Snapshot warning system** - Warning/disabling behavior and configuration option for disabling warnings

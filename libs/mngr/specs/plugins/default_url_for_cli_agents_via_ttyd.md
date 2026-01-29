@@ -1,4 +1,4 @@
-# Default URL for CLI Agents via ttyd Spec
+# Default URL for CLI Agents via ttyd Spec [future]
 
 This plugin provides web terminal access to CLI-based agents by running ttyd with a security wrapper.
 
@@ -101,7 +101,7 @@ http://terminal.<agent>.<host>.mngr.localhost:8080/?arg=<token>
 
 ## Agent Fields
 
-This plugin adds fields via `agent_field_generators` hook:
+This plugin adds fields via `agent_field_generators` [future] hook:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -135,16 +135,3 @@ If the agent's `url` field is unset, this plugin sets it to the ttyd URL.
 Requires `forward-service` command from [local_port_forwarding_via_frp_and_nginx](./local_port_forwarding_via_frp_and_nginx.md) or compatible plugin.
 
 On missing dependency, agent creation fails.
-
-## TODOs
-
-- Python plugin implementation with hook handlers
-- `/usr/local/bin/mngr-ttyd-wrapper` authentication script
-- Token generation and storage on agent creation
-- ttyd process management (start, PID tracking, stop)
-- Port allocation logic (find available port in range)
-- URL generation with embedded token parameter
-- `agent_field_generators` hook (not yet in hookspecs.py)
-- forward-service plugin implementation (dependency)
-- Integration with `mngr open` command for URL handling
-- Requirements validation (ttyd, tmux installed)
