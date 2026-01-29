@@ -56,6 +56,7 @@ class ConnectCliOptions(CommonCliOptions):
     retry: int
     retry_delay: str
     attach_command: str | None
+    allow_unknown_host: bool
 
 
 @deal.has()
@@ -399,6 +400,13 @@ def _find_agent_by_name_or_id(
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries")
 @optgroup.option("--attach-command", help="Command to run instead of attaching to main session")
+@optgroup.option(
+    "--allow-unknown-host/--no-allow-unknown-host",
+    "allow_unknown_host",
+    default=False,
+    show_default=True,
+    help="Allow connecting to hosts without a known_hosts file (disables SSH host key verification)",
+)
 @add_common_options
 @click.pass_context
 def connect(ctx: click.Context, **kwargs: Any) -> None:
@@ -481,6 +489,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
         retry_count=opts.retry,
         retry_delay=opts.retry_delay,
         attach_command=opts.attach_command,
+        is_unknown_host_allowed=opts.allow_unknown_host,
     )
 
     logger.info("Connecting to agent: {}", agent.name)
