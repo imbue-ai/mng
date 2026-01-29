@@ -180,6 +180,10 @@ def gc_machines(
 
             for host in hosts:
                 try:
+                    # Skip local hosts - they cannot be destroyed
+                    if host.is_local:
+                        continue
+
                     agents = host.get_agents()
 
                     # Only consider hosts with no agents

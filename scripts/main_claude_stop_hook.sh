@@ -4,6 +4,12 @@
 
 set -euo pipefail
 
+# Remove the active session marker file on exit (regardless of success/failure)
+cleanup_active_file() {
+    rm -f .claude/active
+}
+trap cleanup_active_file EXIT
+
 # Check if git repo is clean
 untracked=$(git ls-files --others --exclude-standard)
 staged=$(git diff --cached --name-only)
