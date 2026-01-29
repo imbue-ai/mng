@@ -25,6 +25,7 @@ def test_prevent_todos() -> None:
     pattern = RegexPattern(r"# TODO:.*")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
+    # TODO and FIXME should only be added by a human; this is intended to catch TODOs added by an agent
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="TODO comments",
         rule_description="TODO comments should not increase (ideally should decrease to zero)",
