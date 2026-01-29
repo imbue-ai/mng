@@ -3,12 +3,10 @@
 
 # mngr list
 
-**Alias:** `ls`
-
 **Synopsis:**
 
 ```text
-mngr list [OPTIONS]
+mngr [list|ls] [OPTIONS]
 ```
 
 

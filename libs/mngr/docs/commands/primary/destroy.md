@@ -3,12 +3,10 @@
 
 # mngr destroy
 
-**Alias:** `rm`
-
 **Synopsis:**
 
 ```text
-mngr destroy [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]
+mngr [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]
 ```
 
 

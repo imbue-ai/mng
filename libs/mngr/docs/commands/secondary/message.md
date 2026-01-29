@@ -3,12 +3,10 @@
 
 # mngr message
 
-**Alias:** `msg`
-
 **Synopsis:**
 
 ```text
-mngr message [AGENTS...] [--agent <AGENT>] [--all] [-m <MESSAGE>]
+mngr [message|msg] [AGENTS...] [--agent <AGENT>] [--all] [-m <MESSAGE>]
 ```
 
 

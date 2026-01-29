@@ -466,7 +466,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 _CONNECT_HELP_METADATA = CommandHelpMetadata(
     name="mngr-connect",
     one_line_description="Connect to an existing agent via the terminal",
-    synopsis="mngr connect [OPTIONS] [AGENT]",
+    synopsis="mngr [connect|conn] [OPTIONS] [AGENT]",
     description="""Connect to an existing agent via the terminal.
 
 Attaches to the agent's tmux session, roughly equivalent to SSH'ing into

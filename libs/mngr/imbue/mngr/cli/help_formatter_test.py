@@ -20,6 +20,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.help_formatter import run_pager
 from imbue.mngr.cli.help_formatter import show_help_with_pager
 from imbue.mngr.config.data_types import MngrConfig
+from imbue.mngr.main import BUILTIN_COMMANDS
 
 
 def test_is_interactive_terminal_returns_bool() -> None:
@@ -524,3 +525,27 @@ def test_create_command_common_group_contains_expected_options() -> None:
     assert "--log-commands" in common_section, "--log-commands should be in Common section"
     assert "--context" in common_section, "--context should be in Common section"
     assert "--plugin" in common_section, "--plugin should be in Common section"
+
+
+def test_commands_with_aliases_have_aliases_in_synopsis() -> None:
+    """Commands with aliases must include them in the synopsis as [cmd|alias].
+
+    This ensures users see the alias directly in the synopsis rather than
+    needing to look elsewhere in the help output.
+    """
+    for cmd in BUILTIN_COMMANDS:
+        if cmd.name is None:
+            continue
+        metadata = get_help_metadata(cmd.name)
+        if metadata is None or not metadata.aliases:
+            continue
+
+        # Build expected pattern: mngr [cmd|alias1|alias2...]
+        expected_parts = [cmd.name, *metadata.aliases]
+        joined = "|".join(expected_parts)
+        expected_pattern = f"mngr [{joined}]"
+
+        assert expected_pattern in metadata.synopsis, (
+            f"Command '{cmd.name}' has aliases {metadata.aliases} but synopsis "
+            f"doesn't contain '{expected_pattern}'. Synopsis: {metadata.synopsis}"
+        )

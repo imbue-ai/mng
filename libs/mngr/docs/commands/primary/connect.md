@@ -3,12 +3,10 @@
 
 # mngr connect
 
-**Alias:** `conn`
-
 **Synopsis:**
 
 ```text
-mngr connect [OPTIONS] [AGENT]
+mngr [connect|conn] [OPTIONS] [AGENT]
 ```
 
 

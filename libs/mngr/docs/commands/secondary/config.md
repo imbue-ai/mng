@@ -3,12 +3,10 @@
 
 # mngr config
 
-**Alias:** `cfg`
-
 **Synopsis:**
 
 ```text
-mngr config <subcommand> [OPTIONS]
+mngr [config|cfg] <subcommand> [OPTIONS]
 ```
 
 

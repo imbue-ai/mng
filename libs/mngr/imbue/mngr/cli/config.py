@@ -830,7 +830,7 @@ def _emit_all_paths(paths: list[dict[str, Any]], output_opts: OutputOptions) -> 
 _CONFIG_HELP_METADATA = CommandHelpMetadata(
     name="mngr-config",
     one_line_description="Manage mngr configuration",
-    synopsis="mngr config <subcommand> [OPTIONS]",
+    synopsis="mngr [config|cfg] <subcommand> [OPTIONS]",
     description="""Manage mngr configuration.
 
 View, edit, and modify mngr configuration settings at the user, project, or

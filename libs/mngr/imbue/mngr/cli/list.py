@@ -455,7 +455,7 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
 _LIST_HELP_METADATA = CommandHelpMetadata(
     name="mngr-list",
     one_line_description="List all agents managed by mngr",
-    synopsis="mngr list [OPTIONS]",
+    synopsis="mngr [list|ls] [OPTIONS]",
     description="""List all agents managed by mngr.
 
 Displays agents with their status, host information, and other metadata.

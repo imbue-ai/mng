@@ -3,12 +3,10 @@
 
 # mngr create
 
-**Alias:** `c`
-
 **Synopsis:**
 
 ```text
-mngr create [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
+mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]

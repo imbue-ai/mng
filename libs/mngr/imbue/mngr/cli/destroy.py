@@ -407,7 +407,7 @@ def _run_post_destroy_gc(mngr_ctx: MngrContext, output_opts: OutputOptions) -> N
 _DESTROY_HELP_METADATA = CommandHelpMetadata(
     name="mngr-destroy",
     one_line_description="Destroy agent(s) and clean up resources",
-    synopsis="mngr destroy [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]",
+    synopsis="mngr [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]",
     description="""Destroy one or more agents and clean up their resources.
 
 When the last agent on a host is destroyed, the host itself is also destroyed

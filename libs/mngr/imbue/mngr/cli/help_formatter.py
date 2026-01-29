@@ -161,33 +161,6 @@ def _format_section_title(title: str) -> str:
     return title.upper()
 
 
-# this function is some nonsense so if you're looking at this because it has a problem,
-# you should probably just switch to having the aliases directly in the synopsis and
-# have some test that checks that the string `[main command|alias 1|alias 2|...]` is present in the synopsis.
-@deal.has()
-def _inject_aliases_into_synopsis(synopsis: str, aliases: tuple[str, ...]) -> str:
-    """Inject command aliases into the synopsis.
-
-    Transforms "mngr create ..." into "mngr [create|c] ..." when aliases are present.
-    Only modifies the first line of the synopsis.
-    """
-    if not aliases:
-        return synopsis
-
-    lines = synopsis.split("\n")
-    first_line = lines[0]
-
-    # Find "mngr <command>" pattern and replace with "mngr [<command>|<aliases>]"
-    parts = first_line.split(" ", 2)
-    if len(parts) >= 2 and parts[0] == "mngr":
-        command_name = parts[1]
-        alias_str = "|".join([command_name, *aliases])
-        parts[1] = f"[{alias_str}]"
-        lines[0] = " ".join(parts)
-
-    return "\n".join(lines)
-
-
 def format_git_style_help(
     ctx: click.Context,
     command: click.Command,
@@ -230,8 +203,7 @@ def _write_git_style_help(
 
     # SYNOPSIS section
     output.write(f"{_format_section_title('Synopsis')}\n")
-    synopsis = _inject_aliases_into_synopsis(metadata.synopsis, metadata.aliases)
-    for line in synopsis.strip().split("\n"):
+    for line in metadata.synopsis.strip().split("\n"):
         output.write(f"       {line}\n")
     output.write("\n")
 

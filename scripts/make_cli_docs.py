@@ -239,21 +239,12 @@ def _infer_argument_description(arg: click.Argument) -> str:
     return f"The {name.replace('_', ' ')} (optional)"
 
 
-def format_alias(command_name: str) -> str:
-    """Format alias line from CommandHelpMetadata if available."""
-    metadata = get_help_metadata(command_name)
-    if metadata is None or not metadata.aliases:
-        return ""
-
-    alias_str = ", ".join(f"`{a}`" for a in metadata.aliases)
-    return f"\n**Alias:** {alias_str}\n"
-
-
 def format_synopsis(command_name: str) -> str:
     """Format synopsis section from CommandHelpMetadata if available.
 
     The synopsis shows the command usage pattern with common options,
-    matching what's shown at the top of --help output.
+    matching what's shown at the top of --help output. Aliases are
+    included in the synopsis (e.g., "mngr [create|c]").
     """
     metadata = get_help_metadata(command_name)
     if metadata is None or not metadata.synopsis:
@@ -468,17 +459,14 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
     content = "\n".join(content_parts)
     content = fix_sentinel_defaults(content)
 
-    # Insert alias and synopsis after the title line (first line starting with #)
-    alias_line = format_alias(command_name)
+    # Insert synopsis after the title line (first line starting with #)
     synopsis = format_synopsis(command_name)
-    if alias_line or synopsis:
+    if synopsis:
         content_lines = content.split("\n")
-        # Find the title line and insert alias/synopsis after it
+        # Find the title line and insert synopsis after it
         for i, line in enumerate(content_lines):
             if line.startswith("# "):
-                # Insert in order: alias first, then synopsis
-                insert_content = alias_line + synopsis
-                content_lines.insert(i + 1, insert_content)
+                content_lines.insert(i + 1, synopsis)
                 break
         content = "\n".join(content_lines)
 
