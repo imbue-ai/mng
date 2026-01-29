@@ -3,15 +3,15 @@
 The `mngr` tool prefixes the names of many resources with `mngr-` (this can be customized via `MNGR_PREFIX` environment variable).
 
 Unless otherwise specified, `mngr` assumes:
-- the user is `root` (override via config or CLI args for most commands) 
-- host names are formatted as `mngr-<host_name>`, where `<host_name>` is the unique identifier for the host (a host can contain multiple agents).
+- the user is `root` [future] (override via config or CLI args for most commands)
+- host names are formatted as `mngr-<host_name>` [future], where `<host_name>` is the unique identifier for the host (a host can contain multiple agents).
 - tmux sessions are named `mngr-<agent_name>`
-- SSH keys are created for each remote host and stored at `~/.ssh/mngr/<host_id>` and `~/.ssh/mngr/<host_id>.pub` (or access to the host is handled by ssh-agent or similar)
+- SSH keys are created for each remote host and stored at `~/.ssh/mngr/<host_id>` and `~/.ssh/mngr/<host_id>.pub` [future] (or access to the host is handled by ssh-agent or similar)
 - agent data exists at `$MNGR_AGENT_STATE_DIR` (i.e., `$MNGR_HOST_DIR/agents/$MNGR_AGENT_ID/`)
-- there are `logs` and `events` subdirectories inside `$MNGR_HOST_DIR` and each `$MNGR_AGENT_STATE_DIR` for storing logs and event data
+- there are `logs` and `events` subdirectories inside `$MNGR_HOST_DIR` [future] and each `$MNGR_AGENT_STATE_DIR` for storing logs and event data
 - environment variables for hosts and agents are stored in `$MNGR_HOST_DIR/env` and `$MNGR_AGENT_STATE_DIR/env` respectively
 - IDs are base16-encoded UUID4s
-- Names are human-readable strings that can contain letters, numbers, and hyphens (no underscores, spaces, etc because they are used for DNS)
+- Names are human-readable strings that can contain letters, numbers, and hyphens [future] (no underscores, spaces, etc because they are used for DNS)
 
 `mngr` automatically sets these additional environment variables inside agent tmux sessions:
 
@@ -23,12 +23,3 @@ Unless otherwise specified, `mngr` assumes:
 
 See [environment variables](./concepts/environment_variables.md) for the full list and how to set custom variables.
 
-## TODO
-
-Features described above but not yet fully implemented:
-
-- **Host naming convention**: Enforce `mngr-<host_name>` format for host names (currently only Modal app names use prefix)
-- **Name validation**: Validate that names contain only letters, numbers, and hyphens (currently accepts any non-empty string)
-- **Root user default**: Explicitly set root as default user (CLI has `--user` override but default is unclear)
-- **SSH key storage location**: Implement `~/.ssh/mngr/<host_id>` storage convention across all providers (currently only partial Modal support)
-- **Host logs/events directories**: Create `logs` and `events` subdirectories in `$MNGR_HOST_DIR` (currently only created for agent directories)

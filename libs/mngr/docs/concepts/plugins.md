@@ -7,9 +7,9 @@ Plugins extend `mngr` with new agent types, providers, commands, and behaviors. 
 Only install plugins from sources you trust. Built-in plugins are maintained as part of mngr itself.
 
 ```bash
-mngr plugin list              # Show installed plugins
-mngr plugin add <name>        # Install a plugin (pip/uv install)
-mngr plugin remove <name>     # Uninstall a plugin
+mngr plugin list              # Show installed plugins [future]
+mngr plugin add <name>        # Install a plugin (pip/uv install) [future]
+mngr plugin remove <name>     # Uninstall a plugin [future]
 ```
 
 Plugins can be enabled/disabled without uninstalling:
@@ -26,7 +26,7 @@ mngr create --disable-plugin modal ...
 
 Plugins register callbacks for various events, organized into a few different categories:
 
-### Program lifecycle hooks
+### Program lifecycle hooks [future]
 
 Called at various points in the execution of any `mngr` command:
 
@@ -46,7 +46,7 @@ Called at various points in the execution of any `mngr` command:
 
 Some commands expose additional hooks for finer-grained control. See the documentation of each command for details.
 
-### Host lifecycle Hooks
+### Host lifecycle Hooks [future]
 
 Except for `on_host_collected` (which is called by any command that observes a host), these are mostly called during `mngr create` and `mngr destroy` operations:
 
@@ -70,13 +70,13 @@ Except for `on_host_collected` (which is called by any command that observes a h
 | `on_after_host_destroy`       | After destroying a host                                                             |
 | `get_offline_agent_state`     | Use this to provide state for an offline agent                                      |
 
-Note that we cannot have callbacks for most host lifecycle events because they can happen outside the control of `mngr`. To implement such functionality, you should provision shell scripts into the appropriate location:
+Note that we cannot have callbacks for most host lifecycle events because they can happen outside the control of `mngr`. To implement such functionality, you should provision shell scripts [future] into the appropriate location:
 
 - `$MNGR_HOST_DIR/hooks/boot/`: runs when the host is booted. Blocks service startup until complete.
 - `$MNGR_HOST_DIR/hooks/post_services/`: runs after services have been started. Blocks agent startup until complete.
 - `$MNGR_HOST_DIR/hooks/stop/`: runs when the host is stopped. Blocks stopping until complete.
 
-### Agent lifecycle Hooks
+### Agent lifecycle Hooks [future]
 
 These hooks can be used to customize behavior when interacting with individual agents:
 
@@ -104,11 +104,11 @@ Agent provisioning is handled through methods on the agent class itself, not hoo
 
 To customize provisioning for a new agent type, subclass `BaseAgent` and override these methods. The `ClaudeAgent` class demonstrates this pattern.
 
-If you want to run scripts *whenever* an agent is started (not just the first time), you can put a script in the following hook directory:
+If you want to run scripts *whenever* an agent is started (not just the first time), you can put a script in the following hook directory [future]:
 
 - `$MNGR_AGENT_STATE_DIR/hooks/start/`: runs after an agent is started. Does not block in any way.
 
-### Field Hooks
+### Field Hooks [future]
 
 Called when collecting data for hosts and agents. These allow plugins to compute additional attributes:
 
@@ -129,10 +129,10 @@ Called when collecting data for hosts and agents. These allow plugins to compute
 And for the basic provider backends:
 
 - **local-provider**: Local host backend
-- **docker-provider**: Docker-based host backend
+- **docker-provider** [future]: Docker-based host backend
 - **modal-provider**: Modal cloud host backend
 
-Utility plugins for additional features:
+Utility plugins [future] for additional features:
 
 - **[local_port_forwarding_via_frp_and_nginx](../core_plugins/local_port_forwarding_via_frp_and_nginx.md)**: Expose services via frp and nginx
 - **[default_url_for_cli_agents_via_ttyd](../core_plugins/default_url_for_cli_agents_via_ttyd.md)**: Web terminal access via ttyd
@@ -148,16 +148,4 @@ These are enabled by default but can be disabled like any other plugin.
 
 Plugins are Python packages and use standard dependency management. A plugin can depend on other plugins by listing them as package dependencies.
 
-## TODOs
-
-The following features are documented but not yet fully implemented:
-
-- Plugin management commands: `mngr plugin list/add/remove`
-- Program lifecycle hooks: `on_post_install`, `on_validate_permissions`, `on_startup`, `on_before_<command>`, `on_after_<command>`, `process_command_args`, `on_before_custom_command`, `on_after_custom_command`, `on_error`, `on_shutdown`
-- All host lifecycle hooks (17 hooks including `on_host_collected`, `on_before_host_create`, etc.)
-- All agent lifecycle hooks (8 hooks including `on_agent_collected`, `on_before_agent_create`, etc.)
-- Field hooks: `host_field_generators`, `agent_field_generators`
-- Docker provider backend
-- Utility plugins: `local_port_forwarding_via_frp_and_nginx`, `default_url_for_cli_agents_via_ttyd`, `user_activity_tracking_via_web`, `recursive_modal`, `recursive_mngr`, `offline_mngr_state`, `chat_history`
-- Hook directory script execution from `$MNGR_HOST_DIR/hooks/*` and `$MNGR_AGENT_STATE_DIR/hooks/start/`
-- Wire up defined but uncalled hooks: `on_agent_created`, `on_agent_destroyed`, `on_host_created`, `on_host_destroyed`
+Note: The following hooks are defined but not yet wired up: `on_agent_created`, `on_agent_destroyed`, `on_host_created`, `on_host_destroyed`.

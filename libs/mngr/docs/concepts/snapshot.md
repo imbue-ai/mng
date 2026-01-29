@@ -4,15 +4,15 @@ Snapshots capture the complete filesystem state of a [host](./hosts.md). They en
 
 - **Stop/start**: State is saved when stopping, restored when starting
 - **Backups**: Create manual checkpoints via `mngr snapshot`
-- **Forking**: Create a new agent from an existing one via `mngr copy`
+- **Forking**: Create a new agent from an existing one via `mngr copy` [future]
 
 ## Creating Snapshots
 
-`mngr` creates snapshots automatically when stopping an agent. You can also create them manually:
+`mngr` creates snapshots automatically when stopping an agent [future]. You can also create them manually:
 
 ```bash
-mngr snapshot create --agent my-agent
-mngr snapshot create --agent my-agent --name "before-refactor"
+mngr snapshot create --agent my-agent  # [future]
+mngr snapshot create --agent my-agent --name "before-refactor"  # [future]
 ```
 
 ## Using Snapshots
@@ -20,23 +20,23 @@ mngr snapshot create --agent my-agent --name "before-refactor"
 Snapshots are restored automatically when starting a stopped agent. You can also:
 
 ```bash
-mngr start --snapshot <id>                          # Start from specific snapshot
-mngr create --from-agent my-agent --snapshot <id>   # New agent from snapshot
-mngr copy my-agent new-agent                           # Fork from latest snapshot
+mngr start --snapshot <id>                          # Start from specific snapshot [future]
+mngr create --from-agent my-agent --snapshot <id>   # New agent from snapshot [future]
+mngr copy my-agent new-agent                           # Fork from latest snapshot [future]
 ```
 
 ## Consistency
 
 Snapshot semantics are "hard power off": in-flight writes may not be captured. For databases or other stateful applications, this is usually fine since they're designed to survive power loss.
 
-By default, hosts are stopped during snapshotting to improve consistency. This can be disabled via the `--no-stop-during` flag, but doing so may lead to corrupted files in the snapshot.
+By default, hosts are stopped during snapshotting to improve consistency. This can be disabled via the `--no-stop-during` flag [future], but doing so may lead to corrupted files in the snapshot.
 
 ## Provider Support
 
 Snapshot support varies by [provider](./providers.md):
 
 - **Local**: Not supported
-- **Docker**: `docker commit` (incremental relative to container start, can be slow for large containers)
+- **Docker** [future]: `docker commit` (incremental relative to container start, can be slow for large containers)
 - **Modal**: Native snapshots (fast, fully incremental since the last snapshot)
 
 ## Managing Snapshots
@@ -44,22 +44,9 @@ Snapshot support varies by [provider](./providers.md):
 List and clean up snapshots:
 
 ```bash
-mngr snapshot list --agent my-agent
-mngr snapshot destroy --agent my-agent --snapshot-id <id>
+mngr snapshot list --agent my-agent  # [future]
+mngr snapshot destroy --agent my-agent --snapshot-id <id>  # [future]
 ```
 
 See [`mngr snapshot`](../commands/secondary/snapshot.md) for all options.
 
-## TODOs
-
-The following features described in this document are not yet implemented:
-
-- `mngr snapshot create` - Manual snapshot creation command
-- `mngr snapshot list` - List snapshots command
-- `mngr snapshot destroy` - Delete snapshots command
-- `mngr start` - Start command with `--snapshot` flag support
-- `mngr stop` - Stop command with automatic snapshot creation
-- `mngr copy` - Fork/copy command to create new agent from existing one
-- `--no-stop-during` flag for snapshot creation
-- Docker provider snapshot support
-- `--snapshot` flag in `mngr create --from-agent` (flag exists but not functional)

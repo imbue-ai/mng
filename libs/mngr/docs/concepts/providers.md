@@ -9,24 +9,24 @@ There are some built-in provider instances (`local` and `local_docker`), but you
 ```toml
 [[providers]]
 name = "my-aws-prod"
-backend = "aws"
+backend = "aws"  # [future]
 region = "us-east-1"
 profile = "production"
 
 [[providers]]
 name = "my-aws-dev"
-backend = "aws"
+backend = "aws"  # [future]
 region = "us-west-2"
 profile = "development"
 
 [[providers]]
 name = "remote-docker"
-backend = "docker"
+backend = "docker"  # [future]
 host = "ssh://user@server"
 
 [[providers]]
 name = "team-mngr"
-backend = "mngr"
+backend = "mngr"  # [future]
 url = "https://mngr.internal.company.com"
 ```
 
@@ -36,7 +36,7 @@ url = "https://mngr.internal.company.com"
 
 A special provider instance that is always available. Runs agents directly on your machine with no isolation. Automatically available--no configuration required.
 
-### local_docker
+### local_docker [future]
 
 Runs agents in Docker containers on your local machine. Automatically available as long as `docker` is installed.
 
@@ -65,14 +65,5 @@ This helps ensure that such state could be accessed by other (remote) `mngr` ins
 It also helps to keep `mngr` stateless (`mngr` should reconstruct the necessary state for any given command by querying provider instances, which then load the remote state).
 
 This state storage is typically accomplished via tags, remote disks/volumes, and other provider-specific metadata storage.
-
-## TODOs
-
-The following features described in this document are not yet implemented:
-
-- **local_docker** built-in provider instance
-- **AWS** provider backend (shown in configuration examples)
-- **Docker** provider backend for remote Docker hosts
-- **mngr** provider backend for remote mngr instances
 
 Note: The **modal** provider backend is implemented but not documented here.

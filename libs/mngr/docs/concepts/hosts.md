@@ -16,7 +16,7 @@ A host contains:
 - **processes**:
   - **agent processes**: the main programs that count as agents (Claude, Codex, etc.) — one per agent, each in its own tmux session
   - **sshd**: (remote only) the SSH server (one per host)
-  - **...any other services** started by plugins during provisioning (or later by agents themselves). Ex: nginx, frpc, ttyd, etc.
+  - **...any other services** started by plugins during provisioning (or later by agents themselves). Ex: nginx [future], frpc [future], ttyd [future], etc.
 
 Host-level processes (nginx, frpc, sshd, ttyd) are started when the host starts.
 Agent processes and their tmux sessions are created when an agent is created or started.
@@ -31,7 +31,7 @@ Remote hosts may be run in the cloud (Modal), a Docker container (which can be l
 
 ## Lifecycle
 
-The rough state diagram looks like this:
+The rough state diagram looks like this (state transitions [future] - only `running` and `stopped` currently checked):
 
 ```
 building  →  starting   →  running  →  stopping  →  stopped
@@ -46,7 +46,7 @@ building  →  starting   →  running  →  stopping  →  stopped
 | **running**   | While any agent is running and considered active                                 |
 | **stopping**  | When all agents become idle, the host is stopped (snapshotted, host shut down)   |
 | **stopped**   | Shut down but restartable (only consuming storage)                               |
-| **failed**    | Something went wrong before the host could be created                            |
+| **failed** [future]    | Something went wrong before the host could be created                            |
 | **destroyed** | Host gone, resources freed                                                       |
 
 Transitional states have configurable timeouts. If exceeded, hosts auto-transition to `failed`, `stopped`, or `destroyed` (as appropriate).
@@ -74,7 +74,7 @@ The high-level steps when creating a new host are:
 
 When starting a stopped host, steps 1-4 are skipped (the host already exists and has the files it needs).
 
-`mngr` allows specifying hosts via the [devcontainer](https://containers.dev/implementors/spec/) format. This allows you to define lifecycle hooks that run during startup:
+`mngr` allows specifying hosts via the [devcontainer](https://containers.dev/implementors/spec/) format. This allows you to define lifecycle hooks [future] that run during startup:
 
 1. `initializeCommand`: runs before step 1 above. Runs on the local machine where `mngr` is running.
 2. `onCreateCommand`: runs after step 1 above. Runs inside the host.
@@ -98,8 +98,8 @@ Once a host becomes idle, it transitions to the `stopping` state.
 
 Stopping is triggered by any of the following:
 
-1. A script that is injected and started during host startup (which periodically checks for idleness, and stops the host when idle)
-2. The `mngr enforce` command (as a backup in case the inner script has failed)
+1. A script that is injected and started during host startup (which periodically checks for idleness, and stops the host when idle) [future]
+2. The `mngr enforce` command [future] (as a backup in case the inner script has failed)
 3. The user manually stopping the host via `mngr stop`
 
 When a host is "stopping", it performs these steps:
@@ -136,12 +136,3 @@ See [host spec](../../specs/host.md) for the properties of hosts and their stora
 
 See [`imbue/mngr/interfaces/host.py`](../../imbue/mngr/interfaces/host.py) for the host data structures.
 
-## TODOs
-
-The following features described above are not yet implemented:
-
-- **Lifecycle state transitions**: States `building`, `starting`, `stopping`, and `failed` are defined but not actively managed. Only `running` and `stopped` states are currently checked.
-- **Devcontainer lifecycle hooks**: The `initializeCommand`, `onCreateCommand`, `updateContentsCommand`, `postCreateCommand`, and `postStartCommand` hooks are documented but not implemented.
-- **Automatic stopping mechanisms**: The injected script that periodically checks for idleness and the `mngr enforce` command are not implemented. Only manual stopping via `stop_agents()` works.
-- **Host-level services**: Only `sshd` is implemented (Modal only). The `nginx`, `frpc`, and `ttyd` services mentioned in the docs are not started.
-- **FAILED state**: Documented in the lifecycle but not defined in the `HostState` enum.

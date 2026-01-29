@@ -24,19 +24,12 @@ Each provider backend has different trade-offs:
 **When to use each:**
 
 - **Local**: Fast iteration with trusted agents. No overhead, but no isolation.
-- **Docker**: Isolation without cloud costs. Good for untrusted agents on your machine.
+- **Docker** [future]: Isolation without cloud costs. Good for untrusted agents on your machine.
 - **Modal**: Full isolation in the cloud. Best for untrusted agents or long-running work. Access from anywhere.
 
 ## Custom Provider Backends
 
-Browse [100's of additional plugins](http://imbue.com/mngr/plugins) for other provider backends (like AWS, GCP, Kubernetes, etc.).
+Browse [100's of additional plugins](http://imbue.com/mngr/plugins) [future] for other provider backends (like AWS [future], GCP, Kubernetes, etc.).
 
 You can also create custom plugins to register additional provider backends by calling `register_provider_backend(...)` in the plugin's `on_startup` hook
 
-## TODOs
-
-The following features described above are not yet implemented:
-
-- **Docker backend**: Configuration class exists but no backend implementation (snapshots, resource limits, GPU support all missing)
-- **AWS backend**: Mentioned in plugin examples but no implementation exists
-- **Plugin browsing**: Link to plugin repository (http://imbue.com/mngr/plugins) returns 404

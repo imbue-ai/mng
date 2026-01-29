@@ -1,17 +1,17 @@
 # Idle Detection
 
-Hosts are automatically stopped when idle to save resources (critical for cloud providers where running agents cost money).
+Hosts are automatically stopped [future] when idle to save resources (critical for cloud providers where running agents cost money).
 
 A host is considered "idle" if there has been no "activity" for a configured timeout period. If multiple agents share a host, activity from any agent may keep the host running.
 
-What counts as "activity" is highly configurable. Run `mngr limit --help` to see the available flags.
+What counts as "activity" is highly configurable. Run `mngr limit --help` [future] to see the available flags.
 
 Any of the following can be considered activity:
 
-- user input like keystrokes (terminal and web) and mouse movement (web). Requires accessing the agent via `mngr connect` (terminal) or `mngr open` (web), or using the `user_activity_tracking_via_web` plugin (enabled by default). See [User Input Tracking](#user-input-tracking) below for details.
+- user input [future] like keystrokes (terminal and web) and mouse movement (web). Requires accessing the agent via `mngr connect` (terminal) or `mngr open` [future] (web), or using the `user_activity_tracking_via_web` plugin (enabled by default). See [User Input Tracking](#user-input-tracking) below for details.
 - agent output (supported by most agents)
-- active SSH connections
-- agent process being alive
+- active SSH connections [future]
+- agent process being alive [future]
 - host creation
 - host startup
 
@@ -40,7 +40,7 @@ Only the following activity reports are trustworthy:
 Everything else can be manipulated by a malicious or buggy agent (including e.g. changing the clock).
 
 This means that, if running an untrusted agent, you should only use the "create" or "boot" idle modes to ensure that the agent cannot prevent stopping by faking activity.
-In such a case, it's important to periodically run `mngr enforce` as well (to ensure that, even if the idle detection script is killed, the host will still be stopped when idle).
+In such a case, it's important to periodically run `mngr enforce` [future] as well (to ensure that, even if the idle detection script is killed, the host will still be stopped when idle).
 
 ## User Input Tracking
 
@@ -77,15 +77,4 @@ TIME_MS=$(($(date +%s) * 1000))
 printf '{\n  "time": %d\n}\n' "$TIME_MS" > "$MNGR_HOST_DIR/activity/user"
 ```
 
-## TODOs
-
-The following features are documented above but not yet implemented:
-
-- **Automatic host stopping**: No logic monitors idle time or stops hosts when timeout is exceeded
-- **`mngr limit` command**: Command to configure idle detection settings
-- **`mngr enforce` command**: Command to check and enforce idle timeouts
-- **`mngr open` command**: Command to open agent URLs in browser with activity tracking
-- **User activity tracking**: Neither terminal keystroke tracking (`mngr connect`) nor web-based tracking (`user_activity_tracking_via_web` plugin) are implemented
-- **SSH connection tracking**: No monitoring of active SSH connections
-- **Agent process monitoring**: `ActivitySource.PROCESS` is not checked
-- **Lifecycle options application**: `--idle-mode`, `--idle-timeout`, and `--activity-sources` flags in `mngr create` are parsed but never applied to the host
+Note: The `--idle-mode`, `--idle-timeout`, and `--activity-sources` flags in `mngr create` are parsed but not yet applied to the host [future].

@@ -21,7 +21,7 @@ Agent types include any program in your PATH, as well as types registered by [pl
 - Command to run (e.g., `claude`, `codex`)
 - Environment variables (API keys, model selection, feature flags)
 - Provisioning steps (install Node.js, configure auth)
-- Default settings (idle timeout, activity mode)
+- Default settings (idle timeout, activity mode) [future]
 - CLI arguments (additional flags for `mngr create`)
 
 ## Resolution
@@ -42,9 +42,9 @@ Define a custom type in your config (run `mngr config edit`):
 
 ```toml
 [agent_types.my_claude]
-parent_type = "claude"
+parent_type = "claude"  # [future] inheritance resolution not implemented
 cli_args = "--env CLAUDE_MODEL=opus"
-permissions = ["github"]
+permissions = ["github"]  # [future] permissions field parsed but not applied
 ```
 
 Then use it like any built-in type:
@@ -81,16 +81,8 @@ Use a [plugin](./plugins.md) when you need to:
 Agent types come from installed plugins and your config:
 
 ```bash
-mngr plugin list    # Shows plugins and what types they provide
+mngr plugin list    # Shows plugins and what types they provide [future]
 ```
 
 Built-in plugins provide `claude` and `codex` by default.
 
-## TODOs
-
-The following features described in this document are not yet fully implemented:
-
-- **`parent_type` inheritance**: Custom types can define `parent_type` in config, but inheritance resolution is not implemented
-- **`permissions` from custom types**: The `permissions` field is parsed but not applied to agents during creation (currently hardcoded to empty list)
-- **Default settings**: Lifecycle options like `idle_timeout` and `activity_mode` are parsed from CLI but not applied to running agents
-- **`mngr plugin list` command**: No CLI command exists to discover available agent types from plugins (registry exists internally but not exposed)
