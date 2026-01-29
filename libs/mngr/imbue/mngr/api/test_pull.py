@@ -11,6 +11,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.pull import UncommittedChangesError
 from imbue.mngr.api.pull import pull_files
+from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import HostInterface
@@ -68,7 +69,7 @@ def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
         text=True,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr}")
+        raise MngrError(f"git {' '.join(args)} failed: {result.stderr}")
     return result
 
 
@@ -371,6 +372,86 @@ def test_pull_files_stash_mode_when_both_agent_and_host_modify_same_file(
     # The stash should contain the host's version
     stash_count = _get_stash_count(host_dir)
     assert stash_count == 1
+
+
+def test_pull_files_stash_mode_stashes_untracked_files(
+    tmp_path: Path,
+) -> None:
+    """Test that STASH mode properly stashes untracked files (not just tracked modifications)."""
+    unique = _unique_name()
+    agent_dir = tmp_path / f"agent_{unique}"
+    host_dir = tmp_path / f"host_{unique}"
+
+    # Set up agent directory
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent_file.txt").write_text("agent content")
+
+    # Set up host with an UNTRACKED file (not a modification to a tracked file)
+    # git status --porcelain includes untracked files, so this counts as uncommitted changes
+    _init_git_repo(host_dir)
+    (host_dir / "untracked_file.txt").write_text("untracked content")
+    initial_stash_count = _get_stash_count(host_dir)
+    assert _has_uncommitted_changes(host_dir)
+
+    # Perform the pull with STASH mode
+    agent = _create_agent(agent_dir)
+    host = _create_host()
+    pull_files(
+        agent=agent,
+        host=host,
+        destination=host_dir,
+        uncommitted_changes=UncommittedChangesMode.STASH,
+    )
+
+    # Verify the stash was created (untracked file should be stashed with -u flag)
+    final_stash_count = _get_stash_count(host_dir)
+    assert final_stash_count == initial_stash_count + 1
+
+    # The untracked file should no longer exist (it's in the stash)
+    assert not (host_dir / "untracked_file.txt").exists()
+
+    # The agent file should be transferred
+    assert (host_dir / "agent_file.txt").read_text() == "agent content"
+
+
+def test_pull_files_merge_mode_restores_untracked_files(
+    tmp_path: Path,
+) -> None:
+    """Test that MERGE mode properly stashes and restores untracked files."""
+    unique = _unique_name()
+    agent_dir = tmp_path / f"agent_{unique}"
+    host_dir = tmp_path / f"host_{unique}"
+
+    # Set up agent directory
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent_file.txt").write_text("agent content")
+
+    # Set up host with an UNTRACKED file
+    _init_git_repo(host_dir)
+    (host_dir / "untracked_file.txt").write_text("untracked content")
+    initial_stash_count = _get_stash_count(host_dir)
+    assert _has_uncommitted_changes(host_dir)
+
+    # Perform the pull with MERGE mode
+    agent = _create_agent(agent_dir)
+    host = _create_host()
+    pull_files(
+        agent=agent,
+        host=host,
+        destination=host_dir,
+        uncommitted_changes=UncommittedChangesMode.MERGE,
+    )
+
+    # Verify the stash was created and popped (count should be same)
+    final_stash_count = _get_stash_count(host_dir)
+    assert final_stash_count == initial_stash_count
+
+    # The untracked file should be restored
+    assert (host_dir / "untracked_file.txt").exists()
+    assert (host_dir / "untracked_file.txt").read_text() == "untracked content"
+
+    # The agent file should also be transferred
+    assert (host_dir / "agent_file.txt").read_text() == "agent content"
 
 
 def test_pull_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
