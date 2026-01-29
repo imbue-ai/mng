@@ -88,7 +88,10 @@ def connect_to_agent(
             ssh_args.extend(["-o", "StrictHostKeyChecking=no"])
             ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
         else:
-            raise MngrError("You must specify a known_hosts file to connect to this host securely.")
+            raise MngrError(
+            "You must specify a known_hosts file to connect to this host securely. "
+            "Alternatively, use --allow-unknown-host to bypass SSH host key verification."
+        )
 
         if ssh_user:
             ssh_args.append(f"{ssh_user}@{ssh_host}")
