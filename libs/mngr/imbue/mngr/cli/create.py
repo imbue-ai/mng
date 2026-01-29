@@ -951,8 +951,7 @@ def _parse_agent_opts(
         pass_env_vars=opts.pass_agent_env,
     )
 
-    # Parse agent lifecycle options (only agent-level options, not host-level)
-    # Host-level options (idle_timeout, idle_mode, activity_sources) are handled in _parse_host_lifecycle_options
+    # Parse agent lifecycle options
     lifecycle = AgentLifecycleOptions(
         is_start_on_boot=opts.start_on_boot,
     )
