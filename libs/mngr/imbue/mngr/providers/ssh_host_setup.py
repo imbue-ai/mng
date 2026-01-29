@@ -56,36 +56,34 @@ def build_check_and_install_packages_command(
         "if ! test -x /usr/sbin/sshd; then "
         f"echo '{WARNING_PREFIX}openssh-server is not pre-installed in the base image. "
         "Installing at runtime. For faster startup, consider using an image with openssh-server pre-installed.'; "
-        "PKGS_TO_INSTALL=\"$PKGS_TO_INSTALL openssh-server\"; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL openssh-server"; '
         "fi",
         # Check for tmux
         "if ! command -v tmux >/dev/null 2>&1; then "
         f"echo '{WARNING_PREFIX}tmux is not pre-installed in the base image. "
         "Installing at runtime. For faster startup, consider using an image with tmux pre-installed.'; "
-        "PKGS_TO_INSTALL=\"$PKGS_TO_INSTALL tmux\"; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL tmux"; '
         "fi",
         # Check for curl
         "if ! command -v curl >/dev/null 2>&1; then "
         f"echo '{WARNING_PREFIX}curl is not pre-installed in the base image. "
         "Installing at runtime. For faster startup, consider using an image with curl pre-installed.'; "
-        "PKGS_TO_INSTALL=\"$PKGS_TO_INSTALL curl\"; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL curl"; '
         "fi",
         # Check for rsync
         "if ! command -v rsync >/dev/null 2>&1; then "
         f"echo '{WARNING_PREFIX}rsync is not pre-installed in the base image. "
         "Installing at runtime. For faster startup, consider using an image with rsync pre-installed.'; "
-        "PKGS_TO_INSTALL=\"$PKGS_TO_INSTALL rsync\"; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL rsync"; '
         "fi",
         # Check for git
         "if ! command -v git >/dev/null 2>&1; then "
         f"echo '{WARNING_PREFIX}git is not pre-installed in the base image. "
         "Installing at runtime. For faster startup, consider using an image with git pre-installed.'; "
-        "PKGS_TO_INSTALL=\"$PKGS_TO_INSTALL git\"; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL git"; '
         "fi",
         # Install missing packages if any
-        "if [ -n \"$PKGS_TO_INSTALL\" ]; then "
-        "apt-get update -qq && apt-get install -y -qq $PKGS_TO_INSTALL; "
-        "fi",
+        'if [ -n "$PKGS_TO_INSTALL" ]; then apt-get update -qq && apt-get install -y -qq $PKGS_TO_INSTALL; fi',
         # Create sshd run directory (required for sshd to start)
         "mkdir -p /run/sshd",
         # Create mngr host directory

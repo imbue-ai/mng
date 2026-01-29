@@ -277,7 +277,9 @@ def delete_modal_volumes_in_environment(environment_name: str) -> None:
                     )
                     logger.debug("Deleted Modal volume {} in environment {}", volume_name, environment_name)
                 except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
-                    logger.warning("Failed to delete Modal volume {} in environment {}: {}", volume_name, environment_name, e)
+                    logger.warning(
+                        "Failed to delete Modal volume {} in environment {}: {}", volume_name, environment_name, e
+                    )
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError) as e:
         logger.warning("Failed to list/delete Modal volumes in environment {}: {}", environment_name, e)
 
