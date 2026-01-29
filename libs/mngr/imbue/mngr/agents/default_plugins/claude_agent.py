@@ -120,7 +120,7 @@ class ClaudeAgent(BaseAgent):
         args_str = " ".join(additional_args) if additional_args else ""
 
         # Build both command variants
-        resume_cmd = f"find ~/.claude/ -name '{agent_uuid}' && {base} --resume {agent_uuid}"
+        resume_cmd = f"( find ~/.claude/ -name '{agent_uuid}' | grep . ) && {base} --resume {agent_uuid}"
         create_cmd = f"{base} --session-id {agent_uuid}"
 
         # Append additional args to both commands if present
