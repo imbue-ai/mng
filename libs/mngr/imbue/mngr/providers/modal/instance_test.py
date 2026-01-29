@@ -15,6 +15,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any
 from typing import Generator
+from typing import TypeVar
 from typing import cast
 from unittest.mock import MagicMock
 
@@ -144,56 +145,6 @@ def test_build_and_parse_sandbox_tags_roundtrip() -> None:
     assert parsed_user_tags == user_tags
 
 
-def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
-    """Create a ModalProviderInstance with mocked Modal dependencies for unit tests.
-
-    Uses model_construct() to bypass Pydantic validation, allowing MagicMock objects
-    to be used in place of real modal.App and modal.Volume instances.
-    """
-    mock_app = MagicMock()
-    mock_app.app_id = "mock-app-id"
-    mock_app.name = app_name
-
-    mock_volume = MagicMock()
-    output_buffer = StringIO()
-
-    # Create a mock environment name for testing
-    mock_environment_name = f"test-env-{app_name}"
-
-    # Create ModalProviderApp using model_construct to skip validation
-    modal_app = ModalProviderApp.model_construct(
-        app_name=app_name,
-        environment_name=mock_environment_name,
-        app=mock_app,
-        volume=mock_volume,
-        close_callback=MagicMock(),
-        get_output_callback=output_buffer.getvalue,
-    )
-
-    # Create config for the provider instance
-    # Set is_persistent=False for testing to enable cleanup
-    # Set is_snapshotted_after_create=False to speed up tests (no initial snapshot)
-    config = ModalProviderConfig(
-        app_name=app_name,
-        host_dir=Path("/mngr"),
-        default_timeout=300,
-        default_cpu=0.5,
-        default_memory=0.5,
-        is_persistent=False,
-        is_snapshotted_after_create=False,
-    )
-
-    # Create ModalProviderInstance using model_construct to skip validation
-    instance = ModalProviderInstance.model_construct(
-        name=ProviderInstanceName("modal-test"),
-        host_dir=Path("/mngr"),
-        mngr_ctx=mngr_ctx,
-        config=config,
-        modal_app=modal_app,
-    )
-    return instance
-
-
 class UnauthorizedModalProviderInstance(ModalProviderInstance):
     """Test subclass that always reports as unauthorized.
 
@@ -220,52 +171,19 @@ class ExpiredCredentialsModalProviderInstance(ModalProviderInstance):
         raise modal.exception.AuthError("Token missing or expired")
 
 
-def make_unauthorized_modal_provider(mngr_ctx: MngrContext, app_name: str) -> UnauthorizedModalProviderInstance:
-    """Create an UnauthorizedModalProviderInstance for testing authorization checks."""
-    mock_app = MagicMock()
-    mock_app.app_id = "mock-app-id"
-    mock_app.name = app_name
-
-    mock_volume = MagicMock()
-    output_buffer = StringIO()
-    mock_environment_name = f"test-env-{app_name}"
-
-    modal_app = ModalProviderApp.model_construct(
-        app_name=app_name,
-        environment_name=mock_environment_name,
-        app=mock_app,
-        volume=mock_volume,
-        close_callback=MagicMock(),
-        get_output_callback=output_buffer.getvalue,
-    )
-
-    config = ModalProviderConfig(
-        app_name=app_name,
-        host_dir=Path("/mngr"),
-        default_timeout=300,
-        default_cpu=0.5,
-        default_memory=0.5,
-        is_persistent=False,
-        is_snapshotted_after_create=False,
-    )
-
-    instance = UnauthorizedModalProviderInstance.model_construct(
-        name=ProviderInstanceName("modal-test-unauthorized"),
-        host_dir=Path("/mngr"),
-        mngr_ctx=mngr_ctx,
-        config=config,
-        modal_app=modal_app,
-    )
-    return instance
+_T = TypeVar("_T", bound=ModalProviderInstance)
 
 
-def make_expired_credentials_modal_provider(
-    mngr_ctx: MngrContext, app_name: str
-) -> ExpiredCredentialsModalProviderInstance:
-    """Create an ExpiredCredentialsModalProviderInstance for testing AuthError handling.
+def _make_modal_provider_with_mocks(
+    mngr_ctx: MngrContext,
+    app_name: str,
+    provider_cls: type[_T],
+    instance_name: str,
+) -> _T:
+    """Create a ModalProviderInstance subclass with mocked Modal dependencies for unit tests.
 
-    This creates a provider that reports as authorized (credentials exist) but
-    raises modal.exception.AuthError when API calls are made (credentials invalid).
+    Uses model_construct() to bypass Pydantic validation, allowing MagicMock objects
+    to be used in place of real modal.App and modal.Volume instances.
     """
     mock_app = MagicMock()
     mock_app.app_id = "mock-app-id"
@@ -294,14 +212,35 @@ def make_expired_credentials_modal_provider(
         is_snapshotted_after_create=False,
     )
 
-    instance = ExpiredCredentialsModalProviderInstance.model_construct(
-        name=ProviderInstanceName("modal-test-expired"),
+    instance = provider_cls.model_construct(
+        name=ProviderInstanceName(instance_name),
         host_dir=Path("/mngr"),
         mngr_ctx=mngr_ctx,
         config=config,
         modal_app=modal_app,
     )
     return instance
+
+
+def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
+    """Create a ModalProviderInstance with mocked Modal dependencies for unit tests."""
+    return _make_modal_provider_with_mocks(mngr_ctx, app_name, ModalProviderInstance, "modal-test")
+
+
+def make_unauthorized_modal_provider(mngr_ctx: MngrContext, app_name: str) -> UnauthorizedModalProviderInstance:
+    """Create an UnauthorizedModalProviderInstance for testing authorization checks."""
+    return _make_modal_provider_with_mocks(
+        mngr_ctx, app_name, UnauthorizedModalProviderInstance, "modal-test-unauthorized"
+    )
+
+
+def make_expired_credentials_modal_provider(
+    mngr_ctx: MngrContext, app_name: str
+) -> ExpiredCredentialsModalProviderInstance:
+    """Create an ExpiredCredentialsModalProviderInstance for testing AuthError handling."""
+    return _make_modal_provider_with_mocks(
+        mngr_ctx, app_name, ExpiredCredentialsModalProviderInstance, "modal-test-expired"
+    )
 
 
 def make_modal_provider_real(
