@@ -146,9 +146,6 @@ def list_agents(
     """List all agents with optional filtering."""
     result = ListResult()
 
-    if provider_names:
-        raise NotImplementedError("Provider filtering not implemented yet")
-
     # Compile CEL filters if provided
     # Note: compilation errors always abort - bad filters should never silently continue
     compiled_include_filters: list[Any] = []
@@ -162,9 +159,10 @@ def list_agents(
 
     try:
         # Get all provider instances and iterate directly through them
-        # This avoids redundant calls that load_all_agents_grouped_by_host would cause
+        # When provider_names is specified, only those providers are initialized,
+        # which avoids expensive initialization of unused providers (e.g., Modal)
         logger.debug("Loading agents from all providers")
-        providers = get_all_provider_instances(mngr_ctx)
+        providers = get_all_provider_instances(mngr_ctx, provider_names=provider_names)
         logger.trace("Found {} provider instances", len(providers))
 
         # Process each provider -> host -> agent directly
