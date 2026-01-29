@@ -28,7 +28,7 @@ Or use the `--agent-type` option:
 mngr create my-agent --agent-type claude
 ```
 
-Any command in your PATH can also be used as an agent type:
+Any command in your PATH can also be used as an agent type [future]:
 
 ```bash
 mngr create my-agent ./my-script
@@ -45,17 +45,10 @@ mngr config edit
 
 ```toml
 [agent_types.my_claude]
-parent_type = "claude"
+parent_type = "claude"  # [future] inheritance not yet active
 cli_args = "--env CLAUDE_MODEL=opus"
-permissions = ["github"]
+permissions = ["github"]  # [future] not yet enforced
 ```
 
 For more details, see [Agent Types](./concepts/agent_types.md).
 
-## TODOs
-
-The following features are documented but not yet fully implemented:
-
-- **Parent type inheritance**: The `parent_type` field is stored in config but not actively resolved. Custom agent types don't inherit properties from their parent types yet (see `create_agent_state()` in `hosts/host.py`).
-- **PATH commands as agent types**: Commands from PATH cannot be used directly as agent types. The system doesn't check `PATH` for unknown agent types (no `shutil.which()` resolution).
-- **Permission enforcement for custom types**: The `permissions` field in custom agent types is stored but not enforced during agent creation.

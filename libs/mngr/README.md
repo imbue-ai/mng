@@ -81,27 +81,27 @@ mngr <command> [options]
 - **[`create`](docs/commands/primary/create.md)**: (default) Create and run an agent in a host
 - [`list`](docs/commands/primary/list.md): List active agents
 - [`connect`](docs/commands/primary/connect.md): Attach to an agent
-- [`open`](docs/commands/primary/open.md): Open a URL from an agent in your browser
-- [`stop`](docs/commands/primary/stop.md): Stop an agent
-- [`start`](docs/commands/primary/start.md): Start a stopped agent
-- [`snapshot`](docs/commands/secondary/snapshot.md): Create a snapshot of a host's state
+- [`open`](docs/commands/primary/open.md) [future]: Open a URL from an agent in your browser
+- [`stop`](docs/commands/primary/stop.md) [future]: Stop an agent
+- [`start`](docs/commands/primary/start.md) [future]: Start a stopped agent
+- [`snapshot`](docs/commands/secondary/snapshot.md) [future]: Create a snapshot of a host's state
 - [`destroy`](docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
-- [`clone`](docs/commands/aliases/clone.md): Create a copy of an existing agent
-- [`migrate`](docs/commands/aliases/migrate.md): Move an agent to a different host
-- [`limit`](docs/commands/secondary/limit.md): (Re)set resource limits for an agent
+- [`clone`](docs/commands/aliases/clone.md) [future]: Create a copy of an existing agent
+- [`migrate`](docs/commands/aliases/migrate.md) [future]: Move an agent to a different host
+- [`limit`](docs/commands/secondary/limit.md) [future]: (Re)set resource limits for an agent
 
 ### For moving data in and out:
 
 - [`pull`](docs/commands/primary/pull.md): Pull data from agent
-- [`push`](docs/commands/primary/push.md): Push data to agent
-- [`pair`](docs/commands/primary/pair.md): Continually sync data with an agent
+- [`push`](docs/commands/primary/push.md) [future]: Push data to agent
+- [`pair`](docs/commands/primary/pair.md) [future]: Continually sync data with an agent
 - [`message`](docs/commands/secondary/message.md): Send a message to an agent
-- [`provision`](docs/commands/secondary/provision.md): Re-run provisioning on an agent (useful for syncing config and auth)
+- [`provision`](docs/commands/secondary/provision.md) [future]: Re-run provisioning on an agent (useful for syncing config and auth)
 
 ### For managing mngr itself:
 
-- [`ask`](docs/commands/secondary/ask.md): Chat with mngr for help
-- [`plugin`](docs/commands/secondary/plugin.md): Manage mngr plugins
+- [`ask`](docs/commands/secondary/ask.md) [future]: Chat with mngr for help
+- [`plugin`](docs/commands/secondary/plugin.md) [future]: Manage mngr plugins
 - [`config`](docs/commands/secondary/config.md): View and edit mngr configuration
 
 ## Examples
@@ -156,28 +156,3 @@ See [`./docs/security_model.md`](./docs/security_model.md) for more details on o
 ## Contributing
 
 Contributions are welcome! Please see [`CONTRIBUTING.md`](/CONTRIBUTING.md) for guidelines.
-
-## TODOs
-
-**Not implemented (commands in README but no code):**
-- `open` - Open agent URLs in browser
-- `stop` - Stop running agents (backend exists, no CLI)
-- `start` - Start stopped agents (backend exists, no CLI)
-- `snapshot` - Create/list/delete snapshots (backend exists, no CLI)
-- `clone` - Clone existing agents
-- `migrate` - Move agents between hosts
-- `limit` - Set resource limits
-- `push` - Push data to agents
-- `pair` - Continuous sync with agents
-- `provision` - Re-run provisioning (as standalone command)
-- `ask` - Chat with mngr for help
-- `plugin` - Manage plugins (system exists, no CLI)
-
-**Partial implementations:**
-- `list` - Missing --running, --stopped, --local, --remote convenience flags, watch mode, custom field selection
-- `connect` - Local agents only; missing remote agent support, --message flags, --attach-command option
-- `pull` - Local agents only; missing remote support, --exclude patterns, state/full sync modes (only files mode works)
-- `create` - Missing --snapshot source agent functionality
-
-**Providers:**
-- Docker provider - Spec exists but no implementation

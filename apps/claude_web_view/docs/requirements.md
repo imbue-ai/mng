@@ -65,10 +65,10 @@ Messages contain arrays of typed content blocks. Note, these are Sculptor-specif
 - `TextBlock` - Markdown text content
 - `ToolUseBlock` - Tool invocation with name and input parameters
 - `ToolResultBlock` - Tool execution output
-- `ErrorBlock` - Error messages with traceback
-- `WarningBlock` - Warning messages
-- `ContextSummaryBlock` - Compaction summaries
-- `FileBlock` - Attached files/images
+- `ErrorBlock` [future] - Error messages with traceback
+- `WarningBlock` [future] - Warning messages
+- `ContextSummaryBlock` [future] - Compaction summaries
+- `FileBlock` [future] - Attached files/images
 
 ### Sculptor Chat UI Reference
 
@@ -159,7 +159,7 @@ ClaudeWebView/
 
 ### Runtime Flow
 
-1. User runs `claudewebview --session-id <uuid>` or `claudewebview --latest`
+1. User runs `claudewebview --session-id <uuid>` or `claudewebview --latest` [future]
 2. Python CLI locates the transcript file
 3. FastAPI server starts, serving the pre-built React frontend
 4. CLI prints URL
@@ -170,22 +170,7 @@ ClaudeWebView/
 
 ---
 
-## TODO - Not Yet Implemented
-
-### CLI Features
-- `--latest` flag to automatically view the most recent session
+Note: The following features are planned but not yet documented elsewhere:
 - Session listing/discovery functionality
-
-### Content Block Types
-The following content block types mentioned in Technical Context are not yet parsed or rendered:
-- `ErrorBlock` - Separate error block type (currently using `is_error` flag in ToolResultBlock)
-- `WarningBlock` - Warning messages
-- `ContextSummaryBlock` - Conversation compaction summaries
-- `FileBlock` - Attached files/images in messages
-
-### UI Features
-- Display attached files/images in message content
 - Session cost and duration summary display (data is in transcript but not shown in UI)
-
-### Build/Distribution
 - Frontend must be built (`npm run build` in frontend/) to create frontend-dist directory before the app can run

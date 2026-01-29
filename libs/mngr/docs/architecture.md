@@ -20,7 +20,7 @@ Agents fully contain their own state.
 
 This means no database, no state corruption, and multiple `mngr` instances can manage the same agents.
 
-Some interactions are gated via cooperative locking (using `flock` on known lock files) to avoid race conditions. See [locking spec](../specs/locking.md) for details.
+Some interactions are gated via cooperative locking [future] (using `flock` on known lock files) to avoid race conditions. See [locking spec](../specs/locking.md) for details.
 
 ## Conventions
 
@@ -33,11 +33,11 @@ See the [conventions doc](./conventions.md) for full details.
 ## Responsibilities
 
 mngr is responsible for:
-- implementing the [core CLI commands](../README.md) (create, connect, stop, list, push, pull, pair, etc.)
-- enforcing the [host lifecycle](./concepts/hosts.md#Lifecycle), including automatically stopping a host when all its agents are idle
+- implementing the [core CLI commands](../README.md) (create, connect, stop [future], list, push [future], pull, pair [future], etc.)
+- enforcing the [host lifecycle](./concepts/hosts.md#Lifecycle) [future], including automatically stopping a host when all its agents are idle
 - configuring/enabling/disabling [plugins](./concepts/plugins.md)
-- handling [permissions](./concepts/permissions.md) for remote hosts
-- detecting hangs and failures (via the [`mngr enforce` command](./commands/secondary/enforce.md))
+- handling [permissions](./concepts/permissions.md) [future] for remote hosts
+- detecting hangs and failures (via the [`mngr enforce` command](./commands/secondary/enforce.md) [future])
 
 ## Multi-user support
 
@@ -46,13 +46,5 @@ mngr is responsible for:
 While it's possible to run as multiple users (esp locally), no data is shared between different users on the same machine.
 This means that, when connecting to remote hosts, we need to be careful to expand the "~" in paths only once we know the user that we are running as.
 
-## TODOs
-
-Features described above but not yet implemented:
-
-- **CLI commands**: `stop`, `push`, `pair` (spec exists but no implementation)
-- **Hang/failure detection**: `mngr enforce` command not implemented
-- **Host lifecycle**: Auto-stop daemon/background process for idle enforcement
+Note: The following features are planned but not yet documented inline:
 - **Provider backends**: Docker provider (spec exists, no implementation)
-- **Permissions**: Enforcement/validation logic not fully wired to CLI
-- **Locking**: Remote host locking not implemented (raises NotImplementedError)
