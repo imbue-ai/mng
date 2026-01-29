@@ -40,4 +40,6 @@ else
     touch "$ACTIVE_FILE"
 fi
 
+echo Done.
+
 exit 0
