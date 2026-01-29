@@ -17,8 +17,8 @@ from typing import Any
 from typing import Generator
 from typing import cast
 from unittest.mock import MagicMock
-from unittest.mock import patch
 
+import modal
 import modal.exception
 import pytest
 
@@ -29,6 +29,7 @@ from imbue.mngr.conftest import register_modal_test_volume
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
+from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -193,6 +194,116 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
     return instance
 
 
+class UnauthorizedModalProviderInstance(ModalProviderInstance):
+    """Test subclass that always reports as unauthorized.
+
+    This is used for testing authorization-related behavior without mocking.
+    """
+
+    @property
+    def is_authorized(self) -> bool:
+        return False
+
+
+class ExpiredCredentialsModalProviderInstance(ModalProviderInstance):
+    """Test subclass that reports as authorized but fails on API calls.
+
+    This simulates the case where credentials exist but are invalid/expired.
+    Used for testing the @handle_modal_auth_error decorator behavior.
+    """
+
+    @property
+    def is_authorized(self) -> bool:
+        return True
+
+    def _get_modal_app(self) -> modal.App:
+        raise modal.exception.AuthError("Token missing or expired")
+
+
+def make_unauthorized_modal_provider(mngr_ctx: MngrContext, app_name: str) -> UnauthorizedModalProviderInstance:
+    """Create an UnauthorizedModalProviderInstance for testing authorization checks."""
+    mock_app = MagicMock()
+    mock_app.app_id = "mock-app-id"
+    mock_app.name = app_name
+
+    mock_volume = MagicMock()
+    output_buffer = StringIO()
+    mock_environment_name = f"test-env-{app_name}"
+
+    modal_app = ModalProviderApp.model_construct(
+        app_name=app_name,
+        environment_name=mock_environment_name,
+        app=mock_app,
+        volume=mock_volume,
+        close_callback=MagicMock(),
+        get_output_callback=output_buffer.getvalue,
+    )
+
+    config = ModalProviderConfig(
+        app_name=app_name,
+        host_dir=Path("/mngr"),
+        default_timeout=300,
+        default_cpu=0.5,
+        default_memory=0.5,
+        is_persistent=False,
+        is_snapshotted_after_create=False,
+    )
+
+    instance = UnauthorizedModalProviderInstance.model_construct(
+        name=ProviderInstanceName("modal-test-unauthorized"),
+        host_dir=Path("/mngr"),
+        mngr_ctx=mngr_ctx,
+        config=config,
+        modal_app=modal_app,
+    )
+    return instance
+
+
+def make_expired_credentials_modal_provider(
+    mngr_ctx: MngrContext, app_name: str
+) -> ExpiredCredentialsModalProviderInstance:
+    """Create an ExpiredCredentialsModalProviderInstance for testing AuthError handling.
+
+    This creates a provider that reports as authorized (credentials exist) but
+    raises modal.exception.AuthError when API calls are made (credentials invalid).
+    """
+    mock_app = MagicMock()
+    mock_app.app_id = "mock-app-id"
+    mock_app.name = app_name
+
+    mock_volume = MagicMock()
+    output_buffer = StringIO()
+    mock_environment_name = f"test-env-{app_name}"
+
+    modal_app = ModalProviderApp.model_construct(
+        app_name=app_name,
+        environment_name=mock_environment_name,
+        app=mock_app,
+        volume=mock_volume,
+        close_callback=MagicMock(),
+        get_output_callback=output_buffer.getvalue,
+    )
+
+    config = ModalProviderConfig(
+        app_name=app_name,
+        host_dir=Path("/mngr"),
+        default_timeout=300,
+        default_cpu=0.5,
+        default_memory=0.5,
+        is_persistent=False,
+        is_snapshotted_after_create=False,
+    )
+
+    instance = ExpiredCredentialsModalProviderInstance.model_construct(
+        name=ProviderInstanceName("modal-test-expired"),
+        host_dir=Path("/mngr"),
+        mngr_ctx=mngr_ctx,
+        config=config,
+        modal_app=modal_app,
+    )
+    return instance
+
+
 def make_modal_provider_real(
     mngr_ctx: MngrContext,
     app_name: str,
@@ -227,6 +338,31 @@ def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProvid
     """Create a ModalProviderInstance with mocked Modal for unit/integration tests."""
     app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     return make_modal_provider_with_mocks(temp_mngr_ctx, app_name)
+
+
+@pytest.fixture
+def unauthorized_modal_provider(
+    temp_mngr_ctx: MngrContext, mngr_test_id: str
+) -> UnauthorizedModalProviderInstance:
+    """Create an UnauthorizedModalProviderInstance for testing authorization checks.
+
+    This provider always reports is_authorized=False, simulating missing credentials.
+    """
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
+    return make_unauthorized_modal_provider(temp_mngr_ctx, app_name)
+
+
+@pytest.fixture
+def expired_credentials_modal_provider(
+    temp_mngr_ctx: MngrContext, mngr_test_id: str
+) -> ExpiredCredentialsModalProviderInstance:
+    """Create an ExpiredCredentialsModalProviderInstance for testing AuthError handling.
+
+    This provider reports is_authorized=True (credentials exist) but raises
+    modal.exception.AuthError when API calls are made (credentials invalid/expired).
+    """
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
+    return make_expired_credentials_modal_provider(temp_mngr_ctx, app_name)
 
 
 def _cleanup_modal_test_resources(app_name: str, volume_name: str, environment_name: str) -> None:
@@ -364,25 +500,80 @@ def test_list_volumes_returns_empty_list(modal_provider: ModalProviderInstance) 
 
 
 def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_error(
-    modal_provider: ModalProviderInstance,
+    expired_credentials_modal_provider: ExpiredCredentialsModalProviderInstance,
 ) -> None:
-    """The @handle_modal_auth_error decorator should convert modal.exception.AuthError to ModalAuthError."""
-    # Mock the _get_modal_app method to raise an AuthError
-    with patch.object(modal_provider, "_get_modal_app") as mock_get_app:
-        mock_get_app.side_effect = modal.exception.AuthError("Token missing")
+    """The @handle_modal_auth_error decorator should convert modal.exception.AuthError to ModalAuthError.
 
-        # list_hosts is decorated with @handle_modal_auth_error
-        with pytest.raises(ModalAuthError) as exc_info:
-            modal_provider.list_hosts()
+    This tests the case where credentials are configured but invalid (e.g., expired token).
+    When is_authorized returns True but the actual API call fails with AuthError,
+    the decorator should convert it to ModalAuthError.
+    """
+    # The expired_credentials_modal_provider returns is_authorized=True but raises
+    # AuthError when _get_modal_app is called, simulating expired/invalid credentials.
+    # list_hosts is decorated with @handle_modal_auth_error
+    with pytest.raises(ModalAuthError) as exc_info:
+        expired_credentials_modal_provider.list_hosts()
 
-        # Verify the error message contains helpful information
-        error_message = str(exc_info.value)
-        assert "Modal authentication failed" in error_message
-        assert "--disable-plugin modal" in error_message
-        assert "https://modal.com/docs/reference/modal.config" in error_message
+    # Verify the error message contains helpful information
+    error_message = str(exc_info.value)
+    assert "Modal authentication failed" in error_message
+    assert "--disable-plugin modal" in error_message
+    assert "https://modal.com/docs/reference/modal.config" in error_message
 
-        # Verify the original AuthError is chained
-        assert isinstance(exc_info.value.__cause__, modal.exception.AuthError)
+    # Verify the original AuthError is chained
+    assert isinstance(exc_info.value.__cause__, modal.exception.AuthError)
+
+
+def test_list_hosts_returns_empty_list_when_not_authorized(
+    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
+) -> None:
+    """When not authorized, list_hosts should return empty list (not raise error)."""
+    result = unauthorized_modal_provider.list_hosts()
+
+    # Should return empty list, not raise an error
+    assert result == []
+
+
+def test_create_host_raises_provider_not_authorized_error_when_not_authorized(
+    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
+) -> None:
+    """When not authorized, create_host should raise ProviderNotAuthorizedError."""
+    with pytest.raises(ProviderNotAuthorizedError) as exc_info:
+        unauthorized_modal_provider.create_host(HostName("test-host"))
+
+    assert "modal token set" in str(exc_info.value).lower()
+
+
+def test_stop_host_raises_provider_not_authorized_error_when_not_authorized(
+    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
+) -> None:
+    """When not authorized, stop_host should raise ProviderNotAuthorizedError."""
+    with pytest.raises(ProviderNotAuthorizedError):
+        unauthorized_modal_provider.stop_host(HostId.generate())
+
+
+def test_start_host_raises_provider_not_authorized_error_when_not_authorized(
+    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
+) -> None:
+    """When not authorized, start_host should raise ProviderNotAuthorizedError."""
+    with pytest.raises(ProviderNotAuthorizedError):
+        unauthorized_modal_provider.start_host(HostId.generate())
+
+
+def test_destroy_host_raises_provider_not_authorized_error_when_not_authorized(
+    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
+) -> None:
+    """When not authorized, destroy_host should raise ProviderNotAuthorizedError."""
+    with pytest.raises(ProviderNotAuthorizedError):
+        unauthorized_modal_provider.destroy_host(HostId.generate())
+
+
+def test_get_host_raises_provider_not_authorized_error_when_not_authorized(
+    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
+) -> None:
+    """When not authorized, get_host should raise ProviderNotAuthorizedError."""
+    with pytest.raises(ProviderNotAuthorizedError):
+        unauthorized_modal_provider.get_host(HostId.generate())
 
 
 # =============================================================================

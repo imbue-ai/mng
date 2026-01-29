@@ -156,6 +156,10 @@ class ProviderInstanceConfig(FrozenModel):
     backend: ProviderBackendName = Field(
         description="Provider backend to use (e.g., 'docker', 'modal', 'aws')",
     )
+    is_enabled: bool = Field(
+        default=True,
+        description="Whether this provider instance is enabled. Set to false to disable without removing configuration.",
+    )
 
     def merge_with(self, override: "ProviderInstanceConfig") -> "ProviderInstanceConfig":
         """Merge this config with an override config.
@@ -310,6 +314,10 @@ class MngrConfig(FrozenModel):
         default=None,
         description="Pager command for help output (e.g., 'less'). If None, uses PAGER env var or 'less' as fallback.",
     )
+    enabled_backends: list[ProviderBackendName] = Field(
+        default_factory=list,
+        description="List of enabled provider backends. If empty, all backends are enabled. If non-empty, only the listed backends are enabled.",
+    )
     agent_types: dict[AgentTypeName, AgentTypeConfig] = Field(
         default_factory=dict,
         description="Custom agent type definitions",
@@ -365,6 +373,9 @@ class MngrConfig(FrozenModel):
 
         # Merge unset_vars (list - concatenate)
         merged_unset_vars = list(self.unset_vars) + list(override.unset_vars)
+
+        # Merge enabled_backends (list - override wins if not empty, otherwise keep base)
+        merged_enabled_backends = override.enabled_backends if override.enabled_backends else self.enabled_backends
 
         # Merge agent_types (dict - merge keys, with per-key merge)
         merged_agent_types: dict[AgentTypeName, AgentTypeConfig] = {}
@@ -442,6 +453,7 @@ class MngrConfig(FrozenModel):
             default_host_dir=merged_default_host_dir,
             pager=merged_pager,
             unset_vars=merged_unset_vars,
+            enabled_backends=merged_enabled_backends,
             agent_types=merged_agent_types,
             providers=merged_providers,
             plugins=merged_plugins,

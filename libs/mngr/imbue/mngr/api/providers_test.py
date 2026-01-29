@@ -87,3 +87,55 @@ def test_get_all_provider_instances_includes_default_backends(temp_mngr_ctx: Mng
 
     provider_names = [str(p.name) for p in providers]
     assert "local" in provider_names
+
+
+def test_get_all_provider_instances_excludes_disabled_providers(
+    temp_mngr_ctx: MngrContext, mngr_test_prefix: str
+) -> None:
+    """Test get_all_provider_instances excludes providers with is_enabled=False."""
+    disabled_name = ProviderInstanceName("disabled-local")
+    config = MngrConfig(
+        default_host_dir=temp_mngr_ctx.config.default_host_dir,
+        prefix=mngr_test_prefix,
+        providers={
+            disabled_name: LocalProviderConfig(
+                backend=ProviderBackendName("local"),
+                is_enabled=False,
+            ),
+        },
+    )
+    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm)
+    providers = get_all_provider_instances(mngr_ctx)
+
+    provider_names = [p.name for p in providers]
+    assert disabled_name not in provider_names
+
+
+def test_get_all_provider_instances_filters_by_enabled_backends(
+    temp_mngr_ctx: MngrContext, mngr_test_prefix: str
+) -> None:
+    """Test get_all_provider_instances only includes backends in enabled_backends when set."""
+    config = MngrConfig(
+        default_host_dir=temp_mngr_ctx.config.default_host_dir,
+        prefix=mngr_test_prefix,
+        enabled_backends=[ProviderBackendName("local")],
+    )
+    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm)
+    providers = get_all_provider_instances(mngr_ctx)
+
+    provider_names = [str(p.name) for p in providers]
+    # local should be included
+    assert "local" in provider_names
+    # No other backends should be included (filtering works)
+    assert len(providers) == 1
+
+
+def test_get_all_provider_instances_empty_enabled_backends_allows_all(temp_mngr_ctx: MngrContext) -> None:
+    """Test get_all_provider_instances allows all backends when enabled_backends is empty."""
+    # temp_mngr_ctx has empty enabled_backends by default
+    assert temp_mngr_ctx.config.enabled_backends == []
+    providers = get_all_provider_instances(temp_mngr_ctx)
+
+    # Should have at least local backend
+    provider_names = [str(p.name) for p in providers]
+    assert "local" in provider_names

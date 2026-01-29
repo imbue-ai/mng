@@ -31,6 +31,7 @@ import modal
 import modal.exception
 from dockerfile_parse import DockerfileParser
 from loguru import logger
+from modal.config import Config as ModalConfig
 from modal.stream_type import StreamType
 from pydantic import ConfigDict
 from pydantic import Field
@@ -44,6 +45,7 @@ from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
+from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import CpuResources
@@ -250,6 +252,23 @@ class ModalProviderInstance(BaseProviderInstance):
 
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
+
+    @property
+    def is_authorized(self) -> bool:
+        """Check if Modal credentials are configured.
+
+        Returns True if Modal token_id and token_secret are available in the
+        Modal config (either from ~/.modal.toml or environment variables).
+        This is a lightweight check that doesn't make any API calls.
+        """
+        try:
+            modal_config = ModalConfig()
+            token_id = modal_config.get("token_id")
+            token_secret = modal_config.get("token_secret")
+            return token_id is not None and token_secret is not None
+        except (OSError, ValueError, KeyError):
+            # Config file access issues, parsing errors, or key errors
+            return False
 
     @property
     def supports_snapshots(self) -> bool:
@@ -919,6 +938,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         lifecycle: HostLifecycleOptions | None = None,
     ) -> Host:
         """Create a new Modal sandbox host."""
+        if not self.is_authorized:
+            raise ProviderNotAuthorizedError(
+                self.name,
+                auth_help="Run 'modal token set' to authenticate with Modal.",
+            )
+
         # Generate host ID
         host_id = HostId.generate()
 
@@ -1032,6 +1057,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         terminated. If create_snapshot is True (the default), a snapshot is
         created before termination to allow the host to be restarted later.
         """
+        if not self.is_authorized:
+            raise ProviderNotAuthorizedError(
+                self.name,
+                auth_help="Run 'modal token set' to authenticate with Modal.",
+            )
+
         host_id = host.id if isinstance(host, HostInterface) else host
         logger.info("Stopping (terminating) Modal sandbox: {}", host_id)
 
@@ -1079,6 +1110,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         If neither snapshot was created (e.g., is_snapshotted_after_create=False
         and the sandbox was hard-killed), this method raises NoSnapshotsModalMngrError.
         """
+        if not self.is_authorized:
+            raise ProviderNotAuthorizedError(
+                self.name,
+                auth_help="Run 'modal token set' to authenticate with Modal.",
+            )
+
         host_id = host.id if isinstance(host, HostInterface) else host
 
         # If sandbox is still running, return it
@@ -1214,6 +1251,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         If delete_snapshots is True, also deletes the host record from the volume.
         """
+        if not self.is_authorized:
+            raise ProviderNotAuthorizedError(
+                self.name,
+                auth_help="Run 'modal token set' to authenticate with Modal.",
+            )
+
         host_id = host.id if isinstance(host, HostInterface) else host
         self.stop_host(host)
 
@@ -1230,6 +1273,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         host: HostId | HostName,
     ) -> Host:
         """Get a host by ID or name."""
+        if not self.is_authorized:
+            raise ProviderNotAuthorizedError(
+                self.name,
+                auth_help="Run 'modal token set' to authenticate with Modal.",
+            )
+
         if isinstance(host, HostId):
             sandbox = self._find_sandbox_by_host_id(host)
             if sandbox is None:
@@ -1253,7 +1302,20 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         self,
         include_destroyed: bool = False,
     ) -> list[HostInterface]:
-        """List all active Modal sandbox hosts."""
+        """List all active Modal sandbox hosts.
+
+        If the provider is not authorized, logs a warning and returns an empty list.
+        """
+        if not self.is_authorized:
+            logger.warning(
+                "Provider '{}' is not authorized. "
+                "Run 'modal token set' to authenticate, or disable this provider with "
+                "'mngr config set --scope user providers.{}.is_enabled false'.",
+                self.name,
+                self.name,
+            )
+            return []
+
         hosts: list[HostInterface] = []
         for sandbox in self._list_sandboxes():
             try:

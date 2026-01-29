@@ -541,3 +541,77 @@ def test_mngr_config_pre_command_scripts_default_is_empty_dict(mngr_test_prefix:
     """MngrConfig should have empty pre_command_scripts by default."""
     config = MngrConfig(prefix=mngr_test_prefix)
     assert config.pre_command_scripts == {}
+
+
+# =============================================================================
+# Tests for ProviderInstanceConfig.is_enabled
+# =============================================================================
+
+
+def test_provider_instance_config_is_enabled_default_true() -> None:
+    """ProviderInstanceConfig.is_enabled should default to True."""
+    config = ProviderInstanceConfig(backend=ProviderBackendName("local"))
+    assert config.is_enabled is True
+
+
+def test_provider_instance_config_is_enabled_can_be_set_false() -> None:
+    """ProviderInstanceConfig.is_enabled can be set to False."""
+    config = ProviderInstanceConfig(backend=ProviderBackendName("local"), is_enabled=False)
+    assert config.is_enabled is False
+
+
+def test_provider_instance_config_merge_preserves_is_enabled_false() -> None:
+    """ProviderInstanceConfig merge should preserve is_enabled when set to False in override."""
+    base = ProviderInstanceConfig(backend=ProviderBackendName("local"), is_enabled=True)
+    override = ProviderInstanceConfig(backend=ProviderBackendName("local"), is_enabled=False)
+    merged = base.merge_with(override)
+    assert merged.is_enabled is False
+
+
+# =============================================================================
+# Tests for MngrConfig.enabled_backends
+# =============================================================================
+
+
+def test_mngr_config_enabled_backends_default_empty(mngr_test_prefix: str) -> None:
+    """MngrConfig.enabled_backends should default to empty list (all backends enabled)."""
+    config = MngrConfig(prefix=mngr_test_prefix)
+    assert config.enabled_backends == []
+
+
+def test_mngr_config_enabled_backends_can_be_set(mngr_test_prefix: str) -> None:
+    """MngrConfig.enabled_backends can be set to specific backends."""
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        enabled_backends=[ProviderBackendName("local"), ProviderBackendName("docker")],
+    )
+    assert ProviderBackendName("local") in config.enabled_backends
+    assert ProviderBackendName("docker") in config.enabled_backends
+
+
+def test_mngr_config_merge_enabled_backends_override_wins_when_not_empty(mngr_test_prefix: str) -> None:
+    """MngrConfig merge should use override's enabled_backends when it's not empty."""
+    base = MngrConfig(
+        prefix=mngr_test_prefix,
+        enabled_backends=[ProviderBackendName("local"), ProviderBackendName("docker")],
+    )
+    override = MngrConfig(
+        prefix=mngr_test_prefix,
+        enabled_backends=[ProviderBackendName("modal")],
+    )
+    merged = base.merge_with(override)
+    assert merged.enabled_backends == [ProviderBackendName("modal")]
+
+
+def test_mngr_config_merge_enabled_backends_keeps_base_when_override_empty(mngr_test_prefix: str) -> None:
+    """MngrConfig merge should keep base's enabled_backends when override's is empty."""
+    base = MngrConfig(
+        prefix=mngr_test_prefix,
+        enabled_backends=[ProviderBackendName("local")],
+    )
+    override = MngrConfig(
+        prefix=mngr_test_prefix,
+        enabled_backends=[],
+    )
+    merged = base.merge_with(override)
+    assert merged.enabled_backends == [ProviderBackendName("local")]

@@ -12,6 +12,7 @@ from imbue.mngr.errors import HostNotStoppedError
 from imbue.mngr.errors import ImageNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
+from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.errors import SnapshotsNotSupportedError
 from imbue.mngr.errors import TagLimitExceededError
@@ -195,6 +196,33 @@ def test_provider_instance_not_found_error_has_user_help_text() -> None:
     error = ProviderInstanceNotFoundError(provider_name)
     assert error.user_help_text is not None
     assert "provider" in error.user_help_text.lower()
+
+
+def test_provider_not_authorized_error_sets_provider_name() -> None:
+    """ProviderNotAuthorizedError should set provider_name attribute."""
+    provider_name = ProviderInstanceName("modal")
+    error = ProviderNotAuthorizedError(provider_name)
+    assert error.provider_name == provider_name
+    assert "not authorized" in str(error).lower()
+
+
+def test_provider_not_authorized_error_includes_auth_help() -> None:
+    """ProviderNotAuthorizedError should include auth_help in message when provided."""
+    provider_name = ProviderInstanceName("modal")
+    auth_help = "Run 'modal token set' to authenticate."
+    error = ProviderNotAuthorizedError(provider_name, auth_help=auth_help)
+    assert auth_help in str(error)
+
+
+def test_provider_not_authorized_error_has_user_help_text() -> None:
+    """ProviderNotAuthorizedError should have user_help_text with disable instructions."""
+    provider_name = ProviderInstanceName("modal")
+    error = ProviderNotAuthorizedError(provider_name)
+    assert error.user_help_text is not None
+    # Should contain instructions to disable the provider
+    assert "mngr config set" in error.user_help_text
+    assert "is_enabled" in error.user_help_text
+    assert "enabled_backends" in error.user_help_text
 
 
 def test_mngr_error_displays_single_error_prefix_via_click() -> None:
