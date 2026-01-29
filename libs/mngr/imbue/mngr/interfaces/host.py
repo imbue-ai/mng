@@ -31,7 +31,6 @@ from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostState
-from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import Permission
 from imbue.mngr.primitives import WorkDirCopyMode
 
@@ -410,20 +409,13 @@ class AgentEnvironmentOptions(FrozenModel):
 
 
 class AgentLifecycleOptions(FrozenModel):
-    """Lifecycle and idle detection options for the agent."""
+    """Lifecycle options for the agent.
 
-    idle_timeout_seconds: int | None = Field(
-        default=None,
-        description="Shutdown after idle for N seconds (None for no timeout)",
-    )
-    idle_mode: IdleMode | None = Field(
-        default=None,
-        description="When to consider host idle (None for provider default)",
-    )
-    activity_sources: tuple[str, ...] | None = Field(
-        default=None,
-        description="Activity sources for idle detection",
-    )
+    Note: Host-level idle detection options (idle_timeout_seconds, idle_mode,
+    activity_sources) are configured via HostLifecycleOptions in api/data_types.py,
+    not here. This class only contains agent-level lifecycle options.
+    """
+
     is_start_on_boot: bool | None = Field(
         default=None,
         description="Whether to restart agent on host boot",

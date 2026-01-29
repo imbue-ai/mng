@@ -3,6 +3,8 @@ from pathlib import Path
 from pydantic import Field
 
 from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.primitives import ActivitySource
+from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderBackendName
 
 
@@ -28,6 +30,14 @@ class ModalProviderConfig(ProviderInstanceConfig):
     default_timeout: int = Field(
         default=900,
         description="Default sandbox timeout in seconds",
+    )
+    default_idle_mode: IdleMode = Field(
+        default=IdleMode.AGENT,
+        description="Default idle mode for hosts",
+    )
+    default_activity_sources: tuple[ActivitySource, ...] = Field(
+        default_factory=lambda: tuple(ActivitySource),
+        description="Default activity sources that count toward keeping host active",
     )
     default_cpu: float = Field(
         default=1.0,
