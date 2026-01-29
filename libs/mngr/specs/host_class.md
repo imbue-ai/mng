@@ -37,7 +37,7 @@ In this case, it needs only a very small number of fields:
 ```python
 id: HostId
 connector: PyinfraHost
-provider: ProviderInstance  # [future: implementation uses `provider_instance`]
+provider_instance: ProviderInstanceInterface
 ```
 
 **Notes:**
@@ -51,15 +51,18 @@ The Host class exposes methods for accessing host attributes. Methods fall into 
 1. **Primitive methods**: The three core operations that all other host interactions build upon.
 2. **Convenience methods**: Higher-level operations that use the primitives to read/write specific host data.
 
-Some host attributes (name, tags, limits, snapshots) are stored by the provider rather than on the host filesystem. For these, the Host class delegates to its `provider` reference rather than using the primitives.
+Some host attributes (name, tags, limits, snapshots) are stored by the provider rather than on the host filesystem. For these, the Host class delegates to its `provider_instance` reference rather than using the primitives.
 
 ## What the Host Class Does NOT Do
 
 The Host class intentionally excludes:
 
-- **Agent management** [future: needs refactoring out of Host class]: Creating, starting, or stopping agents. Handled by higher-level mngr code using the Host primitives.
-- **Provisioning** [future: needs refactoring out of Host class]: Installing packages or configuring services. Handled by pyinfra operations using the Host as a target.
-- **File sync** [future: needs refactoring out of Host class]: Synchronizing files between local and remote. Handled by mngr commands.
 - **Lifecycle management**: Creating, pausing, resuming, or destroying hosts. Handled by [ProviderInstance](./provider_instance.md).
 - **Caching**: File contents and command results are not cached. Each method call queries the host fresh.
 - **Connection pooling**: The class does not maintain persistent connections beyond what pyinfra manages.
+
+**Note:** The following responsibilities were listed as intentionally excluded, but are in fact included:
+
+- **Agent management**: Creating, starting, or stopping agents (`create_agent_state`, `start_agents`, `stop_agents`, `destroy_agent`).
+- **Provisioning**: Installing packages or configuring services (`provision_agent`, file transfers).
+- **File sync**: Synchronizing files between local and remote (`_rsync_files`, work dir creation).

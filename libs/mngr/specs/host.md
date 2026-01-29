@@ -27,7 +27,7 @@ Except for the contents of `data.json` (which is signed), data in the host direc
 | `resource.cpu.frequency_ghz` | CPU frequency (in GHz) assigned to the host                                                                            | Provider         |
 | `resource.memory_gb`         | How much memory (in GB) assigned to the host                                                                           | Provider         |
 | `resources.disk_gb`          | How much disk space (in GB) assigned to the host                                                                       | Provider         |
-| `boot_time` [future]         | When the host was last started/resumed                                                                                 | Provider         |
+| `boot_time`                  | When the host was last started/resumed                                                                                 | Provider         |
 | `uptime_seconds`             | `current_time` - `boot_time`                                                                                           | (computed)       |
 | `idle_seconds`               | How long since the host was active                                                                                     | (computed)       |
 | `idle_mode`                  | One of `io`, `user`, `agent`, `ssh`, `create`, `boot`, `start`, `run`, `disabled`, `custom` [future]                   | `data.json`      |
@@ -49,4 +49,4 @@ Note that this includes many of the underlying fields required for idle detectio
 | `lock_time`           | mtime of the `host_lock` file                                                           | `host_lock`                             |
 | `plugin.*`            | Plugin-specific (reported) host state                                                   | `plugin/<plugin>/*`                     |
 
-**Important:** All access to host data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_provider()` [future], `get_name()` [future] vs `get_reported_idle_mode()`). Methods for accessing activity timestamps [future], cooperative locking [future], certified plugin state [future], environment variables [future], and tags [future] should follow this convention.
+**Important:** All access to host data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_provider` [future] vs `get_reported_idle_mode`).

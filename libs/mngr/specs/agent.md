@@ -10,7 +10,7 @@ The state of the agent is based on whether the expected `command` is running ins
 
 By convention, the agent directory also contains subdirectories for `logs/` and `events/`.
 
-The agent directory should also include a `env` file [future: currently named `environment`] with any environment variable overrides for this agent (it will be sourced after the host-level `env` file).
+The agent directory should also include an `environment` file with any environment variable overrides for this agent (it will be sourced after the host-level `env` file).
 
 ## State
 

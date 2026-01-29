@@ -19,18 +19,17 @@ Configuration uses TOML format. Files are loaded from:
 
 | Scope | Location |
 |-------|----------|
-| User | `~/.config/mngr/config.toml` [NOTE: implementation uses `settings.toml`] |
-| Project | `.mngr/config.toml` [NOTE: implementation uses `settings.toml`] (relative to project root) |
+| User | `~/.config/mngr/settings.toml` |
+| Project | `.mngr/settings.toml` (relative to project root) |
 
 If both files exist, they are merged with project scope taking precedence.
 
 ### Example TOML
 
 ```toml
-# Environment settings [future: implementation uses top-level `prefix` and `default_host_dir` fields instead of [env] section]
-[env]
+# Environment settings
 prefix = "mngr-"
-host_dir = "~/.mngr"
+default_host_dir = "~/.mngr"
 
 # Custom agent types
 [agent_types.my_claude]
@@ -77,4 +76,9 @@ Command defaults can also be set via environment variables using the pattern `MN
 
 ## Validation Rules
 
-The following validations are performed at load time: [future: validation rules not yet documented]
+The following validations are performed at load time:
+
+- **Type validation**: All fields are validated against their declared types using Pydantic. Invalid types cause immediate failure with a descriptive error.
+- **Required fields**: Provider instances require a `backend` field. Custom agent types with `parent_type` must reference a valid plugin-provided or command-based type.
+- **Environment variable parsing**: `EnvVar` must be in `KEY=VALUE` format. `HookDefinition` must be in `NAME:COMMAND` format with a valid lifecycle hook name.
+- **Pytest safety**: If `is_allowed_in_pytest` is false and `PYTEST_CURRENT_TEST` is set, config loading fails to prevent accidental use of production config in tests.

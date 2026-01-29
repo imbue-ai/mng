@@ -4,7 +4,7 @@ When relevant, the last user input time is tracked via:
 
 When relevant, the last agent output time is tracked by writing to an activity file (self-reporting, configured by default for most agents). See [agent conventions](./conventions.md#Activity-Reporting) for details.
 
-Automatic host stopping based on idle timeout [future], SSH connection tracking [future], and agent process monitoring (`ActivitySource.PROCESS`) [future] are also planned.
+Automatic host stopping based on idle timeout is handled by `activity_watcher.sh`, which monitors activity files and calls the shutdown script when idle. SSH connection tracking writes to `activity/ssh` while connected (see `api/connect.py`). Agent process monitoring (`ActivitySource.PROCESS`) writes activity every ~5 seconds while the agent's tmux pane is alive (see `host.py:_start_process_activity_monitor`).
 
 ## Activity File Format
 
