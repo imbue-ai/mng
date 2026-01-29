@@ -123,9 +123,10 @@ def _has_uncommitted_changes(destination: Path) -> bool:
 
 
 def _git_stash(destination: Path) -> bool:
-    """Stash uncommitted changes. Returns True if something was stashed."""
+    """Stash uncommitted changes including untracked files. Returns True if something was stashed."""
+    # Use -u to include untracked files, matching what _has_uncommitted_changes detects
     result = subprocess.run(
-        ["git", "stash", "push", "-m", "mngr-pull-stash"],
+        ["git", "stash", "push", "-u", "-m", "mngr-pull-stash"],
         cwd=destination,
         capture_output=True,
         text=True,
