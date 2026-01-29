@@ -1,6 +1,6 @@
 # Permissions
 
-Agents have a list of "permissions" that control both what they are allowed to do and what information they have access to. [future] Permissions are stored but not enforced during agent operations.
+Agents have a list of "permissions" that control both what they are allowed to do and what information they have access to [future].
 
 This list is a simple list of strings. The valid strings are entirely defined by plugins.
 

@@ -76,5 +76,3 @@ Or write JSON for better debugging:
 TIME_MS=$(($(date +%s) * 1000))
 printf '{\n  "time": %d\n}\n' "$TIME_MS" > "$MNGR_HOST_DIR/activity/user"
 ```
-
-Note: The `--idle-mode`, `--idle-timeout`, and `--activity-sources` flags in `mngr create` are parsed but not yet applied to the host [future].
