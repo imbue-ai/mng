@@ -18,6 +18,7 @@ from typing import Generator
 from typing import TypeVar
 from typing import cast
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import modal
 import modal.exception
