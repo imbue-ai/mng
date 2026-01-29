@@ -114,17 +114,17 @@ def get_all_provider_instances(mngr_ctx: MngrContext) -> list[BaseProviderInstan
     # First, add all configured providers (unless disabled or not enabled)
     logger.trace("Loading configured provider instances")
     for name, provider_config in mngr_ctx.config.providers.items():
+        seen_names.add(str(name))
         if str(name) in disabled:
             logger.trace("Skipping disabled provider {}", name)
             continue
-        if not provider_config.is_enabled:
+        if provider_config.is_enabled is False:
             logger.trace("Skipping provider {} (is_enabled=False)", name)
             continue
         if not _is_backend_enabled(str(provider_config.backend), mngr_ctx):
             logger.trace("Skipping provider {} (backend {} not in enabled_backends)", name, provider_config.backend)
             continue
         providers.append(get_provider_instance(name, mngr_ctx))
-        seen_names.add(str(name))
 
     # Then, add default instances for backends not already configured (unless disabled)
     logger.trace("Loading default provider instances for remaining backends")

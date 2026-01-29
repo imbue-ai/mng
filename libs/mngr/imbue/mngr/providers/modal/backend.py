@@ -382,17 +382,25 @@ Supported build arguments for the modal provider:
             app_name = app_name[:max_app_name_length]
 
         # Create the ModalProviderApp that manages the Modal app and its resources
-        app, context_handle = ModalProviderBackend._get_or_create_app(app_name, environment_name, config.is_persistent)
-        volume = ModalProviderBackend.get_volume_for_app(app_name)
+        try:
+            app, context_handle = ModalProviderBackend._get_or_create_app(
+                app_name, environment_name, config.is_persistent
+            )
+            volume = ModalProviderBackend.get_volume_for_app(app_name)
 
-        modal_app = ModalProviderApp(
-            app_name=app_name,
-            environment_name=environment_name,
-            app=app,
-            volume=volume,
-            close_callback=lambda: ModalProviderBackend.close_app(app_name),
-            get_output_callback=lambda: context_handle.output_buffer.getvalue(),
-        )
+            modal_app = ModalProviderApp(
+                app_name=app_name,
+                environment_name=environment_name,
+                app=app,
+                volume=volume,
+                close_callback=lambda: ModalProviderBackend.close_app(app_name),
+                get_output_callback=lambda: context_handle.output_buffer.getvalue(),
+            )
+        except modal.exception.AuthError as e:
+            raise MngrError(
+                "Modal is not authorized: run 'modal token set' to authenticate, or disable this provider with "
+                f"'mngr config set --scope local providers.{name}.is_enabled false'.",
+            ) from e
 
         return ModalProviderInstance(
             name=name,
