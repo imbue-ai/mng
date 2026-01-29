@@ -482,11 +482,13 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
     )
     content = generation_comment + content
 
-    # Write to file
+    # Write to file (only if changed)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"{command_name}.md"
-    output_file.write_text(content)
-    print(f"Generated: {output_file}")
+    existing_content = output_file.read_text() if output_file.exists() else None
+    if content != existing_content:
+        output_file.write_text(content)
+        print(f"Updated: {output_file}")
 
 
 def main() -> None:
