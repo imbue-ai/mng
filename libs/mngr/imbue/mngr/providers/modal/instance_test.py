@@ -366,9 +366,18 @@ def test_list_volumes_returns_empty_list(modal_provider: ModalProviderInstance) 
 def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_error(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """The @handle_modal_auth_error decorator should convert modal.exception.AuthError to ModalAuthError."""
-    # Mock the _get_modal_app method to raise an AuthError
-    with patch.object(modal_provider, "_get_modal_app") as mock_get_app:
+    """The @handle_modal_auth_error decorator should convert modal.exception.AuthError to ModalAuthError.
+
+    This tests the case where credentials are configured but invalid (e.g., expired token).
+    When is_authorized returns True but the actual API call fails with AuthError,
+    the decorator should convert it to ModalAuthError.
+    """
+    # Mock is_authorized to return True (credentials exist but may be invalid)
+    # and _get_modal_app to raise AuthError (invalid credentials)
+    with (
+        patch.object(type(modal_provider), "is_authorized", new_callable=lambda: property(lambda self: True)),
+        patch.object(modal_provider, "_get_modal_app") as mock_get_app,
+    ):
         mock_get_app.side_effect = modal.exception.AuthError("Token missing")
 
         # list_hosts is decorated with @handle_modal_auth_error
@@ -383,6 +392,18 @@ def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_err
 
         # Verify the original AuthError is chained
         assert isinstance(exc_info.value.__cause__, modal.exception.AuthError)
+
+
+def test_list_hosts_returns_empty_list_when_not_authorized(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """When not authorized, list_hosts should return empty list (not raise error)."""
+    # Mock is_authorized to return False (no credentials configured)
+    with patch.object(type(modal_provider), "is_authorized", new_callable=lambda: property(lambda self: False)):
+        result = modal_provider.list_hosts()
+
+        # Should return empty list, not raise an error
+        assert result == []
 
 
 # =============================================================================
