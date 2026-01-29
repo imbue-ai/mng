@@ -83,7 +83,7 @@ def test_connect_to_agent_by_name(
     ) as session_name:
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
-        with patch("imbue.mngr.cli.connect.os.execvp") as mock_execvp:
+        with patch("imbue.mngr.api.connect.os.execvp") as mock_execvp:
             cli_runner.invoke(
                 connect,
                 [agent_name],
@@ -124,7 +124,7 @@ def test_connect_via_cli_group(
         assert create_result.exit_code == 0, f"Create failed with: {create_result.output}"
 
         # Now test connect via CLI group
-        with patch("imbue.mngr.cli.connect.os.execvp") as mock_execvp:
+        with patch("imbue.mngr.api.connect.os.execvp") as mock_execvp:
             cli_runner.invoke(
                 cli,
                 ["connect", agent_name],
@@ -190,7 +190,7 @@ def test_connect_start_restarts_stopped_agent(
         assert not tmux_session_exists(session_name), f"Expected tmux session {session_name} to be killed"
 
         # Connect with --start (default), which should restart the agent
-        with patch("imbue.mngr.cli.connect.os.execvp") as mock_execvp:
+        with patch("imbue.mngr.api.connect.os.execvp") as mock_execvp:
             cli_runner.invoke(
                 connect,
                 [agent_name],
