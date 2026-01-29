@@ -37,7 +37,8 @@ class CommandHelpMetadata(FrozenModel):
         default=(), description="List of (description, command) example tuples"
     )
     additional_sections: tuple[tuple[str, str], ...] = Field(
-        default=(), description="Additional documentation sections as (title, markdown_content) tuples"
+        default=(),
+        description="Additional documentation sections as (title, markdown_content) tuples",
     )
     group_intros: tuple[tuple[str, str], ...] = Field(
         default=(),
@@ -160,6 +161,9 @@ def _format_section_title(title: str) -> str:
     return title.upper()
 
 
+# this function is some nonsense so if you're looking at this because it has a problem,
+# you should probably just switch to having the aliases directly in the synopsis and
+# have some test that checks that the string `[main command|alias 1|alias 2|...]` is present in the synopsis.
 @deal.has()
 def _inject_aliases_into_synopsis(synopsis: str, aliases: tuple[str, ...]) -> str:
     """Inject command aliases into the synopsis.
