@@ -1,16 +1,7 @@
-# agent_data_url Plugin
+# agent_data_url Plugin [future]
 
 The `agent_data_url` plugin provides a way to access agent-specific data via a URL.
 
-In particular, it exposes all file in the agent's state directory, and provides additional endpoints for treating logs and events as streams.
+In particular, it exposes all files in the agent's state directory, and provides additional endpoints for streaming logs and events.
 
 **Note**: because this data is served from within the host, it is only accessible when the host is running.
-
-## TODO
-
-- HTTP server for serving agent data via URL
-- Endpoint to expose all files in agent's state directory
-- Endpoint for streaming agent logs
-- Endpoint for streaming agent events
-- Plugin registration using `@hookimpl` decorator
-- Entry point configuration in `pyproject.toml`

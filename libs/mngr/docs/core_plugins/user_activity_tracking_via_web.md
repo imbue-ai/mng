@@ -1,4 +1,4 @@
-# User Activity Tracking via Web
+# User Activity Tracking via Web [future]
 
 This plugin tracks user activity in web-based agent interfaces to prevent hosts from idling while you're actively working.
 
@@ -39,14 +39,3 @@ This plugin requires:
 
 - **nginx** - Provided by [Local Port Forwarding via FRP and Nginx](./local_port_forwarding_via_frp_and_nginx.md) or similar
 - **ngx_http_sub_module** - For injecting the tracking script (included in most nginx builds)
-
-## TODOs
-
-**This plugin is not yet implemented.** The following components need to be created:
-
-- Plugin Python module with pluggy hooks
-- JavaScript tracking script (`activity.js`)
-- Nginx configuration file for script injection and activity endpoint
-- Configuration handling for `debounce_ms` setting
-- Activity reporting endpoint (`/_mngr/plugin/user_activity_tracking_via_web/activity`)
-- Integration with idle detection system

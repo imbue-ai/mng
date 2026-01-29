@@ -1,4 +1,4 @@
-# offline_mngr_state Plugin
+# offline_mngr_state Plugin [future]
 
 This plugin backs up the state of all agents and hosts to a remote location so that the status of an agent can be understood even if the host is offline.
 
@@ -51,17 +51,3 @@ If using the S3 backend with untrusted hosts, be sure to provide a set of write-
 Thus two sets of credentials are required: one with read/write access for mgnr to be able to access the state, and one with write-only access for injecting into untrusted hosts.
 
 If using the local directory backend, the plugin uses rrsync (restricted rsync) to ensure that the agent cannot read other agents' state files.
-
-## TODOs
-
-**This plugin is currently unimplemented.** The following features need to be developed:
-
-- Main plugin module and package structure
-- Local directory storage backend
-- S3 storage backend
-- Configuration handling (`save_interval_seconds`, `storage_backend`, `local_directory`, `s3_bucket`, `s3_region`)
-- Periodic saving mechanism (timer-based state backups)
-- Save on host stop mechanism (hook integration with `on_host_destroyed`)
-- Write-only credentials validation for S3 backend
-- rrsync integration for local directory backend
-- Ensure plugin runs last during shutdown to capture all final state changes

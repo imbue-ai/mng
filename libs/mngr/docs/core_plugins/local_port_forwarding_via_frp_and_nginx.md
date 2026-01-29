@@ -1,4 +1,4 @@
-# Local Port Forwarding via FRP and Nginx
+# Local Port Forwarding via FRP and Nginx [future]
 
 This plugin exposes services running inside remote hosts to your local browser using [frp](https://github.com/fatedier/frp) (Fast Reverse Proxy) and nginx.
 
@@ -16,7 +16,7 @@ For example:
 
 ## Forwarding a Service
 
-Agents can forward services using the `forward-service` command:
+Agents can forward services using the `forward-service` [future] command:
 
 ```bash
 # Forward local port 3000 as "web"
@@ -40,7 +40,7 @@ All forwarded services require authentication. There are two ways to authenticat
 
 ### Browser Access
 
-Run `mngr auth` to set an authentication cookie in your browser. After this, all `*.mngr.localhost` URLs will work automatically.
+Run `mngr auth` [future] to set an authentication cookie in your browser. After this, all `*.mngr.localhost` URLs will work automatically.
 
 ### Programmatic Access
 
@@ -57,16 +57,3 @@ This plugin requires:
 
 - **frp** - Install via your package manager or download from [GitHub](https://github.com/fatedier/frp/releases)
 - **nginx** - On remote hosts (installed automatically during provisioning)
-
-## TODOs
-
-The following features are not yet implemented:
-
-- `forward-service` command (add/list/remove subcommands)
-- `mngr auth` command for browser authentication
-- FRP server (frps) startup and configuration
-- FRP client (frpc) configuration generation and management
-- Nginx configuration generation and service startup on remote hosts
-- SSH tunnel management with autossh
-- Authentication endpoint for cookie/header validation
-- Plugin implementation to orchestrate provisioning and lifecycle hooks
