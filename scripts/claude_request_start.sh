@@ -28,8 +28,10 @@ if [[ -f "$ACTIVE_FILE" ]]; then
             # Get the current tmux session name
             session=$(tmux display-message -p '#S' 2>/dev/null || true)
             if [[ -n "$session" ]]; then
-                # Send a message to window 0 to notify about the interruption
-                tmux send-keys -t "${session}:0" "You were interrupted. Please continue from where you left off" Enter 2>/dev/null || true
+                # Send a message to window 0 to notify about the interruption so that the agent can keep working.
+                tmux send-keys -t "${session}:0" "You were interrupted. Please continue from where you left off" 2>/dev/null || true
+                sleep 2
+                tmux send-keys -t "${session}:0" Enter 2>/dev/null || true
             fi
         fi
     fi
