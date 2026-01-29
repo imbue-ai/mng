@@ -80,7 +80,10 @@ class PyinfraConnector:
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "The pyinfra host name"},
-                "connector_cls": {"type": "string", "description": "The connector class name"},
+                "connector_cls": {
+                    "type": "string",
+                    "description": "The connector class name",
+                },
             },
             "required": ["name", "connector_cls"],
         }
@@ -269,7 +272,7 @@ class HostInfo(FrozenModel):
     name: str = Field(description="Host name")
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
 
-    # Extended fields (all optional for backwards compatibility)
+    # Extended fields (all optional)
     host: str | None = Field(
         default=None,
         description="Hostname where the host is running (ssh.host for remote, localhost for local)",
@@ -282,11 +285,12 @@ class HostInfo(FrozenModel):
     resource: HostResources | None = Field(default=None, description="Resource limits for the host")
     ssh: SSHInfo | None = Field(default=None, description="SSH access details (remote hosts only)")
     snapshots: list[SnapshotInfo] = Field(default_factory=list, description="List of available snapshots")
-
-    # FIXME: Implement these fields which require additional infrastructure:
-    # - is_locked: bool | None - Whether the host is currently locked for an operation
-    # - locked_time: datetime | None - When the host was locked
-    # - plugin: dict[str, Any] - Plugin-defined fields (requires plugin field evaluation)
+    is_locked: bool | None = Field(
+        default=None,
+        description="Whether the host is currently locked for an operation",
+    )
+    locked_time: datetime | None = Field(default=None, description="When the host was locked")
+    plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-defined fields")
 
 
 class RelativePath(PurePosixPath):
