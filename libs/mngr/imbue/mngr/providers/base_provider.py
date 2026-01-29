@@ -1,6 +1,7 @@
 from typing import Mapping
 from typing import Sequence
 
+from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
@@ -24,6 +25,7 @@ class BaseProviderInstance(ProviderInstanceInterface):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
+        lifecycle: HostLifecycleOptions | None = None,
     ) -> Host:
         raise NotImplementedError()
 
