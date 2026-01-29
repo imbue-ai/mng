@@ -7,6 +7,10 @@
 # The Modal import happens here unconditionally, even when --provider filters to
 # local-only. To fix: move these imports inside load_backends_from_plugins() and
 # load_local_backend_only(), or only import backends that are actually enabled.
+#
+# Another candidate for lazy loading: celpy (~45ms) in api/list.py. It's only
+# needed when CEL filters are used (--include/--exclude), but is currently
+# imported at the top level via imbue.mngr.utils.cel_utils.
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
