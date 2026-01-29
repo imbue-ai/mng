@@ -68,22 +68,22 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--running",
     is_flag=True,
-    help="Show only running agents (alias for --include 'state == \"running\"')",
+    help="Show only running agents (alias for --include 'state == \"running\"') [future]",
 )
 @optgroup.option(
     "--stopped",
     is_flag=True,
-    help="Show only stopped agents (alias for --include 'state == \"stopped\"')",
+    help="Show only stopped agents (alias for --include 'state == \"stopped\"') [future]",
 )
 @optgroup.option(
     "--local",
     is_flag=True,
-    help="Show only local agents (alias for --include 'host.provider == \"local\"')",
+    help="Show only local agents (alias for --include 'host.provider == \"local\"') [future]",
 )
 @optgroup.option(
     "--remote",
     is_flag=True,
-    help="Show only remote agents (alias for --exclude 'host.provider == \"local\"')",
+    help="Show only remote agents (alias for --exclude 'host.provider == \"local\"') [future]",
 )
 @optgroup.option(
     "--provider",
@@ -99,7 +99,7 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--format-template",
     "format_template",
-    help="Output format as a string template (mutually exclusive with --format)",
+    help="Output format as a string template (mutually exclusive with --format) [future]",
 )
 @optgroup.option(
     "--fields",
@@ -108,7 +108,7 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--sort",
     default="create_time",
-    help="Sort by field [default: create_time]",
+    help="Sort by field [default: create_time] [future]",
 )
 @optgroup.option(
     "--sort-order",
@@ -119,14 +119,14 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--limit",
     type=int,
-    help="Limit number of results",
+    help="Limit number of results [future]",
 )
 @optgroup.group("Watch Mode")
 @optgroup.option(
     "-w",
     "--watch",
     type=int,
-    help="Continuously watch and update status at specified interval (seconds) [default: 2]",
+    help="Continuously watch and update status at specified interval (seconds) [future]",
 )
 @optgroup.group("Error Handling")
 @optgroup.option(

@@ -42,7 +42,7 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | ---- | ---- | ----------- | ------- |
 | `--source` | text | Source specification: AGENT, AGENT:PATH, or PATH | None |
 | `--source-agent` | text | Source agent name or ID | None |
-| `--source-host` | text | Source host name or ID | None |
+| `--source-host` | text | Source host name or ID [future] | None |
 | `--source-path` | text | Path within the agent's work directory | None |
 
 ## Destination
@@ -58,51 +58,52 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | `--dry-run` | boolean | Show what would be transferred without actually transferring | `False` |
 | `--stop` | boolean | Stop the agent after pulling (for state consistency) | `False` |
 | `--delete`, `--no-delete` | boolean | Delete files in destination that don't exist in source | `False` |
-| `--sync-mode` | choice (`files` &#x7C; `state` &#x7C; `full`) | What to sync: files (working directory only), state (agent state), or full (everything) | `files` |
-| `--exclude` | text | Patterns to exclude from sync [repeatable] | None |
+| `--sync-mode` | choice (`files` &#x7C; `state` &#x7C; `full`) | What to sync: files (working directory only), state [future], or full [future] | `files` |
+| `--exclude` | text | Patterns to exclude from sync [repeatable] [future] | None |
 
 ## Target (for agent-to-agent sync)
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--target` | text | Target specification: AGENT, AGENT.HOST, AGENT.HOST:PATH, or HOST:PATH [NOT YET IMPLEMENTED] | None |
-| `--target-agent` | text | Target agent name or ID [NOT YET IMPLEMENTED] | None |
-| `--target-host` | text | Target host name or ID [NOT YET IMPLEMENTED] | None |
-| `--target-path` | text | Path within target to sync to [NOT YET IMPLEMENTED] | None |
+| `--target` | text | Target specification: AGENT, AGENT.HOST, AGENT.HOST:PATH, or HOST:PATH [future] | None |
+| `--target-agent` | text | Target agent name or ID [future] | None |
+| `--target-host` | text | Target host name or ID [future] | None |
+| `--target-path` | text | Path within target to sync to [future] | None |
 
 ## Multi-source
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--stdin` | boolean | Read source agents/hosts from stdin, one per line [NOT YET IMPLEMENTED] | `False` |
+| `--stdin` | boolean | Read source agents/hosts from stdin, one per line [future] | `False` |
 
 ## File Filtering
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--include` | text | Include files matching glob pattern [repeatable] [NOT YET IMPLEMENTED] | None |
-| `--include-gitignored` | boolean | Include files that match .gitignore patterns [NOT YET IMPLEMENTED] | `False` |
-| `--include-file` | path | Read include patterns from file [NOT YET IMPLEMENTED] | None |
-| `--exclude-file` | path | Read exclude patterns from file [NOT YET IMPLEMENTED] | None |
+| `--include` | text | Include files matching glob pattern [repeatable] [future] | None |
+| `--include-gitignored` | boolean | Include files that match .gitignore patterns [future] | `False` |
+| `--include-file` | path | Read include patterns from file [future] | None |
+| `--exclude-file` | path | Read exclude patterns from file [future] | None |
 
 ## Rsync Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--rsync-arg` | text | Additional argument to pass to rsync [repeatable] [NOT YET IMPLEMENTED] | None |
-| `--rsync-args` | text | Additional arguments to pass to rsync (as a single string) [NOT YET IMPLEMENTED] | None |
+| `--rsync-arg` | text | Additional argument to pass to rsync [repeatable] [future] | None |
+| `--rsync-args` | text | Additional arguments to pass to rsync (as a single string) [future] | None |
 
 ## Git Sync Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--branch` | text | Pull a specific branch [repeatable] [NOT YET IMPLEMENTED] | None |
-| `--all-branches` | boolean | Pull all remote branches [NOT YET IMPLEMENTED] | `False` |
-| `--tags` | boolean | Include git tags in sync [NOT YET IMPLEMENTED] | `False` |
-| `--force-git` | boolean | Force overwrite local git state (use with caution) [NOT YET IMPLEMENTED] | `False` |
-| `--merge` | boolean | Merge remote changes with local changes [NOT YET IMPLEMENTED] | `False` |
-| `--rebase` | boolean | Rebase local changes onto remote changes [NOT YET IMPLEMENTED] | `False` |
-| `--uncommitted-source` | choice (`warn` &#x7C; `error`) | Warn or error if source has uncommitted changes [NOT YET IMPLEMENTED] | None |
+| `--branch` | text | Pull a specific branch [repeatable] [future] | None |
+| `--target-branch` | text | Pull a remote branch into a target branch [future] | None |
+| `--all-branches`, `--all` | boolean | Pull all remote branches [future] | `False` |
+| `--tags` | boolean | Include git tags in sync [future] | `False` |
+| `--force-git` | boolean | Force overwrite local git state (use with caution) [future] | `False` |
+| `--merge` | boolean | Merge remote changes with local changes [future] | `False` |
+| `--rebase` | boolean | Rebase local changes onto remote changes [future] | `False` |
+| `--uncommitted-source` | choice (`warn` &#x7C; `error`) | Warn or error if source has uncommitted changes [future] | None |
 
 ## Common
 
@@ -124,6 +125,10 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## Multi-target Behavior
+
+See [multi_target](../generic/multi_target.md) for options controlling behavior when some agents cannot be processed.
 
 ## See Also
 

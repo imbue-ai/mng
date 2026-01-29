@@ -58,6 +58,7 @@ class PullCliOptions(CommonCliOptions):
     rsync_arg: tuple[str, ...]
     rsync_args: str | None
     branch: tuple[str, ...]
+    target_branch: str | None
     all_branches: bool
     tags: bool
     force_git: bool
@@ -117,7 +118,7 @@ def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
 @optgroup.group("Source Selection")
 @optgroup.option("--source", "source", help="Source specification: AGENT, AGENT:PATH, or PATH")
 @optgroup.option("--source-agent", help="Source agent name or ID")
-@optgroup.option("--source-host", help="Source host name or ID")
+@optgroup.option("--source-host", help="Source host name or ID [future]")
 @optgroup.option("--source-path", help="Path within the agent's work directory")
 @optgroup.group("Destination")
 @optgroup.option("--destination", "destination", type=click.Path(), help="Local destination directory [default: .]")
@@ -144,53 +145,40 @@ def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
     type=click.Choice(["files", "state", "full"], case_sensitive=False),
     default="files",
     show_default=True,
-    help="What to sync: files (working directory only), state (agent state), or full (everything)",
+    help="What to sync: files (working directory only), state [future], or full [future]",
 )
 @optgroup.option(
     "--exclude",
     multiple=True,
-    help="Patterns to exclude from sync [repeatable]",
+    help="Patterns to exclude from sync [repeatable] [future]",
 )
 @optgroup.group("Target (for agent-to-agent sync)")
-@optgroup.option(
-    "--target", help="Target specification: AGENT, AGENT.HOST, AGENT.HOST:PATH, or HOST:PATH [NOT YET IMPLEMENTED]"
-)
-@optgroup.option("--target-agent", help="Target agent name or ID [NOT YET IMPLEMENTED]")
-@optgroup.option("--target-host", help="Target host name or ID [NOT YET IMPLEMENTED]")
-@optgroup.option("--target-path", help="Path within target to sync to [NOT YET IMPLEMENTED]")
+@optgroup.option("--target", help="Target specification: AGENT, AGENT.HOST, AGENT.HOST:PATH, or HOST:PATH [future]")
+@optgroup.option("--target-agent", help="Target agent name or ID [future]")
+@optgroup.option("--target-host", help="Target host name or ID [future]")
+@optgroup.option("--target-path", help="Path within target to sync to [future]")
 @optgroup.group("Multi-source")
-@optgroup.option(
-    "--stdin", is_flag=True, help="Read source agents/hosts from stdin, one per line [NOT YET IMPLEMENTED]"
-)
+@optgroup.option("--stdin", is_flag=True, help="Read source agents/hosts from stdin, one per line [future]")
 @optgroup.group("File Filtering")
-@optgroup.option(
-    "--include", multiple=True, help="Include files matching glob pattern [repeatable] [NOT YET IMPLEMENTED]"
-)
-@optgroup.option(
-    "--include-gitignored", is_flag=True, help="Include files that match .gitignore patterns [NOT YET IMPLEMENTED]"
-)
-@optgroup.option("--include-file", type=click.Path(), help="Read include patterns from file [NOT YET IMPLEMENTED]")
-@optgroup.option("--exclude-file", type=click.Path(), help="Read exclude patterns from file [NOT YET IMPLEMENTED]")
+@optgroup.option("--include", multiple=True, help="Include files matching glob pattern [repeatable] [future]")
+@optgroup.option("--include-gitignored", is_flag=True, help="Include files that match .gitignore patterns [future]")
+@optgroup.option("--include-file", type=click.Path(), help="Read include patterns from file [future]")
+@optgroup.option("--exclude-file", type=click.Path(), help="Read exclude patterns from file [future]")
 @optgroup.group("Rsync Options")
-@optgroup.option(
-    "--rsync-arg", multiple=True, help="Additional argument to pass to rsync [repeatable] [NOT YET IMPLEMENTED]"
-)
-@optgroup.option(
-    "--rsync-args", help="Additional arguments to pass to rsync (as a single string) [NOT YET IMPLEMENTED]"
-)
+@optgroup.option("--rsync-arg", multiple=True, help="Additional argument to pass to rsync [repeatable] [future]")
+@optgroup.option("--rsync-args", help="Additional arguments to pass to rsync (as a single string) [future]")
 @optgroup.group("Git Sync Options")
-@optgroup.option("--branch", multiple=True, help="Pull a specific branch [repeatable] [NOT YET IMPLEMENTED]")
-@optgroup.option("--all-branches", is_flag=True, help="Pull all remote branches [NOT YET IMPLEMENTED]")
-@optgroup.option("--tags", is_flag=True, help="Include git tags in sync [NOT YET IMPLEMENTED]")
-@optgroup.option(
-    "--force-git", is_flag=True, help="Force overwrite local git state (use with caution) [NOT YET IMPLEMENTED]"
-)
-@optgroup.option("--merge", is_flag=True, help="Merge remote changes with local changes [NOT YET IMPLEMENTED]")
-@optgroup.option("--rebase", is_flag=True, help="Rebase local changes onto remote changes [NOT YET IMPLEMENTED]")
+@optgroup.option("--branch", multiple=True, help="Pull a specific branch [repeatable] [future]")
+@optgroup.option("--target-branch", help="Pull a remote branch into a target branch [future]")
+@optgroup.option("--all-branches", "--all", is_flag=True, help="Pull all remote branches [future]")
+@optgroup.option("--tags", is_flag=True, help="Include git tags in sync [future]")
+@optgroup.option("--force-git", is_flag=True, help="Force overwrite local git state (use with caution) [future]")
+@optgroup.option("--merge", is_flag=True, help="Merge remote changes with local changes [future]")
+@optgroup.option("--rebase", is_flag=True, help="Rebase local changes onto remote changes [future]")
 @optgroup.option(
     "--uncommitted-source",
     type=click.Choice(["warn", "error"], case_sensitive=False),
-    help="Warn or error if source has uncommitted changes [NOT YET IMPLEMENTED]",
+    help="Warn or error if source has uncommitted changes [future]",
 )
 @add_common_options
 @click.pass_context
@@ -259,6 +247,10 @@ def pull(ctx: click.Context, **kwargs) -> None:
     # Planned features - git sync options
     if opts.branch:
         raise NotImplementedError("--branch is not implemented yet (git sync is planned)")
+    # --target-branch: Pull a remote branch into a target branch. This allows
+    # pulling from a source branch into a differently-named local branch.
+    if opts.target_branch is not None:
+        raise NotImplementedError("--target-branch is not implemented yet (git sync is planned)")
     if opts.all_branches:
         raise NotImplementedError("--all-branches is not implemented yet (git sync is planned)")
     if opts.tags:
@@ -369,6 +361,13 @@ specs/commands/pull.md for the full planned feature set.""",
         ("Pull to specific local directory", "mngr pull my-agent ./local-copy"),
         ("Pull specific subdirectory", "mngr pull my-agent:src ./local-src"),
         ("Preview what would be transferred", "mngr pull my-agent --dry-run"),
+    ),
+    additional_sections=(
+        (
+            "Multi-target Behavior",
+            "See [multi_target](../generic/multi_target.md) for options controlling behavior "
+            "when some agents cannot be processed.",
+        ),
     ),
     see_also=(
         ("create", "Create a new agent"),

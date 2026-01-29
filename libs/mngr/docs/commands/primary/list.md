@@ -41,10 +41,10 @@ mngr list [OPTIONS]
 | ---- | ---- | ----------- | ------- |
 | `--include` | text | Include agents matching CEL expression (repeatable) | None |
 | `--exclude` | text | Exclude agents matching CEL expression (repeatable) | None |
-| `--running` | boolean | Show only running agents (alias for --include 'state == "running"') | `False` |
-| `--stopped` | boolean | Show only stopped agents (alias for --include 'state == "stopped"') | `False` |
-| `--local` | boolean | Show only local agents (alias for --include 'host.provider == "local"') | `False` |
-| `--remote` | boolean | Show only remote agents (alias for --exclude 'host.provider == "local"') | `False` |
+| `--running` | boolean | Show only running agents (alias for --include 'state == "running"') [future] | `False` |
+| `--stopped` | boolean | Show only stopped agents (alias for --include 'state == "stopped"') [future] | `False` |
+| `--local` | boolean | Show only local agents (alias for --include 'host.provider == "local"') [future] | `False` |
+| `--remote` | boolean | Show only remote agents (alias for --exclude 'host.provider == "local"') [future] | `False` |
 | `--provider` | text | Show only agents using specified provider (repeatable) | None |
 | `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
 
@@ -52,17 +52,17 @@ mngr list [OPTIONS]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format-template` | text | Output format as a string template (mutually exclusive with --format) | None |
+| `--format-template` | text | Output format as a string template (mutually exclusive with --format) [future] | None |
 | `--fields` | text | Which fields to include (comma-separated) | None |
-| `--sort` | text | Sort by field [default: create_time] | `create_time` |
+| `--sort` | text | Sort by field [default: create_time] [future] | `create_time` |
 | `--sort-order` | choice (`asc` &#x7C; `desc`) | Sort order [default: asc] | `asc` |
-| `--limit` | integer | Limit number of results | None |
+| `--limit` | integer | Limit number of results [future] | None |
 
 ## Watch Mode
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `-w`, `--watch` | integer | Continuously watch and update status at specified interval (seconds) [default: 2] | None |
+| `-w`, `--watch` | integer | Continuously watch and update status at specified interval (seconds) [future] | None |
 
 ## Error Handling
 

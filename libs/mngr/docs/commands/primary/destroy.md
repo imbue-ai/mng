@@ -49,9 +49,9 @@ mngr destroy [OPTIONS] [AGENTS]...
 | `--agent` | text | Agent name or ID to destroy (can be specified multiple times) | None |
 | `-a`, `--all`, `--all-agents` | boolean | Destroy all agents | `False` |
 | `--session` | text | Tmux session name to destroy (can be specified multiple times). The agent name is extracted by stripping the configured prefix from the session name. | None |
-| `--include` | text | Filter agents to destroy by CEL expression (repeatable). [NOT YET IMPLEMENTED] | None |
-| `--exclude` | text | Exclude agents matching CEL expression from destruction (repeatable). [NOT YET IMPLEMENTED] | None |
-| `--stdin` | boolean | Read agent names/IDs from stdin, one per line. [NOT YET IMPLEMENTED] | `False` |
+| `--include` | text | Filter agents to destroy by CEL expression (repeatable). [future] | None |
+| `--exclude` | text | Exclude agents matching CEL expression from destruction (repeatable). [future] | None |
+| `--stdin` | boolean | Read agent names/IDs from stdin, one per line. [future] | `False` |
 
 ## Behavior
 

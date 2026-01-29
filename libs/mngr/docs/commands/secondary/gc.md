@@ -48,7 +48,7 @@ mngr gc [OPTIONS]
 | ---- | ---- | ----------- | ------- |
 | `--logs` | boolean | Remove log files from destroyed agents/hosts | `False` |
 | `--build-cache` | boolean | Remove build cache entries | `False` |
-| `--machine-cache` | boolean | Remove machine cache entries (per-provider) | `False` |
+| `--machine-cache` | boolean | Remove machine cache entries (per-provider) [future] | `False` |
 
 ## Filtering
 

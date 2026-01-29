@@ -108,17 +108,17 @@ class DestroyCliOptions(CommonCliOptions):
 @optgroup.option(
     "--include",
     multiple=True,
-    help="Filter agents to destroy by CEL expression (repeatable). [NOT YET IMPLEMENTED]",
+    help="Filter agents to destroy by CEL expression (repeatable). [future]",
 )
 @optgroup.option(
     "--exclude",
     multiple=True,
-    help="Exclude agents matching CEL expression from destruction (repeatable). [NOT YET IMPLEMENTED]",
+    help="Exclude agents matching CEL expression from destruction (repeatable). [future]",
 )
 @optgroup.option(
     "--stdin",
     is_flag=True,
-    help="Read agent names/IDs from stdin, one per line. [NOT YET IMPLEMENTED]",
+    help="Read agent names/IDs from stdin, one per line. [future]",
 )
 @optgroup.group("Behavior")
 @optgroup.option(

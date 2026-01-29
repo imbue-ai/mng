@@ -348,20 +348,22 @@ def _connect_to_local_agent(
     "--reconnect/--no-reconnect",
     default=True,
     show_default=True,
-    help="Automatically reconnect if dropped",
+    help="Automatically reconnect if dropped [future]",
 )
-@optgroup.option("--message", help="Initial message to send after connecting")
-@optgroup.option("--message-file", type=click.Path(exists=True), help="File containing initial message to send")
+@optgroup.option("--message", help="Initial message to send after connecting [future]")
+@optgroup.option(
+    "--message-file", type=click.Path(exists=True), help="File containing initial message to send [future]"
+)
 @optgroup.option(
     "--message-delay",
     type=float,
     default=1.0,
     show_default=True,
-    help="Seconds to wait before sending initial message",
+    help="Seconds to wait before sending initial message [future]",
 )
-@optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
-@optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries")
-@optgroup.option("--attach-command", help="Command to run instead of attaching to main session")
+@optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries [future]")
+@optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries [future]")
+@optgroup.option("--attach-command", help="Command to run instead of attaching to main session [future]")
 @add_common_options
 @click.pass_context
 def connect(ctx: click.Context, **kwargs: Any) -> None:

@@ -101,7 +101,7 @@ class GcCliOptions(CommonCliOptions):
 @optgroup.option(
     "--machine-cache",
     is_flag=True,
-    help="Remove machine cache entries (per-provider)",
+    help="Remove machine cache entries (per-provider) [future]",
 )
 # FIXME: When "mngr cleanup" is implemented, add a cross-reference in the gc command's
 # help text pointing users to it for interactive cleanup. See the spec at:
