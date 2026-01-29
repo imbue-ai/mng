@@ -58,3 +58,12 @@ class ModalProviderConfig(ProviderInstanceConfig):
             "signal their intent for easier identification and cleanup of test resources."
         ),
     )
+    is_snapshotted_after_create: bool = Field(
+        default=True,
+        description=(
+            "Whether to create an initial snapshot immediately after host creation. "
+            "When True (default), an 'initial' snapshot is created, allowing the host "
+            "to be restarted even if it's hard-killed. When False, the host can only "
+            "be restarted if it was stopped gracefully (which creates a snapshot)."
+        ),
+    )

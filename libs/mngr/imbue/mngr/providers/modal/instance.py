@@ -994,10 +994,11 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
 
-        # Create an initial snapshot so the host can always be restarted after being stopped
-        # The initial image state is captured as a snapshot for restoration
-        logger.debug("Creating initial snapshot for host", host_id=str(host_id))
-        self._create_initial_snapshot(sandbox, host_id)
+        # Optionally create an initial snapshot based on config
+        # When enabled, this ensures the host can be restarted even after a hard kill
+        if self.config.is_snapshotted_after_create:
+            logger.debug("Creating initial snapshot for host", host_id=str(host_id))
+            self._create_initial_snapshot(sandbox, host_id)
 
         return host
 
@@ -1011,13 +1012,22 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         """Stop a Modal sandbox.
 
         Note: Modal sandboxes cannot be stopped and resumed - they can only be
-        terminated. This method terminates the sandbox.
+        terminated. If create_snapshot is True (the default), a snapshot is
+        created before termination to allow the host to be restarted later.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
         logger.info("Stopping (terminating) Modal sandbox: {}", host_id)
 
         sandbox = self._find_sandbox_by_host_id(host_id)
         if sandbox:
+            # Create a snapshot before termination if requested
+            if create_snapshot:
+                try:
+                    logger.debug("Creating snapshot before termination", host_id=str(host_id))
+                    self.create_snapshot(host_id, SnapshotName("stop"))
+                except (MngrError, modal.exception.Error) as e:
+                    logger.warning("Failed to create snapshot before termination: {}", e)
+
             try:
                 sandbox.terminate()
             except modal.exception.Error as e:

@@ -39,6 +39,7 @@ from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.modal.backend import STATE_VOLUME_SUFFIX
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
+from imbue.mngr.providers.modal.errors import NoSnapshotsModalMngrError
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.instance import TAG_HOST_ID
@@ -1163,3 +1164,183 @@ def test_get_host_by_name_not_found_raises_error(real_modal_provider: ModalProvi
     """Getting a non-existent host by name should raise HostNotFoundError."""
     with pytest.raises(HostNotFoundError):
         real_modal_provider.get_host(HostName("nonexistent-host"))
+
+
+# =============================================================================
+# Tests for is_snapshotted_after_create configuration
+# =============================================================================
+
+
+def _make_modal_provider_with_snapshot_config(
+    mngr_ctx: MngrContext,
+    app_name: str,
+    is_snapshotted_after_create: bool,
+) -> ModalProviderInstance:
+    """Create a real Modal provider with custom is_snapshotted_after_create config."""
+    config = ModalProviderConfig(
+        app_name=app_name,
+        host_dir=Path("/mngr"),
+        default_timeout=300,
+        default_cpu=0.5,
+        default_memory=0.5,
+        is_persistent=False,
+        is_snapshotted_after_create=is_snapshotted_after_create,
+    )
+    instance = ModalProviderBackend.build_provider_instance(
+        name=ProviderInstanceName("modal-test"),
+        config=config,
+        mngr_ctx=mngr_ctx,
+    )
+    return cast(ModalProviderInstance, instance)
+
+
+@pytest.fixture
+def no_initial_snapshot_provider(
+    temp_mngr_ctx: MngrContext, mngr_test_id: str
+) -> Generator[ModalProviderInstance, None, None]:
+    """Create a Modal provider with is_snapshotted_after_create=False."""
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
+    provider = _make_modal_provider_with_snapshot_config(temp_mngr_ctx, app_name, is_snapshotted_after_create=False)
+    environment_name = provider.environment_name
+    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
+
+    register_modal_test_app(app_name)
+    register_modal_test_environment(environment_name)
+    register_modal_test_volume(volume_name)
+
+    yield provider
+
+    _cleanup_modal_test_resources(app_name, volume_name, environment_name)
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(300)
+def test_restart_after_hard_kill_with_initial_snapshot(real_modal_provider: ModalProviderInstance) -> None:
+    """Host can restart after hard kill when initial snapshot is enabled (default).
+
+    This tests scenario 1: is_snapshotted_after_create=True (default).
+    Even if the sandbox is terminated directly (hard kill), the host should be
+    restartable because an initial snapshot exists.
+    """
+    host = None
+    restarted_host = None
+    try:
+        host = real_modal_provider.create_host(HostName("test-host"))
+        host_id = host.id
+        host_name = HostName("test-host")
+
+        # Verify initial snapshot was created
+        snapshots = real_modal_provider.list_snapshots(host)
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "initial"
+
+        # Hard kill: directly terminate the sandbox without using stop_host
+        sandbox = real_modal_provider._find_sandbox_by_host_id(host_id)
+        assert sandbox is not None
+        sandbox.terminate()
+        real_modal_provider._uncache_sandbox(host_id, host_name)
+
+        # Should be able to restart using the initial snapshot
+        restarted_host = real_modal_provider.start_host(host_id)
+        assert restarted_host.id == host_id
+
+        # Verify the host is functional
+        result = restarted_host.execute_command("echo 'restarted after hard kill'")
+        assert result.success
+        assert "restarted after hard kill" in result.stdout
+
+    finally:
+        if restarted_host:
+            real_modal_provider.destroy_host(restarted_host)
+        elif host:
+            real_modal_provider.destroy_host(host)
+        else:
+            pass
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(300)
+def test_restart_after_graceful_stop_without_initial_snapshot(
+    no_initial_snapshot_provider: ModalProviderInstance,
+) -> None:
+    """Host can restart after graceful stop even without initial snapshot.
+
+    This tests scenario 2: is_snapshotted_after_create=False.
+    When the host is stopped gracefully via stop_host(), a snapshot is created
+    during the stop process, allowing the host to be restarted.
+    """
+    host = None
+    restarted_host = None
+    try:
+        host = no_initial_snapshot_provider.create_host(HostName("test-host"))
+        host_id = host.id
+
+        # Verify NO initial snapshot was created
+        snapshots = no_initial_snapshot_provider.list_snapshots(host)
+        assert len(snapshots) == 0
+
+        # Write a marker file to verify snapshot state
+        result = host.execute_command("echo 'before-stop' > /tmp/marker.txt")
+        assert result.success
+
+        # Graceful stop - should create a snapshot
+        no_initial_snapshot_provider.stop_host(host_id, create_snapshot=True)
+
+        # Verify snapshot was created during stop
+        snapshots = no_initial_snapshot_provider.list_snapshots(host_id)
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "stop"
+
+        # Should be able to restart
+        restarted_host = no_initial_snapshot_provider.start_host(host_id)
+        assert restarted_host.id == host_id
+
+        # Verify the marker file exists (state was preserved)
+        result = restarted_host.execute_command("cat /tmp/marker.txt")
+        assert result.success
+        assert "before-stop" in result.stdout
+
+    finally:
+        if restarted_host:
+            no_initial_snapshot_provider.destroy_host(restarted_host)
+        elif host:
+            no_initial_snapshot_provider.destroy_host(host)
+        else:
+            pass
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(180)
+def test_restart_fails_after_hard_kill_without_initial_snapshot(
+    no_initial_snapshot_provider: ModalProviderInstance,
+) -> None:
+    """Host cannot restart after hard kill when no initial snapshot exists.
+
+    This tests scenario 3: is_snapshotted_after_create=False + hard kill.
+    When the sandbox is terminated directly without stop_host() being called,
+    no snapshot exists, and the host cannot be restarted.
+    """
+    host = None
+    try:
+        host = no_initial_snapshot_provider.create_host(HostName("test-host"))
+        host_id = host.id
+        host_name = HostName("test-host")
+
+        # Verify NO initial snapshot was created
+        snapshots = no_initial_snapshot_provider.list_snapshots(host)
+        assert len(snapshots) == 0
+
+        # Hard kill: directly terminate the sandbox without using stop_host
+        sandbox = no_initial_snapshot_provider._find_sandbox_by_host_id(host_id)
+        assert sandbox is not None
+        sandbox.terminate()
+        no_initial_snapshot_provider._uncache_sandbox(host_id, host_name)
+
+        # Should fail to restart because no snapshots exist
+        with pytest.raises(NoSnapshotsModalMngrError):
+            no_initial_snapshot_provider.start_host(host_id)
+
+    finally:
+        # Host record still exists on the volume, so clean up
+        if host:
+            no_initial_snapshot_provider._delete_host_record(host.id)
