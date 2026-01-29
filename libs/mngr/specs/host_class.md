@@ -37,7 +37,7 @@ In this case, it needs only a very small number of fields:
 ```python
 id: HostId
 connector: PyinfraHost
-provider: ProviderInstance
+provider: ProviderInstance  # [future: implementation uses `provider_instance`]
 ```
 
 **Notes:**
@@ -57,20 +57,11 @@ Some host attributes (name, tags, limits, snapshots) are stored by the provider 
 
 The Host class intentionally excludes:
 
-- **Agent management**: Creating, starting, or stopping agents. Handled by higher-level mngr code using the Host primitives.
-- **Provisioning**: Installing packages or configuring services. Handled by pyinfra operations using the Host as a target.
-- **File sync**: Synchronizing files between local and remote. Handled by mngr commands.
+- **Agent management** [future: needs refactoring out of Host class]: Creating, starting, or stopping agents. Handled by higher-level mngr code using the Host primitives.
+- **Provisioning** [future: needs refactoring out of Host class]: Installing packages or configuring services. Handled by pyinfra operations using the Host as a target.
+- **File sync** [future: needs refactoring out of Host class]: Synchronizing files between local and remote. Handled by mngr commands.
 - **Lifecycle management**: Creating, pausing, resuming, or destroying hosts. Handled by [ProviderInstance](./provider_instance.md).
 - **Caching**: File contents and command results are not cached. Each method call queries the host fresh.
 - **Connection pooling**: The class does not maintain persistent connections beyond what pyinfra manages.
 
-## TODOs
-
-The current implementation includes functionality that contradicts the minimal design philosophy:
-
-- **Remove agent management methods**: `create_agent_work_dir`, `create_agent_state`, `provision_agent`, `destroy_agent`, `start_agents`, `stop_agents` should be moved to higher-level code that uses Host primitives
-- **Remove provisioning logic**: The `provision_agent` method and related helpers (`_execute_agent_file_transfers`, `_append_to_file`, `_prepend_to_file`, `_run_sudo_command`, `_collect_agent_env_vars`, `_write_agent_env_file`) should be moved out of Host
-- **Remove file sync operations**: File upload/transfer functionality in `provision_agent` should be handled by mngr commands
-- **Remove agent-specific helpers**: Methods like `_build_env_shell_command`, `_create_host_tmux_config`, `_get_agent_by_id`, `_get_agent_command`, `_get_all_descendant_pids`, `_determine_branch_name` belong in higher-level agent management code
-- **Evaluate additional functionality**: Activity management, cooperative locking, certified data, plugin state, environment variables, and tags methods are not described in this spec and should be documented or moved if they don't align with the minimal design philosophy
-- **Rename provider field**: The implementation uses `provider_instance` but the spec describes `provider`
+Note: The following features are planned but not yet documented: activity management methods, cooperative locking methods, certified data methods, plugin state methods, environment variable methods, and tags methods should be documented or evaluated for alignment with the minimal design philosophy.

@@ -19,15 +19,15 @@ Configuration uses TOML format. Files are loaded from:
 
 | Scope | Location |
 |-------|----------|
-| User | `~/.config/mngr/config.toml` |
-| Project | `.mngr/config.toml` (relative to project root) |
+| User | `~/.config/mngr/config.toml` [future: implementation uses `settings.toml`] |
+| Project | `.mngr/config.toml` [future: implementation uses `settings.toml`] (relative to project root) |
 
 If both files exist, they are merged with project scope taking precedence.
 
 ### Example TOML
 
 ```toml
-# Environment settings
+# Environment settings [future: implementation uses top-level `prefix` and `default_host_dir` fields instead of [env] section]
 [env]
 prefix = "mngr-"
 host_dir = "~/.mngr"
@@ -77,15 +77,6 @@ Command defaults can also be set via environment variables using the pattern `MN
 
 ## Validation Rules
 
-The following validations are performed at load time:
+The following validations are performed at load time: [future: validation rules not yet documented]
 
-## TODOs
-
-The following features described in this spec are **not yet implemented** or have **incorrect documentation**:
-
-- **File naming**: Spec says files are named `config.toml` but implementation uses `settings.toml`
-- **Environment section**: Spec shows `[env]` section with `prefix` and `host_dir`, but implementation has these as top-level fields named `prefix` and `default_host_dir`
-- **Validation rules**: The validation rules section is incomplete (no rules are actually documented)
-- **Missing local config**: Spec doesn't mention `.mngr/settings.local.toml` which exists in implementation
-- **Missing sections**: Spec doesn't document `[logging]`, `[plugins.plugin_name]`, `pager`, `unset_vars`, or `disabled_plugins` fields
-- **Incomplete agent type fields**: Spec doesn't mention the `command` field for agent types (only shows `parent_type`, `cli_args`, `permissions`)
+Note: The following features are planned but not yet documented: `.mngr/settings.local.toml` support, `[logging]` section, `[plugins.plugin_name]` section, `pager`, `unset_vars`, `disabled_plugins` fields, and `command` field for agent types.

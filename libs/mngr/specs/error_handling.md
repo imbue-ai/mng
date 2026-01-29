@@ -12,16 +12,16 @@ How mngr handles errors across commands.
 
 All errors are one of these four types:
 
-- **Expected transient**: Inherits from TransientMngrError. Is retriable
+- **Expected transient** [future]: Inherits from TransientMngrError. Is retriable
 - **Expected plugin**: Inherits from PluginMngrError. Never retried. Disables the plugin that raised this.
-- **Expected agent**: Inherits from AgentMngrError. Never retried. Fails the agent that raised this.
-- **Expected host**: Inherits from HostMngrError. Never retried. Fails the host that raised this.
-- **Expected fatal**: Inherits from FatalMngrError. Never retried. Fail the entire command immediately.
+- **Expected agent** [future]: Inherits from AgentMngrError. Never retried. Fails the agent that raised this.
+- **Expected host** [future]: Inherits from HostMngrError. Never retried. Fails the host that raised this.
+- **Expected fatal** [future]: Inherits from FatalMngrError. Never retried. Fail the entire command immediately.
 - **Unexpected**: All other errors. Retry behavior depends on configuration.
 
 ## Retry Behavior
 
-- Transient errors are retried according to configuration
+- Transient errors are retried according to configuration [future]
 - PluginMngrError, AgentMngrError, and/or HostMngrError are either warnings or errors, depending on configuration
 
 ## Configuration
@@ -30,26 +30,12 @@ There is a hierarchy of error configuration:
 
 - Overall defaults
 - Plugin defaults
-- Separate defaults for write and read commands (that override the overall defaults)
+- Separate defaults for write and read commands [future] (that override the overall defaults)
 - Per-command overrides (that override the read/write defaults)
-- Per-command, per-plugin overrides (that override all of the above)
+- Per-command, per-plugin overrides [future] (that override all of the above)
 
-What can be configured:
+What can be configured [future]:
 - Number of retries
 - Back-off exponent, strategy, etc.
 - Whether to treat PluginMngrError, AgentMngrError, and/or HostMngrError as warnings or errors
 
-## TODOs
-
-The following features are not yet implemented:
-
-- TransientMngrError class
-- AgentMngrError class (distinct from generic AgentError)
-- HostMngrError class (distinct from generic HostError)
-- FatalMngrError class
-- Retry mechanism for transient errors
-- Read/write command defaults in configuration hierarchy
-- Per-command per-plugin overrides in configuration hierarchy
-- Retry count configuration
-- Back-off strategy configuration
-- Configurable warning vs error treatment per error type

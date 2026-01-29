@@ -4,13 +4,13 @@ All agent data is stored in the folder defined by the `MNGR_AGENT_STATE_DIR` env
 
 The agent ID is set at creation time and is immutable.
 
-A tmux session is associated with an agent if its name matches the expected name (`$MNGR_PREFIX-<name>`, where `<name>` is the contents of `$MNGR_AGENT_STATE_DIR/name`).
+A tmux session is associated with an agent if its name matches the expected name (`$MNGR_PREFIX-<name>`, where `<name>` is the contents of `$MNGR_AGENT_STATE_DIR/name` [future: currently only stored in `data.json`]).
 
 The state of the agent is based on whether the expected `command` is running inside the first pane for the tmux session.
 
 By convention, the agent directory also contains subdirectories for `logs/` and `events/`.
 
-The agent directory should also include a `env` file with any environment variable overrides for this agent (it will be sourced after the host-level `env` file).
+The agent directory should also include a `env` file [future: currently named `environment`] with any environment variable overrides for this agent (it will be sourced after the host-level `env` file).
 
 ## State
 
@@ -32,7 +32,7 @@ Agent state is separated into two classes:
 | `create_time`                  | When the agent was created                        |
 | `start_on_boot`                | If present and true, the agent will start at boot |
 | `plugin.*`                     | Plugin-specific (certified) state                 |
-| `host.*`                       | Host-specific state, see [host.md](./host.md)     |
+| `host.*` [future]              | Host-specific state, see [host.md](./host.md)     |
 
 ### Reported Fields
 
@@ -47,10 +47,4 @@ Agent state is separated into two classes:
 | `plugin.*`        | Plugin-specific (reported) state             | `plugin/<plugin>/*`                              |
 
 **Important:** All access to agent data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_create_time` vs `get_reported_status`).
-
-## TODOs
-
-- [ ] Implement `host.*` certified fields in `data.json`
-- [ ] Rename agent-level `environment` file to `env` (spec says `env`, code uses `environment`)
-- [ ] Consider storing agent name in separate `name` file instead of only in `data.json` (per spec line 7)
 

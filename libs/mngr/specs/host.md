@@ -18,19 +18,19 @@ Except for the contents of `data.json` (which is signed), data in the host direc
 | `provider`                   | Provider type (local, docker, modal, etc.)                                                                             | Provider         |
 | `name`                       | Human-readable name                                                                                                    | Provider         |
 | `tags`                       | Metadata tags for the host                                                                                             | Provider         |
-| `state`                      | Derived. One of `building`, `starting`, `running`, `stopping`, `stopped`, `failed`, `destroyed`                        | (computed)       |
+| `state`                      | Derived. One of `building`, `starting`, `running`, `stopping`, `stopped`, `failed` [future], `destroyed`               | (computed)       |
 | `image`                      | Base image used. Format is provider-dependent                                                                          | Provider         |
 | `snapshots`                  | Queried from provider                                                                                                  | Provider         |
-| `ssh.*`                      | Derived from provider + local SSH config                                                                               | (computed)       |
+| `ssh.*` [future]             | Derived from provider + local SSH config                                                                               | (computed)       |
 | `resource.*`                 | Resources being used by the host. May have different keys for each provider.                                           | Provider         |
 | `resource.cpu.count`         | How many CPUs assigned to the host                                                                                     | Provider         |
 | `resource.cpu.frequency_ghz` | CPU frequency (in GHz) assigned to the host                                                                            | Provider         |
 | `resource.memory_gb`         | How much memory (in GB) assigned to the host                                                                           | Provider         |
 | `resources.disk_gb`          | How much disk space (in GB) assigned to the host                                                                       | Provider         |
-| `boot_time`                  | When the host was last started/resumed                                                                                 | Provider         |
+| `boot_time` [future]         | When the host was last started/resumed                                                                                 | Provider         |
 | `uptime_seconds`             | `current_time` - `boot_time`                                                                                           | (computed)       |
 | `idle_seconds`               | How long since the host was active                                                                                     | (computed)       |
-| `idle_mode`                  | One of `io`, `user`, `agent`, `ssh`, `create`, `boot`, `start`, `run`, `disabled`, `custom`                            | `data.json`      |
+| `idle_mode`                  | One of `io`, `user`, `agent`, `ssh`, `create`, `boot`, `start`, `run`, `disabled`, `custom` [future]                   | `data.json`      |
 | `max_idle_seconds`           | Maximum idle time before stopping                                                                                      | `data.json`      |
 | `activity_sources`           | What to consider as activity for idle detection (list of `create`, `boot`, `start`, `ssh`, `process`, `agent`, `user`) | `data.json`      |
 | `plugin.*`                   | Plugin-specific (certified) host state                                                                                 | `data.json`      |
@@ -45,18 +45,10 @@ Note that this includes many of the underlying fields required for idle detectio
 | `agent_activity_time` | When there was last activity from an agent                                              | `activity/agent`                        |
 | `user_activity_time`  | When there was last activity from the user                                              | `activity/user`                         |
 | `ssh_activity_time`   | When we last noticed an active ssh connection                                           | `activity/ssh`                          |
-| `is_locked`           | Cooperative locking to prevent multiple instances of mngr from operating simultaneously | `host_lock`                             |
+| `is_locked`           | Cooperative locking to prevent multiple instances of mngr from operating simultaneously [future: only works for local hosts] | `host_lock`                             |
 | `lock_time`           | mtime of the `host_lock` file                                                           | `host_lock`                             |
 | `plugin.*`            | Plugin-specific (reported) host state                                                   | `plugin/<plugin>/*`                     |
 
 **Important:** All access to host data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_provider` vs `get_reported_idle_mode`).
 
-## TODOs
-
-- **SSH configuration**: `ssh.*` fields - no SSH config derivation or management
-- **Docker provider**: Only Local and Modal providers implemented
-- **`boot_time` field**: Not exposed as dedicated accessor method
-- **`FAILED` state**: Not in HostState enum (spec lists it as valid state)
-- **`CUSTOM` idle mode**: Not in IdleMode enum
-- **Remote host locking**: Cooperative locking only works for local hosts
-- **Direct provider accessors**: No `get_provider()`, `get_name()` methods per naming convention
+Note: The following features are planned but not yet documented: Docker provider (only Local and Modal providers implemented), direct provider accessors (`get_provider()`, `get_name()` methods per naming convention).

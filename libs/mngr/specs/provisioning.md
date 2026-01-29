@@ -13,7 +13,7 @@ The `BaseAgent` class provides default (no-op) implementations of all provisioni
 Before any provisioning steps run, mngr calls `agent.on_before_provisioning()`. This method allows agent types to validate that required preconditions are met before any actual provisioning work begins.
 
 Example validations an agent type might perform:
-- Check that `ANTHROPIC_API_KEY` is set for the claude agent
+- Check that `ANTHROPIC_API_KEY` is set for the claude agent [future: incomplete]
 - Check that required SSH keys exist locally
 - Verify that a config file template exists at the expected path
 
@@ -56,12 +56,12 @@ Note that if an agent type needs to write files to the *host* (not the agent), i
 
 The next method called is `agent.provision()`.
 
-This is where agent types should check both for the presence of required packages and, ideally, minimum version requirements (which helps prevent downstream failures that are harder to debug).
+This is where agent types should check both for the presence of required packages and, ideally, minimum version requirements [future] (which helps prevent downstream failures that are harder to debug).
 
 If a package is missing (or too old), agent types should emit a warning, and then:
 
-1. For remote hosts: attempt to install it (if allowed / configured), or fail with a clear message about what is missing and how to fix it
-2. For local hosts: if running in interactive mode, present the user with a command that can be run to either install it (if possible), or that they can run to install it themselves (if, eg, root access is required). If non-interactive, just fail with a clear message about what is missing and how to fix it.
+1. For remote hosts: attempt to install it (if allowed / configured [future: configuration not implemented]), or fail with a clear message about what is missing and how to fix it
+2. For local hosts: if running in interactive mode [future: detection not implemented], present the user with a command that can be run to either install it (if possible), or that they can run to install it themselves (if, eg, root access is required). If non-interactive, just fail with a clear message about what is missing and how to fix it.
 
 Agent types should generally allow configuration for:
 
@@ -90,11 +90,3 @@ To implement provisioning for a custom agent type:
 
 See `ClaudeAgent` in `agents/default_plugins/claude_agent.py` for a complete example.
 
-## TODOs
-
-Features from this spec that are not yet fully implemented:
-
-- **Minimum version checking**: The spec mentions "ideally, minimum version requirements" for package validation. Currently `ClaudeAgent` only checks if claude is installed, not the version (`claude_agent.py:215`).
-- **API key validation**: Pre-provisioning validation should check that API key is available in environment or that credentials will be synced (`claude_agent.py:161`).
-- **Interactive mode detection**: System needs to detect whether running in interactive mode to properly handle user prompts for local installations. Should be part of `MngrContext` (`claude_agent.py:223`).
-- **Remote auto-install configuration**: Missing configuration option to control whether automatic installation is allowed on remote hosts (`claude_agent.py:230-232`).

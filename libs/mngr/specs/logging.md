@@ -52,13 +52,13 @@ max_log_files = 1000
 # Maximum size of each log file before rotation
 max_log_size_mb = 10
 
-# Whether to log what commands were executed
+# Whether to log what commands were executed [future]
 is_logging_commands = true
 
-# Whether to log stdout/stderr from executed commands
+# Whether to log stdout/stderr from executed commands [future]
 is_logging_command_output = false
 
-# Whether to log environment variables (security risk)
+# Whether to log environment variables (security risk) [future]
 is_logging_env_vars = false
 ```
 
@@ -110,7 +110,7 @@ Logs are structured JSON (one JSON object per line) containing:
 
 ## Sensitive Data
 
-### Environment Variable Redaction
+### Environment Variable Redaction [future]
 
 Environment variables are **redacted from logs by default** for security. This prevents accidental leakage of:
 - API keys or tokens
@@ -124,11 +124,3 @@ To include environment variables in logs (e.g., for debugging), use `--log-env-v
 
 Command output logging (`is_logging_command_output`) is also disabled by default to prevent accidental leakage of sensitive data that might appear in stdout/stderr.
 
-## TODOs
-
-The following features are specified but not yet implemented:
-
-- **Command execution logging**: The `is_logging_commands` flag is defined but not used. No code actually logs what commands are executed during mngr operations.
-- **Command output logging**: The `is_logging_command_output` flag is defined but not used. Command stdout/stderr is not captured or logged to files.
-- **Environment variable logging**: The `is_logging_env_vars` flag is defined but not used. Environment variables passed to commands are not logged.
-- **Sensitive data redaction**: No code exists to mask/redact API keys, tokens, passwords, or other credentials in logs.

@@ -1,8 +1,8 @@
 ## Locking
 
-- Commands require exclusive access via locking if and only if they are modifying the *state* of a host or agent
-- Lock files count as activity for idle shutdown detection
-- Commands that affect multiple agents/hosts must specify the behavior when all matches cannot all be locked (continue-and-warn, fail immediately, or retry-until-locked)
+- Commands require exclusive access via locking [future] if and only if they are modifying the *state* of a host or agent
+- Lock files count as activity for idle shutdown detection [future]
+- Commands that affect multiple agents/hosts must specify the behavior when all matches cannot all be locked (continue-and-warn, fail immediately, or retry-until-locked [future])
 
 In particular, this means that the following commands require locking:
 
@@ -20,13 +20,13 @@ In particular, this means that the following commands require locking:
 While operations like push and pull are clearly modifying their targets, locking is not required because they are not modifying the *state* directory of the host or agent (just the working directory).
 For such commands, see the [multi-target](../generic/multi_target.md) options for behavior when some agents cannot be processed.
 
-## Deployment Locking and Idle Detection Coordination
+## Deployment Locking and Idle Detection Coordination [future]
 
 It is ideal to avoid concurrent access from multiple instances of mngr to a host/agent while deployment commands are running. This prevents race conditions and state corruption during critical operations.
 
 ### Mechanism
 
-The deployment locking mechanism works as follows:
+The deployment locking mechanism [future] works as follows:
 
 1. **Start of deployment**: When a deployment command begins (create, provision, etc.), write the current datetime to a special file in a special folder (e.g., `$MNGR_HOST_DIR/deploy_lock/timestamp`)
 
@@ -43,7 +43,7 @@ The deployment locking mechanism works as follows:
    - This failure indicates that the host is either being deployed to or has gone away
    - The operation should fail with an appropriate error message
 
-### Crash Recovery
+### Crash Recovery [future]
 
 If a deployment crashes mid-operation, the lock file will be left in place. To handle this:
 
@@ -60,15 +60,4 @@ This mechanism provides:
 - Coordination between deployment operations and idle detection
 - Automatic recovery from crashed deployments (via timeout)
 - Clear indication when a host is unavailable due to ongoing deployment
-
-## TODO
-
-The following features from this specification are not yet implemented:
-
-- [ ] Deployment locking mechanism (writing timestamps to `$MNGR_HOST_DIR/deploy_lock/timestamp`)
-- [ ] Idle detection coordination (rmdir-based checking of deploy_lock folder)
-- [ ] Apply cooperative locking to state-modifying commands (create, start, stop, destroy, provision, etc.)
-- [ ] Retry-until-locked error behavior for multi-target operations
-- [ ] Crash recovery timeout mechanism (2-4 hour timeout for stale lock files)
-- [ ] Register lock files as activity source for idle shutdown detection
 

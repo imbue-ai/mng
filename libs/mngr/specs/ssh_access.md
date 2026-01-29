@@ -1,12 +1,7 @@
 sshd is started inside the agent host as soon as it is created, and all access to the host is done via SSH.
 
-Keys are deleted from `~/.ssh/mngr/` when the host is destroyed
+Keys are deleted from `~/.ssh/mngr/` when the host is destroyed [future]
 
-See [agent conventions](../docs/conventions.md) for more details about SSH key locations.
+See [agent conventions](../docs/conventions.md) for more details about SSH key locations. [future: Modal provider uses single shared key instead of per-host keys at `~/.ssh/mngr/<host_id>`, and stores keys in `~/.mngr/providers/modal/` instead]
 
-## TODOs
-
-- **SSH key deletion on host destruction**: `destroy_host()` does not clean up SSH keys from disk
-- **Per-host key isolation**: Modal provider uses single shared key for all hosts instead of per-host keys
-- **Convention-compliant key storage**: Keys stored in `~/.mngr/providers/modal/` instead of `~/.ssh/mngr/<host_id>`
-- **Remote provider SSH support**: All SSH functionality for remote provider not yet implemented (see `specs/providers/remote.md`)
+Note: The following features are planned but not yet documented: remote provider SSH support (see `specs/providers/remote.md`).
