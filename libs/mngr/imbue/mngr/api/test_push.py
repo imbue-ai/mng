@@ -491,10 +491,26 @@ def test_push_files_with_custom_destination_path(
 # =============================================================================
 
 
-def test_push_files_does_not_modify_host_directory_clobber(
+@pytest.mark.parametrize(
+    "mode,modify_tracked_file",
+    [
+        (UncommittedChangesMode.CLOBBER, False),
+        (UncommittedChangesMode.STASH, True),
+        (UncommittedChangesMode.MERGE, True),
+    ],
+    ids=["clobber", "stash", "merge"],
+)
+def test_push_files_does_not_modify_host_directory(
     push_ctx: PushTestContext,
+    mode: UncommittedChangesMode,
+    modify_tracked_file: bool,
 ) -> None:
-    """Test that pushing files with CLOBBER mode NEVER modifies the host (source) directory."""
+    """Test that pushing files NEVER modifies the host (source) directory.
+
+    This test is parameterized to verify host immutability across all modes.
+    STASH and MERGE modes modify tracked files to avoid untracked file conflicts
+    when running in sequence.
+    """
     # Set up host with some files
     (push_ctx.host_dir / "host_file.txt").write_text("host content")
     (push_ctx.host_dir / "another_file.txt").write_text("another host file")
@@ -506,81 +522,18 @@ def test_push_files_does_not_modify_host_directory_clobber(
     }
 
     # Set up agent with uncommitted changes
-    (push_ctx.agent_dir / "agent_uncommitted.txt").write_text("agent uncommitted")
+    if modify_tracked_file:
+        # Modify tracked file to avoid untracked file conflicts
+        (push_ctx.agent_dir / "README.md").write_text("agent uncommitted changes")
+    else:
+        # Create untracked file
+        (push_ctx.agent_dir / "agent_uncommitted.txt").write_text("agent uncommitted")
 
     push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.host_dir,
-        uncommitted_changes=UncommittedChangesMode.CLOBBER,
-    )
-
-    # Verify host directory is unchanged
-    host_files_after = set(push_ctx.host_dir.iterdir())
-    host_contents_after = {
-        f.name: f.read_text() for f in push_ctx.host_dir.iterdir() if f.is_file()
-    }
-
-    assert host_files_before == host_files_after
-    assert host_contents_before == host_contents_after
-
-
-def test_push_files_does_not_modify_host_directory_stash(
-    push_ctx: PushTestContext,
-) -> None:
-    """Test that pushing files with STASH mode NEVER modifies the host (source) directory."""
-    # Set up host with some files
-    (push_ctx.host_dir / "host_file.txt").write_text("host content")
-    (push_ctx.host_dir / "another_file.txt").write_text("another host file")
-
-    # Record the state of the host directory
-    host_files_before = set(push_ctx.host_dir.iterdir())
-    host_contents_before = {
-        f.name: f.read_text() for f in push_ctx.host_dir.iterdir() if f.is_file()
-    }
-
-    # Set up agent with uncommitted changes (modify tracked file to avoid untracked file conflicts)
-    (push_ctx.agent_dir / "README.md").write_text("agent uncommitted changes")
-
-    push_files(
-        agent=push_ctx.agent,
-        host=push_ctx.host,
-        source=push_ctx.host_dir,
-        uncommitted_changes=UncommittedChangesMode.STASH,
-    )
-
-    # Verify host directory is unchanged
-    host_files_after = set(push_ctx.host_dir.iterdir())
-    host_contents_after = {
-        f.name: f.read_text() for f in push_ctx.host_dir.iterdir() if f.is_file()
-    }
-
-    assert host_files_before == host_files_after
-    assert host_contents_before == host_contents_after
-
-
-def test_push_files_does_not_modify_host_directory_merge(
-    push_ctx: PushTestContext,
-) -> None:
-    """Test that pushing files with MERGE mode NEVER modifies the host (source) directory."""
-    # Set up host with some files
-    (push_ctx.host_dir / "host_file.txt").write_text("host content")
-    (push_ctx.host_dir / "another_file.txt").write_text("another host file")
-
-    # Record the state of the host directory
-    host_files_before = set(push_ctx.host_dir.iterdir())
-    host_contents_before = {
-        f.name: f.read_text() for f in push_ctx.host_dir.iterdir() if f.is_file()
-    }
-
-    # Set up agent with uncommitted changes (modify tracked file to avoid untracked file conflicts)
-    (push_ctx.agent_dir / "README.md").write_text("agent uncommitted changes")
-
-    push_files(
-        agent=push_ctx.agent,
-        host=push_ctx.host,
-        source=push_ctx.host_dir,
-        uncommitted_changes=UncommittedChangesMode.MERGE,
+        uncommitted_changes=mode,
     )
 
     # Verify host directory is unchanged

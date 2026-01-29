@@ -4,6 +4,8 @@ from urllib.parse import urlparse
 
 import deal
 
+from imbue.mngr.errors import MngrError
+
 
 def get_current_git_branch(path: Path | None = None) -> str | None:
     """Get the current git branch name for the repository at the given path.
@@ -132,3 +134,37 @@ def find_git_worktree_root(start: Path | None = None) -> Path | None:
         return Path(result.stdout.strip())
     except subprocess.CalledProcessError:
         return None
+
+
+def is_git_repository(path: Path) -> bool:
+    """Check if the given path is inside a git repository.
+
+    Works from any subdirectory within a git worktree.
+    """
+    result = subprocess.run(
+        ["git", "rev-parse", "--git-dir"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def get_current_branch(path: Path) -> str:
+    """Get the current branch name for a git repository.
+
+    Unlike get_current_git_branch, this function raises an error if the operation
+    fails rather than returning None.
+
+    Raises:
+        MngrError: If the path is not a git repository or the branch cannot be determined.
+    """
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise MngrError(f"Failed to get current branch: {result.stderr}")
+    return result.stdout.strip()

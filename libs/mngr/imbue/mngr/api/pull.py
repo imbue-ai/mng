@@ -2,7 +2,6 @@ import subprocess
 from pathlib import Path
 from typing import assert_never
 
-import deal
 from loguru import logger
 from pydantic import Field
 
@@ -12,6 +11,9 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.utils.git_utils import get_current_branch
+from imbue.mngr.utils.git_utils import is_git_repository
+from imbue.mngr.utils.rsync_utils import parse_rsync_output
 
 
 class PullResult(FrozenModel):
@@ -151,30 +153,6 @@ def _git_stash_pop(destination: Path) -> None:
         raise MngrError(f"git stash pop failed: {result.stderr}")
 
 
-def _is_git_repository(path: Path) -> bool:
-    """Check if the given path is inside a git repository."""
-    result = subprocess.run(
-        ["git", "rev-parse", "--git-dir"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
-
-
-def _get_current_branch(path: Path) -> str:
-    """Get the current branch name for a git repository."""
-    result = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise MngrError(f"Failed to get current branch: {result.stderr}")
-    return result.stdout.strip()
-
-
 def _git_reset_hard(destination: Path) -> None:
     """Hard reset the destination to discard all uncommitted changes."""
     result = subprocess.run(
@@ -289,7 +267,7 @@ def pull_files(
         raise MngrError(f"rsync failed: {result.stderr}")
 
     # Parse rsync output to extract statistics
-    files_transferred, bytes_transferred = _parse_rsync_output(result.stdout)
+    files_transferred, bytes_transferred = parse_rsync_output(result.stdout)
 
     # For merge mode, restore the stashed changes
     if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
@@ -310,46 +288,6 @@ def pull_files(
         destination_path=destination,
         is_dry_run=dry_run,
     )
-
-
-@deal.has()
-def _parse_rsync_output(
-    # stdout from rsync command
-    output: str,
-    # Tuple of (files_transferred, bytes_transferred)
-) -> tuple[int, int]:
-    """Parse rsync output to extract transfer statistics."""
-    files_transferred = 0
-    bytes_transferred = 0
-
-    lines = output.strip().split("\n")
-
-    # Count files from the output (non-empty, non-stat lines)
-    for line in lines:
-        line = line.strip()
-        # Skip empty lines and stat summary lines
-        if not line:
-            continue
-        if line.startswith("sending incremental file list"):
-            continue
-        if line.startswith("sent "):
-            # Parse "sent X bytes  received Y bytes" line
-            parts = line.split()
-            for i, part in enumerate(parts):
-                if part == "bytes" and i > 0:
-                    try:
-                        bytes_transferred = int(parts[i - 1].replace(",", ""))
-                    except (ValueError, IndexError):
-                        pass
-                    break
-            continue
-        if line.startswith("total size"):
-            continue
-        # This is a file being transferred
-        if not line.startswith(" "):
-            files_transferred += 1
-
-    return files_transferred, bytes_transferred
 
 
 def _count_commits_between(destination: Path, base_ref: str, head_ref: str) -> int:
@@ -404,18 +342,18 @@ def pull_git(
     logger.debug("Pulling git from {} to {}", source_path, destination)
 
     # Verify both source and destination are git repositories
-    if not _is_git_repository(destination):
+    if not is_git_repository(destination):
         raise NotAGitRepositoryError(destination)
 
-    if not _is_git_repository(source_path):
+    if not is_git_repository(source_path):
         raise NotAGitRepositoryError(source_path)
 
     # Get the source branch (agent's current branch if not specified)
-    actual_source_branch = source_branch if source_branch is not None else _get_current_branch(source_path)
+    actual_source_branch = source_branch if source_branch is not None else get_current_branch(source_path)
     logger.debug("Source branch: {}", actual_source_branch)
 
     # Get the target branch (destination's current branch if not specified)
-    actual_target_branch = target_branch if target_branch is not None else _get_current_branch(destination)
+    actual_target_branch = target_branch if target_branch is not None else get_current_branch(destination)
     logger.debug("Target branch: {}", actual_target_branch)
 
     # Handle uncommitted changes in the destination
@@ -458,7 +396,7 @@ def pull_git(
             raise MngrError(f"Failed to fetch from agent: {result.stderr}")
 
         # Checkout the target branch if it's different from the current branch
-        current_branch = _get_current_branch(destination)
+        current_branch = get_current_branch(destination)
         if current_branch != actual_target_branch:
             logger.debug("Checking out target branch: {}", actual_target_branch)
             result = subprocess.run(

@@ -12,9 +12,9 @@ from imbue.mngr.api.pull import NotAGitRepositoryError
 from imbue.mngr.api.pull import PullGitResult
 from imbue.mngr.api.pull import PullResult
 from imbue.mngr.api.pull import UncommittedChangesError
-from imbue.mngr.api.pull import _parse_rsync_output
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.api.pull import pull_git
+from imbue.mngr.utils.rsync_utils import parse_rsync_output
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import UncommittedChangesMode
 
@@ -75,7 +75,7 @@ def patch_has_uncommitted_changes(
     yield patch_no_uncommitted_changes
 
 
-def test_parse_rsync_output_with_files() -> None:
+def testparse_rsync_output_with_files() -> None:
     """Test parsing rsync output with file transfers."""
     output = """sending incremental file list
 file1.txt
@@ -85,24 +85,24 @@ subdir/file3.md
 sent 1,234 bytes  received 567 bytes  1,801.00 bytes/sec
 total size is 5,678  speedup is 3.15
 """
-    files, bytes_transferred = _parse_rsync_output(output)
+    files, bytes_transferred = parse_rsync_output(output)
     assert files == 3
     assert bytes_transferred == 1234
 
 
-def test_parse_rsync_output_empty() -> None:
+def testparse_rsync_output_empty() -> None:
     """Test parsing rsync output with no files transferred."""
     output = """sending incremental file list
 
 sent 100 bytes  received 50 bytes  150.00 bytes/sec
 total size is 1,000  speedup is 6.67
 """
-    files, bytes_transferred = _parse_rsync_output(output)
+    files, bytes_transferred = parse_rsync_output(output)
     assert files == 0
     assert bytes_transferred == 100
 
 
-def test_parse_rsync_output_dry_run() -> None:
+def testparse_rsync_output_dry_run() -> None:
     """Test parsing rsync output in dry run mode."""
     output = """sending incremental file list
 file1.txt
@@ -112,12 +112,12 @@ file3.md
 sent 345 bytes  received 12 bytes  238.00 bytes/sec
 total size is 10,000  speedup is 28.01 (DRY RUN)
 """
-    files, bytes_transferred = _parse_rsync_output(output)
+    files, bytes_transferred = parse_rsync_output(output)
     assert files == 3
     assert bytes_transferred == 345
 
 
-def test_parse_rsync_output_large_numbers() -> None:
+def testparse_rsync_output_large_numbers() -> None:
     """Test parsing rsync output with large byte counts."""
     output = """sending incremental file list
 large_file.bin
@@ -125,12 +125,12 @@ large_file.bin
 sent 1,234,567,890 bytes  received 123 bytes  1,234,568,013.00 bytes/sec
 total size is 2,000,000,000  speedup is 1.62
 """
-    files, bytes_transferred = _parse_rsync_output(output)
+    files, bytes_transferred = parse_rsync_output(output)
     assert files == 1
     assert bytes_transferred == 1234567890
 
 
-def test_parse_rsync_output_with_subdirectory() -> None:
+def testparse_rsync_output_with_subdirectory() -> None:
     """Test parsing rsync output with subdirectories."""
     output = """sending incremental file list
 src/
@@ -142,7 +142,7 @@ tests/test_main.py
 sent 5,000 bytes  received 200 bytes  5,200.00 bytes/sec
 total size is 15,000  speedup is 2.88
 """
-    files, bytes_transferred = _parse_rsync_output(output)
+    files, bytes_transferred = parse_rsync_output(output)
     assert files == 5
     assert bytes_transferred == 5000
 
@@ -195,18 +195,18 @@ def test_pull_result_model_serialization() -> None:
     assert data["is_dry_run"] is False
 
 
-def test_parse_rsync_output_with_no_bytes_line() -> None:
+def testparse_rsync_output_with_no_bytes_line() -> None:
     """Test parsing rsync output when bytes line is missing."""
     output = """sending incremental file list
 file1.txt
 file2.txt
 """
-    files, bytes_transferred = _parse_rsync_output(output)
+    files, bytes_transferred = parse_rsync_output(output)
     assert files == 2
     assert bytes_transferred == 0
 
 
-def test_parse_rsync_output_with_malformed_bytes() -> None:
+def testparse_rsync_output_with_malformed_bytes() -> None:
     """Test parsing rsync output with malformed bytes line."""
     output = """sending incremental file list
 file1.txt
@@ -214,23 +214,23 @@ file1.txt
 sent abc bytes  received def bytes
 total size is 1,000
 """
-    files, bytes_transferred = _parse_rsync_output(output)
+    files, bytes_transferred = parse_rsync_output(output)
     assert files == 1
     assert bytes_transferred == 0
 
 
-def test_parse_rsync_output_empty_string() -> None:
+def testparse_rsync_output_empty_string() -> None:
     """Test parsing empty rsync output."""
     output = ""
-    files, bytes_transferred = _parse_rsync_output(output)
+    files, bytes_transferred = parse_rsync_output(output)
     assert files == 0
     assert bytes_transferred == 0
 
 
-def test_parse_rsync_output_whitespace_only() -> None:
+def testparse_rsync_output_whitespace_only() -> None:
     """Test parsing rsync output with only whitespace."""
     output = "   \n  \n   "
-    files, bytes_transferred = _parse_rsync_output(output)
+    files, bytes_transferred = parse_rsync_output(output)
     assert files == 0
     assert bytes_transferred == 0
 
@@ -648,7 +648,7 @@ def test_pull_git_raises_when_destination_not_git_repo(
     mock_host_success: MagicMock,
 ) -> None:
     """Test that pull_git raises NotAGitRepositoryError when destination is not a git repo."""
-    with patch("imbue.mngr.api.pull._is_git_repository", return_value=False):
+    with patch("imbue.mngr.api.pull.is_git_repository", return_value=False):
         with pytest.raises(NotAGitRepositoryError) as exc_info:
             pull_git(
                 agent=mock_agent,
@@ -668,7 +668,7 @@ def test_pull_git_raises_when_source_not_git_repo(
         # Destination is a git repo, source is not
         return path == Path("/dest")
 
-    with patch("imbue.mngr.api.pull._is_git_repository", side_effect=is_git_side_effect):
+    with patch("imbue.mngr.api.pull.is_git_repository", side_effect=is_git_side_effect):
         with pytest.raises(NotAGitRepositoryError) as exc_info:
             pull_git(
                 agent=mock_agent,
@@ -678,8 +678,8 @@ def test_pull_git_raises_when_source_not_git_repo(
         assert exc_info.value.path == Path("/agent/work")
 
 
-@patch("imbue.mngr.api.pull._is_git_repository", return_value=True)
-@patch("imbue.mngr.api.pull._get_current_branch", return_value="feature-branch")
+@patch("imbue.mngr.api.pull.is_git_repository", return_value=True)
+@patch("imbue.mngr.api.pull.get_current_branch", return_value="feature-branch")
 @patch("imbue.mngr.api.pull._get_head_commit", return_value="abc123")
 @patch("imbue.mngr.api.pull._count_commits_between", return_value=5)
 @patch("subprocess.run")
@@ -706,8 +706,8 @@ def test_pull_git_uses_agent_branch_as_default_source(
     assert result.source_branch == "feature-branch"
 
 
-@patch("imbue.mngr.api.pull._is_git_repository", return_value=True)
-@patch("imbue.mngr.api.pull._get_current_branch", return_value="current-branch")
+@patch("imbue.mngr.api.pull.is_git_repository", return_value=True)
+@patch("imbue.mngr.api.pull.get_current_branch", return_value="current-branch")
 @patch("imbue.mngr.api.pull._get_head_commit", return_value="abc123")
 @patch("imbue.mngr.api.pull._count_commits_between", return_value=5)
 @patch("subprocess.run")
@@ -734,8 +734,8 @@ def test_pull_git_uses_destination_branch_as_default_target(
     assert result.target_branch == "current-branch"
 
 
-@patch("imbue.mngr.api.pull._is_git_repository", return_value=True)
-@patch("imbue.mngr.api.pull._get_current_branch", return_value="current-branch")
+@patch("imbue.mngr.api.pull.is_git_repository", return_value=True)
+@patch("imbue.mngr.api.pull.get_current_branch", return_value="current-branch")
 @patch("imbue.mngr.api.pull._get_head_commit", return_value="abc123")
 @patch("imbue.mngr.api.pull._count_commits_between", return_value=3)
 @patch("subprocess.run")
@@ -769,8 +769,8 @@ def test_pull_git_dry_run_does_not_merge(
         assert "remote" in str(call) or "--abort" not in str(call)
 
 
-@patch("imbue.mngr.api.pull._is_git_repository", return_value=True)
-@patch("imbue.mngr.api.pull._get_current_branch", return_value="main")
+@patch("imbue.mngr.api.pull.is_git_repository", return_value=True)
+@patch("imbue.mngr.api.pull.get_current_branch", return_value="main")
 @patch("imbue.mngr.api.pull.handle_uncommitted_changes", return_value=True)
 @patch("imbue.mngr.api.pull._get_head_commit", return_value="abc123")
 @patch("imbue.mngr.api.pull._count_commits_between", return_value=2)
@@ -801,8 +801,8 @@ def test_pull_git_merge_mode_stashes_and_restores(
     mock_pop.assert_called_once_with(Path("/dest"))
 
 
-@patch("imbue.mngr.api.pull._is_git_repository", return_value=True)
-@patch("imbue.mngr.api.pull._get_current_branch", return_value="main")
+@patch("imbue.mngr.api.pull.is_git_repository", return_value=True)
+@patch("imbue.mngr.api.pull.get_current_branch", return_value="main")
 @patch("imbue.mngr.api.pull.handle_uncommitted_changes", return_value=True)
 @patch("imbue.mngr.api.pull._get_head_commit", return_value="abc123")
 @patch("imbue.mngr.api.pull._count_commits_between", return_value=2)
@@ -833,8 +833,8 @@ def test_pull_git_stash_mode_does_not_restore(
     mock_pop.assert_not_called()
 
 
-@patch("imbue.mngr.api.pull._is_git_repository", return_value=True)
-@patch("imbue.mngr.api.pull._get_current_branch", return_value="main")
+@patch("imbue.mngr.api.pull.is_git_repository", return_value=True)
+@patch("imbue.mngr.api.pull.get_current_branch", return_value="main")
 @patch("imbue.mngr.api.pull.handle_uncommitted_changes", return_value=False)
 @patch("imbue.mngr.api.pull._get_head_commit", return_value="abc123")
 @patch("imbue.mngr.api.pull._count_commits_between", return_value=0)
@@ -866,8 +866,8 @@ def test_pull_git_removes_temporary_remote(
     assert len(remote_remove_calls) >= 1
 
 
-@patch("imbue.mngr.api.pull._is_git_repository", return_value=True)
-@patch("imbue.mngr.api.pull._get_current_branch", return_value="main")
+@patch("imbue.mngr.api.pull.is_git_repository", return_value=True)
+@patch("imbue.mngr.api.pull.get_current_branch", return_value="main")
 @patch("imbue.mngr.api.pull.handle_uncommitted_changes", return_value=False)
 @patch("imbue.mngr.api.pull._get_head_commit", return_value="abc123")
 @patch("imbue.mngr.api.pull._count_commits_between", return_value=5)

@@ -2,19 +2,19 @@ import subprocess
 from pathlib import Path
 from typing import assert_never
 
-import deal
 from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.pull import NotAGitRepositoryError
-from imbue.mngr.api.pull import _get_current_branch
-from imbue.mngr.api.pull import _is_git_repository
 from imbue.mngr.errors import MngrError
+from imbue.mngr.utils.git_utils import get_current_branch
+from imbue.mngr.utils.git_utils import is_git_repository
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.utils.rsync_utils import parse_rsync_output
 
 
 class PushResult(FrozenModel):
@@ -241,7 +241,7 @@ def push_files(
         raise MngrError(f"rsync failed: {result.stderr}")
 
     # Parse rsync output to extract statistics
-    files_transferred, bytes_transferred = _parse_rsync_output(result.stdout)
+    files_transferred, bytes_transferred = parse_rsync_output(result.stdout)
 
     # For merge mode, restore the stashed changes
     if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
@@ -262,46 +262,6 @@ def push_files(
         destination_path=actual_destination,
         is_dry_run=dry_run,
     )
-
-
-@deal.has()
-def _parse_rsync_output(
-    # stdout from rsync command
-    output: str,
-    # Tuple of (files_transferred, bytes_transferred)
-) -> tuple[int, int]:
-    """Parse rsync output to extract transfer statistics."""
-    files_transferred = 0
-    bytes_transferred = 0
-
-    lines = output.strip().split("\n")
-
-    # Count files from the output (non-empty, non-stat lines)
-    for line in lines:
-        line = line.strip()
-        # Skip empty lines and stat summary lines
-        if not line:
-            continue
-        if line.startswith("sending incremental file list"):
-            continue
-        if line.startswith("sent "):
-            # Parse "sent X bytes  received Y bytes" line
-            parts = line.split()
-            for i, part in enumerate(parts):
-                if part == "bytes" and i > 0:
-                    try:
-                        bytes_transferred = int(parts[i - 1].replace(",", ""))
-                    except (ValueError, IndexError):
-                        pass
-                    break
-            continue
-        if line.startswith("total size"):
-            continue
-        # This is a file being transferred
-        if not line.startswith(" "):
-            files_transferred += 1
-
-    return files_transferred, bytes_transferred
 
 
 def _count_commits_between_local(source: Path, base_ref: str, head_ref: str) -> int:
@@ -345,14 +305,14 @@ def push_git(
     logger.debug("Pushing git from {} to {}", source, destination_path)
 
     # Verify both source and destination are git repositories
-    if not _is_git_repository(source):
+    if not is_git_repository(source):
         raise NotAGitRepositoryError(source)
 
     if not _is_git_repository_on_host(host, destination_path):
         raise NotAGitRepositoryError(destination_path)
 
     # Get the source branch (current branch if not specified)
-    actual_source_branch = source_branch if source_branch is not None else _get_current_branch(source)
+    actual_source_branch = source_branch if source_branch is not None else get_current_branch(source)
     logger.debug("Source branch: {}", actual_source_branch)
 
     # Get the target branch (destination's current branch if not specified)
@@ -487,7 +447,7 @@ def push_git(
             except MngrError:
                 logger.warning("Failed to restore stashed changes after git push")
 
-    commits_pushed = commits_to_push if dry_run else commits_to_push
+    commits_pushed = commits_to_push
 
     return PushGitResult(
         source_branch=actual_source_branch,

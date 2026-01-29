@@ -7,29 +7,22 @@ from click_option_group import optgroup
 from loguru import logger
 
 from imbue.mngr.api.find import load_all_agents_grouped_by_host
-from imbue.mngr.api.list import list_agents
-from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.api.push import PushGitResult
 from imbue.mngr.api.push import PushResult
 from imbue.mngr.api.push import push_files
 from imbue.mngr.api.push import push_git
+from imbue.mngr.cli.agent_utils import find_agent_by_name_or_id
+from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
-from imbue.mngr.cli.connect import select_agent_interactively
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
-from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
-from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
-from imbue.mngr.primitives import AgentId
-from imbue.mngr.primitives import AgentName
-from imbue.mngr.primitives import AgentReference
-from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import UncommittedChangesMode
 
@@ -54,73 +47,6 @@ class PushCliOptions(CommonCliOptions):
     source_branch: str | None
     mirror: bool
     rsync_only: bool
-
-
-def _find_agent_by_name_or_id(
-    agent_str: str,
-    agents_by_host: dict[HostReference, list[AgentReference]],
-    mngr_ctx: MngrContext,
-) -> tuple[AgentInterface, HostInterface]:
-    """Find an agent by name or ID.
-
-    Returns tuple of (agent, host) or raises AgentNotFoundError.
-    """
-    # Try parsing as an AgentId first
-    try:
-        agent_id = AgentId(agent_str)
-        # Search for the agent by ID
-        for host_ref, agent_refs in agents_by_host.items():
-            for agent_ref in agent_refs:
-                if agent_ref.agent_id == agent_id:
-                    provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
-                    host = provider.get_host(host_ref.host_id)
-                    for agent in host.get_agents():
-                        if agent.id == agent_id:
-                            return agent, host
-        raise AgentNotFoundError(agent_id)
-    except ValueError:
-        pass
-
-    # Try matching by name
-    agent_name = AgentName(agent_str)
-    matching: list[tuple[AgentInterface, HostInterface]] = []
-
-    for host_ref, agent_refs in agents_by_host.items():
-        for agent_ref in agent_refs:
-            if agent_ref.agent_name == agent_name:
-                provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
-                host = provider.get_host(host_ref.host_id)
-                for agent in host.get_agents():
-                    if agent.name == agent_name:
-                        matching.append((agent, host))
-
-    if not matching:
-        raise UserInputError(f"No agent found with name or ID: {agent_str}")
-
-    if len(matching) > 1:
-        raise UserInputError(
-            f"Multiple agents found with name '{agent_str}'. Please use the agent ID instead, or specify the host."
-        )
-
-    return matching[0]
-
-
-def _select_agent_for_push(mngr_ctx: MngrContext) -> tuple[AgentInterface, HostInterface] | None:
-    """Show interactive UI to select an agent for pushing.
-
-    Returns tuple of (agent, host) or None if user quit without selecting.
-    """
-    list_result = list_agents(mngr_ctx)
-    if not list_result.agents:
-        raise UserInputError("No agents found")
-
-    selected = select_agent_interactively(list_result.agents)
-    if selected is None:
-        return None
-
-    # Find the actual agent and host from the selection
-    agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
-    return _find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx)
 
 
 def _output_files_result(result: PushResult, output_opts: OutputOptions) -> None:
@@ -326,12 +252,12 @@ def push(ctx: click.Context, **kwargs) -> None:
 
     if agent_identifier is not None:
         agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
-        agent, host = _find_agent_by_name_or_id(agent_identifier, agents_by_host, mngr_ctx)
+        agent, host = find_agent_by_name_or_id(agent_identifier, agents_by_host, mngr_ctx)
     elif not sys.stdin.isatty():
         raise UserInputError("No agent specified and not running in interactive mode")
     else:
         # Interactive agent selection
-        result = _select_agent_for_push(mngr_ctx)
+        result = select_agent_interactively_with_host(mngr_ctx)
         if result is None:
             logger.info("No agent selected")
             return
@@ -353,7 +279,7 @@ def push(ctx: click.Context, **kwargs) -> None:
             host=host,
             source=source_path,
             source_branch=opts.source_branch,
-            target_branch=None,  # Use agent's current branch
+            target_branch=None,
             dry_run=opts.dry_run,
             uncommitted_changes=uncommitted_changes_mode,
             mirror=opts.mirror,

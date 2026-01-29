@@ -8,8 +8,8 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.mngr.api.pull import PullResult
+from imbue.mngr.cli.agent_utils import find_agent_by_name_or_id
 from imbue.mngr.cli.pull import PullCliOptions
-from imbue.mngr.cli.pull import _find_agent_by_name_or_id
 from imbue.mngr.cli.pull import _output_files_result
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
@@ -138,16 +138,16 @@ def test_output_files_result_jsonl_format(capsys) -> None:
 
 
 def test_find_agent_by_name_or_id_raises_for_empty_agents() -> None:
-    """Test that _find_agent_by_name_or_id raises UserInputError for unknown agent."""
+    """Test that find_agent_by_name_or_id raises UserInputError for unknown agent."""
     mock_ctx = MagicMock()
     agents_by_host: dict[HostReference, list[AgentReference]] = {}
 
     with pytest.raises(UserInputError, match="No agent found with name or ID"):
-        _find_agent_by_name_or_id("nonexistent-agent", agents_by_host, mock_ctx)
+        find_agent_by_name_or_id("nonexistent-agent", agents_by_host, mock_ctx)
 
 
 def test_find_agent_by_name_or_id_raises_for_multiple_matches() -> None:
-    """Test that _find_agent_by_name_or_id raises for multiple agents with same name."""
+    """Test that find_agent_by_name_or_id raises for multiple agents with same name."""
     mock_ctx = MagicMock()
 
     host1_id = HostId.generate()
@@ -191,13 +191,13 @@ def test_find_agent_by_name_or_id_raises_for_multiple_matches() -> None:
     mock_host.get_agents.return_value = [mock_agent]
     mock_provider.get_host.return_value = mock_host
 
-    with patch("imbue.mngr.cli.pull.get_provider_instance", return_value=mock_provider):
+    with patch("imbue.mngr.cli.agent_utils.get_provider_instance", return_value=mock_provider):
         with pytest.raises(UserInputError, match="Multiple agents found"):
-            _find_agent_by_name_or_id("my-agent", agents_by_host, mock_ctx)
+            find_agent_by_name_or_id("my-agent", agents_by_host, mock_ctx)
 
 
 def test_find_agent_by_name_or_id_finds_agent_by_valid_id() -> None:
-    """Test that _find_agent_by_name_or_id can find an agent by its ID."""
+    """Test that find_agent_by_name_or_id can find an agent by its ID."""
     mock_ctx = MagicMock()
 
     host_id = HostId.generate()
@@ -230,13 +230,13 @@ def test_find_agent_by_name_or_id_finds_agent_by_valid_id() -> None:
     mock_host.get_agents.return_value = [mock_agent]
     mock_provider.get_host.return_value = mock_host
 
-    with patch("imbue.mngr.cli.pull.get_provider_instance", return_value=mock_provider):
-        found_agent, found_host = _find_agent_by_name_or_id(str(agent_id), agents_by_host, mock_ctx)
+    with patch("imbue.mngr.cli.agent_utils.get_provider_instance", return_value=mock_provider):
+        found_agent, found_host = find_agent_by_name_or_id(str(agent_id), agents_by_host, mock_ctx)
         assert found_agent.id == agent_id
 
 
 def test_find_agent_by_name_or_id_finds_agent_by_name() -> None:
-    """Test that _find_agent_by_name_or_id can find an agent by its name."""
+    """Test that find_agent_by_name_or_id can find an agent by its name."""
     mock_ctx = MagicMock()
 
     host_id = HostId.generate()
@@ -269,6 +269,6 @@ def test_find_agent_by_name_or_id_finds_agent_by_name() -> None:
     mock_host.get_agents.return_value = [mock_agent]
     mock_provider.get_host.return_value = mock_host
 
-    with patch("imbue.mngr.cli.pull.get_provider_instance", return_value=mock_provider):
-        found_agent, found_host = _find_agent_by_name_or_id("my-agent", agents_by_host, mock_ctx)
+    with patch("imbue.mngr.cli.agent_utils.get_provider_instance", return_value=mock_provider):
+        found_agent, found_host = find_agent_by_name_or_id("my-agent", agents_by_host, mock_ctx)
         assert found_agent.name == agent_name
