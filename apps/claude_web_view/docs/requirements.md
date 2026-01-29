@@ -57,7 +57,7 @@ Each line is a JSON object with a `type` field:
 - `system` (subtype: `init`) - Session initialization with session_id, MCP servers, tools
 - `assistant` - Agent responses with content blocks (text, tool_use)
 - `user` - Tool results and user messages
-- `result` - End of stream with status, duration, cost, token usage
+- `result` - End of stream with status, duration, cost, token usage [future]
 
 ### Content Block Types
 
@@ -168,9 +168,3 @@ ClaudeWebView/
 7. File watcher detects changes to transcript, pushes new messages via SSE
 8. React app renders messages using Radix components and Sculptor-style SCSS
 
----
-
-Note: The following features are planned but not yet documented elsewhere:
-- Session listing/discovery functionality
-- Session cost and duration summary display (data is in transcript but not shown in UI)
-- Frontend must be built (`npm run build` in frontend/) to create frontend-dist directory before the app can run
