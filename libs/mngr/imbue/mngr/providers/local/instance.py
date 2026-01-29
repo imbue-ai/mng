@@ -157,6 +157,8 @@ class LocalProviderInstance(BaseProviderInstance):
         host = self._create_host(name, tags)
         logger.trace("Local host created: id={}", host.id)
 
+        # FIXME: should probably remove this--there is no boot time for local host
+        #  (there's another instance below, remove that as well)
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
 
