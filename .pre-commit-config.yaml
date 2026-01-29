@@ -18,5 +18,5 @@ repos:
         name: "Regenerate CLI markdown docs"
         entry: bash -c 'uv run python scripts/make_cli_docs.py && git add libs/mngr/docs/commands/primary/*.md libs/mngr/docs/commands/secondary/*.md 2>/dev/null || true'
         language: system
-        files: 'libs/mngr/imbue/mngr/cli/.*\.py$|libs/mngr/imbue/mngr/main\.py$|scripts/make_cli_docs\.py$'
+        files: 'libs/mngr/imbue/mngr/cli/.*\.py$|libs/mngr/imbue/mngr/main\.py$|scripts/make_cli_docs\.py$|libs/mngr/docs/commands/.*\.md$'
         pass_filenames: false
