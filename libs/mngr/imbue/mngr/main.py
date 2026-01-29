@@ -14,6 +14,7 @@ from imbue.mngr.cli.gc import gc
 from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.pull import pull
+from imbue.mngr.cli.push import push
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.providers.registry import load_all_registries
 
@@ -158,7 +159,7 @@ def reset_plugin_manager() -> None:
 
 
 # Add built-in commands to the CLI group
-BUILTIN_COMMANDS: list[click.Command] = [config, connect, create, destroy, gc, list_command, message, pull]
+BUILTIN_COMMANDS: list[click.Command] = [config, connect, create, destroy, gc, list_command, message, pull, push]
 
 for cmd in BUILTIN_COMMANDS:
     cli.add_command(cmd)

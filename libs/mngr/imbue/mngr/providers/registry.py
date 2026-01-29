@@ -1,5 +1,4 @@
 import imbue.mngr.providers.local.backend as local_backend_module
-import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrContext
@@ -73,7 +72,7 @@ def load_backends_from_plugins(pm) -> None:
         return
 
     pm.register(local_backend_module)
-    pm.register(modal_backend_module)
+    # pm.register(modal_backend_module)
     pm.register(ssh_backend_module)
     registrations = pm.hook.register_provider_backend()
 
