@@ -1,4 +1,3 @@
-import os
 import sys
 import time
 from typing import Any
@@ -21,6 +20,8 @@ from urwid.widget.text import Text
 from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mngr.api.connect import connect_to_agent
+from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import list_agents
@@ -55,6 +56,7 @@ class ConnectCliOptions(CommonCliOptions):
     retry: int
     retry_delay: str
     attach_command: str | None
+    allow_unknown_host: bool
 
 
 @deal.has()
@@ -369,15 +371,6 @@ def _find_agent_by_name_or_id(
     return matching[0]
 
 
-def _connect_to_local_agent(
-    agent: AgentInterface,
-    mngr_ctx: MngrContext,
-) -> None:
-    """Connect to a local agent by replacing the current process with tmux attach."""
-    session_name = f"{mngr_ctx.config.prefix}{agent.name}"
-    os.execvp("tmux", ["tmux", "attach", "-t", session_name])
-
-
 @click.command()
 @click.argument("agent", default=None, required=False)
 @optgroup.group("General")
@@ -407,6 +400,13 @@ def _connect_to_local_agent(
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries")
 @optgroup.option("--attach-command", help="Command to run instead of attaching to main session")
+@optgroup.option(
+    "--allow-unknown-host/--no-allow-unknown-host",
+    "allow_unknown_host",
+    default=False,
+    show_default=True,
+    help="Allow connecting to hosts without a known_hosts file (disables SSH host key verification)",
+)
 @add_common_options
 @click.pass_context
 def connect(ctx: click.Context, **kwargs: Any) -> None:
@@ -471,9 +471,6 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 
         agent, host = _find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx)
 
-    if not host.is_local:
-        raise NotImplementedError("Connecting to remote agents is not implemented yet")
-
     # Check if the agent's tmux session exists and start it if needed
     lifecycle_state = agent.get_lifecycle_state()
     if lifecycle_state == AgentLifecycleState.STOPPED:
@@ -486,5 +483,14 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
                 "Use --start to automatically start the agent."
             )
 
+    # Build connection options
+    connection_opts = ConnectionOptions(
+        is_reconnect=opts.reconnect,
+        retry_count=opts.retry,
+        retry_delay=opts.retry_delay,
+        attach_command=opts.attach_command,
+        is_unknown_host_allowed=opts.allow_unknown_host,
+    )
+
     logger.info("Connecting to agent: {}", agent.name)
-    _connect_to_local_agent(agent, mngr_ctx)
+    connect_to_agent(agent, host, mngr_ctx, connection_opts)
