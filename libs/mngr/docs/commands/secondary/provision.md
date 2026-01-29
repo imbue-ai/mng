@@ -1,4 +1,4 @@
-# mngr provision - CLI Options Reference
+# mngr provision [future] - CLI Options Reference
 
 Ensures that an agent has the required packages, libraries, environment variables, and configuration files to run properly.
 
@@ -17,8 +17,8 @@ mngr provision [[--agent] agent]
 
 ## General
 
-- `--bootstrap / --bootstrap-and-warn / --no-bootstrap`: Whether to auto-install any required tools that are missing [default: `--bootstrap-and-warn` on remote hosts, `--no-bootstrap` on local]
-- `--[no-]destroy-on-fail`: Destroy the host if provisioning fails [default: no]
+- `--bootstrap / --bootstrap-and-warn / --no-bootstrap` [future]: Whether to auto-install any required tools that are missing [default: `--bootstrap-and-warn` on remote hosts, `--no-bootstrap` on local]
+- `--[no-]destroy-on-fail` [future]: Destroy the host if provisioning fails [default: no]
 
 ## Simple configuration
 
@@ -31,11 +31,4 @@ mngr provision [[--agent] agent]
 - `--prepend-to-file REMOTE:TEXT`: Prepend TEXT to a file on the agent at the specified remote path [repeatable]
 - `--create-directory REMOTE`: Create a directory on the agent at the specified remote path [repeatable]
 
-## TODO
-
-The following documented features are not yet implemented:
-
-- `--bootstrap` / `--bootstrap-and-warn` / `--no-bootstrap`: Bootstrap options for auto-installing missing tools
-- `--[no-]destroy-on-fail`: Option to destroy host on provisioning failure
-- Standalone `mngr provision` command (provisioning options currently only available via `mngr create`)
-- [SPEC] When using `--no-bootstrap`, output a set of commands that users can run to manually install missing dependencies/packages
+[SPEC] When using `--no-bootstrap`, output a set of commands that users can run to manually install missing dependencies/packages

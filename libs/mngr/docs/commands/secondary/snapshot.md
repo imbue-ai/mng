@@ -1,8 +1,8 @@
-# mngr snapshot - CLI Options Reference
+# mngr snapshot [future] - CLI Options Reference
 
 Create, destroy, and list snapshots of agents.
 
-Snapshots capture the complete state of the agent's host, allowing it to be restored later. Because the snapshot includes the filesystem, the state of all agents on the host will be saved. 
+Snapshots capture the complete state of the agent's host, allowing it to be restored later. Because the snapshot includes the filesystem, the state of all agents on the host will be saved.
 
 Useful for checkpointing work, creating restore points, or managing disk space.
 
@@ -62,15 +62,4 @@ mngr snapshot create --agent my-agent --agent another-agent
 - `-f, --force`: Skip confirmation prompts
 - `--dry-run`: Show which snapshots would be destroyed without actually deleting them
 
-## TODOs
-
-The `mngr snapshot` standalone command is not yet implemented. Currently, only the provider interface exists (used internally by `mngr create --snapshot` and `mngr gc --snapshots`). Missing features:
-
-- Standalone `mngr snapshot create/list/destroy` CLI commands
-- Multi-target support (--agent, --host, --all-agents, --stdin, --include, --exclude)
-- Snapshot metadata (--description, --tag)
-- Advanced options (--restart-if-larger-than, --pause-during, --wait)
-- List filtering (--after, --before, --limit, --format)
-- Destroy options (--snapshot, --all-snapshots, --force, --dry-run)
-- Source agent snapshotting in create command (`_snapshot_source_agent` stub)
-- Docker provider snapshot support
+Note: Currently, only the provider interface exists (used internally by `mngr create --snapshot` and `mngr gc --snapshots`).

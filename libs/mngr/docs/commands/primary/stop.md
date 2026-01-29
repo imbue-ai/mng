@@ -1,4 +1,4 @@
-# mngr stop - CLI Options Reference
+# mngr stop [future] - CLI Options Reference
 
 Stops the host(s) associated with one or more running agents. The agent(s) can be started again later with `mngr start`.
 
@@ -44,19 +44,4 @@ mngr stop --agent my-agent --agent another-agent
 - `--[no-]graceful`: Wait for agent to reach a clean state (finish processing messages) before stopping [default: graceful]
 - `--graceful-timeout DURATION`: Timeout for graceful stop (e.g., `30s`, `5m`) [default: 30s]
 
-## TODOs
-
-**Note:** The `stop` command is not yet implemented. The following features need to be added:
-
-- CLI command registration and `s` alias
-- Basic agent stopping functionality
-- Positional agent arguments and `--agent` flag
-- `--all`, `--all-agents` flags
-- `--include` and `--exclude` filtering
-- `--stdin` input support
-- `--dry-run` mode
-- `--snapshot-mode` (auto/always/never) with auto default
-- `--[no-]graceful` flag with graceful default
-- `--graceful-timeout` with configurable duration (default 30s)
-
-Infrastructure exists: host-level `stop_agents()` method and provider `stop_host()` methods are implemented.
+Note: Infrastructure exists (host-level `stop_agents()` method and provider `stop_host()` methods are implemented).

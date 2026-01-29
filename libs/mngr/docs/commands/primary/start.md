@@ -1,4 +1,4 @@
-# mngr start - CLI Options Reference
+# mngr start [future] - CLI Options Reference
 
 Starts one or more stopped agents.
 
@@ -38,23 +38,3 @@ mngr start --agent my-agent --agent another-agent
 ## Connection Options
 
 See [connect options](./connect.md) (only applies if `--connect` is specified)
-
-## TODOs
-
-**Note: The start command is not yet implemented.** The following features need implementation:
-
-- CLI command file and options class
-- `--agent` option with positional argument support
-- `--host` option (repeatable)
-- `-a, --all, --all-agents` flag
-- `--include` filtering with CEL expressions
-- `--exclude` filtering with CEL expressions
-- `--stdin` input reading
-- `--dry-run` output display
-- `--[no-]connect` integration with connect command
-- `--snapshot` snapshot selection logic
-- `--latest` default snapshot behavior
-- Multi-target agent selection and filtering
-- Multi-target host selection and filtering
-- API layer for start business logic
-- Integration with `host.start_agents()` interface method

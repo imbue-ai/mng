@@ -1,4 +1,4 @@
-# mngr open - CLI Options Reference
+# mngr open [future] - CLI Options Reference
 
 Opens a URL associated with an agent in a web browser.
 
@@ -29,15 +29,3 @@ mngr open --agent my-agent --type terminal
 
 - `--[no-]wait`: Wait for the browser to be closed before exiting [default: no-wait]
 - `--active`: Continually update the active timestamp while connected (prevents idle shutdown). Only makes sense with `--wait`
-
-## TODO
-
-The `open` command is not yet implemented. Missing functionality:
-- Core command implementation and CLI registration
-- URL opening functionality (browser integration)
-- TUI selector for multiple URL types
-- `--agent` option support (positional and flag)
-- `--type` option support (positional and flag)
-- `--[no-]start` option (auto-start stopped agents)
-- `--[no-]wait` option (wait for browser close)
-- `--active` option (update timestamp while waiting)

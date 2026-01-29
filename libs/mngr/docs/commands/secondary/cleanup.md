@@ -1,4 +1,4 @@
-# mngr cleanup - CLI Options Reference
+# mngr cleanup [future] - CLI Options Reference
 
 Destroy or stop agents and hosts in order to free up resources.
 
@@ -41,19 +41,4 @@ mngr cleanup
 
 See [resource cleanup options](../generic/resource_cleanup.md) to control which associated resources are also destroyed (defaults to all).
 
-## TODO
-
-The `mngr cleanup` command is not yet implemented. Missing features:
-
-- `mngr cleanup` command itself (does not exist in CLI)
-- `clean` alias
-- Interactive interface for reviewing and selecting agents/hosts
-- `--yes` / `--no-interactive` flags
-- Filtering: `--older-than`, `--idle-for`, `--tag`, `--agent-type`
-- `--stop` action (no stop functionality exists for agents)
-- `--snapshot-before` flag (snapshot creation API exists but not integrated)
-- All resource cleanup flags (`--keep-*`) documented in resource_cleanup.md
-
-Partial implementation exists in separate commands:
-- `mngr destroy` has: `--force`, `--dry-run`, basic target selection
-- `mngr gc` has: `--include`, `--exclude`, `--provider`, `--dry-run`
+Note: Partial implementation exists in separate commands (`mngr destroy` has `--force`, `--dry-run`, basic target selection; `mngr gc` has `--include`, `--exclude`, `--provider`, `--dry-run`).

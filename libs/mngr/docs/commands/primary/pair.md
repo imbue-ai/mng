@@ -1,4 +1,4 @@
-# mngr pair - CLI Options Reference
+# mngr pair [future] - CLI Options Reference
 
 Continuously syncs files between a source (some agent or host) and a target (another agent or host)
 
@@ -47,19 +47,3 @@ mngr pair [(--agent) agent [--target-agent other-agent]]
 - `--sync-direction DIRECTION`: Sync direction after initialization (forward = source -> target, reverse = target -> reverse) [default: `both`, choices: `both`, `forward`, `reverse`]
 - `--conflict MODE`: Conflict resolution mode (only matters for "--sync-direction=both" mode [default: `newer`, choices: `newer`, `source`, `target`, `ask`]
 - `--atomic` / `--in-place`: Use atomic file operations to prevent partial writes [default: atomic]
-
-## TODOs
-
-**Note:** The `pair` command is currently not implemented. All features described above require implementation.
-
-- [ ] Core pair command and CLI entry point
-- [ ] Source/target argument parsing and validation
-- [ ] File watching and real-time sync engine
-- [ ] File filtering (include/exclude patterns, gitignore support)
-- [ ] Git integration (auto-stash, branch change handling, merge/rebase)
-- [ ] Bidirectional sync with conflict resolution (newer/source/target/ask modes)
-- [ ] Initial sync direction and ongoing sync direction options
-- [ ] Atomic vs in-place file operations
-- [ ] `--list` option to show active pairs
-- [ ] Debouncing for partial writes
-- [ ] Agent-to-agent and host-to-host sync support

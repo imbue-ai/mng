@@ -1,4 +1,4 @@
-# mngr push - CLI Options Reference
+# mngr push [future] - CLI Options Reference
 
 Syncs git state and/or files to one agent (or host) from another agent (or host)
 
@@ -32,20 +32,3 @@ When two agents are provided, syncs from the first agent to the second agent (in
 (all other options are the same as `mngr pull`)
 
 See [multi-target](../generic/multi_target.md) options for behavior when some agents cannot be processed.
-
-## TODOs
-
-**Note: The push command is not yet implemented.** The following features need to be added:
-
-- [ ] Basic push command from local to agent
-- [ ] Push from one agent to another agent (two agent syntax)
-- [ ] `--source` option with unified syntax parser
-- [ ] `--source-agent`, `--source-host`, `--source-path` options
-- [ ] `--target` option with unified syntax parser
-- [ ] `--target-agent`, `--target-host`, `--target-path` options
-- [ ] `--stdin` option for reading sources from stdin
-- [ ] `--rsync-arg` option (repeatable)
-- [ ] `--rsync-args` option (single string)
-- [ ] `--dry-run` option
-- [ ] Integration with multi-target options
-- [ ] Reuse common options from pull command

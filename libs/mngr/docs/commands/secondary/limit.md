@@ -1,4 +1,4 @@
-# mngr limit - CLI Options Reference
+# mngr limit [future] - CLI Options Reference
 
 Configure limits for agents and hosts: idle timeout, permissions, port forwarding, etc.
 
@@ -66,16 +66,4 @@ mngr limit --agent my-agent --agent another-agent --idle-timeout 30m
 - `--add-ssh-key FILE`: Add an SSH public key to the host for access [repeatable]
 - `--remove-ssh-key FILE`: Remove an SSH public key from the host [repeatable]
 
-## TODOs
-
-**The `limit` command is not yet implemented.** The following features need to be added:
-
-- Command registration and CLI handler (`imbue/mngr/cli/limit.py`)
-- API layer for updating limits (`imbue/mngr/api/limit.py`)
-- Agent/host targeting (--agent, --host, --all, --include, --exclude, --stdin)
-- Lifecycle management (--start-on-boot, --idle-timeout, --idle-mode, --activity-sources)
-- Permission management (--grant, --revoke)
-- SSH key management (--refresh-ssh-keys, --add-ssh-key, --remove-ssh-key)
-- Dry-run mode (--dry-run)
-
-**Note:** Supporting infrastructure exists (IdleMode, ActivitySource, ActivityConfig, host interface methods).
+Note: Supporting infrastructure exists (IdleMode, ActivitySource, ActivityConfig, host interface methods).

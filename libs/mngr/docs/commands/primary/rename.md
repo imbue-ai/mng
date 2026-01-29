@@ -1,4 +1,4 @@
-# mngr rename - CLI Options Reference
+# mngr rename [future] - CLI Options Reference
 
 Rename an agent or host.
 
@@ -18,13 +18,3 @@ mngr rename <current> <new-name>
 ## Options
 
 - `--dry-run`: Show what would be renamed without actually renaming
-
-## TODOs
-
-The following features are not yet implemented:
-
-- [ ] CLI command wrapper (no `cli/rename.py` exists yet)
-- [ ] Agent renaming support (only host renaming exists at provider level)
-- [ ] `--dry-run` flag implementation
-- [ ] Resume/recovery logic for failed rename operations
-- [ ] Integration with locking system per spec requirements
