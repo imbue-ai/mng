@@ -33,7 +33,7 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str
         f"mkdir -p '{activity_dir}'; "
         f"(while true; do "
         f"TIME_MS=$(($(date +%s) * 1000)); "
-        f"printf '{{\\n  \"time\": %d,\\n  \"ssh_pid\": %d\\n}}\\n' \"$TIME_MS\" \"$$\" > '{activity_file}'; "
+        f'printf \'{{\\n  "time": %d,\\n  "ssh_pid": %d\\n}}\\n\' "$TIME_MS" "$$" > \'{activity_file}\'; '
         f"sleep 5; done) & "
         "MNGR_ACTIVITY_PID=$!; "
         f"tmux attach -t '{session_name}'; "
@@ -89,9 +89,9 @@ def connect_to_agent(
             ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
         else:
             raise MngrError(
-            "You must specify a known_hosts file to connect to this host securely. "
-            "Alternatively, use --allow-unknown-host to bypass SSH host key verification."
-        )
+                "You must specify a known_hosts file to connect to this host securely. "
+                "Alternatively, use --allow-unknown-host to bypass SSH host key verification."
+            )
 
         if ssh_user:
             ssh_args.append(f"{ssh_user}@{ssh_host}")

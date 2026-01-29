@@ -257,6 +257,64 @@ def test_connect_no_start_raises_error_for_stopped_agent(
         cleanup_tmux_session(session_name)
 
 
+def test_connect_allow_unknown_host_flag_sets_connection_option(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --allow-unknown-host flag properly sets is_unknown_host_allowed in ConnectionOptions."""
+    agent_name = f"test-connect-unknown-host-{int(time.time())}"
+
+    with _created_agent(
+        cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name, 736485
+    ) as session_name:
+        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+
+        # Patch connect_to_agent to capture the ConnectionOptions
+        with patch("imbue.mngr.cli.connect.connect_to_agent") as mock_connect:
+            cli_runner.invoke(
+                connect,
+                [agent_name, "--allow-unknown-host"],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            # Verify connect_to_agent was called with is_unknown_host_allowed=True
+            mock_connect.assert_called_once()
+            connection_opts = mock_connect.call_args[0][3]
+            assert connection_opts.is_unknown_host_allowed is True
+
+
+def test_connect_no_allow_unknown_host_flag_default(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that is_unknown_host_allowed defaults to False when --allow-unknown-host is not specified."""
+    agent_name = f"test-connect-default-host-{int(time.time())}"
+
+    with _created_agent(
+        cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name, 849263
+    ) as session_name:
+        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+
+        # Patch connect_to_agent to capture the ConnectionOptions
+        with patch("imbue.mngr.cli.connect.connect_to_agent") as mock_connect:
+            cli_runner.invoke(
+                connect,
+                [agent_name],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            # Verify connect_to_agent was called with is_unknown_host_allowed=False (default)
+            mock_connect.assert_called_once()
+            connection_opts = mock_connect.call_args[0][3]
+            assert connection_opts.is_unknown_host_allowed is False
+
+
 def _make_mock_agent(name: str, state: AgentLifecycleState) -> AgentInfo:
     """Create a mock AgentInfo for testing."""
     mock_host = MagicMock()
