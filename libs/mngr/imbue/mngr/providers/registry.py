@@ -1,3 +1,12 @@
+# NOTE: These top-level imports cause Modal to be loaded even when not needed,
+# adding ~0.1s to every command. Profiling of `mngr list --provider local` shows:
+#   - Total CLI time: ~0.9s
+#   - With Modal disabled entirely (--disable-plugin modal): ~0.76s
+#   - Python-level work (imports + list_agents): ~0.58s
+#
+# The Modal import happens here unconditionally, even when --provider filters to
+# local-only. To fix: move these imports inside load_backends_from_plugins() and
+# load_local_backend_only(), or only import backends that are actually enabled.
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
