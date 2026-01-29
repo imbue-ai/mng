@@ -78,17 +78,43 @@ def _write_host_record(host_record: dict[str, Any]) -> None:
     volume.commit()
 
 
+def _write_agent_records(host_id: str, agents: list[dict[str, Any]]) -> None:
+    """Write agent records to the volume.
+
+    Each agent is stored at /vol/{host_id}/{agent_id}.json so that
+    stopped hosts can still show their agents in mngr list.
+    """
+    if not agents:
+        return
+
+    # Create the host directory if it doesn't exist
+    host_dir = f"/vol/{host_id}"
+    os.makedirs(host_dir, exist_ok=True)
+
+    # Write each agent's data
+    for agent in agents:
+        agent_id = agent.get("id")
+        if agent_id:
+            agent_path = f"{host_dir}/{agent_id}.json"
+            with open(agent_path, "w") as f:
+                json.dump(agent, f, indent=2)
+
+    volume.commit()
+
+
 @app.function(volumes={"/vol": volume})
 @modal.fastapi_endpoint(method="POST", docs=True)
 def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     """Snapshot a Modal sandbox and shut it down.
 
     Request body should contain sandbox_id (Modal sandbox object ID) and
-    host_id (mngr host ID). Optionally accepts snapshot_name.
+    host_id (mngr host ID). Optionally accepts snapshot_name and agents
+    (list of agent data to persist to the volume).
     """
     sandbox_id = request_body.get("sandbox_id")
     host_id = request_body.get("host_id")
     snapshot_name = request_body.get("snapshot_name")
+    agents = request_body.get("agents", [])
 
     if not sandbox_id:
         raise HTTPException(status_code=400, detail="sandbox_id is required")
@@ -133,6 +159,9 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
 
         # Write updated host record
         _write_host_record(host_record)
+
+        # Write agent records so they appear in mngr list for stopped hosts
+        _write_agent_records(host_id, agents)
 
         # Terminate the sandbox
         sandbox.terminate()

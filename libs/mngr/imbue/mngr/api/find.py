@@ -3,12 +3,14 @@ from pathlib import Path
 import deal
 from loguru import logger
 from pydantic import Field
+from pyinfra.api.exceptions import ConnectError
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundError
+from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -345,16 +347,39 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
                 provider_name=provider.name,
             )
 
-            agents = host.get_agents()
-            agent_refs = [
-                AgentReference(
-                    host_id=host.id,
-                    agent_id=agent.id,
-                    agent_name=agent.name,
-                    provider_name=provider.name,
-                )
-                for agent in agents
-            ]
+            # Try to get agents from the host. For stopped/unreachable hosts,
+            # connection will fail - try to get persisted agent data from volume.
+            try:
+                agents = host.get_agents()
+                agent_refs = [
+                    AgentReference(
+                        host_id=host.id,
+                        agent_id=agent.id,
+                        agent_name=agent.name,
+                        provider_name=provider.name,
+                    )
+                    for agent in agents
+                ]
+            except (ConnectError, HostConnectionError, OSError) as e:
+                logger.trace("Could not get agents from host {} (may be stopped): {}", host.id, e)
+                # Try to get persisted agent data from the provider (for stopped hosts)
+                agent_refs = []
+                list_agent_records_method = getattr(provider, "_list_agent_records_for_host", None)
+                if list_agent_records_method is not None and callable(list_agent_records_method):
+                    try:
+                        agent_records = list_agent_records_method(host.id)
+                        for agent_data in agent_records:
+                            agent_refs.append(
+                                AgentReference(
+                                    host_id=host.id,
+                                    agent_id=AgentId(agent_data["id"]),
+                                    agent_name=AgentName(agent_data["name"]),
+                                    provider_name=provider.name,
+                                )
+                            )
+                        logger.trace("Loaded {} persisted agents for stopped host {}", len(agent_refs), host.id)
+                    except (KeyError, ValueError) as inner_e:
+                        logger.trace("Could not load persisted agents for host {}: {}", host.id, inner_e)
 
             agents_by_host[host_ref] = agent_refs
 
