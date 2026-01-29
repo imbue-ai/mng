@@ -40,6 +40,7 @@ from pyinfra.api.inventory import Inventory
 from pyinfra.connectors.sshuserclient.client import get_host_keys
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
@@ -915,6 +916,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
+        lifecycle: HostLifecycleOptions | None = None,
     ) -> Host:
         """Create a new Modal sandbox host."""
         # Generate host ID
@@ -991,6 +993,15 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         logger.debug("Writing host record to volume", host_id=str(host_id))
         self._write_host_record(host_record)
 
+        # Set up activity configuration for idle detection, merging CLI options with provider defaults
+        lifecycle_options = lifecycle if lifecycle is not None else HostLifecycleOptions()
+        activity_config = lifecycle_options.to_activity_config(
+            default_timeout=self.config.default_timeout,
+            default_mode=self.config.default_idle_mode,
+            default_sources=self.config.default_activity_sources,
+        )
+        host.set_activity_config(activity_config)
+
         # For persistent apps, deploy the snapshot function and create shutdown script
         if self.config.is_persistent:
             snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
@@ -999,6 +1010,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
+
+        # Optionally create an initial snapshot based on config
+        # When enabled, this ensures the host can be restarted even after a hard kill
+        if self.config.is_snapshotted_after_create:
+            logger.debug("Creating initial snapshot for host", host_id=str(host_id))
+            self._create_initial_snapshot(sandbox, host_id)
 
         return host
 
@@ -1012,13 +1029,22 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         """Stop a Modal sandbox.
 
         Note: Modal sandboxes cannot be stopped and resumed - they can only be
-        terminated. This method terminates the sandbox.
+        terminated. If create_snapshot is True (the default), a snapshot is
+        created before termination to allow the host to be restarted later.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
         logger.info("Stopping (terminating) Modal sandbox: {}", host_id)
 
         sandbox = self._find_sandbox_by_host_id(host_id)
         if sandbox:
+            # Create a snapshot before termination if requested
+            if create_snapshot:
+                try:
+                    logger.debug("Creating snapshot before termination", host_id=str(host_id))
+                    self.create_snapshot(host_id, SnapshotName("stop"))
+                except (MngrError, modal.exception.Error) as e:
+                    logger.warning("Failed to create snapshot before termination: {}", e)
+
             try:
                 sandbox.terminate()
             except modal.exception.Error as e:
@@ -1038,12 +1064,20 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         host: HostInterface | HostId,
         snapshot_id: SnapshotId | None = None,
     ) -> Host:
-        """Start a stopped host, optionally restoring from a snapshot.
+        """Start a stopped host, optionally restoring from a specific snapshot.
 
         If the sandbox is still running, returns the existing host. If the
-        sandbox has been terminated and a snapshot_id is provided, creates
-        a new sandbox from the snapshot image. Without a snapshot_id, a
-        terminated sandbox cannot be restarted.
+        sandbox has been terminated, creates a new sandbox from a snapshot.
+        When snapshot_id is provided, that specific snapshot is used. When
+        snapshot_id is None, the most recent snapshot is automatically used.
+
+        Note: For a host to be restartable, it must have at least one snapshot.
+        Snapshots are created in two cases:
+        1. During host creation if is_snapshotted_after_create=True (default)
+        2. During stop_host() if create_snapshot=True (default)
+
+        If neither snapshot was created (e.g., is_snapshotted_after_create=False
+        and the sandbox was hard-killed), this method raises NoSnapshotsModalMngrError.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
 
@@ -1060,12 +1094,24 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                     )
                 return host_obj
 
-        # Sandbox is not running - try to restore from snapshot if provided
+        # Sandbox is not running - restore from snapshot
+        # If no snapshot_id provided, use the most recent snapshot
         if snapshot_id is None:
-            raise NoSnapshotsModalMngrError(
-                f"Modal sandbox {host_id} is not running and cannot be restarted. "
-                "Provide a snapshot_id to restore from a snapshot, or create a new host."
-            )
+            # Load host record to get available snapshots
+            host_record = self._read_host_record(host_id)
+            if host_record is None:
+                raise HostNotFoundError(host_id)
+
+            if not host_record.snapshots:
+                raise NoSnapshotsModalMngrError(
+                    f"Modal sandbox {host_id} is not running and has no snapshots. "
+                    "Cannot restart. Create a new host instead."
+                )
+
+            # Use the most recent snapshot (sorted by created_at descending)
+            sorted_snapshots = sorted(host_record.snapshots, key=lambda s: s.created_at, reverse=True)
+            snapshot_id = SnapshotId(sorted_snapshots[0].id)
+            logger.info("Using most recent snapshot for restart", snapshot_id=str(snapshot_id))
 
         # Load host record from volume
         host_record = self._read_host_record(host_id)
@@ -1247,6 +1293,67 @@ curl -s -X POST "$SNAPSHOT_URL" \\
     # Snapshot Methods
     # =========================================================================
 
+    def _record_snapshot(
+        self,
+        sandbox: modal.Sandbox,
+        host_id: HostId,
+        name: SnapshotName,
+    ) -> SnapshotId:
+        """Create a filesystem snapshot and record it in the host record.
+
+        This is the core snapshot logic used by both _create_initial_snapshot
+        and create_snapshot. It reads the host record from the volume, creates
+        a filesystem snapshot via Modal, records the snapshot metadata in the
+        host record, and writes the updated host record back to the volume.
+        """
+        # Read existing host record from volume
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            raise HostNotFoundError(host_id)
+
+        # Create the filesystem snapshot
+        logger.debug("Creating filesystem snapshot", name=str(name))
+        modal_image = sandbox.snapshot_filesystem()
+        modal_image_id = modal_image.object_id
+
+        # Generate mngr snapshot ID and metadata
+        snapshot_id = SnapshotId.generate()
+        created_at = datetime.now(timezone.utc)
+
+        new_snapshot = SnapshotRecord(
+            id=str(snapshot_id),
+            name=str(name),
+            created_at=created_at.isoformat(),
+            modal_image_id=modal_image_id,
+        )
+
+        # Update host record with new snapshot and write to volume
+        updated_host_record = host_record.model_copy(
+            update={"snapshots": list(host_record.snapshots) + [new_snapshot]}
+        )
+        self._write_host_record(updated_host_record)
+
+        logger.debug(
+            "Created snapshot: id={}, name={}, modal_image_id={}",
+            snapshot_id,
+            name,
+            modal_image_id,
+        )
+        return snapshot_id
+
+    def _create_initial_snapshot(
+        self,
+        sandbox: modal.Sandbox,
+        host_id: HostId,
+    ) -> SnapshotId:
+        """Create an initial snapshot of a newly created host.
+
+        This is called during host creation when is_snapshotted_after_create
+        is True, ensuring the host can be restarted after being stopped.
+        The initial state after SSH setup is captured as the "initial" snapshot.
+        """
+        return self._record_snapshot(sandbox, host_id, SnapshotName("initial"))
+
     @handle_modal_auth_error
     def create_snapshot(
         self,
@@ -1266,42 +1373,14 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         if sandbox is None:
             raise HostNotFoundError(host_id)
 
-        # Read existing host record from volume
-        host_record = self._read_host_record(host_id)
-        if host_record is None:
-            raise HostNotFoundError(host_id)
+        # Generate snapshot name if not provided
+        if name is None:
+            # Use last 8 characters of a generated ID as a short identifier
+            short_id = str(SnapshotId.generate())[-8:]
+            name = SnapshotName(f"snapshot-{short_id}")
 
-        # Create the filesystem snapshot
-        logger.debug("Calling snapshot_filesystem on sandbox")
-        modal_image = sandbox.snapshot_filesystem()
-        modal_image_id = modal_image.object_id
-
-        # Generate mngr snapshot ID and metadata
-        snapshot_id = SnapshotId.generate()
-        created_at = datetime.now(timezone.utc)
-        # Use last 8 characters of the snapshot ID as a short identifier for the default name
-        short_id = str(snapshot_id)[-8:]
-        snapshot_name = name if name is not None else SnapshotName(f"snapshot-{short_id}")
-
-        new_snapshot = SnapshotRecord(
-            id=str(snapshot_id),
-            name=str(snapshot_name),
-            created_at=created_at.isoformat(),
-            modal_image_id=modal_image_id,
-        )
-
-        # Update host record with new snapshot and write to volume
-        updated_host_record = host_record.model_copy(
-            update={"snapshots": list(host_record.snapshots) + [new_snapshot]}
-        )
-        self._write_host_record(updated_host_record)
-
-        logger.info(
-            "Created snapshot: id={}, name={}, modal_image_id={}",
-            snapshot_id,
-            snapshot_name,
-            modal_image_id,
-        )
+        snapshot_id = self._record_snapshot(sandbox, host_id, name)
+        logger.info("Created snapshot: id={}, name={}", snapshot_id, name)
         return snapshot_id
 
     def list_snapshots(

@@ -1611,6 +1611,10 @@ class Host(HostInterface):
             "# Ctrl-q: Detach and destroy the agent whose session this is",
             """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'"""
             "",
+            # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
+            "# Automatically signal claude to tell it to resize on client attach",
+            """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'"""
+            "",
         ]
         config_content = "\n".join(lines)
 

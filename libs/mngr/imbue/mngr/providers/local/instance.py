@@ -11,6 +11,7 @@ from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State
 from pyinfra.api.inventory import Inventory
 
+from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
@@ -146,6 +147,7 @@ class LocalProviderInstance(BaseProviderInstance):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
+        lifecycle: HostLifecycleOptions | None = None,
     ) -> Host:
         """Create (or return) the local host.
 
@@ -157,6 +159,8 @@ class LocalProviderInstance(BaseProviderInstance):
         host = self._create_host(name, tags)
         logger.trace("Local host created: id={}", host.id)
 
+        # FIXME: should probably remove this--there is no boot time for local host
+        #  (there's another instance below, remove that as well)
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
 

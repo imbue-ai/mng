@@ -51,6 +51,7 @@ mngr connect [OPTIONS] [AGENT]
 | `--retry` | integer | Number of connection retries [future] | `3` |
 | `--retry-delay` | text | Delay between retries [future] | `5s` |
 | `--attach-command` | text | Command to run instead of attaching to main session [future] | None |
+| `--allow-unknown-host`, `--no-allow-unknown-host` | boolean | Allow connecting to hosts without a known_hosts file (disables SSH host key verification) | `False` |
 
 ## Common
 

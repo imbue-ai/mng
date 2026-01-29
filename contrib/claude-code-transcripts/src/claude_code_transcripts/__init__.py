@@ -1206,7 +1206,7 @@ def generate_index_pagination_html(total_pages):
 
 def generate_html(json_path, output_dir, github_repo=None):
     output_dir = Path(output_dir)
-    output_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(exist_ok=True, parents=True)
 
     # Load session file (supports both JSON and JSONL)
     data = parse_session_file(json_path)

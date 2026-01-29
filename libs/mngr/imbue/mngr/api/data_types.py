@@ -9,6 +9,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import BuildCacheInfo
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import LogFileInfo
@@ -17,10 +18,12 @@ from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.data_types import WorkDirInfo
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotName
 
@@ -105,6 +108,42 @@ class NewHostEnvironmentOptions(FrozenModel):
     )
 
 
+class HostLifecycleOptions(FrozenModel):
+    """Lifecycle and idle detection options for the host.
+
+    These options control when a host is considered idle and should be shut down.
+    All fields are optional; when None, provider defaults are used.
+    """
+
+    idle_timeout_seconds: int | None = Field(
+        default=None,
+        description="Shutdown after idle for N seconds (None for provider default)",
+    )
+    idle_mode: IdleMode | None = Field(
+        default=None,
+        description="When to consider host idle (None for provider default)",
+    )
+    activity_sources: tuple[ActivitySource, ...] | None = Field(
+        default=None,
+        description="Activity sources for idle detection (None for provider default)",
+    )
+
+    def to_activity_config(
+        self,
+        default_timeout: int,
+        default_mode: IdleMode,
+        default_sources: tuple[ActivitySource, ...],
+    ) -> ActivityConfig:
+        """Convert to ActivityConfig, using provided defaults for None values."""
+        return ActivityConfig(
+            idle_timeout_seconds=self.idle_timeout_seconds
+            if self.idle_timeout_seconds is not None
+            else default_timeout,
+            idle_mode=self.idle_mode if self.idle_mode is not None else default_mode,
+            activity_sources=self.activity_sources if self.activity_sources is not None else default_sources,
+        )
+
+
 class NewHostOptions(FrozenModel):
     """Options for creating a new host."""
 
@@ -125,6 +164,10 @@ class NewHostOptions(FrozenModel):
     environment: NewHostEnvironmentOptions = Field(
         default_factory=NewHostEnvironmentOptions,
         description="Environment variable configuration",
+    )
+    lifecycle: HostLifecycleOptions = Field(
+        default_factory=HostLifecycleOptions,
+        description="Lifecycle and idle detection options",
     )
 
 
