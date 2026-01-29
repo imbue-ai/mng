@@ -37,6 +37,31 @@ class PullResult(FrozenModel):
     )
 
 
+class PullGitResult(FrozenModel):
+    """Result of a git pull operation."""
+
+    source_branch: str = Field(
+        description="Branch that was merged from",
+    )
+    target_branch: str = Field(
+        description="Branch that was merged into",
+    )
+    source_path: Path = Field(
+        description="Source repository path (agent's work_dir)",
+    )
+    destination_path: Path = Field(
+        description="Destination repository path",
+    )
+    is_dry_run: bool = Field(
+        default=False,
+        description="Whether this was a dry run",
+    )
+    commits_merged: int = Field(
+        default=0,
+        description="Number of commits merged",
+    )
+
+
 class UncommittedChangesError(MngrError):
     """Raised when there are uncommitted changes and mode is FAIL."""
 
@@ -49,6 +74,31 @@ class UncommittedChangesError(MngrError):
     def __init__(self, destination: Path) -> None:
         self.destination = destination
         super().__init__(f"Uncommitted changes in destination: {destination}")
+
+
+class NotAGitRepositoryError(MngrError):
+    """Raised when a git operation is attempted on a non-git directory."""
+
+    user_help_text = (
+        "Use --sync-mode=files to sync files without git, "
+        "or ensure both source and destination are git repositories."
+    )
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        super().__init__(f"Not a git repository: {path}")
+
+
+class GitMergeError(MngrError):
+    """Raised when a git merge operation fails."""
+
+    user_help_text = (
+        "Resolve the merge conflict manually, or use --uncommitted-changes=clobber "
+        "to discard local changes."
+    )
+
+    def __init__(self, message: str) -> None:
+        super().__init__(f"Git merge failed: {message}")
 
 
 def _has_uncommitted_changes(destination: Path) -> bool:
@@ -100,6 +150,82 @@ def _git_stash_pop(destination: Path) -> None:
         raise MngrError(f"git stash pop failed: {result.stderr}")
 
 
+def _is_git_repository(path: Path) -> bool:
+    """Check if the given path is inside a git repository."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--git-dir"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def _get_current_branch(path: Path) -> str:
+    """Get the current branch name for a git repository."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise MngrError(f"Failed to get current branch: {result.stderr}")
+    return result.stdout.strip()
+
+
+def _git_reset_hard(destination: Path) -> None:
+    """Hard reset the destination to discard all uncommitted changes."""
+    result = subprocess.run(
+        ["git", "reset", "--hard", "HEAD"],
+        cwd=destination,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise MngrError(f"git reset --hard failed: {result.stderr}")
+
+    # Also clean untracked files
+    result = subprocess.run(
+        ["git", "clean", "-fd"],
+        cwd=destination,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise MngrError(f"git clean failed: {result.stderr}")
+
+
+def handle_uncommitted_changes(
+    destination: Path,
+    uncommitted_changes: UncommittedChangesMode,
+) -> bool:
+    """Handle uncommitted changes according to the specified mode.
+
+    Returns True if changes were stashed (and may need to be restored).
+    """
+    is_uncommitted = _has_uncommitted_changes(destination)
+
+    if not is_uncommitted:
+        return False
+
+    match uncommitted_changes:
+        case UncommittedChangesMode.FAIL:
+            raise UncommittedChangesError(destination)
+        case UncommittedChangesMode.STASH:
+            logger.debug("Stashing uncommitted changes")
+            return _git_stash(destination)
+        case UncommittedChangesMode.MERGE:
+            logger.debug("Stashing uncommitted changes for merge")
+            return _git_stash(destination)
+        case UncommittedChangesMode.CLOBBER:
+            logger.debug("Clobbering uncommitted changes")
+            _git_reset_hard(destination)
+            return False
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 def pull_files(
     agent: AgentInterface,
     host: HostInterface,
@@ -119,24 +245,10 @@ def pull_files(
     logger.debug("Pulling files from {} to {}", actual_source_path, destination)
 
     # Handle uncommitted changes in the destination
-    is_uncommitted = _has_uncommitted_changes(destination)
+    # Note: For files mode, CLOBBER just lets rsync overwrite (no git reset needed)
     did_stash = False
-
-    if is_uncommitted:
-        match uncommitted_changes:
-            case UncommittedChangesMode.FAIL:
-                raise UncommittedChangesError(destination)
-            case UncommittedChangesMode.STASH:
-                logger.debug("Stashing uncommitted changes")
-                did_stash = _git_stash(destination)
-            case UncommittedChangesMode.MERGE:
-                logger.debug("Stashing uncommitted changes for merge")
-                did_stash = _git_stash(destination)
-            case UncommittedChangesMode.CLOBBER:
-                logger.debug("Clobbering uncommitted changes")
-                # Do nothing - rsync will overwrite
-            case _ as unreachable:
-                assert_never(unreachable)
+    if uncommitted_changes != UncommittedChangesMode.CLOBBER:
+        did_stash = handle_uncommitted_changes(destination, uncommitted_changes)
 
     # Build rsync command
     # -a: archive mode (recursive, preserves permissions, etc.)
@@ -237,3 +349,196 @@ def _parse_rsync_output(
             files_transferred += 1
 
     return files_transferred, bytes_transferred
+
+
+def _count_commits_between(destination: Path, base_ref: str, head_ref: str) -> int:
+    """Count the number of commits between two refs."""
+    result = subprocess.run(
+        ["git", "rev-list", "--count", f"{base_ref}..{head_ref}"],
+        cwd=destination,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return 0
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return 0
+
+
+def _get_head_commit(path: Path) -> str:
+    """Get the current HEAD commit hash."""
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise MngrError(f"Failed to get HEAD commit: {result.stderr}")
+    return result.stdout.strip()
+
+
+def pull_git(
+    agent: AgentInterface,
+    host: HostInterface,
+    destination: Path,
+    # Branch to merge from the agent's repository (defaults to agent's current branch)
+    source_branch: str | None = None,
+    # Branch to merge into in the destination (defaults to destination's current branch)
+    target_branch: str | None = None,
+    # If True, only show what would be merged without actually merging
+    dry_run: bool = False,
+    # How to handle uncommitted changes in the destination
+    uncommitted_changes: UncommittedChangesMode = UncommittedChangesMode.FAIL,
+) -> PullGitResult:
+    """Pull git commits from an agent's repository by merging branches.
+
+    This function fetches the agent's branch and merges it into the destination's branch.
+    The agent's repository is added as a temporary remote, fetched from, and then the
+    remote is removed after the merge.
+    """
+    source_path = agent.work_dir
+    logger.debug("Pulling git from {} to {}", source_path, destination)
+
+    # Verify both source and destination are git repositories
+    if not _is_git_repository(destination):
+        raise NotAGitRepositoryError(destination)
+
+    if not _is_git_repository(source_path):
+        raise NotAGitRepositoryError(source_path)
+
+    # Get the source branch (agent's current branch if not specified)
+    actual_source_branch = source_branch if source_branch is not None else _get_current_branch(source_path)
+    logger.debug("Source branch: {}", actual_source_branch)
+
+    # Get the target branch (destination's current branch if not specified)
+    actual_target_branch = target_branch if target_branch is not None else _get_current_branch(destination)
+    logger.debug("Target branch: {}", actual_target_branch)
+
+    # Handle uncommitted changes in the destination
+    did_stash = handle_uncommitted_changes(destination, uncommitted_changes)
+
+    # Record the HEAD commit before the merge for counting commits
+    pre_merge_head = _get_head_commit(destination)
+
+    # Add agent's repository as a temporary remote
+    remote_name = "mngr-agent-temp"
+    try:
+        # Remove remote if it already exists (from a previous failed run)
+        subprocess.run(
+            ["git", "remote", "remove", remote_name],
+            cwd=destination,
+            capture_output=True,
+            text=True,
+        )
+
+        # Add the agent's repository as a remote
+        logger.debug("Adding agent repository as remote: {}", source_path)
+        result = subprocess.run(
+            ["git", "remote", "add", remote_name, str(source_path)],
+            cwd=destination,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise MngrError(f"Failed to add remote: {result.stderr}")
+
+        # Fetch from the agent's repository
+        logger.debug("Fetching from agent repository")
+        result = subprocess.run(
+            ["git", "fetch", remote_name, actual_source_branch],
+            cwd=destination,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise MngrError(f"Failed to fetch from agent: {result.stderr}")
+
+        # Checkout the target branch if it's different from the current branch
+        current_branch = _get_current_branch(destination)
+        if current_branch != actual_target_branch:
+            logger.debug("Checking out target branch: {}", actual_target_branch)
+            result = subprocess.run(
+                ["git", "checkout", actual_target_branch],
+                cwd=destination,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise MngrError(f"Failed to checkout target branch: {result.stderr}")
+
+        # Count commits that will be merged
+        commits_to_merge = _count_commits_between(
+            destination,
+            "HEAD",
+            f"{remote_name}/{actual_source_branch}",
+        )
+
+        if dry_run:
+            logger.info(
+                "Dry run: would merge {} commits from {} into {}",
+                commits_to_merge,
+                actual_source_branch,
+                actual_target_branch,
+            )
+        else:
+            # Merge the fetched branch
+            logger.debug("Merging {}/{} into {}", remote_name, actual_source_branch, actual_target_branch)
+            result = subprocess.run(
+                ["git", "merge", f"{remote_name}/{actual_source_branch}", "--no-edit"],
+                cwd=destination,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                # Abort the merge on failure
+                subprocess.run(
+                    ["git", "merge", "--abort"],
+                    cwd=destination,
+                    capture_output=True,
+                    text=True,
+                )
+                raise GitMergeError(result.stderr)
+
+            # Count actual commits merged
+            post_merge_head = _get_head_commit(destination)
+            if pre_merge_head != post_merge_head:
+                commits_merged = _count_commits_between(destination, pre_merge_head, post_merge_head)
+            else:
+                commits_merged = 0
+
+            logger.info(
+                "Git pull complete: merged {} commits from {} into {}",
+                commits_merged,
+                actual_source_branch,
+                actual_target_branch,
+            )
+    finally:
+        # Always remove the temporary remote
+        subprocess.run(
+            ["git", "remote", "remove", remote_name],
+            cwd=destination,
+            capture_output=True,
+            text=True,
+        )
+
+        # For merge mode, restore the stashed changes
+        if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
+            logger.debug("Restoring stashed changes")
+            try:
+                _git_stash_pop(destination)
+            except MngrError:
+                logger.warning("Failed to restore stashed changes after git pull")
+
+    commits_merged_result = commits_to_merge if dry_run else commits_merged
+
+    return PullGitResult(
+        source_branch=actual_source_branch,
+        target_branch=actual_target_branch,
+        source_path=source_path,
+        destination_path=destination,
+        is_dry_run=dry_run,
+        commits_merged=commits_merged_result,
+    )

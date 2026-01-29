@@ -9,8 +9,10 @@ from loguru import logger
 from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_provider_instance
+from imbue.mngr.api.pull import PullGitResult
 from imbue.mngr.api.pull import PullResult
 from imbue.mngr.api.pull import pull_files
+from imbue.mngr.api.pull import pull_git
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -49,6 +51,7 @@ class PullCliOptions(CommonCliOptions):
     sync_mode: str
     exclude: tuple[str, ...]
     uncommitted_changes: str
+    target_branch: str | None
 
 
 def _find_agent_by_name_or_id(
@@ -118,8 +121,8 @@ def _select_agent_for_pull(mngr_ctx: MngrContext) -> tuple[AgentInterface, HostI
     return _find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx)
 
 
-def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
-    """Output the pull result in the appropriate format."""
+def _output_files_result(result: PullResult, output_opts: OutputOptions) -> None:
+    """Output the pull files result in the appropriate format."""
     result_data = {
         "files_transferred": result.files_transferred,
         "bytes_transferred": result.bytes_transferred,
@@ -140,6 +143,40 @@ def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
                     "Pull complete: {} files, {} bytes transferred",
                     result.files_transferred,
                     result.bytes_transferred,
+                )
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _output_git_result(result: PullGitResult, output_opts: OutputOptions) -> None:
+    """Output the pull git result in the appropriate format."""
+    result_data = {
+        "source_branch": result.source_branch,
+        "target_branch": result.target_branch,
+        "source_path": str(result.source_path),
+        "destination_path": str(result.destination_path),
+        "is_dry_run": result.is_dry_run,
+        "commits_merged": result.commits_merged,
+    }
+    match output_opts.output_format:
+        case OutputFormat.JSON:
+            emit_final_json(result_data)
+        case OutputFormat.JSONL:
+            emit_event("pull_git_complete", result_data, OutputFormat.JSONL)
+        case OutputFormat.HUMAN:
+            if result.is_dry_run:
+                logger.info(
+                    "Dry run complete: would merge {} commits from {} into {}",
+                    result.commits_merged,
+                    result.source_branch,
+                    result.target_branch,
+                )
+            else:
+                logger.info(
+                    "Git pull complete: merged {} commits from {} into {}",
+                    result.commits_merged,
+                    result.source_branch,
+                    result.target_branch,
                 )
         case _ as unreachable:
             assert_never(unreachable)
@@ -175,15 +212,19 @@ def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
 )
 @optgroup.option(
     "--sync-mode",
-    type=click.Choice(["files", "state", "full"], case_sensitive=False),
+    type=click.Choice(["files", "git", "full"], case_sensitive=False),
     default="files",
     show_default=True,
-    help="What to sync: files (working directory only), state (agent state), or full (everything)",
+    help="What to sync: files (working directory via rsync), git (merge git branches), or full (everything)",
 )
 @optgroup.option(
     "--exclude",
     multiple=True,
     help="Patterns to exclude from sync [repeatable]",
+)
+@optgroup.option(
+    "--target-branch",
+    help="Branch to merge into (git mode only) [default: current branch]",
 )
 @optgroup.option(
     "--uncommitted-changes",
@@ -195,10 +236,11 @@ def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
 @add_common_options
 @click.pass_context
 def pull(ctx: click.Context, **kwargs) -> None:
-    """Pull files from an agent to local machine.
+    """Pull files or git commits from an agent to local machine.
 
-    Syncs files from an agent's working directory to a local directory.
+    Syncs files or git state from an agent's working directory to a local directory.
     Default behavior uses rsync for efficient incremental file transfer.
+    Use --sync-mode=git to merge git branches instead of syncing files.
 
     If no source is specified, shows an interactive selector to choose an agent.
 
@@ -208,6 +250,8 @@ def pull(ctx: click.Context, **kwargs) -> None:
       mngr pull my-agent ./local-copy
       mngr pull my-agent:src ./local-src
       mngr pull --source-agent my-agent
+      mngr pull my-agent --sync-mode=git
+      mngr pull my-agent --sync-mode=git --target-branch=main
     """
     mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
@@ -217,14 +261,18 @@ def pull(ctx: click.Context, **kwargs) -> None:
     logger.debug("Running pull command")
 
     # Check for unsupported options
-    if opts.sync_mode != "files":
-        raise NotImplementedError(f"--sync-mode={opts.sync_mode} is not implemented yet (only 'files' is supported)")
+    if opts.sync_mode == "full":
+        raise NotImplementedError("--sync-mode=full is not implemented yet")
 
     if opts.exclude:
         raise NotImplementedError("--exclude is not implemented yet")
 
     if opts.source_host is not None:
         raise NotImplementedError("--source-host is not implemented yet (only local agents are supported)")
+
+    # Validate git-specific options
+    if opts.target_branch is not None and opts.sync_mode != "git":
+        raise UserInputError("--target-branch can only be used with --sync-mode=git")
 
     # Parse source specification
     agent_identifier: str | None = None
@@ -274,34 +322,55 @@ def pull(ctx: click.Context, **kwargs) -> None:
 
     emit_info(f"Pulling from agent: {agent.name}", output_opts.output_format)
 
-    # Parse source_path if provided
-    parsed_source_path: Path | None = None
-    if source_path is not None:
-        # If source_path is relative, make it relative to agent's work_dir
-        parsed_path = Path(source_path)
-        if parsed_path.is_absolute():
-            parsed_source_path = parsed_path
-        else:
-            parsed_source_path = agent.work_dir / parsed_path
-
     # Parse uncommitted changes mode
     uncommitted_changes_mode = UncommittedChangesMode(opts.uncommitted_changes.upper())
 
-    # Perform the pull
-    pull_result = pull_files(
-        agent=agent,
-        host=host,
-        destination=destination_path,
-        source_path=parsed_source_path,
-        dry_run=opts.dry_run,
-        delete=opts.delete,
-        uncommitted_changes=uncommitted_changes_mode,
-    )
+    if opts.sync_mode == "git":
+        # Git mode: merge branches
+        # source_branch=None means use agent's current branch
+        git_result = pull_git(
+            agent=agent,
+            host=host,
+            destination=destination_path,
+            source_branch=None,
+            target_branch=opts.target_branch,
+            dry_run=opts.dry_run,
+            uncommitted_changes=uncommitted_changes_mode,
+        )
 
-    # Stop agent if requested
-    if opts.stop:
-        emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
-        host.stop_agents([agent.id])
-        emit_info("Agent stopped", output_opts.output_format)
+        # Stop agent if requested
+        if opts.stop:
+            emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
+            host.stop_agents([agent.id])
+            emit_info("Agent stopped", output_opts.output_format)
 
-    _output_result(pull_result, output_opts)
+        _output_git_result(git_result, output_opts)
+    else:
+        # Files mode: rsync
+        # Parse source_path if provided
+        parsed_source_path: Path | None = None
+        if source_path is not None:
+            # If source_path is relative, make it relative to agent's work_dir
+            parsed_path = Path(source_path)
+            if parsed_path.is_absolute():
+                parsed_source_path = parsed_path
+            else:
+                parsed_source_path = agent.work_dir / parsed_path
+
+        files_result = pull_files(
+            agent=agent,
+            host=host,
+            destination=destination_path,
+            source_path=parsed_source_path,
+            dry_run=opts.dry_run,
+            delete=opts.delete,
+            uncommitted_changes=uncommitted_changes_mode,
+        )
+
+        # Stop agent if requested
+        if opts.stop:
+            emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
+            host.stop_agents([agent.id])
+            emit_info("Agent stopped", output_opts.output_format)
+
+        _output_files_result(files_result, output_opts)

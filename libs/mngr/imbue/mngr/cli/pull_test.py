@@ -10,7 +10,7 @@ from click.testing import CliRunner
 from imbue.mngr.api.pull import PullResult
 from imbue.mngr.cli.pull import PullCliOptions
 from imbue.mngr.cli.pull import _find_agent_by_name_or_id
-from imbue.mngr.cli.pull import _output_result
+from imbue.mngr.cli.pull import _output_files_result
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.main import cli
@@ -38,6 +38,7 @@ def test_pull_cli_options_has_all_fields() -> None:
     assert "delete" in annotations
     assert "sync_mode" in annotations
     assert "exclude" in annotations
+    assert "target_branch" in annotations
 
 
 def test_pull_command_is_registered() -> None:
@@ -45,7 +46,7 @@ def test_pull_command_is_registered() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["pull", "--help"])
     assert result.exit_code == 0
-    assert "Pull files from an agent" in result.output
+    assert "Pull files or git commits from an agent" in result.output
 
 
 def test_pull_command_help_shows_options() -> None:
@@ -69,11 +70,11 @@ def test_pull_command_sync_mode_choices() -> None:
     result = runner.invoke(cli, ["pull", "--help"])
     assert result.exit_code == 0
     assert "files" in result.output
-    assert "state" in result.output
+    assert "git" in result.output
     assert "full" in result.output
 
 
-def test_output_result_human_format() -> None:
+def test_output_files_result_human_format() -> None:
     """Test output formatting for human-readable format."""
     result = PullResult(
         files_transferred=5,
@@ -85,10 +86,10 @@ def test_output_result_human_format() -> None:
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
 
     # Should not raise
-    _output_result(result, output_opts)
+    _output_files_result(result, output_opts)
 
 
-def test_output_result_human_format_dry_run() -> None:
+def test_output_files_result_human_format_dry_run() -> None:
     """Test output formatting for human-readable format with dry run."""
     result = PullResult(
         files_transferred=5,
@@ -100,10 +101,10 @@ def test_output_result_human_format_dry_run() -> None:
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
 
     # Should not raise
-    _output_result(result, output_opts)
+    _output_files_result(result, output_opts)
 
 
-def test_output_result_json_format(capsys) -> None:
+def test_output_files_result_json_format(capsys) -> None:
     """Test output formatting for JSON format."""
     result = PullResult(
         files_transferred=5,
@@ -114,13 +115,13 @@ def test_output_result_json_format(capsys) -> None:
     )
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
 
-    _output_result(result, output_opts)
+    _output_files_result(result, output_opts)
     captured = capsys.readouterr()
     assert '"files_transferred": 5' in captured.out
     assert '"bytes_transferred": 1024' in captured.out
 
 
-def test_output_result_jsonl_format(capsys) -> None:
+def test_output_files_result_jsonl_format(capsys) -> None:
     """Test output formatting for JSONL format."""
     result = PullResult(
         files_transferred=3,
@@ -131,7 +132,7 @@ def test_output_result_jsonl_format(capsys) -> None:
     )
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
 
-    _output_result(result, output_opts)
+    _output_files_result(result, output_opts)
     captured = capsys.readouterr()
     assert "pull_complete" in captured.out
 
