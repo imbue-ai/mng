@@ -724,9 +724,15 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         Otherwise, returns False.
         """
         app = self._get_modal_app()
-        for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
-            result_container.append(sandbox)
-            return True
+        # FIXME: put this back--no idea why it wasn't working
+        # for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
+        #     result_container.append(sandbox)
+        #     return True
+        # return False
+        for sandbox in modal.Sandbox.list(app_id=app.app_id):
+            if sandbox.get_tags().get(TAG_HOST_ID) == str(host_id):
+                result_container.append(sandbox)
+                return True
         return False
 
     def _cache_sandbox(self, host_id: HostId, name: HostName, sandbox: modal.Sandbox) -> None:
