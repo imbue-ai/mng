@@ -1,52 +1,100 @@
-# mngr connect - CLI Options Reference
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
 
-Connects to an agent via the terminal.
+# mngr connect
 
-This attaches to the agent's tmux session, roughly equivalent to SSH'ing into the agent's machine and attaching to the tmux session. Use `mngr open` to open an agent's URLs in a web browser instead.
+**Synopsis:**
 
-Both modes track activity to understand when the agent should be considered idle.
-
-**Alias:** `conn`
-
-## Usage
-
-```
-mngr connect [[--agent] AGENT]
+```text
+mngr [connect|conn] [OPTIONS] [AGENT]
 ```
 
-The agent can be specified as a positional argument for convenience. The following are equivalent:
 
+Connect to an existing agent via the terminal.
+
+Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
+the agent's machine and attaching to the tmux session. Use `mngr open` to
+open an agent's URLs in a web browser instead.
+
+If no agent is specified, shows an interactive selector to choose from
+available agents.
+
+Alias: conn
+
+**Usage:**
+
+```text
+mngr connect [OPTIONS] [AGENT]
 ```
-mngr connect my-agent
-mngr connect --agent my-agent
-```
+
+## Arguments
+
+- `AGENT`: The agent (optional)
+
+**Options:**
 
 ## General
 
-- `--agent AGENT`: The agent to connect to. A positional argument is also accepted as a shorthand. If not specified, connects to the most recently created agent.
-- `--[no-]start`: Automatically start the agent if it is currently stopped [default: start]
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--agent` | text | The agent to connect to (by name or ID) | None |
+| `--start`, `--no-start` | boolean | Automatically start the agent if stopped | `True` |
 
 ## Options
 
-- `--[no-]reconnect`: Automatically reconnect if the connection is dropped [default: reconnect]
-- `--message TEXT`: The initial message to send after the agent starts
-- `--message-file PATH`: File containing the initial message to send
-- `--message-delay SECONDS`: Seconds to wait before sending initial message [default: 1.0]
-- `--retry N`: Number of times to retry connection on failure [default: 3]
-- `--retry-delay DURATION`: Delay between connection retries (e.g., `5s`, `1m`) [default: 5s]
-- `--attach-command TEXT`: Command to run instead of attaching to the agent's main session
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--reconnect`, `--no-reconnect` | boolean | Automatically reconnect if dropped [future] | `True` |
+| `--message` | text | Initial message to send after connecting [future] | None |
+| `--message-file` | path | File containing initial message to send [future] | None |
+| `--message-delay` | float | Seconds to wait before sending initial message [future] | `1.0` |
+| `--retry` | integer | Number of connection retries [future] | `3` |
+| `--retry-delay` | text | Delay between retries [future] | `5s` |
+| `--attach-command` | text | Command to run instead of attaching to main session [future] | None |
+| `--allow-unknown-host`, `--no-allow-unknown-host` | boolean | Allow connecting to hosts without a known_hosts file (disables SSH host key verification) | `False` |
 
-## TODOs
+## Common
 
-The following features are not yet implemented:
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-- **Alias `conn`**: Not registered in CLI
-- **`--message`**: Raises NotImplementedError
-- **`--message-file`**: Raises NotImplementedError
-- **`--message-delay`**: Only default value (1.0) works; custom values raise NotImplementedError
-- **`--retry`**: Only default value (3) works; custom values raise NotImplementedError
-- **`--retry-delay`**: Only default value (5s) works; custom values raise NotImplementedError
-- **`--attach-command`**: Raises NotImplementedError
-- **`--no-reconnect`**: Raises NotImplementedError (only `--reconnect` is supported)
-- **Remote agent connections**: Only local agents supported; remote agents raise NotImplementedError
-- **Default to most recently created agent**: Currently shows interactive selector instead when no agent specified
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## See Also
+
+- [mngr create](./create.md) - Create and connect to a new agent
+- [mngr list](./list.md) - List available agents
+
+## Examples
+
+**Connect to an agent by name**
+
+```bash
+$ mngr connect my-agent
+```
+
+**Connect without auto-starting if stopped**
+
+```bash
+$ mngr connect my-agent --no-start
+```
+
+**Show interactive agent selector**
+
+```bash
+$ mngr connect
+```

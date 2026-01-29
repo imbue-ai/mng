@@ -22,23 +22,20 @@ from urwid.widget.wimp import SelectableIcon
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.data_types import ConnectionOptions
+from imbue.mngr.api.find import find_agent_by_name_or_id
 from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import list_agents
-from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
-from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.errors import AgentNotFoundError
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
-from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
-from imbue.mngr.primitives import AgentName
-from imbue.mngr.primitives import AgentReference
-from imbue.mngr.primitives import HostReference
 
 
 class ConnectCliOptions(CommonCliOptions):
@@ -328,49 +325,6 @@ def select_agent_interactively(agents: list[AgentInfo]) -> AgentInfo | None:
     return _run_agent_selector(agents)
 
 
-def _find_agent_by_name_or_id(
-    agent_str: str,
-    agents_by_host: dict[HostReference, list[AgentReference]],
-    mngr_ctx: MngrContext,
-) -> tuple[AgentInterface, HostInterface]:
-    """Find an agent by name or ID. Returns tuple of (agent, host) or raises error."""
-    try:
-        agent_id = AgentId(agent_str)
-        for host_ref, agent_refs in agents_by_host.items():
-            for agent_ref in agent_refs:
-                if agent_ref.agent_id == agent_id:
-                    provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
-                    host = provider.get_host(host_ref.host_id)
-                    for agent in host.get_agents():
-                        if agent.id == agent_id:
-                            return agent, host
-        raise AgentNotFoundError(agent_id)
-    except ValueError:
-        pass
-
-    agent_name = AgentName(agent_str)
-    matching: list[tuple[AgentInterface, HostInterface]] = []
-
-    for host_ref, agent_refs in agents_by_host.items():
-        for agent_ref in agent_refs:
-            if agent_ref.agent_name == agent_name:
-                provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
-                host = provider.get_host(host_ref.host_id)
-                for agent in host.get_agents():
-                    if agent.name == agent_name:
-                        matching.append((agent, host))
-
-    if not matching:
-        raise UserInputError(f"No agent found with name or ID: {agent_str}")
-
-    if len(matching) > 1:
-        raise UserInputError(
-            f"Multiple agents found with name '{agent_str}'. Please use the agent ID instead, or specify the host."
-        )
-
-    return matching[0]
-
-
 @click.command()
 @click.argument("agent", default=None, required=False)
 @optgroup.group("General")
@@ -386,20 +340,22 @@ def _find_agent_by_name_or_id(
     "--reconnect/--no-reconnect",
     default=True,
     show_default=True,
-    help="Automatically reconnect if dropped",
+    help="Automatically reconnect if dropped [future]",
 )
-@optgroup.option("--message", help="Initial message to send after connecting")
-@optgroup.option("--message-file", type=click.Path(exists=True), help="File containing initial message to send")
+@optgroup.option("--message", help="Initial message to send after connecting [future]")
+@optgroup.option(
+    "--message-file", type=click.Path(exists=True), help="File containing initial message to send [future]"
+)
 @optgroup.option(
     "--message-delay",
     type=float,
     default=1.0,
     show_default=True,
-    help="Seconds to wait before sending initial message",
+    help="Seconds to wait before sending initial message [future]",
 )
-@optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
-@optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries")
-@optgroup.option("--attach-command", help="Command to run instead of attaching to main session")
+@optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries [future]")
+@optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries [future]")
+@optgroup.option("--attach-command", help="Command to run instead of attaching to main session [future]")
 @optgroup.option(
     "--allow-unknown-host/--no-allow-unknown-host",
     "allow_unknown_host",
@@ -429,24 +385,34 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     )
     logger.debug("Running connect command")
 
+    # Send the specified text as an initial message after the agent starts
+    # Should wait for message_delay seconds before sending
     if opts.message is not None:
         raise NotImplementedError("--message is not implemented yet")
 
+    # Read initial message content from the specified file and send after agent starts
     if opts.message_file is not None:
         raise NotImplementedError("--message-file is not implemented yet")
 
+    # Wait this many seconds before sending the initial message
     if opts.message_delay != 1.0:
         raise NotImplementedError("--message-delay with non-default value is not implemented yet")
 
+    # Number of times to retry connection on failure before giving up
     if opts.retry != 3:
         raise NotImplementedError("--retry with non-default value is not implemented yet")
 
+    # Delay between connection retries (supports durations like "5s", "1m")
     if opts.retry_delay != "5s":
         raise NotImplementedError("--retry-delay with non-default value is not implemented yet")
 
+    # Run this command instead of the default tmux attach
+    # Useful for running a different shell or command in the agent's environment
     if opts.attach_command is not None:
         raise NotImplementedError("--attach-command is not implemented yet")
 
+    # Disable automatic reconnection if the connection is dropped
+    # Default behavior (--reconnect) should automatically reconnect
     if not opts.reconnect:
         raise NotImplementedError("--no-reconnect is not implemented yet")
 
@@ -456,8 +422,11 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     host: HostInterface
 
     if opts.agent is not None:
-        agent, host = _find_agent_by_name_or_id(opts.agent, agents_by_host, mngr_ctx)
+        agent, host = find_agent_by_name_or_id(opts.agent, agents_by_host, mngr_ctx, "connect")
     elif not sys.stdin.isatty():
+        # FIXME: Default to most recently created agent instead of error
+        # When no agent is specified and not running interactively, should connect
+        # to the most recently created agent automatically
         raise UserInputError("No agent specified and not running in interactive mode")
     else:
         list_result = list_agents(mngr_ctx)
@@ -469,7 +438,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
             logger.info("No agent selected")
             return
 
-        agent, host = _find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx)
+        agent, host = find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "connect")
 
     # Check if the agent's tmux session exists and start it if needed
     lifecycle_state = agent.get_lifecycle_state()
@@ -494,3 +463,42 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 
     logger.info("Connecting to agent: {}", agent.name)
     connect_to_agent(agent, host, mngr_ctx, connection_opts)
+
+
+# Register help metadata for git-style help formatting
+_CONNECT_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-connect",
+    one_line_description="Connect to an existing agent via the terminal",
+    synopsis="mngr [connect|conn] [OPTIONS] [AGENT]",
+    description="""Connect to an existing agent via the terminal.
+
+Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
+the agent's machine and attaching to the tmux session. Use `mngr open` to
+open an agent's URLs in a web browser instead.
+
+If no agent is specified, shows an interactive selector to choose from
+available agents. The selector allows typeahead search to filter agents
+by name.
+
+The agent can be specified as a positional argument or via --agent:
+  mngr connect my-agent
+  mngr connect --agent my-agent""",
+    aliases=("conn",),
+    examples=(
+        ("Connect to an agent by name", "mngr connect my-agent"),
+        ("Connect without auto-starting if stopped", "mngr connect my-agent --no-start"),
+        ("Show interactive agent selector", "mngr connect"),
+    ),
+    see_also=(
+        ("create", "Create and connect to a new agent"),
+        ("list", "List available agents"),
+    ),
+)
+
+register_help_metadata("connect", _CONNECT_HELP_METADATA)
+# Also register under alias for consistent help output
+for alias in _CONNECT_HELP_METADATA.aliases:
+    register_help_metadata(alias, _CONNECT_HELP_METADATA)
+
+# Add pager-enabled help option to the connect command
+add_pager_help_option(connect)

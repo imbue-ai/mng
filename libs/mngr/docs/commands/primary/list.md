@@ -1,142 +1,223 @@
-# mngr list - CLI Options Reference
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
 
-Lists all agents managed by mngr.
+# mngr list
 
-Includes filtering and formatting options. By default, shows agent host type and status in a way that is easily readable by humans.
+**Synopsis:**
 
-**Alias:** `ls`
-
-## Usage
-
-```
-mngr list
+```text
+mngr [list|ls] [OPTIONS]
 ```
 
-## General
 
-- `--watch, -w SECONDS`: Continuously watch and update status. If SECONDS is provided, update at that interval [default: 2]
+List all agents managed by mngr.
 
-See [multi-target](../generic/multi_target.md) options for behavior when some agents cannot be accessed.
+Displays agents with their status, host information, and other metadata.
+Supports filtering, sorting, and multiple output formats.
+
+Examples:
+
+  mngr list
+
+  mngr list --running
+
+  mngr list --provider docker
+
+  mngr list --format json
+
+**Usage:**
+
+```text
+mngr list [OPTIONS]
+```
+
+**Options:**
 
 ## Filtering
 
-- `--include FILTER`: Include agents matching CEL expression [repeatable]
-- `--exclude FILTER`: Exclude agents matching CEL expression [repeatable]
-- `--running`: Show only running agents (alias for `--include 'state == "running"'`)
-- `--stopped`: Show only stopped agents (alias for `--include 'state == "stopped"'`)
-- `--local`: Show only local agents (alias for `--include host.provider == "local"`)
-- `--remote`: Show only remote agents (alias for `--exclude host.provider == "local"`)
-- `--provider PROVIDER`: Show only agents using specified provider (e.g., `docker`, `modal`) [repeatable]
-- `--stdin`: Read agents and hosts to watch (ids or names) from stdin (one per line)
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--include` | text | Include agents matching CEL expression (repeatable) | None |
+| `--exclude` | text | Exclude agents matching CEL expression (repeatable) | None |
+| `--running` | boolean | Show only running agents (alias for --include 'state == "running"') [future] | `False` |
+| `--stopped` | boolean | Show only stopped agents (alias for --include 'state == "stopped"') [future] | `False` |
+| `--local` | boolean | Show only local agents (alias for --include 'host.provider == "local"') [future] | `False` |
+| `--remote` | boolean | Show only remote agents (alias for --exclude 'host.provider == "local"') [future] | `False` |
+| `--provider` | text | Show only agents using specified provider (repeatable) | None |
+| `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
 
-### CEL Filter Examples
+## Output Format
 
-CEL (Common Expression Language) filters allow powerful, expressive filtering of agents. All agent fields from the "Available Fields" section below can be used directly in filter expressions.
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format-template` | text | Output format as a string template (mutually exclusive with --format) [future] | None |
+| `--fields` | text | Which fields to include (comma-separated) | None |
+| `--sort` | text | Sort by field [default: create_time] [future] | `create_time` |
+| `--sort-order` | choice (`asc` &#x7C; `desc`) | Sort order [default: asc] | `asc` |
+| `--limit` | integer | Limit number of results [future] | None |
 
-Simple equality filters:
+## Watch Mode
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-w`, `--watch` | integer | Continuously watch and update status at specified interval (seconds) [future] | None |
+
+## Error Handling
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--on-error` | choice (`abort` &#x7C; `continue`) | What to do when errors occur: abort (stop immediately) or continue (keep going) | `abort` |
+
+## Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## CEL Filter Examples
+
+CEL (Common Expression Language) filters allow powerful, expressive filtering of agents.
+All agent fields from the "Available Fields" section can be used in filter expressions.
+
+**Simple equality filters:**
 - `name == "my-agent"` - Match agent by exact name
-- `status == "running"` - Match running agents
+- `state == "running"` - Match running agents
 - `host.provider == "docker"` - Match agents on Docker hosts
 - `type == "claude"` - Match agents of type "claude"
 
-Compound expressions:
-- `status == "running" && host.provider == "modal"` - Running agents on Modal
-- `status == "stopped" || status == "failed"` - Stopped or failed agents
+**Compound expressions:**
+- `state == "running" && host.provider == "modal"` - Running agents on Modal
+- `state == "stopped" || state == "failed"` - Stopped or failed agents
 - `host.provider == "docker" && name.startsWith("test-")` - Docker agents with names starting with "test-"
 
-String operations:
+**String operations:**
 - `name.contains("prod")` - Agent names containing "prod"
 - `name.startsWith("staging-")` - Agent names starting with "staging-"
 - `name.endsWith("-dev")` - Agent names ending with "-dev"
 
-Numeric comparisons:
+**Numeric comparisons:**
 - `runtime_seconds > 3600` - Agents running for more than an hour
 - `idle_seconds < 300` - Agents active in the last 5 minutes
 - `host.resource.memory_gb >= 8` - Agents on hosts with 8GB+ memory
+- `host.uptime_seconds > 86400` - Agents on hosts running for more than a day
 
-Existence checks:
+**Existence checks:**
 - `has(url)` - Agents that have a URL set
 - `has(host.ssh)` - Agents on remote hosts with SSH access
 
-## Output Format
 
-- `--format FORMAT`: Output format as a string template, see docs. Mutually exclusive with `--json` and `--jsonl` (see [common options](../generic/common.md))
-- `--fields FIELDS`: Which fields to include (comma-separated). See below for list of available fields.
-- `--sort FIELD`: Sort by field [default: `created`]
-- `--sort-order ORDER`: Sort order [default: `asc`, choices: `asc`, `desc`]
-- `--limit N`: Limit number of results
 
-# Available Fields
+## Available Fields
 
-The following fields can be used with `--fields` and `--format`.
+**Agent fields** (same syntax for `--fields` and CEL filters):
+- `name` - Agent name
+- `id` - Agent ID
+- `type` - Agent type (claude, codex, etc.)
+- `command` - The command used to start the agent
+- `url` - URL where the agent can be accessed (if reported)
+- `status` - Status as reported by the agent
+  - `status.line` - A single line summary
+  - `status.full` - A longer description of the current status
+  - `status.html` - Full HTML status report (if available)
+- `work_dir` - Working directory for this agent
+- `create_time` - Creation timestamp
+- `start_time` - Timestamp for when the agent was last started
+- `runtime_seconds` - How long the agent has been running
+- `user_activity_time` - Timestamp of the last user activity
+- `agent_activity_time` - Timestamp of the last agent activity
+- `ssh_activity_time` - Timestamp when we last noticed an active SSH connection
+- `idle_seconds` - How long since the agent was active
+- `idle_mode` - Idle detection mode
+- `start_on_boot` - Whether the agent is set to start on host boot
+- `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
+- `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
-- `name`: Agent name
-- `id`: Agent ID
-- `type`: Agent type (claude, codex, etc.)
-- `command`: The command used to start the agent
-- `url`: URL where the agent can be accessed
-- `status`: Status as reported by the agent
-  - `status.line`: A single line summary
-  - `status.full`: A longer description of the current status
-  - `status.html`: Full HTML status report
-- `work_dir`: Working directory for this agent
-- `create_time`: Creation timestamp
-- `start_time`: Timestamp for when the agent was last started
-- `runtime_seconds`: How long the agent has been running
-- `user_activity_time`: Timestamp of the last user activity
-- `agent_activity_time`: Timestamp of the last agent activity
-- `ssh_activity_time`: Timestamp when we last noticed an active ssh connection
-- `idle_seconds`: How long since the agent was active
-- `idle_mode`: Idle detection mode
-- `start_on_boot`: Whether the agent is set to start on host boot
-- `plugin.$PLUGIN_NAME.*`: Each plugin can add its own fields under its namespace (e.g., `plugin.chat_history.messages`)
-- `host`: Host information
-  - `host.name`: Host name
-  - `host.id`: Host ID
-  - `host.host`: Hostname where the host is running (if applicable)
-  - `host.provider`: Host provider (local, docker, modal, etc.)
-  - `host.state`: Current host state (building, starting, running, stopping, stopped, destroyed, failed)
-  - `host.image`: Host image (Docker image name, Modal image ID, etc.)
-  - `host.tags`: Metadata tags for the host
-  - `host.ssh`: SSH access details (remote hosts only)
-    - `host.ssh.command`: Full SSH command
-    - `host.ssh.host`: SSH host
-    - `host.ssh.port`: SSH port
-    - `host.ssh.user`: SSH username
-    - `host.ssh.key_path`: Path to SSH private key
-  - `host.resource`: Resource limits for the host. These likely differ per provider.
-    - `host.resource.cpu.count`: Number of allocated CPU
-    - `host.resource.cpu.frequency_ghz`: CPU frequency in GHz
-    - `host.resource.memory_gb`: Allocated memory in GB
-    - `host.resource.disk_gb`: Allocated disk space in GB
-  - `host.snapshots`: List of all available snapshots
-  - `host.boot_time`: When the host was last started
-  - `host.is_locked`: If locked for an operation.
-  - `host.locked_time`: When the host was locked for an operation. Empty if not locked
-  - `host.uptime_seconds`: How long the host has been running
-  - `host.plugin`: Plugin-defined fields, namespaced by plugin name
-    - `host.plugin.$PLUGIN_NAME.*`: Each plugin can add its own fields under its namespace (e.g., `machine.plugin.aws.iam_user`)
+**Host fields** (dot notation for both `--fields` and CEL filters):
+- `host.name` - Host name
+- `host.id` - Host ID
+- `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
+- `host.provider` - Host provider (local, docker, modal, etc.)
+- `host.state` - Current host state (running, stopped, building, etc.)
+- `host.image` - Host image (Docker image name, Modal image ID, etc.)
+- `host.tags` - Metadata tags for the host
+- `host.boot_time` - When the host was last started
+- `host.uptime_seconds` - How long the host has been running
+- `host.resource` - Resource limits for the host
+  - `host.resource.cpu.count` - Number of CPUs
+  - `host.resource.cpu.frequency_ghz` - CPU frequency in GHz
+  - `host.resource.memory_gb` - Memory in GB
+  - `host.resource.disk_gb` - Disk space in GB
+  - `host.resource.gpu.count` - Number of GPUs
+  - `host.resource.gpu.model` - GPU model name
+  - `host.resource.gpu.memory_gb` - GPU memory in GB
+- `host.ssh` - SSH access details (remote hosts only)
+  - `host.ssh.command` - Full SSH command to connect
+  - `host.ssh.host` - SSH hostname
+  - `host.ssh.port` - SSH port
+  - `host.ssh.user` - SSH username
+  - `host.ssh.key_path` - Path to SSH private key
+- `host.snapshots` - List of available snapshots
+- `host.plugin.$PLUGIN_NAME.*` - Host plugin fields (e.g., `host.plugin.aws.iam_user`)
 
----
+**Notes:**
+- You can use Python-style list slicing for list fields (e.g., `host.snapshots[0]` for the first snapshot, `host.snapshots[:3]` for the first 3)
 
-## Notes
 
-Fields which are lists can be sliced using standard Python list slicing syntax, e.g. `machine.snapshots[0]` for the most recent snapshot, or `machine.snapshots[:3]` for the three most recent snapshots.
 
----
+## Related Documentation
 
-## TODOs
+- [Multi-target Options](../generic/multi_target.md) - Behavior when some agents cannot be accessed
+- [Common Options](../generic/common.md) - Common CLI options for output format, logging, etc.
 
-The following features are documented but not yet implemented:
+## See Also
 
-- `--watch, -w`: Continuous watch mode
-- `--running`, `--stopped`, `--local`, `--remote`: Convenience filter aliases
-- `--provider`: Provider-based filtering
-- `--format`: Custom format templates
-- `--fields`: Field selection
-- `--sort`: Sorting by fields other than `create_time`
-- `--limit`: Result limiting
-- Host resource fields: `host.resource.*` (CPU, memory, disk details)
-- Host state/image: `host.state`, `host.image`
-- SSH access details: `host.ssh.*`
-- Snapshot information: `host.snapshots`
+- [mngr create](./create.md) - Create a new agent
+- [mngr connect](./connect.md) - Connect to an existing agent
+- [mngr destroy](./destroy.md) - Destroy agents
+
+## Examples
+
+**List all agents**
+
+```bash
+$ mngr list
+```
+
+**List only running agents**
+
+```bash
+$ mngr list --running
+```
+
+**List agents on Docker hosts**
+
+```bash
+$ mngr list --provider docker
+```
+
+**List agents as JSON**
+
+```bash
+$ mngr list --format json
+```
+
+**Filter with CEL expression**
+
+```bash
+$ mngr list --include 'name.contains("prod")'
+```

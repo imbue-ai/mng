@@ -444,6 +444,9 @@ def test_prevent_typing_builtin_imports() -> None:
     )
 
 
+# FIXME: This test has been observed to crash xdist workers, likely due to resource pressure
+# when multiple workers perform heavy file I/O simultaneously. The test itself is not flaky,
+# but may be affected by resource leaks or memory pressure from other parallel tests.
 def test_prevent_fstring_logging() -> None:
     pattern = RegexPattern(r"logger\.(trace|debug|info|warning|error|exception)\(f")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)

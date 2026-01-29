@@ -1,15 +1,33 @@
-# mngr create - CLI Options Reference
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
+
+# mngr create
+
+**Synopsis:**
+
+```text
+mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
+    [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
+    [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
+    [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
+    [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
+    [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot]
+    [--] [<AGENT_ARGS>...]
+```
+
 
 Create and run an agent.
 
-`mngr create` is responsible for setting up the agent's work_dir, provisioning a new host (if requested), running the specified agent, and (by default) connecting to it.
+Sets up the agent's work_dir, optionally provisions a new host (or uses
+an existing one), runs the specified agent, and connects to it (by default).
 
-**Alias:** `c`
+Alias: c
 
-## Usage
+**Usage:**
 
-```
-mngr create [OPTIONS] [NAME] [AGENT_TYPE] -- [AGENT_ARGS]...
+```text
+mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
+            [AGENT_ARGS]...
 ```
 
 ## Arguments
@@ -18,150 +36,233 @@ mngr create [OPTIONS] [NAME] [AGENT_TYPE] -- [AGENT_ARGS]...
 - `AGENT_TYPE`: Which type of agent to run (default: `claude`). Can also be specified via `--agent-type`
 - `AGENT_ARGS`: Additional arguments passed to the agent
 
-## Behavior
-
-- `--[no-]connect`: Connect to an agent after creation (disconnecting will not destroy the agent) [default: connect]
-- `--[no-]await-ready`: Wait until the agent is ready before returning (only applies if `--no-connect` is specified, changes when the command returns) [default: no-await-ready if --no-connect]
-- `--[no-]await-agent-stopped`: Wait until the agent has completely finished running before exiting. This is useful for testing and scripting when you need to wait for the agent to exit. First waits for the agent to become ready, then waits for it to stop. [default: no-await-agent-stopped]
-- `--[no-]copy-work-dir`: Immediately make a copy of the source work_dir. Useful when launching background agents so that you can continue editing locally without worrying about invalid content being copied into the new agent [default: copy if --no-connect, no-copy if --connect]
-- `--[no-]ensure-clean`: Abort if git in the source work_dir has uncommitted changes [default: ensure-clean]
-- `--[no-]snapshot-source`: Snapshot source agent before cloning [default: snapshot-source when `--source-agent` is specified and not local]
-
-## Connection Options
-
-See [connect options](./connect.md) (only applies if `--connect` is specified)
-
-## Initial Message Options
-
-- `--message TEXT`: Initial message to send to the agent after it starts
-- `--message-file PATH`: File containing the initial message to send
-- `--edit-message`: Open an interactive editor (using `$EDITOR`) to compose the initial message. The editor runs in parallel with agent creation. If `--message` or `--message-file` is also provided, their content is used as the initial editor content.
-- `--message-delay FLOAT`: Seconds to wait before sending the initial message [default: 1.0]
+**Options:**
 
 ## Agent Options
 
-- `--agent-type TEXT`: Which type of agent to run [default: `claude`]
-- `-n, --name TEXT`: Agent name (alternative to positional argument) [default: auto-generated]
-- `--name-style STYLE`: Auto-generated name style [choices: `english`, `fantasy`, `scifi`, `painters`, `authors`, `artists`, `musicians`, `animals`, `scientists`, `demons`]
-- `--agent-cmd, --agent-command TEXT`: Run a literal command using the generic agent type. Mutually exclusive with `--agent-type` (ex: `--agent-cmd "sleep 1000"`)
-- `-c, --add-cmd, --add-command TEXT`: Run an extra command in additional tmux window [repeatable]. Use `name=command` syntax to set window name (e.g., `-c server="npm run dev"` or `-c reviewer_1=claude`). Note: ALL_UPPERCASE names are treated as env var assignments, not window names
-- `--user TEXT`: Override which user to run the agent as [default: if local, current user. if remote, as defined in the provider, or `root` if not specified]
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-n`, `--name` | text | Agent name (alternative to positional argument) [default: auto-generated] | None |
+| `--name-style` | choice (`english` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `animals` &#x7C; `scientists` &#x7C; `demons`) | Auto-generated name style | `english` |
+| `--agent-type` | text | Which type of agent to run [default: claude] | None |
+| `--agent-cmd`, `--agent-command` | text | Run a literal command using the generic agent type (mutually exclusive with --agent-type) | None |
+| `-c`, `--add-cmd`, `--add-command` | text | Run extra command in additional window. Use name="command" to set window name. Note: ALL_UPPERCASE names (e.g., FOO="bar") are treated as env var assignments, not window names | None |
+| `--user` | text | Override which user to run the agent as [default: current user for local, provider-defined or root for remote] | None |
+
+## Host Options
+
+By default, `mngr create` uses the "local" host. Use these options to change that behavior.
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--in`, `--new-host` | text | Create a new host using provider (docker, modal, ...) | None |
+| `--host`, `--target-host` | text | Use an existing host (by name or ID) [default: local] | None |
+| `--project` | text | Project name for the agent [default: derived from git remote origin or folder name] | None |
+| `--tag` | text | Metadata tag KEY=VALUE [repeatable] | None |
+| `--host-name` | text | Name for the new host | None |
+| `--host-name-style` | choice (`astronomy` &#x7C; `places` &#x7C; `cities` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `scientists`) | Auto-generated host name style | `astronomy` |
+
+## Behavior
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--connect`, `--no-connect` | boolean | Connect to the agent after creation [default: connect] | `True` |
+| `--await-ready`, `--no-await-ready` | boolean | Wait until agent is ready before returning [default: no-await-ready if --no-connect] | None |
+| `--await-agent-stopped`, `--no-await-agent-stopped` | boolean | Wait until agent has completely finished running before exiting. Useful for testing and scripting. First waits for agent to become ready, then waits for it to stop. [default: no-await-agent-stopped] | None |
+| `--ensure-clean`, `--no-ensure-clean` | boolean | Abort if working tree is dirty | `True` |
+| `--snapshot-source`, `--no-snapshot-source` | boolean | Snapshot source agent first [default: yes if --source-agent and not local] | None |
+| `--copy-work-dir`, `--no-copy-work-dir` | boolean | Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect] | None |
 
 ## Agent Source Data (what to include in the new agent)
 
-- `--from SOURCE`: Alias for `--source`
-- `--source SOURCE`: Directory to use as work_dir root. Accepts a unified syntax: `[AGENT | AGENT.HOST | AGENT.HOST:PATH | HOST:PATH]` See below for examples. [default: nearest `.git` parent on 'local']
-- `--source-agent AGENT`: Source agent [alias: `--from-agent`]
-- `--source-host HOST`: Source host
-- `--source-path PATH`: Source path
-- `--[no-]rsync`: Use rsync for file transfer [default: rsync]
-- `--rsync-args TEXT`: Additional arguments to pass to rsync
-- `--[no-]include-git`: Include data from the `.git` directory [default: include-git]
-- `--include-unclean / --exclude-unclean`: Include staged, unstaged, and untracked files. [default: include if --no-ensure-clean, exclude if --ensure-clean]
-- `--[no-]include-gitignored`: Include files matching `.gitignore` [default: no-include-gitignored]
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--from`, `--source` | text | Directory to use as work_dir root [AGENT &#x7C; AGENT.HOST &#x7C; AGENT.HOST:PATH &#x7C; HOST:PATH]. Defaults to current dir if no other source args are given | None |
+| `--source-agent`, `--from-agent` | text | Source agent for cloning work_dir | None |
+| `--source-host` | text | Source host | None |
+| `--source-path` | text | Source path | None |
+| `--rsync`, `--no-rsync` | boolean | Use rsync for file transfer [default: yes if rsync-args are present or if git is disabled] | None |
+| `--rsync-args` | text | Additional arguments to pass to rsync | None |
+| `--include-git`, `--no-include-git` | boolean | Include .git directory | `True` |
+| `--include-unclean`, `--exclude-unclean` | boolean | Include uncommitted files [default: include if --no-ensure-clean] | None |
+| `--include-gitignored`, `--no-include-gitignored` | boolean | Include gitignored files | `False` |
 
-# Agent Target (where to put the new agent)
+## Agent Target (where to put the new agent)
 
-- `--target TARGET`: Target. Accepts a unified syntax: `[HOST][:PATH]` See below for examples.
-- `--target-host HOST`: Target host [alias: `--in-host`]
-- `--target-path PATH`: Directory to mount source inside agent host. Incompatible with `--in-place`
-- `--in-place`: Run directly in source directory. Incompatible with `--target-path`
-- `--copy`: Copy source to isolated directory before running [default for remote agents, and for local agents if not in a git repo]
-- `--clone`: Create a git clone that shares objects with the original repo (only works for local agents)
-- `--worktree`: Create a git worktree that shares objects and index with the original repo [default for local agents in a git repo]. Note: requires `--new-branch` (which is the default)
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--target` | text | Target [HOST][:PATH]. Defaults to current dir if no other target args are given | None |
+| `--target-path` | text | Directory to mount source inside agent host. Incompatible with --in-place | None |
+| `--in-place` | boolean | Run directly in source directory. Incompatible with --target-path | `False` |
+| `--copy` | boolean | Copy source to isolated directory before running [default for remote agents, and for local agents if not in a git repo] | `False` |
+| `--clone` | boolean | Create a git clone that shares objects with original repo (only works for local agents) | `False` |
+| `--worktree` | boolean | Create a git worktree that shares objects and index with original repo [default for local agents in a git repo]. Requires --new-branch (which is the default) | `False` |
 
 ## Agent Git Configuration
 
-- `--base-branch TEXT`: The starting point for the agent [default: current branch]
-- `--new-branch TEXT / --no-new-branch`: Create a fresh branch for the agent's work (named TEXT if provided, otherwise auto-generated). The new branch is created from `--base-branch` [default: --new-branch]. Note: `--no-new-branch` is incompatible with `--worktree`
-- `--new-branch-prefix TEXT`: Prefix for auto-generated branch names [default: `mngr/`]
-- `--depth INTEGER`: Shallow clone depth [default: full]
-- `--shallow-since DATE`: Shallow clone since date
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--base-branch` | text | The starting point for the agent [default: current branch] | None |
+| `--new-branch` | text | Create a fresh branch (named TEXT if provided, otherwise auto-generated) [default: new branch] | `` |
+| `--no-new-branch` | boolean | Do not create a new branch; use the current branch directly. Incompatible with --worktree | None |
+| `--new-branch-prefix` | text | Prefix for auto-generated branch names | `mngr/` |
+| `--depth` | integer | Shallow clone depth [default: full] | None |
+| `--shallow-since` | text | Shallow clone since date | None |
 
 ## Agent Environment Variables
 
-- `--env, --agent-env TEXT`: Set an environment variable KEY=VALUE for the agent [repeatable]
-- `--env-file, --agent-env-file PATH`: Load variables from env file for the agent [repeatable]
-- `--pass-env, --pass-agent-env TEXT`: Forward a variable from your current shell for the agent [repeatable]
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--env`, `--agent-env` | text | Set environment variable KEY=VALUE | None |
+| `--env-file`, `--agent-env-file` | path | Load env | None |
+| `--pass-env`, `--pass-agent-env` | text | Forward variable from shell | None |
 
 ## Agent Provisioning
 
-See [Provision Options](../secondary/provision.md)
+See [Provision Options](../secondary/provision.md) for full details.
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--grant` | text | Grant a permission to the agent [repeatable] | None |
+| `--user-command` | text | Run custom shell command during provisioning [repeatable] | None |
+| `--sudo-command` | text | Run custom shell command as root during provisioning [repeatable] | None |
+| `--upload-file` | text | Upload LOCAL:REMOTE file pair [repeatable] | None |
+| `--append-to-file` | text | Append REMOTE:TEXT to file [repeatable] | None |
+| `--prepend-to-file` | text | Prepend REMOTE:TEXT to file [repeatable] | None |
+| `--create-directory` | text | Create directory on remote [repeatable] | None |
+
+## New Host Environment Variables
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--host-env` | text | Set environment variable KEY=VALUE for host [repeatable] | None |
+| `--host-env-file` | path | Load env file for host [repeatable] | None |
+| `--pass-host-env` | text | Forward variable from shell for host [repeatable] | None |
+
+## New Host Build
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--snapshot` | text | Use existing snapshot instead of building | None |
+| `-b`, `--build`, `--build-arg` | text | Build argument as key=value or --key=value (e.g., -b gpu=h100 -b cpu=2) [repeatable] | None |
+| `--build-args` | text | Space-separated build arguments (e.g., 'gpu=h100 cpu=2') | None |
+| `-s`, `--start`, `--start-arg` | text | Argument for start [repeatable] | None |
+| `--start-args` | text | Space-separated start arguments (alternative to -s) | None |
+
+## New Host Lifecycle
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--idle-timeout` | integer | Shutdown after idle for N seconds [default: none] | None |
+| `--idle-mode` | choice (`io` &#x7C; `user` &#x7C; `agent` &#x7C; `ssh` &#x7C; `create` &#x7C; `boot` &#x7C; `start` &#x7C; `run` &#x7C; `disabled`) | When to consider host idle [default: io if remote, disabled if local] | None |
+| `--activity-sources` | text | Activity sources for idle detection (comma-separated) | None |
+| `--start-on-boot`, `--no-start-on-boot` | boolean | Restart on host boot [default: no] | None |
+
+## Connection Options
+
+See [connect options](./connect.md) for full details (only applies if `--connect` is specified).
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--reconnect`, `--no-reconnect` | boolean | Automatically reconnect if dropped | `True` |
+| `--interactive`, `--no-interactive` | boolean | Enable interactive mode [default: yes if TTY] | None |
+| `--message` | text | Initial message to send after the agent starts | None |
+| `--message-file` | path | File containing initial message to send | None |
+| `--edit-message` | boolean | Open an editor to compose the initial message (uses $EDITOR). Editor runs in parallel with agent creation. If --message or --message-file is provided, their content is used as initial editor content. | `False` |
+| `--message-delay` | float | Seconds to wait before sending initial message | `1.0` |
+| `--retry` | integer | Number of connection retries | `3` |
+| `--retry-delay` | text | Delay between retries (e.g., 5s, 1m) | `5s` |
+| `--attach-command` | text | Command to run instead of attaching to main session | None |
+
+## Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Agent Limits
 
 See [Limit Options](../secondary/limit.md)
 
----
+## See Also
 
-## Host Options
-
-By default, `mngr create` uses the "local" host. Use these options to change that behavior:
-
-- `--host HOST`: Use an existing host (by name or ID) [default: local]
-- `--in, --new-host [PROVIDER]`: Create a new host using the specified provider (docker, modal, ...).
-
-### New Host Identification
-
-- `--host-name TEXT`: Name for the new host
-- `--host-name-style STYLE`: Auto-generated name style [choices: `astronomy`, `places`, `cities`, `fantasy`, `scifi`, `painters`, `authors`, `artists`, `musicians`, `scientists`]
-- `--tag TEXT`: Metadata tag KEY=VALUE [repeatable]
-- `--project TEXT`: Project name for the agent [default: derived from git remote origin or folder name]
-
-## New Host Environment Variables
-
-- `--host-env TEXT`: Set an environment variable KEY=VALUE for the host [repeatable]
-- `--host-env-file PATH`: Load variables from env file for the host [repeatable]
-- `--pass-host-env TEXT`: Forward a variable from your current shell for the host [repeatable]
-
-### New Host Build
-
-- `--snapshot TEXT`: Use existing snapshot instead of building
-- `-b, --build, --build-arg TEXT`: Argument for calling "build" on the provider (e.g. passed to `docker build`) [repeatable]
-- `--build-args TEXT`: Space-separated build arguments (alternative to -b for convenience)
-- `-s, --start, --start-arg TEXT`: Argument for calling "start" on the provider (e.g. passed to `docker run`) [repeatable]
-- `--start-args TEXT`: Space-separated start arguments (alternative to -s for convenience)
-
-## Common
-
-See [Common Options](../generic/common.md)
+- [mngr connect](./connect.md) - Connect to an existing agent
+- [mngr list](./list.md) - List existing agents
+- [mngr destroy](./destroy.md) - Destroy agents
 
 ## Examples
 
+**Create an agent locally in a new git worktree (default)**
+
 ```bash
-# Create an agent locally in a new git worktree (default for git repos)
-mngr create my-agent
-
-# Create an agent with a specific name in a Modal sandbox
-mngr create my-agent --in modal
-
-# Create an agent without specifying a name (auto-generated)
-mngr create --in docker
-
-# Run codex instead of claude (the default)
-mngr create my-agent --agent-type codex
-
-# Pass args to the agent
-mngr create my-agent -- --model opus
-
-# Create an agent on an existing host
-mngr create my-agent --host my-dev-box
-
-# Run directly in-place (no worktree/copy)
-mngr create my-agent --in-place
-
-# Create a new agent locally by cloning from an existing remote agent
-mngr create my-agent --source other-agent.my-host:/my/code/dir
-
-# Run additional commands in named tmux windows
-mngr create my-agent -c server="npm run dev" -c tests="npm test --watch"
+$ mngr create my-agent
 ```
 
-## TODOs
+**Create an agent in a Docker container**
 
-The following features are documented but not fully implemented:
+```bash
+$ mngr create my-agent --in docker
+```
 
-- `--snapshot-source`: Backend function raises `NotImplementedError`
-- `--snapshot`: CLI option parsed but not passed to provider's `create_host()` method
-- `--host-env`, `--host-env-file`, `--pass-host-env`: Parsed in CLI but not passed to provider (host environment variables are unused)
-- Remote source support: Project name derivation and git branch detection fail for remote hosts
+**Create an agent in a Modal sandbox**
+
+```bash
+$ mngr create my-agent --in modal
+```
+
+**Create a codex agent instead of claude**
+
+```bash
+$ mngr create my-agent codex
+```
+
+**Pass arguments to the agent**
+
+```bash
+$ mngr create my-agent -- --model opus
+```
+
+**Create on an existing host**
+
+```bash
+$ mngr create my-agent --host my-dev-box
+```
+
+**Clone from an existing agent**
+
+```bash
+$ mngr create new-agent --source other-agent
+```
+
+**Run directly in-place (no worktree)**
+
+```bash
+$ mngr create my-agent --in-place
+```
+
+**Create without connecting**
+
+```bash
+$ mngr create my-agent --no-connect
+```
+
+**Add extra tmux windows**
+
+```bash
+$ mngr create my-agent -c server="npm run dev"
+```

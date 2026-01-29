@@ -8,8 +8,11 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import HostLocation
+from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentReference
@@ -253,6 +256,70 @@ def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostR
         raise UserInputError(f"Multiple hosts found with name: {host_name}")
     else:
         return None
+
+
+@log_call
+def find_agent_by_name_or_id(
+    agent_str: str,
+    agents_by_host: dict[HostReference, list[AgentReference]],
+    mngr_ctx: MngrContext,
+    command_name: str,
+) -> tuple[AgentInterface, HostInterface]:
+    """Find an agent by name or ID and return the agent and host interfaces.
+
+    This function resolves an agent identifier to the actual agent and host objects,
+    which is needed by CLI commands that need to interact with the agent.
+
+    Raises AgentNotFoundError if the agent cannot be found by ID.
+    Raises UserInputError if the agent cannot be found by name or if multiple agents match.
+    """
+    # Try parsing as an AgentId first
+    try:
+        agent_id = AgentId(agent_str)
+    except ValueError:
+        agent_id = None
+
+    if agent_id is not None:
+        for host_ref, agent_refs in agents_by_host.items():
+            for agent_ref in agent_refs:
+                if agent_ref.agent_id == agent_id:
+                    provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
+                    host = provider.get_host(host_ref.host_id)
+                    for agent in host.get_agents():
+                        if agent.id == agent_id:
+                            return agent, host
+        raise AgentNotFoundError(agent_id)
+
+    # Try matching by name
+    agent_name = AgentName(agent_str)
+    matching: list[tuple[AgentInterface, HostInterface]] = []
+
+    for host_ref, agent_refs in agents_by_host.items():
+        for agent_ref in agent_refs:
+            if agent_ref.agent_name == agent_name:
+                provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
+                host = provider.get_host(host_ref.host_id)
+                # Find the specific agent by ID (not name, to avoid duplicates)
+                for agent in host.get_agents():
+                    if agent.id == agent_ref.agent_id:
+                        matching.append((agent, host))
+                        break
+
+    if not matching:
+        raise UserInputError(f"No agent found with name or ID: {agent_str}")
+
+    if len(matching) > 1:
+        # Build helpful error message showing the matching agents
+        agent_list = "\n".join([f"  - {agent.id} (on {host.connector.name})" for agent, host in matching])
+        raise UserInputError(
+            f"Multiple agents found with name '{agent_str}':\n{agent_list}\n\n"
+            f"Please use the agent ID instead:\n"
+            f"  mngr {command_name} <agent-id>\n\n"
+            f"To see all agent IDs, run:\n"
+            f"  mngr list --fields id,name,host"
+        )
+
+    return matching[0]
 
 
 @log_call
