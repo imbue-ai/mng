@@ -147,5 +147,3 @@ These are enabled by default but can be disabled like any other plugin.
 ## Plugin Dependencies
 
 Plugins are Python packages and use standard dependency management. A plugin can depend on other plugins by listing them as package dependencies.
-
-Note: The following hooks are defined but not yet wired up: `on_agent_created`, `on_agent_destroyed`, `on_host_created`, `on_host_destroyed`.
