@@ -43,19 +43,19 @@ def test_source_location_is_from_agent_true_with_both() -> None:
 def test_host_lifecycle_options_to_activity_config_uses_defaults_when_all_none() -> None:
     """When all options are None, to_activity_config should use all defaults."""
     options = HostLifecycleOptions()
-    default_timeout = 900
-    default_mode = IdleMode.AGENT
-    default_sources = (ActivitySource.BOOT, ActivitySource.SSH)
+    default_idle_timeout_seconds = 900
+    default_idle_mode = IdleMode.AGENT
+    default_activity_sources = (ActivitySource.BOOT, ActivitySource.SSH)
 
     config = options.to_activity_config(
-        default_timeout=default_timeout,
-        default_mode=default_mode,
-        default_sources=default_sources,
+        default_idle_timeout_seconds=default_idle_timeout_seconds,
+        default_idle_mode=default_idle_mode,
+        default_activity_sources=default_activity_sources,
     )
 
-    assert config.idle_timeout_seconds == default_timeout
-    assert config.idle_mode == default_mode
-    assert config.activity_sources == default_sources
+    assert config.idle_timeout_seconds == default_idle_timeout_seconds
+    assert config.idle_mode == default_idle_mode
+    assert config.activity_sources == default_activity_sources
 
 
 def test_host_lifecycle_options_to_activity_config_uses_cli_values_when_provided() -> None:
@@ -67,9 +67,9 @@ def test_host_lifecycle_options_to_activity_config_uses_cli_values_when_provided
     )
 
     config = options.to_activity_config(
-        default_timeout=900,
-        default_mode=IdleMode.AGENT,
-        default_sources=(ActivitySource.BOOT, ActivitySource.SSH),
+        default_idle_timeout_seconds=900,
+        default_idle_mode=IdleMode.AGENT,
+        default_activity_sources=(ActivitySource.BOOT, ActivitySource.SSH),
     )
 
     assert config.idle_timeout_seconds == 600
@@ -90,9 +90,9 @@ def test_host_lifecycle_options_to_activity_config_partial_override() -> None:
     )
 
     config = options.to_activity_config(
-        default_timeout=900,
-        default_mode=IdleMode.AGENT,
-        default_sources=(ActivitySource.BOOT,),
+        default_idle_timeout_seconds=900,
+        default_idle_mode=IdleMode.AGENT,
+        default_activity_sources=(ActivitySource.BOOT,),
     )
 
     # CLI value should be used

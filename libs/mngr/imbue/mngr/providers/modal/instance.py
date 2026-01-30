@@ -767,7 +767,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         parser.add_argument("--memory", type=float, default=self.config.default_memory)
         parser.add_argument("--image", type=str, default=self.config.default_image)
         parser.add_argument("--dockerfile", type=str, default=None)
-        parser.add_argument("--timeout", type=int, default=self.config.default_timeout)
+        parser.add_argument("--timeout", type=int, default=self.config.default_sandbox_timeout)
         parser.add_argument("--region", type=str, default=self.config.default_region)
         parser.add_argument("--context-dir", type=str, default=None)
         parser.add_argument("--secret", type=str, action="append", default=[])
@@ -1157,9 +1157,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # Set up activity configuration for idle detection, merging CLI options with provider defaults
         lifecycle_options = lifecycle if lifecycle is not None else HostLifecycleOptions()
         activity_config = lifecycle_options.to_activity_config(
-            default_timeout=self.config.default_timeout,
-            default_mode=self.config.default_idle_mode,
-            default_sources=self.config.default_activity_sources,
+            default_idle_timeout_seconds=self.config.default_idle_timeout,
+            default_idle_mode=self.config.default_idle_mode,
+            default_activity_sources=self.config.default_activity_sources,
         )
         host.set_activity_config(activity_config)
 

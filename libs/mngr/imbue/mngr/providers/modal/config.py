@@ -27,9 +27,13 @@ class ModalProviderConfig(ProviderInstanceConfig):
         default=None,
         description="Base directory for mngr data on the sandbox (defaults to /mngr)",
     )
-    default_timeout: int = Field(
+    default_sandbox_timeout: int = Field(
         default=900,
         description="Default sandbox timeout in seconds",
+    )
+    default_idle_timeout: int = Field(
+        default=800,
+        description="Default host idle timeout in seconds",
     )
     default_idle_mode: IdleMode = Field(
         default=IdleMode.IO,

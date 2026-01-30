@@ -221,7 +221,7 @@ def _make_modal_provider_with_mocks(
     config = ModalProviderConfig(
         app_name=app_name,
         host_dir=Path("/mngr"),
-        default_timeout=300,
+        default_sandbox_timeout=300,
         default_cpu=0.5,
         default_memory=0.5,
         is_persistent=False,
@@ -278,7 +278,7 @@ def make_modal_provider_real(
     config = ModalProviderConfig(
         app_name=app_name,
         host_dir=Path("/mngr"),
-        default_timeout=300,
+        default_sandbox_timeout=300,
         default_cpu=0.5,
         default_memory=0.5,
         is_persistent=is_persistent,
@@ -304,9 +304,7 @@ def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> AuthorizedM
 
 
 @pytest.fixture
-def unauthorized_modal_provider(
-    temp_mngr_ctx: MngrContext, mngr_test_id: str
-) -> UnauthorizedModalProviderInstance:
+def unauthorized_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> UnauthorizedModalProviderInstance:
     """Create an UnauthorizedModalProviderInstance for testing authorization checks.
 
     This provider always reports is_authorized=False, simulating missing credentials.
@@ -944,7 +942,7 @@ def make_modal_provider_with_config_defaults(
     config = ModalProviderConfig(
         app_name=app_name,
         host_dir=Path("/mngr"),
-        default_timeout=300,
+        default_sandbox_timeout=300,
         default_cpu=0.5,
         default_memory=0.5,
         default_gpu=default_gpu,
