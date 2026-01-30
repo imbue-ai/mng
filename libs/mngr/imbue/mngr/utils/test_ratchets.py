@@ -16,6 +16,9 @@ from imbue.imbue_common.ratchet_testing.ratchets import find_underscore_imports
 # Exclude this test file from ratchet scans to prevent self-referential matches
 _THIS_FILE = Path(__file__)
 
+# Group all ratchet tests onto a single xdist worker to benefit from LRU caching
+pytestmark = pytest.mark.xdist_group(name="ratchets")
+
 
 def _get_mngr_source_dir() -> Path:
     return Path(__file__).parent.parent

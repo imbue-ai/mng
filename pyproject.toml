@@ -47,6 +47,7 @@ filterwarnings = [
 ]
 addopts = [
   "-n 4",
+  "--dist=loadgroup",
   "--cov=imbue.mngr",
   "--cov=imbue.imbue_common",
   "--cov=imbue.mngr_opencode",
