@@ -1,6 +1,6 @@
-# shotgun configuration for running mngr tests on Modal
+# offload configuration for running mngr tests on Modal
 
-[shotgun]
+[offload]
 max_parallel = 100
 test_timeout_secs = 60
 retry_count = 4
@@ -8,7 +8,9 @@ stream_output = true
 
 [provider]
 type = "default"
-create_command = "uv run @modal_sandbox.py create mngr"
+dockerfile_path = "libs/mngr/imbue/mngr/resources/Dockerfile"
+create_image = "uv run @modal_sandbox.py create_image mngr" # "{dockerfile_path}"
+create_command = "uv run @modal_sandbox.py create mngr" # "{dockerfile_path}"
 exec_command = "uv run @modal_sandbox.py exec {sandbox_id} {command}"
 destroy_command = "uv run @modal_sandbox.py destroy {sandbox_id}"
 timeout_secs = 600

@@ -1,6 +1,6 @@
-# shotgun configuration for local process execution of mngr tests
+# offload configuration for local process execution of mngr tests
 
-[shotgun]
+[offload]
 max_parallel = 1
 test_timeout_secs = 30
 retry_count = 1
