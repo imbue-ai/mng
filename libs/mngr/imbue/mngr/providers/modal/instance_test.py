@@ -10,6 +10,7 @@ Or to run all tests including Modal tests:
     pytest --timeout=180
 """
 
+import json
 import subprocess
 from io import StringIO
 from pathlib import Path
@@ -33,6 +34,7 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
+from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
@@ -1163,6 +1165,109 @@ def test_create_shutdown_script_generates_correct_content(
 
     # Verify the mode is executable
     assert written_modes[expected_path] == "755"
+
+
+# =============================================================================
+# Tests for persist_agent_data and remove_persisted_agent_data
+# =============================================================================
+
+
+def test_persist_agent_data_writes_to_volume(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """persist_agent_data should write agent data as JSON to the volume."""
+    host_id = HostId.generate()
+    agent_id = AgentId.generate()
+    agent_data = {
+        "id": str(agent_id),
+        "name": "test-agent",
+        "type": "test",
+        "command": "echo hello",
+    }
+
+    # Track what was uploaded to the volume
+    uploaded_files: dict[str, bytes] = {}
+
+    class MockBatchUpload:
+        def __init__(self) -> None:
+            pass
+
+        def __enter__(self) -> "MockBatchUpload":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def put_file(self, file_obj: Any, path: str) -> None:
+            uploaded_files[path] = file_obj.read()
+
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.batch_upload.return_value = MockBatchUpload()
+
+    modal_provider.persist_agent_data(host_id, agent_data)
+
+    # Verify the file was written to the correct path
+    expected_path = f"/{host_id}/{agent_id}.json"
+    assert expected_path in uploaded_files
+
+    # Verify the content is valid JSON with expected fields
+    uploaded_content = json.loads(uploaded_files[expected_path].decode("utf-8"))
+    assert uploaded_content["id"] == str(agent_id)
+    assert uploaded_content["name"] == "test-agent"
+    assert uploaded_content["type"] == "test"
+    assert uploaded_content["command"] == "echo hello"
+
+
+def test_persist_agent_data_without_id_logs_warning_and_returns(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """persist_agent_data should warn and return early if agent_data has no id field."""
+    host_id = HostId.generate()
+    agent_data: dict[str, object] = {
+        "name": "test-agent",
+        "type": "test",
+    }
+
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+
+    # Should not raise, just return early
+    modal_provider.persist_agent_data(host_id, agent_data)
+
+    # Verify the volume was never accessed
+    mock_volume.batch_upload.assert_not_called()
+
+
+def test_remove_persisted_agent_data_removes_file(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """remove_persisted_agent_data should remove the agent file from the volume."""
+    host_id = HostId.generate()
+    agent_id = AgentId.generate()
+
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+
+    modal_provider.remove_persisted_agent_data(host_id, agent_id)
+
+    expected_path = f"/{host_id}/{agent_id}.json"
+    mock_volume.remove_file.assert_called_once_with(expected_path)
+
+
+def test_remove_persisted_agent_data_handles_file_not_found(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """remove_persisted_agent_data should silently handle FileNotFoundError."""
+    host_id = HostId.generate()
+    agent_id = AgentId.generate()
+
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.remove_file.side_effect = FileNotFoundError("File not found")
+
+    # Should not raise
+    modal_provider.remove_persisted_agent_data(host_id, agent_id)
+
+    # Verify the method was called
+    expected_path = f"/{host_id}/{agent_id}.json"
+    mock_volume.remove_file.assert_called_once_with(expected_path)
 
 
 # =============================================================================

@@ -344,6 +344,15 @@ class HostInterface(MutableModel, ABC):
         """Return the current lifecycle state of this host."""
         ...
 
+    @abstractmethod
+    def persist_agent_data(self, agent_id: AgentId, agent_data: Mapping[str, object]) -> None:
+        """Persist agent data to external storage.
+
+        Called when an agent's data.json is updated. Providers that support
+        persistent agent state (like Modal) will sync this to their storage.
+        """
+        ...
+
 
 class AgentGitOptions(FrozenModel):
     """Git-related options for the agent work_dir."""

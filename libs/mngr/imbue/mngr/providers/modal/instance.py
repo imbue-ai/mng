@@ -57,6 +57,7 @@ from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import ActivitySource
+from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ImageReference
@@ -441,6 +442,48 @@ class ModalProviderInstance(BaseProviderInstance):
             logger.trace("No agent records found for host {}: {}", host_id, e)
 
         return agent_records
+
+    def persist_agent_data(self, host_id: HostId, agent_data: Mapping[str, object]) -> None:
+        """Persist agent data to the Modal volume.
+
+        Called when an agent is created or its data.json is updated. Writes
+        the agent data to /{host_id}/{agent_id}.json on the volume.
+        """
+        agent_id = agent_data.get("id")
+        if not agent_id:
+            logger.warning("Cannot persist agent data without id field")
+            return
+
+        volume = self._get_volume()
+        host_dir = f"/{host_id}"
+        agent_path = f"{host_dir}/{agent_id}.json"
+
+        logger.trace("Persisting agent data to volume: {}", agent_path)
+
+        # Serialize the agent data to JSON
+        data = json.dumps(dict(agent_data), indent=2)
+
+        # Upload the data as a file-like object
+        # First ensure the host directory exists by uploading with force=True
+        with volume.batch_upload(force=True) as batch:
+            batch.put_file(io.BytesIO(data.encode("utf-8")), agent_path)
+
+    def remove_persisted_agent_data(self, host_id: HostId, agent_id: AgentId) -> None:
+        """Remove persisted agent data from the Modal volume.
+
+        Called when an agent is destroyed. Removes the agent data file from
+        /{host_id}/{agent_id}.json on the volume.
+        """
+        volume = self._get_volume()
+        agent_path = f"/{host_id}/{agent_id}.json"
+
+        logger.trace("Removing agent data from volume: {}", agent_path)
+
+        try:
+            volume.remove_file(agent_path)
+        except FileNotFoundError:
+            # File doesn't exist, nothing to remove
+            pass
 
     def _build_modal_image(
         self,
