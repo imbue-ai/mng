@@ -8,7 +8,7 @@ from imbue.imbue_common.ratchet_testing.core import LineNumber
 from imbue.imbue_common.ratchet_testing.core import RatchetMatchChunk
 from imbue.imbue_common.ratchet_testing.core import _get_chunk_commit_date
 from imbue.imbue_common.ratchet_testing.core import _get_non_ignored_files_with_extension
-from imbue.imbue_common.ratchet_testing.core import _read_file_contents
+from imbue.imbue_common.ratchet_testing.core import _parse_file_ast
 
 
 def find_if_elif_without_else(
@@ -20,11 +20,8 @@ def find_if_elif_without_else(
     chunks: list[RatchetMatchChunk] = []
 
     for file_path in file_paths:
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         visited_if_nodes: set[int] = set()
@@ -155,11 +152,8 @@ def find_init_methods_in_non_exception_classes(
         if _is_test_file(file_path):
             continue
 
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         # Build a map of class names to their base classes
@@ -242,11 +236,8 @@ def find_inline_functions(
         if _is_test_file(file_path):
             continue
 
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -287,11 +278,8 @@ def find_underscore_imports(
         if _is_test_file(file_path):
             continue
 
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
