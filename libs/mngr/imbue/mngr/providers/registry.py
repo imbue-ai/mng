@@ -42,9 +42,8 @@ def reset_backend_registry() -> None:
 def _load_backends(pm, *, include_modal: bool) -> None:
     """Load provider backends from the specified modules.
 
-    Args:
-        pm: The pluggy plugin manager
-        include_modal: Whether to include the Modal backend (requires Modal credentials)
+    The pm parameter is the pluggy plugin manager. If include_modal is True,
+    the Modal backend is included (requires Modal credentials).
     """
     if _registry_state["backends_loaded"]:
         return

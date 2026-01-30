@@ -20,7 +20,7 @@ def test_run_watch_loop_runs_iteration_function() -> None:
             raise KeyboardInterrupt()
         mock_fn()
 
-    with patch("imbue.mngr.cli.watch_mode.time.sleep"):
+    with patch("imbue.mngr.cli.watch_mode.wait_for"):
         with pytest.raises(KeyboardInterrupt):
             run_watch_loop(iteration_fn, interval_seconds=5)
 
@@ -28,8 +28,8 @@ def test_run_watch_loop_runs_iteration_function() -> None:
     assert mock_fn.call_count >= 1
 
 
-def test_run_watch_loop_sleeps_between_iterations() -> None:
-    """run_watch_loop should sleep for the specified interval between iterations."""
+def test_run_watch_loop_waits_between_iterations() -> None:
+    """run_watch_loop should wait for the specified interval between iterations."""
     call_count = [0]
 
     def iteration_fn() -> None:
@@ -37,13 +37,15 @@ def test_run_watch_loop_sleeps_between_iterations() -> None:
         if call_count[0] >= 2:
             raise KeyboardInterrupt()
 
-    with patch("imbue.mngr.cli.watch_mode.time.sleep") as mock_sleep:
+    with patch("imbue.mngr.cli.watch_mode.wait_for") as mock_wait:
         with pytest.raises(KeyboardInterrupt):
             run_watch_loop(iteration_fn, interval_seconds=10)
 
-    # Should have slept at least once with the correct interval
-    assert mock_sleep.call_count >= 1
-    mock_sleep.assert_any_call(10)
+    # Should have waited at least once
+    assert mock_wait.call_count >= 1
+    # Check that timeout was set to the interval
+    call_kwargs = mock_wait.call_args_list[0][1]
+    assert call_kwargs["timeout"] == 10.0
 
 
 def test_run_watch_loop_continues_on_mngr_error_by_default() -> None:
@@ -57,7 +59,7 @@ def test_run_watch_loop_continues_on_mngr_error_by_default() -> None:
         if call_count[0] >= 3:
             raise KeyboardInterrupt()
 
-    with patch("imbue.mngr.cli.watch_mode.time.sleep"):
+    with patch("imbue.mngr.cli.watch_mode.wait_for"):
         with pytest.raises(KeyboardInterrupt):
             run_watch_loop(iteration_fn, interval_seconds=1, on_error_continue=True)
 
@@ -73,7 +75,7 @@ def test_run_watch_loop_stops_on_mngr_error_when_configured() -> None:
         call_count[0] += 1
         raise MngrError("Test error")
 
-    with patch("imbue.mngr.cli.watch_mode.time.sleep"):
+    with patch("imbue.mngr.cli.watch_mode.wait_for"):
         with pytest.raises(MngrError, match="Test error"):
             run_watch_loop(iteration_fn, interval_seconds=1, on_error_continue=False)
 

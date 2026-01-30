@@ -7,6 +7,7 @@ from typing import Any
 import click
 from click_option_group import optgroup
 from loguru import logger
+from pydantic import BaseModel
 from tabulate import tabulate
 
 from imbue.mngr.api.list import AgentInfo
@@ -234,14 +235,9 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         if opts.watch:
             logger.warning("Watch mode is not supported with JSONL format, running once")
 
-        # Track count for limit in streaming mode
-        agent_count = [0]  # Use list for mutability in closure
-
-        def _limited_emit_jsonl_agent(agent: AgentInfo) -> None:
-            if limit is not None and agent_count[0] >= limit:
-                return
-            _emit_jsonl_agent(agent)
-            agent_count[0] += 1
+        # Use a callback wrapper that limits output count
+        limited_callback = _LimitedJsonlEmitter()
+        limited_callback.limit = limit
 
         result = api_list_agents(
             mngr_ctx=mngr_ctx,
@@ -249,7 +245,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             exclude_filters=tuple(exclude_filters),
             provider_names=opts.provider if opts.provider else None,
             error_behavior=error_behavior,
-            on_agent=_limited_emit_jsonl_agent,
+            on_agent=limited_callback,
             on_error=_emit_jsonl_error,
         )
         # Exit with non-zero code if there were errors (per error_handling.md spec)
@@ -286,32 +282,34 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         _run_list_iteration(iteration_params, ctx)
 
 
-class _ListIterationParams:
+class _LimitedJsonlEmitter:
+    """Callable class for emitting JSONL output with a limit (avoids inline function)."""
+
+    limit: int | None
+    count: int = 0
+
+    def __call__(self, agent: AgentInfo) -> None:
+        if self.limit is not None and self.count >= self.limit:
+            return
+        _emit_jsonl_agent(agent)
+        self.count += 1
+
+
+class _ListIterationParams(BaseModel):
     """Parameters for a single list iteration, used for watch mode."""
 
-    def __init__(
-        self,
-        mngr_ctx: MngrContext,
-        output_opts: OutputOptions,
-        include_filters: tuple[str, ...],
-        exclude_filters: tuple[str, ...],
-        provider_names: tuple[str, ...] | None,
-        error_behavior: ErrorBehavior,
-        sort_field: str,
-        sort_reverse: bool,
-        limit: int | None,
-        fields: list[str] | None,
-    ):
-        self.mngr_ctx = mngr_ctx
-        self.output_opts = output_opts
-        self.include_filters = include_filters
-        self.exclude_filters = exclude_filters
-        self.provider_names = provider_names
-        self.error_behavior = error_behavior
-        self.sort_field = sort_field
-        self.sort_reverse = sort_reverse
-        self.limit = limit
-        self.fields = fields
+    model_config = {"arbitrary_types_allowed": True}
+
+    mngr_ctx: MngrContext
+    output_opts: OutputOptions
+    include_filters: tuple[str, ...]
+    exclude_filters: tuple[str, ...]
+    provider_names: tuple[str, ...] | None
+    error_behavior: ErrorBehavior
+    sort_field: str
+    sort_reverse: bool
+    limit: int | None
+    fields: list[str] | None
 
 
 def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> None:
@@ -508,31 +506,25 @@ def _get_sortable_value(agent: AgentInfo, field: str) -> Any:
         return None
 
 
-def _sort_agents(agents: list[AgentInfo], sort_field: str, reverse: bool) -> list[AgentInfo]:
-    """Sort a list of agents by the specified field.
+class _AgentSortKey:
+    """Callable class for sorting agents by a field (avoids inline function definitions)."""
 
-    Args:
-        agents: List of agents to sort
-        sort_field: Field name to sort by (supports nested fields and aliases)
-        reverse: If True, sort in descending order
+    sort_field: str
 
-    Returns:
-        A new sorted list of agents
-    """
-
-    def sort_key(agent: AgentInfo) -> tuple[int, Any]:
-        """Sort key that handles None values by putting them last."""
-        value = _get_sortable_value(agent, sort_field)
+    def __call__(self, agent: AgentInfo) -> tuple[int, Any]:
+        value = _get_sortable_value(agent, self.sort_field)
         if value is None:
-            # Put None values at the end
             return (1, "")
-        # For enum types, sort by their value
         if hasattr(value, "value"):
             value = value.value
-        # Convert to string for consistent comparison of different types
         return (0, str(value))
 
-    return sorted(agents, key=sort_key, reverse=reverse)
+
+def _sort_agents(agents: list[AgentInfo], sort_field: str, reverse: bool) -> list[AgentInfo]:
+    """Sort a list of agents by the specified field."""
+    key = _AgentSortKey()
+    key.sort_field = sort_field
+    return sorted(agents, key=key, reverse=reverse)
 
 
 def _get_field_value(agent: AgentInfo, field: str) -> str:
