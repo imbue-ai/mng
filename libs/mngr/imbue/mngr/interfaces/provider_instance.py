@@ -14,6 +14,7 @@ from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ImageReference
@@ -280,3 +281,23 @@ class ProviderInstanceInterface(MutableModel, ABC):
         provider doesn't support this feature.
         """
         return []
+
+    def persist_agent_data(self, host_id: HostId, agent_data: Mapping[str, object]) -> None:
+        """Persist agent data to external storage.
+
+        Called when an agent is created or its data.json is updated. Providers
+        that support persistent agent state (like Modal) should override this
+        to write the agent data to their storage backend.
+
+        The default implementation is a no-op for providers that don't need this.
+        """
+
+    def remove_persisted_agent_data(self, host_id: HostId, agent_id: AgentId) -> None:
+        """Remove persisted agent data from external storage.
+
+        Called when an agent is destroyed. Providers that support persistent
+        agent state (like Modal) should override this to remove the agent data
+        from their storage backend.
+
+        The default implementation is a no-op for providers that don't need this.
+        """

@@ -130,17 +130,17 @@ class HostLifecycleOptions(FrozenModel):
 
     def to_activity_config(
         self,
-        default_timeout: int,
-        default_mode: IdleMode,
-        default_sources: tuple[ActivitySource, ...],
+        default_idle_timeout_seconds: int,
+        default_idle_mode: IdleMode,
+        default_activity_sources: tuple[ActivitySource, ...],
     ) -> ActivityConfig:
         """Convert to ActivityConfig, using provided defaults for None values."""
         return ActivityConfig(
             idle_timeout_seconds=self.idle_timeout_seconds
             if self.idle_timeout_seconds is not None
-            else default_timeout,
-            idle_mode=self.idle_mode if self.idle_mode is not None else default_mode,
-            activity_sources=self.activity_sources if self.activity_sources is not None else default_sources,
+            else default_idle_timeout_seconds,
+            idle_mode=self.idle_mode if self.idle_mode is not None else default_idle_mode,
+            activity_sources=self.activity_sources if self.activity_sources is not None else default_activity_sources,
         )
 
 

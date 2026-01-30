@@ -11,6 +11,7 @@ from loguru import logger
 from imbue.mngr.api.data_types import GcResourceTypes
 from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.data_types import BuildCacheInfo
 from imbue.mngr.interfaces.data_types import HostInfo
@@ -141,7 +142,11 @@ def gc_work_dirs(
         logger.trace("Checking provider {} for orphaned work directories", provider_instance.name)
         for host in provider_instance.list_hosts():
             logger.trace("Checking host {} for orphaned work directories", host.id)
-            orphaned_dirs = _get_orphaned_work_dirs(host=host, provider_name=provider_instance.name)
+            try:
+                orphaned_dirs = _get_orphaned_work_dirs(host=host, provider_name=provider_instance.name)
+            except HostOfflineError:
+                logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
+                continue
 
             # Apply CEL filtering
             filtered_dirs = [

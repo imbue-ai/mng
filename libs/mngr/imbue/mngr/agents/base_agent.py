@@ -80,8 +80,11 @@ class BaseAgent(AgentInterface):
             return {}
 
     def _write_data(self, data: dict[str, Any]) -> None:
-        """Write the agent's data.json file."""
+        """Write the agent's data.json file and persist to external storage."""
         self.host.write_text_file(self._get_data_path(), json.dumps(data, indent=2))
+
+        # Persist agent data to external storage (e.g., Modal volume)
+        self.host.persist_agent_data(self.id, data)
 
     # =========================================================================
     # Certified Field Getters/Setters

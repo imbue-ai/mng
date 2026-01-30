@@ -57,6 +57,7 @@ from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import ActivitySource
+from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ImageReference
@@ -442,6 +443,48 @@ class ModalProviderInstance(BaseProviderInstance):
 
         return agent_records
 
+    def persist_agent_data(self, host_id: HostId, agent_data: Mapping[str, object]) -> None:
+        """Persist agent data to the Modal volume.
+
+        Called when an agent is created or its data.json is updated. Writes
+        the agent data to /{host_id}/{agent_id}.json on the volume.
+        """
+        agent_id = agent_data.get("id")
+        if not agent_id:
+            logger.warning("Cannot persist agent data without id field")
+            return
+
+        volume = self._get_volume()
+        host_dir = f"/{host_id}"
+        agent_path = f"{host_dir}/{agent_id}.json"
+
+        logger.trace("Persisting agent data to volume: {}", agent_path)
+
+        # Serialize the agent data to JSON
+        data = json.dumps(dict(agent_data), indent=2)
+
+        # Upload the data as a file-like object
+        # First ensure the host directory exists by uploading with force=True
+        with volume.batch_upload(force=True) as batch:
+            batch.put_file(io.BytesIO(data.encode("utf-8")), agent_path)
+
+    def remove_persisted_agent_data(self, host_id: HostId, agent_id: AgentId) -> None:
+        """Remove persisted agent data from the Modal volume.
+
+        Called when an agent is destroyed. Removes the agent data file from
+        /{host_id}/{agent_id}.json on the volume.
+        """
+        volume = self._get_volume()
+        agent_path = f"/{host_id}/{agent_id}.json"
+
+        logger.trace("Removing agent data from volume: {}", agent_path)
+
+        try:
+            volume.remove_file(agent_path)
+        except FileNotFoundError:
+            # File doesn't exist, nothing to remove
+            pass
+
     def _build_modal_image(
         self,
         base_image: str | None = None,
@@ -767,7 +810,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         parser.add_argument("--memory", type=float, default=self.config.default_memory)
         parser.add_argument("--image", type=str, default=self.config.default_image)
         parser.add_argument("--dockerfile", type=str, default=None)
-        parser.add_argument("--timeout", type=int, default=self.config.default_timeout)
+        parser.add_argument("--timeout", type=int, default=self.config.default_sandbox_timeout)
         parser.add_argument("--region", type=str, default=self.config.default_region)
         parser.add_argument("--context-dir", type=str, default=None)
         parser.add_argument("--secret", type=str, action="append", default=[])
@@ -1108,7 +1151,17 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         app = self._get_modal_app()
 
         # Create the sandbox
-        logger.debug("Creating Modal sandbox", timeout=config.timeout, cpu=config.cpu, memory_gb=config.memory)
+        # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
+        # trigger a clean shutdown before Modal's hard timeout kills the host
+        modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
+        logger.debug(
+            "Creating Modal sandbox",
+            timeout=config.timeout,
+            modal_timeout=modal_timeout,
+            shutdown_buffer=self.config.shutdown_buffer_seconds,
+            cpu=config.cpu,
+            memory_gb=config.memory,
+        )
 
         # Memory is in GB but Modal expects MB
         memory_mb = int(config.memory * 1024)
@@ -1118,7 +1171,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                 app=app,
                 # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
                 # environment_name=self.environment_name,
-                timeout=config.timeout,
+                timeout=modal_timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
                 unencrypted_ports=[CONTAINER_SSH_PORT],
@@ -1157,9 +1210,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # Set up activity configuration for idle detection, merging CLI options with provider defaults
         lifecycle_options = lifecycle if lifecycle is not None else HostLifecycleOptions()
         activity_config = lifecycle_options.to_activity_config(
-            default_timeout=self.config.default_timeout,
-            default_mode=self.config.default_idle_mode,
-            default_sources=self.config.default_activity_sources,
+            default_idle_timeout_seconds=self.config.default_idle_timeout,
+            default_idle_mode=self.config.default_idle_mode,
+            default_activity_sources=self.config.default_activity_sources,
         )
         host.set_activity_config(activity_config)
 
@@ -1171,6 +1224,13 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
+
+        # Write max_host_age file so the activity watcher can trigger a clean shutdown
+        # before Modal's hard timeout kills the host. The value is the sandbox timeout
+        # (without the buffer we added to modal_timeout)
+        max_host_age_path = host.host_dir / "max_host_age"
+        host.write_text_file(max_host_age_path, str(config.timeout))
+        logger.debug("Wrote max_host_age file", max_host_age_seconds=config.timeout)
 
         # Optionally create an initial snapshot based on config
         # When enabled, this ensures the host can be restarted even after a hard kill
@@ -1321,13 +1381,16 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         app = self._get_modal_app()
 
         # Create the sandbox from the snapshot image
+        # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
+        # trigger a clean shutdown before Modal's hard timeout kills the host
+        modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
         memory_mb = int(config.memory * 1024)
         new_sandbox = modal.Sandbox.create(
             image=modal_image,
             app=app,
             # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
             # environment_name=self.environment_name,
-            timeout=config.timeout,
+            timeout=modal_timeout,
             cpu=config.cpu,
             memory=memory_mb,
             unencrypted_ports=[CONTAINER_SSH_PORT],
@@ -1361,6 +1424,13 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Record BOOT activity for idle detection
         restored_host.record_activity(ActivitySource.BOOT)
+
+        # Write max_host_age file so the activity watcher can trigger a clean shutdown
+        # before Modal's hard timeout kills the host. The value is the sandbox timeout
+        # (without the buffer we added to modal_timeout)
+        max_host_age_path = restored_host.host_dir / "max_host_age"
+        restored_host.write_text_file(max_host_age_path, str(config.timeout))
+        logger.debug("Wrote max_host_age file", max_host_age_seconds=config.timeout)
 
         return restored_host
 

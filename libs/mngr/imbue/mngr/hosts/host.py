@@ -799,6 +799,10 @@ class Host(HostInterface):
     # Agent Information
     # =========================================================================
 
+    def persist_agent_data(self, agent_id: AgentId, agent_data: Mapping[str, object]) -> None:
+        """Persist agent data to external storage via the provider."""
+        self.provider_instance.persist_agent_data(self.id, agent_data)
+
     def get_agents(self) -> list[AgentInterface]:
         """Get all agents on this host."""
         logger.trace("Loading agents from host {}", self.id)
@@ -1309,6 +1313,9 @@ class Host(HostInterface):
         data_path = state_dir / "data.json"
         self.write_text_file(data_path, json.dumps(data, indent=2))
 
+        # Persist agent data to external storage (e.g., Modal volume)
+        self.provider_instance.persist_agent_data(self.id, data)
+
         # Record CREATE activity for idle detection
         agent.record_activity(ActivitySource.CREATE)
 
@@ -1566,6 +1573,9 @@ class Host(HostInterface):
         self.stop_agents([agent.id])
         state_dir = self.host_dir / "agents" / str(agent.id)
         self._remove_directory(state_dir)
+
+        # Remove persisted agent data from external storage (e.g., Modal volume)
+        self.provider_instance.remove_persisted_agent_data(self.id, agent.id)
 
     def _build_env_shell_command(self, agent: AgentInterface) -> str:
         """Build a shell command that sources env files and then execs bash.
