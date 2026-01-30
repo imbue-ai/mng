@@ -8,6 +8,14 @@
             "command": "uv sync --all-packages"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/claude_request_start.sh"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -15,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./scripts/claude_request_start.sh"
+            "command": "touch .claude/active"
           }
         ]
       }

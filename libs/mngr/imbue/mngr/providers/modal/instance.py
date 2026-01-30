@@ -255,6 +255,7 @@ class ModalProviderInstance(BaseProviderInstance):
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
 
+    # FIXME: we will explode before we ever even get here. Please remove this property from here and the base class.
     @property
     def is_authorized(self) -> bool:
         """Check if Modal credentials are configured.
