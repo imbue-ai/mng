@@ -61,6 +61,7 @@ Only after doing all of the above should you begin writing code.
 - If tests fail because of a lack of coverage, you should add tests for the new code that you wrote.
 - When adding tests, consider whether it should be a unit test (in a _test.py file) or an integration/acceptance/release test (in a test_*.py file, and marked with @pytest.mark.acceptance or @pytest.mark.release, no marks needed for integration).  See the style_guide.md for exact details on the types of tests. In general, most slow tests of all functionality should be release tests, and only important / core functionality should be acceptance tests.
 - If you see a flaky test, YOU MUST HIGHLIGHT THIS IN YOUR RESPONSE. Flaky tests must be fixed as soon as possible. Ideally you should finish your task, then if you are allowed to commit, commit, and try to fix the flaky test in a separate commit.
+- Do not add TODO or FIXME unless explicitly asked to do so
 - To reiterate: code correctness and quality is the most important concern when writing code.
 
 If desired, the user will explicitly instruct you not to commit.
