@@ -1127,7 +1127,8 @@ def _parse_target_host(
         # Combine build args from both individual (-b) and bulk (--build-args) options
         combined_build_args = list(opts.build_arg)
         if opts.build_args:
-            combined_build_args.extend(opts.build_args.split())
+            # FIXME: this should be shlex.split to handle quoted args properly
+            combined_build_args = opts.build_args.split() + combined_build_args
 
         # Combine start args from both individual (-s) and bulk (--start-args) options
         combined_start_args = list(opts.start_arg)
