@@ -31,6 +31,15 @@ class ModalProviderConfig(ProviderInstanceConfig):
         default=900,
         description="Default sandbox timeout in seconds",
     )
+    shutdown_buffer_seconds: int = Field(
+        default=90,
+        description=(
+            "Buffer time added to the sandbox timeout sent to Modal. This ensures the "
+            "activity watcher can trigger a clean shutdown before Modal's hard kill. "
+            "The max_host_age file is written with the original timeout (without buffer), "
+            "so the host shuts down gracefully before the Modal timeout expires."
+        ),
+    )
     default_idle_timeout: int = Field(
         default=800,
         description="Default host idle timeout in seconds",

@@ -115,9 +115,9 @@ def test_host_lifecycle_options_to_activity_config_different_partial_override() 
     )
 
     config = options.to_activity_config(
-        default_timeout=3600,
-        default_mode=IdleMode.USER,
-        default_sources=(ActivitySource.CREATE,),
+        default_idle_timeout_seconds=3600,
+        default_idle_mode=IdleMode.USER,
+        default_activity_sources=(ActivitySource.CREATE,),
     )
 
     # Defaults should be used for None values
