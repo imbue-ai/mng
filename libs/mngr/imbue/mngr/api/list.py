@@ -238,7 +238,7 @@ def list_agents(
                     name=host.connector.name,
                     provider_name=host_ref.provider_name,
                     host=host_hostname,
-                    state=host.get_state().value.lower() if host.is_online else "stopped",
+                    state=host.get_state().value.lower(),
                     image=host.get_image() if host.is_online else None,
                     tags=host.get_tags() if host.is_online else {},
                     boot_time=host.get_boot_time() if host.is_online else None,

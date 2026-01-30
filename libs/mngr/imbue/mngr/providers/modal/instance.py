@@ -1408,7 +1408,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         host_obj: Host | None = None
 
-        if host in self._host_by_id_cache:
+        if isinstance(host, HostId) and host in self._host_by_id_cache:
             return self._host_by_id_cache[host]
 
         if isinstance(host, HostId):
@@ -1537,8 +1537,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # add these hosts to a cache so we don't need to look them up by name or id again
         for host in hosts:
-            assert isinstance(host, Host)
-            self._host_by_id_cache[host.id] = host
+            if isinstance(host, Host):
+                self._host_by_id_cache[host.id] = host
 
         return hosts
 
