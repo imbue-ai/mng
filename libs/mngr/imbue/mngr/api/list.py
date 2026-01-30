@@ -22,6 +22,7 @@ from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
+from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
@@ -133,7 +134,7 @@ class ListResult(MutableModel):
 
 
 def _get_persisted_agent_data(
-    provider: Any,
+    provider: ProviderInstanceInterface,
     host_id: HostId,
     agent_id: AgentId,
 ) -> dict[str, Any] | None:
@@ -142,11 +143,8 @@ def _get_persisted_agent_data(
     This is used for stopped hosts where we can't SSH to get live agent data.
     Returns the agent data dict or None if not found.
     """
-    if not hasattr(provider, "_list_agent_records_for_host"):
-        return None
-
     try:
-        agent_records = provider._list_agent_records_for_host(host_id)
+        agent_records = provider.list_persisted_agent_data_for_host(host_id)
         for agent_data in agent_records:
             if agent_data.get("id") == str(agent_id):
                 return agent_data

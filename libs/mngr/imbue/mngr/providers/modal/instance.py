@@ -404,8 +404,8 @@ class ModalProviderInstance(BaseProviderInstance):
 
         return host_records
 
-    def _list_agent_records_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
-        """List agent records stored on the volume for a given host.
+    def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
+        """List persisted agent data for a stopped host.
 
         Agent records are stored at /{host_id}/{agent_id}.json on the volume.
         These are persisted when a host shuts down so that mngr list can

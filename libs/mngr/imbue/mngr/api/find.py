@@ -364,22 +364,20 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
                 logger.trace("Could not get agents from host {} (may be stopped): {}", host.id, e)
                 # Try to get persisted agent data from the provider (for stopped hosts)
                 agent_refs = []
-                list_agent_records_method = getattr(provider, "_list_agent_records_for_host", None)
-                if list_agent_records_method is not None and callable(list_agent_records_method):
-                    try:
-                        agent_records = list_agent_records_method(host.id)
-                        for agent_data in agent_records:
-                            agent_refs.append(
-                                AgentReference(
-                                    host_id=host.id,
-                                    agent_id=AgentId(agent_data["id"]),
-                                    agent_name=AgentName(agent_data["name"]),
-                                    provider_name=provider.name,
-                                )
+                try:
+                    agent_records = provider.list_persisted_agent_data_for_host(host.id)
+                    for agent_data in agent_records:
+                        agent_refs.append(
+                            AgentReference(
+                                host_id=host.id,
+                                agent_id=AgentId(agent_data["id"]),
+                                agent_name=AgentName(agent_data["name"]),
+                                provider_name=provider.name,
                             )
-                        logger.trace("Loaded {} persisted agents for stopped host {}", len(agent_refs), host.id)
-                    except (KeyError, ValueError) as inner_e:
-                        logger.trace("Could not load persisted agents for host {}: {}", host.id, inner_e)
+                        )
+                    logger.trace("Loaded {} persisted agents for stopped host {}", len(agent_refs), host.id)
+                except (KeyError, ValueError) as inner_e:
+                    logger.trace("Could not load persisted agents for host {}: {}", host.id, inner_e)
 
             agents_by_host[host_ref] = agent_refs
 
