@@ -1076,12 +1076,22 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         This is used when there is no running sandbox but the host record
         exists on the volume. The OfflineHost provides read-only access to
         stored host data without SSH connectivity.
+
+        The certified_host_data is populated with information available from
+        the host record. Full certified data (activity config, plugin data, etc.)
+        is only available when the host is online and we can read from its
+        filesystem.
         """
         host_id = HostId(host_record.host_id)
 
+        # Build certified host data from what's available in the host record
+        certified_data = CertifiedHostData(
+            image=host_record.config.image,
+        )
+
         return OfflineHost(
             id=host_id,
-            certified_host_data=CertifiedHostData(),
+            certified_host_data=certified_data,
             provider_instance=self,
             mngr_ctx=self.mngr_ctx,
         )
