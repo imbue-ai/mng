@@ -725,3 +725,40 @@ def test_select_agent_interactively_returns_none_for_empty_list() -> None:
     result = select_agent_interactively(agents)
 
     assert result is None
+
+
+def test_connect_defaults_to_most_recent_agent_non_interactive(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that connect defaults to most recently created agent in non-interactive mode.
+
+    When stdin is not a tty (non-interactive), the connect command should
+    automatically select the most recently created agent instead of showing
+    an interactive selector.
+    """
+    agent_name_old = f"test-connect-old-{int(time.time())}"
+    agent_name_new = f"test-connect-new-{int(time.time())}"
+
+    with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_old, 192837):
+        # Sleep briefly to ensure different create times
+        time.sleep(0.1)
+        with _created_agent(
+            cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_new, 283746
+        ) as session_name_new:
+            # Simulate non-interactive mode by providing input (makes stdin not a tty)
+            with patch("imbue.mngr.cli.connect.connect_to_agent") as mock_connect:
+                result = cli_runner.invoke(
+                    connect,
+                    [],  # No agent specified
+                    obj=plugin_manager,
+                    catch_exceptions=False,
+                    input="",  # Makes stdin not a tty
+                )
+
+                # Should have connected to the most recently created agent
+                mock_connect.assert_called_once()
+                connected_agent = mock_connect.call_args[0][0]
+                assert str(connected_agent.name) == agent_name_new

@@ -424,10 +424,16 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     if opts.agent is not None:
         agent, host = find_agent_by_name_or_id(opts.agent, agents_by_host, mngr_ctx, "connect")
     elif not sys.stdin.isatty():
-        # FIXME: Default to most recently created agent instead of error
-        # When no agent is specified and not running interactively, should connect
-        # to the most recently created agent automatically
-        raise UserInputError("No agent specified and not running in interactive mode")
+        # Default to most recently created agent when running non-interactively
+        list_result = list_agents(mngr_ctx)
+        if not list_result.agents:
+            raise UserInputError("No agents found")
+
+        # Sort by create_time descending to get most recent first
+        sorted_agents = sorted(list_result.agents, key=lambda a: a.create_time, reverse=True)
+        most_recent = sorted_agents[0]
+        logger.info("No agent specified, connecting to most recently created: {}", most_recent.name)
+        agent, host = find_agent_by_name_or_id(str(most_recent.id), agents_by_host, mngr_ctx, "connect")
     else:
         list_result = list_agents(mngr_ctx)
         if not list_result.agents:
