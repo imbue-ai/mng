@@ -7,7 +7,9 @@ from pathlib import Path
 from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.cli.list import _format_value_as_string
 from imbue.mngr.cli.list import _get_field_value
+from imbue.mngr.cli.list import _get_sortable_value
 from imbue.mngr.cli.list import _parse_slice_spec
+from imbue.mngr.cli.list import _sort_agents
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.primitives import AgentId
@@ -445,3 +447,97 @@ def test_parse_slice_spec_negative_start_and_stop() -> None:
     """_parse_slice_spec should parse negative start and stop."""
     result = _parse_slice_spec("-3:-1")
     assert result == slice(-3, -1)
+
+
+# =============================================================================
+# Tests for _get_sortable_value
+# =============================================================================
+
+
+def test_get_sortable_value_simple_field() -> None:
+    """_get_sortable_value should return raw value for simple field."""
+    agent = _create_test_agent()
+    result = _get_sortable_value(agent, "name")
+    assert result == AgentName("test-agent")
+
+
+def test_get_sortable_value_nested_field() -> None:
+    """_get_sortable_value should return raw value for nested field."""
+    agent = _create_test_agent()
+    result = _get_sortable_value(agent, "host.name")
+    assert result == "test-host"
+
+
+def test_get_sortable_value_alias() -> None:
+    """_get_sortable_value should resolve field aliases."""
+    agent = _create_test_agent()
+    result = _get_sortable_value(agent, "state")
+    assert result == AgentLifecycleState.RUNNING
+
+
+def test_get_sortable_value_invalid_field() -> None:
+    """_get_sortable_value should return None for invalid field."""
+    agent = _create_test_agent()
+    result = _get_sortable_value(agent, "nonexistent")
+    assert result is None
+
+
+# =============================================================================
+# Tests for _sort_agents
+# =============================================================================
+
+
+def test_sort_agents_by_name_ascending() -> None:
+    """_sort_agents should sort by name in ascending order."""
+    agents = [
+        _create_test_agent_with_name("charlie"),
+        _create_test_agent_with_name("alpha"),
+        _create_test_agent_with_name("bravo"),
+    ]
+    result = _sort_agents(agents, "name", reverse=False)
+    assert [str(a.name) for a in result] == ["alpha", "bravo", "charlie"]
+
+
+def test_sort_agents_by_name_descending() -> None:
+    """_sort_agents should sort by name in descending order."""
+    agents = [
+        _create_test_agent_with_name("alpha"),
+        _create_test_agent_with_name("charlie"),
+        _create_test_agent_with_name("bravo"),
+    ]
+    result = _sort_agents(agents, "name", reverse=True)
+    assert [str(a.name) for a in result] == ["charlie", "bravo", "alpha"]
+
+
+def test_sort_agents_by_state() -> None:
+    """_sort_agents should sort by state (lifecycle_state)."""
+    agent_running = _create_test_agent()
+    agent_stopped = _create_test_agent()
+    # Manually set the state for the stopped agent
+    agent_stopped = agent_stopped.model_copy(update={"lifecycle_state": AgentLifecycleState.STOPPED})
+    agents = [agent_stopped, agent_running]
+    result = _sort_agents(agents, "state", reverse=False)
+    # RUNNING < STOPPED alphabetically
+    assert result[0].lifecycle_state == AgentLifecycleState.RUNNING
+    assert result[1].lifecycle_state == AgentLifecycleState.STOPPED
+
+
+def _create_test_agent_with_name(name: str) -> AgentInfo:
+    """Create a test AgentInfo with the specified name."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+        snapshots=[],
+    )
+    return AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName(name),
+        type="claude",
+        command=CommandString("claude"),
+        work_dir=Path("/tmp/work"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        lifecycle_state=AgentLifecycleState.RUNNING,
+        host=host_info,
+    )

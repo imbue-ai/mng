@@ -900,3 +900,143 @@ def test_list_command_with_provider_filter(
 
         assert result_no_match.exit_code == 0
         assert agent_name not in result_no_match.output
+
+
+def test_list_command_with_sort_by_name(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --sort option by name."""
+    agent_name_a = f"aaa-list-sort-{int(time.time())}"
+    agent_name_z = f"zzz-list-sort-{int(time.time())}"
+    session_name_a = f"{mngr_test_prefix}{agent_name_a}"
+    session_name_z = f"{mngr_test_prefix}{agent_name_z}"
+
+    with tmux_session_cleanup(session_name_a):
+        with tmux_session_cleanup(session_name_z):
+            # Create agents in reverse alphabetical order
+            create_result_z = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name_z,
+                    "--agent-cmd",
+                    "sleep 200950",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert create_result_z.exit_code == 0
+
+            create_result_a = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name_a,
+                    "--agent-cmd",
+                    "sleep 109839",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert create_result_a.exit_code == 0
+
+            # List sorted by name ascending
+            result = cli_runner.invoke(
+                list_command,
+                ["--sort", "name", "--sort-order", "asc"],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            assert result.exit_code == 0
+            # Agent 'aaa' should appear before 'zzz'
+            pos_a = result.output.find(agent_name_a)
+            pos_z = result.output.find(agent_name_z)
+            assert pos_a != -1
+            assert pos_z != -1
+            assert pos_a < pos_z, "Agent 'aaa' should appear before 'zzz' in ascending order"
+
+
+def test_list_command_with_sort_descending(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --sort option in descending order."""
+    agent_name_a = f"aaa-list-desc-{int(time.time())}"
+    agent_name_z = f"zzz-list-desc-{int(time.time())}"
+    session_name_a = f"{mngr_test_prefix}{agent_name_a}"
+    session_name_z = f"{mngr_test_prefix}{agent_name_z}"
+
+    with tmux_session_cleanup(session_name_a):
+        with tmux_session_cleanup(session_name_z):
+            # Create both agents
+            create_result_a = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name_a,
+                    "--agent-cmd",
+                    "sleep 008728",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert create_result_a.exit_code == 0
+
+            create_result_z = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name_z,
+                    "--agent-cmd",
+                    "sleep 007617",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert create_result_z.exit_code == 0
+
+            # List sorted by name descending
+            result = cli_runner.invoke(
+                list_command,
+                ["--sort", "name", "--sort-order", "desc"],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            assert result.exit_code == 0
+            # Agent 'zzz' should appear before 'aaa'
+            pos_a = result.output.find(agent_name_a)
+            pos_z = result.output.find(agent_name_z)
+            assert pos_a != -1
+            assert pos_z != -1
+            assert pos_z < pos_a, "Agent 'zzz' should appear before 'aaa' in descending order"

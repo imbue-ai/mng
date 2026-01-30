@@ -108,7 +108,7 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--sort",
     default="create_time",
-    help="Sort by field [default: create_time] [future]",
+    help="Sort by field (supports nested fields like host.name) [default: create_time]",
 )
 @optgroup.option(
     "--sort-order",
@@ -219,8 +219,8 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
 
     # --sort FIELD: Sort by any available field [default: create_time]
     # --sort-order ORDER: Sort order (asc, desc) [default: asc]
-    if opts.sort != "create_time":
-        raise NotImplementedError("Custom sorting not implemented yet")
+    sort_field = opts.sort
+    sort_reverse = opts.sort_order.lower() == "desc"
 
     # --limit N: Limit number of results returned
     # NOTE: The limit is applied after fetching results. The full list is still retrieved
@@ -268,10 +268,12 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         for error in result.errors:
             logger.warning("{}: {}", error.exception_type, error.message)
 
-    # Apply limit to results
-    agents_to_display = result.agents
+    # Apply sorting to results
+    agents_to_display = _sort_agents(result.agents, sort_field, sort_reverse)
+
+    # Apply limit to results (after sorting)
     if limit is not None:
-        agents_to_display = result.agents[:limit]
+        agents_to_display = agents_to_display[:limit]
 
     if not agents_to_display:
         if output_opts.output_format == OutputFormat.HUMAN:
@@ -409,6 +411,68 @@ def _format_value_as_string(value: Any) -> str:
 # Pattern to match a field part with optional bracket notation
 # Matches: "fieldname", "fieldname[0]", "fieldname[-1]", "fieldname[:3]", "fieldname[1:3]", etc.
 _BRACKET_PATTERN = re.compile(r"^([^\[]+)(?:\[([^\]]+)\])?$")
+
+
+def _get_sortable_value(agent: AgentInfo, field: str) -> Any:
+    """Extract a field value from an AgentInfo object for sorting.
+
+    Returns the raw value (not string-formatted) for proper sorting behavior.
+    Supports nested fields like "host.name" and field aliases.
+    """
+    # Handle special field aliases for backward compatibility and convenience
+    field_aliases = {
+        "state": "lifecycle_state",
+        "host": "host.name",
+        "provider": "host.provider_name",
+        "host.provider": "host.provider_name",
+    }
+
+    # Apply alias if it exists
+    if field in field_aliases:
+        field = field_aliases[field]
+
+    # Handle nested fields (e.g., "host.name")
+    parts = field.split(".")
+    value: Any = agent
+
+    try:
+        for part in parts:
+            # Strip any bracket notation for sorting (use base field only)
+            base_part = part.split("[")[0]
+            if hasattr(value, base_part):
+                value = getattr(value, base_part)
+            else:
+                return None
+        return value
+    except (AttributeError, KeyError):
+        return None
+
+
+def _sort_agents(agents: list[AgentInfo], sort_field: str, reverse: bool) -> list[AgentInfo]:
+    """Sort a list of agents by the specified field.
+
+    Args:
+        agents: List of agents to sort
+        sort_field: Field name to sort by (supports nested fields and aliases)
+        reverse: If True, sort in descending order
+
+    Returns:
+        A new sorted list of agents
+    """
+
+    def sort_key(agent: AgentInfo) -> tuple[int, Any]:
+        """Sort key that handles None values by putting them last."""
+        value = _get_sortable_value(agent, sort_field)
+        if value is None:
+            # Put None values at the end
+            return (1, "")
+        # For enum types, sort by their value
+        if hasattr(value, "value"):
+            value = value.value
+        # Convert to string for consistent comparison of different types
+        return (0, str(value))
+
+    return sorted(agents, key=sort_key, reverse=reverse)
 
 
 def _get_field_value(agent: AgentInfo, field: str) -> str:

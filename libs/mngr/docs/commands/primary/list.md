@@ -52,7 +52,7 @@ mngr list [OPTIONS]
 | ---- | ---- | ----------- | ------- |
 | `--format-template` | text | Output format as a string template (mutually exclusive with --format) [future] | None |
 | `--fields` | text | Which fields to include (comma-separated) | None |
-| `--sort` | text | Sort by field [default: create_time] [future] | `create_time` |
+| `--sort` | text | Sort by field (supports nested fields like host.name) [default: create_time] | `create_time` |
 | `--sort-order` | choice (`asc` &#x7C; `desc`) | Sort order [default: asc] | `asc` |
 | `--limit` | integer | Limit number of results (applied after fetching from all providers) | None |
 
