@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from pydantic import Field
 
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.hosts.common import LOCAL_CONNECTOR_NAME
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
+from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostState
 
@@ -21,28 +21,21 @@ from imbue.mngr.primitives import HostState
 class OfflineHost(HostInterface):
     """Host implementation that uses json data to enable reading the state of a host that is now offline.
 
-    All operations (command execution, file read/write) are performed through
-    the pyinfra connector, which handles both local and remote hosts transparently.
+    This is used when we have stored data about a host (e.g., from provider metadata or persisted
+    agent data) but cannot currently connect to it. It provides read-only access to the host's
+    last-known state.
     """
 
     certified_host_data: CertifiedHostData = Field(
-        frozen=True, description="The certified host data loaded from data.json"
+        default_factory=CertifiedHostData,
+        frozen=True,
+        description="The certified host data loaded from data.json",
     )
     is_online: bool = Field(default=False, description="Whether the host is currently online/started")
     provider_instance: ProviderInstanceInterface = Field(
         frozen=True, description="The provider instance managing this host"
     )
     mngr_ctx: MngrContext = Field(frozen=True, repr=False, description="The mngr context")
-
-    @property
-    def is_local(self) -> bool:
-        """Check if this host uses the local connector."""
-        return self.connector.connector_cls_name == LOCAL_CONNECTOR_NAME
-
-    @property
-    def host_dir(self) -> Path:
-        """Get the host state directory path from provider instance."""
-        return self.provider_instance.host_dir
 
     # =========================================================================
     # Activity Configuration
@@ -61,10 +54,13 @@ class OfflineHost(HostInterface):
     # Activity Times
     # =========================================================================
 
-    # TODO: simply report the time that this host was stopped/destroyed
     def get_reported_activity_time(self, activity_type: ActivitySource) -> datetime | None:
-        """Get the last reported activity time for the given type."""
-        ...
+        """Get the last reported activity time for the given type.
+
+        For offline hosts, we cannot retrieve activity times since we can't read the
+        activity files from the host filesystem. Returns None.
+        """
+        return None
 
     # =========================================================================
     # Certified Data
@@ -99,21 +95,62 @@ class OfflineHost(HostInterface):
     # Agent Information
     # =========================================================================
 
-    # TODO: implement. See how we get this in load_all_agents_grouped_by_host when the host is offlien, that should be here instead
     def get_agent_references(self) -> list[AgentReference]:
-        """Return a list of all agent references for this host."""
-        ...
+        """Return a list of all agent references for this host.
+
+        For offline hosts, get agent information from the provider's persisted data.
+        """
+        agent_refs: list[AgentReference] = []
+        try:
+            agent_records = self.provider_instance.list_persisted_agent_data_for_host(self.id)
+            for agent_data in agent_records:
+                agent_refs.append(
+                    AgentReference(
+                        host_id=self.id,
+                        agent_id=AgentId(agent_data["id"]),
+                        agent_name=AgentName(agent_data["name"]),
+                        provider_name=self.provider_instance.name,
+                    )
+                )
+        except (KeyError, ValueError):
+            pass
+
+        return agent_refs
 
     # =========================================================================
     # Agent-Derived Information
     # =========================================================================
 
-    # NOTE: Ignore this one for now!
-    def get_permissions(self) -> list[str]:
-        """Get the union of all agent permissions on this host."""
-        raise NotImplementedError("Not implemented for offline hosts yet, will come back to this later")
+    def get_idle_seconds(self) -> float:
+        """Get the number of seconds since last activity.
 
-    # TODO: implement. take a look at the implementation in Host--some of it can be split up to here (the bit about distinguishing between stopped and destroyed)
+        For offline hosts, return infinity since we can't track activity.
+        """
+        return float("inf")
+
+    def get_permissions(self) -> list[str]:
+        """Get the union of all agent permissions on this host.
+
+        For offline hosts, we cannot retrieve permissions since we can't read
+        agent data files from the host filesystem. Returns an empty list.
+        """
+        return []
+
     def get_state(self) -> HostState:
-        """Get the current state of the host."""
-        ...
+        """Get the current state of the host.
+
+        For offline hosts, we determine state based on snapshots:
+        - If snapshots exist, the host is STOPPED (can be restarted)
+        - If no snapshots exist for a provider that supports them, the host is DESTROYED
+        - If provider doesn't support snapshots, assume STOPPED
+        """
+        if self.provider_instance.supports_snapshots:
+            try:
+                snapshots = self.get_snapshots()
+                if not snapshots:
+                    return HostState.DESTROYED
+            except (OSError, IOError, ConnectionError):
+                # If we can't check snapshots, assume STOPPED (safer default)
+                pass
+
+        return HostState.STOPPED

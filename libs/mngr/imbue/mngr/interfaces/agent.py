@@ -27,8 +27,7 @@ from imbue.mngr.primitives import Permission
 
 # this is the only place where it is acceptable to use the TYPE_CHECKING flag
 if TYPE_CHECKING:
-    from imbue.mngr.interfaces.host import CreateAgentOptions
-    from imbue.mngr.interfaces.host import HostInterface
+    from imbue.mngr.interfaces.host import CreateAgentOptions, OnlineHostInterface
 
 
 class AgentStatus(FrozenModel):
@@ -52,14 +51,14 @@ class AgentInterface(MutableModel, ABC):
     agent_config: AgentTypeConfig = Field(frozen=True, repr=False, description="Agent type config")
 
     @abstractmethod
-    def get_host(self) -> HostInterface:
-        """Return the host this agent runs on."""
+    def get_host(self) -> OnlineHostInterface:
+        """Return the host this agent runs on (must be online)."""
         ...
 
     @abstractmethod
     def assemble_command(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         agent_args: tuple[str, ...],
         command_override: CommandString | None,
     ) -> CommandString:
@@ -244,7 +243,7 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def on_before_provisioning(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
@@ -267,7 +266,7 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def get_provision_file_transfers(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> Sequence[FileTransferSpec]:
@@ -291,7 +290,7 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def provision(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
@@ -312,7 +311,7 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def on_after_provisioning(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:

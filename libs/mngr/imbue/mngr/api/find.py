@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 import deal
 from loguru import logger
@@ -14,7 +15,7 @@ from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
@@ -262,7 +263,7 @@ def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostR
         return None
 
 
-def _ensure_host_started(host: HostInterface, is_start_desired: bool, provider: BaseProviderInstance):
+def _ensure_host_started(host: OnlineHostInterface, is_start_desired: bool, provider: BaseProviderInstance):
     if host.is_online:
         return
     if is_start_desired:
@@ -275,7 +276,7 @@ def _ensure_host_started(host: HostInterface, is_start_desired: bool, provider: 
         )
 
 
-def _ensure_agent_started(agent: AgentInterface, host: HostInterface, is_start_desired: bool) -> None:
+def _ensure_agent_started(agent: AgentInterface, host: OnlineHostInterface, is_start_desired: bool) -> None:
     # Check if the agent's tmux session exists and start it if needed
     lifecycle_state = agent.get_lifecycle_state()
     if lifecycle_state != AgentLifecycleState.RUNNING:
@@ -296,7 +297,7 @@ def find_and_maybe_start_agent_by_name_or_id(
     mngr_ctx: MngrContext,
     command_name: str,
     is_start_desired: bool = False,
-) -> tuple[AgentInterface, HostInterface]:
+) -> tuple[AgentInterface, OnlineHostInterface]:
     """Find an agent by name or ID and return the agent and host interfaces.
 
     This function resolves an agent identifier to the actual agent and host objects,
@@ -326,7 +327,7 @@ def find_and_maybe_start_agent_by_name_or_id(
 
     # Try matching by name
     agent_name = AgentName(agent_str)
-    matching: list[tuple[AgentInterface, HostInterface]] = []
+    matching: list[tuple[AgentInterface, OnlineHostInterface]] = []
 
     for host_ref, agent_refs in agents_by_host.items():
         for agent_ref in agent_refs:
@@ -366,6 +367,7 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
     """Load all agents from all providers, grouped by their host.
 
     Loops through all providers, gets all hosts from each provider, and then gets all agents for each host.
+    Handles both online hosts (which can be queried directly) and offline hosts (which use persisted data).
     """
     agents_by_host: dict[HostReference, list[AgentReference]] = {}
 
@@ -378,16 +380,31 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
         hosts = provider.list_hosts(include_destroyed=False)
 
         for host in hosts:
+            # For offline hosts, get agent references from persisted data
+            if not host.is_online:
+                agent_refs = host.get_agent_references()
+                if agent_refs:
+                    # Use first agent ref's info to build host reference
+                    host_ref = HostReference(
+                        host_id=host.id,
+                        host_name=HostName(str(host.id)),
+                        provider_name=provider.name,
+                    )
+                    agents_by_host[host_ref] = agent_refs
+                continue
+
+            # Host is online - cast to OnlineHostInterface
+            online_host = cast(OnlineHostInterface, host)
             host_ref = HostReference(
                 host_id=host.id,
-                host_name=HostName(host.connector.name),
+                host_name=HostName(online_host.connector.name),
                 provider_name=provider.name,
             )
 
             # Try to get agents from the host. For stopped/unreachable hosts,
             # connection will fail - try to get persisted agent data from volume.
             try:
-                agents = host.get_agents()
+                agents = online_host.get_agents()
                 agent_refs = [
                     AgentReference(
                         host_id=host.id,

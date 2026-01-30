@@ -17,7 +17,7 @@ from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.data_types import WorkDirInfo
 from imbue.mngr.interfaces.host import CreateAgentOptions
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
@@ -32,7 +32,7 @@ class CreateAgentResult(FrozenModel):
     """Result of creating an agent."""
 
     agent: AgentInterface = Field(description="The created agent")
-    host: HostInterface = Field(description="The host running the agent")
+    host: OnlineHostInterface = Field(description="The host running the agent")
 
 
 class SourceLocation(FrozenModel):
@@ -261,7 +261,7 @@ class OnBeforeCreateArgs(FrozenModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
-    target_host: HostInterface | NewHostOptions = Field(
+    target_host: OnlineHostInterface | NewHostOptions = Field(
         description="The target host (or options to create one) for the agent"
     )
     agent_options: CreateAgentOptions = Field(description="Options for creating the agent")

@@ -51,9 +51,10 @@ from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.data_types import HostResources
+from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.host import CreateAgentOptions
-from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import NamedCommand
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
@@ -92,13 +93,15 @@ class HostLocation(FrozenModel):
     )
 
 
-class Host(OfflineHost):
+class Host(OfflineHost, OnlineHostInterface):
     """Host implementation that proxies operations through a pyinfra connector.
 
     All operations (command execution, file read/write) are performed through
     the pyinfra connector, which handles both local and remote hosts transparently.
     """
 
+    connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
+    is_online: bool = Field(default=True, description="Whether the host is currently online/started")
     provider_instance: ProviderInstanceInterface = Field(
         frozen=True, description="The provider instance managing this host"
     )
@@ -755,7 +758,7 @@ class Host(OfflineHost):
 
     def create_agent_work_dir(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         path: Path,
         options: CreateAgentOptions,
     ) -> Path:
@@ -771,7 +774,7 @@ class Host(OfflineHost):
 
     def _create_work_dir_as_copy(
         self,
-        source_host: HostInterface,
+        source_host: OnlineHostInterface,
         source_path: Path,
         options: CreateAgentOptions,
     ) -> Path:
@@ -839,7 +842,7 @@ class Host(OfflineHost):
 
     def _transfer_git_repo(
         self,
-        source_host: HostInterface,
+        source_host: OnlineHostInterface,
         source_path: Path,
         target_path: Path,
         options: CreateAgentOptions,
@@ -894,7 +897,7 @@ class Host(OfflineHost):
 
     def _git_push_to_target(
         self,
-        source_host: HostInterface,
+        source_host: OnlineHostInterface,
         source_path: Path,
         target_path: Path,
     ) -> None:
@@ -967,7 +970,7 @@ class Host(OfflineHost):
 
     def _transfer_extra_files(
         self,
-        source_host: HostInterface,
+        source_host: OnlineHostInterface,
         source_path: Path,
         target_path: Path,
         options: CreateAgentOptions,
@@ -1045,7 +1048,7 @@ class Host(OfflineHost):
 
     def _rsync_files(
         self,
-        source_host: HostInterface,
+        source_host: OnlineHostInterface,
         source_path: Path,
         target_path: Path,
         extra_args: str | None = None,
@@ -1105,7 +1108,7 @@ class Host(OfflineHost):
 
     def _create_work_dir_as_git_worktree(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         source_path: Path,
         options: CreateAgentOptions,
     ) -> Path:

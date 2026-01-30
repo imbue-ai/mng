@@ -338,7 +338,7 @@ class OnlineHostInterface(HostInterface, ABC):
     @abstractmethod
     def create_agent_work_dir(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         path: Path,
         options: CreateAgentOptions,
     ) -> Path:

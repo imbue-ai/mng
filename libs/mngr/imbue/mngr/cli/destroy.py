@@ -23,7 +23,7 @@ from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
@@ -264,13 +264,13 @@ def _find_agents_to_destroy(
     agent_identifiers: list[str],
     destroy_all: bool,
     mngr_ctx: MngrContext,
-) -> list[tuple[AgentInterface, HostInterface]]:
+) -> list[tuple[AgentInterface, OnlineHostInterface]]:
     """Find all agents to destroy.
 
     Returns a list of (agent, host) tuples.
     Raises AgentNotFoundError if any specified identifier does not match an agent.
     """
-    agents_to_destroy: list[tuple[AgentInterface, HostInterface]] = []
+    agents_to_destroy: list[tuple[AgentInterface, OnlineHostInterface]] = []
     matched_identifiers: set[str] = set()
 
     for agent_ref in list_agents(mngr_ctx).agents:
@@ -309,7 +309,7 @@ def _find_agents_to_destroy(
     return agents_to_destroy
 
 
-def _confirm_destruction(agents: list[tuple[AgentInterface, HostInterface]]) -> None:
+def _confirm_destruction(agents: list[tuple[AgentInterface, OnlineHostInterface]]) -> None:
     """Prompt user to confirm destruction of agents."""
     agent_names = [agent.name for agent, _ in agents]
 
@@ -324,7 +324,7 @@ def _confirm_destruction(agents: list[tuple[AgentInterface, HostInterface]]) -> 
 
 
 def _output_agents_list(
-    agents: list[tuple[AgentInterface, HostInterface]],
+    agents: list[tuple[AgentInterface, OnlineHostInterface]],
     prefix: str,
     output_opts: OutputOptions,
 ) -> None:

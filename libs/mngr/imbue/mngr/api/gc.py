@@ -5,6 +5,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from typing import cast
 
 from loguru import logger
 
@@ -18,7 +19,7 @@ from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import LogFileInfo
 from imbue.mngr.interfaces.data_types import SizeBytes
 from imbue.mngr.interfaces.data_types import WorkDirInfo
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import ProviderInstanceName
@@ -142,8 +143,17 @@ def gc_work_dirs(
         logger.trace("Checking provider {} for orphaned work directories", provider_instance.name)
         for host in provider_instance.list_hosts():
             logger.trace("Checking host {} for orphaned work directories", host.id)
+
+            # Skip offline hosts - can't query them
+            if not host.is_online:
+                logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
+                continue
+
+            # Cast to OnlineHostInterface
+            online_host = cast(OnlineHostInterface, host)
+
             try:
-                orphaned_dirs = _get_orphaned_work_dirs(host=host, provider_name=provider_instance.name)
+                orphaned_dirs = _get_orphaned_work_dirs(host=online_host, provider_name=provider_instance.name)
             except HostOfflineError:
                 logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
                 continue
@@ -159,7 +169,7 @@ def gc_work_dirs(
             for work_dir_info in filtered_dirs:
                 try:
                     if not dry_run:
-                        _clean_work_dir(host=host, work_dir_path=work_dir_info.path, dry_run=False)
+                        _clean_work_dir(host=online_host, work_dir_path=work_dir_info.path, dry_run=False)
                     result.work_dirs_destroyed.append(work_dir_info)
                 except MngrError as e:
                     error_msg = f"Failed to clean {work_dir_info.path}: {e}"
@@ -185,11 +195,18 @@ def gc_machines(
 
             for host in hosts:
                 try:
-                    # Skip local hosts - they cannot be destroyed
-                    if host.is_local:
+                    # Skip offline hosts - can't query them
+                    if not host.is_online:
                         continue
 
-                    agents = host.get_agents()
+                    # Cast to OnlineHostInterface for type checking
+                    online_host = cast(OnlineHostInterface, host)
+
+                    # Skip local hosts - they cannot be destroyed
+                    if online_host.is_local:
+                        continue
+
+                    agents = online_host.get_agents()
 
                     # Only consider hosts with no agents
                     if len(agents) > 0:
@@ -472,7 +489,7 @@ def gc_build_cache(
                 _handle_error(error_msg, error_behavior, exc=e)
 
 
-def _get_orphaned_work_dirs(host: HostInterface, provider_name: ProviderInstanceName) -> list[WorkDirInfo]:
+def _get_orphaned_work_dirs(host: OnlineHostInterface, provider_name: ProviderInstanceName) -> list[WorkDirInfo]:
     """Get list of orphaned work directories for a host."""
     certified_data = host.get_all_certified_data()
     generated_work_dirs = set(certified_data.generated_work_dirs)
@@ -519,7 +536,7 @@ def _get_orphaned_work_dirs(host: HostInterface, provider_name: ProviderInstance
     return work_dir_infos
 
 
-def _clean_work_dir(host: HostInterface, work_dir_path: Path, dry_run: bool) -> None:
+def _clean_work_dir(host: OnlineHostInterface, work_dir_path: Path, dry_run: bool) -> None:
     """Clean up a single work directory."""
     if not dry_run:
         with host.lock_cooperatively():
@@ -531,7 +548,7 @@ def _clean_work_dir(host: HostInterface, work_dir_path: Path, dry_run: bool) -> 
             _remove_work_dir_from_certified_data(host, work_dir_path)
 
 
-def _is_git_worktree(host: HostInterface, path: Path) -> bool:
+def _is_git_worktree(host: OnlineHostInterface, path: Path) -> bool:
     """Check if a path is a git worktree.
 
     A git worktree has a .git file (not directory) that points to the main git directory.
@@ -542,7 +559,7 @@ def _is_git_worktree(host: HostInterface, path: Path) -> bool:
     return result.success
 
 
-def _remove_git_worktree(host: HostInterface, work_dir_path: Path) -> None:
+def _remove_git_worktree(host: OnlineHostInterface, work_dir_path: Path) -> None:
     """Remove a git worktree using git worktree remove."""
     cmd = f"git worktree remove --force {shlex.quote(str(work_dir_path))}"
     result = host.execute_command(cmd)
@@ -554,7 +571,7 @@ def _remove_git_worktree(host: HostInterface, work_dir_path: Path) -> None:
         logger.debug("Removed git worktree: {}", work_dir_path)
 
 
-def _remove_work_dir_from_certified_data(host: HostInterface, work_dir_path: Path) -> None:
+def _remove_work_dir_from_certified_data(host: OnlineHostInterface, work_dir_path: Path) -> None:
     """Remove a work directory from the host's certified data."""
     certified_data = host.get_all_certified_data()
     existing_dirs = set(certified_data.generated_work_dirs)
@@ -567,7 +584,7 @@ def _remove_work_dir_from_certified_data(host: HostInterface, work_dir_path: Pat
     host.write_text_file(data_path, data_json)
 
 
-def _remove_directory(host: HostInterface, path: Path) -> None:
+def _remove_directory(host: OnlineHostInterface, path: Path) -> None:
     """Remove a directory and all its contents."""
     result = host.execute_command(f"test -e {shlex.quote(str(path))}")
     if result.success:

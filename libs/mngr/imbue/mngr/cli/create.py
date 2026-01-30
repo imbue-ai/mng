@@ -50,7 +50,7 @@ from imbue.mngr.interfaces.host import AgentPermissionsOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import FileModificationSpec
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.host import NamedCommand
 from imbue.mngr.interfaces.host import UploadFileSpec
 from imbue.mngr.primitives import ActivitySource
@@ -572,7 +572,7 @@ def create(ctx: click.Context, **kwargs) -> None:
     # and obviously only matters if we're not creating a new host
     final_source_location: HostLocation
     is_work_dir_created: bool
-    if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, HostInterface):
+    if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, OnlineHostInterface):
         work_dir_path = resolved_target_host.create_agent_work_dir(
             source_location.host, source_location.path, agent_opts
         )
@@ -699,7 +699,7 @@ def _handle_editor_message(
 
 def _create_agent_in_background(
     source_location: HostLocation,
-    target_host: HostInterface | NewHostOptions,
+    target_host: OnlineHostInterface | NewHostOptions,
     agent_options: CreateAgentOptions,
     mngr_ctx: MngrContext,
     is_work_dir_created: bool,
@@ -787,8 +787,8 @@ def _resolve_source_location(
 
 def _resolve_target_host(
     target_host: HostReference | NewHostOptions | None, mngr_ctx: MngrContext
-) -> HostInterface | NewHostOptions:
-    resolved_target_host: HostInterface | NewHostOptions
+) -> OnlineHostInterface | NewHostOptions:
+    resolved_target_host: OnlineHostInterface | NewHostOptions
     if target_host is None:
         # No host specified, use the local provider's default host
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
@@ -1244,7 +1244,7 @@ def _await_agent_stopped(
         raise click.ClickException(str(e)) from e
 
 
-def _find_agent_in_host(host: HostInterface, agent_id: AgentId) -> AgentInterface:
+def _find_agent_in_host(host: OnlineHostInterface, agent_id: AgentId) -> AgentInterface:
     """Find an agent by ID in a host."""
     for agent in host.get_agents():
         if agent.id == agent_id:

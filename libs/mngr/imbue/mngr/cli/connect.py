@@ -34,7 +34,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentLifecycleState
 
 
@@ -419,7 +419,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
 
     agent: AgentInterface
-    host: HostInterface
+    host: OnlineHostInterface
 
     if opts.agent is not None:
         agent, host = find_and_maybe_start_agent_by_name_or_id(

@@ -17,7 +17,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.data_types import RelativePath
 from imbue.mngr.interfaces.host import CreateAgentOptions
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import CommandString
 
 
@@ -55,13 +55,13 @@ class ClaudeAgentConfig(AgentTypeConfig):
     )
 
 
-def _check_claude_installed(host: HostInterface) -> bool:
+def _check_claude_installed(host: OnlineHostInterface) -> bool:
     """Check if claude is installed on the host."""
     result = host.execute_command("command -v claude", timeout_seconds=10.0)
     return result.success
 
 
-def _install_claude(host: HostInterface) -> None:
+def _install_claude(host: OnlineHostInterface) -> None:
     """Install claude on the host using the official installer."""
     install_command = """curl --version && ( curl -fsSL https://claude.ai/install.sh | bash ) && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc"""
     result = host.execute_command(install_command, timeout_seconds=300.0)
@@ -89,7 +89,7 @@ class ClaudeAgent(BaseAgent):
 
     def assemble_command(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         agent_args: tuple[str, ...],
         command_override: CommandString | None,
     ) -> CommandString:
@@ -139,7 +139,7 @@ class ClaudeAgent(BaseAgent):
 
     def on_before_provisioning(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
@@ -160,7 +160,7 @@ class ClaudeAgent(BaseAgent):
 
     def get_provision_file_transfers(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> Sequence[FileTransferSpec]:
@@ -197,7 +197,7 @@ class ClaudeAgent(BaseAgent):
 
     def provision(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:

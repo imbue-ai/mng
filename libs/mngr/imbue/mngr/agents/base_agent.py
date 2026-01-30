@@ -17,7 +17,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.host import CreateAgentOptions
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import CommandString
@@ -28,14 +28,14 @@ from imbue.mngr.utils.env_utils import parse_env_file
 class BaseAgent(AgentInterface):
     """Concrete agent implementation that stores data on the host filesystem."""
 
-    host: HostInterface = Field(description="The host this agent runs on")
+    host: OnlineHostInterface = Field(description="The host this agent runs on (must be online)")
 
-    def get_host(self) -> HostInterface:
+    def get_host(self) -> OnlineHostInterface:
         return self.host
 
     def assemble_command(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         agent_args: tuple[str, ...],
         command_override: CommandString | None,
     ) -> CommandString:
@@ -460,7 +460,7 @@ class BaseAgent(AgentInterface):
 
     def on_before_provisioning(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
@@ -471,7 +471,7 @@ class BaseAgent(AgentInterface):
 
     def get_provision_file_transfers(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> Sequence[FileTransferSpec]:
@@ -483,7 +483,7 @@ class BaseAgent(AgentInterface):
 
     def provision(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
@@ -494,7 +494,7 @@ class BaseAgent(AgentInterface):
 
     def on_after_provisioning(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:

@@ -8,7 +8,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 
 
 class PullResult(FrozenModel):
@@ -36,7 +36,7 @@ class PullResult(FrozenModel):
 
 def pull_files(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     destination: Path,
     # Source path within agent's work_dir (defaults to work_dir itself)
     source_path: Path | None = None,
