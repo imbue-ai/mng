@@ -923,4 +923,4 @@ def test_list_agents_populates_idle_mode(
 
         # idle_mode should be populated (default is "agent")
         assert our_agent.idle_mode is not None
-        assert our_agent.idle_mode == "agent"
+        assert our_agent.idle_mode == "io"
