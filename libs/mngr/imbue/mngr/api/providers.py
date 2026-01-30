@@ -104,10 +104,8 @@ def get_all_provider_instances(
 ) -> list[BaseProviderInstance]:
     """Get all available provider instances.
 
-    Args:
-        mngr_ctx: The mngr context
-        provider_names: If provided, only return providers matching these names.
-            This allows skipping expensive initialization of providers that won't be used.
+    If provider_names is provided, only returns providers matching those names,
+    allowing skipping expensive initialization of providers that won't be used.
 
     Returns configured providers plus default instances for all registered backends,
     excluding:
