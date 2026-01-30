@@ -85,7 +85,7 @@ def _generate_activity_file_patterns(host_dir: Path, activity_sources: tuple[Act
 class HostLocation(FrozenModel):
     """A path on a specific host."""
 
-    host: Host = Field(
+    host: OnlineHostInterface = Field(
         description="The actual host where the source resides",
     )
     path: Path = Field(
@@ -100,6 +100,12 @@ class Host(OfflineHost, OnlineHostInterface):
     the pyinfra connector, which handles both local and remote hosts transparently.
     """
 
+    # Override parent's certified_host_data with a default since Host reads from data.json dynamically
+    certified_host_data: CertifiedHostData = Field(
+        default_factory=CertifiedHostData,
+        frozen=True,
+        description="The certified host data (loaded from data.json when accessed via get_all_certified_data)",
+    )
     connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
     is_online: bool = Field(default=True, description="Whether the host is currently online/started")
     provider_instance: ProviderInstanceInterface = Field(

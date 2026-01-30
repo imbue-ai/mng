@@ -4,6 +4,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from typing import cast
 
 import deal
 from loguru import logger
@@ -14,6 +15,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_all_provider_instances
+from imbue.mngr.hosts.host import Host
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import HostConnectionError
@@ -22,6 +24,7 @@ from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
@@ -217,33 +220,41 @@ def list_agents(
 
                 host = provider.get_host(host_ref.host_id)
 
-                # Build SSH info if this is a remote host
+                # Build SSH info if this is a remote host (only available for online hosts)
                 ssh_info: SSHInfo | None = None
                 # Default for local hosts
                 host_hostname: str = "localhost"
-                ssh_connection = host._get_ssh_connection_info()
-                if ssh_connection is not None:
-                    user, hostname, port, key_path = ssh_connection
-                    host_hostname = hostname
-                    ssh_info = SSHInfo(
-                        user=user,
-                        host=hostname,
-                        port=port,
-                        key_path=key_path,
-                        command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
-                    )
+                # Fallback display name
+                host_name_display: str = str(host.id)
+
+                if host.is_online:
+                    online_host = cast(OnlineHostInterface, host)
+                    host_name_display = online_host.connector.name
+                    # _get_ssh_connection_info is a Host implementation detail
+                    if isinstance(online_host, Host):
+                        ssh_connection = online_host._get_ssh_connection_info()
+                        if ssh_connection is not None:
+                            user, hostname, port, key_path = ssh_connection
+                            host_hostname = hostname
+                            ssh_info = SSHInfo(
+                                user=user,
+                                host=hostname,
+                                port=port,
+                                key_path=key_path,
+                                command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
+                            )
 
                 host_info = HostInfo(
                     id=host.id,
-                    name=host.connector.name,
+                    name=host_name_display,
                     provider_name=host_ref.provider_name,
                     host=host_hostname,
                     state=host.get_state().value.lower(),
                     image=host.get_image() if host.is_online else None,
                     tags=host.get_tags() if host.is_online else {},
-                    boot_time=host.get_boot_time() if host.is_online else None,
-                    uptime_seconds=host.get_uptime_seconds() if host.is_online else None,
-                    resource=host.get_provider_resources() if host.is_online else None,
+                    boot_time=cast(OnlineHostInterface, host).get_boot_time() if host.is_online else None,
+                    uptime_seconds=cast(OnlineHostInterface, host).get_uptime_seconds() if host.is_online else None,
+                    resource=cast(OnlineHostInterface, host).get_provider_resources() if host.is_online else None,
                     ssh=ssh_info,
                     snapshots=host.get_snapshots() if host.is_online else [],
                 )
@@ -253,7 +264,7 @@ def list_agents(
                 host_is_stopped = not host.is_online
                 if not host_is_stopped:
                     try:
-                        agents = host.get_agents()
+                        agents = cast(OnlineHostInterface, host).get_agents()
                     except (ConnectError, HostConnectionError, OSError) as e:
                         # Host is unreachable (probably stopped) - try persisted data
                         logger.trace("Could not get agents from host {} (may be stopped): {}", host.id, e)

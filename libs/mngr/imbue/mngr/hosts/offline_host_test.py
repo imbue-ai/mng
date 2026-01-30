@@ -228,6 +228,7 @@ def test_is_online_defaults_to_false(mock_provider, mock_mngr_ctx):
     """Test that is_online defaults to False."""
     host = OfflineHost(
         id=HostId.generate(),
+        certified_host_data=CertifiedHostData(),
         provider_instance=mock_provider,
         mngr_ctx=mock_mngr_ctx,
     )

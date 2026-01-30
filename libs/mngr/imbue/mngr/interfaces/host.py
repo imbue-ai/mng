@@ -42,6 +42,18 @@ class HostInterface(MutableModel, ABC):
     id: HostId = Field(frozen=True, description="Unique identifier for this host")
     is_online: bool = Field(description="Whether the host is currently online/started")
 
+    @property
+    @abstractmethod
+    def is_local(self) -> bool:
+        """Return True if this host is the local machine, False for remote hosts."""
+        ...
+
+    @property
+    @abstractmethod
+    def host_dir(self) -> Path:
+        """Get the host state directory path."""
+        ...
+
     # =========================================================================
     # Activity Configuration
     # =========================================================================
@@ -130,18 +142,6 @@ class HostInterface(MutableModel, ABC):
 class OnlineHostInterface(HostInterface, ABC):
     is_online: bool = Field(default=True, description="Whether the host is currently online/started")
     connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
-
-    @property
-    @abstractmethod
-    def is_local(self) -> bool:
-        """Return True if this host is the local machine, False for remote hosts."""
-        ...
-
-    @property
-    @abstractmethod
-    def host_dir(self) -> Path:
-        """Get the host state directory path."""
-        ...
 
     # =========================================================================
     # Core Primitives
@@ -304,6 +304,11 @@ class OnlineHostInterface(HostInterface, ABC):
     @abstractmethod
     def get_uptime_seconds(self) -> float:
         """Return the number of seconds since this host was last started."""
+        ...
+
+    @abstractmethod
+    def get_boot_time(self) -> datetime | None:
+        """Return the host boot time as a datetime, or None if unknown."""
         ...
 
     @abstractmethod

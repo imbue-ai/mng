@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from typing import Any
+from typing import cast
 
 from loguru import logger
 from pydantic import Field
@@ -12,6 +13,7 @@ from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
@@ -80,7 +82,9 @@ def send_message_to_agents(
                 logger.warning("Provider not found: {}", host_ref.provider_name)
                 continue
 
-            host = provider.get_host(host_ref.host_id)
+            host_interface = provider.get_host(host_ref.host_id)
+            # Cast to OnlineHostInterface - we need an online host to send messages
+            host = cast(OnlineHostInterface, host_interface)
 
             # Get all agents on this host
             agents = host.get_agents()

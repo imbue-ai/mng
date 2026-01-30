@@ -50,6 +50,8 @@ from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.hosts.offline_host import OfflineHost
+from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import PyinfraConnector
@@ -253,7 +255,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # Modal's eventually consistent tag API for recently created sandboxes.
     _sandbox_cache_by_id: ClassVar[dict[HostId, modal.Sandbox]] = {}
     _sandbox_cache_by_name: ClassVar[dict[HostName, modal.Sandbox]] = {}
-    _host_by_id_cache: ClassVar[dict[HostId, Host]] = {}
+    _host_by_id_cache: ClassVar[dict[HostId, HostInterface]] = {}
 
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
@@ -1068,38 +1070,20 @@ curl -s -X POST "$SNAPSHOT_URL" \\
     def _create_host_from_host_record(
         self,
         host_record: HostRecord,
-    ) -> Host:
-        """Create a Host object from a host record (for stopped hosts).
+    ) -> OfflineHost:
+        """Create an OfflineHost object from a host record (for stopped hosts).
 
         This is used when there is no running sandbox but the host record
-        exists on the volume. The Host will have stale SSH info, so SSH
-        operations will fail, and get_state() will return STOPPED or DESTROYED.
+        exists on the volume. The OfflineHost provides read-only access to
+        stored host data without SSH connectivity.
         """
         host_id = HostId(host_record.host_id)
 
-        # Add the host key to known_hosts (even though it's stale, it's needed
-        # for the pyinfra connector setup)
-        add_host_to_known_hosts(
-            self._known_hosts_path,
-            host_record.ssh_host,
-            host_record.ssh_port,
-            host_record.ssh_host_public_key,
-        )
-
-        private_key_path, _ = self._get_ssh_keypair()
-        pyinfra_host = self._create_pyinfra_host(
-            host_record.ssh_host,
-            host_record.ssh_port,
-            private_key_path,
-        )
-        connector = PyinfraConnector(pyinfra_host)
-
-        return Host(
+        return OfflineHost(
             id=host_id,
-            connector=connector,
+            certified_host_data=CertifiedHostData(),
             provider_instance=self,
             mngr_ctx=self.mngr_ctx,
-            is_online=False,
         )
 
     # =========================================================================
@@ -1464,7 +1448,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
     def get_host(
         self,
         host: HostId | HostName,
-    ) -> Host:
+    ) -> HostInterface:
         """Get a host by ID or name.
 
         First tries to find a running sandbox. If not found, falls back to
@@ -1476,7 +1460,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                 auth_help="Run 'modal token set' to authenticate with Modal.",
             )
 
-        host_obj: Host | None = None
+        host_obj: HostInterface | None = None
 
         if isinstance(host, HostId) and host in self._host_by_id_cache:
             return self._host_by_id_cache[host]
@@ -1929,7 +1913,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         self,
         host: HostInterface | HostId,
         name: HostName,
-    ) -> Host:
+    ) -> HostInterface:
         """Rename a host.
 
         Updates both sandbox tags (for quick access) and volume (for persistence).

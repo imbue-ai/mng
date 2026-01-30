@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from pydantic import Field
@@ -27,7 +28,6 @@ class OfflineHost(HostInterface):
     """
 
     certified_host_data: CertifiedHostData = Field(
-        default_factory=CertifiedHostData,
         frozen=True,
         description="The certified host data loaded from data.json",
     )
@@ -36,6 +36,16 @@ class OfflineHost(HostInterface):
         frozen=True, description="The provider instance managing this host"
     )
     mngr_ctx: MngrContext = Field(frozen=True, repr=False, description="The mngr context")
+
+    @property
+    def is_local(self) -> bool:
+        """Check if this host is local. Offline hosts are never local."""
+        return False
+
+    @property
+    def host_dir(self) -> Path:
+        """Get the host state directory path from provider instance."""
+        return self.provider_instance.host_dir
 
     # =========================================================================
     # Activity Configuration

@@ -1,4 +1,5 @@
 from typing import assert_never
+from typing import cast
 
 import click
 from click_option_group import optgroup
@@ -291,7 +292,9 @@ def _find_agents_to_destroy(
 
         if should_include:
             provider = get_provider_instance(agent_ref.host.provider_name, mngr_ctx)
-            host = provider.get_host(agent_ref.host.id)
+            host_interface = provider.get_host(agent_ref.host.id)
+            # Cast to OnlineHostInterface - we need an online host to destroy agents
+            host = cast(OnlineHostInterface, host_interface)
             for agent in host.get_agents():
                 if agent.id == agent_ref.id:
                     agents_to_destroy.append((agent, host))

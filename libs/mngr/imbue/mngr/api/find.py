@@ -12,9 +12,11 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import HostConnectionError
+from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
@@ -224,10 +226,15 @@ def resolve_source_location(
         host_interface = provider.get_host(resolved_host.host_id)
     logger.trace("Resolved to host id={}", host_interface.id)
 
+    # Ensure host is online for file operations
+    if not host_interface.is_online:
+        raise HostOfflineError(f"Host '{host_interface.id}' is offline. Start the host first.")
+    online_host = cast(OnlineHostInterface, host_interface)
+
     # Resolve the final path
     agent_work_dir: Path | None = None
     if resolved_agent is not None:
-        for agent in host_interface.get_agents():
+        for agent in online_host.get_agents():
             if agent.id == resolved_agent.agent_id:
                 agent_work_dir = agent.work_dir
                 break
@@ -239,7 +246,7 @@ def resolve_source_location(
     )
 
     return HostLocation(
-        host=host_interface,
+        host=online_host,
         path=resolved_path,
     )
 
@@ -263,15 +270,24 @@ def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostR
         return None
 
 
-def _ensure_host_started(host: OnlineHostInterface, is_start_desired: bool, provider: BaseProviderInstance):
+def _ensure_host_started(
+    host: HostInterface, is_start_desired: bool, provider: BaseProviderInstance
+) -> OnlineHostInterface:
+    """Ensure the host is online and started.
+
+    If the host is already online, returns it cast to OnlineHostInterface.
+    If offline and start is desired, starts the host and returns the online host.
+    If offline and start is not desired, raises UserInputError.
+    """
     if host.is_online:
-        return
+        return cast(OnlineHostInterface, host)
     if is_start_desired:
         logger.info("Host is offline, starting it...", host_id=host.id, provider=provider.name)
-        provider.start_host(host)
+        started_host = provider.start_host(host)
+        return cast(OnlineHostInterface, started_host)
     else:
         raise UserInputError(
-            f"Host '{host.connector.name}' is offline and --no-start was specified. "
+            f"Host '{host.id}' is offline and --no-start was specified. "
             "Use --start to automatically start the host."
         )
 
@@ -318,11 +334,11 @@ def find_and_maybe_start_agent_by_name_or_id(
                 if agent_ref.agent_id == agent_id:
                     provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                     host = provider.get_host(host_ref.host_id)
-                    _ensure_host_started(host, is_start_desired, provider)
-                    for agent in host.get_agents():
+                    online_host = _ensure_host_started(host, is_start_desired, provider)
+                    for agent in online_host.get_agents():
                         if agent.id == agent_id:
-                            _ensure_agent_started(agent, host, is_start_desired)
-                            return agent, host
+                            _ensure_agent_started(agent, online_host, is_start_desired)
+                            return agent, online_host
         raise AgentNotFoundError(agent_id)
 
     # Try matching by name
@@ -334,11 +350,11 @@ def find_and_maybe_start_agent_by_name_or_id(
             if agent_ref.agent_name == agent_name:
                 provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                 host = provider.get_host(host_ref.host_id)
-                _ensure_host_started(host, is_start_desired, provider)
+                online_host = _ensure_host_started(host, is_start_desired, provider)
                 # Find the specific agent by ID (not name, to avoid duplicates)
-                for agent in host.get_agents():
+                for agent in online_host.get_agents():
                     if agent.id == agent_ref.agent_id:
-                        matching.append((agent, host))
+                        matching.append((agent, online_host))
                         break
 
     if not matching:

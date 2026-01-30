@@ -4,6 +4,7 @@ from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import assert_never
+from typing import cast
 
 import click
 import deal
@@ -40,6 +41,7 @@ from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
+from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import AgentDataOptions
@@ -773,7 +775,7 @@ def _resolve_source_location(
             source_path = str(git_root) if git_root is not None else os.getcwd()
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
         source_location = HostLocation(
-            host=provider.get_host(HostName("local")),
+            host=cast(OnlineHostInterface, provider.get_host(HostName("local"))),
             path=Path(source_path),
         )
     else:
@@ -792,10 +794,10 @@ def _resolve_target_host(
     if target_host is None:
         # No host specified, use the local provider's default host
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
-        resolved_target_host = provider.get_host(HostName("local"))
+        resolved_target_host = cast(OnlineHostInterface, provider.get_host(HostName("local")))
     elif isinstance(target_host, HostReference):
         provider = get_provider_instance(target_host.provider_name, mngr_ctx)
-        resolved_target_host = provider.get_host(target_host.host_id)
+        resolved_target_host = cast(OnlineHostInterface, provider.get_host(target_host.host_id))
     else:
         resolved_target_host = target_host
     return resolved_target_host
@@ -842,7 +844,9 @@ def _snapshot_if_required(
     # 2. whose provider can snapshot
     # 3. and the user didn't explicitly disable
     is_remote_agent = not source_location.host.is_local
-    is_provider_able_to_snapshot = source_location.host.provider_instance.supports_snapshots
+    # Cast to Host to access provider_instance (implementation detail)
+    host = cast(Host, source_location.host)
+    is_provider_able_to_snapshot = host.provider_instance.supports_snapshots
     is_snapshot_behavior_specified_by_user = should_snapshot is not None
     if is_remote_agent and is_provider_able_to_snapshot and not is_snapshot_behavior_specified_by_user:
         should_snapshot = True
