@@ -9,6 +9,7 @@ import pluggy
 
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
@@ -117,3 +118,34 @@ def make_mngr_ctx(default_host_dir: Path, prefix: str) -> MngrContext:
 
 def get_short_random_string() -> str:
     return uuid4().hex[:8]
+
+
+def run_git_command(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run a git command in the given directory.
+
+    Raises an exception if the command fails.
+    """
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise MngrError(f"git {' '.join(args)} failed: {result.stderr}")
+    return result
+
+
+def init_git_repo(path: Path) -> None:
+    """Initialize a git repository with an initial commit.
+
+    Creates the directory if it doesn't exist, initializes git, and creates
+    an initial commit with a README.md file.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    run_git_command(path, "init")
+    run_git_command(path, "config", "user.email", "test@example.com")
+    run_git_command(path, "config", "user.name", "Test User")
+    (path / "README.md").write_text("Initial content")
+    run_git_command(path, "add", "README.md")
+    run_git_command(path, "commit", "-m", "Initial commit")

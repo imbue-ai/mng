@@ -1,5 +1,4 @@
 import subprocess
-import time
 from pathlib import Path
 from typing import Any
 from typing import cast
@@ -22,6 +21,9 @@ from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.testing import init_git_repo
+from imbue.mngr.utils.testing import run_git_command
 
 
 class _FakeAgent(FrozenModel):
@@ -55,30 +57,6 @@ class _FakeHost(MutableModel):
         )
 
 
-def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    """Run a git command in the given directory."""
-    result = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise MngrError(f"git {' '.join(args)} failed: {result.stderr}")
-    return result
-
-
-def _init_git_repo(path: Path) -> None:
-    """Initialize a git repository with an initial commit."""
-    path.mkdir(parents=True, exist_ok=True)
-    _run_git(path, "init")
-    _run_git(path, "config", "user.email", "test@example.com")
-    _run_git(path, "config", "user.name", "Test User")
-    (path / "README.md").write_text("Initial content")
-    _run_git(path, "add", "README.md")
-    _run_git(path, "commit", "-m", "Initial commit")
-
-
 class PairTestContext(FrozenModel):
     """Shared test context for pair integration tests."""
 
@@ -95,17 +73,17 @@ def pair_ctx(tmp_path: Path) -> PairTestContext:
     target_dir = tmp_path / "target"
 
     # Initialize both as git repos with shared history
-    _init_git_repo(source_dir)
+    init_git_repo(source_dir)
     subprocess.run(
         ["git", "clone", str(source_dir), str(target_dir)],
         capture_output=True,
         check=True,
     )
-    _run_git(target_dir, "config", "user.email", "test@example.com")
-    _run_git(target_dir, "config", "user.name", "Test User")
+    run_git_command(target_dir, "config", "user.email", "test@example.com")
+    run_git_command(target_dir, "config", "user.name", "Test User")
 
     # Configure source to accept pushes to current branch
-    _run_git(source_dir, "config", "receive.denyCurrentBranch", "ignore")
+    run_git_command(source_dir, "config", "receive.denyCurrentBranch", "ignore")
 
     return PairTestContext(
         source_dir=source_dir,
@@ -124,8 +102,8 @@ def test_sync_git_state_performs_push_when_local_is_ahead(pair_ctx: PairTestCont
     """Test that sync_git_state pushes commits from local to agent when local is ahead."""
     # Add a commit to target (local) that needs to be pushed to source (agent)
     (pair_ctx.target_dir / "new_file.txt").write_text("new content")
-    _run_git(pair_ctx.target_dir, "add", "new_file.txt")
-    _run_git(pair_ctx.target_dir, "commit", "-m", "Add new file")
+    run_git_command(pair_ctx.target_dir, "add", "new_file.txt")
+    run_git_command(pair_ctx.target_dir, "commit", "-m", "Add new file")
 
     # In pair semantics: source=agent, target=local
     # So we call determine_git_sync_actions(agent_dir, local_dir)
@@ -153,8 +131,8 @@ def test_sync_git_state_performs_pull_when_agent_is_ahead(pair_ctx: PairTestCont
     """Test that sync_git_state pulls commits from agent to local when agent is ahead."""
     # Add a commit to source (agent) that needs to be pulled to target (local)
     (pair_ctx.source_dir / "agent_file.txt").write_text("agent content")
-    _run_git(pair_ctx.source_dir, "add", "agent_file.txt")
-    _run_git(pair_ctx.source_dir, "commit", "-m", "Add agent file")
+    run_git_command(pair_ctx.source_dir, "add", "agent_file.txt")
+    run_git_command(pair_ctx.source_dir, "commit", "-m", "Add agent file")
 
     # In pair semantics: source=agent, target=local
     git_action = determine_git_sync_actions(pair_ctx.source_dir, pair_ctx.target_dir)
@@ -237,8 +215,12 @@ def test_pair_files_starts_and_stops_syncer(pair_ctx: PairTestContext) -> None:
         is_require_git=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     ) as syncer:
-        # Give unison a moment to start
-        time.sleep(0.5)
+        # Wait for unison to start
+        wait_for(
+            lambda: syncer.is_running,
+            timeout=5.0,
+            error_message="Syncer did not start within timeout",
+        )
 
         # Syncer should be running
         assert syncer.is_running is True
@@ -246,8 +228,12 @@ def test_pair_files_starts_and_stops_syncer(pair_ctx: PairTestContext) -> None:
         # Stop it manually
         syncer.stop()
 
-        # Give it a moment to stop
-        time.sleep(0.5)
+        # Wait for it to stop
+        wait_for(
+            lambda: not syncer.is_running,
+            timeout=5.0,
+            error_message="Syncer did not stop within timeout",
+        )
 
         # Syncer should not be running
         assert syncer.is_running is False
@@ -258,8 +244,8 @@ def test_pair_files_syncs_git_state_before_starting(pair_ctx: PairTestContext) -
     """Test that pair_files syncs git state before starting continuous sync."""
     # Add a commit to source (agent) that should be pulled to target
     (pair_ctx.source_dir / "agent_commit.txt").write_text("agent content")
-    _run_git(pair_ctx.source_dir, "add", "agent_commit.txt")
-    _run_git(pair_ctx.source_dir, "commit", "-m", "Add agent commit")
+    run_git_command(pair_ctx.source_dir, "add", "agent_commit.txt")
+    run_git_command(pair_ctx.source_dir, "commit", "-m", "Add agent commit")
 
     # Verify file doesn't exist in target yet
     assert not (pair_ctx.target_dir / "agent_commit.txt").exists()
@@ -301,8 +287,12 @@ def test_pair_files_with_no_git_requirement(tmp_path: Path) -> None:
         target_path=target_dir,
         is_require_git=False,
     ) as syncer:
-        # Give unison a moment to start and sync
-        time.sleep(1.0)
+        # Wait for unison to start
+        wait_for(
+            lambda: syncer.is_running,
+            timeout=5.0,
+            error_message="Syncer did not start within timeout",
+        )
 
         # Syncer should be running
         assert syncer.is_running is True
@@ -333,15 +323,23 @@ def test_unison_syncer_start_and_stop(tmp_path: Path) -> None:
     try:
         syncer.start()
 
-        # Give unison a moment to start
-        time.sleep(0.5)
+        # Wait for unison to start
+        wait_for(
+            lambda: syncer.is_running,
+            timeout=5.0,
+            error_message="Syncer did not start within timeout",
+        )
 
         assert syncer.is_running is True
     finally:
         syncer.stop()
 
-    # Give it a moment to fully stop
-    time.sleep(0.5)
+    # Wait for it to fully stop
+    wait_for(
+        lambda: not syncer.is_running,
+        timeout=5.0,
+        error_message="Syncer did not stop within timeout",
+    )
     assert syncer.is_running is False
 
 
@@ -366,11 +364,12 @@ def test_unison_syncer_syncs_file_changes(tmp_path: Path) -> None:
     try:
         syncer.start()
 
-        # Wait for initial sync
-        for _ in range(20):
-            if (target / "initial.txt").exists():
-                break
-            time.sleep(0.25)
+        # Wait for initial sync to complete
+        wait_for(
+            lambda: (target / "initial.txt").exists(),
+            timeout=5.0,
+            error_message="File was not synced within timeout",
+        )
 
         # File should be synced to target
         assert (target / "initial.txt").exists()

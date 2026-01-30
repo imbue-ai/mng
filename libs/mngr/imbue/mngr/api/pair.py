@@ -1,5 +1,4 @@
 import shutil
-import signal
 import subprocess
 import threading
 from contextlib import contextmanager
@@ -44,21 +43,6 @@ class GitSyncAction(FrozenModel):
     )
 
 
-class PairSyncResult(FrozenModel):
-    """Result of the pair sync operation."""
-
-    source_path: Path = Field(description="Source path for the sync")
-    target_path: Path = Field(description="Target path for the sync")
-    git_push_performed: bool = Field(
-        default=False,
-        description="Whether a git push was performed",
-    )
-    git_pull_performed: bool = Field(
-        default=False,
-        description="Whether a git pull was performed",
-    )
-
-
 class UnisonSyncer(MutableModel):
     """Context manager for running unison file synchronization.
 
@@ -78,11 +62,6 @@ class UnisonSyncer(MutableModel):
         frozen=True,
         default=ConflictMode.NEWER,
         description="How to resolve conflicts",
-    )
-    is_include_gitignored: bool = Field(
-        frozen=True,
-        default=False,
-        description="Whether to include gitignored files",
     )
     exclude_patterns: tuple[str, ...] = Field(
         frozen=True,
@@ -110,8 +89,6 @@ class UnisonSyncer(MutableModel):
             "watch",
             "-auto",
             "-batch",
-            "-prefer",
-            "newer" if self.conflict_mode == ConflictMode.NEWER else "newer",
             "-ignore",
             "Name .git",
         ]
@@ -123,14 +100,20 @@ class UnisonSyncer(MutableModel):
             cmd.extend(["-prefer", str(self.target_path)])
         elif self.conflict_mode == ConflictMode.NEWER:
             cmd.extend(["-prefer", "newer"])
+        else:
+            # ConflictMode.ASK requires interactive mode, default to newer
+            cmd.extend(["-prefer", "newer"])
 
         # Add sync direction constraints
         if self.sync_direction == SyncDirection.FORWARD:
             cmd.extend(["-force", str(self.source_path)])
         elif self.sync_direction == SyncDirection.REVERSE:
             cmd.extend(["-force", str(self.target_path)])
+        else:
+            # SyncDirection.BOTH - bidirectional sync, no force flag needed
+            pass
 
-        # Add exclude patterns (always exclude .git)
+        # Add exclude patterns
         for pattern in self.exclude_patterns:
             cmd.extend(["-ignore", f"Name {pattern}"])
 
@@ -465,7 +448,6 @@ def pair_files(
     uncommitted_changes: UncommittedChangesMode = UncommittedChangesMode.FAIL,
     exclude_patterns: tuple[str, ...] = (),
     include_patterns: tuple[str, ...] = (),
-    is_include_gitignored: bool = False,
 ) -> Iterator[UnisonSyncer]:
     """Start continuous file synchronization between source and agent.
 
@@ -525,30 +507,14 @@ def pair_files(
         target_path=actual_target,
         sync_direction=sync_direction,
         conflict_mode=conflict_mode,
-        is_include_gitignored=is_include_gitignored,
         exclude_patterns=exclude_patterns,
         include_patterns=include_patterns,
     )
 
-    # Set up signal handlers to gracefully stop on SIGTERM/SIGINT
-    original_sigterm = signal.getsignal(signal.SIGTERM)
-    original_sigint = signal.getsignal(signal.SIGINT)
-
-    def signal_handler(signum: int, frame: object) -> None:
-        logger.info("Received signal {}, stopping sync...", signum)
-        syncer.stop()
-
     try:
-        signal.signal(signal.SIGTERM, signal_handler)
-        signal.signal(signal.SIGINT, signal_handler)
-
         syncer.start()
         yield syncer
     finally:
-        # Restore original signal handlers
-        signal.signal(signal.SIGTERM, original_sigterm)
-        signal.signal(signal.SIGINT, original_sigint)
-
-        # Ensure the syncer is stopped
+        # Ensure the syncer is stopped when the context exits
         if syncer.is_running:
             syncer.stop()

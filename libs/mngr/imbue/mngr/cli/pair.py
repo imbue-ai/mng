@@ -36,13 +36,11 @@ class PairCliOptions(CommonCliOptions):
     target: str | None
     target_path: str | None
     require_git: bool
-    initial_direction: str
     sync_direction: str
     conflict: str
     uncommitted_changes: str
     include: tuple[str, ...]
     exclude: tuple[str, ...]
-    include_gitignored: bool
 
 
 def _emit_pair_started(
@@ -111,18 +109,11 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
 )
 @optgroup.group("Sync Behavior")
 @optgroup.option(
-    "--initial-direction",
-    type=click.Choice(["forward", "reverse"], case_sensitive=False),
-    default="forward",
-    show_default=True,
-    help="Initial sync direction (forward = source -> target, reverse = target -> source)",
-)
-@optgroup.option(
     "--sync-direction",
     type=click.Choice(["both", "forward", "reverse"], case_sensitive=False),
     default="both",
     show_default=True,
-    help="Ongoing sync direction after initialization",
+    help="Sync direction: both (bidirectional), forward (source->target), reverse (target->source)",
 )
 @optgroup.option(
     "--conflict",
@@ -141,12 +132,6 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
     "--exclude",
     multiple=True,
     help="Exclude files matching glob pattern [repeatable]",
-)
-@optgroup.option(
-    "--include-gitignored",
-    is_flag=True,
-    default=False,
-    help="Include files that match .gitignore patterns",
 )
 @add_common_options
 @click.pass_context
@@ -267,7 +252,6 @@ def pair(ctx: click.Context, **kwargs) -> None:
             uncommitted_changes=uncommitted_changes_mode,
             exclude_patterns=opts.exclude,
             include_patterns=opts.include,
-            is_include_gitignored=opts.include_gitignored,
         ) as syncer:
             emit_info("Sync started. Press Ctrl+C to stop.", output_opts.output_format)
 

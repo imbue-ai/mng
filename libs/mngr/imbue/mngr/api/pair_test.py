@@ -5,33 +5,10 @@ from imbue.mngr.api.pair import GitSyncAction
 from imbue.mngr.api.pair import UnisonSyncer
 from imbue.mngr.api.pair import check_unison_installed
 from imbue.mngr.api.pair import determine_git_sync_actions
-from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
-
-
-def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    """Run a git command in the given directory."""
-    result = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise MngrError(f"git {' '.join(args)} failed: {result.stderr}")
-    return result
-
-
-def _init_git_repo(path: Path) -> None:
-    """Initialize a git repository with an initial commit."""
-    path.mkdir(parents=True, exist_ok=True)
-    _run_git(path, "init")
-    _run_git(path, "config", "user.email", "test@example.com")
-    _run_git(path, "config", "user.name", "Test User")
-    (path / "README.md").write_text("Initial content")
-    _run_git(path, "add", "README.md")
-    _run_git(path, "commit", "-m", "Initial commit")
+from imbue.mngr.utils.testing import init_git_repo
+from imbue.mngr.utils.testing import run_git_command
 
 
 # =============================================================================
@@ -198,7 +175,7 @@ def test_determine_git_sync_returns_none_when_only_source_is_git(tmp_path: Path)
     """Test that returns None when only source is a git repo."""
     source = tmp_path / "source"
     target = tmp_path / "target"
-    _init_git_repo(source)
+    init_git_repo(source)
     target.mkdir()
 
     result = determine_git_sync_actions(source, target)
@@ -211,7 +188,7 @@ def test_determine_git_sync_returns_none_when_only_target_is_git(tmp_path: Path)
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()
-    _init_git_repo(target)
+    init_git_repo(target)
 
     result = determine_git_sync_actions(source, target)
 
@@ -224,7 +201,7 @@ def test_determine_git_sync_returns_no_action_when_both_in_sync(tmp_path: Path) 
     target = tmp_path / "target"
 
     # Create source repo
-    _init_git_repo(source)
+    init_git_repo(source)
 
     # Clone source to target (same commit)
     subprocess.run(
@@ -246,7 +223,7 @@ def test_determine_git_sync_detects_source_ahead(tmp_path: Path) -> None:
     target = tmp_path / "target"
 
     # Create source repo
-    _init_git_repo(source)
+    init_git_repo(source)
 
     # Clone source to target
     subprocess.run(
@@ -257,8 +234,8 @@ def test_determine_git_sync_detects_source_ahead(tmp_path: Path) -> None:
 
     # Add a commit to source
     (source / "new_file.txt").write_text("new content")
-    _run_git(source, "add", "new_file.txt")
-    _run_git(source, "commit", "-m", "Add new file")
+    run_git_command(source, "add", "new_file.txt")
+    run_git_command(source, "commit", "-m", "Add new file")
 
     result = determine_git_sync_actions(source, target)
 
@@ -273,7 +250,7 @@ def test_determine_git_sync_detects_target_ahead(tmp_path: Path) -> None:
     target = tmp_path / "target"
 
     # Create source repo
-    _init_git_repo(source)
+    init_git_repo(source)
 
     # Clone source to target
     subprocess.run(
@@ -281,13 +258,13 @@ def test_determine_git_sync_detects_target_ahead(tmp_path: Path) -> None:
         capture_output=True,
         check=True,
     )
-    _run_git(target, "config", "user.email", "test@example.com")
-    _run_git(target, "config", "user.name", "Test User")
+    run_git_command(target, "config", "user.email", "test@example.com")
+    run_git_command(target, "config", "user.name", "Test User")
 
     # Add a commit to target
     (target / "new_file.txt").write_text("new content")
-    _run_git(target, "add", "new_file.txt")
-    _run_git(target, "commit", "-m", "Add new file")
+    run_git_command(target, "add", "new_file.txt")
+    run_git_command(target, "commit", "-m", "Add new file")
 
     result = determine_git_sync_actions(source, target)
 
@@ -302,7 +279,7 @@ def test_determine_git_sync_detects_both_diverged(tmp_path: Path) -> None:
     target = tmp_path / "target"
 
     # Create source repo
-    _init_git_repo(source)
+    init_git_repo(source)
 
     # Clone source to target
     subprocess.run(
@@ -310,18 +287,18 @@ def test_determine_git_sync_detects_both_diverged(tmp_path: Path) -> None:
         capture_output=True,
         check=True,
     )
-    _run_git(target, "config", "user.email", "test@example.com")
-    _run_git(target, "config", "user.name", "Test User")
+    run_git_command(target, "config", "user.email", "test@example.com")
+    run_git_command(target, "config", "user.name", "Test User")
 
     # Add a commit to source
     (source / "source_file.txt").write_text("source content")
-    _run_git(source, "add", "source_file.txt")
-    _run_git(source, "commit", "-m", "Add source file")
+    run_git_command(source, "add", "source_file.txt")
+    run_git_command(source, "commit", "-m", "Add source file")
 
     # Add a different commit to target
     (target / "target_file.txt").write_text("target content")
-    _run_git(target, "add", "target_file.txt")
-    _run_git(target, "commit", "-m", "Add target file")
+    run_git_command(target, "add", "target_file.txt")
+    run_git_command(target, "commit", "-m", "Add target file")
 
     result = determine_git_sync_actions(source, target)
 

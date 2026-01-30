@@ -295,10 +295,3 @@ class UnisonNotInstalledError(MngrError):
 
     def __init__(self) -> None:
         super().__init__("unison is not installed or not found in PATH")
-
-
-class UnisonSyncError(MngrError):
-    """Raised when unison sync operation fails."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(f"unison sync failed: {message}")
