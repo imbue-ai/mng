@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from pydantic import Field
 
 from imbue.mngr.config.data_types import AgentTypeConfig
@@ -551,7 +550,7 @@ def test_mngr_config_pre_command_scripts_default_is_empty_dict(mngr_test_prefix:
 def test_provider_instance_config_is_enabled_default_true() -> None:
     """ProviderInstanceConfig.is_enabled should default to True."""
     config = ProviderInstanceConfig(backend=ProviderBackendName("local"))
-    assert config.is_enabled is True
+    assert config.is_enabled is None
 
 
 def test_provider_instance_config_is_enabled_can_be_set_false() -> None:

@@ -18,6 +18,7 @@ from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.config.plugin_registry import get_plugin_config_class
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
+from imbue.mngr.errors import UnknownBackendError
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import PluginName
 from imbue.mngr.primitives import ProviderInstanceName
@@ -247,10 +248,11 @@ def _parse_providers(
     providers: dict[ProviderInstanceName, ProviderInstanceConfig] = {}
 
     for name, raw_config in raw_providers.items():
-        backend = raw_config.get("backend")
-        if backend is None:
-            raise ConfigParseError(f"Provider '{name}' missing required 'backend' field")
-        config_class = get_provider_config_class(backend)
+        backend = raw_config.get("backend") or name
+        try:
+            config_class = get_provider_config_class(backend)
+        except UnknownBackendError as e:
+            raise ConfigParseError(f"Provider '{name}' missing required 'backend' field") from e
         providers[ProviderInstanceName(name)] = config_class.model_construct(**raw_config)
 
     return providers
