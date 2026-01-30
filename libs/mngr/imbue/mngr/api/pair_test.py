@@ -1,0 +1,348 @@
+import subprocess
+from pathlib import Path
+
+from imbue.mngr.api.pair import GitSyncAction
+from imbue.mngr.api.pair import UnisonSyncer
+from imbue.mngr.api.pair import check_unison_installed
+from imbue.mngr.api.pair import determine_git_sync_actions
+from imbue.mngr.errors import MngrError
+from imbue.mngr.primitives import ConflictMode
+from imbue.mngr.primitives import SyncDirection
+
+
+def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run a git command in the given directory."""
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise MngrError(f"git {' '.join(args)} failed: {result.stderr}")
+    return result
+
+
+def _init_git_repo(path: Path) -> None:
+    """Initialize a git repository with an initial commit."""
+    path.mkdir(parents=True, exist_ok=True)
+    _run_git(path, "init")
+    _run_git(path, "config", "user.email", "test@example.com")
+    _run_git(path, "config", "user.name", "Test User")
+    (path / "README.md").write_text("Initial content")
+    _run_git(path, "add", "README.md")
+    _run_git(path, "commit", "-m", "Initial commit")
+
+
+# =============================================================================
+# Test: check_unison_installed
+# =============================================================================
+
+
+def test_check_unison_installed_returns_bool() -> None:
+    """Test that check_unison_installed returns a boolean."""
+    result = check_unison_installed()
+    assert isinstance(result, bool)
+
+
+# =============================================================================
+# Test: UnisonSyncer
+# =============================================================================
+
+
+def test_unison_syncer_builds_basic_command(tmp_path: Path) -> None:
+    """Test that UnisonSyncer builds a valid unison command."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+
+    syncer = UnisonSyncer(
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
+
+    cmd = syncer._build_unison_command()
+
+    assert "unison" in cmd
+    assert str(source) in cmd
+    assert str(target) in cmd
+    assert "-repeat" in cmd
+    assert "watch" in cmd
+    assert "-auto" in cmd
+    assert "-batch" in cmd
+
+
+def test_unison_syncer_builds_command_with_forward_direction(tmp_path: Path) -> None:
+    """Test that UnisonSyncer adds force flag for forward direction."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+
+    syncer = UnisonSyncer(
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.FORWARD,
+        conflict_mode=ConflictMode.NEWER,
+    )
+
+    cmd = syncer._build_unison_command()
+
+    assert "-force" in cmd
+    force_idx = cmd.index("-force")
+    assert cmd[force_idx + 1] == str(source)
+
+
+def test_unison_syncer_builds_command_with_reverse_direction(tmp_path: Path) -> None:
+    """Test that UnisonSyncer adds force flag for reverse direction."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+
+    syncer = UnisonSyncer(
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.REVERSE,
+        conflict_mode=ConflictMode.NEWER,
+    )
+
+    cmd = syncer._build_unison_command()
+
+    assert "-force" in cmd
+    force_idx = cmd.index("-force")
+    assert cmd[force_idx + 1] == str(target)
+
+
+def test_unison_syncer_builds_command_with_exclude_patterns(tmp_path: Path) -> None:
+    """Test that UnisonSyncer adds exclude patterns to command."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+
+    syncer = UnisonSyncer(
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+        exclude_patterns=("*.pyc", "__pycache__"),
+    )
+
+    cmd = syncer._build_unison_command()
+
+    # Check that exclude patterns are added
+    cmd_str = " ".join(cmd)
+    assert "*.pyc" in cmd_str
+    assert "__pycache__" in cmd_str
+
+
+def test_unison_syncer_always_excludes_git_directory(tmp_path: Path) -> None:
+    """Test that UnisonSyncer always excludes .git directory."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+
+    syncer = UnisonSyncer(
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
+
+    cmd = syncer._build_unison_command()
+    cmd_str = " ".join(cmd)
+
+    assert ".git" in cmd_str
+
+
+def test_unison_syncer_is_not_running_initially(tmp_path: Path) -> None:
+    """Test that UnisonSyncer is_running is False before start."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+
+    syncer = UnisonSyncer(
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
+
+    assert syncer.is_running is False
+
+
+# =============================================================================
+# Test: determine_git_sync_actions
+# =============================================================================
+
+
+def test_determine_git_sync_returns_none_for_non_git_directories(tmp_path: Path) -> None:
+    """Test that determine_git_sync_actions returns None for non-git directories."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+
+    result = determine_git_sync_actions(source, target)
+
+    assert result is None
+
+
+def test_determine_git_sync_returns_none_when_only_source_is_git(tmp_path: Path) -> None:
+    """Test that returns None when only source is a git repo."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    _init_git_repo(source)
+    target.mkdir()
+
+    result = determine_git_sync_actions(source, target)
+
+    assert result is None
+
+
+def test_determine_git_sync_returns_none_when_only_target_is_git(tmp_path: Path) -> None:
+    """Test that returns None when only target is a git repo."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    _init_git_repo(target)
+
+    result = determine_git_sync_actions(source, target)
+
+    assert result is None
+
+
+def test_determine_git_sync_returns_no_action_when_both_in_sync(tmp_path: Path) -> None:
+    """Test that returns no action needed when repos have same commit."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+
+    # Create source repo
+    _init_git_repo(source)
+
+    # Clone source to target (same commit)
+    subprocess.run(
+        ["git", "clone", str(source), str(target)],
+        capture_output=True,
+        check=True,
+    )
+
+    result = determine_git_sync_actions(source, target)
+
+    assert result is not None
+    assert result.needs_push is False
+    assert result.needs_pull is False
+
+
+def test_determine_git_sync_detects_source_ahead(tmp_path: Path) -> None:
+    """Test that detects when source has commits not in target."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+
+    # Create source repo
+    _init_git_repo(source)
+
+    # Clone source to target
+    subprocess.run(
+        ["git", "clone", str(source), str(target)],
+        capture_output=True,
+        check=True,
+    )
+
+    # Add a commit to source
+    (source / "new_file.txt").write_text("new content")
+    _run_git(source, "add", "new_file.txt")
+    _run_git(source, "commit", "-m", "Add new file")
+
+    result = determine_git_sync_actions(source, target)
+
+    assert result is not None
+    assert result.needs_push is True
+    assert result.needs_pull is False
+
+
+def test_determine_git_sync_detects_target_ahead(tmp_path: Path) -> None:
+    """Test that detects when target has commits not in source."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+
+    # Create source repo
+    _init_git_repo(source)
+
+    # Clone source to target
+    subprocess.run(
+        ["git", "clone", str(source), str(target)],
+        capture_output=True,
+        check=True,
+    )
+    _run_git(target, "config", "user.email", "test@example.com")
+    _run_git(target, "config", "user.name", "Test User")
+
+    # Add a commit to target
+    (target / "new_file.txt").write_text("new content")
+    _run_git(target, "add", "new_file.txt")
+    _run_git(target, "commit", "-m", "Add new file")
+
+    result = determine_git_sync_actions(source, target)
+
+    assert result is not None
+    assert result.needs_push is False
+    assert result.needs_pull is True
+
+
+def test_determine_git_sync_detects_both_diverged(tmp_path: Path) -> None:
+    """Test that detects when both repos have diverged."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+
+    # Create source repo
+    _init_git_repo(source)
+
+    # Clone source to target
+    subprocess.run(
+        ["git", "clone", str(source), str(target)],
+        capture_output=True,
+        check=True,
+    )
+    _run_git(target, "config", "user.email", "test@example.com")
+    _run_git(target, "config", "user.name", "Test User")
+
+    # Add a commit to source
+    (source / "source_file.txt").write_text("source content")
+    _run_git(source, "add", "source_file.txt")
+    _run_git(source, "commit", "-m", "Add source file")
+
+    # Add a different commit to target
+    (target / "target_file.txt").write_text("target content")
+    _run_git(target, "add", "target_file.txt")
+    _run_git(target, "commit", "-m", "Add target file")
+
+    result = determine_git_sync_actions(source, target)
+
+    assert result is not None
+    assert result.needs_push is True
+    assert result.needs_pull is True
+
+
+# =============================================================================
+# Test: GitSyncAction
+# =============================================================================
+
+
+def test_git_sync_action_default_values() -> None:
+    """Test that GitSyncAction has correct default values."""
+    action = GitSyncAction(
+        source_branch="main",
+        target_branch="main",
+    )
+
+    assert action.needs_push is False
+    assert action.needs_pull is False
+    assert action.source_branch == "main"
+    assert action.target_branch == "main"

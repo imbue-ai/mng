@@ -133,6 +133,23 @@ class UncommittedChangesMode(UpperCaseStrEnum):
     FAIL = auto()
 
 
+class SyncDirection(UpperCaseStrEnum):
+    """Direction for file synchronization in pair mode."""
+
+    FORWARD = auto()
+    REVERSE = auto()
+    BOTH = auto()
+
+
+class ConflictMode(UpperCaseStrEnum):
+    """Conflict resolution mode for pair mode sync."""
+
+    NEWER = auto()
+    SOURCE = auto()
+    TARGET = auto()
+    ASK = auto()
+
+
 # === ID Types ===
 
 
