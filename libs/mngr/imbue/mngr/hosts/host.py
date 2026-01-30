@@ -36,6 +36,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import HostConnectionError
+from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
@@ -192,6 +193,9 @@ class Host(HostInterface):
 
     def _ensure_connected(self) -> None:
         """Ensure the pyinfra host is connected."""
+        if not self.is_online:
+            raise HostOfflineError("Host is offline")
+
         if not self.connector.host.connected:
             self.connector.host.connect(raise_exceptions=True)
 

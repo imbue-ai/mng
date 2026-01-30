@@ -199,6 +199,10 @@ def list_agents(
 
         # Process each host and its agents
         for host_ref, agent_refs in agents_by_host.items():
+            # Skip hosts with no agents to process
+            if not agent_refs:
+                continue
+
             try:
                 provider = provider_map.get(host_ref.provider_name)
                 if not provider:
@@ -234,29 +238,26 @@ def list_agents(
                     name=host.connector.name,
                     provider_name=host_ref.provider_name,
                     host=host_hostname,
-                    state=host.get_state().value.lower(),
-                    image=host.get_image(),
-                    tags=host.get_tags(),
-                    boot_time=host.get_boot_time(),
-                    uptime_seconds=host.get_uptime_seconds(),
-                    resource=host.get_provider_resources(),
+                    state=host.get_state().value.lower() if host.is_online else "stopped",
+                    image=host.get_image() if host.is_online else None,
+                    tags=host.get_tags() if host.is_online else {},
+                    boot_time=host.get_boot_time() if host.is_online else None,
+                    uptime_seconds=host.get_uptime_seconds() if host.is_online else None,
+                    resource=host.get_provider_resources() if host.is_online else None,
                     ssh=ssh_info,
-                    snapshots=host.get_snapshots(),
+                    snapshots=host.get_snapshots() if host.is_online else [],
                 )
-
-                # Skip hosts with no agents to process
-                if not agent_refs:
-                    continue
 
                 # Get all agents on this host
                 agents = None
-                host_is_stopped = False
-                try:
-                    agents = host.get_agents()
-                except (ConnectError, HostConnectionError, OSError) as e:
-                    # Host is unreachable (probably stopped) - try persisted data
-                    logger.trace("Could not get agents from host {} (may be stopped): {}", host.id, e)
-                    host_is_stopped = True
+                host_is_stopped = not host.is_online
+                if not host_is_stopped:
+                    try:
+                        agents = host.get_agents()
+                    except (ConnectError, HostConnectionError, OSError) as e:
+                        # Host is unreachable (probably stopped) - try persisted data
+                        logger.trace("Could not get agents from host {} (may be stopped): {}", host.id, e)
+                        host_is_stopped = True
 
                 for agent_ref in agent_refs:
                     try:

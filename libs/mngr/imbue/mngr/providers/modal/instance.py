@@ -247,10 +247,12 @@ class ModalProviderInstance(BaseProviderInstance):
     eventually consistent tag queries for recently created sandboxes.
     """
 
+    # FIXME: no, these should all be PrivateAttr instead of ClassVars
     # Class-level caches of sandboxes. These avoid the need to query
     # Modal's eventually consistent tag API for recently created sandboxes.
     _sandbox_cache_by_id: ClassVar[dict[HostId, modal.Sandbox]] = {}
     _sandbox_cache_by_name: ClassVar[dict[HostName, modal.Sandbox]] = {}
+    _host_by_id_cache: ClassVar[dict[HostId, Host]] = {}
 
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
@@ -422,7 +424,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 filename = entry.path
                 if filename.endswith(".json"):
                     # Read the agent record
-                    agent_path = f"{host_dir}/{filename.lstrip('/')}"
+                    agent_path = filename.lstrip("/")
                     try:
                         # Read file returns a generator that yields bytes chunks
                         chunks: list[bytes] = []
@@ -1054,6 +1056,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             connector=connector,
             provider_instance=self,
             mngr_ctx=self.mngr_ctx,
+            is_online=False,
         )
 
     # =========================================================================
@@ -1403,34 +1406,41 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                 auth_help="Run 'modal token set' to authenticate with Modal.",
             )
 
+        host_obj: Host | None = None
+
+        if host in self._host_by_id_cache:
+            return self._host_by_id_cache[host]
+
         if isinstance(host, HostId):
             # Try to find a running sandbox first
             sandbox = self._find_sandbox_by_host_id(host)
             if sandbox is not None:
                 host_obj = self._create_host_from_sandbox(sandbox)
-                if host_obj is not None:
-                    return host_obj
 
-            # No sandbox - try host record (for stopped hosts)
-            host_record = self._read_host_record(host)
-            if host_record is not None:
-                return self._create_host_from_host_record(host_record)
+            if host_obj is None:
+                # No sandbox - try host record (for stopped hosts)
+                host_record = self._read_host_record(host)
+                if host_record is not None:
+                    host_obj = self._create_host_from_host_record(host_record)
+        else:
+            # If it's a HostName, search by name
+            sandbox = self._find_sandbox_by_name(host)
+            if sandbox is not None:
+                host_obj = self._create_host_from_sandbox(sandbox)
 
+            # No sandbox - search host records by name (for stopped hosts)
+            if host_obj is None:
+                for host_record in self._list_all_host_records():
+                    if host_record.host_name == str(host):
+                        return self._create_host_from_host_record(host_record)
+
+        # finally save to the cache and return
+        if host_obj is not None:
+            self._host_by_id_cache[host_obj.id] = host_obj
+            return host_obj
+        # or raise:
+        else:
             raise HostNotFoundError(host)
-
-        # If it's a HostName, search by name
-        sandbox = self._find_sandbox_by_name(host)
-        if sandbox is not None:
-            host_obj = self._create_host_from_sandbox(sandbox)
-            if host_obj is not None:
-                return host_obj
-
-        # No sandbox - search host records by name (for stopped hosts)
-        for host_record in self._list_all_host_records():
-            if host_record.host_name == str(host):
-                return self._create_host_from_host_record(host_record)
-
-        raise HostNotFoundError(host)
 
     @handle_modal_auth_error
     def list_hosts(
@@ -1524,6 +1534,11 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             except (KeyError, ValueError) as e:
                 logger.debug("Failed to create host from sandbox {}: {}", host_id, e)
                 continue
+
+        # add these hosts to a cache so we don't need to look them up by name or id again
+        for host in hosts:
+            assert isinstance(host, Host)
+            self._host_by_id_cache[host.id] = host
 
         return hosts
 

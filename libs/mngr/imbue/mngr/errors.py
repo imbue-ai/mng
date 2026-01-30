@@ -55,6 +55,10 @@ class HostConnectionError(HostError):
     """Raised when unable to connect to a host."""
 
 
+class HostOfflineError(HostConnectionError):
+    """Raised when unable to connect to a host because it is offline."""
+
+
 class CommandTimeoutError(HostError):
     """Raised when a command execution times out."""
 

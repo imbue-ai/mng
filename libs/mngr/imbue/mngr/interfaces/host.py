@@ -40,6 +40,7 @@ class HostInterface(MutableModel, ABC):
 
     id: HostId = Field(frozen=True, description="Unique identifier for this host")
     connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
+    is_online: bool = Field(default=True, description="Whether the host is currently online/started")
 
     @property
     @abstractmethod
