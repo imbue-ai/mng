@@ -1396,7 +1396,6 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         First tries to find a running sandbox. If not found, falls back to
         the host record on the volume (for stopped hosts).
         """
-        """Get a host by ID or name."""
         if not self.is_authorized:
             raise ProviderNotAuthorizedError(
                 self.name,
@@ -1443,8 +1442,6 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         - RUNNING: has an active sandbox
         - STOPPED: no sandbox but has snapshots (can be restarted)
         - DESTROYED: no sandbox and no snapshots (only if include_destroyed=True)
-        """
-        """List all active Modal sandbox hosts.
 
         If the provider is not authorized, logs a warning and returns an empty list.
         """
