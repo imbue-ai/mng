@@ -6,7 +6,9 @@ from loguru import logger
 
 from imbue.mngr.api.data_types import GcResourceTypes
 from imbue.mngr.api.gc import gc as api_gc
+from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_all_provider_instances
+from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -271,28 +273,31 @@ def _find_agents_to_destroy(
     agents_to_destroy: list[tuple[AgentInterface, HostInterface]] = []
     matched_identifiers: set[str] = set()
 
-    providers = get_all_provider_instances(mngr_ctx)
+    for agent_ref in list_agents(mngr_ctx).agents:
+        should_include: bool
+        if destroy_all:
+            should_include = True
+        elif agent_identifiers:
+            agent_name_str = str(agent_ref.name)
+            agent_id_str = str(agent_ref.id)
 
-    for provider_instance in providers:
-        for host in provider_instance.list_hosts():
-            for agent in host.get_agents():
-                should_include: bool
-                if destroy_all:
+            should_include = False
+            for identifier in agent_identifiers:
+                if identifier == agent_name_str or identifier == agent_id_str:
                     should_include = True
-                elif agent_identifiers:
-                    agent_name_str = str(agent.name)
-                    agent_id_str = str(agent.id)
+                    matched_identifiers.add(identifier)
+        else:
+            should_include = False
 
-                    should_include = False
-                    for identifier in agent_identifiers:
-                        if identifier == agent_name_str or identifier == agent_id_str:
-                            should_include = True
-                            matched_identifiers.add(identifier)
-                else:
-                    should_include = False
-
-                if should_include:
+        if should_include:
+            provider = get_provider_instance(agent_ref.host.provider_name, mngr_ctx)
+            host = provider.get_host(agent_ref.host.id)
+            for agent in host.get_agents():
+                if agent.id == agent_ref.id:
                     agents_to_destroy.append((agent, host))
+                    break
+            else:
+                raise AgentNotFoundError(f"Agent with ID {agent_ref.id} not found on host {host.id}")
 
     # Verify all specified identifiers were found
     if agent_identifiers:
