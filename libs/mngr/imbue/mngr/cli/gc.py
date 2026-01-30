@@ -1,4 +1,3 @@
-import time
 from typing import Any
 from typing import assert_never
 
@@ -22,9 +21,9 @@ from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
+from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
-from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
@@ -212,21 +211,12 @@ def _gc_impl(ctx: click.Context, **kwargs) -> None:
 
     # Watch mode: run gc repeatedly at the specified interval
     if opts.watch:
-        logger.info("Starting watch mode: running gc every {} seconds", opts.watch)
-        logger.info("Press Ctrl+C to stop")
-        is_running = True
         try:
-            while is_running:
-                # Note: AbortError (BaseException) will propagate out and stop watch mode
-                # Regular exceptions are logged but watch continues
-                try:
-                    _run_gc_iteration(mngr_ctx=mngr_ctx, opts=opts, output_opts=output_opts)
-                except MngrError as e:
-                    # Regular exceptions in CONTINUE mode are already logged by on_error
-                    # Just log here for watch mode context
-                    logger.error("Error in gc iteration (continuing): {}", e)
-                logger.info("\nWaiting {} seconds until next run...", opts.watch)
-                time.sleep(opts.watch)
+            run_watch_loop(
+                iteration_fn=lambda: _run_gc_iteration(mngr_ctx=mngr_ctx, opts=opts, output_opts=output_opts),
+                interval_seconds=opts.watch,
+                on_error_continue=True,
+            )
         except KeyboardInterrupt:
             logger.info("\nWatch mode stopped")
             return

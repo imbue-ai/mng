@@ -60,7 +60,7 @@ mngr list [OPTIONS]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `-w`, `--watch` | integer | Continuously watch and update status at specified interval (seconds) [future] | None |
+| `-w`, `--watch` | integer | Continuously watch and update status at specified interval (seconds) | None |
 
 ## Error Handling
 

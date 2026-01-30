@@ -20,6 +20,9 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.watch_mode import run_watch_loop
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
@@ -126,7 +129,7 @@ class ListCliOptions(CommonCliOptions):
     "-w",
     "--watch",
     type=int,
-    help="Continuously watch and update status at specified interval (seconds) [future]",
+    help="Continuously watch and update status at specified interval (seconds)",
 )
 @optgroup.group("Error Handling")
 @optgroup.option(
@@ -179,11 +182,6 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     if opts.fields:
         fields = [f.strip() for f in opts.fields.split(",") if f.strip()]
 
-    # -w, --watch SECONDS: Continuously watch and update status at interval [default: 2]
-    # Should refresh the agent list display periodically until interrupted
-    if opts.watch:
-        raise NotImplementedError("Watch mode not implemented yet")
-
     # Build list of include filters
     include_filters = list(opts.include)
 
@@ -231,7 +229,11 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     error_behavior = ErrorBehavior(opts.on_error.upper())
 
     # For JSONL format, use streaming callbacks to emit output as agents are found
+    # Watch mode is not supported for JSONL (streaming doesn't work well with refresh)
     if output_opts.output_format == OutputFormat.JSONL:
+        if opts.watch:
+            logger.warning("Watch mode is not supported with JSONL format, running once")
+
         # Track count for limit in streaming mode
         agent_count = [0]  # Use list for mutability in closure
 
@@ -255,13 +257,71 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             ctx.exit(1)
         return
 
-    # For other formats, collect all results first
-    result = api_list_agents(
+    # Build iteration parameters for reuse in watch mode
+    iteration_params = _ListIterationParams(
         mngr_ctx=mngr_ctx,
+        output_opts=output_opts,
         include_filters=tuple(include_filters),
         exclude_filters=tuple(exclude_filters),
         provider_names=opts.provider if opts.provider else None,
         error_behavior=error_behavior,
+        sort_field=sort_field,
+        sort_reverse=sort_reverse,
+        limit=limit,
+        fields=fields,
+    )
+
+    # Watch mode: run list repeatedly at the specified interval
+    if opts.watch:
+        try:
+            run_watch_loop(
+                iteration_fn=lambda: _run_list_iteration(iteration_params, ctx),
+                interval_seconds=opts.watch,
+                on_error_continue=True,
+            )
+        except KeyboardInterrupt:
+            logger.info("\nWatch mode stopped")
+            return
+    else:
+        _run_list_iteration(iteration_params, ctx)
+
+
+class _ListIterationParams:
+    """Parameters for a single list iteration, used for watch mode."""
+
+    def __init__(
+        self,
+        mngr_ctx: MngrContext,
+        output_opts: OutputOptions,
+        include_filters: tuple[str, ...],
+        exclude_filters: tuple[str, ...],
+        provider_names: tuple[str, ...] | None,
+        error_behavior: ErrorBehavior,
+        sort_field: str,
+        sort_reverse: bool,
+        limit: int | None,
+        fields: list[str] | None,
+    ):
+        self.mngr_ctx = mngr_ctx
+        self.output_opts = output_opts
+        self.include_filters = include_filters
+        self.exclude_filters = exclude_filters
+        self.provider_names = provider_names
+        self.error_behavior = error_behavior
+        self.sort_field = sort_field
+        self.sort_reverse = sort_reverse
+        self.limit = limit
+        self.fields = fields
+
+
+def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> None:
+    """Run a single list iteration."""
+    result = api_list_agents(
+        mngr_ctx=params.mngr_ctx,
+        include_filters=params.include_filters,
+        exclude_filters=params.exclude_filters,
+        provider_names=params.provider_names,
+        error_behavior=params.error_behavior,
     )
 
     if result.errors:
@@ -269,32 +329,32 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             logger.warning("{}: {}", error.exception_type, error.message)
 
     # Apply sorting to results
-    agents_to_display = _sort_agents(result.agents, sort_field, sort_reverse)
+    agents_to_display = _sort_agents(result.agents, params.sort_field, params.sort_reverse)
 
     # Apply limit to results (after sorting)
-    if limit is not None:
-        agents_to_display = agents_to_display[:limit]
+    if params.limit is not None:
+        agents_to_display = agents_to_display[: params.limit]
 
     if not agents_to_display:
-        if output_opts.output_format == OutputFormat.HUMAN:
+        if params.output_opts.output_format == OutputFormat.HUMAN:
             logger.info("No agents found")
-        elif output_opts.output_format == OutputFormat.JSON:
+        elif params.output_opts.output_format == OutputFormat.JSON:
             emit_final_json({"agents": [], "errors": result.errors})
         else:
             # JSONL is handled above with streaming, so this should be unreachable
-            raise AssertionError(f"Unexpected output format: {output_opts.output_format}")
+            raise AssertionError(f"Unexpected output format: {params.output_opts.output_format}")
         # Exit with non-zero code if there were errors (per error_handling.md spec)
         if result.errors:
             ctx.exit(1)
         return
 
-    if output_opts.output_format == OutputFormat.HUMAN:
-        _emit_human_output(agents_to_display, fields)
-    elif output_opts.output_format == OutputFormat.JSON:
+    if params.output_opts.output_format == OutputFormat.HUMAN:
+        _emit_human_output(agents_to_display, params.fields)
+    elif params.output_opts.output_format == OutputFormat.JSON:
         _emit_json_output(agents_to_display, result.errors)
     else:
         # JSONL is handled above with streaming, so this should be unreachable
-        raise AssertionError(f"Unexpected output format: {output_opts.output_format}")
+        raise AssertionError(f"Unexpected output format: {params.output_opts.output_format}")
 
     # Exit with non-zero code if there were errors (per error_handling.md spec)
     if result.errors:
