@@ -54,7 +54,7 @@ mngr list [OPTIONS]
 | `--fields` | text | Which fields to include (comma-separated) | None |
 | `--sort` | text | Sort by field [default: create_time] [future] | `create_time` |
 | `--sort-order` | choice (`asc` &#x7C; `desc`) | Sort order [default: asc] | `asc` |
-| `--limit` | integer | Limit number of results [future] | None |
+| `--limit` | integer | Limit number of results (applied after fetching from all providers) | None |
 
 ## Watch Mode
 

@@ -730,3 +730,119 @@ def test_list_command_with_remote_filter_alias(
 
         assert result.exit_code == 0
         assert agent_name not in result.output
+
+
+def test_list_command_with_limit(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --limit option.
+
+    Note: The limit is applied after fetching all results from providers.
+    This test verifies that only the specified number of agents are displayed.
+    """
+    agent_name_1 = f"test-list-limit-1-{int(time.time())}"
+    agent_name_2 = f"test-list-limit-2-{int(time.time())}"
+    session_name_1 = f"{mngr_test_prefix}{agent_name_1}"
+    session_name_2 = f"{mngr_test_prefix}{agent_name_2}"
+
+    with tmux_session_cleanup(session_name_1):
+        with tmux_session_cleanup(session_name_2):
+            # Create first agent
+            create_result_1 = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name_1,
+                    "--agent-cmd",
+                    "sleep 604394",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert create_result_1.exit_code == 0
+
+            # Create second agent
+            create_result_2 = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name_2,
+                    "--agent-cmd",
+                    "sleep 503283",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert create_result_2.exit_code == 0
+
+            # List with --limit 1 should show only one agent
+            result = cli_runner.invoke(
+                list_command,
+                ["--limit", "1"],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            assert result.exit_code == 0
+            # Count how many of our test agents are shown
+            # (only one should be shown)
+            agent_count = sum(1 for name in [agent_name_1, agent_name_2] if name in result.output)
+            assert agent_count == 1
+
+
+def test_list_command_with_limit_json_format(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --limit option in JSON format."""
+    agent_name = f"test-list-limit-json-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 402172",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with --limit 1 --format json
+        result = cli_runner.invoke(
+            list_command,
+            ["--limit", "1", "--format", "json"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert '"agents":' in result.output

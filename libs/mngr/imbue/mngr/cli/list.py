@@ -119,7 +119,7 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--limit",
     type=int,
-    help="Limit number of results [future]",
+    help="Limit number of results (applied after fetching from all providers)",
 )
 @optgroup.group("Watch Mode")
 @optgroup.option(
@@ -223,20 +223,31 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         raise NotImplementedError("Custom sorting not implemented yet")
 
     # --limit N: Limit number of results returned
-    if opts.limit:
-        raise NotImplementedError("Result limiting not implemented yet")
+    # NOTE: The limit is applied after fetching results. The full list is still retrieved
+    # from providers and then sliced client-side. For large deployments, this means the
+    # command may still take time proportional to the total number of agents.
+    limit = opts.limit
 
     error_behavior = ErrorBehavior(opts.on_error.upper())
 
     # For JSONL format, use streaming callbacks to emit output as agents are found
     if output_opts.output_format == OutputFormat.JSONL:
+        # Track count for limit in streaming mode
+        agent_count = [0]  # Use list for mutability in closure
+
+        def _limited_emit_jsonl_agent(agent: AgentInfo) -> None:
+            if limit is not None and agent_count[0] >= limit:
+                return
+            _emit_jsonl_agent(agent)
+            agent_count[0] += 1
+
         result = api_list_agents(
             mngr_ctx=mngr_ctx,
             include_filters=tuple(include_filters),
             exclude_filters=tuple(exclude_filters),
             provider_names=opts.provider if opts.provider else None,
             error_behavior=error_behavior,
-            on_agent=_emit_jsonl_agent,
+            on_agent=_limited_emit_jsonl_agent,
             on_error=_emit_jsonl_error,
         )
         # Exit with non-zero code if there were errors (per error_handling.md spec)
@@ -257,7 +268,12 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         for error in result.errors:
             logger.warning("{}: {}", error.exception_type, error.message)
 
-    if not result.agents:
+    # Apply limit to results
+    agents_to_display = result.agents
+    if limit is not None:
+        agents_to_display = result.agents[:limit]
+
+    if not agents_to_display:
         if output_opts.output_format == OutputFormat.HUMAN:
             logger.info("No agents found")
         elif output_opts.output_format == OutputFormat.JSON:
@@ -271,9 +287,9 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         return
 
     if output_opts.output_format == OutputFormat.HUMAN:
-        _emit_human_output(result.agents, fields)
+        _emit_human_output(agents_to_display, fields)
     elif output_opts.output_format == OutputFormat.JSON:
-        _emit_json_output(result.agents, result.errors)
+        _emit_json_output(agents_to_display, result.errors)
     else:
         # JSONL is handled above with streaming, so this should be unreachable
         raise AssertionError(f"Unexpected output format: {output_opts.output_format}")
