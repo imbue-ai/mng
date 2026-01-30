@@ -21,6 +21,7 @@ from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundError
+from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -293,7 +294,13 @@ def _find_agents_to_destroy(
         if should_include:
             provider = get_provider_instance(agent_ref.host.provider_name, mngr_ctx)
             host_interface = provider.get_host(agent_ref.host.id)
-            # Cast to OnlineHostInterface - we need an online host to destroy agents
+
+            # Check if host is online - can't destroy agents on offline hosts
+            if not host_interface.is_online:
+                raise HostOfflineError(
+                    f"Host '{agent_ref.host.id}' is offline. Start the host first to destroy agents."
+                )
+
             host = cast(OnlineHostInterface, host_interface)
             for agent in host.get_agents():
                 if agent.id == agent_ref.id:

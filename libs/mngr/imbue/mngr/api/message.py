@@ -10,6 +10,7 @@ from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
+from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -83,7 +84,19 @@ def send_message_to_agents(
                 continue
 
             host_interface = provider.get_host(host_ref.host_id)
-            # Cast to OnlineHostInterface - we need an online host to send messages
+
+            # Check if host is online - can't send messages to offline hosts
+            if not host_interface.is_online:
+                exception = HostOfflineError(f"Host '{host_ref.host_id}' is offline. Cannot send messages.")
+                if error_behavior == ErrorBehavior.ABORT:
+                    raise exception
+                logger.warning("Host is offline: {}", host_ref.host_id)
+                for agent_ref in agent_refs:
+                    result.failed_agents.append((str(agent_ref.agent_name), str(exception)))
+                    if on_error:
+                        on_error(str(agent_ref.agent_name), str(exception))
+                continue
+
             host = cast(OnlineHostInterface, host_interface)
 
             # Get all agents on this host
