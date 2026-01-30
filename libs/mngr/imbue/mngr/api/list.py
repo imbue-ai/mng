@@ -149,8 +149,8 @@ def list_agents(
     """List all agents with optional filtering."""
     result = ListResult()
 
-    if provider_names:
-        raise NotImplementedError("Provider filtering not implemented yet")
+    # Convert provider_names to a set for efficient lookup
+    provider_name_set = frozenset(provider_names) if provider_names else None
 
     # Compile CEL filters if provided
     # Note: compilation errors always abort - bad filters should never silently continue
@@ -175,6 +175,11 @@ def list_agents(
 
         # Process each host and its agents
         for host_ref, agent_refs in agents_by_host.items():
+            # Skip hosts that don't match the provider filter
+            if provider_name_set is not None and str(host_ref.provider_name) not in provider_name_set:
+                logger.trace("Skipping host {} (provider {} not in filter)", host_ref.host_id, host_ref.provider_name)
+                continue
+
             try:
                 provider = provider_map.get(host_ref.provider_name)
                 if not provider:
