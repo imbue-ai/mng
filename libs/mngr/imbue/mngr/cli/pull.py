@@ -6,7 +6,7 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
-from imbue.mngr.api.find import find_agent_by_name_or_id
+from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.pull import PullResult
@@ -84,7 +84,7 @@ def _select_agent_for_pull(
 
     # Find the actual agent and host from the selection
     agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
-    return find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "pull")
+    return find_and_maybe_start_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "pull")
 
 
 def _output_result(result: PullResult, output_opts: OutputOptions) -> None:
@@ -331,7 +331,9 @@ def pull(ctx: click.Context, **kwargs) -> None:
 
     if agent_identifier is not None:
         agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
-        agent, host = find_agent_by_name_or_id(agent_identifier, agents_by_host, mngr_ctx, "pull <agent-id> <path>")
+        agent, host = find_and_maybe_start_agent_by_name_or_id(
+            agent_identifier, agents_by_host, mngr_ctx, "pull <agent-id> <path>"
+        )
     elif not sys.stdin.isatty():
         raise UserInputError("No agent specified and not running in interactive mode")
     else:

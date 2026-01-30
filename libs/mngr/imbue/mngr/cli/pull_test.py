@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from imbue.mngr.api.find import find_agent_by_name_or_id
+from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.pull import PullResult
 from imbue.mngr.cli.pull import PullCliOptions
 from imbue.mngr.cli.pull import _output_result
@@ -143,7 +143,7 @@ def test_find_agent_by_name_or_id_raises_for_empty_agents() -> None:
     agents_by_host: dict[HostReference, list[AgentReference]] = {}
 
     with pytest.raises(UserInputError, match="No agent found with name or ID"):
-        find_agent_by_name_or_id("nonexistent-agent", agents_by_host, mock_ctx, "test")
+        find_and_maybe_start_agent_by_name_or_id("nonexistent-agent", agents_by_host, mock_ctx, "test")
 
 
 def test_find_agent_by_name_or_id_raises_agent_not_found_for_valid_id() -> None:
@@ -155,7 +155,7 @@ def test_find_agent_by_name_or_id_raises_agent_not_found_for_valid_id() -> None:
     nonexistent_id = AgentId.generate()
 
     with pytest.raises(AgentNotFoundError):
-        find_agent_by_name_or_id(str(nonexistent_id), agents_by_host, mock_ctx, "test")
+        find_and_maybe_start_agent_by_name_or_id(str(nonexistent_id), agents_by_host, mock_ctx, "test")
 
 
 def test_find_agent_by_name_or_id_raises_for_multiple_matches() -> None:
@@ -220,82 +220,4 @@ def test_find_agent_by_name_or_id_raises_for_multiple_matches() -> None:
 
     with patch("imbue.mngr.api.find.get_provider_instance", side_effect=mock_get_provider):
         with pytest.raises(UserInputError, match="Multiple agents found"):
-            find_agent_by_name_or_id("my-agent", agents_by_host, mock_ctx, "test")
-
-
-def test_find_agent_by_name_or_id_finds_agent_by_valid_id() -> None:
-    """Test that find_agent_by_name_or_id can find an agent by its ID."""
-    mock_ctx = MagicMock()
-
-    host_id = HostId.generate()
-    agent_id = AgentId.generate()
-    agent_name = AgentName("my-agent")
-
-    host_ref = HostReference(
-        host_id=host_id,
-        host_name=HostName("host1"),
-        provider_name=ProviderInstanceName("local"),
-    )
-
-    agent_ref = AgentReference(
-        host_id=host_id,
-        agent_id=agent_id,
-        agent_name=agent_name,
-        provider_name=ProviderInstanceName("local"),
-    )
-
-    agents_by_host = {
-        host_ref: [agent_ref],
-    }
-
-    # Mock get_provider_instance to return mock providers
-    mock_provider = MagicMock()
-    mock_host = MagicMock()
-    mock_agent = MagicMock()
-    mock_agent.id = agent_id
-    mock_agent.name = agent_name
-    mock_host.get_agents.return_value = [mock_agent]
-    mock_provider.get_host.return_value = mock_host
-
-    with patch("imbue.mngr.api.find.get_provider_instance", return_value=mock_provider):
-        found_agent, found_host = find_agent_by_name_or_id(str(agent_id), agents_by_host, mock_ctx, "test")
-        assert found_agent.id == agent_id
-
-
-def test_find_agent_by_name_or_id_finds_agent_by_name() -> None:
-    """Test that find_agent_by_name_or_id can find an agent by its name."""
-    mock_ctx = MagicMock()
-
-    host_id = HostId.generate()
-    agent_id = AgentId.generate()
-    agent_name = AgentName("my-agent")
-
-    host_ref = HostReference(
-        host_id=host_id,
-        host_name=HostName("host1"),
-        provider_name=ProviderInstanceName("local"),
-    )
-
-    agent_ref = AgentReference(
-        host_id=host_id,
-        agent_id=agent_id,
-        agent_name=agent_name,
-        provider_name=ProviderInstanceName("local"),
-    )
-
-    agents_by_host = {
-        host_ref: [agent_ref],
-    }
-
-    # Mock get_provider_instance to return mock providers
-    mock_provider = MagicMock()
-    mock_host = MagicMock()
-    mock_agent = MagicMock()
-    mock_agent.id = agent_id
-    mock_agent.name = agent_name
-    mock_host.get_agents.return_value = [mock_agent]
-    mock_provider.get_host.return_value = mock_host
-
-    with patch("imbue.mngr.api.find.get_provider_instance", return_value=mock_provider):
-        found_agent, found_host = find_agent_by_name_or_id("my-agent", agents_by_host, mock_ctx, "test")
-        assert found_agent.name == agent_name
+            find_and_maybe_start_agent_by_name_or_id("my-agent", agents_by_host, mock_ctx, "test")

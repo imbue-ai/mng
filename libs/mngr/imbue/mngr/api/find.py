@@ -16,6 +16,7 @@ from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
@@ -23,6 +24,7 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.utils.logging import log_call
 
 
@@ -260,12 +262,40 @@ def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostR
         return None
 
 
+def _ensure_host_started(host: HostInterface, is_start_desired: bool, provider: BaseProviderInstance):
+    if host.is_online:
+        return
+    if is_start_desired:
+        logger.info("Host is offline, starting it...", host_id=host.id, provider=provider.name)
+        provider.start_host(host)
+    else:
+        raise UserInputError(
+            f"Host '{host.connector.name}' is offline and --no-start was specified. "
+            "Use --start to automatically start the host."
+        )
+
+
+def _ensure_agent_started(agent: AgentInterface, host: HostInterface, is_start_desired: bool) -> None:
+    # Check if the agent's tmux session exists and start it if needed
+    lifecycle_state = agent.get_lifecycle_state()
+    if lifecycle_state != AgentLifecycleState.RUNNING:
+        if is_start_desired:
+            logger.info("Agent {} is stopped, starting it", agent.name)
+            host.start_agents([agent.id])
+        else:
+            raise UserInputError(
+                f"Agent '{agent.name}' is stopped and --no-start was specified. "
+                "Use --start to automatically start the agent."
+            )
+
+
 @log_call
-def find_agent_by_name_or_id(
+def find_and_maybe_start_agent_by_name_or_id(
     agent_str: str,
     agents_by_host: dict[HostReference, list[AgentReference]],
     mngr_ctx: MngrContext,
     command_name: str,
+    is_start_desired: bool = False,
 ) -> tuple[AgentInterface, HostInterface]:
     """Find an agent by name or ID and return the agent and host interfaces.
 
@@ -287,8 +317,10 @@ def find_agent_by_name_or_id(
                 if agent_ref.agent_id == agent_id:
                     provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                     host = provider.get_host(host_ref.host_id)
+                    _ensure_host_started(host, is_start_desired, provider)
                     for agent in host.get_agents():
                         if agent.id == agent_id:
+                            _ensure_agent_started(agent, host, is_start_desired)
                             return agent, host
         raise AgentNotFoundError(agent_id)
 
@@ -301,6 +333,7 @@ def find_agent_by_name_or_id(
             if agent_ref.agent_name == agent_name:
                 provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                 host = provider.get_host(host_ref.host_id)
+                _ensure_host_started(host, is_start_desired, provider)
                 # Find the specific agent by ID (not name, to avoid duplicates)
                 for agent in host.get_agents():
                     if agent.id == agent_ref.agent_id:
@@ -321,7 +354,11 @@ def find_agent_by_name_or_id(
             f"  mngr list --fields id,name,host"
         )
 
-    return matching[0]
+    # make sure the agent is started
+    agent, host = matching[0]
+    _ensure_agent_started(agent, host, is_start_desired)
+
+    return agent, host
 
 
 @log_call

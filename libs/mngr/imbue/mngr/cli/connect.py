@@ -22,7 +22,7 @@ from urwid.widget.wimp import SelectableIcon
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.data_types import ConnectionOptions
-from imbue.mngr.api.find import find_agent_by_name_or_id
+from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import list_agents
@@ -422,7 +422,9 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     host: HostInterface
 
     if opts.agent is not None:
-        agent, host = find_agent_by_name_or_id(opts.agent, agents_by_host, mngr_ctx, "connect")
+        agent, host = find_and_maybe_start_agent_by_name_or_id(
+            opts.agent, agents_by_host, mngr_ctx, "connect", is_start_desired=opts.start
+        )
     elif not sys.stdin.isatty():
         # FIXME: Default to most recently created agent instead of error
         # When no agent is specified and not running interactively, should connect
@@ -438,19 +440,9 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
             logger.info("No agent selected")
             return
 
-        agent, host = find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "connect")
-
-    # Check if the agent's tmux session exists and start it if needed
-    lifecycle_state = agent.get_lifecycle_state()
-    if lifecycle_state == AgentLifecycleState.STOPPED:
-        if opts.start:
-            logger.info("Agent {} is stopped, starting it", agent.name)
-            host.start_agents([agent.id])
-        else:
-            raise UserInputError(
-                f"Agent '{agent.name}' is stopped and --no-start was specified. "
-                "Use --start to automatically start the agent."
-            )
+        agent, host = find_and_maybe_start_agent_by_name_or_id(
+            str(selected.id), agents_by_host, mngr_ctx, "connect", is_start_desired=opts.start
+        )
 
     # Build connection options
     connection_opts = ConnectionOptions(
