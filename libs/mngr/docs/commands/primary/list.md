@@ -39,10 +39,10 @@ mngr list [OPTIONS]
 | ---- | ---- | ----------- | ------- |
 | `--include` | text | Include agents matching CEL expression (repeatable) | None |
 | `--exclude` | text | Exclude agents matching CEL expression (repeatable) | None |
-| `--running` | boolean | Show only running agents (alias for --include 'state == "running"') [future] | `False` |
-| `--stopped` | boolean | Show only stopped agents (alias for --include 'state == "stopped"') [future] | `False` |
-| `--local` | boolean | Show only local agents (alias for --include 'host.provider == "local"') [future] | `False` |
-| `--remote` | boolean | Show only remote agents (alias for --exclude 'host.provider == "local"') [future] | `False` |
+| `--running` | boolean | Show only running agents (alias for --include 'state == "running"') | `False` |
+| `--stopped` | boolean | Show only stopped agents (alias for --include 'state == "stopped"') | `False` |
+| `--local` | boolean | Show only local agents (alias for --include 'host.provider == "local"') | `False` |
+| `--remote` | boolean | Show only remote agents (alias for --exclude 'host.provider == "local"') | `False` |
 | `--provider` | text | Show only agents using specified provider (repeatable) | None |
 | `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
 

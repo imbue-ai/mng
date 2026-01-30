@@ -68,22 +68,22 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--running",
     is_flag=True,
-    help="Show only running agents (alias for --include 'state == \"running\"') [future]",
+    help="Show only running agents (alias for --include 'state == \"running\"')",
 )
 @optgroup.option(
     "--stopped",
     is_flag=True,
-    help="Show only stopped agents (alias for --include 'state == \"stopped\"') [future]",
+    help="Show only stopped agents (alias for --include 'state == \"stopped\"')",
 )
 @optgroup.option(
     "--local",
     is_flag=True,
-    help="Show only local agents (alias for --include 'host.provider == \"local\"') [future]",
+    help="Show only local agents (alias for --include 'host.provider == \"local\"')",
 )
 @optgroup.option(
     "--remote",
     is_flag=True,
-    help="Show only remote agents (alias for --exclude 'host.provider == \"local\"') [future]",
+    help="Show only remote agents (alias for --exclude 'host.provider == \"local\"')",
 )
 @optgroup.option(
     "--provider",
@@ -205,8 +205,17 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     # --stopped: alias for --include 'state == "stopped"'
     # --local: alias for --include 'host.provider == "local"'
     # --remote: alias for --exclude 'host.provider == "local"'
-    if opts.running or opts.stopped or opts.local or opts.remote:
-        raise NotImplementedError("Convenience filter aliases not implemented yet")
+    if opts.running:
+        include_filters.append('state == "running"')
+    if opts.stopped:
+        include_filters.append('state == "stopped"')
+    if opts.local:
+        include_filters.append('host.provider == "local"')
+
+    # Build list of exclude filters
+    exclude_filters = list(opts.exclude)
+    if opts.remote:
+        exclude_filters.append('host.provider == "local"')
 
     # --sort FIELD: Sort by any available field [default: create_time]
     # --sort-order ORDER: Sort order (asc, desc) [default: asc]
@@ -224,7 +233,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         result = api_list_agents(
             mngr_ctx=mngr_ctx,
             include_filters=tuple(include_filters),
-            exclude_filters=opts.exclude,
+            exclude_filters=tuple(exclude_filters),
             provider_names=opts.provider if opts.provider else None,
             error_behavior=error_behavior,
             on_agent=_emit_jsonl_agent,
@@ -239,7 +248,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     result = api_list_agents(
         mngr_ctx=mngr_ctx,
         include_filters=tuple(include_filters),
-        exclude_filters=opts.exclude,
+        exclude_filters=tuple(exclude_filters),
         provider_names=opts.provider if opts.provider else None,
         error_behavior=error_behavior,
     )

@@ -583,3 +583,150 @@ def test_list_command_with_invalid_fields(
         assert "NAME" in result.output
         assert "INVALID_FIELD" in result.output
         assert agent_name in result.output
+
+
+def test_list_command_with_running_filter_alias(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --running filter alias."""
+    agent_name = f"test-list-running-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create a running agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 907727",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with --running should show the agent
+        result = cli_runner.invoke(
+            list_command,
+            ["--running"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name in result.output
+
+
+def test_list_command_with_stopped_filter_alias(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --stopped filter alias (no agents to find)."""
+    # Without any stopped agents, this should return no agents
+    result = cli_runner.invoke(
+        list_command,
+        ["--stopped"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    # Should indicate no agents found or empty output
+    assert "No agents found" in result.output or "stopped" not in result.output.lower()
+
+
+def test_list_command_with_local_filter_alias(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --local filter alias."""
+    agent_name = f"test-list-local-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create a local agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 806616",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with --local should show the agent
+        result = cli_runner.invoke(
+            list_command,
+            ["--local"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name in result.output
+
+
+def test_list_command_with_remote_filter_alias(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --remote filter alias (excludes local agents)."""
+    agent_name = f"test-list-remote-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create a local agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 705505",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with --remote should NOT show the local agent
+        result = cli_runner.invoke(
+            list_command,
+            ["--remote"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name not in result.output
