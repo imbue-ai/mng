@@ -1776,6 +1776,12 @@ def sync_todo_list_to_remote_server(
     return SyncResponse.model_validate(response.json())
 ```
 
+# Marking future work
+
+Planned features should raise `NotImplementedError`, and docs referring to them should mark them with [future].
+
+Cleanup tasks are marked with TODO or FIXME.
+
 # Misc
 
 Never use `async` or `asyncio`
