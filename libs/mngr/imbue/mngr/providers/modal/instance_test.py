@@ -18,6 +18,7 @@ from typing import Generator
 from typing import TypeVar
 from typing import cast
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import modal
 import modal.exception
@@ -42,8 +43,11 @@ from imbue.mngr.providers.modal.backend import STATE_VOLUME_SUFFIX
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
 from imbue.mngr.providers.modal.errors import NoSnapshotsModalMngrError
+from imbue.mngr.providers.modal.instance import HostRecord
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
+from imbue.mngr.providers.modal.instance import SandboxConfig
+from imbue.mngr.providers.modal.instance import SnapshotRecord
 from imbue.mngr.providers.modal.instance import TAG_HOST_ID
 from imbue.mngr.providers.modal.instance import TAG_HOST_NAME
 from imbue.mngr.providers.modal.instance import TAG_USER_PREFIX
@@ -145,6 +149,18 @@ def test_build_and_parse_sandbox_tags_roundtrip() -> None:
     assert parsed_user_tags == user_tags
 
 
+class AuthorizedModalProviderInstance(ModalProviderInstance):
+    """Test subclass that always reports as authorized.
+
+    This is used for unit tests with mocked Modal dependencies where we don't
+    have real credentials but want to test the provider logic.
+    """
+
+    @property
+    def is_authorized(self) -> bool:
+        return True
+
+
 class UnauthorizedModalProviderInstance(ModalProviderInstance):
     """Test subclass that always reports as unauthorized.
 
@@ -222,9 +238,13 @@ def _make_modal_provider_with_mocks(
     return instance
 
 
-def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
-    """Create a ModalProviderInstance with mocked Modal dependencies for unit tests."""
-    return _make_modal_provider_with_mocks(mngr_ctx, app_name, ModalProviderInstance, "modal-test")
+def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> AuthorizedModalProviderInstance:
+    """Create an AuthorizedModalProviderInstance with mocked Modal dependencies for unit tests.
+
+    Uses AuthorizedModalProviderInstance so that is_authorized returns True, allowing
+    the provider methods to be tested without real Modal credentials.
+    """
+    return _make_modal_provider_with_mocks(mngr_ctx, app_name, AuthorizedModalProviderInstance, "modal-test")
 
 
 def make_unauthorized_modal_provider(mngr_ctx: MngrContext, app_name: str) -> UnauthorizedModalProviderInstance:
@@ -273,8 +293,12 @@ def make_modal_provider_real(
 
 
 @pytest.fixture
-def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProviderInstance:
-    """Create a ModalProviderInstance with mocked Modal for unit/integration tests."""
+def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> AuthorizedModalProviderInstance:
+    """Create an AuthorizedModalProviderInstance with mocked Modal for unit/integration tests.
+
+    Uses AuthorizedModalProviderInstance so that is_authorized returns True, allowing
+    the provider methods to be tested without real Modal credentials.
+    """
     app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     return make_modal_provider_with_mocks(temp_mngr_ctx, app_name)
 
@@ -513,6 +537,221 @@ def test_get_host_raises_provider_not_authorized_error_when_not_authorized(
     """When not authorized, get_host should raise ProviderNotAuthorizedError."""
     with pytest.raises(ProviderNotAuthorizedError):
         unauthorized_modal_provider.get_host(HostId.generate())
+
+
+# =============================================================================
+# list_hosts and stopped host tests (unit tests with mocked volume)
+# =============================================================================
+
+
+def _make_host_record(
+    host_id: HostId,
+    host_name: str = "test-host",
+    snapshots: list[SnapshotRecord] | None = None,
+) -> HostRecord:
+    """Create a HostRecord for testing."""
+    return HostRecord(
+        host_id=str(host_id),
+        host_name=host_name,
+        ssh_host="test.host",
+        ssh_port=22,
+        ssh_host_public_key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQ...",
+        config=SandboxConfig(cpu=1.0, memory=1.0),
+        user_tags={},
+        snapshots=snapshots or [],
+    )
+
+
+def _make_snapshot_record(name: str = "initial") -> SnapshotRecord:
+    """Create a SnapshotRecord for testing."""
+    return SnapshotRecord(
+        id=str(SnapshotId.generate()),
+        name=name,
+        created_at="2026-01-01T00:00:00Z",
+        modal_image_id="im-abc123",
+    )
+
+
+def test_list_all_host_records_returns_empty_when_volume_empty(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_records should return empty list when volume has no host records."""
+    # Mock volume.listdir to return empty
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.return_value = []
+
+    host_records = modal_provider._list_all_host_records()
+
+    assert host_records == []
+    mock_volume.listdir.assert_called_once_with("/")
+
+
+def test_list_all_host_records_returns_records_from_volume(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_records should return host records from volume."""
+    host_id = HostId.generate()
+    host_record = _make_host_record(host_id)
+
+    # Mock volume.listdir to return a file entry
+    mock_entry = MagicMock()
+    mock_entry.path = f"/{host_id}.json"
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.return_value = [mock_entry]
+
+    # Mock _read_host_record to return the host record
+    with patch.object(modal_provider, "_read_host_record", return_value=host_record):
+        host_records = modal_provider._list_all_host_records()
+
+    assert len(host_records) == 1
+    assert host_records[0].host_id == str(host_id)
+
+
+def test_list_all_host_records_skips_non_json_files(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_records should skip non-.json files."""
+    # Mock volume.listdir to return both .json and non-.json files
+    mock_entry_json = MagicMock()
+    mock_entry_json.path = f"/{HostId.generate()}.json"
+    mock_entry_txt = MagicMock()
+    mock_entry_txt.path = "/readme.txt"
+    mock_entry_dir = MagicMock()
+    mock_entry_dir.path = "/subdir"
+
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.return_value = [mock_entry_json, mock_entry_txt, mock_entry_dir]
+
+    # Mock _read_host_record - only called for .json files
+    with patch.object(modal_provider, "_read_host_record", return_value=None) as mock_read:
+        modal_provider._list_all_host_records()
+        # Should only have tried to read the .json file
+        assert mock_read.call_count == 1
+
+
+def test_list_hosts_includes_running_sandboxes_without_host_records(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """list_hosts should include running sandboxes even if host record hasn't propagated."""
+    host_id = HostId.generate()
+
+    # Mock _list_sandboxes to return a sandbox
+    mock_sandbox = MagicMock()
+    mock_sandbox.get_tags.return_value = {
+        TAG_HOST_ID: str(host_id),
+        TAG_HOST_NAME: "test-host",
+    }
+
+    # Mock _list_all_host_records to return empty (eventual consistency scenario)
+    # Mock _create_host_from_sandbox to return a mock host
+    mock_host = MagicMock()
+    mock_host.id = host_id
+
+    with (
+        patch.object(modal_provider, "_list_sandboxes", return_value=[mock_sandbox]),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[]),
+        patch.object(modal_provider, "_create_host_from_sandbox", return_value=mock_host),
+    ):
+        hosts = modal_provider.list_hosts()
+
+    assert len(hosts) == 1
+    assert hosts[0].id == host_id
+
+
+def test_list_hosts_returns_stopped_hosts_with_snapshots(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """list_hosts should return stopped hosts (no sandbox, has snapshots)."""
+    host_id = HostId.generate()
+    snapshot = _make_snapshot_record("initial")
+    host_record = _make_host_record(host_id, snapshots=[snapshot])
+
+    # Mock _list_sandboxes to return empty (no running sandboxes)
+    # Mock _list_all_host_records to return the host record with a snapshot
+    # Mock _create_host_from_host_record to return a mock host
+    mock_host = MagicMock()
+    mock_host.id = host_id
+
+    with (
+        patch.object(modal_provider, "_list_sandboxes", return_value=[]),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
+        patch.object(modal_provider, "_create_host_from_host_record", return_value=mock_host),
+    ):
+        hosts = modal_provider.list_hosts()
+
+    assert len(hosts) == 1
+    assert hosts[0].id == host_id
+
+
+def test_list_hosts_excludes_destroyed_hosts_by_default(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """list_hosts should exclude destroyed hosts (no sandbox, no snapshots) by default."""
+    host_id = HostId.generate()
+    # Host record with no snapshots = destroyed
+    host_record = _make_host_record(host_id, snapshots=[])
+
+    with (
+        patch.object(modal_provider, "_list_sandboxes", return_value=[]),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
+    ):
+        hosts = modal_provider.list_hosts(include_destroyed=False)
+
+    assert len(hosts) == 0
+
+
+def test_list_hosts_includes_destroyed_hosts_when_requested(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """list_hosts(include_destroyed=True) should include destroyed hosts."""
+    host_id = HostId.generate()
+    # Host record with no snapshots = destroyed
+    host_record = _make_host_record(host_id, snapshots=[])
+
+    mock_host = MagicMock()
+    mock_host.id = host_id
+
+    with (
+        patch.object(modal_provider, "_list_sandboxes", return_value=[]),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
+        patch.object(modal_provider, "_create_host_from_host_record", return_value=mock_host),
+    ):
+        hosts = modal_provider.list_hosts(include_destroyed=True)
+
+    assert len(hosts) == 1
+    assert hosts[0].id == host_id
+
+
+def test_list_hosts_prefers_running_sandbox_over_host_record(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """list_hosts should use sandbox for running hosts, not host record."""
+    host_id = HostId.generate()
+    snapshot = _make_snapshot_record("initial")
+    host_record = _make_host_record(host_id, snapshots=[snapshot])
+
+    # Mock sandbox with same host_id
+    mock_sandbox = MagicMock()
+    mock_sandbox.get_tags.return_value = {
+        TAG_HOST_ID: str(host_id),
+        TAG_HOST_NAME: "test-host",
+    }
+
+    mock_host = MagicMock()
+    mock_host.id = host_id
+
+    with (
+        patch.object(modal_provider, "_list_sandboxes", return_value=[mock_sandbox]),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
+        patch.object(modal_provider, "_create_host_from_sandbox", return_value=mock_host) as mock_from_sandbox,
+        patch.object(modal_provider, "_create_host_from_host_record") as mock_from_record,
+    ):
+        hosts = modal_provider.list_hosts()
+
+    assert len(hosts) == 1
+    # Should use sandbox, not host record
+    mock_from_sandbox.assert_called_once()
+    mock_from_record.assert_not_called()
 
 
 # =============================================================================

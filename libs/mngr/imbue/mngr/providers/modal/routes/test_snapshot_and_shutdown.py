@@ -1,15 +1,17 @@
-"""Acceptance tests for the snapshot_and_shutdown Modal function.
+"""Tests for the snapshot_and_shutdown Modal function.
 
-These tests deploy the function to Modal and verify end-to-end functionality.
-They are marked as acceptance tests since they require network access and
-Modal credentials.
+Unit tests verify the helper functions without deploying to Modal.
+Acceptance tests deploy the function to Modal and verify end-to-end functionality.
 """
 
 import io
 import json
+import os
 import subprocess
 from collections.abc import Generator
 from typing import Any
+from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import httpx
 import modal
@@ -20,6 +22,118 @@ from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
 from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import get_short_random_string
+
+# Set env var before importing snapshot_and_shutdown module (required for unit tests)
+os.environ.setdefault("MNGR_MODAL_APP_NAME", "mngr-test-unit")
+
+# Import after setting env var since the module requires MNGR_MODAL_APP_NAME at import time
+from imbue.mngr.providers.modal.routes.snapshot_and_shutdown import (
+    _write_agent_records,
+)
+
+
+# =============================================================================
+# Unit tests for _write_agent_records
+# =============================================================================
+
+
+def test_write_agent_records_with_empty_list() -> None:
+    """_write_agent_records should return early when agents list is empty."""
+    mock_volume = MagicMock()
+
+    with patch("imbue.mngr.providers.modal.routes.snapshot_and_shutdown.volume", mock_volume):
+        _write_agent_records("host-123", [])
+
+    # Should not create any directories or files or call commit
+    mock_volume.commit.assert_not_called()
+
+
+def test_write_agent_records_writes_agent_files() -> None:
+    """_write_agent_records should write each agent to a JSON file."""
+    mock_volume = MagicMock()
+
+    with (
+        patch("imbue.mngr.providers.modal.routes.snapshot_and_shutdown.volume", mock_volume),
+        patch("imbue.mngr.providers.modal.routes.snapshot_and_shutdown.os.makedirs") as mock_makedirs,
+        patch("builtins.open", create=True) as mock_open,
+    ):
+        # Set up mock file handle
+        mock_file = MagicMock()
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        agents = [
+            {"id": "agent-1", "name": "test-agent-1", "type": "claude"},
+            {"id": "agent-2", "name": "test-agent-2", "type": "codex"},
+        ]
+
+        _write_agent_records("host-123", agents)
+
+        # Verify directory was created
+        mock_makedirs.assert_called_once_with("/vol/host-123", exist_ok=True)
+
+        # Verify files were opened for writing
+        assert mock_open.call_count == 2
+        mock_open.assert_any_call("/vol/host-123/agent-1.json", "w")
+        mock_open.assert_any_call("/vol/host-123/agent-2.json", "w")
+
+        # Verify volume.commit() was called
+        mock_volume.commit.assert_called_once()
+
+
+def test_write_agent_records_skips_agents_without_id() -> None:
+    """_write_agent_records should skip agents that don't have an 'id' field."""
+    mock_volume = MagicMock()
+
+    with (
+        patch("imbue.mngr.providers.modal.routes.snapshot_and_shutdown.volume", mock_volume),
+        patch("imbue.mngr.providers.modal.routes.snapshot_and_shutdown.os.makedirs"),
+        patch("builtins.open", create=True) as mock_open,
+    ):
+        mock_file = MagicMock()
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        # Agents without valid IDs should be skipped
+        agents = [
+            {"id": "agent-1", "name": "test-agent-1"},
+            {"name": "no-id-agent"},
+            {"id": None, "name": "null-id-agent"},
+            {"id": "agent-3", "name": "test-agent-3"},
+        ]
+
+        _write_agent_records("host-456", agents)
+
+        # Should only write files for agents with valid IDs
+        assert mock_open.call_count == 2
+        mock_open.assert_any_call("/vol/host-456/agent-1.json", "w")
+        mock_open.assert_any_call("/vol/host-456/agent-3.json", "w")
+
+
+def test_write_agent_records_writes_correct_json() -> None:
+    """_write_agent_records should write the agent data as JSON with indentation."""
+    mock_volume = MagicMock()
+
+    # Capture what json.dump writes
+    written_data: dict[str, Any] = {}
+
+    def capture_json_dump(data: Any, f: Any, **kwargs: Any) -> None:
+        written_data["agent"] = data
+
+    with (
+        patch("imbue.mngr.providers.modal.routes.snapshot_and_shutdown.volume", mock_volume),
+        patch("imbue.mngr.providers.modal.routes.snapshot_and_shutdown.os.makedirs"),
+        patch("builtins.open", MagicMock()),
+        patch("imbue.mngr.providers.modal.routes.snapshot_and_shutdown.json.dump", capture_json_dump),
+    ):
+        agent = {"id": "agent-test", "name": "test-agent", "type": "claude", "work_dir": "/work"}
+        _write_agent_records("host-789", [agent])
+
+    # Verify the correct data was passed to json.dump
+    assert written_data["agent"] == agent
+
+
+# =============================================================================
+# Acceptance tests (require Modal network access)
+# =============================================================================
 
 
 class DeploymentError(RuntimeError):

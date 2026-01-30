@@ -268,3 +268,15 @@ class ProviderInstanceInterface(MutableModel, ABC):
 
         The default implementation does nothing.
         """
+
+    def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict]:
+        """List persisted agent data for a stopped host.
+
+        Some providers (like Modal) persist agent state when hosts are stopped,
+        allowing agent information to be retrieved even when the host is not running.
+
+        Each dict in the returned list should contain at minimum an 'id' field with
+        the agent ID. Returns an empty list if no persisted data exists or the
+        provider doesn't support this feature.
+        """
+        return []

@@ -10,6 +10,7 @@ Only host_id and host_name are stored as sandbox tags for discovery purposes.
 
 import argparse
 import io
+import json
 import os
 import socket
 import tempfile
@@ -19,6 +20,7 @@ from datetime import datetime
 from datetime import timezone
 from functools import wraps
 from pathlib import Path
+from typing import Any
 from typing import ClassVar
 from typing import Final
 from typing import Mapping
@@ -372,6 +374,72 @@ class ModalProviderInstance(BaseProviderInstance):
         except FileNotFoundError:
             pass
 
+    def _list_all_host_records(self) -> list[HostRecord]:
+        """List all host records stored on the volume.
+
+        Returns a list of all HostRecord objects found on the volume.
+        Host records are stored at /<host_id>.json.
+        """
+        volume = self._get_volume()
+        logger.trace("Listing all host records from volume")
+
+        host_records: list[HostRecord] = []
+        try:
+            # List files at the root of the volume
+            for entry in volume.listdir("/"):
+                filename = entry.path
+                # Host records are stored as <host_id>.json
+                if filename.endswith(".json"):
+                    # Remove .json suffix (and any leading / if present)
+                    host_id_str = filename.lstrip("/")[:-5]
+                    try:
+                        host_id = HostId(host_id_str)
+                        host_record = self._read_host_record(host_id)
+                        if host_record is not None:
+                            host_records.append(host_record)
+                    except (ValueError, KeyError) as e:
+                        logger.trace("Skipping invalid host record file {}: {}", filename, e)
+                        continue
+        except (OSError, IOError, modal.exception.Error) as e:
+            logger.warning("Failed to list host records from volume: {}", e)
+
+        return host_records
+
+    def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
+        """List persisted agent data for a stopped host.
+
+        Agent records are stored at /{host_id}/{agent_id}.json on the volume.
+        These are persisted when a host shuts down so that mngr list can
+        show agents on stopped hosts.
+        """
+        volume = self._get_volume()
+        logger.trace("Listing agent records for host {} from volume", host_id)
+
+        agent_records: list[dict[str, Any]] = []
+        host_dir = f"/{host_id}"
+        try:
+            for entry in volume.listdir(host_dir):
+                filename = entry.path
+                if filename.endswith(".json"):
+                    # Read the agent record
+                    agent_path = f"{host_dir}/{filename.lstrip('/')}"
+                    try:
+                        # Read file returns a generator that yields bytes chunks
+                        chunks: list[bytes] = []
+                        for chunk in volume.read_file(agent_path):
+                            chunks.append(chunk)
+                        content = b"".join(chunks).decode("utf-8")
+                        agent_data = json.loads(content)
+                        agent_records.append(agent_data)
+                    except (OSError, IOError, json.JSONDecodeError) as e:
+                        logger.trace("Skipping invalid agent record file {}: {}", agent_path, e)
+                        continue
+        except (OSError, IOError, modal.exception.Error) as e:
+            # Host directory might not exist yet (no agents persisted)
+            logger.trace("No agent records found for host {}: {}", host_id, e)
+
+        return agent_records
+
     def _build_modal_image(
         self,
         base_image: str | None = None,
@@ -612,21 +680,49 @@ class ModalProviderInstance(BaseProviderInstance):
         passing the sandbox_id and host_id as JSON payload.
         """
         sandbox_id = sandbox.object_id
+        host_dir_str = str(host.host_dir)
 
         # Create the shutdown script content
         # The script sends a POST request to the snapshot_and_shutdown endpoint
+        # It also gathers agent data from the agents directory to persist to the volume
         script_content = f'''#!/bin/bash
 # Auto-generated shutdown script for mngr Modal host
 # This script snapshots and shuts down the host by calling the deployed Modal function
+# It also gathers agent data to persist to the volume so agents show up in mngr list
 
 SNAPSHOT_URL="{snapshot_url}"
 SANDBOX_ID="{sandbox_id}"
 HOST_ID="{host_id}"
+HOST_DIR="{host_dir_str}"
 
-# Send the shutdown request
+# Gather agent data from all agent directories
+# This creates a JSON array of agent data objects
+gather_agents() {{
+    local agents_dir="$HOST_DIR/agents"
+    local first=true
+    echo -n "["
+    if [ -d "$agents_dir" ]; then
+        for agent_dir in "$agents_dir"/*/; do
+            if [ -f "${{agent_dir}}data.json" ]; then
+                if [ "$first" = true ]; then
+                    first=false
+                else
+                    echo -n ","
+                fi
+                cat "${{agent_dir}}data.json"
+            fi
+        done
+    fi
+    echo -n "]"
+}}
+
+# Build the JSON payload with agent data
+AGENTS=$(gather_agents)
+
+# Send the shutdown request with agent data
 curl -s -X POST "$SNAPSHOT_URL" \\
     -H "Content-Type: application/json" \\
-    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'"}}'
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "agents": '"$AGENTS"'}}'
 '''
 
         # Write the script to the host
@@ -902,6 +998,42 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             return None
 
         # Add the sandbox's host key to known_hosts so SSH connections will work
+        add_host_to_known_hosts(
+            self._known_hosts_path,
+            host_record.ssh_host,
+            host_record.ssh_port,
+            host_record.ssh_host_public_key,
+        )
+
+        private_key_path, _ = self._get_ssh_keypair()
+        pyinfra_host = self._create_pyinfra_host(
+            host_record.ssh_host,
+            host_record.ssh_port,
+            private_key_path,
+        )
+        connector = PyinfraConnector(pyinfra_host)
+
+        return Host(
+            id=host_id,
+            connector=connector,
+            provider_instance=self,
+            mngr_ctx=self.mngr_ctx,
+        )
+
+    def _create_host_from_host_record(
+        self,
+        host_record: HostRecord,
+    ) -> Host:
+        """Create a Host object from a host record (for stopped hosts).
+
+        This is used when there is no running sandbox but the host record
+        exists on the volume. The Host will have stale SSH info, so SSH
+        operations will fail, and get_state() will return STOPPED or DESTROYED.
+        """
+        host_id = HostId(host_record.host_id)
+
+        # Add the host key to known_hosts (even though it's stale, it's needed
+        # for the pyinfra connector setup)
         add_host_to_known_hosts(
             self._known_hosts_path,
             host_record.ssh_host,
@@ -1260,7 +1392,11 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         self,
         host: HostId | HostName,
     ) -> Host:
-        """Get a host by ID or name."""
+        """Get a host by ID or name.
+
+        First tries to find a running sandbox. If not found, falls back to
+        the host record on the volume (for stopped hosts).
+        """
         if not self.is_authorized:
             raise ProviderNotAuthorizedError(
                 self.name,
@@ -1268,29 +1404,45 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             )
 
         if isinstance(host, HostId):
+            # Try to find a running sandbox first
             sandbox = self._find_sandbox_by_host_id(host)
-            if sandbox is None:
-                raise HostNotFoundError(host)
-            host_obj = self._create_host_from_sandbox(sandbox)
-            if host_obj is None:
-                raise HostNotFoundError(host)
-            return host_obj
+            if sandbox is not None:
+                host_obj = self._create_host_from_sandbox(sandbox)
+                if host_obj is not None:
+                    return host_obj
+
+            # No sandbox - try host record (for stopped hosts)
+            host_record = self._read_host_record(host)
+            if host_record is not None:
+                return self._create_host_from_host_record(host_record)
+
+            raise HostNotFoundError(host)
 
         # If it's a HostName, search by name
         sandbox = self._find_sandbox_by_name(host)
-        if sandbox is None:
-            raise HostNotFoundError(host)
-        host_obj = self._create_host_from_sandbox(sandbox)
-        if host_obj is None:
-            raise HostNotFoundError(host)
-        return host_obj
+        if sandbox is not None:
+            host_obj = self._create_host_from_sandbox(sandbox)
+            if host_obj is not None:
+                return host_obj
+
+        # No sandbox - search host records by name (for stopped hosts)
+        for host_record in self._list_all_host_records():
+            if host_record.host_name == str(host):
+                return self._create_host_from_host_record(host_record)
+
+        raise HostNotFoundError(host)
 
     @handle_modal_auth_error
     def list_hosts(
         self,
         include_destroyed: bool = False,
     ) -> list[HostInterface]:
-        """List all active Modal sandbox hosts.
+        """List all Modal sandbox hosts, including stopped ones.
+
+        Returns hosts in three states:
+        - RUNNING: has an active sandbox
+        - STOPPED: no sandbox but has snapshots (can be restarted)
+        - DESTROYED: no sandbox and no snapshots (only if include_destroyed=True)
 
         If the provider is not authorized, logs a warning and returns an empty list.
         """
@@ -1305,15 +1457,74 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             return []
 
         hosts: list[HostInterface] = []
+        processed_host_ids: set[HostId] = set()
+
+        # Get all running sandboxes and map them by host_id
+        running_sandbox_by_host_id: dict[HostId, modal.Sandbox] = {}
         for sandbox in self._list_sandboxes():
+            try:
+                tags = sandbox.get_tags()
+                host_id = HostId(tags[TAG_HOST_ID])
+                running_sandbox_by_host_id[host_id] = sandbox
+            except (KeyError, ValueError) as e:
+                logger.debug("Skipping sandbox with invalid tags: {}", e)
+                continue
+
+        # Get all host records from the volume
+        all_host_records = self._list_all_host_records()
+
+        # First, process host records (includes both running and stopped hosts)
+        for host_record in all_host_records:
+            host_id = HostId(host_record.host_id)
+            processed_host_ids.add(host_id)
+
+            if host_id in running_sandbox_by_host_id:
+                # Host has a running sandbox - create from sandbox
+                sandbox = running_sandbox_by_host_id[host_id]
+                try:
+                    host_obj = self._create_host_from_sandbox(sandbox)
+                    if host_obj is not None:
+                        hosts.append(host_obj)
+                except (KeyError, ValueError) as e:
+                    logger.debug("Failed to create host from sandbox {}: {}", host_id, e)
+                    continue
+            else:
+                # Host has no running sandbox - it's stopped or destroyed
+                has_snapshots = len(host_record.snapshots) > 0
+
+                if has_snapshots:
+                    # Stopped host (can be restarted)
+                    try:
+                        host_obj = self._create_host_from_host_record(host_record)
+                        hosts.append(host_obj)
+                    except (OSError, IOError, ValueError, KeyError) as e:
+                        logger.debug("Failed to create host from host record {}: {}", host_id, e)
+                        continue
+                elif include_destroyed:
+                    # Destroyed host (no snapshots, can't be restarted)
+                    try:
+                        host_obj = self._create_host_from_host_record(host_record)
+                        hosts.append(host_obj)
+                    except (OSError, IOError, ValueError, KeyError) as e:
+                        logger.debug("Failed to create host from host record {}: {}", host_id, e)
+                        continue
+                else:
+                    # Skip destroyed hosts when include_destroyed=False
+                    pass
+
+        # Second, include any running sandboxes that don't have host records yet
+        # (handles eventual consistency of volume or legacy sandboxes)
+        for host_id, sandbox in running_sandbox_by_host_id.items():
+            if host_id in processed_host_ids:
+                continue
             try:
                 host_obj = self._create_host_from_sandbox(sandbox)
                 if host_obj is not None:
                     hosts.append(host_obj)
             except (KeyError, ValueError) as e:
-                # Skip sandboxes with invalid/missing tags
-                logger.debug("Skipping sandbox with invalid tags: {}", e)
+                logger.debug("Failed to create host from sandbox {}: {}", host_id, e)
                 continue
+
         return hosts
 
     def get_host_resources(self, host: HostInterface) -> HostResources:
