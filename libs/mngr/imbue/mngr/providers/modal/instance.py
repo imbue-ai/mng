@@ -767,7 +767,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         parser.add_argument("--memory", type=float, default=self.config.default_memory)
         parser.add_argument("--image", type=str, default=self.config.default_image)
         parser.add_argument("--dockerfile", type=str, default=None)
-        parser.add_argument("--timeout", type=int, default=self.config.default_timeout)
+        parser.add_argument("--timeout", type=int, default=self.config.default_sandbox_timeout)
         parser.add_argument("--region", type=str, default=self.config.default_region)
         parser.add_argument("--context-dir", type=str, default=None)
         parser.add_argument("--secret", type=str, action="append", default=[])
@@ -1108,7 +1108,17 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         app = self._get_modal_app()
 
         # Create the sandbox
-        logger.debug("Creating Modal sandbox", timeout=config.timeout, cpu=config.cpu, memory_gb=config.memory)
+        # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
+        # trigger a clean shutdown before Modal's hard timeout kills the host
+        modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
+        logger.debug(
+            "Creating Modal sandbox",
+            timeout=config.timeout,
+            modal_timeout=modal_timeout,
+            shutdown_buffer=self.config.shutdown_buffer_seconds,
+            cpu=config.cpu,
+            memory_gb=config.memory,
+        )
 
         # Memory is in GB but Modal expects MB
         memory_mb = int(config.memory * 1024)
@@ -1118,7 +1128,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                 app=app,
                 # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
                 # environment_name=self.environment_name,
-                timeout=config.timeout,
+                timeout=modal_timeout,
                 cpu=config.cpu,
                 memory=memory_mb,
                 unencrypted_ports=[CONTAINER_SSH_PORT],
@@ -1157,9 +1167,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # Set up activity configuration for idle detection, merging CLI options with provider defaults
         lifecycle_options = lifecycle if lifecycle is not None else HostLifecycleOptions()
         activity_config = lifecycle_options.to_activity_config(
-            default_timeout=self.config.default_timeout,
-            default_mode=self.config.default_idle_mode,
-            default_sources=self.config.default_activity_sources,
+            default_idle_timeout_seconds=self.config.default_idle_timeout,
+            default_idle_mode=self.config.default_idle_mode,
+            default_activity_sources=self.config.default_activity_sources,
         )
         host.set_activity_config(activity_config)
 
@@ -1171,6 +1181,13 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
+
+        # Write max_host_age file so the activity watcher can trigger a clean shutdown
+        # before Modal's hard timeout kills the host. The value is the sandbox timeout
+        # (without the buffer we added to modal_timeout)
+        max_host_age_path = host.host_dir / "max_host_age"
+        host.write_text_file(max_host_age_path, str(config.timeout))
+        logger.debug("Wrote max_host_age file", max_host_age_seconds=config.timeout)
 
         # Optionally create an initial snapshot based on config
         # When enabled, this ensures the host can be restarted even after a hard kill
@@ -1321,13 +1338,16 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         app = self._get_modal_app()
 
         # Create the sandbox from the snapshot image
+        # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
+        # trigger a clean shutdown before Modal's hard timeout kills the host
+        modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
         memory_mb = int(config.memory * 1024)
         new_sandbox = modal.Sandbox.create(
             image=modal_image,
             app=app,
             # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
             # environment_name=self.environment_name,
-            timeout=config.timeout,
+            timeout=modal_timeout,
             cpu=config.cpu,
             memory=memory_mb,
             unencrypted_ports=[CONTAINER_SSH_PORT],
@@ -1361,6 +1381,13 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Record BOOT activity for idle detection
         restored_host.record_activity(ActivitySource.BOOT)
+
+        # Write max_host_age file so the activity watcher can trigger a clean shutdown
+        # before Modal's hard timeout kills the host. The value is the sandbox timeout
+        # (without the buffer we added to modal_timeout)
+        max_host_age_path = restored_host.host_dir / "max_host_age"
+        restored_host.write_text_file(max_host_age_path, str(config.timeout))
+        logger.debug("Wrote max_host_age file", max_host_age_seconds=config.timeout)
 
         return restored_host
 
