@@ -25,21 +25,26 @@ from imbue.mngr.utils.git_utils import is_git_repository
 
 
 class GitSyncAction(FrozenModel):
-    """Describes the git sync actions to perform before starting continuous sync."""
+    """Describes the git sync state between two repositories.
 
-    needs_push: bool = Field(
+    This class describes which repository (source or target) has commits
+    that the other doesn't. The caller is responsible for determining
+    what actions to take based on this state.
+    """
+
+    source_is_ahead: bool = Field(
         default=False,
-        description="Whether to push local commits to the agent",
+        description="True if source has commits that target doesn't have",
     )
-    needs_pull: bool = Field(
+    target_is_ahead: bool = Field(
         default=False,
-        description="Whether to pull agent commits to local",
+        description="True if target has commits that source doesn't have",
     )
     source_branch: str = Field(
-        description="The branch on the source (local) side",
+        description="The branch name on the source side",
     )
     target_branch: str = Field(
-        description="The branch on the target (agent) side",
+        description="The branch name on the target side",
     )
 
 
@@ -288,8 +293,8 @@ def determine_git_sync_actions(
 
     if source_commit is None or target_commit is None:
         return GitSyncAction(
-            needs_push=False,
-            needs_pull=False,
+            source_is_ahead=False,
+            target_is_ahead=False,
             source_branch=source_branch,
             target_branch=target_branch,
         )
@@ -297,8 +302,8 @@ def determine_git_sync_actions(
     # Check if commits are the same (already in sync)
     if source_commit == target_commit:
         return GitSyncAction(
-            needs_push=False,
-            needs_pull=False,
+            source_is_ahead=False,
+            target_is_ahead=False,
             source_branch=source_branch,
             target_branch=target_branch,
         )
@@ -326,8 +331,8 @@ def determine_git_sync_actions(
     )
     if result.returncode != 0:
         return GitSyncAction(
-            needs_push=True,
-            needs_pull=True,
+            source_is_ahead=True,
+            target_is_ahead=True,
             source_branch=source_branch,
             target_branch=target_branch,
         )
@@ -350,24 +355,24 @@ def determine_git_sync_actions(
         if source_ahead and not target_ahead:
             # Source has commits that target doesn't - need push
             return GitSyncAction(
-                needs_push=True,
-                needs_pull=False,
+                source_is_ahead=True,
+                target_is_ahead=False,
                 source_branch=source_branch,
                 target_branch=target_branch,
             )
         elif target_ahead and not source_ahead:
             # Target has commits that source doesn't - need pull
             return GitSyncAction(
-                needs_push=False,
-                needs_pull=True,
+                source_is_ahead=False,
+                target_is_ahead=True,
                 source_branch=source_branch,
                 target_branch=target_branch,
             )
         else:
             # Both have diverged - need both operations
             return GitSyncAction(
-                needs_push=True,
-                needs_pull=True,
+                source_is_ahead=True,
+                target_is_ahead=True,
                 source_branch=source_branch,
                 target_branch=target_branch,
             )
@@ -391,14 +396,14 @@ def sync_git_state(
     """Synchronize git state between agent and local paths.
 
     The git_sync_action determines what operations are needed:
-    - needs_push: agent (source) has commits local doesn't -> pull from agent to local
-    - needs_pull: local (target) has commits agent doesn't -> push from local to agent
+    - source_is_ahead: agent (source) has commits local doesn't -> pull from agent to local
+    - target_is_ahead: local (target) has commits agent doesn't -> push from local to agent
 
-    Note: The naming in GitSyncAction (needs_push/needs_pull) refers to the direction
+    Note: The naming in GitSyncAction (source_is_ahead/target_is_ahead) refers to the direction
     of data flow relative to the source/target passed to determine_git_sync_actions.
     Since source=agent and target=local in our calling convention:
-    - needs_push (source ahead) means we need to bring local up to date -> pull_git
-    - needs_pull (target ahead) means we need to bring agent up to date -> push_git
+    - source_is_ahead (source ahead) means we need to bring local up to date -> pull_git
+    - target_is_ahead (target ahead) means we need to bring agent up to date -> push_git
 
     Returns a tuple of (git_pull_performed, git_push_performed) where:
     - git_pull_performed: True if we pulled from agent to local
@@ -408,7 +413,7 @@ def sync_git_state(
     git_push_performed = False
 
     # If agent (source) has commits local doesn't -> pull from agent to local
-    if git_sync_action.needs_push:
+    if git_sync_action.source_is_ahead:
         logger.debug("Pulling git state from agent to local")
         pull_git(
             agent=agent,
@@ -421,7 +426,7 @@ def sync_git_state(
         git_pull_performed = True
 
     # If local (target) has commits agent doesn't -> push from local to agent
-    if git_sync_action.needs_pull:
+    if git_sync_action.target_is_ahead:
         logger.debug("Pushing git state from local to agent")
         push_git(
             agent=agent,
@@ -486,11 +491,11 @@ def pair_files(
 
     if source_is_git and target_is_git:
         git_action = determine_git_sync_actions(source_path, actual_target)
-        if git_action is not None and (git_action.needs_push or git_action.needs_pull):
+        if git_action is not None and (git_action.source_is_ahead or git_action.target_is_ahead):
             logger.info(
                 "Synchronizing git state (agent_ahead={}, local_ahead={})",
-                git_action.needs_push,
-                git_action.needs_pull,
+                git_action.source_is_ahead,
+                git_action.target_is_ahead,
             )
             git_pull_performed, git_push_performed = sync_git_state(
                 agent=agent,
