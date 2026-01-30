@@ -1974,16 +1974,15 @@ done
             logger.trace("Host {} is local, state=RUNNING", self.id)
             return HostState.RUNNING
 
-        try:
-            result = self.execute_command("echo ok")
-            if result.success:
-                logger.trace("Host {} state=RUNNING (ping successful)", self.id)
-                return HostState.RUNNING
-        except (OSError, HostConnectionError):
-            pass
+        if self.is_online:
+            try:
+                result = self.execute_command("echo ok")
+                if result.success:
+                    logger.trace("Host {} state=RUNNING (ping successful)", self.id)
+                    return HostState.RUNNING
+            except (OSError, HostConnectionError):
+                pass
 
-        # Host is not reachable - distinguish STOPPED vs DESTROYED
-        # For providers that support snapshots, check if any exist
         if self.provider_instance.supports_snapshots:
             try:
                 snapshots = self.get_snapshots()
