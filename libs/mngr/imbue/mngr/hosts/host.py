@@ -4,7 +4,6 @@ import fcntl
 import io
 import json
 import os
-import platform
 import shlex
 import subprocess
 import tempfile
@@ -14,7 +13,6 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
-from typing import Final
 from typing import IO
 from typing import Iterator
 from typing import Mapping
@@ -42,13 +40,17 @@ from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import UserInputError
+from imbue.mngr.hosts.common import HOST_LEVEL_ACTIVITY_SOURCES
+from imbue.mngr.hosts.common import LOCAL_CONNECTOR_NAME
+from imbue.mngr.hosts.common import get_activity_sources_for_idle_mode
+from imbue.mngr.hosts.common import is_macos
+from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.data_types import HostResources
-from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import NamedCommand
@@ -58,84 +60,9 @@ from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import HostState
-from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.git_utils import get_current_git_branch
-
-LOCAL_CONNECTOR_NAME: Final[str] = "LocalConnector"
-
-
-@deal.has()
-def _is_macos() -> bool:
-    """Check if the current system is macOS (Darwin)."""
-    return platform.system() == "Darwin"
-
-
-# Activity sources that are host-level (vs agent-level)
-_HOST_LEVEL_ACTIVITY_SOURCES: Final[frozenset[ActivitySource]] = frozenset(
-    {
-        ActivitySource.BOOT,
-        ActivitySource.USER,
-        ActivitySource.SSH,
-    }
-)
-
-
-def _get_activity_sources_for_idle_mode(idle_mode: IdleMode) -> tuple[ActivitySource, ...]:
-    """Get the activity sources that should be monitored for a given idle mode.
-
-    This mapping is defined in docs/concepts/idle_detection.md.
-    """
-    if idle_mode == IdleMode.IO:
-        return (
-            ActivitySource.USER,
-            ActivitySource.AGENT,
-            ActivitySource.SSH,
-            ActivitySource.CREATE,
-            ActivitySource.START,
-            ActivitySource.BOOT,
-        )
-    elif idle_mode == IdleMode.USER:
-        return (
-            ActivitySource.USER,
-            ActivitySource.SSH,
-            ActivitySource.CREATE,
-            ActivitySource.START,
-            ActivitySource.BOOT,
-        )
-    elif idle_mode == IdleMode.AGENT:
-        return (
-            ActivitySource.AGENT,
-            ActivitySource.SSH,
-            ActivitySource.CREATE,
-            ActivitySource.START,
-            ActivitySource.BOOT,
-        )
-    elif idle_mode == IdleMode.SSH:
-        return (
-            ActivitySource.SSH,
-            ActivitySource.CREATE,
-            ActivitySource.START,
-            ActivitySource.BOOT,
-        )
-    elif idle_mode == IdleMode.CREATE:
-        return (ActivitySource.CREATE,)
-    elif idle_mode == IdleMode.BOOT:
-        return (ActivitySource.BOOT,)
-    elif idle_mode == IdleMode.START:
-        return (ActivitySource.START, ActivitySource.BOOT)
-    elif idle_mode == IdleMode.RUN:
-        return (
-            ActivitySource.CREATE,
-            ActivitySource.START,
-            ActivitySource.BOOT,
-            ActivitySource.PROCESS,
-        )
-    elif idle_mode == IdleMode.DISABLED:
-        return ()
-    else:
-        raise SwitchError(idle_mode)
 
 
 def _generate_activity_file_patterns(host_dir: Path, activity_sources: tuple[ActivitySource, ...]) -> list[str]:
@@ -147,7 +74,7 @@ def _generate_activity_file_patterns(host_dir: Path, activity_sources: tuple[Act
     patterns: list[str] = []
     for source in activity_sources:
         source_name = source.value.lower()
-        if source in _HOST_LEVEL_ACTIVITY_SOURCES:
+        if source in HOST_LEVEL_ACTIVITY_SOURCES:
             patterns.append(str(host_dir / "activity" / source_name))
         else:
             patterns.append(str(host_dir / "agents" / "*" / "activity" / source_name))
@@ -165,7 +92,7 @@ class HostLocation(FrozenModel):
     )
 
 
-class Host(HostInterface):
+class Host(OfflineHost):
     """Host implementation that proxies operations through a pyinfra connector.
 
     All operations (command execution, file read/write) are performed through
@@ -462,15 +389,6 @@ class Host(HostInterface):
     # Activity Configuration
     # =========================================================================
 
-    def get_activity_config(self) -> ActivityConfig:
-        """Get the activity configuration for this host."""
-        certified_data = self.get_all_certified_data()
-        return ActivityConfig(
-            idle_mode=certified_data.idle_mode,
-            idle_timeout_seconds=certified_data.idle_timeout_seconds,
-            activity_sources=certified_data.activity_sources,
-        )
-
     def set_activity_config(self, config: ActivityConfig) -> None:
         """Set the activity configuration for this host.
 
@@ -497,7 +415,7 @@ class Host(HostInterface):
         self.write_text_file(data_path, json.dumps(updated_data.model_dump(by_alias=True), indent=2))
 
         # Write helper files for the activity watcher script
-        activity_sources = _get_activity_sources_for_idle_mode(config.idle_mode)
+        activity_sources = get_activity_sources_for_idle_mode(config.idle_mode)
         activity_patterns = _generate_activity_file_patterns(self.host_dir, activity_sources)
 
         activity_files_path = self.host_dir / "activity_files"
@@ -635,11 +553,6 @@ class Host(HostInterface):
         certified_data = self.get_all_certified_data()
         return str(work_dir) in certified_data.generated_work_dirs
 
-    def get_plugin_data(self, plugin_name: str) -> dict[str, Any]:
-        """Get certified plugin data from data.json."""
-        certified_data = self.get_all_certified_data()
-        return certified_data.plugin.get(plugin_name, {})
-
     def set_plugin_data(self, plugin_name: str, data: dict[str, Any]) -> None:
         """Set certified plugin data in data.json."""
         certified_data = self.get_all_certified_data()
@@ -712,7 +625,7 @@ class Host(HostInterface):
 
     def get_uptime_seconds(self) -> float:
         """Get host uptime in seconds."""
-        if _is_macos():
+        if is_macos():
             # macOS: use sysctl kern.boottime to get boot time, then compute uptime
             # Output format: { sec = 1234567890, usec = 123456 } ...
             # Use awk to reliably extract the sec value (not usec)
@@ -740,7 +653,7 @@ class Host(HostInterface):
         Returns the actual boot time from the OS, not computed from uptime,
         to avoid timing inconsistencies.
         """
-        if _is_macos():
+        if is_macos():
             # macOS: use sysctl kern.boottime which gives boot time directly
             # Output format: { sec = 1234567890, usec = 123456 } ...
             # Use awk to reliably extract the sec value (not usec)
@@ -768,19 +681,6 @@ class Host(HostInterface):
     def get_provider_resources(self) -> HostResources:
         """Get resources from the provider."""
         return self.provider_instance.get_host_resources(self)
-
-    def get_snapshots(self) -> list[SnapshotInfo]:
-        """Get list of snapshots from the provider."""
-        return self.provider_instance.list_snapshots(self)
-
-    def get_image(self) -> str | None:
-        """Get the image used for this host."""
-        all_data = self.get_all_certified_data()
-        return all_data.image
-
-    def get_tags(self) -> dict[str, str]:
-        """Get tags from the provider."""
-        return self.provider_instance.get_host_tags(self)
 
     def set_tags(self, tags: Mapping[str, str]) -> None:
         """Set tags via the provider."""

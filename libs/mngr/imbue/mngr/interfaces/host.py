@@ -27,6 +27,7 @@ from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
@@ -39,8 +40,96 @@ class HostInterface(MutableModel, ABC):
     """Interface for host implementations."""
 
     id: HostId = Field(frozen=True, description="Unique identifier for this host")
-    connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
+    is_online: bool = Field(description="Whether the host is currently online/started")
+
+    # =========================================================================
+    # Activity Configuration
+    # =========================================================================
+
+    @abstractmethod
+    def get_activity_config(self) -> ActivityConfig:
+        """Return the activity configuration for idle detection on this host."""
+        ...
+
+    # =========================================================================
+    # Activity Times
+    # =========================================================================
+
+    @abstractmethod
+    def get_reported_activity_time(self, activity_type: ActivitySource) -> datetime | None:
+        """
+        Return the last reported activity time for the given activity type, or None if unknown.
+
+        For offline hosts, we can look at the time at which the host data file was written
+        """
+        ...
+
+    # =========================================================================
+    # Certified Data
+    # =========================================================================
+
+    @abstractmethod
+    def get_all_certified_data(self) -> CertifiedHostData:
+        """Return all certified (trustworthy) host data stored in data.json."""
+        ...
+
+    @abstractmethod
+    def get_plugin_data(self, plugin_name: str) -> dict[str, Any]:
+        """Return the certified plugin data for the given plugin name."""
+        ...
+
+    # =========================================================================
+    # Provider-Derived Information
+    # =========================================================================
+
+    @abstractmethod
+    def get_snapshots(self) -> list[SnapshotInfo]:
+        """Return a list of all snapshots available for this host."""
+        ...
+
+    @abstractmethod
+    def get_image(self) -> str | None:
+        """Return the base image used for this host, or None if not applicable."""
+        ...
+
+    @abstractmethod
+    def get_tags(self) -> dict[str, str]:
+        """Return all metadata tags associated with this host."""
+        ...
+
+    # =========================================================================
+    # Agent Information
+    # =========================================================================
+
+    @abstractmethod
+    def get_agent_references(self) -> list[AgentReference]:
+        """Return a list of all agent references for this host."""
+        ...
+
+    # NOTE: these will have implementations for *both* the offline and online versions
+    # =========================================================================
+    # Agent-Derived Information
+    # =========================================================================
+
+    @abstractmethod
+    def get_idle_seconds(self) -> float:
+        """Return the number of seconds since the host was last considered active."""
+        ...
+
+    @abstractmethod
+    def get_permissions(self) -> list[str]:
+        """Return the union of all permissions granted to agents on this host."""
+        ...
+
+    @abstractmethod
+    def get_state(self) -> HostState:
+        """Return the current lifecycle state of this host."""
+        ...
+
+
+class OnlineHostInterface(HostInterface, ABC):
     is_online: bool = Field(default=True, description="Whether the host is currently online/started")
+    connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
 
     @property
     @abstractmethod
@@ -118,11 +207,6 @@ class HostInterface(MutableModel, ABC):
     # =========================================================================
 
     @abstractmethod
-    def get_activity_config(self) -> ActivityConfig:
-        """Return the activity configuration for idle detection on this host."""
-        ...
-
-    @abstractmethod
     def set_activity_config(self, config: ActivityConfig) -> None:
         """Update the activity configuration for idle detection on this host."""
         ...
@@ -130,11 +214,6 @@ class HostInterface(MutableModel, ABC):
     # =========================================================================
     # Activity Times (aggregated across all agents on this host)
     # =========================================================================
-
-    @abstractmethod
-    def get_reported_activity_time(self, activity_type: ActivitySource) -> datetime | None:
-        """Return the last reported activity time for the given activity type, or None if unknown."""
-        ...
 
     @abstractmethod
     def record_activity(self, activity_type: ActivitySource) -> None:
@@ -164,16 +243,6 @@ class HostInterface(MutableModel, ABC):
     # =========================================================================
     # Certified Data
     # =========================================================================
-
-    @abstractmethod
-    def get_all_certified_data(self) -> CertifiedHostData:
-        """Return all certified (trustworthy) host data stored in data.json."""
-        ...
-
-    @abstractmethod
-    def get_plugin_data(self, plugin_name: str) -> dict[str, Any]:
-        """Return the certified plugin data for the given plugin name."""
-        ...
 
     @abstractmethod
     def set_plugin_data(self, plugin_name: str, data: dict[str, Any]) -> None:
@@ -243,21 +312,6 @@ class HostInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
-    def get_snapshots(self) -> list[SnapshotInfo]:
-        """Return a list of all snapshots available for this host."""
-        ...
-
-    @abstractmethod
-    def get_image(self) -> str | None:
-        """Return the base image used for this host, or None if not applicable."""
-        ...
-
-    @abstractmethod
-    def get_tags(self) -> dict[str, str]:
-        """Return all metadata tags associated with this host."""
-        ...
-
-    @abstractmethod
     def set_tags(self, tags: Mapping[str, str]) -> None:
         """Replace all metadata tags with the given mapping."""
         ...
@@ -323,25 +377,6 @@ class HostInterface(MutableModel, ABC):
     @abstractmethod
     def stop_agents(self, agent_ids: Sequence[AgentId], timeout_seconds: float = 5.0) -> None:
         """Stop the specified agents gracefully within the given timeout."""
-        ...
-
-    # =========================================================================
-    # Agent-Derived Information
-    # =========================================================================
-
-    @abstractmethod
-    def get_idle_seconds(self) -> float:
-        """Return the number of seconds since the host was last considered active."""
-        ...
-
-    @abstractmethod
-    def get_permissions(self) -> list[str]:
-        """Return the union of all permissions granted to agents on this host."""
-        ...
-
-    @abstractmethod
-    def get_state(self) -> HostState:
-        """Return the current lifecycle state of this host."""
         ...
 
     @abstractmethod

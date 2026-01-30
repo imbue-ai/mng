@@ -24,8 +24,8 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
+from imbue.mngr.hosts.common import is_macos
 from imbue.mngr.hosts.host import Host
-from imbue.mngr.hosts.host import _is_macos
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.host import AgentDataOptions
@@ -733,7 +733,7 @@ def test_start_agent_creates_process_group(
         assert pane_pid
 
         # Get process group ID using platform-specific method
-        if _is_macos():
+        if is_macos():
             # macOS: use ps command
             success, output = host._run_shell_command(StringCommand(f"ps -o pgid= -p {pane_pid}"))
             assert success, f"Failed to get pgid for pid {pane_pid}"
