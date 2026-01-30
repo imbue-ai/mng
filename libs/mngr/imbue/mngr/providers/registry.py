@@ -39,18 +39,21 @@ def reset_backend_registry() -> None:
     _registry_state["backends_loaded"] = False
 
 
-# FIXME: consolidate with the below function, the code is mostly duplicated
-def load_local_backend_only(pm) -> None:
-    """Load only the local and SSH provider backends.
+def _load_backends(pm, *, include_modal: bool) -> None:
+    """Load provider backends from the specified modules.
 
-    This is used by tests to avoid depending on Modal credentials.
-    Unlike load_backends_from_plugins, this only registers the local and SSH backends.
+    Args:
+        pm: The pluggy plugin manager
+        include_modal: Whether to include the Modal backend (requires Modal credentials)
     """
     if _registry_state["backends_loaded"]:
         return
 
     pm.register(local_backend_module)
     pm.register(ssh_backend_module)
+    if include_modal:
+        pm.register(modal_backend_module)
+
     registrations = pm.hook.register_provider_backend()
 
     for registration in registrations:
@@ -60,34 +63,24 @@ def load_local_backend_only(pm) -> None:
             _backend_registry[backend_name] = backend_class
             _config_registry[backend_name] = config_class
 
-    # FIXME: make a placeholder docker backend for now that just raises NotImplementedError for everything
     # Register docker config (no backend implementation yet)
     _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
 
     _registry_state["backends_loaded"] = True
+
+
+def load_local_backend_only(pm) -> None:
+    """Load only the local and SSH provider backends.
+
+    This is used by tests to avoid depending on Modal credentials.
+    Unlike load_backends_from_plugins, this only registers the local and SSH backends.
+    """
+    _load_backends(pm, include_modal=False)
 
 
 def load_backends_from_plugins(pm) -> None:
     """Load all provider backends from plugins."""
-    if _registry_state["backends_loaded"]:
-        return
-
-    pm.register(local_backend_module)
-    pm.register(modal_backend_module)
-    pm.register(ssh_backend_module)
-    registrations = pm.hook.register_provider_backend()
-
-    for registration in registrations:
-        if registration is not None:
-            backend_class, config_class = registration
-            backend_name = backend_class.get_name()
-            _backend_registry[backend_name] = backend_class
-            _config_registry[backend_name] = config_class
-
-    # Register docker config (no backend implementation yet)
-    _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
-
-    _registry_state["backends_loaded"] = True
+    _load_backends(pm, include_modal=True)
 
 
 def get_backend(name: str | ProviderBackendName) -> type[ProviderBackendInterface]:
