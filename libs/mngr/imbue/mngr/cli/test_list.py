@@ -848,60 +848,6 @@ def test_list_command_with_limit_json_format(
         assert '"agents":' in result.output
 
 
-def test_list_command_with_provider_filter(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test list command with --provider filter option."""
-    agent_name = f"test-list-provider-{int(time.time())}"
-    session_name = f"{mngr_test_prefix}{agent_name}"
-
-    with tmux_session_cleanup(session_name):
-        # Create a local agent
-        create_result = cli_runner.invoke(
-            create,
-            [
-                "--name",
-                agent_name,
-                "--agent-cmd",
-                "sleep 301061",
-                "--source",
-                str(temp_work_dir),
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
-                "--no-ensure-clean",
-            ],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-        assert create_result.exit_code == 0
-
-        # List with --provider local should show the agent
-        result = cli_runner.invoke(
-            list_command,
-            ["--provider", "local"],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-
-        assert result.exit_code == 0
-        assert agent_name in result.output
-
-        # List with --provider docker should NOT show the local agent
-        result_no_match = cli_runner.invoke(
-            list_command,
-            ["--provider", "docker"],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-
-        assert result_no_match.exit_code == 0
-        assert agent_name not in result_no_match.output
-
-
 def test_list_command_with_sort_by_name(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -1040,3 +986,58 @@ def test_list_command_with_sort_descending(
             assert pos_a != -1
             assert pos_z != -1
             assert pos_z < pos_a, "Agent 'zzz' should appear before 'aaa' in descending order"
+
+
+def test_list_command_with_provider_filter(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --provider filter."""
+    agent_name = f"test-list-provider-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent on the local provider
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 345678",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with --provider local - should find the agent
+        result = cli_runner.invoke(
+            list_command,
+            ["--provider", "local"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name in result.output
+
+        # List with --provider nonexistent - should not find any agents
+        result_empty = cli_runner.invoke(
+            list_command,
+            ["--provider", "nonexistent"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result_empty.exit_code == 0
+        assert agent_name not in result_empty.output
+        assert "No agents found" in result_empty.output

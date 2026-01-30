@@ -924,3 +924,47 @@ def test_list_agents_populates_idle_mode(
         # idle_mode should be populated (default is "agent")
         assert our_agent.idle_mode is not None
         assert our_agent.idle_mode == "io"
+
+
+def test_list_agents_with_provider_names_filter(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_mngr_ctx: MngrContext,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that list_agents filters by provider_names."""
+    agent_name = f"test-provider-filter-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent on the local provider
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 234567",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
+
+        # List agents filtering to local provider - should find the agent
+        result = list_agents(mngr_ctx=temp_mngr_ctx, provider_names=("local",))
+
+        agent_names = [a.name for a in result.agents]
+        assert AgentName(agent_name) in agent_names
+
+        # List agents filtering to nonexistent provider - should not find any agents
+        result_empty = list_agents(mngr_ctx=temp_mngr_ctx, provider_names=("nonexistent",))
+
+        assert len(result_empty.agents) == 0

@@ -11,12 +11,9 @@ from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
-from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import MngrError
-from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
@@ -149,9 +146,6 @@ def list_agents(
     """List all agents with optional filtering."""
     result = ListResult()
 
-    # Convert provider_names to a set for efficient lookup
-    provider_name_set = frozenset(provider_names) if provider_names else None
-
     # Compile CEL filters if provided
     # Note: compilation errors always abort - bad filters should never silently continue
     compiled_include_filters: list[Any] = []
@@ -164,125 +158,107 @@ def list_agents(
         )
 
     try:
-        # Load all agents grouped by host
+        # Get all provider instances and iterate directly through them
+        # When provider_names is specified, only those providers are initialized,
+        # which avoids expensive initialization of unused providers (e.g., Modal)
         logger.debug("Loading agents from all providers")
-        agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
+        providers = get_all_provider_instances(mngr_ctx, provider_names=provider_names)
+        logger.trace("Found {} provider instances", len(providers))
 
-        # Get all provider instances
-        providers = get_all_provider_instances(mngr_ctx)
-        provider_map = {provider.name: provider for provider in providers}
-        logger.trace("Found {} hosts with agents", len(agents_by_host))
-
-        # Process each host and its agents
-        for host_ref, agent_refs in agents_by_host.items():
-            # Skip hosts that don't match the provider filter
-            if provider_name_set is not None and str(host_ref.provider_name) not in provider_name_set:
-                logger.trace("Skipping host {} (provider {} not in filter)", host_ref.host_id, host_ref.provider_name)
-                continue
-
+        # Process each provider -> host -> agent directly
+        for provider in providers:
             try:
-                provider = provider_map.get(host_ref.provider_name)
-                if not provider:
-                    exception = ProviderInstanceNotFoundError(host_ref.provider_name)
-                    if error_behavior == ErrorBehavior.ABORT:
-                        raise exception
-                    error_info = ProviderErrorInfo.build_for_provider(exception, host_ref.provider_name)
-                    result.errors.append(error_info)
-                    if on_error:
-                        on_error(error_info)
-                    continue
+                hosts = provider.list_hosts(include_destroyed=False)
+                logger.trace("Provider {} has {} hosts", provider.name, len(hosts))
 
-                host = provider.get_host(host_ref.host_id)
-
-                # Build SSH info if this is a remote host
-                ssh_info: SSHInfo | None = None
-                # Default for local hosts
-                host_hostname: str = "localhost"
-                ssh_connection = host._get_ssh_connection_info()
-                if ssh_connection is not None:
-                    user, hostname, port, key_path = ssh_connection
-                    host_hostname = hostname
-                    ssh_info = SSHInfo(
-                        user=user,
-                        host=hostname,
-                        port=port,
-                        key_path=key_path,
-                        command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
-                    )
-
-                host_info = HostInfo(
-                    id=host.id,
-                    name=host.connector.name,
-                    provider_name=host_ref.provider_name,
-                    host=host_hostname,
-                    state=host.get_state().value.lower(),
-                    image=host.get_image(),
-                    tags=host.get_tags(),
-                    boot_time=host.get_boot_time(),
-                    uptime_seconds=host.get_uptime_seconds(),
-                    resource=host.get_provider_resources(),
-                    ssh=ssh_info,
-                    snapshots=host.get_snapshots(),
-                )
-
-                # Get all agents on this host
-                agents = host.get_agents()
-
-                for agent_ref in agent_refs:
+                for host in hosts:
                     try:
-                        # Find the agent in the list
-                        agent = next((a for a in agents if a.id == agent_ref.agent_id), None)
+                        # Build SSH info if this is a remote host
+                        ssh_info: SSHInfo | None = None
+                        # Default for local hosts
+                        host_hostname: str = "localhost"
+                        ssh_connection = host._get_ssh_connection_info()
+                        if ssh_connection is not None:
+                            user, hostname, port, key_path = ssh_connection
+                            host_hostname = hostname
+                            ssh_info = SSHInfo(
+                                user=user,
+                                host=hostname,
+                                port=port,
+                                key_path=key_path,
+                                command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
+                            )
 
-                        if agent is None:
-                            exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
-                            if error_behavior == ErrorBehavior.ABORT:
-                                raise exception
-                            error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
-                            result.errors.append(error_info)
-                            if on_error:
-                                on_error(error_info)
-                            continue
-
-                        agent_status = agent.get_reported_status()
-
-                        # Get idle_mode from host's activity config
-                        activity_config = host.get_activity_config()
-
-                        agent_info = AgentInfo(
-                            id=agent.id,
-                            name=agent.name,
-                            type=str(agent.agent_type),
-                            command=agent.get_command(),
-                            work_dir=agent.work_dir,
-                            create_time=agent.create_time,
-                            start_on_boot=agent.get_is_start_on_boot(),
-                            lifecycle_state=agent.get_lifecycle_state(),
-                            status=agent_status,
-                            url=agent.get_reported_url(),
-                            start_time=agent.get_reported_start_time(),
-                            runtime_seconds=agent.runtime_seconds,
-                            user_activity_time=agent.get_reported_activity_time(ActivitySource.USER),
-                            agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
-                            ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
-                            idle_seconds=None,
-                            idle_mode=activity_config.idle_mode.value.lower(),
-                            host=host_info,
-                            plugin={},
+                        host_info = HostInfo(
+                            id=host.id,
+                            name=host.connector.name,
+                            provider_name=provider.name,
+                            host=host_hostname,
+                            state=host.get_state().value.lower(),
+                            image=host.get_image(),
+                            tags=host.get_tags(),
+                            boot_time=host.get_boot_time(),
+                            uptime_seconds=host.get_uptime_seconds(),
+                            resource=host.get_provider_resources(),
+                            ssh=ssh_info,
+                            snapshots=host.get_snapshots(),
                         )
 
-                        # Apply CEL filters if provided
-                        if compiled_include_filters or compiled_exclude_filters:
-                            if not _apply_cel_filters(agent_info, compiled_include_filters, compiled_exclude_filters):
-                                continue
+                        # Get all agents on this host (only called once now)
+                        agents = host.get_agents()
 
-                        result.agents.append(agent_info)
-                        if on_agent:
-                            on_agent(agent_info)
+                        for agent in agents:
+                            try:
+                                agent_status = agent.get_reported_status()
+
+                                # Get idle_mode from host's activity config
+                                activity_config = host.get_activity_config()
+
+                                agent_info = AgentInfo(
+                                    id=agent.id,
+                                    name=agent.name,
+                                    type=str(agent.agent_type),
+                                    command=agent.get_command(),
+                                    work_dir=agent.work_dir,
+                                    create_time=agent.create_time,
+                                    start_on_boot=agent.get_is_start_on_boot(),
+                                    lifecycle_state=agent.get_lifecycle_state(),
+                                    status=agent_status,
+                                    url=agent.get_reported_url(),
+                                    start_time=agent.get_reported_start_time(),
+                                    runtime_seconds=agent.runtime_seconds,
+                                    user_activity_time=agent.get_reported_activity_time(ActivitySource.USER),
+                                    agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
+                                    ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
+                                    idle_seconds=None,
+                                    idle_mode=activity_config.idle_mode.value.lower(),
+                                    host=host_info,
+                                    plugin={},
+                                )
+
+                                # Apply CEL filters if provided
+                                if compiled_include_filters or compiled_exclude_filters:
+                                    if not _apply_cel_filters(
+                                        agent_info, compiled_include_filters, compiled_exclude_filters
+                                    ):
+                                        continue
+
+                                result.agents.append(agent_info)
+                                if on_agent:
+                                    on_agent(agent_info)
+
+                            except MngrError as e:
+                                if error_behavior == ErrorBehavior.ABORT:
+                                    raise
+                                error_info = AgentErrorInfo.build_for_agent(e, agent.id)
+                                result.errors.append(error_info)
+                                if on_error:
+                                    on_error(error_info)
 
                     except MngrError as e:
                         if error_behavior == ErrorBehavior.ABORT:
                             raise
-                        error_info = AgentErrorInfo.build_for_agent(e, agent_ref.agent_id)
+                        error_info = HostErrorInfo.build_for_host(e, host.id)
                         result.errors.append(error_info)
                         if on_error:
                             on_error(error_info)
@@ -290,7 +266,7 @@ def list_agents(
             except MngrError as e:
                 if error_behavior == ErrorBehavior.ABORT:
                     raise
-                error_info = HostErrorInfo.build_for_host(e, host_ref.host_id)
+                error_info = ProviderErrorInfo.build_for_provider(e, provider.name)
                 result.errors.append(error_info)
                 if on_error:
                     on_error(error_info)
