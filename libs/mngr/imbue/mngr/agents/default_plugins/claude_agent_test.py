@@ -2,16 +2,22 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from unittest.mock import Mock
+from unittest.mock import patch
 
 import pluggy
 import pytest
 
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mngr.agents.default_plugins.claude_agent import _check_claude_installed
+from imbue.mngr.agents.default_plugins.claude_agent import _install_claude
+from imbue.mngr.agents.default_plugins.claude_agent import _prompt_user_for_installation
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import NoCommandDefinedError
+from imbue.mngr.errors import PluginMngrError
+from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
@@ -420,3 +426,194 @@ def test_provision_skips_installation_check_when_disabled(mngr_test_prefix: str)
 
     # execute_command should not be called since check_installation=False
     mock_host.execute_command.assert_not_called()
+
+
+# =============================================================================
+# Tests for helper functions (_check_claude_installed, _install_claude, etc.)
+# =============================================================================
+
+
+def test_check_claude_installed_returns_true_when_succeeds() -> None:
+    """_check_claude_installed should return True when command result success is True."""
+    mock_host = Mock()
+    mock_host.execute_command.return_value = CommandResult(
+        stdout="/usr/local/bin/claude",
+        stderr="",
+        success=True,
+    )
+
+    result = _check_claude_installed(mock_host)
+
+    assert result is True
+    mock_host.execute_command.assert_called_once_with("command -v claude", timeout_seconds=10.0)
+
+
+def test_check_claude_installed_returns_false_when_fails() -> None:
+    """_check_claude_installed should return False when command result success is False."""
+
+    mock_host = Mock()
+    mock_host.execute_command.return_value = CommandResult(
+        stdout="",
+        stderr="",
+        success=False,
+    )
+
+    result = _check_claude_installed(mock_host)
+
+    assert result is False
+
+
+def test_install_claude_raises_on_failure() -> None:
+    """_install_claude should raise PluginMngrError with stderr when installation fails."""
+
+    mock_host = Mock()
+    mock_host.execute_command.return_value = CommandResult(
+        stdout="",
+        stderr="Connection refused: unable to download installer",
+        success=False,
+    )
+
+    with pytest.raises(PluginMngrError) as exc_info:
+        _install_claude(mock_host)
+
+    assert "Failed to install claude" in str(exc_info.value)
+
+
+def test_install_claude_succeeds() -> None:
+    """_install_claude should not raise when installation succeeds."""
+
+    mock_host = Mock()
+    mock_host.execute_command.return_value = CommandResult(
+        stdout="Claude installed successfully",
+        stderr="",
+        success=True,
+    )
+
+    _install_claude(mock_host)
+
+    call_args = mock_host.execute_command.call_args
+    assert call_args[1]["timeout_seconds"] == 300.0
+
+
+def test_prompt_user_for_installation_returns_true_on_confirm() -> None:
+    """_prompt_user_for_installation should return True when user confirms."""
+
+    with patch("imbue.mngr.agents.default_plugins.claude_agent.click.confirm", return_value=True):
+        result = _prompt_user_for_installation()
+
+    assert result is True
+
+
+def test_prompt_user_for_installation_returns_false_on_decline() -> None:
+    """_prompt_user_for_installation should return False when user declines."""
+
+    with patch("imbue.mngr.agents.default_plugins.claude_agent.click.confirm", return_value=False):
+        result = _prompt_user_for_installation()
+
+    assert result is False
+
+
+def test_provision_skips_install_when_already_installed(mngr_test_prefix: str) -> None:
+    """provision should not attempt installation when claude is already installed."""
+
+    pm = pluggy.PluginManager("mngr")
+    agent_id = AgentId.generate()
+    mock_host = Mock()
+    mock_host.is_local = True
+    mock_host.execute_command.return_value = CommandResult(
+        stdout="/usr/local/bin/claude",
+        stderr="",
+        success=True,
+    )
+    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm)
+
+    agent = ClaudeAgent.model_construct(
+        id=agent_id,
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=Path("/tmp/work"),
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mngr_ctx=mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=True),
+        host=mock_host,
+    )
+
+    options = Mock()
+
+    agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    assert mock_host.execute_command.call_count == 1
+    mock_host.execute_command.assert_called_with("command -v claude", timeout_seconds=10.0)
+
+
+def test_provision_raises_when_user_declines_on_local(mngr_test_prefix: str) -> None:
+    """provision should raise PluginMngrError when user declines installation on local host."""
+
+    pm = pluggy.PluginManager("mngr")
+    agent_id = AgentId.generate()
+    mock_host = Mock()
+    mock_host.is_local = True
+    mock_host.execute_command.return_value = CommandResult(
+        stdout="",
+        stderr="",
+        success=False,
+    )
+    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, is_interactive=True)
+
+    agent = ClaudeAgent.model_construct(
+        id=agent_id,
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=Path("/tmp/work"),
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mngr_ctx=mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=True),
+        host=mock_host,
+    )
+
+    options = Mock()
+
+    with patch(
+        "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_installation",
+        return_value=False,
+    ):
+        with pytest.raises(PluginMngrError) as exc_info:
+            agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    assert "Claude is not installed" in str(exc_info.value)
+
+
+def test_provision_raises_in_non_interactive_when_not_installed(mngr_test_prefix: str) -> None:
+    """provision should raise PluginMngrError in non-interactive mode when claude not installed."""
+
+    pm = pluggy.PluginManager("mngr")
+    agent_id = AgentId.generate()
+    mock_host = Mock()
+    mock_host.is_local = True
+    mock_host.execute_command.return_value = CommandResult(
+        stdout="",
+        stderr="",
+        success=False,
+    )
+    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, is_interactive=False)
+
+    agent = ClaudeAgent.model_construct(
+        id=agent_id,
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=Path("/tmp/work"),
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mngr_ctx=mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=True),
+        host=mock_host,
+    )
+
+    options = Mock()
+
+    with pytest.raises(PluginMngrError) as exc_info:
+        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    assert "Claude is not installed" in str(exc_info.value)

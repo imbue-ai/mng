@@ -273,8 +273,10 @@ def test_emit_jsonl_summary_with_mixed_resources(capsys) -> None:
     captured = capsys.readouterr()
     output = json.loads(captured.out.strip())
 
-    assert output["total_count"] == 7  # 1 + 2 + 1 + 1 + 1 + 1
-    assert output["total_size_bytes"] == 2100  # 1000 + 500 + 200 + 100 + 300
+    # 1 work_dir + 2 machines + 1 snapshot + 1 volume + 1 log + 1 build_cache = 7
+    assert output["total_count"] == 7
+    # 1000 (work_dir) + 500 (machine) + 200 (snapshot) + 100 (volume) + 300 (log) = 2100
+    assert output["total_size_bytes"] == 2100
     assert output["work_dirs_count"] == 1
     assert output["machines_count"] == 2
     assert output["snapshots_count"] == 1
@@ -286,9 +288,10 @@ def test_emit_jsonl_summary_with_mixed_resources(capsys) -> None:
 def test_emit_jsonl_summary_handles_none_snapshot_size(capsys) -> None:
     """_emit_jsonl_summary should handle snapshots with None size_bytes."""
     result = GcResult()
+    # Some providers don't report snapshot size, so include None size_bytes
     result.snapshots_destroyed = [
         _create_snapshot_info(size_bytes=1000),
-        _create_snapshot_info(size_bytes=None),  # Some providers don't report size
+        _create_snapshot_info(size_bytes=None),
     ]
 
     _emit_jsonl_summary(result, dry_run=False)
@@ -338,9 +341,11 @@ def test_emit_human_summary_dry_run() -> None:
 def test_emit_human_summary_with_work_dirs() -> None:
     """_emit_human_summary should count work directories correctly."""
     result = GcResult()
+    # Include both local and non-local work dirs
+    # (non-local doesn't contribute to freed size calculation)
     result.work_dirs_destroyed = [
         _create_work_dir_info(is_local=True, size_bytes=1000),
-        _create_work_dir_info(is_local=False, size_bytes=2000),  # Non-local doesn't contribute to freed size
+        _create_work_dir_info(is_local=False, size_bytes=2000),
     ]
     # Just verify no exception is raised
     _emit_human_summary(result, dry_run=False)

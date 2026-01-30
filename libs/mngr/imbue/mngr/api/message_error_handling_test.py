@@ -138,9 +138,10 @@ def test_agent_not_found_on_host_with_continue_records_error_and_calls_callback(
     )
 
     # Create a fake agent reference with an ID that doesn't exist on the host
+    # (this agent_id is freshly generated so won't match any existing agent)
     fake_agent_ref = AgentReference(
         host_id=host_ref.host_id,
-        agent_id=AgentId.generate(),  # This agent doesn't exist
+        agent_id=AgentId.generate(),
         agent_name=AgentName("ghost-agent"),
         provider_name=host_ref.provider_name,
     )
