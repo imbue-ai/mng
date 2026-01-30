@@ -32,7 +32,7 @@ class ModalProviderConfig(ProviderInstanceConfig):
         description="Default sandbox timeout in seconds",
     )
     default_idle_mode: IdleMode = Field(
-        default=IdleMode.AGENT,
+        default=IdleMode.IO,
         description="Default idle mode for hosts",
     )
     default_activity_sources: tuple[ActivitySource, ...] = Field(

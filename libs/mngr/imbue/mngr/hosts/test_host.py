@@ -234,7 +234,7 @@ def test_get_default_activity_config(host_with_temp_dir: tuple[Host, Path]) -> N
     """Test getting default activity config when no file exists."""
     host, _ = host_with_temp_dir
     config = host.get_activity_config()
-    assert config.idle_mode == IdleMode.AGENT
+    assert config.idle_mode == IdleMode.IO
     assert config.idle_timeout_seconds == 3600
     assert len(config.activity_sources) > 0
 
@@ -360,7 +360,7 @@ def test_get_empty_certified_data(host_with_temp_dir: tuple[Host, Path]) -> None
     """Test getting certified data when no file exists."""
     host, _ = host_with_temp_dir
     data = host.get_all_certified_data()
-    assert data.idle_mode == IdleMode.AGENT
+    assert data.idle_mode == IdleMode.IO
     assert data.idle_timeout_seconds == 3600
     assert data.plugin == {}
 

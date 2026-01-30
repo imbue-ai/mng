@@ -921,9 +921,9 @@ def test_list_agents_populates_idle_mode(
         our_agent = next((a for a in result.agents if a.name == AgentName(agent_name)), None)
         assert our_agent is not None, f"Agent {agent_name} not found in list"
 
-        # idle_mode should be populated (default is "agent")
+        # idle_mode should be populated (default is "io")
         assert our_agent.idle_mode is not None
-        assert our_agent.idle_mode == "agent"
+        assert our_agent.idle_mode == "io"
 
 
 def test_list_agents_with_provider_names_filter(

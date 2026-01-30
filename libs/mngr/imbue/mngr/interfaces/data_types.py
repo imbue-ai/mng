@@ -170,7 +170,7 @@ class CertifiedHostData(FrozenModel):
     """Certified data stored in the host's data.json file."""
 
     idle_mode: IdleMode = Field(
-        default=IdleMode.AGENT,
+        default=IdleMode.IO,
         description="Mode for determining when host is considered idle",
     )
     idle_timeout_seconds: int = Field(
