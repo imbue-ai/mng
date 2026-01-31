@@ -171,12 +171,15 @@ class HostConfig(FrozenModel):
 
 
 class SnapshotRecord(FrozenModel):
-    """Snapshot metadata stored in the host record on the volume."""
+    """Snapshot metadata stored in the host record on the volume.
 
-    id: str = Field(description="Unique identifier for the snapshot")
+    The id field is the Modal image ID, which can be used directly with
+    modal.Image.from_id() for restoration.
+    """
+
+    id: str = Field(description="Modal image ID (used for restoration)")
     name: str = Field(description="Human-readable name")
     created_at: str = Field(description="ISO format timestamp")
-    modal_image_id: str = Field(description="Modal image ID for restoration")
 
 
 class CertifiedHostData(FrozenModel):

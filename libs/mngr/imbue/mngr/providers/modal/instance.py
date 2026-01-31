@@ -496,6 +496,22 @@ class ModalProviderInstance(BaseProviderInstance):
             # File doesn't exist, nothing to remove
             pass
 
+    def on_certified_host_data_updated(self, host_id: HostId, certified_data: CertifiedHostData) -> None:
+        """Update the certified host data in the volume's host record.
+
+        Called when the host's data.json is modified. Updates the
+        certified_host_data field in the volume's host record to keep
+        the volume in sync with the host.
+        """
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            logger.trace("No host record found for {} - skipping volume update", host_id)
+            return
+
+        updated_host_record = host_record.model_copy(update={"certified_host_data": certified_data})
+        self._write_host_record(updated_host_record)
+        logger.trace("Updated certified host data on volume for {}", host_id)
+
     def _build_modal_image(
         self,
         base_image: str | None = None,
@@ -1374,10 +1390,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         if snapshot_data is None:
             raise SnapshotNotFoundError(snapshot_id)
 
-        modal_image_id = snapshot_data.modal_image_id
-        if not modal_image_id:
-            raise MngrError(f"Snapshot {snapshot_id} does not contain a Modal image ID for restoration.")
-
+        # The snapshot id is the Modal image ID
+        modal_image_id = snapshot_data.id
         logger.info("Restoring Modal sandbox from snapshot", host_id=str(host_id), snapshot_id=str(snapshot_id))
 
         # Use configuration from host record
@@ -1385,7 +1399,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         host_name = HostName(host_record.host_name)
         user_tags = host_record.user_tags
 
-        # Create the image reference from the snapshot
+        # Create the image reference from the snapshot (the id IS the Modal image ID)
         logger.debug("Creating sandbox from snapshot image", image_id=modal_image_id)
         # Cast needed because modal.Image.from_id returns Self which the type checker can't resolve
         modal_image = cast(modal.Image, modal.Image.from_id(modal_image_id))
@@ -1678,17 +1692,14 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # Create the filesystem snapshot
         logger.debug("Creating filesystem snapshot", name=str(name))
         modal_image = sandbox.snapshot_filesystem()
-        modal_image_id = modal_image.object_id
-
-        # Generate mngr snapshot ID and metadata
-        snapshot_id = SnapshotId.generate()
+        # Use the Modal image ID directly as the snapshot ID
+        snapshot_id = SnapshotId(modal_image.object_id)
         created_at = datetime.now(timezone.utc)
 
         new_snapshot = SnapshotRecord(
             id=str(snapshot_id),
             name=str(name),
             created_at=created_at.isoformat(),
-            modal_image_id=modal_image_id,
         )
 
         # Update host record with new snapshot and write to volume
@@ -1701,10 +1712,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         self._write_host_record(updated_host_record)
 
         logger.debug(
-            "Created snapshot: id={}, name={}, modal_image_id={}",
+            "Created snapshot: id={}, name={}",
             snapshot_id,
             name,
-            modal_image_id,
         )
         return snapshot_id
 

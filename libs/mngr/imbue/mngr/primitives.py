@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 from typing import Mapping
 from typing import Self
+from uuid import uuid4
 
 from pydantic import Field
 from pydantic import GetCoreSchemaHandler
@@ -164,10 +165,21 @@ class HostId(RandomId):
     PREFIX = "host"
 
 
-class SnapshotId(RandomId):
-    """Unique identifier for a snapshot."""
+class SnapshotId(NonEmptyStr):
+    """Unique identifier for a snapshot.
 
-    PREFIX = "snap"
+    For Modal providers, this is the Modal image ID (e.g., im-abc123).
+    For other providers, this may be a different identifier format.
+    """
+
+    @classmethod
+    def generate(cls) -> "SnapshotId":
+        """Generate a random snapshot ID in the snap-<hex> format.
+
+        Note: For Modal, the actual snapshot ID is the Modal image ID.
+        This method is provided for testing and backwards compatibility.
+        """
+        return cls(f"snap-{uuid4().hex}")
 
 
 class VolumeId(RandomId):

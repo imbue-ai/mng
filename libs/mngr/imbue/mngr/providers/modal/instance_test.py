@@ -568,11 +568,11 @@ def _make_host_record(
 
 def _make_snapshot_record(name: str = "initial") -> SnapshotRecord:
     """Create a SnapshotRecord for testing."""
+    # The id is now the Modal image ID directly
     return SnapshotRecord(
-        id=str(SnapshotId.generate()),
+        id="im-abc123",
         name=name,
         created_at="2026-01-01T00:00:00Z",
-        modal_image_id="im-abc123",
     )
 
 
