@@ -8,9 +8,8 @@ stream_output = true
 
 [provider]
 type = "default"
-dockerfile_path = "libs/mngr/imbue/mngr/resources/Dockerfile"
-create_image = "uv run @modal_sandbox.py create_image mngr" # "{dockerfile_path}"
-create_command = "uv run @modal_sandbox.py create mngr" # "{dockerfile_path}"
+prepare_command = "uv run @modal_sandbox.py prepare libs/mngr/imbue/mngr/resources/Dockerfile"
+create_command = "uv run @modal_sandbox.py create {image_id}" # Image Id gets injected, also --copy-dirs
 exec_command = "uv run @modal_sandbox.py exec {sandbox_id} {command}"
 destroy_command = "uv run @modal_sandbox.py destroy {sandbox_id}"
 timeout_secs = 600
@@ -20,7 +19,8 @@ type = "default"
 # Discover tests locally using pytest --collect-only, exclude acceptance and release tests
 discover_command = "uv run pytest --collect-only -q -m 'not acceptance and not release' 2>/dev/null | grep '::'"
 # Run tests in the sandbox (source is baked into /app)
-run_command = "pytest -v --tb=short --no-cov -p no:xdist -o addopts= {tests}"
+# NOTE(danver): We need to make sure we run "git apply /offload-upload/patch &&" -- but that relies on pushing offline-upload/patch to the sandbox
+run_command = "cd /code/mngr && uv sync --all-packages && uv run pytest -v --tb=short --no-cov -p no:xdist -o addopts= {tests}"
 
 [report]
 output_dir = "test-results"
