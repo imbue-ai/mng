@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
 from pydantic import Field
 
 from imbue.mngr.config.data_types import MngrContext
@@ -76,25 +77,64 @@ class BaseHost(HostInterface):
     # Agent Information
     # =========================================================================
 
+    def _validate_and_create_agent_reference(
+        self, agent_data: dict[str, Any]
+    ) -> AgentReference | None:
+        """Validate agent data and create an AgentReference if valid.
+
+        Returns None if the agent data is malformed (missing or invalid id/name).
+        Logs warnings for malformed records.
+        """
+        agent_id_str = agent_data.get("id")
+        if agent_id_str is None:
+            logger.warning(
+                f"Skipping malformed agent record for host {self.id}: missing 'id': {agent_data}"
+            )
+            return None
+        try:
+            agent_id = AgentId(agent_id_str)
+        except ValueError as e:
+            logger.opt(exception=e).warning(
+                f"Skipping malformed agent record for host {self.id}: invalid 'id': {agent_data}"
+            )
+            return None
+
+        agent_name_str = agent_data.get("name")
+        if agent_name_str is None:
+            logger.warning(
+                f"Skipping malformed agent record for host {self.id}: missing 'name': {agent_data}"
+            )
+            return None
+        try:
+            agent_name = AgentName(agent_name_str)
+        except ValueError as e:
+            logger.opt(exception=e).warning(
+                f"Skipping malformed agent record for host {self.id}: invalid 'name': {agent_data}"
+            )
+            return None
+
+        return AgentReference(
+            host_id=self.id,
+            agent_id=agent_id,
+            agent_name=agent_name,
+            provider_name=self.provider_instance.name,
+            certified_data=agent_data,
+        )
+
     def get_agent_references(self) -> list[AgentReference]:
         """Return a list of all agent references for this host.
 
         For offline hosts, get agent information from the provider's persisted data.
+        The full agent data.json contents are included as certified_data.
+        Malformed agent records are skipped with a log.
         """
+        agent_records = self.provider_instance.list_persisted_agent_data_for_host(self.id)
+
         agent_refs: list[AgentReference] = []
-        try:
-            agent_records = self.provider_instance.list_persisted_agent_data_for_host(self.id)
-            for agent_data in agent_records:
-                agent_refs.append(
-                    AgentReference(
-                        host_id=self.id,
-                        agent_id=AgentId(agent_data["id"]),
-                        agent_name=AgentName(agent_data["name"]),
-                        provider_name=self.provider_instance.name,
-                    )
-                )
-        except (KeyError, ValueError):
-            pass
+        for agent_data in agent_records:
+            ref = self._validate_and_create_agent_reference(agent_data)
+            if ref is not None:
+                agent_refs.append(ref)
 
         return agent_refs
 
@@ -119,6 +159,17 @@ class BaseHost(HostInterface):
                 pass
 
         return HostState.STOPPED
+
+    def get_permissions(self) -> list[str]:
+        """Get the union of all agent permissions on this host.
+
+        Uses persisted agent data from the provider to get permissions without
+        requiring the host to be online.
+        """
+        permissions: set[str] = set()
+        for agent_ref in self.get_agent_references():
+            permissions.update(str(p) for p in agent_ref.permissions)
+        return list(permissions)
 
 
 class OfflineHost(BaseHost):
@@ -169,11 +220,3 @@ class OfflineHost(BaseHost):
         For offline hosts, return infinity since we can't track activity.
         """
         return float("inf")
-
-    def get_permissions(self) -> list[str]:
-        """Get the union of all agent permissions on this host.
-
-        For offline hosts, we cannot retrieve permissions since we can't read
-        agent data files from the host filesystem. Returns an empty list.
-        """
-        return []

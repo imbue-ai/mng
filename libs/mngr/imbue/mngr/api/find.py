@@ -234,9 +234,9 @@ def resolve_source_location(
     # Resolve the final path
     agent_work_dir: Path | None = None
     if resolved_agent is not None:
-        for agent in host_interface.get_agents():
-            if agent.id == resolved_agent.agent_id:
-                agent_work_dir = agent.work_dir
+        for agent_ref in host_interface.get_agent_references():
+            if agent_ref.agent_id == resolved_agent.agent_id:
+                agent_work_dir = agent_ref.work_dir
                 break
 
     resolved_path = determine_resolved_path(
@@ -417,22 +417,14 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
                 provider_name=provider.name,
             )
 
-            # Try to get agents from the host. For stopped/unreachable hosts,
-            # connection will fail - try to get persisted agent data from volume.
+            # Get agent references from the host. For online hosts, this queries
+            # the host filesystem directly. If the connection fails, fall back to
+            # persisted agent data from the provider.
             try:
-                agents = host.get_agents()
-                agent_refs = [
-                    AgentReference(
-                        host_id=host.id,
-                        agent_id=agent.id,
-                        agent_name=agent.name,
-                        provider_name=provider.name,
-                    )
-                    for agent in agents
-                ]
+                agent_refs = host.get_agent_references()
             except (ConnectError, HostConnectionError, OSError) as e:
-                logger.trace("Could not get agents from host {} (may be stopped): {}", host.id, e)
-                # Try to get persisted agent data from the provider (for stopped hosts)
+                logger.trace("Could not get agent refs from host {} (may be stopped): {}", host.id, e)
+                # Fall back to persisted agent data from the provider (for stopped hosts)
                 agent_refs = []
                 try:
                     agent_records = provider.list_persisted_agent_data_for_host(host.id)
@@ -443,6 +435,7 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
                                 agent_id=AgentId(agent_data["id"]),
                                 agent_name=AgentName(agent_data["name"]),
                                 provider_name=provider.name,
+                                certified_data=agent_data,
                             )
                         )
                     logger.trace("Loaded {} persisted agents for stopped host {}", len(agent_refs), host.id)

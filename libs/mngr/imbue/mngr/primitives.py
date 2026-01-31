@@ -1,7 +1,11 @@
+from datetime import datetime
 from enum import auto
+from pathlib import Path
 from typing import Any
+from typing import Mapping
 from typing import Self
 
+from pydantic import Field
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from pydantic_core import core_schema
@@ -253,9 +257,61 @@ class HostReference(FrozenModel):
 
 
 class AgentReference(FrozenModel):
-    """Lightweight reference to an agent for display and identification purposes."""
+    """Lightweight reference to an agent with certified data from data.json.
+
+    This class provides access to agent data that can be retrieved without requiring
+    the host to be online. The certified_data field contains the raw data.json contents,
+    and property methods provide convenient typed access to common fields.
+    """
 
     host_id: HostId
     agent_id: AgentId
     agent_name: AgentName
     provider_name: ProviderInstanceName
+    certified_data: Mapping[str, Any] = Field(default_factory=dict)
+
+    @property
+    def agent_type(self) -> "AgentTypeName | None":
+        """Return the agent type, or None if not available."""
+        type_value = self.certified_data.get("type")
+        if type_value is not None:
+            return AgentTypeName(type_value)
+        return None
+
+    @property
+    def work_dir(self) -> Path | None:
+        """Return the agent's working directory, or None if not available."""
+        work_dir_value = self.certified_data.get("work_dir")
+        if work_dir_value is not None:
+            return Path(work_dir_value)
+        return None
+
+    @property
+    def command(self) -> "CommandString | None":
+        """Return the command used to start this agent, or None if not available."""
+        command_value = self.certified_data.get("command")
+        if command_value is not None:
+            return CommandString(command_value)
+        return None
+
+    @property
+    def create_time(self) -> datetime | None:
+        """Return the agent creation time, or None if not available."""
+        create_time_value = self.certified_data.get("create_time")
+        if create_time_value is not None:
+            if isinstance(create_time_value, datetime):
+                return create_time_value
+            # Handle ISO format string
+            return datetime.fromisoformat(create_time_value)
+        return None
+
+    @property
+    def start_on_boot(self) -> bool:
+        """Return whether this agent should start automatically on host boot."""
+        return bool(self.certified_data.get("start_on_boot", False))
+
+    @property
+    def permissions(self) -> tuple["Permission", ...]:
+        """Return the list of permissions assigned to this agent."""
+        permissions_value = self.certified_data.get("permissions", [])
+        return tuple(Permission(p) for p in permissions_value)

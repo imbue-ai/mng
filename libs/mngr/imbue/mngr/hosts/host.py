@@ -59,6 +59,7 @@ from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
@@ -718,6 +719,44 @@ class Host(BaseHost, OnlineHostInterface):
                     agents.append(agent)
         logger.trace("Loaded {} agent(s) from host {}", len(agents), self.id)
         return agents
+
+    def get_agent_references(self) -> list[AgentReference]:
+        """Get lightweight references to all agents on this host.
+
+        This method reads only the data.json files for each agent, avoiding the
+        overhead of fully loading agent objects. The certified_data field contains
+        the full data.json contents.
+
+        Note that we override the base method in order to read more directly from the host,
+        since that data is more likely to be up-to-date.
+        """
+        logger.trace("Loading agent references from host {}", self.id)
+        agents_dir = self.host_dir / "agents"
+        if not self._is_directory(agents_dir):
+            logger.trace("No agents directory found for host {}", self.id)
+            return []
+
+        agent_refs: list[AgentReference] = []
+        for dir_name in self._list_directory(agents_dir):
+            agent_dir = agents_dir / dir_name
+            if self._is_directory(agent_dir):
+                data_path = agent_dir / "data.json"
+                try:
+                    content = self.read_text_file(data_path)
+                except FileNotFoundError:
+                    logger.warning("Could not load agent reference from {}", data_path)
+                    continue
+                try:
+                    data = json.loads(content)
+                except json.JSONDecodeError as e:
+                    logger.warning("Could not load agent reference from {} because json was invalid: {}", data_path, e)
+                    continue
+                ref = self._validate_and_create_agent_reference(data)
+                if ref is not None:
+                    agent_refs.append(ref)
+
+        logger.trace("Loaded {} agent reference(s) from host {}", len(agent_refs), self.id)
+        return agent_refs
 
     def _load_agent_from_dir(self, agent_dir: Path) -> AgentInterface | None:
         """Load an agent from its state directory."""
@@ -1866,14 +1905,6 @@ done
 
         now = datetime.now(timezone.utc)
         return (now - latest_activity).total_seconds()
-
-    def get_permissions(self) -> list[str]:
-        """Get the union of all agent permissions on this host."""
-        permissions: set[str] = set()
-        for agent in self.get_agents():
-            agent_permissions = agent.get_permissions()
-            permissions.update(str(p) for p in agent_permissions)
-        return list(permissions)
 
     def get_state(self) -> HostState:
         """Get the current state of the host."""

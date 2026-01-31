@@ -132,13 +132,12 @@ def test_get_tags_delegates_to_provider(offline_host: OfflineHost, mock_provider
 
 
 def test_get_agent_references_returns_refs_from_provider(offline_host: OfflineHost, mock_provider):
-    """Test that get_agent_references loads agent data from provider."""
+    """Test that get_agent_references loads agent data from provider and populates certified_data."""
     agent_id_1 = AgentId.generate()
     agent_id_2 = AgentId.generate()
-    mock_provider.list_persisted_agent_data_for_host.return_value = [
-        {"id": str(agent_id_1), "name": "my-agent"},
-        {"id": str(agent_id_2), "name": "other-agent"},
-    ]
+    agent_data_1 = {"id": str(agent_id_1), "name": "my-agent", "type": "claude", "permissions": ["read", "write"]}
+    agent_data_2 = {"id": str(agent_id_2), "name": "other-agent", "type": "codex"}
+    mock_provider.list_persisted_agent_data_for_host.return_value = [agent_data_1, agent_data_2]
 
     refs = offline_host.get_agent_references()
 
@@ -147,8 +146,16 @@ def test_get_agent_references_returns_refs_from_provider(offline_host: OfflineHo
     assert refs[0].agent_name == AgentName("my-agent")
     assert refs[0].host_id == offline_host.id
     assert refs[0].provider_name == ProviderInstanceName("test-provider")
+    # Verify certified_data is populated with full agent data
+    assert refs[0].certified_data == agent_data_1
+    assert refs[0].agent_type == "claude"
+    assert refs[0].permissions == ("read", "write")
+
     assert refs[1].agent_id == agent_id_2
     assert refs[1].agent_name == AgentName("other-agent")
+    assert refs[1].certified_data == agent_data_2
+    assert refs[1].agent_type == "codex"
+    assert refs[1].permissions == ()
 
 
 def test_get_agent_references_returns_empty_list_on_error(offline_host: OfflineHost, mock_provider):
@@ -161,24 +168,31 @@ def test_get_agent_references_returns_empty_list_on_error(offline_host: OfflineH
     assert refs == []
 
 
-def test_get_agent_references_returns_empty_list_on_value_error(offline_host: OfflineHost, mock_provider):
-    """Test that get_agent_references returns empty list when provider raises ValueError."""
-    mock_provider.list_persisted_agent_data_for_host.side_effect = ValueError("Invalid data")
-
-    refs = offline_host.get_agent_references()
-    assert refs == []
-
-
 def test_get_idle_seconds_returns_infinity(offline_host: OfflineHost):
     """Test that get_idle_seconds returns infinity for offline hosts."""
     idle = offline_host.get_idle_seconds()
     assert idle == float("inf")
 
 
-def test_get_permissions_returns_empty_list(offline_host: OfflineHost):
-    """Test that get_permissions returns empty list for offline hosts."""
+def test_get_permissions_returns_empty_list_when_no_agents(offline_host: OfflineHost):
+    """Test that get_permissions returns empty list when no agents exist."""
     permissions = offline_host.get_permissions()
     assert permissions == []
+
+
+def test_get_permissions_returns_permissions_from_agents(offline_host: OfflineHost, mock_provider):
+    """Test that get_permissions returns union of all agent permissions from persisted data."""
+    agent_id_1 = AgentId.generate()
+    agent_id_2 = AgentId.generate()
+    mock_provider.list_persisted_agent_data_for_host.return_value = [
+        {"id": str(agent_id_1), "name": "agent-1", "permissions": ["read", "write"]},
+        {"id": str(agent_id_2), "name": "agent-2", "permissions": ["write", "execute"]},
+    ]
+
+    permissions = offline_host.get_permissions()
+
+    # Should be the union of all permissions
+    assert set(permissions) == {"read", "write", "execute"}
 
 
 def test_get_state_returns_stopped_when_snapshots_exist(offline_host: OfflineHost, mock_provider):
