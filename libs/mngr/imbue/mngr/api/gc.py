@@ -199,10 +199,10 @@ def gc_machines(
                     if host.is_local:
                         continue
 
-                    agents = host.get_agents()
+                    agent_refs = host.get_agent_references()
 
                     # Only consider hosts with no agents
-                    if len(agents) > 0:
+                    if len(agent_refs) > 0:
                         continue
 
                     host_info = HostInfo(

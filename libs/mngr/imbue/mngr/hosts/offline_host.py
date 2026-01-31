@@ -80,6 +80,7 @@ class BaseHost(HostInterface):
         """Return a list of all agent references for this host.
 
         For offline hosts, get agent information from the provider's persisted data.
+        The full agent data.json contents are included as certified_data.
         """
         agent_refs: list[AgentReference] = []
         try:
@@ -91,6 +92,7 @@ class BaseHost(HostInterface):
                         agent_id=AgentId(agent_data["id"]),
                         agent_name=AgentName(agent_data["name"]),
                         provider_name=self.provider_instance.name,
+                        certified_data=agent_data,
                     )
                 )
         except (KeyError, ValueError):
@@ -173,7 +175,10 @@ class OfflineHost(BaseHost):
     def get_permissions(self) -> list[str]:
         """Get the union of all agent permissions on this host.
 
-        For offline hosts, we cannot retrieve permissions since we can't read
-        agent data files from the host filesystem. Returns an empty list.
+        Uses persisted agent data from the provider to get permissions without
+        requiring the host to be online.
         """
-        return []
+        permissions: set[str] = set()
+        for agent_ref in self.get_agent_references():
+            permissions.update(str(p) for p in agent_ref.permissions)
+        return list(permissions)
