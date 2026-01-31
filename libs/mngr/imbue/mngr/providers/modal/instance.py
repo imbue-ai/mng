@@ -21,7 +21,6 @@ from datetime import timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any
-from typing import ClassVar
 from typing import Final
 from typing import Mapping
 from typing import ParamSpec
@@ -37,6 +36,7 @@ from modal.config import Config as ModalConfig
 from modal.stream_type import StreamType
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import PrivateAttr
 from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
@@ -246,16 +246,15 @@ class ModalProviderInstance(BaseProviderInstance):
     for persistence and sharing between mngr instances. Only host_id, host_name,
     and user tags are stored as sandbox tags for discovery via Sandbox.list().
 
-    A class-level cache maps host_id to sandbox objects to avoid relying on Modal's
+    An instance-level cache maps host_id to sandbox objects to avoid relying on Modal's
     eventually consistent tag queries for recently created sandboxes.
     """
 
-    # FIXME: no, these should all be PrivateAttr instead of ClassVars
-    # Class-level caches of sandboxes. These avoid the need to query
+    # Instance-level caches of sandboxes. These avoid the need to query
     # Modal's eventually consistent tag API for recently created sandboxes.
-    _sandbox_cache_by_id: ClassVar[dict[HostId, modal.Sandbox]] = {}
-    _sandbox_cache_by_name: ClassVar[dict[HostName, modal.Sandbox]] = {}
-    _host_by_id_cache: ClassVar[dict[HostId, HostInterface]] = {}
+    _sandbox_cache_by_id: dict[HostId, modal.Sandbox] = PrivateAttr(default_factory=dict)
+    _sandbox_cache_by_name: dict[HostName, modal.Sandbox] = PrivateAttr(default_factory=dict)
+    _host_by_id_cache: dict[HostId, HostInterface] = PrivateAttr(default_factory=dict)
 
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
@@ -901,23 +900,31 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
     def _cache_sandbox(self, host_id: HostId, name: HostName, sandbox: modal.Sandbox) -> None:
         """Cache a sandbox by host_id and name for fast lookup."""
-        ModalProviderInstance._sandbox_cache_by_id[host_id] = sandbox
-        ModalProviderInstance._sandbox_cache_by_name[name] = sandbox
+        self._sandbox_cache_by_id[host_id] = sandbox
+        self._sandbox_cache_by_name[name] = sandbox
 
     def _uncache_sandbox(self, host_id: HostId, name: HostName | None = None) -> None:
         """Remove a sandbox from the caches."""
-        ModalProviderInstance._sandbox_cache_by_id.pop(host_id, None)
+        self._sandbox_cache_by_id.pop(host_id, None)
         if name is not None:
-            ModalProviderInstance._sandbox_cache_by_name.pop(name, None)
+            self._sandbox_cache_by_name.pop(name, None)
 
-    @classmethod
-    def reset_sandbox_cache(cls) -> None:
-        """Reset the sandbox caches.
+    def _uncache_host(self, host_id: HostId) -> None:
+        """Remove a host from the host cache.
+
+        This should be called when a host transitions state (e.g., from online to offline
+        or vice versa) to ensure the next lookup returns the correct host type.
+        """
+        self._host_by_id_cache.pop(host_id, None)
+
+    def reset_caches(self) -> None:
+        """Reset all caches on this instance.
 
         This is primarily used for test isolation to ensure a clean state between tests.
         """
-        cls._sandbox_cache_by_id.clear()
-        cls._sandbox_cache_by_name.clear()
+        self._sandbox_cache_by_id.clear()
+        self._sandbox_cache_by_name.clear()
+        self._host_by_id_cache.clear()
 
     def _find_sandbox_by_host_id(
         self, host_id: HostId, timeout: float = 5.0, poll_interval: float = 1.0
@@ -938,8 +945,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         logger.trace("Looking up sandbox with host_id={} in env={}", host_id, self.environment_name)
 
         # Check cache first - this avoids eventual consistency issues for recently created sandboxes
-        if host_id in ModalProviderInstance._sandbox_cache_by_id:
-            sandbox = ModalProviderInstance._sandbox_cache_by_id[host_id]
+        if host_id in self._sandbox_cache_by_id:
+            sandbox = self._sandbox_cache_by_id[host_id]
             logger.trace("Found sandbox in cache for host_id={}", host_id)
             return sandbox
 
@@ -989,8 +996,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         logger.trace("Looking up sandbox with name={} in env={}", name, self.environment_name)
 
         # Check cache first - this avoids eventual consistency issues for recently created sandboxes
-        if name in ModalProviderInstance._sandbox_cache_by_name:
-            sandbox = ModalProviderInstance._sandbox_cache_by_name[name]
+        if name in self._sandbox_cache_by_name:
+            sandbox = self._sandbox_cache_by_name[name]
             logger.trace("Found sandbox in cache for name={}", name)
             return sandbox
 
@@ -1273,11 +1280,13 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         else:
             logger.debug("No sandbox found, may already be terminated", host_id=str(host_id))
 
-        # Remove from cache since the sandbox is now terminated
+        # Remove from all caches since the sandbox is now terminated
         # Read host record to get the name for cache cleanup
         host_record = self._read_host_record(host_id)
         host_name = HostName(host_record.host_name) if host_record else None
         self._uncache_sandbox(host_id, host_name)
+        # Also invalidate host cache so next lookup returns an OfflineHost
+        self._uncache_host(host_id)
 
     @handle_modal_auth_error
     def start_host(
@@ -1395,6 +1404,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Cache the sandbox for fast lookup (avoids Modal's eventual consistency issues)
         self._cache_sandbox(host_id, host_name, new_sandbox)
+        # Invalidate any cached OfflineHost so we return the new online Host
+        self._uncache_host(host_id)
 
         # Set up SSH and create host object using shared helper
         restored_host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
@@ -1425,6 +1436,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         max_host_age_path = restored_host.host_dir / "max_host_age"
         restored_host.write_text_file(max_host_age_path, str(config.timeout))
         logger.debug("Wrote max_host_age file", max_host_age_seconds=config.timeout)
+
+        # Cache the new online host
+        self._host_by_id_cache[host_id] = restored_host
 
         return restored_host
 
