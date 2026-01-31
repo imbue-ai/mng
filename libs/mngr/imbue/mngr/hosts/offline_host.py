@@ -77,6 +77,50 @@ class BaseHost(HostInterface):
     # Agent Information
     # =========================================================================
 
+    def _validate_and_create_agent_reference(
+        self, agent_data: dict[str, Any]
+    ) -> AgentReference | None:
+        """Validate agent data and create an AgentReference if valid.
+
+        Returns None if the agent data is malformed (missing or invalid id/name).
+        Logs warnings for malformed records.
+        """
+        agent_id_str = agent_data.get("id")
+        if agent_id_str is None:
+            logger.warning(
+                f"Skipping malformed agent record for host {self.id}: missing 'id': {agent_data}"
+            )
+            return None
+        try:
+            agent_id = AgentId(agent_id_str)
+        except ValueError as e:
+            logger.opt(exception=e).warning(
+                f"Skipping malformed agent record for host {self.id}: invalid 'id': {agent_data}"
+            )
+            return None
+
+        agent_name_str = agent_data.get("name")
+        if agent_name_str is None:
+            logger.warning(
+                f"Skipping malformed agent record for host {self.id}: missing 'name': {agent_data}"
+            )
+            return None
+        try:
+            agent_name = AgentName(agent_name_str)
+        except ValueError as e:
+            logger.opt(exception=e).warning(
+                f"Skipping malformed agent record for host {self.id}: invalid 'name': {agent_data}"
+            )
+            return None
+
+        return AgentReference(
+            host_id=self.id,
+            agent_id=agent_id,
+            agent_name=agent_name,
+            provider_name=self.provider_instance.name,
+            certified_data=agent_data,
+        )
+
     def get_agent_references(self) -> list[AgentReference]:
         """Return a list of all agent references for this host.
 
@@ -92,42 +136,9 @@ class BaseHost(HostInterface):
 
         agent_refs: list[AgentReference] = []
         for agent_data in agent_records:
-            agent_id_str = agent_data.get("id")
-            if agent_id_str is None:
-                logger.warning(
-                    f"Skipping malformed agent record for host {self.id}: missing 'id': {agent_data}"
-                )
-                continue
-            try:
-                agent_id = AgentId(agent_id_str)
-            except ValueError as e:
-                logger.opt(exception=e).warning(
-                    f"Skipping malformed agent record for host {self.id}: invalid 'id': {agent_data}"
-                )
-                continue
-
-            agent_name_str = agent_data.get("name")
-            if agent_name_str is None:
-                logger.warning(
-                    f"Skipping malformed agent record for host {self.id}: missing 'name': {agent_data}"
-                )
-                continue
-            try:
-                agent_name = AgentName(agent_name_str)
-            except ValueError as e:
-                logger.opt(exception=e).warning(
-                    f"Skipping malformed agent record for host {self.id}: invalid 'name': {agent_data}"
-                )
-                continue
-            agent_refs.append(
-                AgentReference(
-                    host_id=self.id,
-                    agent_id=agent_id,
-                    agent_name=agent_name,
-                    provider_name=self.provider_instance.name,
-                    certified_data=agent_data,
-                )
-            )
+            ref = self._validate_and_create_agent_reference(agent_data)
+            if ref is not None:
+                agent_refs.append(ref)
 
         return agent_refs
 

@@ -737,8 +737,8 @@ class Host(BaseHost, OnlineHostInterface):
             return []
 
         agent_refs: list[AgentReference] = []
-        for agent_id_str in self._list_directory(agents_dir):
-            agent_dir = agents_dir / agent_id_str
+        for dir_name in self._list_directory(agents_dir):
+            agent_dir = agents_dir / dir_name
             if self._is_directory(agent_dir):
                 data_path = agent_dir / "data.json"
                 try:
@@ -751,42 +751,9 @@ class Host(BaseHost, OnlineHostInterface):
                 except json.JSONDecodeError as e:
                     logger.warning("Could not load agent reference from {} because json was invalid: {}", data_path, e)
                     continue
-                agent_id_str = data.get("id")
-                if agent_id_str is None:
-                    logger.warning(
-                        f"Skipping malformed agent record for host {self.id}: missing 'id': {data}"
-                    )
-                    continue
-                try:
-                    agent_id = AgentId(agent_id_str)
-                except ValueError as e:
-                    logger.opt(exception=e).warning(
-                        f"Skipping malformed agent record for host {self.id}: invalid 'id': {data}"
-                    )
-                    continue
-
-                agent_name_str = data.get("name")
-                if agent_name_str is None:
-                    logger.warning(
-                        f"Skipping malformed agent record for host {self.id}: missing 'name': {data}"
-                    )
-                    continue
-                try:
-                    agent_name = AgentName(agent_name_str)
-                except ValueError as e:
-                    logger.opt(exception=e).warning(
-                        f"Skipping malformed agent record for host {self.id}: invalid 'name': {data}"
-                    )
-                    continue
-                agent_refs.append(
-                    AgentReference(
-                        host_id=self.id,
-                        agent_id=agent_id,
-                        agent_name=agent_name,
-                        provider_name=self.provider_instance.name,
-                        certified_data=data,
-                    )
-                )
+                ref = self._validate_and_create_agent_reference(data)
+                if ref is not None:
+                    agent_refs.append(ref)
 
         logger.trace("Loaded {} agent reference(s) from host {}", len(agent_refs), self.id)
         return agent_refs
