@@ -40,7 +40,6 @@ If we include `data.json` in `AgentReference`, we would have access to:
 
 Even with `data.json`, we would not have:
 - **Reported data**: status, url, start_time, activity times (these are in separate files)
-- **Computed state**: lifecycle_state (requires checking tmux session)
 - **Methods requiring host connection**: `send_message`, `is_running`, `get_lifecycle_state`, etc.
 
 ---
@@ -71,6 +70,8 @@ agents = cast(OnlineHostInterface, host).get_agents()
 - However, reported data (status, url, activity times) still requires host access
 - Could simplify the "find agent in list" pattern
 
+**Decision:** Don't mess with this--fixed in another commit.
+
 ---
 
 ### 2. `api/find.py:237` - `resolve_source_location()`
@@ -92,6 +93,8 @@ for agent in online_host.get_agents():
 - If `AgentRef` includes `work_dir` from `data.json`, this entire host query could be avoided
 - Would allow this to work for offline hosts too
 
+**Decision:** ensure that work_dir is included in AgentReference, then we can use get_agent_references() here instead of get_agents(), and we wouldn't even need an online host.
+
 ---
 
 ### 3. `api/find.py:338,355` - `find_and_maybe_start_agent_by_name_or_id()`
@@ -111,6 +114,8 @@ for agent in online_host.get_agents():
 - The function explicitly returns `(AgentInterface, OnlineHostInterface)`
 - Callers need the full agent object to interact with it
 - Cannot be simplified without changing the function's contract
+
+**Decision:** ignore this one.
 
 ---
 
@@ -139,6 +144,8 @@ agent_refs = [
 - Already handles offline case separately
 - Would make the code more consistent
 
+**Decision:** refactor this one to use get_agent_references() instead
+
 ---
 
 ### 5. `api/gc.py:209` - `gc_machines()`
@@ -158,6 +165,8 @@ if len(agents) > 0:
 - `get_agent_references()` would work perfectly
 - Could even add a `has_agents()` method for this pattern
 
+**Decision:** move to using get_agent_references() here
+
 ---
 
 ### 6. `api/gc.py:498` - `_get_orphaned_work_dirs()`
@@ -175,6 +184,8 @@ for agent in host.get_agents():
 - Only needs work_dir from each agent
 - If AgentRef includes `data.json`, `work_dir` would be available
 - Could simplify this to use references
+
+**Decision:** ignore, this doesn't make sense--we wouldn't be able to clean up the work dirs of offline hosts anyway.
 
 ---
 
@@ -201,6 +212,8 @@ for agent_ref in agent_refs:
 - But `get_lifecycle_state()` and `send_message()` require the full agent
 - The "find agent in list" pattern could be simplified
 
+**Decision:** ignore--I made a separate fixme for this
+
 ---
 
 ### 8. `cli/create.py:1253` - `_find_agent_in_host()`
@@ -220,6 +233,8 @@ for agent in host.get_agents():
 - Explicitly needs to return the full agent object
 - The caller needs to interact with the agent
 - Cannot simplify without changing the function contract
+
+**Decision:** ignore.
 
 ---
 
@@ -241,6 +256,8 @@ for agent in host.get_agents():
 - Need full agent object to pass to destroy logic
 - Cannot simplify without changing the function contract
 
+**Decision:** ignore, this has been refactored
+
 ---
 
 ### 10. `hosts/host.py:1805` - `_get_agent_by_id()`
@@ -261,6 +278,8 @@ for agent in agents:
 - Internal helper that returns full agent object
 - Used by start/stop agents which need the full object
 
+**Decision:** ignore.
+
 ---
 
 ### 11. `hosts/host.py:1868` - `get_idle_seconds()`
@@ -278,6 +297,8 @@ for agent in self.get_agents():
 **Simplification potential:** LOW
 - Needs to read reported activity files from the host filesystem
 - Cannot work with just reference data
+
+**Decision:** ignore
 
 ---
 
@@ -298,64 +319,7 @@ for agent in self.get_agents():
 - If AgentRef includes `data.json`, this would be available
 - Could work with references instead of full agents
 
----
-
-## Summary Table
-
-| Location | Function | Simplification | Notes |
-|----------|----------|----------------|-------|
-| `api/find.py:237` | `resolve_source_location` | **HIGH** | Only needs `work_dir` |
-| `api/find.py:423` | `load_all_agents_grouped_by_host` | **HIGH** | Already building refs |
-| `api/gc.py:209` | `gc_machines` | **HIGH** | Only checks count |
-| `api/gc.py:498` | `_get_orphaned_work_dirs` | **HIGH** | Only needs `work_dir` |
-| `hosts/host.py:1884` | `get_permissions` | **HIGH** | `permissions` is in data.json |
-| `api/list.py:267` | `list_agents` | PARTIAL | Needs reported data too |
-| `api/message.py:103` | `send_message_to_agents` | PARTIAL | Needs `send_message()` |
-| `api/find.py:338,355` | `find_and_maybe_start_agent...` | LOW | Returns full agent |
-| `cli/create.py:1253` | `_find_agent_in_host` | LOW | Returns full agent |
-| `cli/destroy.py:305` | `_resolve_agents_to_destroy` | LOW | Returns full agent |
-| `hosts/host.py:1805` | `_get_agent_by_id` | LOW | Returns full agent |
-| `hosts/host.py:1868` | `get_idle_seconds` | LOW | Needs reported activity |
-
----
-
-## Recommended Changes
-
-### Priority 1 (High Impact, Easy)
-
-1. **`api/find.py:237` - `resolve_source_location()`**
-   - Change to look up `work_dir` from an enhanced `AgentRef`
-   - Would allow resolving source locations for offline hosts
-   - Simplifies the code significantly
-
-2. **`api/find.py:423` - `load_all_agents_grouped_by_host()`**
-   - For online hosts, call `get_agent_references()` directly
-   - Unifies the code path for online/offline hosts
-   - Reduces redundant iteration
-
-3. **`api/gc.py:209` - `gc_machines()`**
-   - Replace with `get_agent_references()` and check length
-   - Or add `has_agents()` method to HostInterface
-   - Much lighter weight operation
-
-4. **`api/gc.py:498` - `_get_orphaned_work_dirs()`**
-   - Use `get_agent_references()` with `work_dir` from data.json
-   - Could potentially work for offline hosts too
-
-5. **`hosts/host.py:1884` - `get_permissions()`**
-   - Use `get_agent_references()` if they include permissions
-   - Permissions are certified data, so this is safe
-
-### Priority 2 (Partial Benefit)
-
-6. **`api/list.py:267` - `list_agents()`**
-   - The initial agent lookup could use references
-   - But still needs host access for reported data
-   - Could reduce the amount of data loaded upfront
-
-7. **`api/message.py:103` - `send_message_to_agents()`**
-   - The CEL filtering context could use reference data
-   - But `send_message()` still needs the full agent
+**Decision:** please update the AgentReference to include the data.json, and then here we ought to be able to use get_agent_references() instead.
 
 ---
 
@@ -382,3 +346,5 @@ class AgentReference(FrozenModel):
 ```
 
 This would provide all certified agent data without requiring host access.
+
+**Decision:** please create these new fields, BUT, create them as @property methods instead, and just add a single field for the data.json contents. That way, even if there are undocumented fields in the future, we can still access them.  You'll want to make it a Mapping so that it fits with the semantics of this object being frozen.
