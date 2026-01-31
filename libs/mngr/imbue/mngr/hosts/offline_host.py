@@ -82,28 +82,35 @@ class BaseHost(HostInterface):
 
         For offline hosts, get agent information from the provider's persisted data.
         The full agent data.json contents are included as certified_data.
-        Malformed agent records are skipped with a trace log.
+        Malformed agent records are skipped with a log.
         """
-        agent_refs: list[AgentReference] = []
-        try:
-            agent_records = self.provider_instance.list_persisted_agent_data_for_host(self.id)
-        except (KeyError, ValueError) as e:
-            logger.trace("Could not load persisted agent data for host {}: {}", self.id, e)
-            return agent_refs
+        agent_records = self.provider_instance.list_persisted_agent_data_for_host(self.id)
 
+        agent_refs: list[AgentReference] = []
         for agent_data in agent_records:
             try:
-                agent_refs.append(
-                    AgentReference(
-                        host_id=self.id,
-                        agent_id=AgentId(agent_data["id"]),
-                        agent_name=AgentName(agent_data["name"]),
-                        provider_name=self.provider_instance.name,
-                        certified_data=agent_data,
-                    )
+                agent_id = AgentId(agent_data.get("id"))
+            except ValueError as e:
+                logger.opt(exception=e).warning(
+                    f"Skipping malformed agent record for host {self.id}: missing or invalid 'id': {agent_data}"
                 )
-            except (KeyError, ValueError) as e:
-                logger.trace("Skipping malformed agent record for host {}: {}", self.id, e)
+                continue
+            try:
+                agent_name = AgentName(agent_data.get("name"))
+            except ValueError as e:
+                logger.opt(exception=e).warning(
+                    f"Skipping malformed agent record for host {self.id}: missing or invalid 'name': {agent_data}"
+                )
+                continue
+            agent_refs.append(
+                AgentReference(
+                    host_id=self.id,
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    provider_name=self.provider_instance.name,
+                    certified_data=agent_data,
+                )
+            )
 
         return agent_refs
 
@@ -128,6 +135,17 @@ class BaseHost(HostInterface):
                 pass
 
         return HostState.STOPPED
+
+    def get_permissions(self) -> list[str]:
+        """Get the union of all agent permissions on this host.
+
+        Uses persisted agent data from the provider to get permissions without
+        requiring the host to be online.
+        """
+        permissions: set[str] = set()
+        for agent_ref in self.get_agent_references():
+            permissions.update(str(p) for p in agent_ref.permissions)
+        return list(permissions)
 
 
 class OfflineHost(BaseHost):
@@ -178,14 +196,3 @@ class OfflineHost(BaseHost):
         For offline hosts, return infinity since we can't track activity.
         """
         return float("inf")
-
-    def get_permissions(self) -> list[str]:
-        """Get the union of all agent permissions on this host.
-
-        Uses persisted agent data from the provider to get permissions without
-        requiring the host to be online.
-        """
-        permissions: set[str] = set()
-        for agent_ref in self.get_agent_references():
-            permissions.update(str(p) for p in agent_ref.permissions)
-        return list(permissions)

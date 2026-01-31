@@ -726,6 +726,9 @@ class Host(BaseHost, OnlineHostInterface):
         This method reads only the data.json files for each agent, avoiding the
         overhead of fully loading agent objects. The certified_data field contains
         the full data.json contents.
+
+        Note that we override the base method in order to read more directly from the host,
+        since that data is more likely to be up-to-date.
         """
         logger.trace("Loading agent references from host {}", self.id)
         agents_dir = self.host_dir / "agents"
@@ -740,19 +743,37 @@ class Host(BaseHost, OnlineHostInterface):
                 data_path = agent_dir / "data.json"
                 try:
                     content = self.read_text_file(data_path)
-                    data = json.loads(content)
-                    agent_refs.append(
-                        AgentReference(
-                            host_id=self.id,
-                            agent_id=AgentId(data["id"]),
-                            agent_name=AgentName(data["name"]),
-                            provider_name=self.provider_instance.name,
-                            certified_data=data,
-                        )
-                    )
-                except (FileNotFoundError, KeyError, json.JSONDecodeError):
-                    logger.trace("Could not load agent reference from {}", data_path)
+                except FileNotFoundError:
+                    logger.warning("Could not load agent reference from {}", data_path)
                     continue
+                try:
+                    data = json.loads(content)
+                except json.JSONDecodeError as e:
+                    logger.warning("Could not load agent reference from {} because json was invalid: {}", data_path, e)
+                    continue
+                try:
+                    agent_id = AgentId(data.get("id"))
+                except ValueError as e:
+                    logger.opt(exception=e).warning(
+                        f"Skipping malformed agent record for host {self.id}: missing or invalid 'id': {data}"
+                    )
+                    continue
+                try:
+                    agent_name = AgentName(data.get("name"))
+                except ValueError as e:
+                    logger.opt(exception=e).warning(
+                        f"Skipping malformed agent record for host {self.id}: missing or invalid 'name': {data}"
+                    )
+                    continue
+                agent_refs.append(
+                    AgentReference(
+                        host_id=self.id,
+                        agent_id=agent_id,
+                        agent_name=agent_name,
+                        provider_name=self.provider_instance.name,
+                        certified_data=data,
+                    )
+                )
 
         logger.trace("Loaded {} agent reference(s) from host {}", len(agent_refs), self.id)
         return agent_refs
@@ -1904,13 +1925,6 @@ done
 
         now = datetime.now(timezone.utc)
         return (now - latest_activity).total_seconds()
-
-    def get_permissions(self) -> list[str]:
-        """Get the union of all agent permissions on this host."""
-        permissions: set[str] = set()
-        for agent_ref in self.get_agent_references():
-            permissions.update(str(p) for p in agent_ref.permissions)
-        return list(permissions)
 
     def get_state(self) -> HostState:
         """Get the current state of the host."""
