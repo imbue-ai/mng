@@ -14,6 +14,7 @@ from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import UserInputError
+from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
@@ -227,14 +228,13 @@ def resolve_source_location(
     logger.trace("Resolved to host id={}", host_interface.id)
 
     # Ensure host is online for file operations
-    if not host_interface.is_online:
+    if not isinstance(host_interface, OnlineHostInterface):
         raise HostOfflineError(f"Host '{host_interface.id}' is offline. Start the host first.")
-    online_host = cast(OnlineHostInterface, host_interface)
 
     # Resolve the final path
     agent_work_dir: Path | None = None
     if resolved_agent is not None:
-        for agent in online_host.get_agents():
+        for agent in host_interface.get_agents():
             if agent.id == resolved_agent.agent_id:
                 agent_work_dir = agent.work_dir
                 break
@@ -246,7 +246,7 @@ def resolve_source_location(
     )
 
     return HostLocation(
-        host=online_host,
+        host=host_interface,
         path=resolved_path,
     )
 
@@ -270,25 +270,23 @@ def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostR
         return None
 
 
-def _ensure_host_started(
-    host: HostInterface, is_start_desired: bool, provider: BaseProviderInstance
-) -> OnlineHostInterface:
+def _ensure_host_started(host: HostInterface, is_start_desired: bool, provider: BaseProviderInstance) -> Host:
     """Ensure the host is online and started.
 
     If the host is already online, returns it cast to OnlineHostInterface.
     If offline and start is desired, starts the host and returns the online host.
     If offline and start is not desired, raises UserInputError.
     """
+    # Check using is_online attribute (works with both real hosts and mocks)
     if host.is_online:
-        return cast(OnlineHostInterface, host)
+        return cast(Host, host)
     if is_start_desired:
         logger.info("Host is offline, starting it...", host_id=host.id, provider=provider.name)
         started_host = provider.start_host(host)
-        return cast(OnlineHostInterface, started_host)
+        return started_host
     else:
         raise UserInputError(
-            f"Host '{host.id}' is offline and --no-start was specified. "
-            "Use --start to automatically start the host."
+            f"Host '{host.id}' is offline and --no-start was specified. Use --start to automatically start the host."
         )
 
 
@@ -397,7 +395,7 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
 
         for host in hosts:
             # For offline hosts, get agent references from persisted data
-            if not host.is_online:
+            if not isinstance(host, OnlineHostInterface):
                 agent_refs = host.get_agent_references()
                 if agent_refs:
                     # Use first agent ref's info to build host reference

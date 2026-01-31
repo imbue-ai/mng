@@ -19,28 +19,14 @@ from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostState
 
 
-class OfflineHost(HostInterface):
-    """Host implementation that uses json data to enable reading the state of a host that is now offline.
+class BaseHost(HostInterface):
+    """Base for host implementations (shared between offline and online hosts)."""
 
-    This is used when we have stored data about a host (e.g., from provider metadata or persisted
-    agent data) but cannot currently connect to it. It provides read-only access to the host's
-    last-known state.
-    """
-
-    certified_host_data: CertifiedHostData = Field(
-        frozen=True,
-        description="The certified host data loaded from data.json",
-    )
-    is_online: bool = Field(default=False, description="Whether the host is currently online/started")
+    is_online: bool = Field(description="Whether the host is currently online/started")
     provider_instance: ProviderInstanceInterface = Field(
         frozen=True, description="The provider instance managing this host"
     )
     mngr_ctx: MngrContext = Field(frozen=True, repr=False, description="The mngr context")
-
-    @property
-    def is_local(self) -> bool:
-        """Check if this host is local. Offline hosts are never local."""
-        return False
 
     @property
     def host_dir(self) -> Path:
@@ -61,23 +47,8 @@ class OfflineHost(HostInterface):
         )
 
     # =========================================================================
-    # Activity Times
-    # =========================================================================
-
-    def get_reported_activity_time(self, activity_type: ActivitySource) -> datetime | None:
-        """Get the last reported activity time for the given type.
-
-        For offline hosts, we cannot retrieve activity times since we can't read the
-        activity files from the host filesystem. Returns None.
-        """
-        return None
-
-    # =========================================================================
     # Certified Data
     # =========================================================================
-
-    def get_all_certified_data(self) -> CertifiedHostData:
-        return self.certified_host_data
 
     def get_plugin_data(self, plugin_name: str) -> dict[str, Any]:
         """Get certified plugin data from data.json."""
@@ -130,22 +101,6 @@ class OfflineHost(HostInterface):
     # =========================================================================
     # Agent-Derived Information
     # =========================================================================
-
-    def get_idle_seconds(self) -> float:
-        """Get the number of seconds since last activity.
-
-        For offline hosts, return infinity since we can't track activity.
-        """
-        return float("inf")
-
-    def get_permissions(self) -> list[str]:
-        """Get the union of all agent permissions on this host.
-
-        For offline hosts, we cannot retrieve permissions since we can't read
-        agent data files from the host filesystem. Returns an empty list.
-        """
-        return []
-
     def get_state(self) -> HostState:
         """Get the current state of the host.
 
@@ -164,3 +119,61 @@ class OfflineHost(HostInterface):
                 pass
 
         return HostState.STOPPED
+
+
+class OfflineHost(BaseHost):
+    """Host implementation that uses json data to enable reading the state of a host that is now offline.
+
+    This is used when we have stored data about a host (e.g., from provider metadata or persisted
+    agent data) but cannot currently connect to it. It provides read-only access to the host's
+    last-known state.
+    """
+
+    certified_host_data: CertifiedHostData = Field(
+        frozen=True,
+        description="The certified host data loaded from data.json",
+    )
+    is_online: bool = Field(default=False, description="Whether the host is currently online/started")
+
+    @property
+    def is_local(self) -> bool:
+        """Check if this host is local. Offline hosts are never local."""
+        return False
+
+    # =========================================================================
+    # Certified Data
+    # =========================================================================
+
+    def get_all_certified_data(self) -> CertifiedHostData:
+        return self.certified_host_data
+
+    # =========================================================================
+    # Activity Times
+    # =========================================================================
+
+    def get_reported_activity_time(self, activity_type: ActivitySource) -> datetime | None:
+        """Get the last reported activity time for the given type.
+
+        For offline hosts, we cannot retrieve activity times since we can't read the
+        activity files from the host filesystem. Returns None.
+        """
+        return None
+
+    # =========================================================================
+    # Agent-Derived Information
+    # =========================================================================
+
+    def get_idle_seconds(self) -> float:
+        """Get the number of seconds since last activity.
+
+        For offline hosts, return infinity since we can't track activity.
+        """
+        return float("inf")
+
+    def get_permissions(self) -> list[str]:
+        """Get the union of all agent permissions on this host.
+
+        For offline hosts, we cannot retrieve permissions since we can't read
+        agent data files from the host filesystem. Returns an empty list.
+        """
+        return []

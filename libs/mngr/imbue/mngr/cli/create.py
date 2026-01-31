@@ -52,8 +52,8 @@ from imbue.mngr.interfaces.host import AgentPermissionsOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import FileModificationSpec
-from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.host import NamedCommand
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.host import UploadFileSpec
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
@@ -775,6 +775,10 @@ def _resolve_source_location(
             source_path = str(git_root) if git_root is not None else os.getcwd()
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
         source_location = HostLocation(
+            # FIXME: rather than casting (and assuming this is online), we should be doing the whole "ensure host is online"
+            #  logic from other parts of the codebase, eg, connect, and have some flag that controls whether we
+            #  automatically start (source or target) hosts if we're offline. A single arg (--start / --no-start) for both seems fine, just needs to get wired through
+            #  Also we would need to update _resolve_target_host to do the same logic for target hosts
             host=cast(OnlineHostInterface, provider.get_host(HostName("local"))),
             path=Path(source_path),
         )
