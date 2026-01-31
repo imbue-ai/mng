@@ -84,22 +84,39 @@ class BaseHost(HostInterface):
         The full agent data.json contents are included as certified_data.
         Malformed agent records are skipped with a log.
         """
-        agent_records = self.provider_instance.list_persisted_agent_data_for_host(self.id)
+        try:
+            agent_records = self.provider_instance.list_persisted_agent_data_for_host(self.id)
+        except (KeyError, ValueError) as e:
+            logger.trace("Could not load persisted agent data for host {}: {}", self.id, e)
+            return []
 
         agent_refs: list[AgentReference] = []
         for agent_data in agent_records:
-            try:
-                agent_id = AgentId(agent_data.get("id"))
-            except ValueError as e:
-                logger.opt(exception=e).warning(
-                    f"Skipping malformed agent record for host {self.id}: missing or invalid 'id': {agent_data}"
+            agent_id_str = agent_data.get("id")
+            if agent_id_str is None:
+                logger.warning(
+                    f"Skipping malformed agent record for host {self.id}: missing 'id': {agent_data}"
                 )
                 continue
             try:
-                agent_name = AgentName(agent_data.get("name"))
+                agent_id = AgentId(agent_id_str)
             except ValueError as e:
                 logger.opt(exception=e).warning(
-                    f"Skipping malformed agent record for host {self.id}: missing or invalid 'name': {agent_data}"
+                    f"Skipping malformed agent record for host {self.id}: invalid 'id': {agent_data}"
+                )
+                continue
+
+            agent_name_str = agent_data.get("name")
+            if agent_name_str is None:
+                logger.warning(
+                    f"Skipping malformed agent record for host {self.id}: missing 'name': {agent_data}"
+                )
+                continue
+            try:
+                agent_name = AgentName(agent_name_str)
+            except ValueError as e:
+                logger.opt(exception=e).warning(
+                    f"Skipping malformed agent record for host {self.id}: invalid 'name': {agent_data}"
                 )
                 continue
             agent_refs.append(
