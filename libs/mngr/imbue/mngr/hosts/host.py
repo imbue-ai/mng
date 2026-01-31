@@ -61,6 +61,7 @@ from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import AgentTypeName
+from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
@@ -112,6 +113,10 @@ class Host(BaseHost, OnlineHostInterface):
     def is_local(self) -> bool:
         """Check if this host uses the local connector."""
         return self.connector.connector_cls_name == LOCAL_CONNECTOR_NAME
+
+    def get_name(self) -> HostName:
+        """Return the human-readable name of this host."""
+        return HostName(self.connector.name)
 
     # =========================================================================
     # Core Primitives (pyinfra-compatible signatures)

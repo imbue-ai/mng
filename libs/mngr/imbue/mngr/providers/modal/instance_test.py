@@ -34,6 +34,7 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
+from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
@@ -550,15 +551,18 @@ def _make_host_record(
     snapshots: list[SnapshotRecord] | None = None,
 ) -> HostRecord:
     """Create a HostRecord for testing."""
-    return HostRecord(
+    certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name=host_name,
+        user_tags={},
+        snapshots=snapshots or [],
+    )
+    return HostRecord(
         ssh_host="test.host",
         ssh_port=22,
         ssh_host_public_key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQ...",
         config=SandboxConfig(cpu=1.0, memory=1.0),
-        user_tags={},
-        snapshots=snapshots or [],
+        certified_host_data=certified_data,
     )
 
 

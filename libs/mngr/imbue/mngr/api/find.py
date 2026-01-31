@@ -397,11 +397,7 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
         for host in hosts:
             host_ref = HostReference(
                 host_id=host.id,
-                # TODO: this is silly--we should make a get_name() method on HostInterface, and the Host class can use "HostName(host.connector.name)", and the OfflineHost class should use the host_name from the persisted data.
-                #  Then, here, we can just call host.get_name()
-                host_name=HostName(host.connector.name)
-                if isinstance(host, OnlineHostInterface)
-                else HostName(str(host.id)),
+                host_name=host.get_name(),
                 provider_name=provider.name,
             )
             agent_refs = host.get_agent_references()

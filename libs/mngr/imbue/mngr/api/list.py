@@ -247,8 +247,7 @@ def list_agents(
 
                 host_info = HostInfo(
                     id=host.id,
-                    # TODO: actually implement this, see other TODO for details
-                    name=host.get_name(),
+                    name=str(host.get_name()),
                     provider_name=host_ref.provider_name,
                     host=host_hostname,
                     state=host.get_state().value.lower(),

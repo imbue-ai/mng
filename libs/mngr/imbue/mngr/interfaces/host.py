@@ -31,6 +31,7 @@ from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import Permission
 from imbue.mngr.primitives import WorkDirCopyMode
@@ -52,6 +53,11 @@ class HostInterface(MutableModel, ABC):
     @abstractmethod
     def host_dir(self) -> Path:
         """Get the host state directory path."""
+        ...
+
+    @abstractmethod
+    def get_name(self) -> HostName:
+        """Return the human-readable name of this host."""
         ...
 
     # =========================================================================

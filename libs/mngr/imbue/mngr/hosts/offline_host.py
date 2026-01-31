@@ -16,6 +16,7 @@ from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentReference
+from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 
 
@@ -84,25 +85,29 @@ class BaseHost(HostInterface):
         """
         agent_id_str = agent_data.get("id")
         if agent_id_str is None:
-            logger.warning(f"Skipping malformed agent record for host {self.id}: missing 'id': {agent_data}")
+            logger.warning(
+                "Skipping malformed agent record for host {}: missing 'id': {}", self.id, agent_data
+            )
             return None
         try:
             agent_id = AgentId(agent_id_str)
         except ValueError as e:
             logger.opt(exception=e).warning(
-                f"Skipping malformed agent record for host {self.id}: invalid 'id': {agent_data}"
+                "Skipping malformed agent record for host {}: invalid 'id': {}", self.id, agent_data
             )
             return None
 
         agent_name_str = agent_data.get("name")
         if agent_name_str is None:
-            logger.warning(f"Skipping malformed agent record for host {self.id}: missing 'name': {agent_data}")
+            logger.warning(
+                "Skipping malformed agent record for host {}: missing 'name': {}", self.id, agent_data
+            )
             return None
         try:
             agent_name = AgentName(agent_name_str)
         except ValueError as e:
             logger.opt(exception=e).warning(
-                f"Skipping malformed agent record for host {self.id}: invalid 'name': {agent_data}"
+                "Skipping malformed agent record for host {}: invalid 'name': {}", self.id, agent_data
             )
             return None
 
@@ -184,8 +189,10 @@ class OfflineHost(BaseHost):
         """Check if this host is local. Offline hosts are never local."""
         return False
 
-    # TODO: add another field like certified_host_data (certified_host_data_mtime) to track when data.json was last updated
-    #  then use that here and in get_seconds_since_stopped
+    def get_name(self) -> HostName:
+        """Return the human-readable name of this host from persisted data."""
+        return HostName(self.certified_host_data.host_name)
+
     def get_stop_time(self) -> datetime | None:
         """Return the host last stop time as a datetime, or None if unknown."""
         return None

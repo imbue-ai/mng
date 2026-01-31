@@ -176,7 +176,6 @@ class SandboxConfig(HostConfig):
     )
 
 
-# TODO: I've made this class contain a CertifiedHostData. Please make that actually work! (eg, when we're creating HostRecord, we may need to pass in some extra fields)
 class HostRecord(FrozenModel):
     """Host metadata stored on the Modal Volume.
 
