@@ -529,9 +529,11 @@ class Host(BaseHost, OnlineHostInterface):
             )
 
     def _save_certified_data(self, certified_data: CertifiedHostData) -> None:
-        """Save certified data to data.json."""
+        """Save certified data to data.json and notify the provider."""
         data_path = self.host_dir / "data.json"
         self.write_text_file(data_path, json.dumps(certified_data.model_dump(by_alias=True), indent=2))
+        # Notify the provider so it can update any external storage (e.g., Modal volume)
+        self.provider_instance.on_certified_host_data_updated(self.id, certified_data)
 
     def _add_generated_work_dir(self, work_dir: Path) -> None:
         """Add a work directory to the list of generated work directories."""
@@ -561,8 +563,7 @@ class Host(BaseHost, OnlineHostInterface):
         updated_plugin[plugin_name] = data
 
         updated_data = certified_data.model_copy(update={"plugin": updated_plugin})
-        data_path = self.host_dir / "data.json"
-        self.write_text_file(data_path, json.dumps(updated_data.model_dump(by_alias=True), indent=2))
+        self._save_certified_data(updated_data)
 
     # =========================================================================
     # Reported Plugin Data

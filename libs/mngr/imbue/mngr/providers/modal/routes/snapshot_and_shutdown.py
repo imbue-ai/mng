@@ -13,7 +13,6 @@ Required environment variable (must be set when deploying):
 
 import json
 import os
-import uuid
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -46,11 +45,6 @@ image = (
 app = modal.App(name=APP_NAME, image=image)
 VOLUME_NAME = f"{APP_NAME}-state"
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
-
-
-def _generate_snapshot_id() -> str:
-    """Generate a unique snapshot ID in the format snap-<random_hex>."""
-    return f"snap-{uuid.uuid4().hex}"
 
 
 def _read_host_record(host_id: str) -> dict[str, Any] | None:
@@ -135,22 +129,19 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
 
         # Create the filesystem snapshot
         modal_image = sandbox.snapshot_filesystem()
-        modal_image_id = modal_image.object_id
-
-        # Generate snapshot ID and metadata
-        mngr_snapshot_id = _generate_snapshot_id()
+        # Use the Modal image ID directly as the snapshot ID
+        snapshot_id = modal_image.object_id
         created_at = datetime.now(timezone.utc).isoformat()
 
         if snapshot_name is None:
-            short_id = mngr_snapshot_id[-8:]
+            short_id = snapshot_id[-8:]
             snapshot_name = f"snapshot-{short_id}"
 
-        # Add the new snapshot to the record
+        # Add the new snapshot to the record (id is the Modal image ID)
         new_snapshot = {
-            "id": mngr_snapshot_id,
+            "id": snapshot_id,
             "name": snapshot_name,
             "created_at": created_at,
-            "modal_image_id": modal_image_id,
         }
 
         if "snapshots" not in host_record:
@@ -168,8 +159,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
 
         return {
             "success": True,
-            "snapshot_id": mngr_snapshot_id,
-            "modal_image_id": modal_image_id,
+            "snapshot_id": snapshot_id,
             "snapshot_name": snapshot_name,
         }
 
