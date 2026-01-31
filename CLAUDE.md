@@ -6,6 +6,7 @@ IF YOU FAIL TO FOLLOW ONE, YOU MUST EXPLICITLY CALL THAT OUT IN YOUR RESPONSE.
 
 - This is a monorepo.
 - ALWAYS run commands by calling "uv run" from the root of the git checkout (ex: "uv run mngr create ..."). Do NOT call "mngr" directly (it will refer to the wrong version).
+- NEVER amend commits or rebase--always create new commits.
 
 # How to get started on any task:
 
