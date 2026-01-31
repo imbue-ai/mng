@@ -10,7 +10,6 @@ from pyinfra.api.host import Host as PyinfraHost
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
@@ -300,17 +299,6 @@ class ProviderInstanceInterface(MutableModel, ABC):
         Called when an agent is destroyed. Providers that support persistent
         agent state (like Modal) should override this to remove the agent data
         from their storage backend.
-
-        The default implementation is a no-op for providers that don't need this.
-        """
-
-    def on_certified_host_data_updated(self, host_id: HostId, certified_data: CertifiedHostData) -> None:
-        """Notify the provider that certified host data has been updated.
-
-        Called when the host's data.json is modified (e.g., activity config,
-        plugin data, generated work dirs). Providers that persist host state
-        externally (like Modal's volume) should override this to update their
-        external storage.
 
         The default implementation is a no-op for providers that don't need this.
         """

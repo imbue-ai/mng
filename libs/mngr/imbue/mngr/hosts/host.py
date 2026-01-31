@@ -13,6 +13,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from typing import Callable
 from typing import IO
 from typing import Iterator
 from typing import Mapping
@@ -106,6 +107,11 @@ class Host(BaseHost, OnlineHostInterface):
         frozen=True, description="The provider instance managing this host"
     )
     mngr_ctx: MngrContext = Field(frozen=True, repr=False, description="The mngr context")
+    on_updated_host_data: Callable[[Host, CertifiedHostData], None] | None = Field(
+        frozen=True,
+        default=None,
+        description="Optional callback invoked when certified host data is updated",
+    )
 
     @property
     def is_local(self) -> bool:
@@ -533,7 +539,8 @@ class Host(BaseHost, OnlineHostInterface):
         data_path = self.host_dir / "data.json"
         self.write_text_file(data_path, json.dumps(certified_data.model_dump(by_alias=True), indent=2))
         # Notify the provider so it can update any external storage (e.g., Modal volume)
-        self.provider_instance.on_certified_host_data_updated(self.id, certified_data)
+        if self.on_updated_host_data:
+            self.on_updated_host_data(self, certified_data)
 
     def _add_generated_work_dir(self, work_dir: Path) -> None:
         """Add a work directory to the list of generated work directories."""
