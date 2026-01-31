@@ -22,8 +22,11 @@ from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import OutputFormat
+from imbue.mngr.primitives import ProviderInstanceName
 
 
 class StopCliOptions(CommonCliOptions):
@@ -197,10 +200,6 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
         if key not in agents_by_host:
             agents_by_host[key] = []
         agents_by_host[key].append((agent_id, agent_name, provider_name))
-
-    from imbue.mngr.primitives import AgentId
-    from imbue.mngr.primitives import HostId
-    from imbue.mngr.primitives import ProviderInstanceName
 
     for host_key, agent_list in agents_by_host.items():
         host_id_str, _ = host_key.split(":", 1)
