@@ -14,6 +14,8 @@ from imbue.mngr.cli.gc import gc
 from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.pull import pull
+from imbue.mngr.cli.start import start
+from imbue.mngr.cli.stop import stop
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.providers.registry import load_all_registries
 
@@ -30,6 +32,7 @@ COMMAND_ALIASES: dict[str, list[str]] = {
     "message": ["msg"],
     "list": ["ls"],
     "connect": ["conn"],
+    "stop": ["s"],
 }
 
 # Build reverse mapping: alias -> canonical name
@@ -208,7 +211,7 @@ def reset_plugin_manager() -> None:
 
 
 # Add built-in commands to the CLI group
-BUILTIN_COMMANDS: list[click.Command] = [config, connect, create, destroy, gc, list_command, message, pull]
+BUILTIN_COMMANDS: list[click.Command] = [config, connect, create, destroy, gc, list_command, message, pull, start, stop]
 
 for cmd in BUILTIN_COMMANDS:
     cli.add_command(cmd)
@@ -220,6 +223,7 @@ cli.add_command(destroy, name="rm")
 cli.add_command(message, name="msg")
 cli.add_command(list_command, name="ls")
 cli.add_command(connect, name="conn")
+cli.add_command(stop, name="s")
 
 # Register plugin commands after built-in commands but before applying CLI options.
 # This ordering allows plugins to add CLI options to other plugin commands.
