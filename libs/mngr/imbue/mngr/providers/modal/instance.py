@@ -499,15 +499,22 @@ class ModalProviderInstance(BaseProviderInstance):
             pass
 
     def _on_certified_host_data_updated(
-        self, host_id: HostId, certified_data: CertifiedHostData, host_record: HostRecord
+        self, host_id: HostId, certified_data: CertifiedHostData
     ) -> None:
         """Update the certified host data in the volume's host record.
 
         Called when the host's data.json is modified. Updates the
         certified_host_data field in the volume's host record to keep
         the volume in sync with the host.
+
+        Reads the current host record from the volume to avoid overwriting
+        any changes made by other operations (snapshots, tags, etc.).
         """
-        logger.debug("Writing host record to volume", host_id=str(host_id))
+        logger.debug("Updating certified host data on volume", host_id=str(host_id))
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            logger.warning("Host record not found on volume, skipping update", host_id=str(host_id))
+            return
         updated_host_record = host_record.model_copy(update={"certified_host_data": certified_data})
         self._write_host_record(updated_host_record)
         logger.trace("Updated certified host data on volume for {}", host_id)
@@ -731,7 +738,7 @@ class ModalProviderInstance(BaseProviderInstance):
         pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
         connector = PyinfraConnector(pyinfra_host)
 
-        # make the initial host record
+        # Create and write the initial host record to the volume
         host_record = HostRecord(
             ssh_host=ssh_host,
             ssh_port=ssh_port,
@@ -739,6 +746,8 @@ class ModalProviderInstance(BaseProviderInstance):
             config=config,
             certified_host_data=host_data,
         )
+        self._write_host_record(host_record)
+        logger.debug("Wrote initial host record to volume", host_id=str(host_id))
 
         # Create the Host object
         host = Host(
@@ -747,7 +756,7 @@ class ModalProviderInstance(BaseProviderInstance):
             provider_instance=self,
             mngr_ctx=self.mngr_ctx,
             on_updated_host_data=lambda callback_host, certified_data: self._on_certified_host_data_updated(
-                callback_host, certified_data, host_record
+                callback_host.id, certified_data
             ),
         )
 
@@ -764,7 +773,7 @@ class ModalProviderInstance(BaseProviderInstance):
         host.write_text_file(max_host_age_path, str(config.timeout))
         logger.debug("Wrote max_host_age file", max_host_age_seconds=config.timeout)
 
-        # this is kinda duplicative
+        # Set activity config on the host for idle detection
         host.set_activity_config(
             ActivityConfig(
                 idle_mode=host_data.idle_mode,
