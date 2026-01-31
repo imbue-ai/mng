@@ -417,14 +417,30 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
                 provider_name=provider.name,
             )
 
-            # Get agent references from the host. For online hosts, this will query
-            # the host directly. For stopped/unreachable hosts, the implementation
-            # falls back to persisted agent data from the provider.
+            # Get agent references from the host. For online hosts, this queries
+            # the host filesystem directly. If the connection fails, fall back to
+            # persisted agent data from the provider.
             try:
                 agent_refs = host.get_agent_references()
             except (ConnectError, HostConnectionError, OSError) as e:
                 logger.trace("Could not get agent refs from host {} (may be stopped): {}", host.id, e)
+                # Fall back to persisted agent data from the provider (for stopped hosts)
                 agent_refs = []
+                try:
+                    agent_records = provider.list_persisted_agent_data_for_host(host.id)
+                    for agent_data in agent_records:
+                        agent_refs.append(
+                            AgentReference(
+                                host_id=host.id,
+                                agent_id=AgentId(agent_data["id"]),
+                                agent_name=AgentName(agent_data["name"]),
+                                provider_name=provider.name,
+                                certified_data=agent_data,
+                            )
+                        )
+                    logger.trace("Loaded {} persisted agents for stopped host {}", len(agent_refs), host.id)
+                except (KeyError, ValueError) as inner_e:
+                    logger.trace("Could not load persisted agents for host {}: {}", host.id, inner_e)
 
             agents_by_host[host_ref] = agent_refs
 
