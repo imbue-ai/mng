@@ -8,9 +8,11 @@ from imbue.imbue_common.ratchet_testing.core import FileExtension
 from imbue.imbue_common.ratchet_testing.core import RegexPattern
 from imbue.imbue_common.ratchet_testing.core import check_regex_ratchet
 from imbue.imbue_common.ratchet_testing.core import format_ratchet_failure_message
+from imbue.imbue_common.ratchet_testing.ratchets import find_cast_usages
 from imbue.imbue_common.ratchet_testing.ratchets import find_if_elif_without_else
 from imbue.imbue_common.ratchet_testing.ratchets import find_init_methods_in_non_exception_classes
 from imbue.imbue_common.ratchet_testing.ratchets import find_inline_functions
+from imbue.imbue_common.ratchet_testing.ratchets import find_isinstance_usages
 from imbue.imbue_common.ratchet_testing.ratchets import find_underscore_imports
 
 # Exclude this test file from ratchet scans to prevent self-referential matches
@@ -501,4 +503,46 @@ def test_prevent_code_in_init_files() -> None:
     assert len(violations) <= snapshot(0), (
         "Code found in __init__.py files (should be empty per style guide):\n"
         + "\n".join(f"  - {v}" for v in violations)
+    )
+
+
+def test_prevent_cast_usage() -> None:
+    """Prevent usage of cast() from typing in non-test code.
+
+    cast() bypasses the type checker and should be avoided. If the type checker
+    cannot infer the correct type, prefer using type: ignore comments with a
+    specific error code only if there is really no other way to satisfy the
+    type checker. Consider restructuring the code to avoid the need for cast().
+    """
+    chunks = find_cast_usages(_get_mngr_source_dir(), _THIS_FILE)
+
+    assert len(chunks) <= snapshot(26), format_ratchet_failure_message(
+        rule_name="cast() usages",
+        rule_description=(
+            "Do not use cast() from typing. It bypasses the type checker and makes code less safe. "
+            "If you need to override the type checker, use a '# ty: ignore[specific-error]' comment instead, "
+            "but only if there is really no other way. Consider restructuring your code to avoid the need for type overrides."
+        ),
+        chunks=chunks,
+    )
+
+
+def test_prevent_isinstance_usage() -> None:
+    """Prevent usage of isinstance() in non-test code.
+
+    isinstance() checks are often a sign of improper type handling. Instead, use
+    match statements with exhaustive case handling to ensure all possible types
+    are handled explicitly. Use 'case _ as unreachable: assert_never(unreachable)'
+    to catch any unhandled cases at compile time.
+    """
+    chunks = find_isinstance_usages(_get_mngr_source_dir(), _THIS_FILE)
+
+    assert len(chunks) <= snapshot(66), format_ratchet_failure_message(
+        rule_name="isinstance() usages",
+        rule_description=(
+            "Do not use isinstance(). Use match statements with exhaustive case handling instead. "
+            "End your match with 'case _ as unreachable: assert_never(unreachable)' to ensure all cases are "
+            "handled and catch new variants at compile time. See style guide for examples."
+        ),
+        chunks=chunks,
     )

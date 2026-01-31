@@ -326,3 +326,110 @@ def find_underscore_imports(
 
     sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
     return tuple(sorted_chunks)
+
+
+def find_cast_usages(
+    source_dir: Path,
+    excluded_file: Path | None = None,
+) -> tuple[RatchetMatchChunk, ...]:
+    """Find usages of cast() from typing in non-test files using AST analysis.
+
+    This function finds all calls to cast() in Python files, excluding test files.
+    cast() usage should be avoided in favor of type: ignore comments when there's
+    no other way to satisfy the type checker.
+    """
+    file_paths = _get_non_ignored_files_with_extension(source_dir, FileExtension(".py"), excluded_file)
+    chunks: list[RatchetMatchChunk] = []
+
+    for file_path in file_paths:
+        if _is_test_file(file_path):
+            continue
+
+        file_contents = _read_file_contents(file_path)
+
+        try:
+            tree = ast.parse(file_contents, filename=str(file_path))
+        except SyntaxError:
+            continue
+
+        # Check if 'cast' is imported from typing
+        has_cast_import = False
+        cast_alias = "cast"
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.module == "typing":
+                    for alias in node.names:
+                        if alias.name == "cast":
+                            has_cast_import = True
+                            cast_alias = alias.asname if alias.asname else "cast"
+                            break
+
+        if not has_cast_import:
+            continue
+
+        # Find all calls to cast()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id == cast_alias:
+                    start_line = LineNumber(node.lineno)
+                    end_line = LineNumber(node.end_lineno if node.end_lineno else node.lineno)
+
+                    commit_date = _get_chunk_commit_date(file_path, start_line, end_line)
+
+                    chunk = RatchetMatchChunk(
+                        file_path=file_path,
+                        matched_content=f"cast() usage at line {start_line}",
+                        start_line=start_line,
+                        end_line=end_line,
+                        last_modified_date=commit_date,
+                    )
+                    chunks.append(chunk)
+
+    sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
+    return tuple(sorted_chunks)
+
+
+def find_isinstance_usages(
+    source_dir: Path,
+    excluded_file: Path | None = None,
+) -> tuple[RatchetMatchChunk, ...]:
+    """Find usages of isinstance() in non-test files using AST analysis.
+
+    This function finds all calls to isinstance() in Python files, excluding test files.
+    isinstance() usage should be replaced with match constructs that exhaustively handle
+    all cases using 'case _ as unreachable: assert_never(unreachable)'.
+    """
+    file_paths = _get_non_ignored_files_with_extension(source_dir, FileExtension(".py"), excluded_file)
+    chunks: list[RatchetMatchChunk] = []
+
+    for file_path in file_paths:
+        if _is_test_file(file_path):
+            continue
+
+        file_contents = _read_file_contents(file_path)
+
+        try:
+            tree = ast.parse(file_contents, filename=str(file_path))
+        except SyntaxError:
+            continue
+
+        # Find all calls to isinstance()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id == "isinstance":
+                    start_line = LineNumber(node.lineno)
+                    end_line = LineNumber(node.end_lineno if node.end_lineno else node.lineno)
+
+                    commit_date = _get_chunk_commit_date(file_path, start_line, end_line)
+
+                    chunk = RatchetMatchChunk(
+                        file_path=file_path,
+                        matched_content=f"isinstance() usage at line {start_line}",
+                        start_line=start_line,
+                        end_line=end_line,
+                        last_modified_date=commit_date,
+                    )
+                    chunks.append(chunk)
+
+    sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
+    return tuple(sorted_chunks)
