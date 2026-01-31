@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import cast
+from typing import assert_never
 
 import deal
 from loguru import logger
@@ -277,17 +277,20 @@ def _ensure_host_started(host: HostInterface, is_start_desired: bool, provider: 
     If offline and start is desired, starts the host and returns the online host.
     If offline and start is not desired, raises UserInputError.
     """
-    # Check using is_online attribute (works with both real hosts and mocks)
-    if host.is_online:
-        return cast(Host, host)
-    if is_start_desired:
-        logger.info("Host is offline, starting it...", host_id=host.id, provider=provider.name)
-        started_host = provider.start_host(host)
-        return started_host
-    else:
-        raise UserInputError(
-            f"Host '{host.id}' is offline and --no-start was specified. Use --start to automatically start the host."
-        )
+    match host:
+        case Host() as online_host:
+            return online_host
+        case HostInterface() as offline_host:
+            if is_start_desired:
+                logger.info("Host is offline, starting it...", host_id=offline_host.id, provider=provider.name)
+                started_host = provider.start_host(offline_host)
+                return started_host
+            else:
+                raise UserInputError(
+                    f"Host '{offline_host.id}' is offline and --no-start was specified. Use --start to automatically start the host."
+                )
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def _ensure_agent_started(agent: AgentInterface, host: OnlineHostInterface, is_start_desired: bool) -> None:
@@ -407,18 +410,17 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
                     agents_by_host[host_ref] = agent_refs
                 continue
 
-            # Host is online - cast to OnlineHostInterface
-            online_host = cast(OnlineHostInterface, host)
+            # Host is online (type narrowed by isinstance check above)
             host_ref = HostReference(
                 host_id=host.id,
-                host_name=HostName(online_host.connector.name),
+                host_name=HostName(host.connector.name),
                 provider_name=provider.name,
             )
 
             # Try to get agents from the host. For stopped/unreachable hosts,
             # connection will fail - try to get persisted agent data from volume.
             try:
-                agents = online_host.get_agents()
+                agents = host.get_agents()
                 agent_refs = [
                     AgentReference(
                         host_id=host.id,
