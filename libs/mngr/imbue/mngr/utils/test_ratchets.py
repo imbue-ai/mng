@@ -68,7 +68,7 @@ def test_prevent_inline_imports() -> None:
     pattern = RegexPattern(r"^[ \t]+import\s+\w+|^[ \t]+from\s+\S+\s+import\b", multiline=True)
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
-    assert len(chunks) <= snapshot(3), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
         rule_name="inline imports",
         rule_description="Imports should be at the top of the file, not inline within functions",
         chunks=chunks,

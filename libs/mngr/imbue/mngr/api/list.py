@@ -11,7 +11,6 @@ from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
-from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
@@ -27,9 +26,11 @@ from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
@@ -458,3 +459,32 @@ def _apply_cel_filters(
         exclude_filters=exclude_filters,
         error_context_description=f"agent {agent.name}",
     )
+
+
+@log_call
+def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference, list[AgentReference]]:
+    """Load all agents from all providers, grouped by their host.
+
+    Loops through all providers, gets all hosts from each provider, and then gets all agents for each host.
+    Handles both online hosts (which can be queried directly) and offline hosts (which use persisted data).
+    """
+    agents_by_host: dict[HostReference, list[AgentReference]] = {}
+
+    logger.debug("Loading all agents from all providers")
+    providers = get_all_provider_instances(mngr_ctx)
+    logger.trace("Found {} provider instances", len(providers))
+
+    for provider in providers:
+        logger.trace("Loading hosts from provider {}", provider.name)
+        hosts = provider.list_hosts(include_destroyed=False)
+
+        for host in hosts:
+            host_ref = HostReference(
+                host_id=host.id,
+                host_name=host.get_name(),
+                provider_name=provider.name,
+            )
+            agent_refs = host.get_agent_references()
+            agents_by_host[host_ref] = agent_refs
+
+    return agents_by_host

@@ -6,7 +6,7 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
-from imbue.mngr.api.providers import get_all_provider_instances
+from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundError
@@ -377,35 +377,6 @@ def find_and_maybe_start_agent_by_name_or_id(
     return agent, host
 
 
-@log_call
-def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference, list[AgentReference]]:
-    """Load all agents from all providers, grouped by their host.
-
-    Loops through all providers, gets all hosts from each provider, and then gets all agents for each host.
-    Handles both online hosts (which can be queried directly) and offline hosts (which use persisted data).
-    """
-    agents_by_host: dict[HostReference, list[AgentReference]] = {}
-
-    logger.debug("Loading all agents from all providers")
-    providers = get_all_provider_instances(mngr_ctx)
-    logger.trace("Found {} provider instances", len(providers))
-
-    for provider in providers:
-        logger.trace("Loading hosts from provider {}", provider.name)
-        hosts = provider.list_hosts(include_destroyed=False)
-
-        for host in hosts:
-            host_ref = HostReference(
-                host_id=host.id,
-                host_name=host.get_name(),
-                provider_name=provider.name,
-            )
-            agent_refs = host.get_agent_references()
-            agents_by_host[host_ref] = agent_refs
-
-    return agents_by_host
-
-
 class AgentMatch(FrozenModel):
     """Information about an agent that matched a search query."""
 
@@ -430,8 +401,6 @@ def find_agents_by_identifiers_or_state(
 
     Raises AgentNotFoundError if any identifier does not match an agent.
     """
-    # Import here to avoid circular import (list.py imports from find.py)
-    from imbue.mngr.api.list import list_agents
 
     matches: list[AgentMatch] = []
     matched_identifiers: set[str] = set()
@@ -453,12 +422,14 @@ def find_agents_by_identifiers_or_state(
             should_include = False
 
         if should_include:
-            matches.append(AgentMatch(
-                agent_id=agent_ref.id,
-                agent_name=agent_ref.name,
-                host_id=agent_ref.host.id,
-                provider_name=agent_ref.host.provider_name,
-            ))
+            matches.append(
+                AgentMatch(
+                    agent_id=agent_ref.id,
+                    agent_name=agent_ref.name,
+                    host_id=agent_ref.host.id,
+                    provider_name=agent_ref.host.provider_name,
+                )
+            )
 
     # Verify all specified identifiers were found
     if agent_identifiers:
