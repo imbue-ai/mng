@@ -135,7 +135,7 @@ def test_list_snapshots_returns_empty_list(local_provider: LocalProviderInstance
 def test_delete_snapshot_raises_error(local_provider: LocalProviderInstance) -> None:
     host = local_provider.create_host(HostName("test"))
     with pytest.raises(SnapshotsNotSupportedError):
-        local_provider.delete_snapshot(host, SnapshotId.generate())
+        local_provider.delete_snapshot(host, SnapshotId("snap-test"))
 
 
 def test_get_host_tags_empty_by_default(local_provider: LocalProviderInstance) -> None:

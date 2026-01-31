@@ -86,7 +86,7 @@ def test_host_not_stopped_error_includes_state() -> None:
 
 def test_snapshot_not_found_error_sets_snapshot_id() -> None:
     """SnapshotNotFoundError should set snapshot_id attribute."""
-    snapshot_id = SnapshotId.generate()
+    snapshot_id = SnapshotId("snap-test")
     error = SnapshotNotFoundError(snapshot_id)
     assert error.snapshot_id == snapshot_id
     assert "Snapshot not found" in str(error)
@@ -184,7 +184,7 @@ def test_host_not_stopped_error_has_user_help_text() -> None:
 
 def test_snapshot_not_found_error_has_user_help_text() -> None:
     """SnapshotNotFoundError should have user_help_text."""
-    snapshot_id = SnapshotId.generate()
+    snapshot_id = SnapshotId("snap-test")
     error = SnapshotNotFoundError(snapshot_id)
     assert error.user_help_text is not None
     assert "snapshot" in error.user_help_text.lower()

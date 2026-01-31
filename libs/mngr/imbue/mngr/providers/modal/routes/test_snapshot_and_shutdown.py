@@ -179,15 +179,15 @@ def test_snapshot_and_shutdown_success(
         result = response.json()
         assert result["success"] is True, f"Expected success=True: {result}"
         assert "snapshot_id" in result
-        assert "modal_image_id" in result
-        assert result["snapshot_id"].startswith("snap-")
+        # snapshot_id is now the Modal image ID (starts with "im-")
+        assert result["snapshot_id"].startswith("im-")
 
         # Verify the host record was updated
         host_record = _read_host_record_from_volume(app_name, host_id)
         assert host_record is not None, "Host record not found after snapshot"
         assert len(host_record["snapshots"]) == 1
+        # The id IS the Modal image ID now
         assert host_record["snapshots"][0]["id"] == result["snapshot_id"]
-        assert host_record["snapshots"][0]["modal_image_id"] == result["modal_image_id"]
 
         # Verify the sandbox was terminated by polling for termination
         def sandbox_terminated() -> bool:

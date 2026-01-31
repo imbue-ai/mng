@@ -164,10 +164,8 @@ class HostId(RandomId):
     PREFIX = "host"
 
 
-class SnapshotId(RandomId):
+class SnapshotId(NonEmptyStr):
     """Unique identifier for a snapshot."""
-
-    PREFIX = "snap"
 
 
 class VolumeId(RandomId):
