@@ -5,7 +5,6 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
-from typing import cast
 
 from loguru import logger
 
@@ -144,37 +143,34 @@ def gc_work_dirs(
         for host in provider_instance.list_hosts():
             logger.trace("Checking host {} for orphaned work directories", host.id)
 
-            # Skip offline hosts - can't query them
-            if not host.is_online:
+            if not isinstance(host, OnlineHostInterface):
+                # Skip offline hosts - can't query them
                 logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
-                continue
-
-            # Cast to OnlineHostInterface
-            online_host = cast(OnlineHostInterface, host)
-
-            try:
-                orphaned_dirs = _get_orphaned_work_dirs(host=online_host, provider_name=provider_instance.name)
-            except HostOfflineError:
-                logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
-                continue
-
-            # Apply CEL filtering
-            filtered_dirs = [
-                d
-                for d in orphaned_dirs
-                if (not compiled_include_filters or _apply_cel_filters(d, compiled_include_filters, []))
-                and (not compiled_exclude_filters or _apply_cel_filters(d, [], compiled_exclude_filters))
-            ]
-
-            for work_dir_info in filtered_dirs:
+            else:
+                # otherwise is online
                 try:
-                    if not dry_run:
-                        _clean_work_dir(host=online_host, work_dir_path=work_dir_info.path, dry_run=False)
-                    result.work_dirs_destroyed.append(work_dir_info)
-                except MngrError as e:
-                    error_msg = f"Failed to clean {work_dir_info.path}: {e}"
-                    result.errors.append(error_msg)
-                    _handle_error(error_msg, error_behavior, exc=e)
+                    orphaned_dirs = _get_orphaned_work_dirs(host=host, provider_name=provider_instance.name)
+                except HostOfflineError:
+                    logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
+                    continue
+
+                # Apply CEL filtering
+                filtered_dirs = [
+                    d
+                    for d in orphaned_dirs
+                    if (not compiled_include_filters or _apply_cel_filters(d, compiled_include_filters, []))
+                    and (not compiled_exclude_filters or _apply_cel_filters(d, [], compiled_exclude_filters))
+                ]
+
+                for work_dir_info in filtered_dirs:
+                    try:
+                        if not dry_run:
+                            _clean_work_dir(host=host, work_dir_path=work_dir_info.path, dry_run=False)
+                        result.work_dirs_destroyed.append(work_dir_info)
+                    except MngrError as e:
+                        error_msg = f"Failed to clean {work_dir_info.path}: {e}"
+                        result.errors.append(error_msg)
+                        _handle_error(error_msg, error_behavior, exc=e)
 
 
 def gc_machines(
@@ -196,17 +192,14 @@ def gc_machines(
             for host in hosts:
                 try:
                     # Skip offline hosts - can't query them
-                    if not host.is_online:
+                    if not isinstance(host, OnlineHostInterface):
                         continue
-
-                    # Cast to OnlineHostInterface for type checking
-                    online_host = cast(OnlineHostInterface, host)
 
                     # Skip local hosts - they cannot be destroyed
-                    if online_host.is_local:
+                    if host.is_local:
                         continue
 
-                    agents = online_host.get_agents()
+                    agents = host.get_agents()
 
                     # Only consider hosts with no agents
                     if len(agents) > 0:

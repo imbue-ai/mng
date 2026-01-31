@@ -1,5 +1,4 @@
 from typing import assert_never
-from typing import cast
 
 import click
 from click_option_group import optgroup
@@ -25,6 +24,7 @@ from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
@@ -295,19 +295,21 @@ def _find_agents_to_destroy(
             provider = get_provider_instance(agent_ref.host.provider_name, mngr_ctx)
             host_interface = provider.get_host(agent_ref.host.id)
 
-            # Check if host is online - can't destroy agents on offline hosts
-            if not host_interface.is_online:
-                raise HostOfflineError(
-                    f"Host '{agent_ref.host.id}' is offline. Start the host first to destroy agents."
-                )
-
-            host = cast(OnlineHostInterface, host_interface)
-            for agent in host.get_agents():
-                if agent.id == agent_ref.id:
-                    agents_to_destroy.append((agent, host))
-                    break
-            else:
-                raise AgentNotFoundError(f"Agent with ID {agent_ref.id} not found on host {host.id}")
+            match host_interface:
+                case OnlineHostInterface() as online_host:
+                    for agent in online_host.get_agents():
+                        if agent.id == agent_ref.id:
+                            agents_to_destroy.append((agent, online_host))
+                            break
+                    else:
+                        raise AgentNotFoundError(f"Agent with ID {agent_ref.id} not found on host {online_host.id}")
+                case HostInterface():
+                    # can't destroy agents on offline hosts
+                    raise HostOfflineError(
+                        f"Host '{agent_ref.host.id}' is offline. Start the host first to destroy agents."
+                    )
+                case _ as unreachable:
+                    assert_never(unreachable)
 
     # Verify all specified identifiers were found
     if agent_identifiers:

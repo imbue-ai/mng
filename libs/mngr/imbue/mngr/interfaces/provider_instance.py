@@ -14,6 +14,7 @@ from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -89,7 +90,7 @@ class ProviderInstanceInterface(MutableModel, ABC):
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
-    ) -> HostInterface:
+    ) -> OnlineHostInterface:
         """Create and start a new host with the given name and configuration."""
         ...
 
@@ -108,7 +109,7 @@ class ProviderInstanceInterface(MutableModel, ABC):
         self,
         host: HostInterface | HostId,
         snapshot_id: SnapshotId | None = None,
-    ) -> HostInterface:
+    ) -> OnlineHostInterface:
         """Start a stopped host, optionally restoring from a specific snapshot."""
         ...
 

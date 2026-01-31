@@ -14,11 +14,13 @@ import pluggy
 from imbue.mngr import hookimpl
 from imbue.mngr.api.create import _call_on_before_create_hooks
 from imbue.mngr.api.create import create
+from imbue.mngr.api.data_types import CreateAgentResult
 from imbue.mngr.api.data_types import NewHostOptions
 from imbue.mngr.api.data_types import OnBeforeCreateArgs
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.host import HostLocation
+from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
@@ -38,6 +40,32 @@ from imbue.mngr.utils.testing import tmux_session_exists
 # =============================================================================
 
 
+def _get_local_host_for_test(test_ctx: MngrContext) -> OnlineHostInterface:
+    local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), test_ctx)
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    return local_host
+
+
+def _get_local_host_and_location(
+    temp_mngr_ctx: MngrContext, temp_work_dir: Path
+) -> tuple[OnlineHostInterface, HostLocation]:
+    local_host = _get_local_host_for_test(temp_mngr_ctx)
+    source_location = HostLocation(
+        host=local_host,
+        path=temp_work_dir,
+    )
+    return local_host, source_location
+
+
+def _get_agent_from_create_result(result: CreateAgentResult, temp_mngr_ctx: MngrContext) -> AgentInterface:
+    provider = get_provider_instance(LOCAL_PROVIDER_NAME, temp_mngr_ctx)
+    host = cast(OnlineHostInterface, provider.get_host(result.host.id))
+    agents = host.get_agents()
+    agent = next((a for a in agents if a.id == result.agent.id), None)
+    assert agent is not None
+    return agent
+
+
 def test_create_simple_echo_agent(
     temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,
@@ -47,12 +75,7 @@ def test_create_simple_echo_agent(
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
-        local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
-        local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
-        source_location = HostLocation(
-            host=local_host,
-            path=temp_work_dir,
-        )
+        local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
         agent_options = CreateAgentOptions(
             agent_type=AgentTypeName("echo"),
@@ -85,12 +108,7 @@ def test_create_agent_with_new_host(
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
-        local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
-        local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
-        source_location = HostLocation(
-            host=local_host,
-            path=temp_work_dir,
-        )
+        local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
         agent_options = CreateAgentOptions(
             agent_type=AgentTypeName("echo"),
@@ -127,12 +145,7 @@ def test_create_agent_work_dir_is_created(
         marker_file = temp_work_dir / "test_marker.txt"
         marker_file.write_text("work_dir marker")
 
-        local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
-        local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
-        source_location = HostLocation(
-            host=local_host,
-            path=temp_work_dir,
-        )
+        local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
         agent_options = CreateAgentOptions(
             agent_type=AgentTypeName("test"),
@@ -161,12 +174,7 @@ def test_agent_state_is_persisted(
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
-        local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
-        local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
-        source_location = HostLocation(
-            host=local_host,
-            path=temp_work_dir,
-        )
+        local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
         agent_options = CreateAgentOptions(
             agent_type=AgentTypeName("persist-test"),
@@ -215,12 +223,7 @@ def test_create_agent_with_unknown_type_uses_type_as_command(
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
-        local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
-        local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
-        source_location = HostLocation(
-            host=local_host,
-            path=temp_work_dir,
-        )
+        local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
         # Use a custom agent type name that will be treated as a command
         agent_options = CreateAgentOptions(
@@ -281,12 +284,7 @@ def test_create_agent_with_worktree(
     worktree_path: Path | None = None
     with tmux_session_cleanup(session_name):
         try:
-            local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
-            local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
-            source_location = HostLocation(
-                host=local_host,
-                path=temp_work_dir,
-            )
+            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
             agent_options = CreateAgentOptions(
                 agent_type=AgentTypeName("worktree-test"),
@@ -306,11 +304,7 @@ def test_create_agent_with_worktree(
             assert result.host.id is not None
             assert tmux_session_exists(session_name)
 
-            provider = get_provider_instance(LOCAL_PROVIDER_NAME, temp_mngr_ctx)
-            host = cast(OnlineHostInterface, provider.get_host(result.host.id))
-            agents = host.get_agents()
-            agent = next((a for a in agents if a.id == result.agent.id), None)
-            assert agent is not None
+            agent = _get_agent_from_create_result(result, temp_mngr_ctx)
 
             worktree_path = Path(agent.work_dir)
             assert worktree_path.exists()
@@ -379,12 +373,7 @@ def test_worktree_with_custom_branch_name(
     worktree_path: Path | None = None
     with tmux_session_cleanup(session_name):
         try:
-            local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
-            local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
-            source_location = HostLocation(
-                host=local_host,
-                path=temp_work_dir,
-            )
+            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
             agent_options = CreateAgentOptions(
                 agent_type=AgentTypeName("worktree-test"),
@@ -407,11 +396,7 @@ def test_worktree_with_custom_branch_name(
 
             assert result.agent.id is not None
 
-            provider = get_provider_instance(LOCAL_PROVIDER_NAME, temp_mngr_ctx)
-            host = cast(OnlineHostInterface, provider.get_host(result.host.id))
-            agents = host.get_agents()
-            agent = next((a for a in agents if a.id == result.agent.id), None)
-            assert agent is not None
+            agent = _get_agent_from_create_result(result, temp_mngr_ctx)
 
             worktree_path = Path(agent.work_dir)
             result = subprocess.run(
@@ -447,12 +432,7 @@ def test_in_place_mode_sets_is_generated_work_dir_false(
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
-        local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
-        local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
-        source_location = HostLocation(
-            host=local_host,
-            path=temp_work_dir,
-        )
+        local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
         agent_options = CreateAgentOptions(
             agent_type=AgentTypeName("in-place-test"),
@@ -518,12 +498,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
     worktree_path: Path | None = None
     with tmux_session_cleanup(session_name):
         try:
-            local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
-            local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
-            source_location = HostLocation(
-                host=local_host,
-                path=temp_work_dir,
-            )
+            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
             agent_options = CreateAgentOptions(
                 agent_type=AgentTypeName("worktree-gen-test"),
@@ -547,11 +522,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
             data = json.loads(data_file.read_text())
             assert data["work_dir"] != str(temp_work_dir), "work_dir should be different from source in worktree mode"
 
-            provider = get_provider_instance(LOCAL_PROVIDER_NAME, temp_mngr_ctx)
-            host = cast(OnlineHostInterface, provider.get_host(result.host.id))
-            agents = host.get_agents()
-            agent = next((a for a in agents if a.id == result.agent.id), None)
-            assert agent is not None
+            agent = _get_agent_from_create_result(result, temp_mngr_ctx)
             worktree_path = Path(agent.work_dir)
 
             host_data_file = temp_host_dir / "data.json"
@@ -582,12 +553,7 @@ def test_target_path_different_from_source_sets_is_generated_work_dir_true(
     target_dir = tmp_path / "different_target"
 
     with tmux_session_cleanup(session_name):
-        local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
-        local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
-        source_location = HostLocation(
-            host=local_host,
-            path=temp_work_dir,
-        )
+        local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
         agent_options = CreateAgentOptions(
             agent_type=AgentTypeName("target-diff-test"),
@@ -630,12 +596,7 @@ def test_target_path_same_as_source_sets_is_generated_work_dir_false(
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
-        local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), temp_mngr_ctx)
-        local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
-        source_location = HostLocation(
-            host=local_host,
-            path=temp_work_dir,
-        )
+        local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
         agent_options = CreateAgentOptions(
             agent_type=AgentTypeName("target-same-test"),
@@ -732,8 +693,7 @@ def test_on_before_create_hook_modifies_agent_options(
     # Create a modified context with our test plugin manager
     test_ctx = temp_mngr_ctx.model_copy(update={"pm": pm})
 
-    local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), test_ctx)
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = _get_local_host_for_test(test_ctx)
 
     agent_options = CreateAgentOptions(
         agent_type=AgentTypeName("test"),
@@ -762,8 +722,7 @@ def test_on_before_create_hook_modifies_create_work_dir(
 
     test_ctx = temp_mngr_ctx.model_copy(update={"pm": pm})
 
-    local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), test_ctx)
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = _get_local_host_for_test(test_ctx)
 
     agent_options = CreateAgentOptions(
         agent_type=AgentTypeName("test"),
@@ -790,8 +749,7 @@ def test_on_before_create_hook_returning_none_passes_through(
 
     test_ctx = temp_mngr_ctx.model_copy(update={"pm": pm})
 
-    local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), test_ctx)
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = _get_local_host_for_test(test_ctx)
 
     original_name = AgentName("unchanged-name")
     agent_options = CreateAgentOptions(
@@ -822,8 +780,7 @@ def test_on_before_create_hooks_chain_in_order(
 
     test_ctx = temp_mngr_ctx.model_copy(update={"pm": pm})
 
-    local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), test_ctx)
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = _get_local_host_for_test(test_ctx)
 
     agent_options = CreateAgentOptions(
         agent_type=AgentTypeName("test"),
