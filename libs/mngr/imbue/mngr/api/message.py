@@ -1,6 +1,5 @@
 from collections.abc import Callable
 from typing import Any
-from typing import cast
 
 from loguru import logger
 from pydantic import Field
@@ -88,7 +87,7 @@ def send_message_to_agents(
             # FIXME: much like how the connect command has an option for bringing a host online, we should have a similar option here (to bring online any specified host so that it can be messaged)
             #  Then this whole next block should be updated (to have a similar "ensure_host_online" and "ensure_agent_running" functions, and use that second one below)
             # Check if host is online - can't send messages to offline hosts
-            if not host_interface.is_online:
+            if not isinstance(host_interface, OnlineHostInterface):
                 exception = HostOfflineError(f"Host '{host_ref.host_id}' is offline. Cannot send messages.")
                 if error_behavior == ErrorBehavior.ABORT:
                     raise exception
@@ -98,7 +97,7 @@ def send_message_to_agents(
                     if on_error:
                         on_error(str(agent_ref.agent_name), str(exception))
                 continue
-            host = cast(OnlineHostInterface, host_interface)
+            host = host_interface
 
             # Get all agents on this host
             agents = host.get_agents()

@@ -322,7 +322,6 @@ def _create_test_host(
     )
     host = _TestHost.model_construct(
         id=host_id,
-        is_online=True,
         connector=_TestPyinfraConnector(connector_name),
         provider_instance=provider,
         mngr_ctx=mngr_ctx,

@@ -23,7 +23,6 @@ from imbue.mngr.primitives import HostState
 class BaseHost(HostInterface):
     """Base for host implementations (shared between offline and online hosts)."""
 
-    is_online: bool = Field(description="Whether the host is currently online/started")
     provider_instance: ProviderInstanceInterface = Field(
         frozen=True, description="The provider instance managing this host"
     )
@@ -182,7 +181,6 @@ class OfflineHost(BaseHost):
         frozen=True,
         description="The certified host data loaded from data.json",
     )
-    is_online: bool = Field(default=False, description="Whether the host is currently online/started")
 
     @property
     def is_local(self) -> bool:

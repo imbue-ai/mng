@@ -57,7 +57,6 @@ def offline_host(mock_provider, mock_mngr_ctx):
     return OfflineHost(
         id=host_id,
         certified_host_data=certified_data,
-        is_online=False,
         provider_instance=mock_provider,
         mngr_ctx=mock_mngr_ctx,
     )
@@ -222,13 +221,3 @@ def test_get_state_returns_stopped_when_snapshot_check_fails(offline_host: Offli
     assert state == HostState.STOPPED
 
 
-def test_is_online_defaults_to_false(mock_provider, mock_mngr_ctx):
-    """Test that is_online defaults to False."""
-    host_id = HostId.generate()
-    host = OfflineHost(
-        id=host_id,
-        certified_host_data=CertifiedHostData(host_id=str(host_id), host_name="test-host"),
-        provider_instance=mock_provider,
-        mngr_ctx=mock_mngr_ctx,
-    )
-    assert host.is_online is False

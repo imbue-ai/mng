@@ -34,7 +34,6 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import HostConnectionError
-from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
@@ -103,7 +102,6 @@ class Host(BaseHost, OnlineHostInterface):
     """
 
     connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
-    is_online: bool = Field(default=True, description="Whether the host is currently online/started")
     provider_instance: ProviderInstanceInterface = Field(
         frozen=True, description="The provider instance managing this host"
     )
@@ -124,9 +122,6 @@ class Host(BaseHost, OnlineHostInterface):
 
     def _ensure_connected(self) -> None:
         """Ensure the pyinfra host is connected."""
-        if not self.is_online:
-            raise HostOfflineError("Host is offline")
-
         if not self.connector.host.connected:
             self.connector.host.connect(raise_exceptions=True)
 
@@ -1928,14 +1923,13 @@ done
             logger.trace("Host {} is local, state=RUNNING", self.id)
             return HostState.RUNNING
 
-        if self.is_online:
-            try:
-                result = self.execute_command("echo ok")
-                if result.success:
-                    logger.trace("Host {} state=RUNNING (ping successful)", self.id)
-                    return HostState.RUNNING
-            except (OSError, HostConnectionError):
-                pass
+        try:
+            result = self.execute_command("echo ok")
+            if result.success:
+                logger.trace("Host {} state=RUNNING (ping successful)", self.id)
+                return HostState.RUNNING
+        except (OSError, HostConnectionError):
+            pass
 
         # otherwise use the offline logic
         return super().get_state()

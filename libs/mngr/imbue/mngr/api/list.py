@@ -262,8 +262,7 @@ def list_agents(
 
                 # Get all agents on this host
                 agents = None
-                if host.is_online:
-                    assert isinstance(host, OnlineHostInterface)
+                if isinstance(host, OnlineHostInterface):
                     agents = host.get_agents()
 
                 for agent_ref in agent_refs:
