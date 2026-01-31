@@ -233,6 +233,16 @@ class HostInterface(MutableModel, ABC):
     # =========================================================================
 
     @abstractmethod
+    def _get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
+        """Return SSH connection info (user, hostname, port, key_path) or None if local."""
+        ...
+
+    @abstractmethod
+    def get_boot_time(self) -> datetime | None:
+        """Return the host boot time as a datetime, or None if unavailable."""
+        ...
+
+    @abstractmethod
     def get_uptime_seconds(self) -> float:
         """Return the number of seconds since this host was last started."""
         ...
