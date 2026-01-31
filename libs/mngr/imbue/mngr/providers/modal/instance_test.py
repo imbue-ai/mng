@@ -1545,7 +1545,7 @@ def test_delete_nonexistent_snapshot_raises_error(real_modal_provider: ModalProv
     try:
         host = real_modal_provider.create_host(HostName("test-host"))
 
-        fake_id = SnapshotId.generate()
+        fake_id = SnapshotId("snap-nonexistent")
         with pytest.raises(SnapshotNotFoundError):
             real_modal_provider.delete_snapshot(host, fake_id)
 

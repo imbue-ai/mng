@@ -15,6 +15,7 @@ import os
 import socket
 import tempfile
 import time
+from uuid import uuid4
 from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone
@@ -1744,8 +1745,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Generate snapshot name if not provided
         if name is None:
-            # Use last 8 characters of a generated ID as a short identifier
-            short_id = str(SnapshotId.generate())[-8:]
+            # Use first 8 characters of a random UUID as a short identifier
+            short_id = uuid4().hex[:8]
             name = SnapshotName(f"snapshot-{short_id}")
 
         snapshot_id = self._record_snapshot(sandbox, host_id, name)

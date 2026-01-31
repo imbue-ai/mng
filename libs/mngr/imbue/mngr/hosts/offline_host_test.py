@@ -97,7 +97,7 @@ def test_get_snapshots_delegates_to_provider(offline_host: OfflineHost, mock_pro
     """Test that get_snapshots calls the provider's list_snapshots method."""
     expected_snapshots = [
         SnapshotInfo(
-            id=SnapshotId.generate(),
+            id=SnapshotId("snap-test-1"),
             name=SnapshotName("snap1"),
             created_at=datetime.now(timezone.utc),
         )
@@ -185,7 +185,7 @@ def test_get_state_returns_stopped_when_snapshots_exist(offline_host: OfflineHos
     mock_provider.supports_snapshots = True
     mock_provider.list_snapshots.return_value = [
         SnapshotInfo(
-            id=SnapshotId.generate(),
+            id=SnapshotId("snap-test-2"),
             name=SnapshotName("snap1"),
             created_at=datetime.now(timezone.utc),
         )
