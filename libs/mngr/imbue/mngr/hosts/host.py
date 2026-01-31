@@ -751,18 +751,31 @@ class Host(BaseHost, OnlineHostInterface):
                 except json.JSONDecodeError as e:
                     logger.warning("Could not load agent reference from {} because json was invalid: {}", data_path, e)
                     continue
-                try:
-                    agent_id = AgentId(data.get("id"))
-                except ValueError as e:
-                    logger.opt(exception=e).warning(
-                        f"Skipping malformed agent record for host {self.id}: missing or invalid 'id': {data}"
+                agent_id_str = data.get("id")
+                if agent_id_str is None:
+                    logger.warning(
+                        f"Skipping malformed agent record for host {self.id}: missing 'id': {data}"
                     )
                     continue
                 try:
-                    agent_name = AgentName(data.get("name"))
+                    agent_id = AgentId(agent_id_str)
                 except ValueError as e:
                     logger.opt(exception=e).warning(
-                        f"Skipping malformed agent record for host {self.id}: missing or invalid 'name': {data}"
+                        f"Skipping malformed agent record for host {self.id}: invalid 'id': {data}"
+                    )
+                    continue
+
+                agent_name_str = data.get("name")
+                if agent_name_str is None:
+                    logger.warning(
+                        f"Skipping malformed agent record for host {self.id}: missing 'name': {data}"
+                    )
+                    continue
+                try:
+                    agent_name = AgentName(agent_name_str)
+                except ValueError as e:
+                    logger.opt(exception=e).warning(
+                        f"Skipping malformed agent record for host {self.id}: invalid 'name': {data}"
                     )
                     continue
                 agent_refs.append(
