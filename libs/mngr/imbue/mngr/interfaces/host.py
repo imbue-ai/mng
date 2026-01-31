@@ -64,19 +64,6 @@ class HostInterface(MutableModel, ABC):
         ...
 
     # =========================================================================
-    # Activity Times
-    # =========================================================================
-
-    @abstractmethod
-    def get_reported_activity_time(self, activity_type: ActivitySource) -> datetime | None:
-        """
-        Return the last reported activity time for the given activity type, or None if unknown.
-
-        For offline hosts, we can look at the time at which the host data file was written
-        """
-        ...
-
-    # =========================================================================
     # Certified Data
     # =========================================================================
 
@@ -93,6 +80,16 @@ class HostInterface(MutableModel, ABC):
     # =========================================================================
     # Provider-Derived Information
     # =========================================================================
+
+    @abstractmethod
+    def get_seconds_since_stopped(self) -> float | None:
+        """Return the number of seconds since this host was stopped (or None if it is running)."""
+        ...
+
+    @abstractmethod
+    def get_stop_time(self) -> datetime | None:
+        """Return the host last stop time as a datetime, or None if unknown."""
+        ...
 
     @abstractmethod
     def get_snapshots(self) -> list[SnapshotInfo]:
@@ -118,15 +115,9 @@ class HostInterface(MutableModel, ABC):
         """Return a list of all agent references for this host."""
         ...
 
-    # NOTE: these will have implementations for *both* the offline and online versions
     # =========================================================================
     # Agent-Derived Information
     # =========================================================================
-
-    @abstractmethod
-    def get_idle_seconds(self) -> float:
-        """Return the number of seconds since the host was last considered active."""
-        ...
 
     @abstractmethod
     def get_permissions(self) -> list[str]:
@@ -216,6 +207,15 @@ class OnlineHostInterface(HostInterface, ABC):
     # =========================================================================
 
     @abstractmethod
+    def get_reported_activity_time(self, activity_type: ActivitySource) -> datetime | None:
+        """
+        Return the last reported activity time for the given activity type, or None if unknown.
+
+        For offline hosts, we can look at the time at which the host data file was written
+        """
+        ...
+
+    @abstractmethod
     def record_activity(self, activity_type: ActivitySource) -> None:
         """Record activity of the given type; only BOOT and CREATE are valid here."""
         ...
@@ -247,6 +247,15 @@ class OnlineHostInterface(HostInterface, ABC):
     @abstractmethod
     def set_plugin_data(self, plugin_name: str, data: dict[str, Any]) -> None:
         """Update the certified plugin data for the given plugin name."""
+        ...
+
+    # =========================================================================
+    # Agent-Derived Information
+    # =========================================================================
+
+    @abstractmethod
+    def get_idle_seconds(self) -> float:
+        """Return the number of seconds since the host was last considered active."""
         ...
 
     # =========================================================================

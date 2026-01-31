@@ -410,8 +410,7 @@ class Host(BaseHost, OnlineHostInterface):
                 "activity_sources": config.activity_sources,
             }
         )
-        data_path = self.host_dir / "data.json"
-        self.write_text_file(data_path, json.dumps(updated_data.model_dump(by_alias=True), indent=2))
+        self._save_certified_data(updated_data)
 
         # Write helper files for the activity watcher script
         activity_sources = get_activity_sources_for_idle_mode(config.idle_mode)
@@ -621,6 +620,14 @@ class Host(BaseHost, OnlineHostInterface):
     # =========================================================================
     # Provider-Derived Information
     # =========================================================================
+
+    def get_seconds_since_stopped(self) -> float | None:
+        """Return the number of seconds since this host was stopped (or None if it is running)."""
+        return None
+
+    def get_stop_time(self) -> datetime | None:
+        """Return the host last stop time as a datetime, or None if unknown."""
+        return None
 
     def get_uptime_seconds(self) -> float:
         """Get host uptime in seconds."""

@@ -4,14 +4,12 @@ from typing import assert_never
 import deal
 from loguru import logger
 from pydantic import Field
-from pyinfra.api.exceptions import ConnectError
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundError
-from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import Host
@@ -397,51 +395,16 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
         hosts = provider.list_hosts(include_destroyed=False)
 
         for host in hosts:
-            # For offline hosts, get agent references from persisted data
-            if not isinstance(host, OnlineHostInterface):
-                agent_refs = host.get_agent_references()
-                if agent_refs:
-                    # Use first agent ref's info to build host reference
-                    host_ref = HostReference(
-                        host_id=host.id,
-                        host_name=HostName(str(host.id)),
-                        provider_name=provider.name,
-                    )
-                    agents_by_host[host_ref] = agent_refs
-                continue
-
-            # Host is online (type narrowed by isinstance check above)
             host_ref = HostReference(
                 host_id=host.id,
-                host_name=HostName(host.connector.name),
+                # TODO: this is silly--we should make a get_name() method on HostInterface, and the Host class can use "HostName(host.connector.name)", and the OfflineHost class should use the host_name from the persisted data.
+                #  Then, here, we can just call host.get_name()
+                host_name=HostName(host.connector.name)
+                if isinstance(host, OnlineHostInterface)
+                else HostName(str(host.id)),
                 provider_name=provider.name,
             )
-
-            # Get agent references from the host. For online hosts, this queries
-            # the host filesystem directly. If the connection fails, fall back to
-            # persisted agent data from the provider.
-            try:
-                agent_refs = host.get_agent_references()
-            except (ConnectError, HostConnectionError, OSError) as e:
-                logger.trace("Could not get agent refs from host {} (may be stopped): {}", host.id, e)
-                # Fall back to persisted agent data from the provider (for stopped hosts)
-                agent_refs = []
-                try:
-                    agent_records = provider.list_persisted_agent_data_for_host(host.id)
-                    for agent_data in agent_records:
-                        agent_refs.append(
-                            AgentReference(
-                                host_id=host.id,
-                                agent_id=AgentId(agent_data["id"]),
-                                agent_name=AgentName(agent_data["name"]),
-                                provider_name=provider.name,
-                                certified_data=agent_data,
-                            )
-                        )
-                    logger.trace("Loaded {} persisted agents for stopped host {}", len(agent_refs), host.id)
-                except (KeyError, ValueError) as inner_e:
-                    logger.trace("Could not load persisted agents for host {}: {}", host.id, inner_e)
-
+            agent_refs = host.get_agent_references()
             agents_by_host[host_ref] = agent_refs
 
     return agents_by_host
