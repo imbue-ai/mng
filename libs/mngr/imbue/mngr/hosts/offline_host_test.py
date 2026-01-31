@@ -44,7 +44,10 @@ def mock_mngr_ctx():
 @pytest.fixture
 def offline_host(mock_provider, mock_mngr_ctx):
     """Create an OfflineHost instance for testing."""
+    host_id = HostId.generate()
     certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="test-host",
         idle_mode=IdleMode.SSH,
         idle_timeout_seconds=3600,
         activity_sources=(ActivitySource.SSH, ActivitySource.AGENT),
@@ -52,7 +55,7 @@ def offline_host(mock_provider, mock_mngr_ctx):
         plugin={"my_plugin": {"key": "value"}},
     )
     return OfflineHost(
-        id=HostId.generate(),
+        id=host_id,
         certified_host_data=certified_data,
         is_online=False,
         provider_instance=mock_provider,
@@ -221,9 +224,10 @@ def test_get_state_returns_stopped_when_snapshot_check_fails(offline_host: Offli
 
 def test_is_online_defaults_to_false(mock_provider, mock_mngr_ctx):
     """Test that is_online defaults to False."""
+    host_id = HostId.generate()
     host = OfflineHost(
-        id=HostId.generate(),
-        certified_host_data=CertifiedHostData(),
+        id=host_id,
+        certified_host_data=CertifiedHostData(host_id=str(host_id), host_name="test-host"),
         provider_instance=mock_provider,
         mngr_ctx=mock_mngr_ctx,
     )

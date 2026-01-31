@@ -528,7 +528,10 @@ class Host(BaseHost, OnlineHostInterface):
             data = json.loads(content)
             return CertifiedHostData(**data)
         except FileNotFoundError:
-            return CertifiedHostData()
+            return CertifiedHostData(
+                host_id=str(self.id),
+                host_name=str(self.get_name()),
+            )
 
     def _save_certified_data(self, certified_data: CertifiedHostData) -> None:
         """Save certified data to data.json."""
