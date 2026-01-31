@@ -84,12 +84,13 @@ def test_connect_to_agent_by_name(
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
         with patch("imbue.mngr.api.connect.os.execvp") as mock_execvp:
-            cli_runner.invoke(
+            result = cli_runner.invoke(
                 connect,
                 [agent_name],
                 obj=plugin_manager,
                 catch_exceptions=False,
             )
+            assert result.exit_code == 0, f"Connect failed with output: {result.output}"
             mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
 
 
