@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
 from pydantic import Field
 
 from imbue.mngr.config.data_types import MngrContext
@@ -81,11 +82,17 @@ class BaseHost(HostInterface):
 
         For offline hosts, get agent information from the provider's persisted data.
         The full agent data.json contents are included as certified_data.
+        Malformed agent records are skipped with a trace log.
         """
         agent_refs: list[AgentReference] = []
         try:
             agent_records = self.provider_instance.list_persisted_agent_data_for_host(self.id)
-            for agent_data in agent_records:
+        except (KeyError, ValueError) as e:
+            logger.trace("Could not load persisted agent data for host {}: {}", self.id, e)
+            return agent_refs
+
+        for agent_data in agent_records:
+            try:
                 agent_refs.append(
                     AgentReference(
                         host_id=self.id,
@@ -95,8 +102,8 @@ class BaseHost(HostInterface):
                         certified_data=agent_data,
                     )
                 )
-        except (KeyError, ValueError):
-            pass
+            except (KeyError, ValueError) as e:
+                logger.trace("Skipping malformed agent record for host {}: {}", self.id, e)
 
         return agent_refs
 
