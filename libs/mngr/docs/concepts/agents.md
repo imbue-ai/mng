@@ -79,7 +79,7 @@ An agent can be in one of the following states:
 
 See [agent spec](../../specs/agent.md) for the properties of agents and their storage locations.
 
-You can also run [`mngr list --help`](../commands/primary/list.md#available-fields) for the full list. [future] Missing `--fields`, `--format-template`, `--watch`, `--limit`, convenience filters, and custom sorting.
+You can also run [`mngr list --help`](../commands/primary/list.md#available-fields) for the full list.
 
 ## Interface
 

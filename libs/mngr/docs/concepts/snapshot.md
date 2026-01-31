@@ -8,7 +8,7 @@ Snapshots capture the complete filesystem state of a [host](./hosts.md). They en
 
 ## Creating Snapshots
 
-`mngr` creates snapshots automatically when stopping an agent [future]. You can also create them manually:
+`mngr` creates snapshots automatically when stopping an agent. You can also create them manually:
 
 ```bash
 mngr snapshot create --agent my-agent  # [future]

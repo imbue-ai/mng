@@ -10,8 +10,8 @@ Any of the following can be considered activity:
 
 - user input [future] like keystrokes (terminal and web) and mouse movement (web). Requires accessing the agent via `mngr connect` (terminal) or `mngr open` [future] (web), or using the `user_activity_tracking_via_web` plugin (enabled by default). See [User Input Tracking](#user-input-tracking) below for details.
 - agent output (supported by most agents)
-- active SSH connections [future]
-- agent process being alive [future]
+- active SSH connections
+- agent process being alive
 - host creation
 - host startup
 

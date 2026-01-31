@@ -31,7 +31,7 @@ Remote hosts may be run in the cloud (Modal), a Docker container (which can be l
 
 ## Lifecycle
 
-The rough state diagram looks like this (state transitions [future] - only `running` and `stopped` currently checked):
+The rough state diagram looks like this:
 
 ```
 building  →  starting   →  running  →  stopping  →  stopped

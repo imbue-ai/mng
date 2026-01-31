@@ -9,24 +9,24 @@ There are some built-in provider instances (`local` and `local_docker`), but you
 ```toml
 [[providers]]
 name = "my-aws-prod"
-backend = "aws"  # [future]
+backend = "aws"
 region = "us-east-1"
 profile = "production"
 
 [[providers]]
 name = "my-aws-dev"
-backend = "aws"  # [future]
+backend = "aws"
 region = "us-west-2"
 profile = "development"
 
 [[providers]]
 name = "remote-docker"
-backend = "docker"  # [future]
+backend = "docker"
 host = "ssh://user@server"
 
 [[providers]]
 name = "team-mngr"
-backend = "mngr"  # [future]
+backend = "mngr"
 url = "https://mngr.internal.company.com"
 ```
 
