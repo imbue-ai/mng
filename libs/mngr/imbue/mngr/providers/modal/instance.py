@@ -1692,8 +1692,11 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         )
 
         # Update host record with new snapshot and write to volume
-        updated_host_record = host_record.model_copy(
+        updated_certified_data = host_record.certified_host_data.model_copy(
             update={"snapshots": list(host_record.snapshots) + [new_snapshot]}
+        )
+        updated_host_record = host_record.model_copy(
+            update={"certified_host_data": updated_certified_data}
         )
         self._write_host_record(updated_host_record)
 
@@ -1809,7 +1812,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             raise SnapshotNotFoundError(snapshot_id)
 
         # Update host record on volume
-        updated_host_record = host_record.model_copy(update={"snapshots": updated_snapshots})
+        updated_certified_data = host_record.certified_host_data.model_copy(
+            update={"snapshots": updated_snapshots}
+        )
+        updated_host_record = host_record.model_copy(
+            update={"certified_host_data": updated_certified_data}
+        )
         self._write_host_record(updated_host_record)
 
         logger.info("Deleted snapshot", snapshot_id=str(snapshot_id))
@@ -1883,7 +1891,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # Update volume record
         host_record = self._read_host_record(host_id)
         if host_record is not None:
-            updated_host_record = host_record.model_copy(update={"user_tags": dict(tags)})
+            updated_certified_data = host_record.certified_host_data.model_copy(
+                update={"user_tags": dict(tags)}
+            )
+            updated_host_record = host_record.model_copy(
+                update={"certified_host_data": updated_certified_data}
+            )
             self._write_host_record(updated_host_record)
 
     def add_tags_to_host(
@@ -1911,7 +1924,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         if host_record is not None:
             merged_tags = dict(host_record.user_tags)
             merged_tags.update(tags)
-            updated_host_record = host_record.model_copy(update={"user_tags": merged_tags})
+            updated_certified_data = host_record.certified_host_data.model_copy(
+                update={"user_tags": merged_tags}
+            )
+            updated_host_record = host_record.model_copy(
+                update={"certified_host_data": updated_certified_data}
+            )
             self._write_host_record(updated_host_record)
 
     def remove_tags_from_host(
@@ -1940,7 +1958,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         host_record = self._read_host_record(host_id)
         if host_record is not None:
             updated_tags = {k: v for k, v in host_record.user_tags.items() if k not in keys}
-            updated_host_record = host_record.model_copy(update={"user_tags": updated_tags})
+            updated_certified_data = host_record.certified_host_data.model_copy(
+                update={"user_tags": updated_tags}
+            )
+            updated_host_record = host_record.model_copy(
+                update={"certified_host_data": updated_certified_data}
+            )
             self._write_host_record(updated_host_record)
 
     def rename_host(
@@ -1964,7 +1987,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # Update volume record
         host_record = self._read_host_record(host_id)
         if host_record is not None:
-            updated_host_record = host_record.model_copy(update={"host_name": str(name)})
+            updated_certified_data = host_record.certified_host_data.model_copy(
+                update={"host_name": str(name)}
+            )
+            updated_host_record = host_record.model_copy(
+                update={"certified_host_data": updated_certified_data}
+            )
             self._write_host_record(updated_host_record)
 
         return self.get_host(host_id)
