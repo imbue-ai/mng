@@ -113,7 +113,7 @@ def test_get_agent_references_skips_missing_id(
     agent_id = AgentId.generate()
     agent_dir = agents_dir / str(agent_id)
     agent_dir.mkdir()
-    agent_data = {"name": "test-agent"}  # Missing id
+    agent_data = {"name": "test-agent"}
     (agent_dir / "data.json").write_text(json.dumps(agent_data))
 
     refs = host.get_agent_references()
@@ -131,7 +131,7 @@ def test_get_agent_references_skips_missing_name(
     agent_id = AgentId.generate()
     agent_dir = agents_dir / str(agent_id)
     agent_dir.mkdir()
-    agent_data = {"id": str(agent_id)}  # Missing name
+    agent_data = {"id": str(agent_id)}
     (agent_dir / "data.json").write_text(json.dumps(agent_data))
 
     refs = host.get_agent_references()
@@ -149,7 +149,7 @@ def test_get_agent_references_skips_invalid_id(
     agent_id = AgentId.generate()
     agent_dir = agents_dir / str(agent_id)
     agent_dir.mkdir()
-    agent_data = {"id": "", "name": "test-agent"}  # Empty id
+    agent_data = {"id": "", "name": "test-agent"}
     (agent_dir / "data.json").write_text(json.dumps(agent_data))
 
     refs = host.get_agent_references()
@@ -167,7 +167,7 @@ def test_get_agent_references_skips_invalid_name(
     agent_id = AgentId.generate()
     agent_dir = agents_dir / str(agent_id)
     agent_dir.mkdir()
-    agent_data = {"id": str(agent_id), "name": ""}  # Empty name
+    agent_data = {"id": str(agent_id), "name": ""}
     (agent_dir / "data.json").write_text(json.dumps(agent_data))
 
     refs = host.get_agent_references()
@@ -212,7 +212,7 @@ def test_get_agent_references_skips_bad_records_but_loads_good_ones(
     bad_id = AgentId.generate()
     bad_dir = agents_dir / str(bad_id)
     bad_dir.mkdir()
-    (bad_dir / "data.json").write_text(json.dumps({"id": str(bad_id)}))  # Missing name
+    (bad_dir / "data.json").write_text(json.dumps({"id": str(bad_id)}))
 
     # Create another good agent
     good_id_2 = AgentId.generate()
