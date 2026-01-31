@@ -468,3 +468,19 @@ def find_agents_by_identifiers_or_state(
             raise AgentNotFoundError(f"No agent(s) found matching: {unmatched_list}")
 
     return matches
+
+
+@deal.has()
+def group_agents_by_host(agents: list[AgentMatch]) -> dict[str, list[AgentMatch]]:
+    """Group a list of AgentMatch objects by their host.
+
+    Returns a dictionary where keys are "{host_id}:{provider_name}" and
+    values are lists of AgentMatch objects on that host.
+    """
+    agents_by_host: dict[str, list[AgentMatch]] = {}
+    for match in agents:
+        key = f"{match.host_id}:{match.provider_name}"
+        if key not in agents_by_host:
+            agents_by_host[key] = []
+        agents_by_host[key].append(match)
+    return agents_by_host

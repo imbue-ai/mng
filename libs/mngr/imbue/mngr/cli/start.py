@@ -7,8 +7,8 @@ from loguru import logger
 
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.data_types import ConnectionOptions
-from imbue.mngr.api.find import AgentMatch
 from imbue.mngr.api.find import find_agents_by_identifiers_or_state
+from imbue.mngr.api.find import group_agents_by_host
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -164,12 +164,7 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
     last_started_host = None
 
     # Group agents by host to avoid starting the same host multiple times
-    agents_by_host: dict[str, list[AgentMatch]] = {}
-    for match in agents_to_start:
-        key = f"{match.host_id}:{match.provider_name}"
-        if key not in agents_by_host:
-            agents_by_host[key] = []
-        agents_by_host[key].append(match)
+    agents_by_host = group_agents_by_host(agents_to_start)
 
     for host_key, agent_list in agents_by_host.items():
         host_id_str, _ = host_key.split(":", 1)

@@ -5,8 +5,8 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
-from imbue.mngr.api.find import AgentMatch
 from imbue.mngr.api.find import find_agents_by_identifiers_or_state
+from imbue.mngr.api.find import group_agents_by_host
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -141,12 +141,7 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
     stopped_agents: list[str] = []
 
     # Group agents by host to stop them together
-    agents_by_host: dict[str, list[AgentMatch]] = {}
-    for match in agents_to_stop:
-        key = f"{match.host_id}:{match.provider_name}"
-        if key not in agents_by_host:
-            agents_by_host[key] = []
-        agents_by_host[key].append(match)
+    agents_by_host = group_agents_by_host(agents_to_stop)
 
     for host_key, agent_list in agents_by_host.items():
         host_id_str, _ = host_key.split(":", 1)
