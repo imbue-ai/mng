@@ -13,7 +13,6 @@ from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
-from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentReference
@@ -77,9 +76,7 @@ class BaseHost(HostInterface):
     # Agent Information
     # =========================================================================
 
-    def _validate_and_create_agent_reference(
-        self, agent_data: dict[str, Any]
-    ) -> AgentReference | None:
+    def _validate_and_create_agent_reference(self, agent_data: dict[str, Any]) -> AgentReference | None:
         """Validate agent data and create an AgentReference if valid.
 
         Returns None if the agent data is malformed (missing or invalid id/name).
@@ -87,9 +84,7 @@ class BaseHost(HostInterface):
         """
         agent_id_str = agent_data.get("id")
         if agent_id_str is None:
-            logger.warning(
-                f"Skipping malformed agent record for host {self.id}: missing 'id': {agent_data}"
-            )
+            logger.warning(f"Skipping malformed agent record for host {self.id}: missing 'id': {agent_data}")
             return None
         try:
             agent_id = AgentId(agent_id_str)
@@ -101,9 +96,7 @@ class BaseHost(HostInterface):
 
         agent_name_str = agent_data.get("name")
         if agent_name_str is None:
-            logger.warning(
-                f"Skipping malformed agent record for host {self.id}: missing 'name': {agent_data}"
-            )
+            logger.warning(f"Skipping malformed agent record for host {self.id}: missing 'name': {agent_data}")
             return None
         try:
             agent_name = AgentName(agent_name_str)
@@ -191,32 +184,19 @@ class OfflineHost(BaseHost):
         """Check if this host is local. Offline hosts are never local."""
         return False
 
+    # TODO: add another field like certified_host_data (certified_host_data_mtime) to track when data.json was last updated
+    #  then use that here and in get_seconds_since_stopped
+    def get_stop_time(self) -> datetime | None:
+        """Return the host last stop time as a datetime, or None if unknown."""
+        return None
+
+    def get_seconds_since_stopped(self) -> float | None:
+        """Return the number of seconds since this host was stopped (or None if it is running)."""
+        return None
+
     # =========================================================================
     # Certified Data
     # =========================================================================
 
     def get_all_certified_data(self) -> CertifiedHostData:
         return self.certified_host_data
-
-    # =========================================================================
-    # Activity Times
-    # =========================================================================
-
-    def get_reported_activity_time(self, activity_type: ActivitySource) -> datetime | None:
-        """Get the last reported activity time for the given type.
-
-        For offline hosts, we cannot retrieve activity times since we can't read the
-        activity files from the host filesystem. Returns None.
-        """
-        return None
-
-    # =========================================================================
-    # Agent-Derived Information
-    # =========================================================================
-
-    def get_idle_seconds(self) -> float:
-        """Get the number of seconds since last activity.
-
-        For offline hosts, return infinity since we can't track activity.
-        """
-        return float("inf")

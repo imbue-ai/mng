@@ -219,16 +219,14 @@ def list_agents(
 
                 # Build SSH info if this is a remote host (only available for online hosts)
                 ssh_info: SSHInfo | None = None
-                # Default for local hosts
-                host_hostname: str = "localhost"
-                # Fallback display name
-                host_name_display: str = str(host.id)
 
                 # Host is the implementation of OnlineHostInterface, ie, this host is online
                 if isinstance(host, Host):
-                    host_name_display = host.connector.name
                     ssh_connection = host._get_ssh_connection_info()
-                    if ssh_connection is not None:
+                    if ssh_connection is None:
+                        # Default for local hosts
+                        host_hostname: str | None = "localhost"
+                    else:
                         user, hostname, port, key_path = ssh_connection
                         host_hostname = hostname
                         ssh_info = SSHInfo(
@@ -245,10 +243,12 @@ def list_agents(
                     boot_time = None
                     uptime_seconds = None
                     resource = None
+                    host_hostname = None
 
                 host_info = HostInfo(
                     id=host.id,
-                    name=host_name_display,
+                    # TODO: actually implement this, see other TODO for details
+                    name=host.get_name(),
                     provider_name=host_ref.provider_name,
                     host=host_hostname,
                     state=host.get_state().value.lower(),

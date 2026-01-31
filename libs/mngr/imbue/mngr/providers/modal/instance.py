@@ -53,9 +53,11 @@ from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CpuResources
+from imbue.mngr.interfaces.data_types import HostConfig
 from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.data_types import SnapshotInfo
+from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import ActivitySource
@@ -157,7 +159,7 @@ def handle_modal_auth_error(func: Callable[P, T]) -> Callable[P, T]:
     return wrapper
 
 
-class SandboxConfig(FrozenModel):
+class SandboxConfig(HostConfig):
     """Configuration parsed from build arguments."""
 
     gpu: str | None = None
@@ -174,15 +176,7 @@ class SandboxConfig(FrozenModel):
     )
 
 
-class SnapshotRecord(FrozenModel):
-    """Snapshot metadata stored in the host record on the volume."""
-
-    id: str = Field(description="Unique identifier for the snapshot")
-    name: str = Field(description="Human-readable name")
-    created_at: str = Field(description="ISO format timestamp")
-    modal_image_id: str = Field(description="Modal image ID for restoration")
-
-
+# TODO: I've made this class contain a CertifiedHostData. Please make that actually work! (eg, when we're creating HostRecord, we may need to pass in some extra fields)
 class HostRecord(FrozenModel):
     """Host metadata stored on the Modal Volume.
 
@@ -190,14 +184,31 @@ class HostRecord(FrozenModel):
     It is stored at /<host_id>.json on the volume.
     """
 
-    host_id: str = Field(description="Unique identifier for the host")
-    host_name: str = Field(description="Human-readable name")
     ssh_host: str = Field(description="SSH hostname for connecting to the sandbox")
     ssh_port: int = Field(description="SSH port number")
     ssh_host_public_key: str = Field(description="SSH host public key for verification")
     config: SandboxConfig = Field(description="Sandbox configuration")
-    user_tags: dict[str, str] = Field(default_factory=dict, description="User-defined tags")
-    snapshots: list[SnapshotRecord] = Field(default_factory=list, description="List of snapshots")
+    certified_host_data: CertifiedHostData = Field(
+        frozen=True,
+        description="The certified host data loaded from data.json",
+    )
+
+    # FIXME: remove these once we're fully using certified_host_data
+    @property
+    def host_name(self) -> str:
+        return self.certified_host_data.host_name
+
+    @property
+    def host_id(self) -> str:
+        return self.certified_host_data.host_id
+
+    @property
+    def user_tags(self) -> dict[str, str]:
+        return self.certified_host_data.user_tags
+
+    @property
+    def snapshots(self) -> list[SnapshotRecord]:
+        return self.certified_host_data.snapshots
 
 
 class ModalProviderApp(FrozenModel):
@@ -1085,20 +1096,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         stored host data without SSH connectivity.
 
         The certified_host_data is populated with information available from
-        the host record. Full certified data (activity config, plugin data, etc.)
-        is only available when the host is online and we can read from its
-        filesystem.
+        the host record.
         """
         host_id = HostId(host_record.host_id)
-
-        # Build certified host data from what's available in the host record
-        certified_data = CertifiedHostData(
-            image=host_record.config.image,
-        )
-
         return OfflineHost(
             id=host_id,
-            certified_host_data=certified_data,
+            certified_host_data=host_record.certified_host_data,
             provider_instance=self,
             mngr_ctx=self.mngr_ctx,
         )
@@ -1194,20 +1197,6 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             user_tags=tags,
         )
 
-        # Store full host metadata on the volume for persistence
-        host_record = HostRecord(
-            host_id=str(host_id),
-            host_name=str(name),
-            ssh_host=ssh_host,
-            ssh_port=ssh_port,
-            ssh_host_public_key=host_public_key,
-            config=config,
-            user_tags=dict(tags) if tags else {},
-            snapshots=[],
-        )
-        logger.debug("Writing host record to volume", host_id=str(host_id))
-        self._write_host_record(host_record)
-
         # Set up activity configuration for idle detection, merging CLI options with provider defaults
         lifecycle_options = lifecycle if lifecycle is not None else HostLifecycleOptions()
         activity_config = lifecycle_options.to_activity_config(
@@ -1215,6 +1204,28 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             default_idle_mode=self.config.default_idle_mode,
             default_activity_sources=self.config.default_activity_sources,
         )
+
+        # Store full host metadata on the volume for persistence
+        host_data = CertifiedHostData(
+            idle_mode=activity_config.idle_mode,
+            idle_timeout_seconds=activity_config.idle_timeout_seconds,
+            activity_sources=activity_config.activity_sources,
+            host_id=str(host_id),
+            host_name=str(name),
+            user_tags=dict(tags) if tags else {},
+            snapshots=[],
+        )
+        host._save_certified_data(host_data)
+        logger.debug("Writing host record to volume", host_id=str(host_id))
+        host_record = HostRecord(
+            ssh_host=ssh_host,
+            ssh_port=ssh_port,
+            ssh_host_public_key=host_public_key,
+            config=config,
+            certified_host_data=host_data,
+        )
+        self._write_host_record(host_record)
+
         host.set_activity_config(activity_config)
 
         # For persistent apps, deploy the snapshot function and create shutdown script

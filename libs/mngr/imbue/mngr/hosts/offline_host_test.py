@@ -70,15 +70,6 @@ def test_get_activity_config_returns_config_from_certified_data(offline_host: Of
     assert config.activity_sources == (ActivitySource.SSH, ActivitySource.AGENT)
 
 
-def test_get_reported_activity_time_returns_none(offline_host: OfflineHost):
-    """Test that get_reported_activity_time always returns None for offline hosts."""
-    result = offline_host.get_reported_activity_time(ActivitySource.SSH)
-    assert result is None
-
-    result = offline_host.get_reported_activity_time(ActivitySource.BOOT)
-    assert result is None
-
-
 def test_get_all_certified_data_returns_stored_data(offline_host: OfflineHost):
     """Test that get_all_certified_data returns the certified host data."""
     data = offline_host.get_all_certified_data()
@@ -160,18 +151,10 @@ def test_get_agent_references_returns_refs_from_provider(offline_host: OfflineHo
 
 def test_get_agent_references_returns_empty_list_on_error(offline_host: OfflineHost, mock_provider):
     """Test that get_agent_references returns empty list when provider raises KeyError."""
-    mock_provider.list_persisted_agent_data_for_host.return_value = [
-        {"invalid_key": "missing id and name"}
-    ]
+    mock_provider.list_persisted_agent_data_for_host.return_value = [{"invalid_key": "missing id and name"}]
 
     refs = offline_host.get_agent_references()
     assert refs == []
-
-
-def test_get_idle_seconds_returns_infinity(offline_host: OfflineHost):
-    """Test that get_idle_seconds returns infinity for offline hosts."""
-    idle = offline_host.get_idle_seconds()
-    assert idle == float("inf")
 
 
 def test_get_permissions_returns_empty_list_when_no_agents(offline_host: OfflineHost):
@@ -219,9 +202,7 @@ def test_get_state_returns_destroyed_when_no_snapshots(offline_host: OfflineHost
     assert state == HostState.DESTROYED
 
 
-def test_get_state_returns_stopped_when_provider_does_not_support_snapshots(
-    offline_host: OfflineHost, mock_provider
-):
+def test_get_state_returns_stopped_when_provider_does_not_support_snapshots(offline_host: OfflineHost, mock_provider):
     """Test that get_state returns STOPPED when provider doesn't support snapshots."""
     mock_provider.supports_snapshots = False
 
