@@ -7,6 +7,7 @@ from loguru import logger
 
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.data_types import ConnectionOptions
+from imbue.mngr.api.find import ensure_host_started
 from imbue.mngr.api.find import find_agents_by_identifiers_or_state
 from imbue.mngr.api.find import group_agents_by_host
 from imbue.mngr.api.providers import get_provider_instance
@@ -20,13 +21,9 @@ from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import MngrError
-from imbue.mngr.hosts.host import Host
-from imbue.mngr.interfaces.host import HostInterface
-from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import OutputFormat
-from imbue.mngr.providers.base_provider import BaseProviderInstance
 
 
 class StartCliOptions(CommonCliOptions):
@@ -37,19 +34,6 @@ class StartCliOptions(CommonCliOptions):
     start_all: bool
     dry_run: bool
     connect: bool
-
-
-def _ensure_host_started(host: HostInterface, provider: BaseProviderInstance) -> OnlineHostInterface:
-    """Ensure the host is online and started."""
-    match host:
-        case Host() as online_host:
-            return online_host
-        case HostInterface() as offline_host:
-            logger.info("Host is offline, starting it...")
-            started_host = provider.start_host(offline_host)
-            return started_host
-        case _ as unreachable:
-            assert_never(unreachable)
 
 
 def _output(message: str, output_opts: OutputOptions) -> None:
@@ -175,8 +159,8 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
             provider = get_provider_instance(provider_name, mngr_ctx)
             host = provider.get_host(HostId(host_id_str))
 
-            # Ensure host is started
-            online_host = _ensure_host_started(host, provider)
+            # Ensure host is started (always start since this is the start command)
+            online_host = ensure_host_started(host, is_start_desired=True, provider=provider)
 
             # Start each agent on this host
             agent_ids_to_start = [match.agent_id for match in agent_list]

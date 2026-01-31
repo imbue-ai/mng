@@ -268,7 +268,7 @@ def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostR
         return None
 
 
-def _ensure_host_started(host: HostInterface, is_start_desired: bool, provider: BaseProviderInstance) -> Host:
+def ensure_host_started(host: HostInterface, is_start_desired: bool, provider: BaseProviderInstance) -> Host:
     """Ensure the host is online and started.
 
     If the host is already online, returns it cast to OnlineHostInterface.
@@ -333,7 +333,7 @@ def find_and_maybe_start_agent_by_name_or_id(
                 if agent_ref.agent_id == agent_id:
                     provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                     host = provider.get_host(host_ref.host_id)
-                    online_host = _ensure_host_started(host, is_start_desired, provider)
+                    online_host = ensure_host_started(host, is_start_desired, provider)
                     for agent in online_host.get_agents():
                         if agent.id == agent_id:
                             _ensure_agent_started(agent, online_host, is_start_desired)
@@ -349,7 +349,7 @@ def find_and_maybe_start_agent_by_name_or_id(
             if agent_ref.agent_name == agent_name:
                 provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                 host = provider.get_host(host_ref.host_id)
-                online_host = _ensure_host_started(host, is_start_desired, provider)
+                online_host = ensure_host_started(host, is_start_desired, provider)
                 # Find the specific agent by ID (not name, to avoid duplicates)
                 for agent in online_host.get_agents():
                     if agent.id == agent_ref.agent_id:
