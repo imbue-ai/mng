@@ -128,11 +128,7 @@ class BaseHost(HostInterface):
         The full agent data.json contents are included as certified_data.
         Malformed agent records are skipped with a log.
         """
-        try:
-            agent_records = self.provider_instance.list_persisted_agent_data_for_host(self.id)
-        except (KeyError, ValueError) as e:
-            logger.trace("Could not load persisted agent data for host {}: {}", self.id, e)
-            return []
+        agent_records = self.provider_instance.list_persisted_agent_data_for_host(self.id)
 
         agent_refs: list[AgentReference] = []
         for agent_data in agent_records:

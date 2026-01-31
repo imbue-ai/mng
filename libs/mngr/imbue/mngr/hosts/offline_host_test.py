@@ -168,14 +168,6 @@ def test_get_agent_references_returns_empty_list_on_error(offline_host: OfflineH
     assert refs == []
 
 
-def test_get_agent_references_returns_empty_list_on_value_error(offline_host: OfflineHost, mock_provider):
-    """Test that get_agent_references returns empty list when provider raises ValueError."""
-    mock_provider.list_persisted_agent_data_for_host.side_effect = ValueError("Invalid data")
-
-    refs = offline_host.get_agent_references()
-    assert refs == []
-
-
 def test_get_idle_seconds_returns_infinity(offline_host: OfflineHost):
     """Test that get_idle_seconds returns infinity for offline hosts."""
     idle = offline_host.get_idle_seconds()
