@@ -4,23 +4,20 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
-from typing import cast
 
 import deal
 from loguru import logger
 from pydantic import Field
-from pyinfra.api.exceptions import ConnectError
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_all_provider_instances
-from imbue.mngr.hosts.host import Host
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
-from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
+from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
@@ -227,22 +224,27 @@ def list_agents(
                 # Fallback display name
                 host_name_display: str = str(host.id)
 
-                if host.is_online:
-                    online_host = cast(OnlineHostInterface, host)
-                    host_name_display = online_host.connector.name
-                    # _get_ssh_connection_info is a Host implementation detail
-                    if isinstance(online_host, Host):
-                        ssh_connection = online_host._get_ssh_connection_info()
-                        if ssh_connection is not None:
-                            user, hostname, port, key_path = ssh_connection
-                            host_hostname = hostname
-                            ssh_info = SSHInfo(
-                                user=user,
-                                host=hostname,
-                                port=port,
-                                key_path=key_path,
-                                command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
-                            )
+                # Host is the implementation of OnlineHostInterface, ie, this host is online
+                if isinstance(host, Host):
+                    host_name_display = host.connector.name
+                    ssh_connection = host._get_ssh_connection_info()
+                    if ssh_connection is not None:
+                        user, hostname, port, key_path = ssh_connection
+                        host_hostname = hostname
+                        ssh_info = SSHInfo(
+                            user=user,
+                            host=hostname,
+                            port=port,
+                            key_path=key_path,
+                            command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
+                        )
+                    boot_time = host.get_boot_time()
+                    uptime_seconds = host.get_uptime_seconds()
+                    resource = host.get_provider_resources()
+                else:
+                    boot_time = None
+                    uptime_seconds = None
+                    resource = None
 
                 host_info = HostInfo(
                     id=host.id,
@@ -250,29 +252,24 @@ def list_agents(
                     provider_name=host_ref.provider_name,
                     host=host_hostname,
                     state=host.get_state().value.lower(),
-                    image=host.get_image() if host.is_online else None,
-                    tags=host.get_tags() if host.is_online else {},
-                    boot_time=cast(OnlineHostInterface, host).get_boot_time() if host.is_online else None,
-                    uptime_seconds=cast(OnlineHostInterface, host).get_uptime_seconds() if host.is_online else None,
-                    resource=cast(OnlineHostInterface, host).get_provider_resources() if host.is_online else None,
+                    image=host.get_image(),
+                    tags=host.get_tags(),
+                    boot_time=boot_time,
+                    uptime_seconds=uptime_seconds,
+                    resource=resource,
                     ssh=ssh_info,
-                    snapshots=host.get_snapshots() if host.is_online else [],
+                    snapshots=host.get_snapshots(),
                 )
 
                 # Get all agents on this host
                 agents = None
-                host_is_stopped = not host.is_online
-                if not host_is_stopped:
-                    try:
-                        agents = cast(OnlineHostInterface, host).get_agents()
-                    except (ConnectError, HostConnectionError, OSError) as e:
-                        # Host is unreachable (probably stopped) - try persisted data
-                        logger.trace("Could not get agents from host {} (may be stopped): {}", host.id, e)
-                        host_is_stopped = True
+                if host.is_online:
+                    assert isinstance(host, OnlineHostInterface)
+                    agents = host.get_agents()
 
                 for agent_ref in agent_refs:
                     try:
-                        if host_is_stopped:
+                        if agents is None:
                             # Use persisted agent data for stopped hosts
                             agent_data = _get_persisted_agent_data(provider, host.id, agent_ref.agent_id)
                             if agent_data is None:

@@ -85,6 +85,8 @@ def send_message_to_agents(
 
             host_interface = provider.get_host(host_ref.host_id)
 
+            # FIXME: much like how the connect command has an option for bringing a host online, we should have a similar option here (to bring online any specified host so that it can be messaged)
+            #  Then this whole next block should be updated (to have a similar "ensure_host_online" and "ensure_agent_running" functions, and use that second one below)
             # Check if host is online - can't send messages to offline hosts
             if not host_interface.is_online:
                 exception = HostOfflineError(f"Host '{host_ref.host_id}' is offline. Cannot send messages.")
@@ -96,7 +98,6 @@ def send_message_to_agents(
                     if on_error:
                         on_error(str(agent_ref.agent_name), str(exception))
                 continue
-
             host = cast(OnlineHostInterface, host_interface)
 
             # Get all agents on this host

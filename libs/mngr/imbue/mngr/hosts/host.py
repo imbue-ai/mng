@@ -44,7 +44,7 @@ from imbue.mngr.hosts.common import HOST_LEVEL_ACTIVITY_SOURCES
 from imbue.mngr.hosts.common import LOCAL_CONNECTOR_NAME
 from imbue.mngr.hosts.common import get_activity_sources_for_idle_mode
 from imbue.mngr.hosts.common import is_macos
-from imbue.mngr.hosts.offline_host import OfflineHost
+from imbue.mngr.hosts.offline_host import BaseHost
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
@@ -93,19 +93,13 @@ class HostLocation(FrozenModel):
     )
 
 
-class Host(OfflineHost, OnlineHostInterface):
+class Host(BaseHost, OnlineHostInterface):
     """Host implementation that proxies operations through a pyinfra connector.
 
     All operations (command execution, file read/write) are performed through
     the pyinfra connector, which handles both local and remote hosts transparently.
     """
 
-    # Override parent's certified_host_data with a default since Host reads from data.json dynamically
-    certified_host_data: CertifiedHostData = Field(
-        default_factory=CertifiedHostData,
-        frozen=True,
-        description="The certified host data (loaded from data.json when accessed via get_all_certified_data)",
-    )
     connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
     is_online: bool = Field(default=True, description="Whether the host is currently online/started")
     provider_instance: ProviderInstanceInterface = Field(
@@ -117,11 +111,6 @@ class Host(OfflineHost, OnlineHostInterface):
     def is_local(self) -> bool:
         """Check if this host uses the local connector."""
         return self.connector.connector_cls_name == LOCAL_CONNECTOR_NAME
-
-    @property
-    def host_dir(self) -> Path:
-        """Get the host state directory path from provider instance."""
-        return self.provider_instance.host_dir
 
     # =========================================================================
     # Core Primitives (pyinfra-compatible signatures)
@@ -1902,18 +1891,8 @@ done
             except (OSError, HostConnectionError):
                 pass
 
-        if self.provider_instance.supports_snapshots:
-            try:
-                snapshots = self.get_snapshots()
-                if not snapshots:
-                    logger.trace("Host {} state=DESTROYED (no snapshots)", self.id)
-                    return HostState.DESTROYED
-            except (OSError, IOError, ConnectionError) as e:
-                # If we can't check snapshots, assume STOPPED (safer default)
-                logger.trace("Could not check snapshots for host {}: {}", self.id, e)
-
-        logger.trace("Host {} state=STOPPED", self.id)
-        return HostState.STOPPED
+        # otherwise use the offline logic
+        return super().get_state()
 
 
 @deal.has()

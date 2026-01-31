@@ -27,7 +27,8 @@ from imbue.mngr.primitives import Permission
 
 # this is the only place where it is acceptable to use the TYPE_CHECKING flag
 if TYPE_CHECKING:
-    from imbue.mngr.interfaces.host import CreateAgentOptions, OnlineHostInterface
+    from imbue.mngr.interfaces.host import CreateAgentOptions
+    from imbue.mngr.interfaces.host import OnlineHostInterface
 
 
 class AgentStatus(FrozenModel):
