@@ -1,4 +1,5 @@
 import ast
+from functools import lru_cache
 from pathlib import Path
 
 import deal
@@ -11,6 +12,16 @@ from imbue.imbue_common.ratchet_testing.core import _get_non_ignored_files_with_
 from imbue.imbue_common.ratchet_testing.core import _read_file_contents
 
 
+@lru_cache(maxsize=None)
+def _parse_file_ast(file_path: Path) -> ast.Module | None:
+    """Parse and cache AST for a file. Returns None if parsing fails."""
+    file_contents = _read_file_contents(file_path)
+    try:
+        return ast.parse(file_contents, filename=str(file_path))
+    except SyntaxError:
+        return None
+
+
 def find_if_elif_without_else(
     source_dir: Path,
     excluded_file: Path | None = None,
@@ -20,11 +31,8 @@ def find_if_elif_without_else(
     chunks: list[RatchetMatchChunk] = []
 
     for file_path in file_paths:
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         visited_if_nodes: set[int] = set()
@@ -155,11 +163,8 @@ def find_init_methods_in_non_exception_classes(
         if _is_test_file(file_path):
             continue
 
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         # Build a map of class names to their base classes
@@ -242,11 +247,8 @@ def find_inline_functions(
         if _is_test_file(file_path):
             continue
 
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -287,11 +289,8 @@ def find_underscore_imports(
         if _is_test_file(file_path):
             continue
 
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -345,11 +344,8 @@ def find_cast_usages(
         if _is_test_file(file_path):
             continue
 
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         # Check if 'cast' is imported from typing
@@ -389,15 +385,16 @@ def find_cast_usages(
     return tuple(sorted_chunks)
 
 
-def find_isinstance_usages(
+def find_assert_isinstance_usages(
     source_dir: Path,
     excluded_file: Path | None = None,
 ) -> tuple[RatchetMatchChunk, ...]:
-    """Find usages of isinstance() in non-test files using AST analysis.
+    """Find usages of 'assert isinstance(...)' in non-test files using AST analysis.
 
-    This function finds all calls to isinstance() in Python files, excluding test files.
-    isinstance() usage should be replaced with match constructs that exhaustively handle
-    all cases using 'case _ as unreachable: assert_never(unreachable)'.
+    This function finds all assert statements containing isinstance() calls in Python
+    files, excluding test files. 'assert isinstance()' usage should be replaced with
+    match constructs that exhaustively handle all cases using
+    'case _ as unreachable: assert_never(unreachable)'.
     """
     file_paths = _get_non_ignored_files_with_extension(source_dir, FileExtension(".py"), excluded_file)
     chunks: list[RatchetMatchChunk] = []
@@ -406,30 +403,29 @@ def find_isinstance_usages(
         if _is_test_file(file_path):
             continue
 
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
-        # Find all calls to isinstance()
+        # Find all 'assert isinstance(...)' statements
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name) and node.func.id == "isinstance":
-                    start_line = LineNumber(node.lineno)
-                    end_line = LineNumber(node.end_lineno if node.end_lineno else node.lineno)
+            if isinstance(node, ast.Assert):
+                # Check if the test is an isinstance() call
+                if isinstance(node.test, ast.Call):
+                    if isinstance(node.test.func, ast.Name) and node.test.func.id == "isinstance":
+                        start_line = LineNumber(node.lineno)
+                        end_line = LineNumber(node.end_lineno if node.end_lineno else node.lineno)
 
-                    commit_date = _get_chunk_commit_date(file_path, start_line, end_line)
+                        commit_date = _get_chunk_commit_date(file_path, start_line, end_line)
 
-                    chunk = RatchetMatchChunk(
-                        file_path=file_path,
-                        matched_content=f"isinstance() usage at line {start_line}",
-                        start_line=start_line,
-                        end_line=end_line,
-                        last_modified_date=commit_date,
-                    )
-                    chunks.append(chunk)
+                        chunk = RatchetMatchChunk(
+                            file_path=file_path,
+                            matched_content=f"assert isinstance() at line {start_line}",
+                            start_line=start_line,
+                            end_line=end_line,
+                            last_modified_date=commit_date,
+                        )
+                        chunks.append(chunk)
 
     sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
     return tuple(sorted_chunks)

@@ -8,11 +8,11 @@ from imbue.imbue_common.ratchet_testing.core import FileExtension
 from imbue.imbue_common.ratchet_testing.core import RegexPattern
 from imbue.imbue_common.ratchet_testing.core import check_regex_ratchet
 from imbue.imbue_common.ratchet_testing.core import format_ratchet_failure_message
+from imbue.imbue_common.ratchet_testing.ratchets import find_assert_isinstance_usages
 from imbue.imbue_common.ratchet_testing.ratchets import find_cast_usages
 from imbue.imbue_common.ratchet_testing.ratchets import find_if_elif_without_else
 from imbue.imbue_common.ratchet_testing.ratchets import find_init_methods_in_non_exception_classes
 from imbue.imbue_common.ratchet_testing.ratchets import find_inline_functions
-from imbue.imbue_common.ratchet_testing.ratchets import find_isinstance_usages
 from imbue.imbue_common.ratchet_testing.ratchets import find_underscore_imports
 
 # Exclude this test file from ratchet scans to prevent self-referential matches
@@ -23,6 +23,7 @@ def _get_mngr_source_dir() -> Path:
     return Path(__file__).parent.parent
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_todos() -> None:
     pattern = RegexPattern(r"# TODO:.*")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -35,6 +36,7 @@ def test_prevent_todos() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_exec_usage() -> None:
     # Negative lookbehind to allow .exec() method calls (e.g., sandbox.exec())
     pattern = RegexPattern(r"(?<!\.)\bexec\s*\(")
@@ -47,6 +49,7 @@ def test_prevent_exec_usage() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_eval_usage() -> None:
     pattern = RegexPattern(r"\beval\s*\(")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -58,6 +61,7 @@ def test_prevent_eval_usage() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_inline_imports() -> None:
     # Note: interfaces/agent.py uses TYPE_CHECKING for imports from interfaces/host.py
     # to avoid circular imports. This is the only accepted location (per comment in that file).
@@ -71,6 +75,7 @@ def test_prevent_inline_imports() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_bare_except() -> None:
     pattern = RegexPattern(r"except\s*:")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -82,6 +87,7 @@ def test_prevent_bare_except() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_broad_exception_catch() -> None:
     pattern = RegexPattern(r"except\s+Exception\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -93,6 +99,7 @@ def test_prevent_broad_exception_catch() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_base_exception_catch() -> None:
     pattern = RegexPattern(r"except\s+BaseException\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -104,6 +111,7 @@ def test_prevent_base_exception_catch() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_while_true() -> None:
     pattern = RegexPattern(r"\bwhile\s+True\s*:")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -115,6 +123,7 @@ def test_prevent_while_true() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_asyncio_import() -> None:
     pattern = RegexPattern(r"\bimport\s+asyncio\b|\bfrom\s+asyncio\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -126,6 +135,7 @@ def test_prevent_asyncio_import() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_pandas_import() -> None:
     pattern = RegexPattern(r"\bimport\s+pandas\b|\bfrom\s+pandas\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -137,6 +147,7 @@ def test_prevent_pandas_import() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_dataclasses_import() -> None:
     pattern = RegexPattern(r"\bimport\s+dataclasses\b|\bfrom\s+dataclasses\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -148,6 +159,7 @@ def test_prevent_dataclasses_import() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_namedtuple_usage() -> None:
     pattern = RegexPattern(r"\bnamedtuple\s*\(")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -159,6 +171,7 @@ def test_prevent_namedtuple_usage() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_trailing_comments() -> None:
     # Allow trailing comments only for ty: ignore directives (needed for type checker)
     pattern = RegexPattern(r"[^\s#].*[ \t]#(?!\s*ty:\s*ignore\[)")
@@ -171,6 +184,7 @@ def test_prevent_trailing_comments() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_relative_imports() -> None:
     pattern = RegexPattern(r"^from\s+\.", multiline=True)
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -182,6 +196,7 @@ def test_prevent_relative_imports() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_global_keyword() -> None:
     pattern = RegexPattern(r"^\s*global\s+\w+")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -193,6 +208,7 @@ def test_prevent_global_keyword() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_init_docstrings() -> None:
     pattern = RegexPattern(r'def __init__[^:]*:\s+"""', multiline=True)
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -204,6 +220,7 @@ def test_prevent_init_docstrings() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 @pytest.mark.timeout(10)
 def test_prevent_args_in_docstrings() -> None:
     # Use [\s\S] instead of . because . doesn't match newlines even with multiline=True
@@ -217,6 +234,7 @@ def test_prevent_args_in_docstrings() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 @pytest.mark.timeout(10)
 def test_prevent_returns_in_docstrings() -> None:
     # Use [\s\S] instead of . because . doesn't match newlines even with multiline=True
@@ -230,6 +248,7 @@ def test_prevent_returns_in_docstrings() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_num_prefix() -> None:
     pattern = RegexPattern(r"\bnum_\w+|\bnumOf|\bnum[A-Z]")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -241,6 +260,7 @@ def test_prevent_num_prefix() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_builtin_exception_raises() -> None:
     pattern = RegexPattern(
         r"raise\s+(ValueError|KeyError|TypeError|AttributeError|IndexError|RuntimeError|OSError|IOError)\("
@@ -254,6 +274,7 @@ def test_prevent_builtin_exception_raises() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_yaml_usage() -> None:
     pattern = RegexPattern(r"yaml", multiline=True)
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -265,6 +286,7 @@ def test_prevent_yaml_usage() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_no_type_errors() -> None:
     """Ensure the codebase has zero type errors.
 
@@ -297,6 +319,7 @@ def test_no_type_errors() -> None:
         raise AssertionError("\n".join(failure_message))
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_literal_with_multiple_options() -> None:
     pattern = RegexPattern(r"Literal\[.*,.*\]")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -308,6 +331,7 @@ def test_prevent_literal_with_multiple_options() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_no_ruff_errors() -> None:
     """Ensure the codebase has zero ruff linting errors.
 
@@ -335,6 +359,7 @@ def test_no_ruff_errors() -> None:
         raise AssertionError("\n".join(failure_message))
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_if_elif_without_else() -> None:
     """Prevent if/elif chains without else clauses.
 
@@ -351,6 +376,7 @@ def test_prevent_if_elif_without_else() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_import_datetime() -> None:
     pattern = RegexPattern(r"^import datetime$", multiline=True)
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -362,6 +388,7 @@ def test_prevent_import_datetime() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_inline_functions_in_non_test_code() -> None:
     chunks = find_inline_functions(_get_mngr_source_dir(), _THIS_FILE)
 
@@ -372,6 +399,7 @@ def test_prevent_inline_functions_in_non_test_code() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_time_sleep() -> None:
     pattern = RegexPattern(r"\btime\.sleep\s*\(|\bfrom\s+time\s+import\s+sleep\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -383,6 +411,7 @@ def test_prevent_time_sleep() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_bare_print() -> None:
     pattern = RegexPattern(r"^\s*print\s*\(", multiline=True)
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -394,6 +423,7 @@ def test_prevent_bare_print() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_importing_underscore_prefixed_names_in_non_test_code() -> None:
     chunks = find_underscore_imports(_get_mngr_source_dir(), _THIS_FILE)
 
@@ -404,6 +434,7 @@ def test_prevent_importing_underscore_prefixed_names_in_non_test_code() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_init_methods_in_non_exception_classes() -> None:
     chunks = find_init_methods_in_non_exception_classes(_get_mngr_source_dir(), _THIS_FILE)
 
@@ -414,6 +445,7 @@ def test_prevent_init_methods_in_non_exception_classes() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_click_echo() -> None:
     pattern = RegexPattern(r"\bclick\.echo\b|\bfrom\s+click\s+import\s+.*\becho\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -425,6 +457,7 @@ def test_prevent_click_echo() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_bare_generic_types() -> None:
     pattern = RegexPattern(r":\s*(list|dict|tuple|set|List|Dict|Tuple|Set|Mapping|Sequence)\s*($|[,\)\]])")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -436,6 +469,7 @@ def test_prevent_bare_generic_types() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_typing_builtin_imports() -> None:
     pattern = RegexPattern(r"\bfrom\s+typing\s+import\s+.*\b(Dict|List|Set|Tuple)\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -450,6 +484,7 @@ def test_prevent_typing_builtin_imports() -> None:
 # FIXME: This test has been observed to crash xdist workers, likely due to resource pressure
 # when multiple workers perform heavy file I/O simultaneously. The test itself is not flaky,
 # but may be affected by resource leaks or memory pressure from other parallel tests.
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_fstring_logging() -> None:
     pattern = RegexPattern(r"logger\.(trace|debug|info|warning|error|exception)\(f")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -461,6 +496,7 @@ def test_prevent_fstring_logging() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_functools_partial() -> None:
     pattern = RegexPattern(r"\bfrom\s+functools\s+import\s+.*\bpartial\b|\bfunctools\.partial\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
@@ -472,6 +508,7 @@ def test_prevent_functools_partial() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_code_in_init_files() -> None:
     """Ensure __init__.py files contain no code (except pluggy hookimpl at the root).
 
@@ -506,6 +543,7 @@ def test_prevent_code_in_init_files() -> None:
     )
 
 
+@pytest.mark.xdist_group(name="ratchets")
 def test_prevent_cast_usage() -> None:
     """Prevent usage of cast() from typing in non-test code.
 
@@ -516,7 +554,7 @@ def test_prevent_cast_usage() -> None:
     """
     chunks = find_cast_usages(_get_mngr_source_dir(), _THIS_FILE)
 
-    assert len(chunks) <= snapshot(26), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(14), format_ratchet_failure_message(
         rule_name="cast() usages",
         rule_description=(
             "Do not use cast() from typing. It bypasses the type checker and makes code less safe. "
@@ -527,20 +565,21 @@ def test_prevent_cast_usage() -> None:
     )
 
 
-def test_prevent_isinstance_usage() -> None:
-    """Prevent usage of isinstance() in non-test code.
+@pytest.mark.xdist_group(name="ratchets")
+def test_prevent_assert_isinstance_usage() -> None:
+    """Prevent usage of 'assert isinstance(...)' in non-test code.
 
-    isinstance() checks are often a sign of improper type handling. Instead, use
-    match statements with exhaustive case handling to ensure all possible types
+    'assert isinstance()' checks are often a sign of improper type handling. Instead,
+    use match statements with exhaustive case handling to ensure all possible types
     are handled explicitly. Use 'case _ as unreachable: assert_never(unreachable)'
     to catch any unhandled cases at compile time.
     """
-    chunks = find_isinstance_usages(_get_mngr_source_dir(), _THIS_FILE)
+    chunks = find_assert_isinstance_usages(_get_mngr_source_dir(), _THIS_FILE)
 
-    assert len(chunks) <= snapshot(66), format_ratchet_failure_message(
-        rule_name="isinstance() usages",
+    assert len(chunks) <= snapshot(3), format_ratchet_failure_message(
+        rule_name="assert isinstance() usages",
         rule_description=(
-            "Do not use isinstance(). Use match statements with exhaustive case handling instead. "
+            "Do not use 'assert isinstance()'. Use match statements with exhaustive case handling instead. "
             "End your match with 'case _ as unreachable: assert_never(unreachable)' to ensure all cases are "
             "handled and catch new variants at compile time. See style guide for examples."
         ),
