@@ -5,7 +5,8 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
-from imbue.mngr.api.list import list_agents
+from imbue.mngr.api.find import AgentMatch
+from imbue.mngr.api.find import find_agents_by_identifiers_or_state
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -15,18 +16,14 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
-from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
-from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
-from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import OutputFormat
-from imbue.mngr.primitives import ProviderInstanceName
 
 
 class StopCliOptions(CommonCliOptions):
@@ -36,57 +33,6 @@ class StopCliOptions(CommonCliOptions):
     agent_list: tuple[str, ...]
     stop_all: bool
     dry_run: bool
-
-
-def _find_agents_to_stop(
-    agent_identifiers: list[str],
-    stop_all: bool,
-    mngr_ctx: MngrContext,
-) -> list[tuple[str, str, str, str]]:
-    """Find all agents to stop.
-
-    Returns a list of (agent_id, agent_name, host_id, provider_name) tuples.
-    Raises AgentNotFoundError if any specified identifier does not match an agent.
-    """
-    agents_to_stop: list[tuple[str, str, str, str]] = []
-    matched_identifiers: set[str] = set()
-
-    for agent_ref in list_agents(mngr_ctx).agents:
-        should_include: bool
-        if stop_all:
-            # Only include running agents when using --all
-            if agent_ref.lifecycle_state == AgentLifecycleState.RUNNING:
-                should_include = True
-            else:
-                should_include = False
-        elif agent_identifiers:
-            agent_name_str = str(agent_ref.name)
-            agent_id_str = str(agent_ref.id)
-
-            should_include = False
-            for identifier in agent_identifiers:
-                if identifier == agent_name_str or identifier == agent_id_str:
-                    should_include = True
-                    matched_identifiers.add(identifier)
-        else:
-            should_include = False
-
-        if should_include:
-            agents_to_stop.append((
-                str(agent_ref.id),
-                str(agent_ref.name),
-                str(agent_ref.host.id),
-                str(agent_ref.host.provider_name),
-            ))
-
-    # Verify all specified identifiers were found
-    if agent_identifiers:
-        unmatched_identifiers = set(agent_identifiers) - matched_identifiers
-        if unmatched_identifiers:
-            unmatched_list = ", ".join(sorted(unmatched_identifiers))
-            raise AgentNotFoundError(f"No agent(s) found matching: {unmatched_list}")
-
-    return agents_to_stop
 
 
 def _output(message: str, output_opts: OutputOptions) -> None:
@@ -172,10 +118,11 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
     if agent_identifiers and opts.stop_all:
         raise click.UsageError("Cannot specify both agent names and --all")
 
-    # Find agents to stop
-    agents_to_stop = _find_agents_to_stop(
+    # Find agents to stop (RUNNING agents when using --all)
+    agents_to_stop = find_agents_by_identifiers_or_state(
         agent_identifiers=agent_identifiers,
-        stop_all=opts.stop_all,
+        filter_all=opts.stop_all,
+        target_state=AgentLifecycleState.RUNNING,
         mngr_ctx=mngr_ctx,
     )
 
@@ -186,47 +133,47 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
     # Handle dry-run mode
     if opts.dry_run:
         _output("Would stop:", output_opts)
-        for _agent_id, agent_name, host_id, _provider_name in agents_to_stop:
-            _output(f"  - {agent_name} (on host {host_id})", output_opts)
+        for match in agents_to_stop:
+            _output(f"  - {match.agent_name} (on host {match.host_id})", output_opts)
         return
 
     # Stop each agent
     stopped_agents: list[str] = []
 
     # Group agents by host to stop them together
-    agents_by_host: dict[str, list[tuple[str, str, str]]] = {}
-    for agent_id, agent_name, host_id, provider_name in agents_to_stop:
-        key = f"{host_id}:{provider_name}"
+    agents_by_host: dict[str, list[AgentMatch]] = {}
+    for match in agents_to_stop:
+        key = f"{match.host_id}:{match.provider_name}"
         if key not in agents_by_host:
             agents_by_host[key] = []
-        agents_by_host[key].append((agent_id, agent_name, provider_name))
+        agents_by_host[key].append(match)
 
     for host_key, agent_list in agents_by_host.items():
         host_id_str, _ = host_key.split(":", 1)
         # Get provider from first agent (all agents in list have same provider)
-        _, _, provider_name = agent_list[0]
+        provider_name = agent_list[0].provider_name
 
         try:
-            provider = get_provider_instance(ProviderInstanceName(provider_name), mngr_ctx)
+            provider = get_provider_instance(provider_name, mngr_ctx)
             host = provider.get_host(HostId(host_id_str))
 
             # Ensure host is online (can't stop agents on offline hosts)
             match host:
                 case OnlineHostInterface() as online_host:
                     # Stop each agent on this host
-                    agent_ids_to_stop = [AgentId(agent_id) for agent_id, _, _ in agent_list]
+                    agent_ids_to_stop = [m.agent_id for m in agent_list]
                     online_host.stop_agents(agent_ids_to_stop)
 
-                    for _agent_id, agent_name, _ in agent_list:
-                        stopped_agents.append(agent_name)
-                        _output(f"Stopped agent: {agent_name}", output_opts)
+                    for m in agent_list:
+                        stopped_agents.append(str(m.agent_name))
+                        _output(f"Stopped agent: {m.agent_name}", output_opts)
                 case HostInterface():
                     raise HostOfflineError(f"Host '{host_id_str}' is offline. Cannot stop agents on offline hosts.")
                 case _ as unreachable:
                     assert_never(unreachable)
 
         except MngrError as e:
-            agent_names = ", ".join(name for _, name, _ in agent_list)
+            agent_names = ", ".join(str(m.agent_name) for m in agent_list)
             _output(f"Error stopping agent(s) {agent_names}: {e}", output_opts)
 
     # Output final result

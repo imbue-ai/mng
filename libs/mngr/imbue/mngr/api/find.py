@@ -404,3 +404,67 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
             agents_by_host[host_ref] = agent_refs
 
     return agents_by_host
+
+
+class AgentMatch(FrozenModel):
+    """Information about an agent that matched a search query."""
+
+    agent_id: AgentId
+    agent_name: AgentName
+    host_id: HostId
+    provider_name: ProviderInstanceName
+
+
+@deal.has()
+def find_agents_by_identifiers_or_state(
+    agent_identifiers: list[str],
+    filter_all: bool,
+    target_state: AgentLifecycleState,
+    mngr_ctx: MngrContext,
+) -> list[AgentMatch]:
+    """Find agents matching identifiers or a target lifecycle state.
+
+    When filter_all is True, returns all agents in the target_state.
+    When filter_all is False, returns agents matching the given identifiers
+    (by name or ID).
+
+    Raises AgentNotFoundError if any identifier does not match an agent.
+    """
+    # Import here to avoid circular import (list.py imports from find.py)
+    from imbue.mngr.api.list import list_agents
+
+    matches: list[AgentMatch] = []
+    matched_identifiers: set[str] = set()
+
+    for agent_ref in list_agents(mngr_ctx).agents:
+        should_include: bool
+        if filter_all:
+            should_include = agent_ref.lifecycle_state == target_state
+        elif agent_identifiers:
+            agent_name_str = str(agent_ref.name)
+            agent_id_str = str(agent_ref.id)
+
+            should_include = False
+            for identifier in agent_identifiers:
+                if identifier == agent_name_str or identifier == agent_id_str:
+                    should_include = True
+                    matched_identifiers.add(identifier)
+        else:
+            should_include = False
+
+        if should_include:
+            matches.append(AgentMatch(
+                agent_id=agent_ref.id,
+                agent_name=agent_ref.name,
+                host_id=agent_ref.host.id,
+                provider_name=agent_ref.host.provider_name,
+            ))
+
+    # Verify all specified identifiers were found
+    if agent_identifiers:
+        unmatched_identifiers = set(agent_identifiers) - matched_identifiers
+        if unmatched_identifiers:
+            unmatched_list = ", ".join(sorted(unmatched_identifiers))
+            raise AgentNotFoundError(f"No agent(s) found matching: {unmatched_list}")
+
+    return matches
