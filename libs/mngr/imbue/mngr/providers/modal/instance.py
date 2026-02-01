@@ -734,15 +734,6 @@ class ModalProviderInstance(BaseProviderInstance):
         pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
         connector = PyinfraConnector(pyinfra_host)
 
-        # Create and write the initial host record to the volume
-        host_record = HostRecord(
-            ssh_host=ssh_host,
-            ssh_port=ssh_port,
-            ssh_host_public_key=host_public_key,
-            config=config,
-            certified_host_data=host_data,
-        )
-
         # Create the Host object
         host = Host(
             id=host_id,
