@@ -1372,6 +1372,18 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         host_id = host.id if isinstance(host, HostInterface) else host
         logger.info("Stopping (terminating) Modal sandbox: {}", host_id)
 
+        # Disconnect the SSH connection before terminating the sandbox.
+        # This prevents stale socket state that can cause "Socket is closed" errors.
+        # We check the cache first, then fall back to the passed host object.
+        cached_host = self._host_by_id_cache.get(host_id)
+        if cached_host is not None and isinstance(cached_host, Host):
+            cached_host.disconnect()
+        elif isinstance(host, Host):
+            host.disconnect()
+        else:
+            # No Host instance available (e.g., only have a host_id string or HostInterface stub)
+            pass
+
         sandbox = self._find_sandbox_by_host_id(host_id)
         if sandbox:
             # Create a snapshot before termination if requested
