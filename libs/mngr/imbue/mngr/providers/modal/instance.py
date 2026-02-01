@@ -1385,18 +1385,16 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             logger.debug("No sandbox found, may already be terminated", host_id=str(host_id))
 
         # Record stop_reason=STOPPED to distinguish user-initiated stops from idle pauses
+        # Note that we are explicitly avoiding going through the normal host.set_certified_data(host_data) call here
+        # because A) we *don't* want to save this into the host record on the host, so that it makes more sense when it
+        # is eventually started again, and B) this is a small optimization so that we don't need to get the host
+        # record twice, since we use it to figure out the name below as well
         host_record = self._read_host_record(host_id)
-        if host_record is not None:
-            updated_certified_data = host_record.certified_host_data.model_copy(
-                update={"stop_reason": "STOPPED"}
-            )
-            self._write_host_record(
-                host_record.model_copy(update={"certified_host_data": updated_certified_data})
-            )
+        updated_certified_data = host_record.certified_host_data.model_copy(update={"stop_reason": "STOPPED"})
+        self._write_host_record(host_record.model_copy(update={"certified_host_data": updated_certified_data}))
 
         # Remove from all caches since the sandbox is now terminated
         # Read host record to get the name for cache cleanup (re-read in case it was just updated)
-        host_record = self._read_host_record(host_id)
         host_name = HostName(host_record.host_name) if host_record else None
         self._uncache_sandbox(host_id, host_name)
         # Also invalidate host cache so next lookup returns an OfflineHost

@@ -34,9 +34,9 @@ Remote hosts may be run in the cloud (Modal), a Docker container (which can be l
 The rough state diagram looks like this:
 
 ```
-building  →  starting   →  running  →  stopping  →  stopped/paused/crashed
-    ↓            ↓             ↓                              ↓
-  failed   failed/stopped  stopped/paused/destroyed        destroyed
+building  →  starting      →       running     →    stopping    →    stopped/paused/crashed
+    ↓            ↓                    ↓                                   ↓
+  failed   failed/stopped/crashed  stopped/paused/crashed/destroyed     destroyed
 ```
 
 | State         | Description                                                                      |

@@ -170,7 +170,7 @@ class BaseHost(HostInterface):
         - If certified data has state=FAILED, the host failed during creation
         - If snapshots exist:
           - stop_reason=PAUSED -> host became idle and was paused
-          - stop_reason=STOPPED -> user explicitly stopped the host
+          - stop_reason=STOPPED -> user explicitly stopped all agents on the host
           - stop_reason=None -> host crashed (no controlled shutdown recorded)
         - If no snapshots exist for a provider that supports them, the host is DESTROYED
         - If provider doesn't support snapshots, assume STOPPED
@@ -190,16 +190,10 @@ class BaseHost(HostInterface):
 
         # Determine state based on stop_reason
         stop_reason = certified_data.stop_reason
-        if stop_reason == HostState.PAUSED.value:
-            return HostState.PAUSED
-        elif stop_reason == HostState.STOPPED.value:
-            return HostState.STOPPED
-        elif stop_reason is None:
-            # No stop_reason recorded means the host didn't shut down cleanly
+        if stop_reason is None:
             return HostState.CRASHED
         else:
-            # Unknown stop_reason, default to STOPPED
-            return HostState.STOPPED
+            return HostState(stop_reason)
 
     def get_failure_reason(self) -> str | None:
         """Get the failure reason if this host failed during creation."""

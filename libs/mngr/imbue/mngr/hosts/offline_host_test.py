@@ -340,9 +340,8 @@ def test_failed_state_takes_precedence_over_snapshot_check(mock_provider, mock_m
         (HostState.PAUSED.value, HostState.PAUSED),
         (HostState.STOPPED.value, HostState.STOPPED),
         (None, HostState.CRASHED),
-        ("UNKNOWN_VALUE", HostState.STOPPED),
     ],
-    ids=["paused", "stopped", "crashed_no_stop_reason", "unknown_defaults_to_stopped"],
+    ids=["paused", "stopped", "crashed_no_stop_reason"],
 )
 def test_get_state_based_on_stop_reason(mock_provider, mock_mngr_ctx, stop_reason, expected_state):
     """Test that get_state returns the correct state based on stop_reason."""
