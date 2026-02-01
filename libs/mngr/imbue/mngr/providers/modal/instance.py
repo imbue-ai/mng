@@ -1150,6 +1150,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             connector=connector,
             provider_instance=self,
             mngr_ctx=self.mngr_ctx,
+            on_updated_host_data=lambda callback_host_id, certified_data: self._on_certified_host_data_updated(
+                callback_host_id, certified_data
+            ),
         )
 
     def _create_host_from_host_record(
