@@ -259,6 +259,8 @@ def list_agents(
                     resource=resource,
                     ssh=ssh_info,
                     snapshots=host.get_snapshots(),
+                    failure_reason=host.get_failure_reason(),
+                    build_log=host.get_build_log(),
                 )
 
                 # Get all agents on this host

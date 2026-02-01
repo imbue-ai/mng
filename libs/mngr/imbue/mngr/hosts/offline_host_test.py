@@ -219,3 +219,109 @@ def test_get_state_returns_stopped_when_snapshot_check_fails(offline_host: Offli
 
     state = offline_host.get_state()
     assert state == HostState.STOPPED
+
+
+def test_get_state_returns_failed_when_certified_data_has_failed_state(mock_provider, mock_mngr_ctx):
+    """Test that get_state returns FAILED when certified data indicates failure."""
+    host_id = HostId.generate()
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="failed-host",
+        state=HostState.FAILED.value,
+        failure_reason="Docker build failed",
+        build_log="Step 1/5: RUN apt-get update\nERROR: apt-get failed",
+    )
+    failed_host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=mock_provider,
+        mngr_ctx=mock_mngr_ctx,
+    )
+
+    state = failed_host.get_state()
+    assert state == HostState.FAILED
+
+
+def test_get_failure_reason_returns_reason_when_present(mock_provider, mock_mngr_ctx):
+    """Test that get_failure_reason returns the failure reason from certified data."""
+    host_id = HostId.generate()
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="failed-host",
+        state=HostState.FAILED.value,
+        failure_reason="Modal sandbox creation failed",
+        build_log="Build log contents",
+    )
+    failed_host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=mock_provider,
+        mngr_ctx=mock_mngr_ctx,
+    )
+
+    reason = failed_host.get_failure_reason()
+    assert reason == "Modal sandbox creation failed"
+
+
+def test_get_failure_reason_returns_none_for_successful_host(offline_host: OfflineHost):
+    """Test that get_failure_reason returns None for hosts that did not fail."""
+    reason = offline_host.get_failure_reason()
+    assert reason is None
+
+
+def test_get_build_log_returns_log_when_present(mock_provider, mock_mngr_ctx):
+    """Test that get_build_log returns the build log from certified data."""
+    host_id = HostId.generate()
+    build_log_content = "Step 1/5: FROM ubuntu:22.04\nStep 2/5: RUN apt-get update\nERROR: network error"
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="failed-host",
+        state=HostState.FAILED.value,
+        failure_reason="Build failed",
+        build_log=build_log_content,
+    )
+    failed_host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=mock_provider,
+        mngr_ctx=mock_mngr_ctx,
+    )
+
+    log = failed_host.get_build_log()
+    assert log == build_log_content
+
+
+def test_get_build_log_returns_none_for_successful_host(offline_host: OfflineHost):
+    """Test that get_build_log returns None for hosts that did not fail."""
+    log = offline_host.get_build_log()
+    assert log is None
+
+
+def test_failed_state_takes_precedence_over_snapshot_check(mock_provider, mock_mngr_ctx):
+    """Test that FAILED state is returned even when snapshots exist."""
+    host_id = HostId.generate()
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="failed-host",
+        state=HostState.FAILED.value,
+        failure_reason="Build failed",
+    )
+    mock_provider.supports_snapshots = True
+    mock_provider.list_snapshots.return_value = [
+        SnapshotInfo(
+            id=SnapshotId("snap-test"),
+            name=SnapshotName("should-not-matter"),
+            created_at=datetime.now(timezone.utc),
+        )
+    ]
+    failed_host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=mock_provider,
+        mngr_ctx=mock_mngr_ctx,
+    )
+
+    state = failed_host.get_state()
+    assert state == HostState.FAILED
+    # Snapshot check should not be called since FAILED state is checked first
+    mock_provider.list_snapshots.assert_not_called()
