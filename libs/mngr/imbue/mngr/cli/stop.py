@@ -11,6 +11,7 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.destroy import get_agent_name_from_session
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
@@ -18,6 +19,7 @@ from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import HostOfflineError
+from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentLifecycleState
@@ -32,6 +34,7 @@ class StopCliOptions(CommonCliOptions):
     agent_list: tuple[str, ...]
     stop_all: bool
     dry_run: bool
+    sessions: tuple[str, ...]
 
 
 def _output(message: str, output_opts: OutputOptions) -> None:
@@ -72,6 +75,13 @@ def _output_result(stopped_agents: list[str], output_opts: OutputOptions) -> Non
     is_flag=True,
     help="Stop all running agents",
 )
+@optgroup.option(
+    "--session",
+    "sessions",
+    multiple=True,
+    help="Tmux session name to stop (can be specified multiple times). The agent name is extracted by "
+    "stripping the configured prefix from the session name.",
+)
 @optgroup.group("Behavior")
 @optgroup.option(
     "--dry-run",
@@ -110,6 +120,19 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
 
     # Validate input
     agent_identifiers = list(opts.agents) + list(opts.agent_list)
+
+    # Handle --session option by extracting agent names from session names
+    if opts.sessions:
+        if agent_identifiers or opts.stop_all:
+            raise UserInputError("Cannot specify --session with agent names or --all")
+        for session_name in opts.sessions:
+            agent_name = get_agent_name_from_session(session_name, mngr_ctx.config.prefix)
+            if agent_name is None:
+                raise UserInputError(
+                    f"Session '{session_name}' does not match the expected format. "
+                    f"Session names should start with the configured prefix '{mngr_ctx.config.prefix}'."
+                )
+            agent_identifiers.append(agent_name)
 
     if not agent_identifiers and not opts.stop_all:
         raise click.UsageError("Must specify at least one agent or use --all")
@@ -173,7 +196,7 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
 _STOP_HELP_METADATA = CommandHelpMetadata(
     name="mngr-stop",
     one_line_description="Stop running agent(s)",
-    synopsis="mngr [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--dry-run]",
+    synopsis="mngr [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-run]",
     description="""Stop one or more running agents.
 
 For remote hosts, this stops the agent's tmux session. The host remains
@@ -186,6 +209,7 @@ itself cannot be stopped (if you want that, shut down your computer).""",
         ("Stop an agent by name", "mngr stop my-agent"),
         ("Stop multiple agents", "mngr stop agent1 agent2"),
         ("Stop all running agents", "mngr stop --all"),
+        ("Stop by tmux session name", "mngr stop --session mngr-my-agent"),
         ("Preview what would be stopped", "mngr stop --all --dry-run"),
     ),
     see_also=(

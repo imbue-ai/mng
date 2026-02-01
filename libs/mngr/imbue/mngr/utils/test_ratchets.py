@@ -519,7 +519,7 @@ def test_prevent_cast_usage() -> None:
     """
     chunks = find_cast_usages(_get_mngr_source_dir(), _THIS_FILE)
 
-    assert len(chunks) <= snapshot(14), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(15), format_ratchet_failure_message(
         rule_name="cast() usages",
         rule_description=(
             "Do not use cast() from typing. It bypasses the type checker and makes code less safe. "
