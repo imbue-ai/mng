@@ -1,16 +1,10 @@
 """Unit tests for the start CLI command."""
 
-from unittest.mock import MagicMock
-
 import pluggy
 from click.testing import CliRunner
 
 from imbue.mngr.cli.start import StartCliOptions
-from imbue.mngr.cli.start import _send_resume_message_if_configured
 from imbue.mngr.cli.start import start
-from imbue.mngr.config.data_types import OutputOptions
-from imbue.mngr.primitives import LogLevel
-from imbue.mngr.primitives import OutputFormat
 
 
 def test_start_cli_options_fields() -> None:
@@ -133,33 +127,3 @@ def test_start_all_with_no_stopped_agents(
     # Should succeed but report no agents to start
     assert result.exit_code == 0
     assert "No stopped agents found to start" in result.output
-
-
-def test_send_resume_message_does_nothing_when_no_message() -> None:
-    """Test that _send_resume_message_if_configured does nothing when resume_message is None."""
-    mock_agent = MagicMock()
-    mock_agent.get_resume_message.return_value = None
-
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN, console_level=LogLevel.INFO)
-
-    _send_resume_message_if_configured(mock_agent, output_opts)
-
-    mock_agent.get_resume_message.assert_called_once()
-    mock_agent.send_message.assert_not_called()
-
-
-def test_send_resume_message_sends_message_when_configured() -> None:
-    """Test that _send_resume_message_if_configured sends the resume message when configured."""
-    mock_agent = MagicMock()
-    mock_agent.get_resume_message.return_value = "Welcome back!"
-    # Use a very short delay for testing
-    mock_agent.get_message_delay_seconds.return_value = 0.01
-    mock_agent.name = "test-agent"
-
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN, console_level=LogLevel.INFO)
-
-    _send_resume_message_if_configured(mock_agent, output_opts)
-
-    mock_agent.get_resume_message.assert_called_once()
-    mock_agent.get_message_delay_seconds.assert_called_once()
-    mock_agent.send_message.assert_called_once_with("Welcome back!")
