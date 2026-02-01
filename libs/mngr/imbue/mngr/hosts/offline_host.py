@@ -144,11 +144,16 @@ class BaseHost(HostInterface):
     def get_state(self) -> HostState:
         """Get the current state of the host.
 
-        For offline hosts, we determine state based on snapshots:
+        For offline hosts, we determine state based on certified data and snapshots:
+        - If certified data has state=FAILED, the host failed during creation
         - If snapshots exist, the host is STOPPED (can be restarted)
         - If no snapshots exist for a provider that supports them, the host is DESTROYED
         - If provider doesn't support snapshots, assume STOPPED
         """
+        certified_data = self.get_certified_data()
+        if certified_data.state == HostState.FAILED.value:
+            return HostState.FAILED
+
         if self.provider_instance.supports_snapshots:
             try:
                 snapshots = self.get_snapshots()
@@ -159,6 +164,14 @@ class BaseHost(HostInterface):
                 pass
 
         return HostState.STOPPED
+
+    def get_failure_reason(self) -> str | None:
+        """Get the failure reason if this host failed during creation."""
+        return self.get_certified_data().failure_reason
+
+    def get_build_log(self) -> str | None:
+        """Get the build log if this host failed during creation."""
+        return self.get_certified_data().build_log
 
     def get_permissions(self) -> list[str]:
         """Get the union of all agent permissions on this host.

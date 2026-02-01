@@ -139,6 +139,7 @@ class HostState(UpperCaseStrEnum):
     RUNNING = auto()
     STOPPING = auto()
     STOPPED = auto()
+    FAILED = auto()
     DESTROYED = auto()
 
 

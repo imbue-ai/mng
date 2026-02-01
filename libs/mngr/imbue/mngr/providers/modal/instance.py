@@ -66,6 +66,7 @@ from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
@@ -183,16 +184,19 @@ class HostRecord(FrozenModel):
 
     This record contains all information needed to connect to and restore a host.
     It is stored at /<host_id>.json on the volume.
+
+    For failed hosts (those that failed during creation), only certified_host_data
+    is required. The SSH fields and config will be None since the host never started.
     """
 
-    ssh_host: str = Field(description="SSH hostname for connecting to the sandbox")
-    ssh_port: int = Field(description="SSH port number")
-    ssh_host_public_key: str = Field(description="SSH host public key for verification")
-    config: SandboxConfig = Field(description="Sandbox configuration")
     certified_host_data: CertifiedHostData = Field(
         frozen=True,
         description="The certified host data loaded from data.json",
     )
+    ssh_host: str | None = Field(default=None, description="SSH hostname for connecting to the sandbox")
+    ssh_port: int | None = Field(default=None, description="SSH port number")
+    ssh_host_public_key: str | None = Field(default=None, description="SSH host public key for verification")
+    config: SandboxConfig | None = Field(default=None, description="Sandbox configuration")
 
     # FIXME: remove these once we're fully using certified_host_data
     @property
@@ -359,6 +363,36 @@ class ModalProviderInstance(BaseProviderInstance):
         # Upload the data as a file-like object
         with volume.batch_upload(force=True) as batch:
             batch.put_file(io.BytesIO(data.encode("utf-8")), path)
+
+    def _save_failed_host_record(
+        self,
+        host_id: HostId,
+        host_name: HostName,
+        tags: Mapping[str, str] | None,
+        failure_reason: str,
+        build_log: str,
+    ) -> None:
+        """Save a host record for a host that failed during creation.
+
+        This allows the failed host to be visible in 'mngr list' so users can see
+        what went wrong and debug build failures.
+        """
+        host_data = CertifiedHostData(
+            host_id=str(host_id),
+            host_name=str(host_name),
+            user_tags=dict(tags) if tags else {},
+            snapshots=[],
+            state=HostState.FAILED.value,
+            failure_reason=failure_reason,
+            build_log=build_log,
+        )
+
+        host_record = HostRecord(
+            certified_host_data=host_data,
+        )
+
+        logger.debug("Saving failed host record for host_id={}", host_id)
+        self._write_host_record(host_record)
 
     def _read_host_record(self, host_id: HostId) -> HostRecord | None:
         """Read a host record from the volume.
@@ -1133,6 +1167,11 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             logger.debug("Skipping sandbox {} - no host record on volume", sandbox.object_id)
             return None
 
+        # Failed hosts don't have SSH info and can't be connected to
+        if host_record.ssh_host is None or host_record.ssh_port is None or host_record.ssh_host_public_key is None:
+            logger.debug("Skipping sandbox {} - host record missing SSH info (likely failed host)", sandbox.object_id)
+            return None
+
         # Add the sandbox's host key to known_hosts so SSH connections will work
         add_host_to_known_hosts(
             self._known_hosts_path,
@@ -1223,30 +1262,30 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
         context_dir_path = Path(config.context_dir) if config.context_dir else None
 
-        # Build the Modal image
-        logger.debug("Building Modal image...")
-        modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
-
-        # Get or create the Modal app (uses singleton pattern with context manager)
-        logger.debug("Getting Modal app", app_name=self.app_name)
-        app = self._get_modal_app()
-
-        # Create the sandbox
-        # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
-        # trigger a clean shutdown before Modal's hard timeout kills the host
-        modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
-        logger.debug(
-            "Creating Modal sandbox",
-            timeout=config.timeout,
-            modal_timeout=modal_timeout,
-            shutdown_buffer=self.config.shutdown_buffer_seconds,
-            cpu=config.cpu,
-            memory_gb=config.memory,
-        )
-
-        # Memory is in GB but Modal expects MB
-        memory_mb = int(config.memory * 1024)
         try:
+            # Build the Modal image
+            logger.debug("Building Modal image...")
+            modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
+
+            # Get or create the Modal app (uses singleton pattern with context manager)
+            logger.debug("Getting Modal app", app_name=self.app_name)
+            app = self._get_modal_app()
+
+            # Create the sandbox
+            # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
+            # trigger a clean shutdown before Modal's hard timeout kills the host
+            modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
+            logger.debug(
+                "Creating Modal sandbox",
+                timeout=config.timeout,
+                modal_timeout=modal_timeout,
+                shutdown_buffer=self.config.shutdown_buffer_seconds,
+                cpu=config.cpu,
+                memory_gb=config.memory,
+            )
+
+            # Memory is in GB but Modal expects MB
+            memory_mb = int(config.memory * 1024)
             sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
@@ -1259,9 +1298,23 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                 gpu=config.gpu,
                 region=config.region,
             )
-        except modal.exception.RemoteError as e:
-            raise MngrError(f"Failed to create Modal sandbox: {e}\n{self.get_captured_output()}") from None
-        logger.debug("Created Modal sandbox", sandbox_id=sandbox.object_id)
+            logger.debug("Created Modal sandbox", sandbox_id=sandbox.object_id)
+        except (modal.exception.Error, MngrError) as e:
+            # On failure, save a failed host record so the user can see what happened
+            failure_reason = str(e)
+            build_log = self.get_captured_output()
+            logger.error("Host creation failed: {}", failure_reason)
+            self._save_failed_host_record(
+                host_id=host_id,
+                host_name=name,
+                tags=tags,
+                failure_reason=failure_reason,
+                build_log=build_log,
+            )
+            if isinstance(e, modal.exception.RemoteError):
+                raise MngrError(f"Failed to create Modal sandbox: {e}\n{build_log}") from None
+            else:
+                raise
 
         # Cache the sandbox for fast lookup (avoids Modal's eventual consistency issues)
         self._cache_sandbox(host_id, name, sandbox)
@@ -1398,10 +1451,17 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                 return host_obj
 
         # Sandbox is not running - restore from snapshot
+        # First check if this is a failed host (can't be started)
+        host_record = self._read_host_record(host_id)
+        if host_record is not None and host_record.certified_host_data.state == HostState.FAILED.value:
+            raise MngrError(
+                f"Host {host_id} failed during creation and cannot be started. "
+                f"Reason: {host_record.certified_host_data.failure_reason}"
+            )
+
         # If no snapshot_id provided, use the most recent snapshot
         if snapshot_id is None:
             # Load host record to get available snapshots
-            host_record = self._read_host_record(host_id)
             if host_record is None:
                 raise HostNotFoundError(host_id)
 
@@ -1437,6 +1497,11 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Use configuration from host record
         config = host_record.config
+        if config is None:
+            raise MngrError(
+                f"Host {host_id} has no configuration and cannot be started. "
+                "This may indicate the host was never fully created."
+            )
         host_name = HostName(host_record.host_name)
         user_tags = host_record.user_tags
 
@@ -1622,10 +1687,19 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                     logger.debug("Failed to create host from sandbox {}: {}", host_id, e)
                     continue
             else:
-                # Host has no running sandbox - it's stopped or destroyed
+                # Host has no running sandbox - it's stopped, failed, or destroyed
                 has_snapshots = len(host_record.snapshots) > 0
+                is_failed = host_record.certified_host_data.state == HostState.FAILED.value
 
-                if has_snapshots:
+                if is_failed:
+                    # Failed host - always include so users can debug build failures
+                    try:
+                        host_obj = self._create_host_from_host_record(host_record)
+                        hosts.append(host_obj)
+                    except (OSError, IOError, ValueError, KeyError) as e:
+                        logger.debug("Failed to create host from host record {}: {}", host_id, e)
+                        continue
+                elif has_snapshots:
                     # Stopped host (can be restarted)
                     try:
                         host_obj = self._create_host_from_host_record(host_record)
@@ -1669,7 +1743,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         """Get resource information for a Modal sandbox."""
         # Read host record from volume
         host_record = self._read_host_record(host.id)
-        if host_record is None:
+        if host_record is None or host_record.config is None:
+            # No config available (e.g., failed host that never started)
             return HostResources(
                 cpu=CpuResources(count=1, frequency_ghz=None),
                 memory_gb=1.0,
@@ -2014,6 +2089,10 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         host_record = self._read_host_record(host_id)
         if host_record is None:
             raise HostNotFoundError(host_id)
+
+        # Failed hosts don't have SSH info and can't be connected to
+        if host_record.ssh_host is None or host_record.ssh_port is None or host_record.ssh_host_public_key is None:
+            raise MngrError(f"Cannot get connector for host {host_id}: host has no SSH info (likely a failed host)")
 
         # Add the host key to known_hosts so SSH connections will work
         add_host_to_known_hosts(
