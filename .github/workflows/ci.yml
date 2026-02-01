@@ -246,6 +246,7 @@ jobs:
             --target-path /code/mngr \
             --no-ensure-clean \
             --no-connect \
+            --await-ready \
             -- --dangerously-skip-permissions
 
       - name: Verify agent was created
