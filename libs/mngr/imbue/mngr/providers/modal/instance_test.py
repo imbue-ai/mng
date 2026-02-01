@@ -1503,6 +1503,8 @@ def test_list_snapshots_returns_initial_snapshot(initial_snapshot_provider: Moda
     host = None
     try:
         host = initial_snapshot_provider.create_host(HostName("test-host"))
+        # we have to manually trigger the on_agent_created hook to create the initial snapshot (this is normally done automatically during the api::create_host call as a plugin callback)
+        initial_snapshot_provider.on_agent_created(MagicMock(), host)
         snapshots = initial_snapshot_provider.list_snapshots(host)
         assert len(snapshots) == 1
         assert snapshots[0].name == "initial"
@@ -1632,6 +1634,9 @@ def test_start_host_on_stopped_host_uses_initial_snapshot(initial_snapshot_provi
         host = initial_snapshot_provider.create_host(HostName("test-host"))
         host_id = host.id
 
+        # we have to manually trigger the on_agent_created hook to create the initial snapshot (this is normally done automatically during the api::create_host call as a plugin callback)
+        initial_snapshot_provider.on_agent_created(MagicMock(), host)
+
         # Verify an initial snapshot was created
         snapshots = initial_snapshot_provider.list_snapshots(host)
         assert len(snapshots) == 1
@@ -1695,6 +1700,9 @@ def test_restart_after_hard_kill_with_initial_snapshot(initial_snapshot_provider
         host = initial_snapshot_provider.create_host(HostName("test-host"))
         host_id = host.id
         host_name = HostName("test-host")
+
+        # we have to manually trigger the on_agent_created hook to create the initial snapshot (this is normally done automatically during the api::create_host call as a plugin callback)
+        initial_snapshot_provider.on_agent_created(MagicMock(), host)
 
         # Verify initial snapshot was created
         snapshots = initial_snapshot_provider.list_snapshots(host)
