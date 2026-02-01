@@ -112,7 +112,13 @@ def create(
         agent.send_message(initial_message)
 
     # Build and return the result
-    return CreateAgentResult(agent=agent, host=host)
+    result = CreateAgentResult(agent=agent, host=host)
+
+    # Call on_agent_created hooks to notify plugins about the new agent
+    logger.debug("Calling on_agent_created hooks")
+    mngr_ctx.pm.hook.on_agent_created(agent=result.agent, host=result.host)
+
+    return result
 
 
 def resolve_target_host(

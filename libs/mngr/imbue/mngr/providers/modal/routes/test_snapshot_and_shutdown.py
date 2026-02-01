@@ -92,15 +92,18 @@ def _write_host_record_to_volume(app_name: str, host_id: str) -> None:
     """Write a host record to the Modal volume for testing.
 
     Creates a minimal host record that the snapshot function can update.
+    The structure matches HostRecord model with nested certified_host_data.
     """
     volume_name = f"{app_name}-state"
     register_modal_test_volume(volume_name)
     volume = modal.Volume.from_name(volume_name, create_if_missing=True)
 
     host_record = {
-        "host_id": host_id,
-        "sandbox_id": "",
-        "snapshots": [],
+        "certified_host_data": {
+            "host_id": host_id,
+            "host_name": "test-host",
+            "snapshots": [],
+        },
     }
 
     content = json.dumps(host_record, indent=2).encode("utf-8")
@@ -185,9 +188,12 @@ def test_snapshot_and_shutdown_success(
         # Verify the host record was updated
         host_record = _read_host_record_from_volume(app_name, host_id)
         assert host_record is not None, "Host record not found after snapshot"
-        assert len(host_record["snapshots"]) == 1
+        certified_data = host_record["certified_host_data"]
+        assert len(certified_data["snapshots"]) == 1
         # The id IS the Modal image ID now
-        assert host_record["snapshots"][0]["id"] == result["snapshot_id"]
+        assert certified_data["snapshots"][0]["id"] == result["snapshot_id"]
+        # Verify stop_reason was set (defaults to PAUSED for idle shutdown)
+        assert certified_data["stop_reason"] == "PAUSED"
 
         # Verify the sandbox was terminated by polling for termination
         def sandbox_terminated() -> bool:

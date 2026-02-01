@@ -20,6 +20,9 @@ from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import MngrError
+from imbue.mngr.hosts.host import Host
+from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
@@ -463,3 +466,15 @@ Supported build arguments for the modal provider:
 def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]:
     """Register the Modal provider backend."""
     return (ModalProviderBackend, ModalProviderConfig)
+
+
+@hookimpl
+def on_agent_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
+    """We need to snapshot the sandbox after the agents are created and initial messages are delivered."""
+
+    if not isinstance(host, Host):
+        raise Exception("Host is not an instance of Host class")
+
+    provider_instance = host.provider_instance
+    if isinstance(provider_instance, ModalProviderInstance):
+        provider_instance.on_agent_created(agent, host)

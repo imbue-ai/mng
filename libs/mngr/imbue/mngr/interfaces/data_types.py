@@ -219,6 +219,10 @@ class CertifiedHostData(FrozenModel):
         default=None,
         description="Host state (e.g., 'FAILED' for hosts that failed during creation)",
     )
+    stop_reason: str | None = Field(
+        default=None,
+        description="Reason for last shutdown: 'PAUSED' (idle), 'STOPPED' (user requested), or None (crashed)",
+    )
     failure_reason: str | None = Field(
         default=None,
         description="Reason for failure if the host failed during creation",
