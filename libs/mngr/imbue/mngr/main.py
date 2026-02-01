@@ -1,3 +1,14 @@
+# ruff: noqa: E402
+# The E402 lint error is suppressed because we need to call deal.disable() before
+# importing any deal-decorated functions that may interact with Modal's synchronicity library.
+import deal
+
+# Disable deal's runtime contract checking. This must happen before importing any
+# deal-decorated functions that may interact with Modal's synchronicity library.
+# Deal's introspection interferes with Modal's async/sync bridging, causing hangs
+# when calling Modal APIs from functions decorated with @deal.has() or other deal decorators.
+deal.disable()
+
 import click
 import pluggy
 from click_option_group import OptionGroup
