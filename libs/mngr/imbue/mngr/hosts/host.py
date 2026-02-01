@@ -39,13 +39,10 @@ from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import UserInputError
-from imbue.mngr.hosts.common import HOST_LEVEL_ACTIVITY_SOURCES
 from imbue.mngr.hosts.common import LOCAL_CONNECTOR_NAME
-from imbue.mngr.hosts.common import get_activity_sources_for_idle_mode
 from imbue.mngr.hosts.common import is_macos
 from imbue.mngr.hosts.offline_host import BaseHost
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.data_types import FileTransferSpec
@@ -65,22 +62,6 @@ from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.git_utils import get_current_git_branch
-
-
-def _generate_activity_file_patterns(host_dir: Path, activity_sources: tuple[ActivitySource, ...]) -> list[str]:
-    """Generate file path patterns for the given activity sources.
-
-    Host-level sources get explicit paths like: <host_dir>/activity/boot
-    Agent-level sources get glob patterns like: <host_dir>/agents/*/activity/create
-    """
-    patterns: list[str] = []
-    for source in activity_sources:
-        source_name = source.value.lower()
-        if source in HOST_LEVEL_ACTIVITY_SOURCES:
-            patterns.append(str(host_dir / "activity" / source_name))
-        else:
-            patterns.append(str(host_dir / "agents" / "*" / "activity" / source_name))
-    return patterns
 
 
 class HostLocation(FrozenModel):
@@ -383,44 +364,6 @@ class Host(BaseHost, OnlineHostInterface):
         assert key_path_str, "SSH key path must be set for remote hosts"
 
         return (user, hostname, port, Path(key_path_str))
-
-    # =========================================================================
-    # Activity Configuration
-    # =========================================================================
-
-    def set_activity_config(self, config: ActivityConfig) -> None:
-        """Set the activity configuration for this host.
-
-        In addition to saving to data.json, this also writes two helper files
-        for the activity watcher script:
-        - activity_files: newline-delimited list of activity file patterns to monitor
-        - idle_timeout: the idle timeout in seconds
-        """
-        logger.debug(
-            "Setting activity config for host {}: idle_mode={}, idle_timeout={}s",
-            self.id,
-            config.idle_mode,
-            config.idle_timeout_seconds,
-        )
-        certified_data = self.get_certified_data()
-        updated_data = certified_data.model_copy(
-            update={
-                "idle_mode": config.idle_mode,
-                "idle_timeout_seconds": config.idle_timeout_seconds,
-                "activity_sources": config.activity_sources,
-            }
-        )
-        self.set_certified_data(updated_data)
-
-        # Write helper files for the activity watcher script
-        activity_sources = get_activity_sources_for_idle_mode(config.idle_mode)
-        activity_patterns = _generate_activity_file_patterns(self.host_dir, activity_sources)
-
-        activity_files_path = self.host_dir / "activity_files"
-        self.write_text_file(activity_files_path, "\n".join(activity_patterns) + "\n" if activity_patterns else "")
-
-        idle_timeout_path = self.host_dir / "idle_timeout"
-        self.write_text_file(idle_timeout_path, str(config.idle_timeout_seconds))
 
     # =========================================================================
     # Activity Times
