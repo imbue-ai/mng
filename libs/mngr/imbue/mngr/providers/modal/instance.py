@@ -760,13 +760,6 @@ class ModalProviderInstance(BaseProviderInstance):
         # Set up activity configuration for idle detection, merging CLI options with provider defaults
         host.set_certified_data(host_data)
 
-        # Write max_host_age file so the activity watcher can trigger a clean shutdown
-        # before Modal's hard timeout kills the host. The value is the sandbox timeout
-        # (without the buffer we added to modal_timeout)
-        max_host_age_path = host.host_dir / "max_host_age"
-        host.write_text_file(max_host_age_path, str(config.timeout))
-        logger.debug("Wrote max_host_age file", max_host_age_seconds=config.timeout)
-
         # Set activity config on the host for idle detection
         host.set_activity_config(
             ActivityConfig(
@@ -1274,10 +1267,13 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         )
 
         # Store full host metadata on the volume for persistence
+        # Note: max_host_age is the sandbox timeout (without the buffer we added to modal_timeout)
+        # so the activity watcher can trigger a clean shutdown before Modal's hard kill
         host_data = CertifiedHostData(
             idle_mode=activity_config.idle_mode,
             idle_timeout_seconds=activity_config.idle_timeout_seconds,
             activity_sources=activity_config.activity_sources,
+            max_host_age=config.timeout,
             host_id=str(host_id),
             host_name=str(name),
             user_tags=dict(tags) if tags else {},
