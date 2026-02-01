@@ -114,7 +114,17 @@ class AgentInterface(MutableModel, ABC):
 
     @abstractmethod
     def get_initial_message(self) -> str | None:
-        """Return the initial message to send to the agent on start, or None if not set."""
+        """Return the initial message to send to the agent on creation, or None if not set."""
+        ...
+
+    @abstractmethod
+    def get_resume_message(self) -> str | None:
+        """Return the resume message to send when the agent is started (resumed), or None if not set."""
+        ...
+
+    @abstractmethod
+    def get_message_delay_seconds(self) -> float:
+        """Return the delay in seconds to wait before sending messages to the agent."""
         ...
 
     @abstractmethod

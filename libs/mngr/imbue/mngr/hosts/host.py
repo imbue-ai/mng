@@ -1198,6 +1198,8 @@ class Host(BaseHost, OnlineHostInterface):
                 {"command": str(cmd.command), "window_name": cmd.window_name} for cmd in options.additional_commands
             ],
             "initial_message": options.initial_message,
+            "resume_message": options.resume_message,
+            "message_delay_seconds": options.message_delay_seconds,
             "permissions": [],
             "start_on_boot": False,
         }

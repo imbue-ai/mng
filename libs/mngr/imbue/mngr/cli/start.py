@@ -1,3 +1,4 @@
+import time
 from typing import Any
 from typing import assert_never
 
@@ -20,6 +21,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import OutputFormat
@@ -54,6 +56,24 @@ def _output_result(started_agents: list[str], output_opts: OutputOptions) -> Non
                 logger.info("Successfully started {} agent(s)", len(started_agents))
         case _ as unreachable:
             assert_never(unreachable)
+
+
+def _send_resume_message_if_configured(
+    agent: AgentInterface, output_opts: OutputOptions, host_start_time: float
+) -> None:
+    """Send the resume message to an agent if one is configured."""
+    resume_message = agent.get_resume_message()
+    if resume_message is None:
+        return
+
+    message_delay = agent.get_message_delay_seconds()
+    _output(f"Sending resume message to {agent.name}...", output_opts)
+    logger.debug("Waiting {}s before sending resume message", message_delay)
+    time_to_sleep = host_start_time + message_delay - time.monotonic()
+    if time_to_sleep > 0:
+        time.sleep(message_delay)
+    agent.send_message(resume_message)
+    logger.debug("Resume message sent to agent {}", agent.name)
 
 
 @click.command(name="start")
@@ -158,7 +178,11 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
         host = provider.get_host(HostId(host_id_str))
 
         # Ensure host is started (always start since this is the start command)
-        online_host = ensure_host_started(host, is_start_desired=True, provider=provider)
+        online_host, was_started = ensure_host_started(host, is_start_desired=True, provider=provider)
+        if was_started:
+            host_start_time = time.monotonic()
+        else:
+            host_start_time = time.monotonic() - online_host.get_uptime_seconds()
 
         # Start each agent on this host
         agent_ids_to_start = [match.agent_id for match in agent_list]
@@ -168,13 +192,17 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
             started_agents.append(str(match.agent_name))
             _output(f"Started agent: {match.agent_name}", output_opts)
 
-            # Track for potential connect
-            if opts.connect:
-                for agent in online_host.get_agents():
-                    if agent.id == match.agent_id:
+            # Get the agent object for potential connect and resume message
+            for agent in online_host.get_agents():
+                if agent.id == match.agent_id:
+                    # Send resume message if configured
+                    _send_resume_message_if_configured(agent, output_opts, host_start_time)
+
+                    # Track for potential connect
+                    if opts.connect:
                         last_started_agent = agent
                         last_started_host = online_host
-                        break
+                    break
 
     # Output final result
     _output_result(started_agents, output_opts)

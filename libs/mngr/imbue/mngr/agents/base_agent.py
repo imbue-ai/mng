@@ -261,14 +261,16 @@ class BaseAgent(AgentInterface):
         return command in shells
 
     def get_initial_message(self) -> str | None:
-        data_path = self.host.host_dir / "agents" / str(self.id) / "data.json"
-        try:
-            content = self.host.read_text_file(data_path)
-        except FileNotFoundError:
-            return None
-
-        data = json.loads(content)
+        data = self._read_data()
         return data.get("initial_message")
+
+    def get_resume_message(self) -> str | None:
+        data = self._read_data()
+        return data.get("resume_message")
+
+    def get_message_delay_seconds(self) -> float:
+        data = self._read_data()
+        return data.get("message_delay_seconds", 1.0)
 
     def send_message(self, message: str) -> None:
         """Send a message to the running agent."""

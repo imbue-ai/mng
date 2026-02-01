@@ -184,6 +184,8 @@ class CreateCliOptions(CommonCliOptions):
     message: str | None
     message_file: str | None
     edit_message: bool
+    resume_message: str | None
+    resume_message_file: str | None
     retry: int
     retry_delay: str
     attach_command: str | None
@@ -432,6 +434,10 @@ class CreateCliOptions(CommonCliOptions):
     is_flag=True,
     help="Open an editor to compose the initial message (uses $EDITOR). Editor runs in parallel with agent creation. If --message or --message-file is provided, their content is used as initial editor content.",
 )
+@optgroup.option("--resume-message", help="Message to send when the agent is started (resumed) after being stopped")
+@optgroup.option(
+    "--resume-message-file", type=click.Path(exists=True), help="File containing resume message to send on start"
+)
 @optgroup.option(
     "--message-delay",
     type=float,
@@ -465,6 +471,10 @@ def create(ctx: click.Context, **kwargs) -> None:
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
+
+    # Validate that both --resume-message and --resume-message-file are not provided
+    if opts.resume_message is not None and opts.resume_message_file is not None:
+        raise UserInputError("Cannot provide both --resume-message and --resume-message-file")
 
     # validate that we're not waiting for the agent to stop and trying to connect:
     if opts.await_agent_stopped and opts.connect:
@@ -500,6 +510,16 @@ def create(ctx: click.Context, **kwargs) -> None:
         initial_message_content = opts.message
     else:
         initial_message_content = None
+
+    # Read resume message from file if --resume-message-file is provided
+    resume_message_content: str | None
+    if opts.resume_message_file is not None:
+        resume_message_file_path = Path(opts.resume_message_file)
+        resume_message_content = resume_message_file_path.read_text()
+    elif opts.resume_message is not None:
+        resume_message_content = opts.resume_message
+    else:
+        resume_message_content = None
 
     # If --edit-message is set, start the editor immediately
     # The editor runs in parallel with agent creation
@@ -541,7 +561,9 @@ def create(ctx: click.Context, **kwargs) -> None:
     )
 
     # Parse agent options
-    agent_opts = _parse_agent_opts(opts=opts, initial_message=initial_message, source_location=source_location)
+    agent_opts = _parse_agent_opts(
+        opts=opts, initial_message=initial_message, resume_message=resume_message_content, source_location=source_location
+    )
 
     # parse the connection options
     connection_opts = ConnectionOptions(
@@ -892,7 +914,7 @@ def _was_value_after_double_dash(value: str) -> bool:
 
 
 def _parse_agent_opts(
-    opts: CreateCliOptions, initial_message: str | None, source_location: HostLocation
+    opts: CreateCliOptions, initial_message: str | None, resume_message: str | None, source_location: HostLocation
 ) -> CreateAgentOptions:
     # Get agent name from positional argument or --name flag, otherwise auto-generate
     parsed_agent_name: AgentName
@@ -1056,6 +1078,7 @@ def _parse_agent_opts(
         target_path=parsed_target_path,
         is_copy_immediate=should_copy,
         initial_message=initial_message,
+        resume_message=resume_message,
         message_delay_seconds=opts.message_delay,
         data_options=data_options,
         git=git,

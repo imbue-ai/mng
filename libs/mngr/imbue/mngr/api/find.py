@@ -268,21 +268,25 @@ def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostR
         return None
 
 
-def ensure_host_started(host: HostInterface, is_start_desired: bool, provider: BaseProviderInstance) -> Host:
+def ensure_host_started(
+    host: HostInterface, is_start_desired: bool, provider: BaseProviderInstance
+) -> tuple[Host, bool]:
     """Ensure the host is online and started.
 
     If the host is already online, returns it cast to OnlineHostInterface.
     If offline and start is desired, starts the host and returns the online host.
     If offline and start is not desired, raises UserInputError.
+
+    Also returns a boolean indicating whether the host was started.
     """
     match host:
         case Host() as online_host:
-            return online_host
+            return online_host, False
         case HostInterface() as offline_host:
             if is_start_desired:
                 logger.info("Host is offline, starting it...", host_id=offline_host.id, provider=provider.name)
                 started_host = provider.start_host(offline_host)
-                return started_host
+                return started_host, True
             else:
                 raise UserInputError(
                     f"Host '{offline_host.id}' is offline and --no-start was specified. Use --start to automatically start the host."
@@ -333,7 +337,7 @@ def find_and_maybe_start_agent_by_name_or_id(
                 if agent_ref.agent_id == agent_id:
                     provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                     host = provider.get_host(host_ref.host_id)
-                    online_host = ensure_host_started(host, is_start_desired, provider)
+                    online_host, _was_started = ensure_host_started(host, is_start_desired, provider)
                     for agent in online_host.get_agents():
                         if agent.id == agent_id:
                             _ensure_agent_started(agent, online_host, is_start_desired)
@@ -349,7 +353,7 @@ def find_and_maybe_start_agent_by_name_or_id(
             if agent_ref.agent_name == agent_name:
                 provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                 host = provider.get_host(host_ref.host_id)
-                online_host = ensure_host_started(host, is_start_desired, provider)
+                online_host, _was_started = ensure_host_started(host, is_start_desired, provider)
                 # Find the specific agent by ID (not name, to avoid duplicates)
                 for agent in online_host.get_agents():
                     if agent.id == agent_ref.agent_id:

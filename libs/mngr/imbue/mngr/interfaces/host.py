@@ -673,6 +673,10 @@ class CreateAgentOptions(FrozenModel):
         default=None,
         description="Initial message to pipe to the agent on startup",
     )
+    resume_message: str | None = Field(
+        default=None,
+        description="Message to send when the agent is started (resumed) after being stopped",
+    )
     message_delay_seconds: float = Field(
         default=1.0,
         description="Delay in seconds before sending initial message (to allow agent startup)",
