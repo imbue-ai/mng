@@ -114,8 +114,9 @@ def create(
     # Build and return the result
     result = CreateAgentResult(agent=agent, host=host)
 
-    # FIXME: call on_after_create hooks here, send them the result.
-    #  Also make an example hook in the modal provider plugin that registers for this hook and just prints a message
+    # Call on_agent_created hooks to notify plugins about the new agent
+    logger.debug("Calling on_agent_created hooks")
+    mngr_ctx.pm.hook.on_agent_created(agent=result.agent, host=result.host)
 
     return result
 

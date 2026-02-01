@@ -463,3 +463,19 @@ Supported build arguments for the modal provider:
 def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]:
     """Register the Modal provider backend."""
     return (ModalProviderBackend, ModalProviderConfig)
+
+
+@hookimpl
+def on_agent_created(agent: Any, host: Any) -> None:
+    """Log when an agent is created on a Modal host.
+
+    This is an example hook implementation that demonstrates how plugins can
+    respond to agent creation events. The Modal provider uses this to log
+    when agents are created on Modal-hosted sandboxes.
+    """
+    # Only log for Modal hosts (check if the host's provider is Modal-based)
+    # We check by looking at the host's module path since OnlineHostInterface
+    # doesn't expose provider type directly
+    host_module = type(host).__module__
+    if "modal" in host_module.lower():
+        logger.info("Agent '{}' created on Modal host '{}'", agent.name, host.get_name())
