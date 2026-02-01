@@ -144,6 +144,16 @@ class HostInterface(MutableModel, ABC):
         """Return the current lifecycle state of this host."""
         ...
 
+    @abstractmethod
+    def get_failure_reason(self) -> str | None:
+        """Return the failure reason if this host failed during creation, or None."""
+        ...
+
+    @abstractmethod
+    def get_build_log(self) -> str | None:
+        """Return the build log if this host failed during creation, or None."""
+        ...
+
 
 class OnlineHostInterface(HostInterface, ABC):
     connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
