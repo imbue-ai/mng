@@ -768,7 +768,7 @@ class ModalProviderInstance(BaseProviderInstance):
         pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
         connector = PyinfraConnector(pyinfra_host)
 
-        # Create and write the initial host record to the volume
+        # Create the initial host record
         host_record = HostRecord(
             ssh_host=ssh_host,
             ssh_port=ssh_port,
@@ -777,23 +777,34 @@ class ModalProviderInstance(BaseProviderInstance):
             certified_host_data=host_data,
         )
 
-        # Create the Host object
+        # Create the Host object without callback initially
+        # (callback is set after writing the initial host record to the volume)
         host = Host(
             id=host_id,
             connector=connector,
             provider_instance=self,
             mngr_ctx=self.mngr_ctx,
-            # this is set below
-            on_updated_host_data=lambda host_id, certified_data: self._on_certified_host_data_updated(
-                host_id, certified_data
-            ),
+            on_updated_host_data=None,
         )
 
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
 
-        # Write the host data.json (will also save it to the volume via the above callback)
+        # Write the host data.json (no callback yet, so won't try to update volume)
         host.set_certified_data(host_data)
+
+        # Now write the initial host record to the volume
+        self._write_host_record(host_record)
+        logger.debug("Wrote initial host record to volume", host_id=str(host_id))
+
+        # Update the host with the callback for future modifications
+        host = host.model_copy(
+            update=dict(
+                on_updated_host_data=lambda callback_host_id, certified_data: self._on_certified_host_data_updated(
+                    callback_host_id, certified_data
+                )
+            )
+        )
 
         return host, ssh_host, ssh_port, host_public_key
 
