@@ -9,8 +9,8 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.mngr.cli.create import create
-from imbue.mngr.cli.destroy import get_agent_name_from_session
 from imbue.mngr.cli.destroy import destroy
+from imbue.mngr.cli.destroy import get_agent_name_from_session
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
@@ -171,7 +171,7 @@ def test_destroy_nonexistent_agent(
     """Test destroying a non-existent agent."""
     result = cli_runner.invoke(
         destroy,
-        ["nonexistent-agent", "--force"],
+        ["nonexistent-agent"],
         obj=plugin_manager,
         catch_exceptions=True,
     )
@@ -179,7 +179,7 @@ def test_destroy_nonexistent_agent(
     assert result.exit_code != 0
 
 
-def test_destroy_fails_if_any_identifier_not_found(
+def test_destroy_prints_errors_if_any_identifier_not_found(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     mngr_test_prefix: str,
@@ -226,8 +226,8 @@ def test_destroy_fails_if_any_identifier_not_found(
             catch_exceptions=True,
         )
 
-        # Command should fail
-        assert destroy_result.exit_code != 0
+        # Command does not fail (because of the "--force" flag), but reports errors
+        assert destroy_result.exit_code == 0
 
         # Error message should include both missing agent names
         error_message = destroy_result.output
