@@ -344,7 +344,7 @@ def test_lock_timeout(host_with_temp_dir: tuple[Host, Path]) -> None:
 
     try:
         with pytest.raises(LockNotHeldError):
-            with host.lock_cooperatively(timeout_seconds=0.5):
+            with host.lock_cooperatively(timeout_seconds=0.1):
                 pass
     finally:
         release_lock.set()

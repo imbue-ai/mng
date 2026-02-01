@@ -9,7 +9,7 @@ from imbue.imbue_common.ratchet_testing.core import LineNumber
 from imbue.imbue_common.ratchet_testing.core import RatchetMatchChunk
 from imbue.imbue_common.ratchet_testing.core import _get_chunk_commit_date
 from imbue.imbue_common.ratchet_testing.core import _get_non_ignored_files_with_extension
-from imbue.imbue_common.ratchet_testing.core import _read_file_contents
+from imbue.imbue_common.ratchet_testing.core import _parse_file_ast
 
 
 @lru_cache(maxsize=None)

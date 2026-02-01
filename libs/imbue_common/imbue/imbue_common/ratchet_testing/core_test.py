@@ -1,5 +1,5 @@
+import os
 import subprocess
-import time
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -251,28 +251,30 @@ def test_get_ratchet_failures_sorts_by_most_recent_first(tmp_path: Path) -> None
         capture_output=True,
     )
 
-    # Create file with first TODO
+    # Create file with first TODO using a fixed old timestamp
     test_file = test_dir / "test.py"
     test_file.write_text("# TODO: Old issue\n")
     subprocess.run(["git", "add", "."], cwd=test_dir, check=True, capture_output=True)
+    # Use git environment variables to set a specific commit timestamp (Jan 1, 2024)
+    old_env = {**os.environ, "GIT_COMMITTER_DATE": "2024-01-01T00:00:00"}
     subprocess.run(
         ["git", "commit", "-m", "First commit"],
         cwd=test_dir,
         check=True,
         capture_output=True,
+        env=old_env,
     )
 
-    # Wait to ensure different timestamps
-    time.sleep(1)
-
-    # Add second TODO
+    # Add second TODO with a newer timestamp (Jan 2, 2024) - no sleep needed
     test_file.write_text("# TODO: Old issue\n# TODO: New issue\n")
     subprocess.run(["git", "add", "."], cwd=test_dir, check=True, capture_output=True)
+    new_env = {**os.environ, "GIT_COMMITTER_DATE": "2024-01-02T00:00:00"}
     subprocess.run(
         ["git", "commit", "-m", "Second commit"],
         cwd=test_dir,
         check=True,
         capture_output=True,
+        env=new_env,
     )
 
     pattern = RegexPattern(r"# TODO:.*")
