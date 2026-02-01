@@ -6,7 +6,7 @@
 #
 # The script reads from <host_data_dir>/data.json:
 #   - activity_sources: array of activity source names (e.g., ["BOOT", "USER", "AGENT"])
-#   - max_idle_seconds: the idle timeout in seconds
+#   - idle_timeout_seconds: the idle timeout in seconds
 #   - max_host_age: (optional) maximum host age in seconds from boot
 #
 # Activity sources are converted to file patterns:
@@ -69,13 +69,13 @@ get_activity_sources() {
     jq -r '.activity_sources // [] | .[] | ascii_downcase' "$DATA_JSON_PATH" 2>/dev/null | tr '\n' ' '
 }
 
-# Read max_idle_seconds from data.json
+# Read idle_timeout_seconds from data.json
 get_idle_timeout_seconds() {
     if [ ! -f "$DATA_JSON_PATH" ]; then
         echo ""
         return
     fi
-    jq -r '.max_idle_seconds // empty' "$DATA_JSON_PATH" 2>/dev/null
+    jq -r '.idle_timeout_seconds // empty' "$DATA_JSON_PATH" 2>/dev/null
 }
 
 # Read max_host_age from data.json (optional field)
