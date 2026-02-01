@@ -53,6 +53,28 @@ class BaseHost(HostInterface):
             activity_sources=certified_data.activity_sources,
         )
 
+    def set_activity_config(self, config: ActivityConfig) -> None:
+        """Set the activity configuration for this host.
+
+        Saves activity configuration to data.json, which is read by the
+        activity_watcher.sh script using jq.
+        """
+        logger.debug(
+            "Setting activity config for host {}: idle_mode={}, idle_timeout={}s",
+            self.id,
+            config.idle_mode,
+            config.idle_timeout_seconds,
+        )
+        certified_data = self.get_certified_data()
+        updated_data = certified_data.model_copy(
+            update={
+                "idle_mode": config.idle_mode,
+                "idle_timeout_seconds": config.idle_timeout_seconds,
+                "activity_sources": config.activity_sources,
+            }
+        )
+        self.set_certified_data(updated_data)
+
     # =========================================================================
     # Certified Data
     # =========================================================================
