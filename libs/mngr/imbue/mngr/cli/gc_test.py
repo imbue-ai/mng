@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -99,7 +100,7 @@ def _create_host_info(name: str = "test-host") -> HostInfo:
 def _create_snapshot_info(name: str = "test-snapshot", size_bytes: int | None = 1000) -> SnapshotInfo:
     """Create a SnapshotInfo for testing."""
     return SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId(f"snap-{uuid4().hex}"),
         name=SnapshotName(name),
         created_at=datetime.now(timezone.utc),
         size_bytes=size_bytes,
