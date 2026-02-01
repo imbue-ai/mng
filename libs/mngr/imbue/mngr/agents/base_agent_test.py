@@ -328,3 +328,99 @@ def test_lifecycle_state_running_when_waiting_file_removed(
             f"tmux kill-session -t '{session_name}' 2>/dev/null",
             timeout_seconds=5.0,
         )
+
+
+def test_get_initial_message_returns_none_when_not_set(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that get_initial_message returns None when not set in data.json."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    assert test_agent.get_initial_message() is None
+
+
+def test_get_initial_message_returns_message_when_set(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that get_initial_message returns the message when set in data.json."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    data_path = agent_dir / "data.json"
+
+    # Update data.json with initial_message
+    data = json.loads(data_path.read_text())
+    data["initial_message"] = "Hello from test"
+    data_path.write_text(json.dumps(data, indent=2))
+
+    assert test_agent.get_initial_message() == "Hello from test"
+
+
+def test_get_resume_message_returns_none_when_not_set(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that get_resume_message returns None when not set in data.json."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    assert test_agent.get_resume_message() is None
+
+
+def test_get_resume_message_returns_message_when_set(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that get_resume_message returns the message when set in data.json."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    data_path = agent_dir / "data.json"
+
+    # Update data.json with resume_message
+    data = json.loads(data_path.read_text())
+    data["resume_message"] = "Welcome back!"
+    data_path.write_text(json.dumps(data, indent=2))
+
+    assert test_agent.get_resume_message() == "Welcome back!"
+
+
+def test_get_message_delay_seconds_returns_default_when_not_set(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that get_message_delay_seconds returns 1.0 when not set in data.json."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    assert test_agent.get_message_delay_seconds() == 1.0
+
+
+def test_get_message_delay_seconds_returns_value_when_set(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_config: MngrConfig,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that get_message_delay_seconds returns the value when set in data.json."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    data_path = agent_dir / "data.json"
+
+    # Update data.json with message_delay_seconds
+    data = json.loads(data_path.read_text())
+    data["message_delay_seconds"] = 2.5
+    data_path.write_text(json.dumps(data, indent=2))
+
+    assert test_agent.get_message_delay_seconds() == 2.5
