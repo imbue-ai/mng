@@ -665,8 +665,6 @@ def test_edit_message_sends_edited_content(
         restore_env_var("VISUAL", original_visual)
 
 
-# FIXME: This test has been observed to be flaky - it failed once during a test run
-# but passed when re-run. Investigate the root cause.
 def test_edit_message_with_initial_content(
     cli_runner: CliRunner,
     temp_work_dir: Path,

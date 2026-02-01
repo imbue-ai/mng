@@ -1,3 +1,4 @@
+import ast
 import re
 import subprocess
 from datetime import datetime
@@ -94,12 +95,12 @@ class FileReadError(RatchetsError):
     """Raised when a file cannot be read."""
 
 
-def _get_non_ignored_files_with_extension(
+@lru_cache(maxsize=None)
+def _get_all_files_with_extension(
     folder_path: Path,
     extension: FileExtension,
-    excluded_file: Path | None = None,
 ) -> tuple[Path, ...]:
-    """Get all non-git-ignored files with the specified extension in a folder."""
+    """Get all non-git-ignored files with the specified extension in a folder (cached)."""
     try:
         result = subprocess.run(
             ["git", "ls-files", f"*{extension}"],
@@ -112,13 +113,23 @@ def _get_non_ignored_files_with_extension(
         raise GitCommandError(f"Failed to list git-tracked files in {folder_path}") from e
 
     file_paths = [folder_path / line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return tuple(file_paths)
+
+
+def _get_non_ignored_files_with_extension(
+    folder_path: Path,
+    extension: FileExtension,
+    excluded_file: Path | None = None,
+) -> tuple[Path, ...]:
+    """Get all non-git-ignored files with the specified extension in a folder."""
+    file_paths = _get_all_files_with_extension(folder_path, extension)
 
     # Filter out the excluded file if provided
     if excluded_file is not None:
         resolved_excluded = excluded_file.resolve()
-        file_paths = [fp for fp in file_paths if fp.resolve() != resolved_excluded]
+        file_paths = tuple(fp for fp in file_paths if fp.resolve() != resolved_excluded)
 
-    return tuple(file_paths)
+    return file_paths
 
 
 @lru_cache(maxsize=None)
@@ -128,6 +139,16 @@ def _read_file_contents(file_path: Path) -> str:
         return file_path.read_text()
     except OSError as e:
         raise FileReadError(f"Cannot read file: {file_path}") from e
+
+
+@lru_cache(maxsize=None)
+def _parse_file_ast(file_path: Path) -> ast.Module | None:
+    """Parse and cache the AST for a Python file. Returns None if parsing fails."""
+    contents = _read_file_contents(file_path)
+    try:
+        return ast.parse(contents, filename=str(file_path))
+    except SyntaxError:
+        return None
 
 
 def _get_line_commit_date(

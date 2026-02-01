@@ -10,6 +10,10 @@ import modal
 import modal.exception
 from loguru import logger
 from pydantic import Field
+from tenacity import retry
+from tenacity import retry_if_exception_type
+from tenacity import stop_after_attempt
+from tenacity import wait_exponential
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr import hookimpl
@@ -74,6 +78,64 @@ def _ensure_environment_exists(environment_name: str) -> None:
             logger.debug("Modal environment create returned non-zero: {}", result.stderr)
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
         logger.warning("Failed to create Modal environment via CLI: {}", e)
+
+
+def _lookup_persistent_app_with_env_retry(app_name: str, environment_name: str) -> modal.App:
+    """Look up or create a persistent Modal app, retrying if the environment is not found.
+
+    On the first NotFoundError, creates the environment and retries with exponential backoff
+    to handle the race condition where Modal's API may not immediately see the newly created
+    environment.
+    """
+    try:
+        return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
+    except modal.exception.NotFoundError:
+        # Ensure the environment exists before retrying
+        _ensure_environment_exists(environment_name)
+        return _lookup_persistent_app_with_retry(app_name, environment_name)
+
+
+@retry(
+    retry=retry_if_exception_type(modal.exception.NotFoundError),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    reraise=True,
+)
+def _lookup_persistent_app_with_retry(app_name: str, environment_name: str) -> modal.App:
+    """Look up or create a persistent Modal app with tenacity retry."""
+    logger.debug("Retrying Modal app lookup: {} (env: {})", app_name, environment_name)
+    return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
+
+
+def _enter_ephemeral_app_context_with_env_retry(app: modal.App, environment_name: str) -> Any:
+    """Enter an ephemeral Modal app's run context, retrying if the environment is not found.
+
+    On the first NotFoundError, creates the environment and retries with exponential backoff
+    to handle the race condition where Modal's API may not immediately see the newly created
+    environment.
+    """
+    try:
+        run_context = app.run(environment_name=environment_name)
+        run_context.__enter__()
+        return run_context
+    except modal.exception.NotFoundError:
+        # Ensure the environment exists before retrying
+        _ensure_environment_exists(environment_name)
+        return _enter_ephemeral_app_context_with_retry(app, environment_name)
+
+
+@retry(
+    retry=retry_if_exception_type(modal.exception.NotFoundError),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    reraise=True,
+)
+def _enter_ephemeral_app_context_with_retry(app: modal.App, environment_name: str) -> Any:
+    """Enter an ephemeral Modal app's run context with tenacity retry."""
+    logger.debug("Retrying Modal app context entry (env: {})", environment_name)
+    run_context = app.run(environment_name=environment_name)
+    run_context.__enter__()
+    return run_context
 
 
 class ModalAppContextHandle(FrozenModel):
@@ -194,13 +256,7 @@ class ModalProviderBackend(ProviderBackendInterface):
         output_buffer, loguru_writer = output_capture_context.__enter__()
 
         if is_persistent:
-            # FIXME: make this more clearly a retry after making the environment by using tenacity
-            try:
-                app = modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
-            except modal.exception.NotFoundError:
-                # Ensure the environment exists before trying to use it
-                _ensure_environment_exists(environment_name)
-                app = modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
+            app = _lookup_persistent_app_with_env_retry(app_name, environment_name)
             run_context = None
         else:
             # Create the Modal app
@@ -208,15 +264,7 @@ class ModalProviderBackend(ProviderBackendInterface):
 
             # Enter the app.run() context manager manually so we can return the app
             # while keeping the context active until close() is called
-            # FIXME: make this more clearly a retry after making the environment by using tenacity
-            try:
-                run_context = app.run(environment_name=environment_name)
-                run_context.__enter__()
-            except modal.exception.NotFoundError:
-                # Ensure the environment exists before trying to use it
-                _ensure_environment_exists(environment_name)
-                run_context = app.run(environment_name=environment_name)
-                run_context.__enter__()
+            run_context = _enter_ephemeral_app_context_with_env_retry(app, environment_name)
 
         # Set app metadata on the loguru writer for structured logging
         if loguru_writer is not None:
