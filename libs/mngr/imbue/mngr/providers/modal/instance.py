@@ -15,7 +15,6 @@ import os
 import socket
 import tempfile
 import time
-from uuid import uuid4
 from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone
@@ -28,6 +27,7 @@ from typing import ParamSpec
 from typing import Sequence
 from typing import TypeVar
 from typing import cast
+from uuid import uuid4
 
 import modal
 import modal.exception
@@ -498,9 +498,7 @@ class ModalProviderInstance(BaseProviderInstance):
             # File doesn't exist, nothing to remove
             pass
 
-    def _on_certified_host_data_updated(
-        self, host_id: HostId, certified_data: CertifiedHostData
-    ) -> None:
+    def _on_certified_host_data_updated(self, host_id: HostId, certified_data: CertifiedHostData) -> None:
         """Update the certified host data in the volume's host record.
 
         Called when the host's data.json is modified. Updates the
@@ -746,8 +744,6 @@ class ModalProviderInstance(BaseProviderInstance):
             config=config,
             certified_host_data=host_data,
         )
-        self._write_host_record(host_record)
-        logger.debug("Wrote initial host record to volume", host_id=str(host_id))
 
         # Create the Host object
         host = Host(
@@ -755,9 +751,8 @@ class ModalProviderInstance(BaseProviderInstance):
             connector=connector,
             provider_instance=self,
             mngr_ctx=self.mngr_ctx,
-            on_updated_host_data=lambda callback_host, certified_data: self._on_certified_host_data_updated(
-                callback_host.id, certified_data
-            ),
+            # this is set below
+            on_updated_host_data=None,
         )
 
         # Record BOOT activity for idle detection
@@ -782,7 +777,20 @@ class ModalProviderInstance(BaseProviderInstance):
             )
         )
 
-        return host, ssh_host, ssh_port, host_public_key
+        # now we update the hook so that future modifications will update the volume record
+        # we don't want to do this earlier because some of the above operation would cause duplicate writes otherwise
+        final_host = host.model_copy(
+            update=dict(
+                on_updated_host_data=lambda callback_host, certified_data: self._on_certified_host_data_updated(
+                    callback_host.id, certified_data
+                )
+            )
+        )
+        # and create the initial remote host entry (the above hook will read and modify, required for remote concurrent access)
+        self._write_host_record(host_record)
+        logger.debug("Wrote initial host record to volume", host_id=str(host_id))
+
+        return final_host, ssh_host, ssh_port, host_public_key
 
     def _create_shutdown_script(
         self,
