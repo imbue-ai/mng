@@ -18,7 +18,6 @@ from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import HostOfflineError
-from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentLifecycleState
@@ -148,28 +147,23 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
         # Get provider from first agent (all agents in list have same provider)
         provider_name = agent_list[0].provider_name
 
-        try:
-            provider = get_provider_instance(provider_name, mngr_ctx)
-            host = provider.get_host(HostId(host_id_str))
+        provider = get_provider_instance(provider_name, mngr_ctx)
+        host = provider.get_host(HostId(host_id_str))
 
-            # Ensure host is online (can't stop agents on offline hosts)
-            match host:
-                case OnlineHostInterface() as online_host:
-                    # Stop each agent on this host
-                    agent_ids_to_stop = [m.agent_id for m in agent_list]
-                    online_host.stop_agents(agent_ids_to_stop)
+        # Ensure host is online (can't stop agents on offline hosts)
+        match host:
+            case OnlineHostInterface() as online_host:
+                # Stop each agent on this host
+                agent_ids_to_stop = [m.agent_id for m in agent_list]
+                online_host.stop_agents(agent_ids_to_stop)
 
-                    for m in agent_list:
-                        stopped_agents.append(str(m.agent_name))
-                        _output(f"Stopped agent: {m.agent_name}", output_opts)
-                case HostInterface():
-                    raise HostOfflineError(f"Host '{host_id_str}' is offline. Cannot stop agents on offline hosts.")
-                case _ as unreachable:
-                    assert_never(unreachable)
-
-        except MngrError as e:
-            agent_names = ", ".join(str(m.agent_name) for m in agent_list)
-            _output(f"Error stopping agent(s) {agent_names}: {e}", output_opts)
+                for m in agent_list:
+                    stopped_agents.append(str(m.agent_name))
+                    _output(f"Stopped agent: {m.agent_name}", output_opts)
+            case HostInterface():
+                raise HostOfflineError(f"Host '{host_id_str}' is offline. Cannot stop agents on offline hosts.")
+            case _ as unreachable:
+                assert_never(unreachable)
 
     # Output final result
     _output_result(stopped_agents, output_opts)

@@ -20,7 +20,6 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import OutputOptions
-from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import OutputFormat
@@ -155,32 +154,27 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
         # Get provider from first agent (all agents in list have same provider)
         provider_name = agent_list[0].provider_name
 
-        try:
-            provider = get_provider_instance(provider_name, mngr_ctx)
-            host = provider.get_host(HostId(host_id_str))
+        provider = get_provider_instance(provider_name, mngr_ctx)
+        host = provider.get_host(HostId(host_id_str))
 
-            # Ensure host is started (always start since this is the start command)
-            online_host = ensure_host_started(host, is_start_desired=True, provider=provider)
+        # Ensure host is started (always start since this is the start command)
+        online_host = ensure_host_started(host, is_start_desired=True, provider=provider)
 
-            # Start each agent on this host
-            agent_ids_to_start = [match.agent_id for match in agent_list]
-            online_host.start_agents(agent_ids_to_start)
+        # Start each agent on this host
+        agent_ids_to_start = [match.agent_id for match in agent_list]
+        online_host.start_agents(agent_ids_to_start)
 
-            for match in agent_list:
-                started_agents.append(str(match.agent_name))
-                _output(f"Started agent: {match.agent_name}", output_opts)
+        for match in agent_list:
+            started_agents.append(str(match.agent_name))
+            _output(f"Started agent: {match.agent_name}", output_opts)
 
-                # Track for potential connect
-                if opts.connect:
-                    for agent in online_host.get_agents():
-                        if agent.id == match.agent_id:
-                            last_started_agent = agent
-                            last_started_host = online_host
-                            break
-
-        except MngrError as e:
-            agent_names = ", ".join(str(m.agent_name) for m in agent_list)
-            _output(f"Error starting agent(s) {agent_names}: {e}", output_opts)
+            # Track for potential connect
+            if opts.connect:
+                for agent in online_host.get_agents():
+                    if agent.id == match.agent_id:
+                        last_started_agent = agent
+                        last_started_host = online_host
+                        break
 
     # Output final result
     _output_result(started_agents, output_opts)
