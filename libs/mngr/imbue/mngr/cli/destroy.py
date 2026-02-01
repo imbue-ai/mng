@@ -217,11 +217,18 @@ def destroy(ctx: click.Context, **kwargs) -> None:
         raise UserInputError("Cannot specify both agent names and --all")
 
     # Find agents to destroy
-    agents_to_destroy = _find_agents_to_destroy(
-        agent_identifiers=agent_identifiers,
-        destroy_all=opts.destroy_all,
-        mngr_ctx=mngr_ctx,
-    )
+    try:
+        agents_to_destroy = _find_agents_to_destroy(
+            agent_identifiers=agent_identifiers,
+            destroy_all=opts.destroy_all,
+            mngr_ctx=mngr_ctx,
+        )
+    except AgentNotFoundError as e:
+        if opts.force:
+            agents_to_destroy = []
+            _output(f"Error destroying agent(s): {e}", output_opts)
+        else:
+            raise
 
     if not agents_to_destroy:
         _output("No agents found to destroy", output_opts)
