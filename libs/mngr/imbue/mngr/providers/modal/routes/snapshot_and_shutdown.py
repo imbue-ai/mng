@@ -102,13 +102,15 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     """Snapshot a Modal sandbox and shut it down.
 
     Request body should contain sandbox_id (Modal sandbox object ID) and
-    host_id (mngr host ID). Optionally accepts snapshot_name and agents
-    (list of agent data to persist to the volume).
+    host_id (mngr host ID). Optionally accepts snapshot_name, agents
+    (list of agent data to persist to the volume), and stop_reason
+    ('PAUSED' for idle shutdown, 'STOPPED' for user-requested stop).
     """
     sandbox_id = request_body.get("sandbox_id")
     host_id = request_body.get("host_id")
     snapshot_name = request_body.get("snapshot_name")
     agents = request_body.get("agents", [])
+    stop_reason = request_body.get("stop_reason", "PAUSED")
 
     if not sandbox_id:
         raise HTTPException(status_code=400, detail="sandbox_id is required")
@@ -147,6 +149,9 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
         if "snapshots" not in host_record:
             host_record["snapshots"] = []
         host_record["snapshots"].append(new_snapshot)
+
+        # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
+        host_record["stop_reason"] = stop_reason
 
         # Write updated host record
         _write_host_record(host_record)

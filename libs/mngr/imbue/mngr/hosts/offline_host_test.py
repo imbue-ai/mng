@@ -180,8 +180,8 @@ def test_get_permissions_returns_permissions_from_agents(offline_host: OfflineHo
     assert set(permissions) == {"read", "write", "execute"}
 
 
-def test_get_state_returns_stopped_when_snapshots_exist(offline_host: OfflineHost, mock_provider):
-    """Test that get_state returns STOPPED when snapshots exist."""
+def test_get_state_returns_crashed_when_no_stop_reason(offline_host: OfflineHost, mock_provider):
+    """Test that get_state returns CRASHED when snapshots exist but no stop_reason is set."""
     mock_provider.supports_snapshots = True
     mock_provider.list_snapshots.return_value = [
         SnapshotInfo(
@@ -192,7 +192,8 @@ def test_get_state_returns_stopped_when_snapshots_exist(offline_host: OfflineHos
     ]
 
     state = offline_host.get_state()
-    assert state == HostState.STOPPED
+    # No stop_reason means host didn't shut down cleanly
+    assert state == HostState.CRASHED
 
 
 def test_get_state_returns_destroyed_when_no_snapshots(offline_host: OfflineHost, mock_provider):
@@ -204,21 +205,27 @@ def test_get_state_returns_destroyed_when_no_snapshots(offline_host: OfflineHost
     assert state == HostState.DESTROYED
 
 
-def test_get_state_returns_stopped_when_provider_does_not_support_snapshots(offline_host: OfflineHost, mock_provider):
-    """Test that get_state returns STOPPED when provider doesn't support snapshots."""
+def test_get_state_returns_crashed_when_provider_does_not_support_snapshots_and_no_stop_reason(
+    offline_host: OfflineHost, mock_provider
+):
+    """Test that get_state returns CRASHED when provider doesn't support snapshots and no stop_reason."""
     mock_provider.supports_snapshots = False
 
     state = offline_host.get_state()
-    assert state == HostState.STOPPED
+    # No stop_reason means host didn't shut down cleanly
+    assert state == HostState.CRASHED
 
 
-def test_get_state_returns_stopped_when_snapshot_check_fails(offline_host: OfflineHost, mock_provider):
-    """Test that get_state returns STOPPED when snapshot check raises an exception."""
+def test_get_state_returns_crashed_when_snapshot_check_fails_and_no_stop_reason(
+    offline_host: OfflineHost, mock_provider
+):
+    """Test that get_state falls back to stop_reason when snapshot check raises an exception."""
     mock_provider.supports_snapshots = True
     mock_provider.list_snapshots.side_effect = OSError("Connection failed")
 
     state = offline_host.get_state()
-    assert state == HostState.STOPPED
+    # No stop_reason means host didn't shut down cleanly
+    assert state == HostState.CRASHED
 
 
 def test_get_state_returns_failed_when_certified_data_has_failed_state(mock_provider, mock_mngr_ctx):
@@ -325,3 +332,112 @@ def test_failed_state_takes_precedence_over_snapshot_check(mock_provider, mock_m
     assert state == HostState.FAILED
     # Snapshot check should not be called since FAILED state is checked first
     mock_provider.list_snapshots.assert_not_called()
+
+
+def test_get_state_returns_paused_when_stop_reason_is_paused(mock_provider, mock_mngr_ctx):
+    """Test that get_state returns PAUSED when stop_reason indicates idle shutdown."""
+    host_id = HostId.generate()
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="paused-host",
+        stop_reason=HostState.PAUSED.value,
+    )
+    mock_provider.supports_snapshots = True
+    mock_provider.list_snapshots.return_value = [
+        SnapshotInfo(
+            id=SnapshotId("snap-paused"),
+            name=SnapshotName("snapshot"),
+            created_at=datetime.now(timezone.utc),
+        )
+    ]
+    paused_host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=mock_provider,
+        mngr_ctx=mock_mngr_ctx,
+    )
+
+    state = paused_host.get_state()
+    assert state == HostState.PAUSED
+
+
+def test_get_state_returns_stopped_when_stop_reason_is_stopped(mock_provider, mock_mngr_ctx):
+    """Test that get_state returns STOPPED when stop_reason indicates user-requested stop."""
+    host_id = HostId.generate()
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="stopped-host",
+        stop_reason=HostState.STOPPED.value,
+    )
+    mock_provider.supports_snapshots = True
+    mock_provider.list_snapshots.return_value = [
+        SnapshotInfo(
+            id=SnapshotId("snap-stopped"),
+            name=SnapshotName("snapshot"),
+            created_at=datetime.now(timezone.utc),
+        )
+    ]
+    stopped_host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=mock_provider,
+        mngr_ctx=mock_mngr_ctx,
+    )
+
+    state = stopped_host.get_state()
+    assert state == HostState.STOPPED
+
+
+def test_get_state_returns_crashed_when_stop_reason_is_none(mock_provider, mock_mngr_ctx):
+    """Test that get_state returns CRASHED when no stop_reason was recorded (uncontrolled shutdown)."""
+    host_id = HostId.generate()
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="crashed-host",
+        stop_reason=None,
+    )
+    mock_provider.supports_snapshots = True
+    mock_provider.list_snapshots.return_value = [
+        SnapshotInfo(
+            id=SnapshotId("snap-crashed"),
+            name=SnapshotName("snapshot"),
+            created_at=datetime.now(timezone.utc),
+        )
+    ]
+    crashed_host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=mock_provider,
+        mngr_ctx=mock_mngr_ctx,
+    )
+
+    state = crashed_host.get_state()
+    assert state == HostState.CRASHED
+
+
+def test_get_state_returns_stopped_for_unknown_stop_reason(mock_provider, mock_mngr_ctx):
+    """Test that get_state defaults to STOPPED for unknown stop_reason values."""
+    host_id = HostId.generate()
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="unknown-stop-reason-host",
+        stop_reason="UNKNOWN_VALUE",
+    )
+    mock_provider.supports_snapshots = True
+    mock_provider.list_snapshots.return_value = [
+        SnapshotInfo(
+            id=SnapshotId("snap-unknown"),
+            name=SnapshotName("snapshot"),
+            created_at=datetime.now(timezone.utc),
+        )
+    ]
+    host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=mock_provider,
+        mngr_ctx=mock_mngr_ctx,
+    )
+
+    state = host.get_state()
+    # Unknown values default to STOPPED for backward compatibility
+    assert state == HostState.STOPPED
