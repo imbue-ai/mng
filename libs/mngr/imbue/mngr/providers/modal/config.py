@@ -36,7 +36,7 @@ class ModalProviderConfig(ProviderInstanceConfig):
         description=(
             "Buffer time added to the sandbox timeout sent to Modal. This ensures the "
             "activity watcher can trigger a clean shutdown before Modal's hard kill. "
-            "The max_host_age file is written with the original timeout (without buffer), "
+            "The max_host_age in data.json is set to the original timeout (without buffer), "
             "so the host shuts down gracefully before the Modal timeout expires."
         ),
     )

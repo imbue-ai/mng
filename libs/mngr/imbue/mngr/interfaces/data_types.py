@@ -195,6 +195,10 @@ class CertifiedHostData(FrozenModel):
         default_factory=lambda: tuple(ActivitySource),
         description="Activity sources that count toward keeping host active",
     )
+    max_host_age: int | None = Field(
+        default=None,
+        description="Maximum host age in seconds from boot before shutdown (used by providers with hard timeouts)",
+    )
     plugin: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Plugin-specific certified data indexed by plugin name",
