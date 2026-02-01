@@ -139,19 +139,21 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
             short_id = snapshot_id[-8:]
             snapshot_name = f"snapshot-{short_id}"
 
-        # Add the new snapshot to the record (id is the Modal image ID)
+        # Add the new snapshot to the certified_host_data (id is the Modal image ID)
         new_snapshot = {
             "id": snapshot_id,
             "name": snapshot_name,
             "created_at": created_at,
         }
 
-        if "snapshots" not in host_record:
-            host_record["snapshots"] = []
-        host_record["snapshots"].append(new_snapshot)
+        certified_data = host_record.get("certified_host_data", {})
+        if "snapshots" not in certified_data:
+            certified_data["snapshots"] = []
+        certified_data["snapshots"].append(new_snapshot)
 
         # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
-        host_record["stop_reason"] = stop_reason
+        certified_data["stop_reason"] = stop_reason
+        host_record["certified_host_data"] = certified_data
 
         # Write updated host record
         _write_host_record(host_record)
