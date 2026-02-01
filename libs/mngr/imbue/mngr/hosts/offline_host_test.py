@@ -74,7 +74,7 @@ def test_get_activity_config_returns_config_from_certified_data(offline_host: Of
 
 def test_get_all_certified_data_returns_stored_data(offline_host: OfflineHost):
     """Test that get_all_certified_data returns the certified host data."""
-    data = offline_host.get_all_certified_data()
+    data = offline_host.get_certified_data()
 
     assert isinstance(data, CertifiedHostData)
     assert data.image == "test-image:latest"
@@ -219,5 +219,3 @@ def test_get_state_returns_stopped_when_snapshot_check_fails(offline_host: Offli
 
     state = offline_host.get_state()
     assert state == HostState.STOPPED
-
-

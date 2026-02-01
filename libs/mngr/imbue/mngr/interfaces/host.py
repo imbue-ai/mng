@@ -73,8 +73,13 @@ class HostInterface(MutableModel, ABC):
     # =========================================================================
 
     @abstractmethod
-    def get_all_certified_data(self) -> CertifiedHostData:
+    def get_certified_data(self) -> CertifiedHostData:
         """Return all certified (trustworthy) host data stored in data.json."""
+        ...
+
+    @abstractmethod
+    def set_certified_data(self, data: CertifiedHostData) -> None:
+        """Save certified data to data.json and notify the provider."""
         ...
 
     @abstractmethod
@@ -398,7 +403,7 @@ class OnlineHostInterface(HostInterface, ABC):
         ...
 
     @abstractmethod
-    def persist_agent_data(self, agent_id: AgentId, agent_data: Mapping[str, object]) -> None:
+    def save_agent_data(self, agent_id: AgentId, agent_data: Mapping[str, object]) -> None:
         """Persist agent data to external storage.
 
         Called when an agent's data.json is updated. Providers that support

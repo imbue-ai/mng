@@ -84,7 +84,7 @@ class BaseAgent(AgentInterface):
         self.host.write_text_file(self._get_data_path(), json.dumps(data, indent=2))
 
         # Persist agent data to external storage (e.g., Modal volume)
-        self.host.persist_agent_data(self.id, data)
+        self.host.save_agent_data(self.id, data)
 
     # =========================================================================
     # Certified Field Getters/Setters
