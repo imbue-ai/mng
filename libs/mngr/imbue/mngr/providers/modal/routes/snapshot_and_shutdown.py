@@ -65,7 +65,7 @@ def _read_host_record(host_id: str) -> dict[str, Any] | None:
 
 def _write_host_record(host_record: dict[str, Any]) -> None:
     """Write a host record to the volume."""
-    host_id = host_record["host_id"]
+    host_id = host_record["certified_host_data"]["host_id"]
     path = f"/vol/{host_id}.json"
     with open(path, "w") as f:
         json.dump(host_record, f, indent=2)
@@ -102,13 +102,15 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     """Snapshot a Modal sandbox and shut it down.
 
     Request body should contain sandbox_id (Modal sandbox object ID) and
-    host_id (mngr host ID). Optionally accepts snapshot_name and agents
-    (list of agent data to persist to the volume).
+    host_id (mngr host ID). Optionally accepts snapshot_name, agents
+    (list of agent data to persist to the volume), and stop_reason
+    ('PAUSED' for idle shutdown, 'STOPPED' for user-requested stop).
     """
     sandbox_id = request_body.get("sandbox_id")
     host_id = request_body.get("host_id")
     snapshot_name = request_body.get("snapshot_name")
     agents = request_body.get("agents", [])
+    stop_reason = request_body.get("stop_reason", "PAUSED")
 
     if not sandbox_id:
         raise HTTPException(status_code=400, detail="sandbox_id is required")
@@ -137,16 +139,21 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
             short_id = snapshot_id[-8:]
             snapshot_name = f"snapshot-{short_id}"
 
-        # Add the new snapshot to the record (id is the Modal image ID)
+        # Add the new snapshot to the certified_host_data (id is the Modal image ID)
         new_snapshot = {
             "id": snapshot_id,
             "name": snapshot_name,
             "created_at": created_at,
         }
 
-        if "snapshots" not in host_record:
-            host_record["snapshots"] = []
-        host_record["snapshots"].append(new_snapshot)
+        certified_data = host_record.get("certified_host_data", {})
+        if "snapshots" not in certified_data:
+            certified_data["snapshots"] = []
+        certified_data["snapshots"].append(new_snapshot)
+
+        # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
+        certified_data["stop_reason"] = stop_reason
+        host_record["certified_host_data"] = certified_data
 
         # Write updated host record
         _write_host_record(host_record)

@@ -34,9 +34,9 @@ Remote hosts may be run in the cloud (Modal), a Docker container (which can be l
 The rough state diagram looks like this:
 
 ```
-building  →  starting   →  running  →  stopping  →  stopped
-    ↓            ↓             ↓                      ↓
-  failed   failed/stopped  stopped/destroyed      destroyed
+building  →  starting      →       running     →    stopping    →    stopped/paused/crashed
+    ↓            ↓                    ↓                                   ↓
+  failed   failed/stopped/crashed  stopped/paused/crashed/destroyed     destroyed
 ```
 
 | State         | Description                                                                      |
@@ -44,8 +44,10 @@ building  →  starting   →  running  →  stopping  →  stopped
 | **building**  | Building the image, etc.                                                         |
 | **starting**  | Creating and provisioning the host, starting the agent, etc.                     |
 | **running**   | While any agent is running and considered active                                 |
-| **stopping**  | When all agents become idle, the host is stopped (snapshotted, host shut down)   |
-| **stopped**   | Shut down but restartable (only consuming storage)                               |
+| **stopping**  | When all agents become idle, the host is being stopped (snapshotted, host shut down) |
+| **paused**    | Host became idle and was snapshotted/shut down (can be restarted)               |
+| **stopped**   | User explicitly stopped the host (can be restarted)                              |
+| **crashed**   | Host shut down unexpectedly without a controlled shutdown                        |
 | **failed**    | Something went wrong before the host could be created                            |
 | **destroyed** | Host gone, resources freed                                                       |
 

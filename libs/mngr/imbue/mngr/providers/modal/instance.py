@@ -817,15 +817,22 @@ class ModalProviderInstance(BaseProviderInstance):
         # Create the shutdown script content
         # The script sends a POST request to the snapshot_and_shutdown endpoint
         # It also gathers agent data from the agents directory to persist to the volume
+        # The stop_reason parameter indicates why the host stopped:
+        # - PAUSED: Host became idle (called by activity_watcher.sh)
+        # - STOPPED: User explicitly stopped the host
         script_content = f'''#!/bin/bash
 # Auto-generated shutdown script for mngr Modal host
 # This script snapshots and shuts down the host by calling the deployed Modal function
 # It also gathers agent data to persist to the volume so agents show up in mngr list
+#
+# Usage: shutdown.sh [stop_reason]
+#   stop_reason: 'PAUSED' (idle shutdown, default) or 'STOPPED' (user requested)
 
 SNAPSHOT_URL="{snapshot_url}"
 SANDBOX_ID="{sandbox_id}"
 HOST_ID="{host_id}"
 HOST_DIR="{host_dir_str}"
+STOP_REASON="${{1:-PAUSED}}"
 
 # Gather agent data from all agent directories
 # This creates a JSON array of agent data objects
@@ -851,10 +858,10 @@ gather_agents() {{
 # Build the JSON payload with agent data
 AGENTS=$(gather_agents)
 
-# Send the shutdown request with agent data
+# Send the shutdown request with agent data and stop reason
 curl -s -X POST "$SNAPSHOT_URL" \\
     -H "Content-Type: application/json" \\
-    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "agents": '"$AGENTS"'}}'
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}'
 '''
 
         # Write the script to the host
@@ -1377,9 +1384,17 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         else:
             logger.debug("No sandbox found, may already be terminated", host_id=str(host_id))
 
-        # Remove from all caches since the sandbox is now terminated
-        # Read host record to get the name for cache cleanup
+        # Record stop_reason=STOPPED to distinguish user-initiated stops from idle pauses
+        # Note that we are explicitly avoiding going through the normal host.set_certified_data(host_data) call here
+        # because A) we *don't* want to save this into the host record on the host, so that it makes more sense when it
+        # is eventually started again, and B) this is a small optimization so that we don't need to get the host
+        # record twice, since we use it to figure out the name below as well
         host_record = self._read_host_record(host_id)
+        updated_certified_data = host_record.certified_host_data.model_copy(update={"stop_reason": "STOPPED"})
+        self._write_host_record(host_record.model_copy(update={"certified_host_data": updated_certified_data}))
+
+        # Remove from all caches since the sandbox is now terminated
+        # Read host record to get the name for cache cleanup (re-read in case it was just updated)
         host_name = HostName(host_record.host_name) if host_record else None
         self._uncache_sandbox(host_id, host_name)
         # Also invalidate host cache so next lookup returns an OfflineHost
