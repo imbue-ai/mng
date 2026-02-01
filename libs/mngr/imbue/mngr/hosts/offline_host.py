@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from typing import Callable
 
 from loguru import logger
 from pydantic import Field
@@ -16,6 +17,7 @@ from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentReference
+from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 
@@ -27,6 +29,11 @@ class BaseHost(HostInterface):
         frozen=True, description="The provider instance managing this host"
     )
     mngr_ctx: MngrContext = Field(frozen=True, repr=False, description="The mngr context")
+    on_updated_host_data: Callable[[HostId, CertifiedHostData], None] | None = Field(
+        frozen=True,
+        default=None,
+        description="Optional callback invoked when certified host data is updated",
+    )
 
     @property
     def host_dir(self) -> Path:
@@ -39,7 +46,7 @@ class BaseHost(HostInterface):
 
     def get_activity_config(self) -> ActivityConfig:
         """Get the activity configuration for this host."""
-        certified_data = self.get_all_certified_data()
+        certified_data = self.get_certified_data()
         return ActivityConfig(
             idle_mode=certified_data.idle_mode,
             idle_timeout_seconds=certified_data.idle_timeout_seconds,
@@ -52,7 +59,7 @@ class BaseHost(HostInterface):
 
     def get_plugin_data(self, plugin_name: str) -> dict[str, Any]:
         """Get certified plugin data from data.json."""
-        certified_data = self.get_all_certified_data()
+        certified_data = self.get_certified_data()
         return certified_data.plugin.get(plugin_name, {})
 
     # =========================================================================
@@ -65,7 +72,7 @@ class BaseHost(HostInterface):
 
     def get_image(self) -> str | None:
         """Get the image used for this host."""
-        all_data = self.get_all_certified_data()
+        all_data = self.get_certified_data()
         return all_data.image
 
     def get_tags(self) -> dict[str, str]:
@@ -84,9 +91,7 @@ class BaseHost(HostInterface):
         """
         agent_id_str = agent_data.get("id")
         if agent_id_str is None:
-            logger.warning(
-                "Skipping malformed agent record for host {}: missing 'id': {}", self.id, agent_data
-            )
+            logger.warning("Skipping malformed agent record for host {}: missing 'id': {}", self.id, agent_data)
             return None
         try:
             agent_id = AgentId(agent_id_str)
@@ -98,9 +103,7 @@ class BaseHost(HostInterface):
 
         agent_name_str = agent_data.get("name")
         if agent_name_str is None:
-            logger.warning(
-                "Skipping malformed agent record for host {}: missing 'name': {}", self.id, agent_data
-            )
+            logger.warning("Skipping malformed agent record for host {}: missing 'name': {}", self.id, agent_data)
             return None
         try:
             agent_name = AgentName(agent_name_str)
@@ -203,5 +206,10 @@ class OfflineHost(BaseHost):
     # Certified Data
     # =========================================================================
 
-    def get_all_certified_data(self) -> CertifiedHostData:
+    def get_certified_data(self) -> CertifiedHostData:
         return self.certified_host_data
+
+    def set_certified_data(self, data: CertifiedHostData) -> None:
+        """Save certified data to data.json and notify the provider."""
+        assert self.on_updated_host_data is not None, "on_updated_host_data callback is not set"
+        self.on_updated_host_data(self.id, data)

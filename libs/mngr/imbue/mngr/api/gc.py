@@ -484,7 +484,7 @@ def gc_build_cache(
 
 def _get_orphaned_work_dirs(host: OnlineHostInterface, provider_name: ProviderInstanceName) -> list[WorkDirInfo]:
     """Get list of orphaned work directories for a host."""
-    certified_data = host.get_all_certified_data()
+    certified_data = host.get_certified_data()
     generated_work_dirs = set(certified_data.generated_work_dirs)
 
     active_work_dirs = set()
@@ -566,7 +566,7 @@ def _remove_git_worktree(host: OnlineHostInterface, work_dir_path: Path) -> None
 
 def _remove_work_dir_from_certified_data(host: OnlineHostInterface, work_dir_path: Path) -> None:
     """Remove a work directory from the host's certified data."""
-    certified_data = host.get_all_certified_data()
+    certified_data = host.get_certified_data()
     existing_dirs = set(certified_data.generated_work_dirs)
     existing_dirs.discard(str(work_dir_path))
 

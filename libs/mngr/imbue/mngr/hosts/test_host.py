@@ -359,7 +359,7 @@ def test_lock_timeout(host_with_temp_dir: tuple[Host, Path]) -> None:
 def test_get_empty_certified_data(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test getting certified data when no file exists."""
     host, _ = host_with_temp_dir
-    data = host.get_all_certified_data()
+    data = host.get_certified_data()
     assert data.idle_mode == IdleMode.IO
     assert data.idle_timeout_seconds == 3600
     assert data.plugin == {}

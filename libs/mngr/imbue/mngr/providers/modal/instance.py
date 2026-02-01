@@ -511,8 +511,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.debug("Updating certified host data on volume", host_id=str(host_id))
         host_record = self._read_host_record(host_id)
         if host_record is None:
-            logger.warning("Host record not found on volume, skipping update", host_id=str(host_id))
-            return
+            raise Exception(f"Host record not found on volume for {host_id}")
         updated_host_record = host_record.model_copy(update={"certified_host_data": certified_data})
         self._write_host_record(updated_host_record)
         logger.trace("Updated certified host data on volume for {}", host_id)
@@ -759,7 +758,7 @@ class ModalProviderInstance(BaseProviderInstance):
         host.record_activity(ActivitySource.BOOT)
 
         # Set up activity configuration for idle detection, merging CLI options with provider defaults
-        host._save_certified_data(host_data)
+        host.set_certified_data(host_data)
 
         # Write max_host_age file so the activity watcher can trigger a clean shutdown
         # before Modal's hard timeout kills the host. The value is the sandbox timeout
@@ -781,8 +780,8 @@ class ModalProviderInstance(BaseProviderInstance):
         # we don't want to do this earlier because some of the above operation would cause duplicate writes otherwise
         final_host = host.model_copy(
             update=dict(
-                on_updated_host_data=lambda callback_host, certified_data: self._on_certified_host_data_updated(
-                    callback_host.id, certified_data
+                on_updated_host_data=lambda host_id, certified_data: self._on_certified_host_data_updated(
+                    host_id, certified_data
                 )
             )
         )
@@ -1718,14 +1717,13 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         updated_certified_data = host_record.certified_host_data.model_copy(
             update={"snapshots": list(host_record.snapshots) + [new_snapshot]}
         )
-        updated_host_record = host_record.model_copy(update={"certified_host_data": updated_certified_data})
-        self._write_host_record(updated_host_record)
-
+        self.get_host(host_id).set_certified_data(updated_certified_data)
         logger.debug(
             "Created snapshot: id={}, name={}",
             snapshot_id,
             name,
         )
+
         return snapshot_id
 
     def _create_initial_snapshot(
@@ -1833,8 +1831,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Update host record on volume
         updated_certified_data = host_record.certified_host_data.model_copy(update={"snapshots": updated_snapshots})
-        updated_host_record = host_record.model_copy(update={"certified_host_data": updated_certified_data})
-        self._write_host_record(updated_host_record)
+        self.get_host(host_id).set_certified_data(updated_certified_data)
 
         logger.info("Deleted snapshot", snapshot_id=str(snapshot_id))
 
@@ -1905,11 +1902,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             sandbox.set_tags(new_tags)
 
         # Update volume record
-        host_record = self._read_host_record(host_id)
-        if host_record is not None:
-            updated_certified_data = host_record.certified_host_data.model_copy(update={"user_tags": dict(tags)})
-            updated_host_record = host_record.model_copy(update={"certified_host_data": updated_certified_data})
-            self._write_host_record(updated_host_record)
+        host_obj = self.get_host(host_id)
+        updated_certified_data = host_obj.get_certified_data().model_copy(update={"user_tags": dict(tags)})
+        host_obj.set_certified_data(updated_certified_data)
 
     def add_tags_to_host(
         self,
@@ -1932,13 +1927,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             sandbox.set_tags(new_tags)
 
         # Update volume record
-        host_record = self._read_host_record(host_id)
-        if host_record is not None:
-            merged_tags = dict(host_record.user_tags)
-            merged_tags.update(tags)
-            updated_certified_data = host_record.certified_host_data.model_copy(update={"user_tags": merged_tags})
-            updated_host_record = host_record.model_copy(update={"certified_host_data": updated_certified_data})
-            self._write_host_record(updated_host_record)
+        host_obj = self.get_host(host_id)
+        certified_data = host_obj.get_certified_data()
+        merged_tags = dict(certified_data.user_tags)
+        merged_tags.update(tags)
+        updated_certified_data = certified_data.model_copy(update={"user_tags": merged_tags})
+        host_obj.set_certified_data(updated_certified_data)
 
     def remove_tags_from_host(
         self,
@@ -1963,12 +1957,11 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             sandbox.set_tags(new_tags)
 
         # Update volume record
-        host_record = self._read_host_record(host_id)
-        if host_record is not None:
-            updated_tags = {k: v for k, v in host_record.user_tags.items() if k not in keys}
-            updated_certified_data = host_record.certified_host_data.model_copy(update={"user_tags": updated_tags})
-            updated_host_record = host_record.model_copy(update={"certified_host_data": updated_certified_data})
-            self._write_host_record(updated_host_record)
+        host_obj = self.get_host(host_id)
+        certified_data = host_obj.get_certified_data()
+        updated_tags = {k: v for k, v in certified_data.user_tags.items() if k not in keys}
+        updated_certified_data = certified_data.model_copy(update={"user_tags": updated_tags})
+        host_obj.set_certified_data(updated_certified_data)
 
     def rename_host(
         self,
@@ -1989,13 +1982,11 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             sandbox.set_tags(current_tags)
 
         # Update volume record
-        host_record = self._read_host_record(host_id)
-        if host_record is not None:
-            updated_certified_data = host_record.certified_host_data.model_copy(update={"host_name": str(name)})
-            updated_host_record = host_record.model_copy(update={"certified_host_data": updated_certified_data})
-            self._write_host_record(updated_host_record)
+        host_obj = self.get_host(host_id)
+        updated_certified_data = host_obj.get_certified_data().model_copy(update={"host_name": str(name)})
+        host_obj.set_certified_data(updated_certified_data)
 
-        return self.get_host(host_id)
+        return host_obj
 
     # =========================================================================
     # Connector Method
