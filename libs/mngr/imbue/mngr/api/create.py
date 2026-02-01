@@ -112,7 +112,12 @@ def create(
         agent.send_message(initial_message)
 
     # Build and return the result
-    return CreateAgentResult(agent=agent, host=host)
+    result = CreateAgentResult(agent=agent, host=host)
+
+    # FIXME: call on_after_create hooks here, send them the result.
+    #  Also make an example hook in the modal provider plugin that registers for this hook and just prints a message
+
+    return result
 
 
 def resolve_target_host(
