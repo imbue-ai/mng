@@ -188,8 +188,6 @@ class CertifiedHostData(FrozenModel):
     idle_timeout_seconds: int = Field(
         default=3600,
         description="Maximum idle time before stopping",
-        validation_alias="max_idle_seconds",
-        serialization_alias="max_idle_seconds",
     )
     activity_sources: tuple[ActivitySource, ...] = Field(
         default_factory=lambda: tuple(ActivitySource),

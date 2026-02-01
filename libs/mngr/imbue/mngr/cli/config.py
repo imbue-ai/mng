@@ -47,6 +47,9 @@ class ConfigCliOptions(CommonCliOptions):
     """
 
     scope: str | None
+    # Arguments used by subcommands (get, set, unset)
+    key: str | None = None
+    value: str | None = None
 
 
 def _get_config_path(scope: ConfigScope, root_name: str = "mngr") -> Path:
