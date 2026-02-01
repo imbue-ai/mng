@@ -1537,12 +1537,6 @@ def test_delete_snapshot(real_modal_provider: ModalProviderInstance) -> None:
             real_modal_provider.destroy_host(host)
 
 
-# FIXME: this test is flaking due to:
-#  this line: run_context.__enter__()
-#  of this function modal/backend.py::_get_or_create_app()
-#  which is raising: modal.exception.NotFoundError: Environment 'mngr_0b9d0aee739b44278fb504b3410e7af9-89ca0ab0dac841e78afa08ee13' not found
-#  cause: this is probably just a race on the modal side
-#  solution: we should retry a few times and wait a little until the env exists if we see that error (use tenacity around a function that is exactly the scope we want to retry)
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_delete_nonexistent_snapshot_raises_error(real_modal_provider: ModalProviderInstance) -> None:

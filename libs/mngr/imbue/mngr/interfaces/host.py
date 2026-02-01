@@ -68,6 +68,11 @@ class HostInterface(MutableModel, ABC):
         """Return the activity configuration for idle detection on this host."""
         ...
 
+    @abstractmethod
+    def set_activity_config(self, config: ActivityConfig) -> None:
+        """Update the activity configuration for idle detection on this host."""
+        ...
+
     # =========================================================================
     # Certified Data
     # =========================================================================
@@ -200,15 +205,6 @@ class OnlineHostInterface(HostInterface, ABC):
     @abstractmethod
     def get_file_mtime(self, path: Path) -> datetime | None:
         """Return the modification time of a file, or None if the file doesn't exist."""
-        ...
-
-    # =========================================================================
-    # Activity Configuration
-    # =========================================================================
-
-    @abstractmethod
-    def set_activity_config(self, config: ActivityConfig) -> None:
-        """Update the activity configuration for idle detection on this host."""
         ...
 
     # =========================================================================

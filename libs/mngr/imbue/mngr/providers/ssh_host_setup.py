@@ -82,6 +82,12 @@ def build_check_and_install_packages_command(
         "Installing at runtime. For faster startup, consider using an image with git pre-installed.'; "
         'PKGS_TO_INSTALL="$PKGS_TO_INSTALL git"; '
         "fi",
+        # Check for jq (required for activity_watcher.sh to read data.json)
+        "if ! command -v jq >/dev/null 2>&1; then "
+        f"echo '{WARNING_PREFIX}jq is not pre-installed in the base image. "
+        "Installing at runtime. For faster startup, consider using an image with jq pre-installed.'; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL jq"; '
+        "fi",
         # Install missing packages if any
         'if [ -n "$PKGS_TO_INSTALL" ]; then apt-get update -qq && apt-get install -y -qq $PKGS_TO_INSTALL; fi',
         # Create sshd run directory (required for sshd to start)

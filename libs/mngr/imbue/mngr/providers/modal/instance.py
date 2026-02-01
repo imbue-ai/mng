@@ -52,7 +52,6 @@ from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
-from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostConfig
@@ -751,45 +750,18 @@ class ModalProviderInstance(BaseProviderInstance):
             provider_instance=self,
             mngr_ctx=self.mngr_ctx,
             # this is set below
-            on_updated_host_data=None,
+            on_updated_host_data=lambda host_id, certified_data: self._on_certified_host_data_updated(
+                host_id, certified_data
+            ),
         )
 
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
 
-        # Set up activity configuration for idle detection, merging CLI options with provider defaults
+        # Write the host data.json (will also save it to the volume via the above callback)
         host.set_certified_data(host_data)
 
-        # Write max_host_age file so the activity watcher can trigger a clean shutdown
-        # before Modal's hard timeout kills the host. The value is the sandbox timeout
-        # (without the buffer we added to modal_timeout)
-        max_host_age_path = host.host_dir / "max_host_age"
-        host.write_text_file(max_host_age_path, str(config.timeout))
-        logger.debug("Wrote max_host_age file", max_host_age_seconds=config.timeout)
-
-        # Set activity config on the host for idle detection
-        host.set_activity_config(
-            ActivityConfig(
-                idle_mode=host_data.idle_mode,
-                idle_timeout_seconds=host_data.idle_timeout_seconds,
-                activity_sources=host_data.activity_sources,
-            )
-        )
-
-        # now we update the hook so that future modifications will update the volume record
-        # we don't want to do this earlier because some of the above operation would cause duplicate writes otherwise
-        final_host = host.model_copy(
-            update=dict(
-                on_updated_host_data=lambda host_id, certified_data: self._on_certified_host_data_updated(
-                    host_id, certified_data
-                )
-            )
-        )
-        # and create the initial remote host entry (the above hook will read and modify, required for remote concurrent access)
-        self._write_host_record(host_record)
-        logger.debug("Wrote initial host record to volume", host_id=str(host_id))
-
-        return final_host, ssh_host, ssh_port, host_public_key
+        return host, ssh_host, ssh_port, host_public_key
 
     def _create_shutdown_script(
         self,
@@ -1274,10 +1246,13 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         )
 
         # Store full host metadata on the volume for persistence
+        # Note: max_host_age is the sandbox timeout (without the buffer we added to modal_timeout)
+        # so the activity watcher can trigger a clean shutdown before Modal's hard kill
         host_data = CertifiedHostData(
             idle_mode=activity_config.idle_mode,
             idle_timeout_seconds=activity_config.idle_timeout_seconds,
             activity_sources=activity_config.activity_sources,
+            max_host_age=config.timeout,
             host_id=str(host_id),
             host_name=str(name),
             user_tags=dict(tags) if tags else {},

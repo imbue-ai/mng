@@ -4,15 +4,19 @@
 #
 # Usage: activity_watcher.sh <host_data_dir>
 #
-# The script reads:
-#   - <host_data_dir>/activity_files: newline-delimited list of file patterns to monitor
-#   - <host_data_dir>/idle_timeout: the idle timeout in seconds
-#   - <host_data_dir>/max_host_age: (optional) maximum host age in seconds from boot
+# The script reads from <host_data_dir>/data.json:
+#   - activity_sources: array of activity source names (e.g., ["BOOT", "USER", "AGENT"])
+#   - max_idle_seconds: the idle timeout in seconds
+#   - max_host_age: (optional) maximum host age in seconds from boot
+#
+# Activity sources are converted to file patterns:
+#   - Host-level sources (BOOT, USER, SSH): <host_data_dir>/activity/<source>
+#   - Agent-level sources (CREATE, START, AGENT, PROCESS): <host_data_dir>/agents/*/activity/<source>
 #
 # When the maximum mtime of all matched files + idle_timeout < current_time,
 # the script calls <host_data_dir>/commands/shutdown.sh.
 #
-# Additionally, if max_host_age exists, the script will trigger shutdown when:
+# Additionally, if max_host_age exists in data.json, the script will trigger shutdown when:
 #   current_time > boot_activity_file_mtime + max_host_age_seconds
 # This ensures the host shuts down cleanly before external timeouts (e.g., Modal sandbox timeout).
 
@@ -25,12 +29,13 @@ if [ -z "$HOST_DATA_DIR" ]; then
     exit 1
 fi
 
-ACTIVITY_FILES_PATH="$HOST_DATA_DIR/activity_files"
-IDLE_TIMEOUT_PATH="$HOST_DATA_DIR/idle_timeout"
-MAX_HOST_AGE_PATH="$HOST_DATA_DIR/max_host_age"
+DATA_JSON_PATH="$HOST_DATA_DIR/data.json"
 BOOT_ACTIVITY_PATH="$HOST_DATA_DIR/activity/boot"
 SHUTDOWN_SCRIPT="$HOST_DATA_DIR/commands/shutdown.sh"
 CHECK_INTERVAL=60
+
+# Host-level activity sources (as opposed to agent-level)
+HOST_LEVEL_SOURCES="boot user ssh"
 
 # Get the mtime of a file as Unix timestamp, or empty string if file doesn't exist
 get_mtime() {
@@ -41,17 +46,54 @@ get_mtime() {
     fi
 }
 
+# Check if a source is host-level (vs agent-level)
+is_host_level_source() {
+    local source="$1"
+    local source_lower
+    source_lower=$(echo "$source" | tr '[:upper:]' '[:lower:]')
+    for hs in $HOST_LEVEL_SOURCES; do
+        if [ "$source_lower" = "$hs" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Read activity_sources from data.json and return as space-separated lowercase list
+get_activity_sources() {
+    if [ ! -f "$DATA_JSON_PATH" ]; then
+        echo ""
+        return
+    fi
+    # Extract activity_sources array, convert to lowercase, output as space-separated
+    jq -r '.activity_sources // [] | .[] | ascii_downcase' "$DATA_JSON_PATH" 2>/dev/null | tr '\n' ' '
+}
+
+# Read max_idle_seconds from data.json
+get_idle_timeout_seconds() {
+    if [ ! -f "$DATA_JSON_PATH" ]; then
+        echo ""
+        return
+    fi
+    jq -r '.max_idle_seconds // empty' "$DATA_JSON_PATH" 2>/dev/null
+}
+
+# Read max_host_age from data.json (optional field)
+get_max_host_age() {
+    if [ ! -f "$DATA_JSON_PATH" ]; then
+        echo ""
+        return
+    fi
+    jq -r '.max_host_age // empty' "$DATA_JSON_PATH" 2>/dev/null
+}
+
 # Check if the host has exceeded its maximum age (hard timeout)
 # Returns 0 (true) if the host should be shut down due to age, 1 (false) otherwise
 check_max_host_age() {
-    # If no max_host_age file exists, no hard timeout applies
-    if [ ! -f "$MAX_HOST_AGE_PATH" ]; then
-        return 1
-    fi
-
-    # Read max host age
     local max_host_age_seconds
-    max_host_age_seconds=$(cat "$MAX_HOST_AGE_PATH")
+    max_host_age_seconds=$(get_max_host_age)
+
+    # If no max_host_age, no hard timeout applies
     if [ -z "$max_host_age_seconds" ]; then
         return 1
     fi
@@ -77,18 +119,22 @@ check_max_host_age() {
     return 1
 }
 
-# Get the maximum mtime across all activity files matching the patterns
+# Get the maximum mtime across all activity files for the configured sources
 get_max_activity_mtime() {
     local max_mtime=0
+    local activity_sources
+    activity_sources=$(get_activity_sources)
 
-    # Read patterns from activity_files, expand globs, and check mtimes
-    while IFS= read -r pattern || [ -n "$pattern" ]; do
-        # Skip empty lines
-        [ -z "$pattern" ] && continue
+    # If no activity sources configured (DISABLED mode), return 0
+    if [ -z "$activity_sources" ]; then
+        echo "0"
+        return
+    fi
 
-        # Expand the glob pattern (handles both explicit paths and wildcards)
-        # shellcheck disable=SC2086
-        for file in $pattern; do
+    for source in $activity_sources; do
+        if is_host_level_source "$source"; then
+            # Host-level source: single file at <host_data_dir>/activity/<source>
+            local file="$HOST_DATA_DIR/activity/$source"
             if [ -f "$file" ]; then
                 local mtime
                 mtime=$(get_mtime "$file")
@@ -96,8 +142,20 @@ get_max_activity_mtime() {
                     max_mtime=$mtime
                 fi
             fi
-        done
-    done < "$ACTIVITY_FILES_PATH"
+        else
+            # Agent-level source: glob pattern <host_data_dir>/agents/*/activity/<source>
+            # shellcheck disable=SC2086
+            for file in "$HOST_DATA_DIR"/agents/*/activity/$source; do
+                if [ -f "$file" ]; then
+                    local mtime
+                    mtime=$(get_mtime "$file")
+                    if [ -n "$mtime" ] && [ "$mtime" -gt "$max_mtime" ]; then
+                        max_mtime=$mtime
+                    fi
+                fi
+            done
+        fi
+    done
 
     echo "$max_mtime"
 }
@@ -122,22 +180,24 @@ main() {
             fi
         fi
 
-        # Check if activity_files exists (DISABLED mode has empty file)
-        if [ ! -f "$ACTIVITY_FILES_PATH" ]; then
+        # Check if data.json exists
+        if [ ! -f "$DATA_JSON_PATH" ]; then
             sleep "$CHECK_INTERVAL"
             continue
         fi
 
-        # Read idle timeout
-        if [ ! -f "$IDLE_TIMEOUT_PATH" ]; then
-            sleep "$CHECK_INTERVAL"
-            continue
-        fi
+        # Read idle timeout from data.json
         local idle_timeout_seconds
-        idle_timeout_seconds=$(cat "$IDLE_TIMEOUT_PATH")
+        idle_timeout_seconds=$(get_idle_timeout_seconds)
+        if [ -z "$idle_timeout_seconds" ]; then
+            sleep "$CHECK_INTERVAL"
+            continue
+        fi
 
-        # Check if activity_files is empty (DISABLED mode)
-        if [ ! -s "$ACTIVITY_FILES_PATH" ]; then
+        # Check if activity sources are configured (DISABLED mode has empty array)
+        local activity_sources
+        activity_sources=$(get_activity_sources)
+        if [ -z "$activity_sources" ]; then
             sleep "$CHECK_INTERVAL"
             continue
         fi

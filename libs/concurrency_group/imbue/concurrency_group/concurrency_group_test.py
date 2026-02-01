@@ -19,12 +19,12 @@ from imbue.concurrency_group.test_utils import wait_interval
 from imbue.concurrency_group.thread_utils import ObservableThread
 
 TINY_SLEEP = 0.001
-SMALL_SLEEP = 0.1
-LARGE_SLEEP = 1.0
+SMALL_SLEEP = 0.05
+LARGE_SLEEP = 0.3
 
 
 def _small_sleep_and_return_1() -> int:
-    wait_interval(0.1)
+    wait_interval(0.05)
     return 1
 
 
