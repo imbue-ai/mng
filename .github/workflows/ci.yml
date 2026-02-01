@@ -199,6 +199,66 @@ jobs:
       - name: Run acceptance tests
         run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 -m "not release"' --no-cov -v --tb=short --splits 8 --group ${{ matrix.group }} --splitting-algorithm=least_duration
 
+  # Create Modal agent - runs on non-main branches to test Modal agent creation
+  create-modal-agent:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      MODAL_TOKEN_ID: ${{ vars.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux git openssh-server
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install Python dependencies
+        run: uv sync --all-packages
+
+      - name: Prepare build context for Modal
+        run: |
+          # Use GITHUB_SHA for the commit hash in CI
+          ./scripts/make_tar_of_repo.sh "$GITHUB_SHA" .mngr/dev/build
+
+      - name: Destroy existing agent (idempotent)
+        run: uv run mngr destroy modal-ci-test-1 -f || true
+
+      - name: Create Modal agent
+        run: |
+          uv run mngr create modal-ci-test-1 -vv \
+            --idle-timeout 60 \
+            --in github_modal \
+            --target-path /code/mngr \
+            --no-ensure-clean \
+            --no-connect \
+            -- --dangerously-skip-permissions
+
+      - name: Verify agent was created
+        run: |
+          uv run mngr list --format json | tee agent_list.json
+          # Check that our agent appears in the list
+          if grep -q "modal-ci-test-1" agent_list.json; then
+            echo "Agent modal-ci-test-1 was successfully created"
+          else
+            echo "ERROR: Agent modal-ci-test-1 not found in agent list"
+            exit 1
+          fi
+
   # Release tests - runs only on main branch pushes
   test-release:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
