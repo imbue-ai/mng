@@ -65,7 +65,7 @@ def _read_host_record(host_id: str) -> dict[str, Any] | None:
 
 def _write_host_record(host_record: dict[str, Any]) -> None:
     """Write a host record to the volume."""
-    host_id = host_record["host_id"]
+    host_id = host_record["certified_host_data"]["host_id"]
     path = f"/vol/{host_id}.json"
     with open(path, "w") as f:
         json.dump(host_record, f, indent=2)
