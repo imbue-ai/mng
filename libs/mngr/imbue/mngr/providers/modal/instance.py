@@ -1762,6 +1762,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Generate snapshot name if not provided
         if name is None:
+            # FIXME: this is a dumb default--use the creation time instead
             # Use first 8 characters of a random UUID as a short identifier
             short_id = uuid4().hex[:8]
             name = SnapshotName(f"snapshot-{short_id}")
