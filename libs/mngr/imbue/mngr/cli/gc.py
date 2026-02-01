@@ -3,10 +3,10 @@ from typing import Any
 from typing import assert_never
 
 import click
-import deal
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.data_types import GcResourceTypes
 from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.api.gc import gc as api_gc
@@ -299,7 +299,7 @@ def _run_gc_iteration(mngr_ctx: MngrContext, opts: GcCliOptions, output_opts: Ou
     _emit_final_summary(result=result, output_format=output_opts.output_format, dry_run=opts.dry_run)
 
 
-@deal.has()
+@pure
 def _format_destroyed_message(resource_type: str, resource: Any, dry_run: bool) -> str:
     """Format a human-readable message for a destroyed resource."""
     action = "Would destroy" if dry_run else "Destroyed"
@@ -456,7 +456,7 @@ def _emit_jsonl_summary(result: GcResult, dry_run: bool) -> None:
     emit_event("summary", event, OutputFormat.JSONL)
 
 
-@deal.has()
+@pure
 def _format_size(size_bytes: int) -> str:
     """Format bytes into human-readable size string."""
     if size_bytes < 1024:

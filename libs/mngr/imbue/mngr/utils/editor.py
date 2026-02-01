@@ -7,15 +7,15 @@ from pathlib import Path
 from typing import Any
 from typing import Final
 
-import deal
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import UserInputError
 
 FALLBACK_EDITORS: Final[tuple[str, ...]] = ("vim", "vi", "nano", "notepad")
 
 
-@deal.has()
+@pure
 def get_editor_command() -> str:
     """Get the editor command from environment variables or use a fallback.
 

@@ -1,8 +1,9 @@
-import deal
 import pytest
 
+from imbue.imbue_common.pure import pure
 
-@deal.has()
+
+@pure
 def inline_snapshot_is_updating(config: pytest.Config) -> bool:
     """Check if inline-snapshot is running with create or fix flags.
 

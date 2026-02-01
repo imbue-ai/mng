@@ -3,16 +3,15 @@ from __future__ import annotations
 import platform
 from typing import Final
 
-import deal
-
 from imbue.imbue_common.errors import SwitchError
+from imbue.imbue_common.pure import pure
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import IdleMode
 
 LOCAL_CONNECTOR_NAME: Final[str] = "LocalConnector"
 
 
-@deal.has()
+@pure
 def is_macos() -> bool:
     """Check if the current system is macOS (Darwin)."""
     return platform.system() == "Darwin"

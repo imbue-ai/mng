@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -753,15 +753,6 @@ wheels = [
 ]
 
 [[package]]
-name = "deal"
-version = "4.24.6"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c1/da/76d4c3898ed8901116c8ad9dc1e5babd466e50289ce3808de55f72760d0f/deal-4.24.6.tar.gz", hash = "sha256:1cf4d4bbcb2e84767535e066d3888d2809662d7356dee420331380ff94210a1d", size = 723315, upload-time = "2025-11-30T10:55:43.765Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/71/4d/2a940ef9caa02bb3d6ca2a78ecbcaf158e98da972a54bc3fd8f29f7d86a9/deal-4.24.6-py3-none-any.whl", hash = "sha256:44afc0b11df6be5a4edd81409c7cd02ab0188ad9e90e93a71b4ef3d46d04c546", size = 204440, upload-time = "2025-11-30T10:55:40.954Z" },
-]
-
-[[package]]
 name = "distlib"
 version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1425,7 +1416,6 @@ source = { editable = "libs/imbue_common" }
 dependencies = [
     { name = "click" },
     { name = "cowsay-python" },
-    { name = "deal" },
     { name = "httpx" },
     { name = "inline-snapshot" },
     { name = "loguru" },
@@ -1437,7 +1427,6 @@ dependencies = [
 requires-dist = [
     { name = "click", specifier = ">=8.0" },
     { name = "cowsay-python", specifier = ">=1.0.2" },
-    { name = "deal", specifier = ">=4.24" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "inline-snapshot", specifier = ">=0.13" },
     { name = "loguru", specifier = ">=0.7" },

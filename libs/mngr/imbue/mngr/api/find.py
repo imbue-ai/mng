@@ -1,11 +1,11 @@
 from pathlib import Path
 from typing import assert_never
 
-import deal
 from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
@@ -38,7 +38,7 @@ class ParsedSourceLocation(FrozenModel):
     path: str | None = Field(description="File path")
 
 
-@deal.has()
+@pure
 def parse_source_string(
     source: str | None,
     source_agent: str | None = None,
@@ -95,7 +95,7 @@ def parse_source_string(
     )
 
 
-@deal.has()
+@pure
 def determine_resolved_path(
     parsed_path: str | None,
     resolved_agent: AgentReference | None,
@@ -115,7 +115,7 @@ def determine_resolved_path(
     raise UserInputError("Must specify a path if no agent is specified")
 
 
-@deal.has()
+@pure
 def resolve_host_reference(
     host_identifier: str | None,
     all_hosts: list[HostReference],
@@ -141,7 +141,7 @@ def resolve_host_reference(
     return resolved_host
 
 
-@deal.has()
+@pure
 def resolve_agent_reference(
     agent_identifier: str | None,
     resolved_host: HostReference | None,
@@ -249,7 +249,7 @@ def resolve_source_location(
     )
 
 
-@deal.has()
+@pure
 def get_host_from_list_by_id(host_id: HostId, all_hosts: list[HostReference]) -> HostReference | None:
     for host in all_hosts:
         if host.host_id == host_id:
@@ -257,7 +257,7 @@ def get_host_from_list_by_id(host_id: HostId, all_hosts: list[HostReference]) ->
     return None
 
 
-@deal.has()
+@pure
 def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostReference]) -> HostReference | None:
     matching_hosts = [host for host in all_hosts if host.host_name == host_name]
     if len(matching_hosts) == 1:
@@ -386,7 +386,7 @@ class AgentMatch(FrozenModel):
     provider_name: ProviderInstanceName
 
 
-@deal.has()
+@pure
 def find_agents_by_identifiers_or_state(
     agent_identifiers: list[str],
     filter_all: bool,
@@ -441,7 +441,7 @@ def find_agents_by_identifiers_or_state(
     return matches
 
 
-@deal.has()
+@pure
 def group_agents_by_host(agents: list[AgentMatch]) -> dict[str, list[AgentMatch]]:
     """Group a list of AgentMatch objects by their host.
 

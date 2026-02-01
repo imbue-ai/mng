@@ -1,8 +1,7 @@
 import ast
 from pathlib import Path
 
-import deal
-
+from imbue.imbue_common.pure import pure
 from imbue.imbue_common.ratchet_testing.core import FileExtension
 from imbue.imbue_common.ratchet_testing.core import LineNumber
 from imbue.imbue_common.ratchet_testing.core import RatchetMatchChunk
@@ -62,7 +61,7 @@ def _mark_if_chain_as_visited(if_node: ast.If, visited: set[int]) -> None:
             break
 
 
-@deal.has()
+@pure
 def _has_elif_without_else(if_node: ast.If) -> bool:
     """Check if an If node has elif but no else clause."""
     if not if_node.orelse:
@@ -83,7 +82,7 @@ def _has_elif_without_else(if_node: ast.If) -> bool:
     return False
 
 
-@deal.has()
+@pure
 def _get_if_chain_end_line(if_node: ast.If) -> int:
     """Get the last line number of an if/elif chain."""
     current = if_node
@@ -100,7 +99,7 @@ def _get_if_chain_end_line(if_node: ast.If) -> int:
     return current.lineno
 
 
-@deal.has()
+@pure
 def _is_test_file(file_path: Path) -> bool:
     """Check if a file is a test file."""
     return file_path.name.endswith("_test.py") or file_path.name.startswith("test_")
@@ -198,7 +197,7 @@ def find_init_methods_in_non_exception_classes(
     return tuple(sorted_chunks)
 
 
-@deal.has()
+@pure
 def _has_functools_wraps_decorator(func_node: ast.FunctionDef) -> bool:
     """Check if a function is decorated with @functools.wraps or @wraps.
 

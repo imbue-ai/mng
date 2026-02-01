@@ -3,7 +3,6 @@ import time
 from typing import Any
 
 import click
-import deal
 from click_option_group import optgroup
 from loguru import logger
 from pydantic import ConfigDict
@@ -20,6 +19,7 @@ from urwid.widget.text import Text
 from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
@@ -56,7 +56,7 @@ class ConnectCliOptions(CommonCliOptions):
     allow_unknown_host: bool
 
 
-@deal.has()
+@pure
 def filter_agents(
     agents: list[AgentInfo],
     hide_stopped: bool,

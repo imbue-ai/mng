@@ -9,15 +9,14 @@ import importlib.resources
 from pathlib import Path
 from typing import Final
 
-import deal
-
+from imbue.imbue_common.pure import pure
 from imbue.mngr import resources
 
 # Prefix used in shell output to identify warnings that should be shown to the user
 WARNING_PREFIX: Final[str] = "MNGR_WARN:"
 
 
-@deal.has()
+@pure
 def get_user_ssh_dir(user: str) -> Path:
     """Get the SSH directory path for a given user.
 
@@ -29,7 +28,7 @@ def get_user_ssh_dir(user: str) -> Path:
         return Path(f"/home/{user}/.ssh")
 
 
-@deal.has()
+@pure
 def build_check_and_install_packages_command(
     mngr_host_dir: str,
 ) -> str:
@@ -99,7 +98,7 @@ def build_check_and_install_packages_command(
     return "; ".join(script_lines)
 
 
-@deal.has()
+@pure
 def build_configure_ssh_command(
     user: str,
     client_public_key: str,
@@ -147,7 +146,7 @@ def build_configure_ssh_command(
     return "; ".join(script_lines)
 
 
-@deal.has()
+@pure
 def parse_warnings_from_output(output: str) -> list[str]:
     """Parse warning messages from command output.
 
@@ -171,7 +170,7 @@ def _load_activity_watcher_script() -> str:
     return script_path.read_text()
 
 
-@deal.has()
+@pure
 def build_start_activity_watcher_command(
     mngr_host_dir: str,
 ) -> str:

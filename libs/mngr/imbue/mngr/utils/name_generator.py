@@ -1,16 +1,16 @@
 from functools import cache
 from pathlib import Path
 
-import deal
 from coolname import RandomGenerator
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentNameStyle
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostNameStyle
 
 
-@deal.has()
+@pure
 def _get_resources_path() -> Path:
     """Get the path to the resources directory."""
     return Path(__file__).parent.parent / "resources" / "data" / "name_lists"

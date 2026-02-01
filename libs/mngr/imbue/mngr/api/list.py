@@ -5,12 +5,12 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any
 
-import deal
 from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
@@ -389,7 +389,7 @@ def list_agents(
     return result
 
 
-@deal.has()
+@pure
 def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
     """Convert an AgentInfo object to a CEL-friendly dict.
 

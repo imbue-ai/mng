@@ -1,10 +1,10 @@
 from pathlib import Path
 
-import deal
 from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
@@ -99,7 +99,7 @@ def pull_files(
     )
 
 
-@deal.has()
+@pure
 def _parse_rsync_output(
     # stdout from rsync command
     output: str,

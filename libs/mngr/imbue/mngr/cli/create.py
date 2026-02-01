@@ -7,12 +7,12 @@ from typing import assert_never
 from typing import cast
 
 import click
-import deal
 from click_option_group import optgroup
 from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.create import create as api_create
 from imbue.mngr.api.data_types import ConnectionOptions
@@ -85,31 +85,31 @@ from imbue.mngr.utils.name_generator import generate_host_name
 from imbue.mngr.utils.polling import wait_for
 
 
-@deal.has()
+@pure
 def _make_name_style_choices() -> list[str]:
     """Get lowercase name style choices."""
     return [s.value.lower() for s in AgentNameStyle]
 
 
-@deal.has()
+@pure
 def _make_host_name_style_choices() -> list[str]:
     """Get lowercase host name style choices."""
     return [s.value.lower() for s in HostNameStyle]
 
 
-@deal.has()
+@pure
 def _make_log_level_choices() -> list[str]:
     """Get log level choices."""
     return [level.value for level in LogLevel]
 
 
-@deal.has()
+@pure
 def _make_idle_mode_choices() -> list[str]:
     """Get lowercase idle mode choices."""
     return [m.value.lower() for m in IdleMode]
 
 
-@deal.has()
+@pure
 def _make_output_format_choices() -> list[str]:
     """Get lowercase output format choices."""
     return [f.value.lower() for f in OutputFormat]
@@ -871,13 +871,13 @@ def _get_current_git_branch(source_location: HostLocation) -> str | None:
     return get_current_git_branch(source_location.path)
 
 
-@deal.has()
+@pure
 def _is_git_repo(path: Path) -> bool:
     """Check if the given path is inside a git repository."""
     return find_git_worktree_root(path) is not None
 
 
-@deal.has()
+@pure
 def _was_value_after_double_dash(value: str) -> bool:
     """Check if a value appears after -- in sys.argv.
 
@@ -1180,7 +1180,7 @@ class ParsedSourceString(FrozenModel):
     host_name: str | None = Field(description="Host name component")
 
 
-@deal.has()
+@pure
 def _parse_source_string(source_str: str) -> ParsedSourceString:
     """Parse [AGENT[.HOST]]:PATH format into components."""
     if ":" not in source_str:

@@ -171,13 +171,13 @@ Unless otherwise stated in the project, assume that secret data (ex: API keys, t
 Always use timezone aware, UTC-anchored datetime object for times
 
 ```python
-import deal
-
 from datetime import datetime
 from datetime import timezone
 
+from imbue.imbue_common.pure import pure
 
-@deal.has()
+
+@pure
 def get_current_utc_timestamp() -> datetime:
     return datetime.now(timezone.utc)
 ```
@@ -256,7 +256,7 @@ class OutputFormat(UpperCaseStrEnum):
     YAML = auto()
 
 
-@deal.has()
+@pure
 def serialize_todo_list(
     todo_list: TodoList,
     output_format: OutputFormat,
@@ -283,7 +283,7 @@ When you need complex conditional logic that cannot be expressed with match stat
 from imbue.imbue_common.errors import SwitchError
 
 
-@deal.has()
+@pure
 def categorize_todo_by_priority_and_age(
     todo: TodoItem,
     current_time: datetime,
@@ -551,7 +551,7 @@ Never put type information inside a docstring or comment--it is duplicative with
 
 ```python
 # a function that is so simple that no docstring or comments are needed
-@deal.has()
+@pure
 def filter_todos_by_status(
     todos: tuple[TodoItem, ...],
     status: TodoStatus,
@@ -560,7 +560,7 @@ def filter_todos_by_status(
 
 
 # An example that is complex enough to warrant a docstring and some comments
-@deal.has()
+@pure
 def walk_todo_tree(
     root_todo: TodoItem,
     # A callback function to invoke on each todo item as it is visited. If it returns a non-None result, 
@@ -592,7 +592,7 @@ class ArchiveCompletedTodosResult(FrozenModel):
     archived_todos: tuple[TodoItem, ...] = Field(description="Todos that were archived")
 
 
-@deal.has()
+@pure
 def archive_todos_completed_before(
     todo_list: TodoList,
     archive_before_date: datetime,
@@ -634,7 +634,7 @@ from typing import Final
 _DEFAULT_TODO_PAGE_SIZE: Final[int] = 50
 
 
-@deal.has()
+@pure
 def _sort_todos_by_due_date_ascending(
     todos: tuple[TodoItem, ...],
 ) -> tuple[TodoItem, ...]:
@@ -701,7 +701,7 @@ from typing import Final
 MAX_TODOS_PER_LIST: Final[int] = 1000
 
 
-@deal.has()
+@pure
 def find_todos_matching_title_or_description(
     todo_list: TodoList,
     search_text: str,
@@ -726,7 +726,7 @@ from collections.abc import Mapping
 from collections.abc import Sequence
 
 
-@deal.has()
+@pure
 def find_todos_with_any_tag(
     todos: Sequence[TodoItem],
     allowed_tags: Mapping[str, TagPriority],
@@ -748,7 +748,7 @@ Use an immutable, functional approach.  Accumulate all changes rather than updat
 Avoid mutating objects created outside the function (unless they are "Implementations", see below).  Instead, prefer to create an updated copy whenever possible:
 
 ```python
-@deal.has()
+@pure
 def add_tag_to_todo(todo_item: TodoItem, tag_to_add: Tag) -> TodoItem:
     updated_tags = todo_item.tags + (tag_to_add,)
     return todo_item.model_copy(update={"tags": updated_tags})
@@ -764,7 +764,7 @@ class ValidatedTodoInput(FrozenModel):
     description: str = Field(description="Todo description")
 
 
-@deal.has()
+@pure
 def create_todo_from_validated_input(validated_input: ValidatedTodoInput) -> TodoItem:
     new_todo_id = TodoId.generate()
     return TodoItem(
@@ -799,7 +799,7 @@ def main() -> None:
     )
 
 
-@deal.has()
+@pure
 def add_todo_to_list(todo_item: TodoItem, todo_list: TodoList) -> TodoList:
     return todo_list.with_added_todo(todo_item)
 ```
@@ -1029,7 +1029,7 @@ class TodoSummaryReport(FrozenModel):
     statistics: TodoStatistics = Field(description="Summary statistics")
 
 
-@deal.has()
+@pure
 def generate_todo_summary_report(
     todo_list: TodoList,
     report_date: datetime,
@@ -1065,10 +1065,10 @@ Avoid using default arguments in function and method signatures. Require callers
 
 Almost all functions should be pure (have no side-effects)
 
-All pure functions should be marked with the `@deal.has` decorator
+All pure functions should be marked with the `@pure` decorator from `imbue_common`. Note that this decorator is currently advisory only and is not enforced at runtime.
 
 ```python
-import deal
+from imbue.imbue_common.pure import pure
 
 
 PRIORITY_SORT_ORDER: Final[dict[TodoPriority, int]] = {
@@ -1078,7 +1078,7 @@ PRIORITY_SORT_ORDER: Final[dict[TodoPriority, int]] = {
 }
 
 
-@deal.has()
+@pure
 def sort_todos_by_priority_then_due_date(
     todos: tuple[TodoItem, ...],
 ) -> tuple[TodoItem, ...]:
@@ -1099,7 +1099,7 @@ from typing import Final
 DEFAULT_PAGE_SIZE: Final[int] = 25
 
 
-@deal.has()
+@pure
 def filter_todos_by_completion_status(
     todos: tuple[TodoItem, ...],
     is_completed: bool,
@@ -1152,7 +1152,7 @@ class TodoDisplayInterface(ABC, MutableModel):
         """Render a todo item to the output destination."""
 
 
-@deal.has()
+@pure
 def format_todo_for_display(todo: TodoItem, is_verbose: bool) -> str:
     status_marker = "[x]" if todo.is_completed else "[ ]"
     if is_verbose and todo.description:

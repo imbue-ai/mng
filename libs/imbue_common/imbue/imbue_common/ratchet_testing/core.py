@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 from typing import Self
 
-import deal
 from pydantic import Field
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
@@ -17,6 +16,7 @@ from pydantic_core import core_schema
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.primitives import NonEmptyStr
 from imbue.imbue_common.primitives import PositiveInt
+from imbue.imbue_common.pure import pure
 
 
 class FileExtension(NonEmptyStr):
@@ -193,7 +193,7 @@ def _get_chunk_commit_date(
     return most_recent_date
 
 
-@deal.has()
+@pure
 def get_ratchet_failures(
     folder_path: Path,
     extension: FileExtension,
@@ -259,7 +259,7 @@ def get_ratchet_failures(
     return tuple(sorted_chunks)
 
 
-@deal.has()
+@pure
 def format_ratchet_failure_message(
     rule_name: str,
     rule_description: str,
@@ -316,7 +316,7 @@ def format_ratchet_failure_message(
     return "\n".join(lines)
 
 
-@deal.has()
+@pure
 def check_regex_ratchet(
     source_dir: Path,
     extension: FileExtension,

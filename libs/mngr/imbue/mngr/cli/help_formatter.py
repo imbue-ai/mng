@@ -8,11 +8,11 @@ from typing import Any
 from typing import cast
 
 import click
-import deal
 from click_option_group import GroupedOption
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
 from imbue.mngr.config.data_types import MngrConfig
 
@@ -78,14 +78,14 @@ def is_interactive_terminal() -> bool:
         return False
 
 
-@deal.has()
+@pure
 def get_terminal_width() -> int:
     """Get the terminal width, defaulting to 80 if not detectable."""
     terminal_size = shutil.get_terminal_size()
     return terminal_size.columns
 
 
-@deal.has()
+@pure
 def get_pager_command(config: MngrConfig | None) -> str:
     """Determine the pager command to use.
 
@@ -140,7 +140,7 @@ def run_pager(text: str, config: MngrConfig | None) -> None:
         _write_to_stdout(text)
 
 
-@deal.has()
+@pure
 def _wrap_text(text: str, width: int, indent: str, subsequent_indent: str | None) -> str:
     """Wrap text with proper indentation."""
     if subsequent_indent is None:
@@ -155,7 +155,7 @@ def _wrap_text(text: str, width: int, indent: str, subsequent_indent: str | None
     return wrapper.fill(text)
 
 
-@deal.has()
+@pure
 def _format_section_title(title: str) -> str:
     """Format a section title in man-page style (uppercase)."""
     return title.upper()

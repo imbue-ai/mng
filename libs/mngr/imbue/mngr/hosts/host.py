@@ -19,7 +19,6 @@ from typing import Mapping
 from typing import Sequence
 from typing import cast
 
-import deal
 from loguru import logger
 from pydantic import Field
 from pyinfra.api.command import StringCommand
@@ -27,6 +26,7 @@ from pyinfra.connectors.util import CommandOutput
 
 from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.agents.agent_registry import get_agent_class
 from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.agents.base_agent import BaseAgent
@@ -1885,7 +1885,7 @@ done
         return super().get_state()
 
 
-@deal.has()
+@pure
 def _format_env_file(env: Mapping[str, str]) -> str:
     """Format a dict as an environment file."""
     lines: list[str] = []
