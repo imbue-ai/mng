@@ -52,6 +52,7 @@ from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
+from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostConfig
@@ -61,6 +62,7 @@ from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
@@ -1337,13 +1339,16 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             if snapshot_url:
                 self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
 
+        return host
+
+    def on_agent_created(self, agent: AgentInterface, host: OnlineHostInterface) -> None:
         # Optionally create an initial snapshot based on config
         # When enabled, this ensures the host can be restarted even after a hard kill
         if self.config.is_snapshotted_after_create:
-            logger.debug("Creating initial snapshot for host", host_id=str(host_id))
-            self._create_initial_snapshot(sandbox, host_id)
-
-        return host
+            logger.debug("Creating initial snapshot for host", host_id=str(host.id))
+            sandbox = self._find_sandbox_by_host_id(host.id)
+            assert sandbox is not None, "Sandbox must exist for online host"
+            self._create_initial_snapshot(sandbox, host.id)
 
     @handle_modal_auth_error
     def stop_host(

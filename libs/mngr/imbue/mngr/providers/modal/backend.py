@@ -20,6 +20,9 @@ from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import MngrError
+from imbue.mngr.hosts.host import Host
+from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
@@ -466,16 +469,12 @@ def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[Pr
 
 
 @hookimpl
-def on_agent_created(agent: Any, host: Any) -> None:
-    """Log when an agent is created on a Modal host.
+def on_agent_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
+    """We need to snapshot the sandbox after the agents are created and initial messages are delivered."""
 
-    This is an example hook implementation that demonstrates how plugins can
-    respond to agent creation events. The Modal provider uses this to log
-    when agents are created on Modal-hosted sandboxes.
-    """
-    # Only log for Modal hosts (check if the host's provider is Modal-based)
-    # We check by looking at the host's module path since OnlineHostInterface
-    # doesn't expose provider type directly
-    host_module = type(host).__module__
-    if "modal" in host_module.lower():
-        logger.info("Agent '{}' created on Modal host '{}'", agent.name, host.get_name())
+    if not isinstance(host, Host):
+        raise Exception("Host is not an instance of Host class")
+
+    provider_instance = host.provider_instance
+    if isinstance(provider_instance, ModalProviderInstance):
+        provider_instance.on_agent_created(agent, host)
