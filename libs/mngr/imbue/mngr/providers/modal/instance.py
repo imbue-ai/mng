@@ -1118,6 +1118,10 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         known_hosts for the sandbox's SSH endpoint, enabling SSH connections
         to succeed without host key verification prompts.
 
+        The Host is configured with a callback to sync certified data changes
+        back to the volume, ensuring operations like snapshot creation persist
+        their metadata.
+
         Returns None if the host record doesn't exist on the volume.
         """
         tags = sandbox.get_tags()
