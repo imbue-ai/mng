@@ -14,6 +14,7 @@ def test_stop_cli_options_fields() -> None:
         agent_list=("agent3",),
         stop_all=False,
         dry_run=True,
+        sessions=(),
         output_format="human",
         quiet=False,
         verbose=0,
@@ -29,6 +30,7 @@ def test_stop_cli_options_fields() -> None:
     assert opts.agent_list == ("agent3",)
     assert opts.stop_all is False
     assert opts.dry_run is True
+    assert opts.sessions == ()
 
 
 def test_stop_requires_agent_or_all(

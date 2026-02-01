@@ -9,7 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.mngr.cli.create import create
-from imbue.mngr.cli.destroy import _get_agent_name_from_session
+from imbue.mngr.cli.destroy import get_agent_name_from_session
 from imbue.mngr.cli.destroy import destroy
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import tmux_session_cleanup
@@ -348,37 +348,37 @@ def test_destroy_multiple_agents(
 
 
 # =============================================================================
-# Tests for _get_agent_name_from_session()
+# Tests for get_agent_name_from_session()
 # =============================================================================
 
 
-def test_get_agent_name_from_session_empty_session() -> None:
-    """Test _get_agent_name_from_session returns None for empty session name."""
-    result = _get_agent_name_from_session("", "mngr-")
+def testget_agent_name_from_session_empty_session() -> None:
+    """Test get_agent_name_from_session returns None for empty session name."""
+    result = get_agent_name_from_session("", "mngr-")
     assert result is None
 
 
-def test_get_agent_name_from_session_wrong_prefix() -> None:
-    """Test _get_agent_name_from_session returns None when session doesn't match prefix."""
-    result = _get_agent_name_from_session("other-session", "mngr-")
+def testget_agent_name_from_session_wrong_prefix() -> None:
+    """Test get_agent_name_from_session returns None when session doesn't match prefix."""
+    result = get_agent_name_from_session("other-session", "mngr-")
     assert result is None
 
 
-def test_get_agent_name_from_session_success() -> None:
-    """Test _get_agent_name_from_session extracts agent name correctly."""
-    result = _get_agent_name_from_session("mngr-my-agent", "mngr-")
+def testget_agent_name_from_session_success() -> None:
+    """Test get_agent_name_from_session extracts agent name correctly."""
+    result = get_agent_name_from_session("mngr-my-agent", "mngr-")
     assert result == "my-agent"
 
 
-def test_get_agent_name_from_session_custom_prefix() -> None:
-    """Test _get_agent_name_from_session works with custom prefix."""
-    result = _get_agent_name_from_session("custom-prefix-agent-name", "custom-prefix-")
+def testget_agent_name_from_session_custom_prefix() -> None:
+    """Test get_agent_name_from_session works with custom prefix."""
+    result = get_agent_name_from_session("custom-prefix-agent-name", "custom-prefix-")
     assert result == "agent-name"
 
 
-def test_get_agent_name_from_session_only_prefix() -> None:
-    """Test _get_agent_name_from_session returns None when session is just the prefix."""
-    result = _get_agent_name_from_session("mngr-", "mngr-")
+def testget_agent_name_from_session_only_prefix() -> None:
+    """Test get_agent_name_from_session returns None when session is just the prefix."""
+    result = get_agent_name_from_session("mngr-", "mngr-")
     assert result is None
 
 
@@ -443,7 +443,7 @@ def test_session_fails_with_invalid_prefix(
         ("prefix-foo", "prefix-", "foo"),
     ],
 )
-def test_get_agent_name_from_session_various_inputs(session_name: str, prefix: str, expected_agent: str) -> None:
-    """Test _get_agent_name_from_session with various valid inputs."""
-    result = _get_agent_name_from_session(session_name, prefix)
+def testget_agent_name_from_session_various_inputs(session_name: str, prefix: str, expected_agent: str) -> None:
+    """Test get_agent_name_from_session with various valid inputs."""
+    result = get_agent_name_from_session(session_name, prefix)
     assert result == expected_agent

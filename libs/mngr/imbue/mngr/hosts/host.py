@@ -1546,13 +1546,14 @@ class Host(BaseHost, OnlineHostInterface):
         return self.host_dir / "tmux.conf"
 
     def _create_host_tmux_config(self) -> Path:
-        """Create a tmux config file for the host with a Ctrl-q exit hotkey.
+        """Create a tmux config file for the host with hotkeys for agent management.
 
         The config:
         1. Sources the user's default tmux config if it exists (~/.tmux.conf)
         2. Adds a Ctrl-q binding that detaches and destroys the current agent
+        3. Adds a Ctrl-s binding that detaches and stops the current agent
 
-        This uses the tmux session_name format variable in the destroy command,
+        This uses the tmux session_name format variable in the commands,
         which expands to the current session name at runtime. This approach
         works correctly even when multiple agents share a tmux server, because
         each session's binding correctly references its own session name.
@@ -1572,11 +1573,14 @@ class Host(BaseHost, OnlineHostInterface):
             "if-shell 'test -f ~/.tmux.conf' 'source-file ~/.tmux.conf'",
             "",
             "# Ctrl-q: Detach and destroy the agent whose session this is",
-            """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'"""
+            """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'""",
+            "",
+            "# Ctrl-s: Detach and stop the agent whose session this is",
+            """bind -n C-s run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
             "",
             # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
             "# Automatically signal claude to tell it to resize on client attach",
-            """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'"""
+            """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'""",
             "",
         ]
         config_content = "\n".join(lines)
@@ -1602,6 +1606,7 @@ class Host(BaseHost, OnlineHostInterface):
         A custom tmux config is used that:
         - Sources the user's default ~/.tmux.conf if it exists
         - Adds a Ctrl-q binding to detach and destroy the current agent
+        - Adds a Ctrl-s binding to detach and stop the current agent
         """
         logger.debug("Starting {} agent(s)", len(agent_ids))
 

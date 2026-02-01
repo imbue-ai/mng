@@ -30,7 +30,7 @@ from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
 
-def _get_agent_name_from_session(session_name: str, prefix: str) -> str | None:
+def get_agent_name_from_session(session_name: str, prefix: str) -> str | None:
     """Extract the agent name from a tmux session name.
 
     The session name is expected to be in the format "{prefix}{agent_name}".
@@ -202,7 +202,7 @@ def destroy(ctx: click.Context, **kwargs) -> None:
         if agent_identifiers or opts.destroy_all:
             raise UserInputError("Cannot specify --session with agent names or --all")
         for session_name in opts.sessions:
-            agent_name = _get_agent_name_from_session(session_name, mngr_ctx.config.prefix)
+            agent_name = get_agent_name_from_session(session_name, mngr_ctx.config.prefix)
             if agent_name is None:
                 raise UserInputError(
                     f"Session '{session_name}' does not match the expected format. "
