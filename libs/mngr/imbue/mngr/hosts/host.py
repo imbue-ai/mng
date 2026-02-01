@@ -106,6 +106,17 @@ class Host(BaseHost, OnlineHostInterface):
         if not self.connector.host.connected:
             self.connector.host.connect(raise_exceptions=True)
 
+    def disconnect(self) -> None:
+        """Disconnect the pyinfra host if connected.
+
+        This should be called before destroying or stopping a host to cleanly
+        close the SSH connection. Failure to disconnect can lead to stale
+        socket state causing "Socket is closed" errors in subsequent operations.
+        """
+        if self.connector.host.connected:
+            logger.trace("Disconnecting pyinfra host {}", self.id)
+            self.connector.host.disconnect()
+
     def _run_shell_command(
         self,
         command: StringCommand,

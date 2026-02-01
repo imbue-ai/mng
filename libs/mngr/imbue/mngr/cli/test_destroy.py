@@ -168,7 +168,28 @@ def test_destroy_nonexistent_agent(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test destroying a non-existent agent."""
+    """Test destroying a non-existent agent.
+
+    Without --force, this should fail with an error.
+    """
+    result = cli_runner.invoke(
+        destroy,
+        ["nonexistent-agent"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code != 0
+
+
+def test_destroy_nonexistent_agent_force(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test destroying a non-existent agent with --force.
+
+    With --force, missing agents are tolerated and the command succeeds.
+    """
     result = cli_runner.invoke(
         destroy,
         ["nonexistent-agent", "--force"],
@@ -176,7 +197,9 @@ def test_destroy_nonexistent_agent(
         catch_exceptions=True,
     )
 
-    assert result.exit_code != 0
+    # With --force, we tolerate missing agents
+    assert result.exit_code == 0
+    assert "No agents found to destroy" in result.output
 
 
 def test_destroy_fails_if_any_identifier_not_found(
@@ -187,9 +210,12 @@ def test_destroy_fails_if_any_identifier_not_found(
 ) -> None:
     """Test that destroy fails if any specified identifier doesn't match an agent.
 
-    When multiple agents are specified and some don't exist, the command should:
+    When multiple agents are specified and some don't exist (without --force),
+    the command should:
     1. Fail without destroying any agents
     2. Include all missing identifiers in the error message
+
+    Note: With --force, missing agents are tolerated (see test_destroy_nonexistent_agent_force).
     """
     agent_name = f"test-destroy-partial-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
@@ -218,15 +244,15 @@ def test_destroy_fails_if_any_identifier_not_found(
         assert create_result.exit_code == 0
         assert tmux_session_exists(session_name)
 
-        # Try to destroy the real agent plus two non-existent ones
+        # Try to destroy the real agent plus two non-existent ones (without --force)
         destroy_result = cli_runner.invoke(
             destroy,
-            [agent_name, nonexistent_name1, nonexistent_name2, "--force"],
+            [agent_name, nonexistent_name1, nonexistent_name2],
             obj=plugin_manager,
             catch_exceptions=True,
         )
 
-        # Command should fail
+        # Command should fail (without --force, missing agents cause failure)
         assert destroy_result.exit_code != 0
 
         # Error message should include both missing agent names
