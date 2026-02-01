@@ -534,7 +534,7 @@ class Host(BaseHost, OnlineHostInterface):
         self.write_text_file(data_path, json.dumps(data.model_dump(by_alias=True), indent=2))
         # Notify the provider so it can update any external storage (e.g., Modal volume)
         if self.on_updated_host_data:
-            self.on_updated_host_data(self, data)
+            self.on_updated_host_data(self.id, data)
 
     def _add_generated_work_dir(self, work_dir: Path) -> None:
         """Add a work directory to the list of generated work directories."""
