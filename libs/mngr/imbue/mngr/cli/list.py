@@ -307,7 +307,7 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
 
     # Default fields if none specified
     if fields is None:
-        fields = ["name", "state", "status", "host", "provider"]
+        fields = ["name", "host", "provider", "state", "status"]
 
     # Build table data dynamically based on requested fields
     headers = []
