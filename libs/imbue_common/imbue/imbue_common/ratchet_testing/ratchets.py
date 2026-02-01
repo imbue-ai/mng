@@ -1,5 +1,4 @@
 import ast
-from functools import lru_cache
 from pathlib import Path
 
 import deal
@@ -9,17 +8,7 @@ from imbue.imbue_common.ratchet_testing.core import LineNumber
 from imbue.imbue_common.ratchet_testing.core import RatchetMatchChunk
 from imbue.imbue_common.ratchet_testing.core import _get_chunk_commit_date
 from imbue.imbue_common.ratchet_testing.core import _get_non_ignored_files_with_extension
-from imbue.imbue_common.ratchet_testing.core import _read_file_contents
-
-
-@lru_cache(maxsize=None)
-def _parse_file_ast(file_path: Path) -> ast.Module | None:
-    """Parse and cache AST for a file. Returns None if parsing fails."""
-    file_contents = _read_file_contents(file_path)
-    try:
-        return ast.parse(file_contents, filename=str(file_path))
-    except SyntaxError:
-        return None
+from imbue.imbue_common.ratchet_testing.core import _parse_file_ast
 
 
 def find_if_elif_without_else(

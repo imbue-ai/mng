@@ -98,6 +98,7 @@ def test_connect_via_cli_group(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test calling connect through the main CLI group."""
     agent_name = f"test-connect-cli-{int(time.time())}"
@@ -120,6 +121,7 @@ def test_connect_via_cli_group(
                 "--no-copy-work-dir",
                 "--no-ensure-clean",
             ],
+            obj=plugin_manager,
             catch_exceptions=False,
         )
         assert create_result.exit_code == 0, f"Create failed with: {create_result.output}"
@@ -129,6 +131,7 @@ def test_connect_via_cli_group(
             cli_runner.invoke(
                 cli,
                 ["connect", agent_name],
+                obj=plugin_manager,
                 catch_exceptions=False,
             )
 
