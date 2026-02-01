@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 from typing import Self
 from typing import TypeVar
+from uuid import uuid4
 
 import pluggy
 from pydantic import Field
@@ -485,6 +486,10 @@ class MngrContext(FrozenModel):
         default=False,
         description="Whether the CLI is running in interactive mode (can prompt user for input)",
     )
+    user_id: str = Field(
+        default_factory=lambda: str(uuid4()),
+        description="Unique identifier for the current user/session",
+    )
 
 
 class OutputOptions(FrozenModel):
@@ -518,3 +523,6 @@ class OutputOptions(FrozenModel):
         default=False,
         description="Log environment variables (security risk)",
     )
+
+
+USER_ID_FILENAME = "user_id"

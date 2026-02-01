@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from typing import Sequence
+from uuid import uuid4
 
 import pluggy
 
@@ -15,6 +16,7 @@ from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.config.data_types import USER_ID_FILENAME
 from imbue.mngr.config.plugin_registry import get_plugin_config_class
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
@@ -175,7 +177,38 @@ def load_config(
             )
 
     # Return MngrContext containing both config and plugin manager
-    return MngrContext(config=final_config, pm=pm, is_interactive=is_interactive)
+    user_id = _get_or_create_user_id(final_config, context_dir, root_name)
+    return MngrContext(config=final_config, pm=pm, is_interactive=is_interactive, user_id=user_id)
+
+
+# FIXME: this should obviously this should return a concrete type, not a str
+def _get_or_create_user_id(config: MngrConfig, context_dir: Path | None, root_name: str) -> str:
+    """Get or create a unique user ID for this mngr installation.
+
+    The user ID is stored in a file in the mngr data directory. This ID is used
+    to namespace Modal apps, ensuring that sandboxes created by different mngr
+    installations on a shared Modal account don't interfere with each other.
+    """
+    data_dir = config.default_host_dir.expanduser()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    user_id_file = data_dir / USER_ID_FILENAME
+
+    if user_id_file.exists():
+        return user_id_file.read_text().strip()
+
+    # Check for user ID file in context directory first
+    if context_dir is not None:
+        root = context_dir or _find_project_root()
+        if root is not None:
+            config_path = root / _get_local_user_id_file_name(root_name)
+            if config_path.exists():
+                user_id = config_path.read_text().strip()
+                return user_id
+
+    # Generate a new user ID
+    user_id = uuid4().hex
+    user_id_file.write_text(user_id)
+    return user_id
 
 
 # =============================================================================
@@ -196,6 +229,10 @@ def _get_project_config_name(root_name: str) -> Path:
 def _get_local_config_name(root_name: str) -> Path:
     """Get the local config relative path based on root name."""
     return Path(f".{root_name}") / "settings.local.toml"
+
+
+def _get_local_user_id_file_name(root_name: str) -> Path:
+    return Path(f".{root_name}") / USER_ID_FILENAME
 
 
 def _find_project_root(start: Path | None = None) -> Path | None:
