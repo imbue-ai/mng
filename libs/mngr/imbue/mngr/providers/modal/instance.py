@@ -319,8 +319,8 @@ class ModalProviderInstance(BaseProviderInstance):
 
     @property
     def _keys_dir(self) -> Path:
-        config_dir = self.mngr_ctx.config.default_host_dir.expanduser()
-        return config_dir / "providers" / "modal"
+        """Get the directory for SSH keys (profile-specific)."""
+        return self.mngr_ctx.profile_dir / "providers" / "modal"
 
     def _get_ssh_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH keypair for this provider instance."""
