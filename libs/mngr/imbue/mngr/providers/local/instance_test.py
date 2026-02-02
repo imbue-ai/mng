@@ -71,8 +71,9 @@ def test_host_id_persists_across_provider_instances(temp_host_dir: Path, temp_co
 
     assert host2.id == host_id
 
-    # host_id is now stored in the profile directory
-    host_id_path = profile_dir / "providers" / "local" / "host_id"
+    # host_id is stored globally in default_host_dir (not per-profile)
+    # because it identifies the local machine, not a profile
+    host_id_path = temp_host_dir / "host_id"
     assert host_id_path.exists()
     assert host_id_path.read_text().strip() == host_id
 
@@ -204,7 +205,8 @@ def test_tags_persist_to_file(temp_host_dir: Path, temp_config: MngrConfig) -> N
 
     provider.set_host_tags(host, {"env": "test"})
 
-    labels_path = profile_dir / "providers" / "local" / "labels.json"
+    # Tags are stored in default_host_dir (not per-profile) since they're local machine data
+    labels_path = temp_host_dir / "providers" / "local" / "labels.json"
     assert labels_path.exists()
 
     with open(labels_path) as f:

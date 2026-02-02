@@ -15,6 +15,15 @@ class ModalProviderConfig(ProviderInstanceConfig):
         default=ProviderBackendName("modal"),
         description="Provider backend (always 'modal' for this type)",
     )
+    user_id: str | None = Field(
+        default=None,
+        description=(
+            "Override the profile user_id for this provider instance. When set, this "
+            "user_id is used instead of the profile's user_id for namespacing Modal "
+            "resources (environments, apps, volumes). This allows sharing Modal resources "
+            "across different mngr profiles or installations."
+        ),
+    )
     environment: str = Field(
         default="main",
         description="Modal environment name",

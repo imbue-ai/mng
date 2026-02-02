@@ -22,7 +22,6 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import OutputOptions
-from imbue.mngr.config.loader import get_or_create_profile_dir
 from imbue.mngr.errors import ConfigKeyNotFoundError
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigStructureError
@@ -53,15 +52,13 @@ class ConfigCliOptions(CommonCliOptions):
     value: str | None = None
 
 
-def _get_config_path(scope: ConfigScope, root_name: str = "mngr") -> Path:
-    """Get the config file path for the given scope."""
+def _get_config_path(scope: ConfigScope, root_name: str = "mngr", profile_dir: Path | None = None) -> Path:
+    """Get the config file path for the given scope. The profile_dir is required for USER scope."""
     match scope:
         case ConfigScope.USER:
             # User config is in the active profile directory
-            base_dir = Path.home() / f".{root_name}"
-            # TODO: this function really needs to be passed a MngrContext, which we can use to get the profile_dir out of
-            #  We really should not be just randomly making new ones here
-            profile_dir = get_or_create_profile_dir(base_dir)
+            if profile_dir is None:
+                raise ConfigNotFoundError("profile_dir is required for USER scope")
             return profile_dir / "settings.toml"
         case ConfigScope.PROJECT:
             git_root = find_git_worktree_root()
@@ -264,7 +261,7 @@ def _config_list_impl(ctx: click.Context, **kwargs: Any) -> None:
     if opts.scope:
         # List config from specific scope
         scope = ConfigScope(opts.scope.upper())
-        config_path = _get_config_path(scope, root_name)
+        config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
         config_data = _load_config_file(config_path)
         _emit_config_list(config_data, output_opts, scope, config_path)
     else:
@@ -354,7 +351,7 @@ def _config_get_impl(ctx: click.Context, key: str, **kwargs: Any) -> None:
     if opts.scope:
         # Get from specific scope
         scope = ConfigScope(opts.scope.upper())
-        config_path = _get_config_path(scope, root_name)
+        config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
         config_data = _load_config_file(config_path)
     else:
         # Get from merged config
@@ -440,7 +437,7 @@ def _config_set_impl(ctx: click.Context, key: str, value: str, **kwargs: Any) ->
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
     scope = ConfigScope((opts.scope or "project").upper())
-    config_path = _get_config_path(scope, root_name)
+    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
 
     # Load existing config
     doc = _load_config_file_tomlkit(config_path)
@@ -531,7 +528,7 @@ def _config_unset_impl(ctx: click.Context, key: str, **kwargs: Any) -> None:
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
     scope = ConfigScope((opts.scope or "project").upper())
-    config_path = _get_config_path(scope, root_name)
+    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
 
     if not config_path.exists():
         _emit_key_not_found(key, output_opts)
@@ -624,7 +621,7 @@ def _config_edit_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
     scope = ConfigScope((opts.scope or "project").upper())
-    config_path = _get_config_path(scope, root_name)
+    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
 
     # Create the config file if it doesn't exist
     if not config_path.exists():
@@ -749,7 +746,7 @@ def _config_path_impl(ctx: click.Context, **kwargs: Any) -> None:
         # Show specific scope
         scope = ConfigScope(opts.scope.upper())
         try:
-            config_path = _get_config_path(scope, root_name)
+            config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
             _emit_single_path(scope, config_path, output_opts)
         except ConfigNotFoundError as e:
             match output_opts.output_format:
@@ -767,7 +764,7 @@ def _config_path_impl(ctx: click.Context, **kwargs: Any) -> None:
         paths: list[dict[str, Any]] = []
         for scope in ConfigScope:
             try:
-                config_path = _get_config_path(scope, root_name)
+                config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
                 paths.append(
                     {
                         "scope": scope.value.lower(),
