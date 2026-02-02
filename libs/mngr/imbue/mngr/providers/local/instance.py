@@ -146,12 +146,14 @@ class LocalProviderInstance(BaseProviderInstance):
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
+        known_hosts: Sequence[str] | None = None,
     ) -> Host:
         """Create (or return) the local host.
 
         For the local provider, this always returns the same host representing
         the local computer. The name and image parameters are ignored since
-        the local host is always the same machine.
+        the local host is always the same machine. The known_hosts parameter
+        is also ignored since the local machine uses its own known_hosts file.
         """
         logger.debug("Creating local host (provider={})", self.name)
         host = self._create_host(name, tags)

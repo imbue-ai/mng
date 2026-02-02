@@ -31,6 +31,7 @@ class BaseProviderInstance(ProviderInstanceInterface):
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
+        known_hosts: Sequence[str] | None = None,
     ) -> Host:
         raise NotImplementedError()
 
