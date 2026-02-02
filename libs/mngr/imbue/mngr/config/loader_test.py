@@ -7,13 +7,12 @@ import click
 import pluggy
 import pytest
 
-from imbue.mngr.config.data_types import CommandDefaults
+from imbue.mngr.config.data_types import CommandDefaults, get_or_create_user_id
 from imbue.mngr.config.data_types import LoggingConfig
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.loader import _apply_plugin_overrides
 from imbue.mngr.config.loader import _get_local_config_name
 from imbue.mngr.config.loader import get_or_create_profile_dir
-from imbue.mngr.config.loader import _get_or_create_user_id
 from imbue.mngr.config.loader import _get_project_config_name
 from imbue.mngr.config.loader import _get_user_config_path
 from imbue.mngr.config.loader import _load_toml
@@ -696,7 +695,7 @@ def test_get_or_create_user_id_creates_new_id_when_file_missing(tmp_path: Path) 
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
 
-    result = _get_or_create_user_id(profile_dir)
+    result = get_or_create_user_id(profile_dir)
 
     # Should return a non-empty string (hex UUID, which is 32 chars)
     assert result
@@ -718,7 +717,7 @@ def test_get_or_create_user_id_reads_existing_id(tmp_path: Path) -> None:
     user_id_file = profile_dir / "user_id"
     user_id_file.write_text(existing_id)
 
-    result = _get_or_create_user_id(profile_dir)
+    result = get_or_create_user_id(profile_dir)
 
     assert result == existing_id
 
@@ -733,7 +732,7 @@ def test_get_or_create_user_id_strips_whitespace(tmp_path: Path) -> None:
     user_id_file = profile_dir / "user_id"
     user_id_file.write_text(f"  {existing_id}  \n")
 
-    result = _get_or_create_user_id(profile_dir)
+    result = get_or_create_user_id(profile_dir)
 
     assert result == existing_id
 
@@ -743,7 +742,7 @@ def test_get_or_create_user_id_returns_same_id_on_subsequent_calls(tmp_path: Pat
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
 
-    result1 = _get_or_create_user_id(profile_dir)
-    result2 = _get_or_create_user_id(profile_dir)
+    result1 = get_or_create_user_id(profile_dir)
+    result2 = get_or_create_user_id(profile_dir)
 
     assert result1 == result2

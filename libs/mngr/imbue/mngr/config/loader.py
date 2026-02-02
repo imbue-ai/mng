@@ -18,7 +18,6 @@ from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.config.data_types import ROOT_CONFIG_FILENAME
-from imbue.mngr.config.data_types import USER_ID_FILENAME
 from imbue.mngr.config.plugin_registry import get_plugin_config_class
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
@@ -80,9 +79,8 @@ def load_config(
     base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
     base_dir = base_dir.expanduser()
 
-    # Get/create profile directory first (needed for user config and user_id)
+    # Get/create profile directory first (needed for user config
     profile_dir = get_or_create_profile_dir(base_dir)
-    user_id = _get_or_create_user_id(profile_dir)
 
     # Start with base config that has defaults based on root_name
     # Use model_construct with None to allow merging to work properly
@@ -192,7 +190,6 @@ def load_config(
         config=final_config,
         pm=pm,
         is_interactive=is_interactive,
-        user_id=user_id,
         profile_dir=profile_dir,
     )
 
@@ -237,23 +234,6 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
     return profile_dir
 
 
-# FIXME: this should obviously this should return a concrete type, not a str
-def _get_or_create_user_id(profile_dir: Path) -> str:
-    """Get or create a unique user ID for this mngr profile.
-
-    The user ID is stored in a file in the profile directory. This ID is used
-    to namespace Modal apps, ensuring that sandboxes created by different mngr
-    installations on a shared Modal account don't interfere with each other.
-    """
-    user_id_file = profile_dir / USER_ID_FILENAME
-
-    if user_id_file.exists():
-        return user_id_file.read_text().strip()
-
-    # Generate a new user ID
-    user_id = uuid4().hex
-    user_id_file.write_text(user_id)
-    return user_id
 
 
 # =============================================================================
