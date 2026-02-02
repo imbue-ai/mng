@@ -11,6 +11,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mngr.utils.logging import log_call
 
 
@@ -138,13 +139,29 @@ def resolve_target_host(
             target_host.build.start_args,
             target_host.lifecycle,
         )
-        return provider.create_host(
+        host = provider.create_host(
             name=target_host.name,
             tags=target_host.tags,
             build_args=target_host.build.build_args,
             start_args=target_host.build.start_args,
             lifecycle=target_host.lifecycle,
         )
+
+        # Add known hosts entries if specified
+        known_hosts = target_host.environment.known_hosts
+        if known_hosts:
+            logger.debug("Adding {} known_hosts entries to host", len(known_hosts))
+            # Default to root user for remote hosts
+            user = "root"
+            add_known_hosts_cmd = build_add_known_hosts_command(user, known_hosts)
+            if add_known_hosts_cmd is not None:
+                result = host.execute_command(add_known_hosts_cmd)
+                if not result.success:
+                    logger.warning("Failed to add known_hosts entries: {}", result.stderr)
+                else:
+                    logger.trace("Successfully added known_hosts entries")
+
+        return host
     else:
         # already have the host
         logger.trace("Using existing host id={}", target_host.id)

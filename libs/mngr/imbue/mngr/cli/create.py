@@ -174,6 +174,7 @@ class CreateCliOptions(CommonCliOptions):
     host_env: tuple[str, ...]
     host_env_file: tuple[str, ...]
     pass_host_env: tuple[str, ...]
+    known_host: tuple[str, ...]
     snapshot: str | None
     build_arg: tuple[str, ...]
     build_args: str | None
@@ -393,6 +394,12 @@ class CreateCliOptions(CommonCliOptions):
     "--host-env-file", type=click.Path(exists=True), multiple=True, help="Load env file for host [repeatable]"
 )
 @optgroup.option("--pass-host-env", multiple=True, help="Forward variable from shell for host [repeatable]")
+@optgroup.option(
+    "--known-host",
+    "known_host",
+    multiple=True,
+    help="SSH known_hosts entry to add to the host (for outbound SSH) [repeatable]",
+)
 @optgroup.group("New Host Build")
 @optgroup.option("--snapshot", help="Use existing snapshot instead of building")
 @optgroup.option(
@@ -1183,6 +1190,7 @@ def _parse_target_host(
                 env_vars=host_env_vars,
                 env_files=host_env_files,
                 pass_env_vars=opts.pass_host_env,
+                known_hosts=opts.known_host,
             ),
             lifecycle=lifecycle,
         )
