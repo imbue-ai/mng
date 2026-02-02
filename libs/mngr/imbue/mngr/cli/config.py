@@ -193,7 +193,7 @@ def _flatten_config(config: dict[str, Any], prefix: str = "") -> list[tuple[str,
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -224,7 +224,7 @@ def config(ctx: click.Context, **kwargs: Any) -> None:
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -314,7 +314,7 @@ def _emit_config_list(
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -400,7 +400,7 @@ def _emit_key_not_found(key: str, output_opts: OutputOptions) -> None:
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
     default="project",
     show_default=True,
-    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -496,7 +496,7 @@ def _emit_config_set_result(
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
     default="project",
     show_default=True,
-    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -585,7 +585,7 @@ def _emit_config_unset_result(
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
     default="project",
     show_default=True,
-    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -710,7 +710,7 @@ def _get_config_template() -> str:
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
