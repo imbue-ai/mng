@@ -20,15 +20,17 @@ from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundError
+from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
 
-def _get_agent_name_from_session(session_name: str, prefix: str) -> str | None:
+def get_agent_name_from_session(session_name: str, prefix: str) -> str | None:
     """Extract the agent name from a tmux session name.
 
     The session name is expected to be in the format "{prefix}{agent_name}".
@@ -200,7 +202,7 @@ def destroy(ctx: click.Context, **kwargs) -> None:
         if agent_identifiers or opts.destroy_all:
             raise UserInputError("Cannot specify --session with agent names or --all")
         for session_name in opts.sessions:
-            agent_name = _get_agent_name_from_session(session_name, mngr_ctx.config.prefix)
+            agent_name = get_agent_name_from_session(session_name, mngr_ctx.config.prefix)
             if agent_name is None:
                 raise UserInputError(
                     f"Session '{session_name}' does not match the expected format. "
@@ -215,11 +217,18 @@ def destroy(ctx: click.Context, **kwargs) -> None:
         raise UserInputError("Cannot specify both agent names and --all")
 
     # Find agents to destroy
-    agents_to_destroy = _find_agents_to_destroy(
-        agent_identifiers=agent_identifiers,
-        destroy_all=opts.destroy_all,
-        mngr_ctx=mngr_ctx,
-    )
+    try:
+        agents_to_destroy = _find_agents_to_destroy(
+            agent_identifiers=agent_identifiers,
+            destroy_all=opts.destroy_all,
+            mngr_ctx=mngr_ctx,
+        )
+    except AgentNotFoundError as e:
+        if opts.force:
+            agents_to_destroy = []
+            _output(f"Error destroying agent(s): {e}", output_opts)
+        else:
+            raise
 
     if not agents_to_destroy:
         _output("No agents found to destroy", output_opts)
@@ -264,13 +273,13 @@ def _find_agents_to_destroy(
     agent_identifiers: list[str],
     destroy_all: bool,
     mngr_ctx: MngrContext,
-) -> list[tuple[AgentInterface, HostInterface]]:
+) -> list[tuple[AgentInterface, OnlineHostInterface]]:
     """Find all agents to destroy.
 
     Returns a list of (agent, host) tuples.
     Raises AgentNotFoundError if any specified identifier does not match an agent.
     """
-    agents_to_destroy: list[tuple[AgentInterface, HostInterface]] = []
+    agents_to_destroy: list[tuple[AgentInterface, OnlineHostInterface]] = []
     matched_identifiers: set[str] = set()
 
     for agent_ref in list_agents(mngr_ctx).agents:
@@ -291,13 +300,23 @@ def _find_agents_to_destroy(
 
         if should_include:
             provider = get_provider_instance(agent_ref.host.provider_name, mngr_ctx)
-            host = provider.get_host(agent_ref.host.id)
-            for agent in host.get_agents():
-                if agent.id == agent_ref.id:
-                    agents_to_destroy.append((agent, host))
-                    break
-            else:
-                raise AgentNotFoundError(f"Agent with ID {agent_ref.id} not found on host {host.id}")
+            host_interface = provider.get_host(agent_ref.host.id)
+
+            match host_interface:
+                case OnlineHostInterface() as online_host:
+                    for agent in online_host.get_agents():
+                        if agent.id == agent_ref.id:
+                            agents_to_destroy.append((agent, online_host))
+                            break
+                    else:
+                        raise AgentNotFoundError(f"Agent with ID {agent_ref.id} not found on host {online_host.id}")
+                case HostInterface():
+                    # can't destroy agents on offline hosts
+                    raise HostOfflineError(
+                        f"Host '{agent_ref.host.id}' is offline. Start the host first to destroy agents."
+                    )
+                case _ as unreachable:
+                    assert_never(unreachable)
 
     # Verify all specified identifiers were found
     if agent_identifiers:
@@ -309,7 +328,7 @@ def _find_agents_to_destroy(
     return agents_to_destroy
 
 
-def _confirm_destruction(agents: list[tuple[AgentInterface, HostInterface]]) -> None:
+def _confirm_destruction(agents: list[tuple[AgentInterface, OnlineHostInterface]]) -> None:
     """Prompt user to confirm destruction of agents."""
     agent_names = [agent.name for agent, _ in agents]
 
@@ -324,7 +343,7 @@ def _confirm_destruction(agents: list[tuple[AgentInterface, HostInterface]]) -> 
 
 
 def _output_agents_list(
-    agents: list[tuple[AgentInterface, HostInterface]],
+    agents: list[tuple[AgentInterface, OnlineHostInterface]],
     prefix: str,
     output_opts: OutputOptions,
 ) -> None:

@@ -7,7 +7,7 @@ from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 
 
 def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str:
@@ -43,7 +43,7 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str
 
 def connect_to_agent(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     mngr_ctx: MngrContext,
     connection_opts: ConnectionOptions,
 ) -> None:

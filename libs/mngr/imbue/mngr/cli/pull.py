@@ -7,8 +7,8 @@ from click_option_group import optgroup
 from loguru import logger
 
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
-from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.list import list_agents
+from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.pull import PullResult
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.cli.common_opts import CommonCliOptions
@@ -25,7 +25,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import OutputFormat
 
 
@@ -69,7 +69,7 @@ class PullCliOptions(CommonCliOptions):
 
 def _select_agent_for_pull(
     mngr_ctx: MngrContext,
-) -> tuple[AgentInterface, HostInterface] | None:
+) -> tuple[AgentInterface, OnlineHostInterface] | None:
     """Show interactive UI to select an agent for pulling.
 
     Returns tuple of (agent, host) or None if user quit without selecting.
@@ -327,7 +327,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
 
     # Find the agent
     agent: AgentInterface
-    host: HostInterface
+    host: OnlineHostInterface
 
     if agent_identifier is not None:
         agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)

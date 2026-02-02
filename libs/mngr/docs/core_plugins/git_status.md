@@ -1,6 +1,6 @@
 # Git Status Plugin
 
-This plugin provides information about the git status of the agent's work_dir repository by adding fields under the `plugin.git_status` namespace:
+This plugin provides information about the git status of the agent's work_dir repository by adding fields under the `plugin.git_status` namespace on controlled shutdown:
 
   - `plugin.$PLUGIN_NAME.*`: Each plugin can add its own fields under its namespace (e.g., `plugin.chat_history.messages`)
   - `plugin.git_status`: A default plugin that shows git state for the agent's work_dir
@@ -15,3 +15,5 @@ This plugin provides information about the git status of the agent's work_dir re
   - `plugin.git_status.untracked_file_count`: Number of untracked files
   - `plugin.git_status.additions`: Number of added lines
   - `plugin.git_status.deletions`: Number of deleted lines
+
+While the agent is online, these fields are computed when the agent state is queried.

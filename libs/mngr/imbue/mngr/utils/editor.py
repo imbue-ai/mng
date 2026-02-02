@@ -7,16 +7,15 @@ from pathlib import Path
 from typing import Any
 from typing import Final
 
-import deal
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import UserInputError
-
 
 FALLBACK_EDITORS: Final[tuple[str, ...]] = ("vim", "vi", "nano", "notepad")
 
 
-@deal.has()
+@pure
 def get_editor_command() -> str:
     """Get the editor command from environment variables or use a fallback.
 
@@ -68,6 +67,8 @@ class EditorSession:
     _exit_callback: Callable[[], None] | None
     _monitor_thread: threading.Thread | None
     _callback_called: bool
+    _read_lock: threading.Lock
+    _result_ready: threading.Event
 
     @classmethod
     def create(cls, initial_content: str | None = None) -> "EditorSession":
@@ -100,6 +101,8 @@ class EditorSession:
         instance._exit_callback = None
         instance._monitor_thread = None
         instance._callback_called = False
+        instance._read_lock = threading.Lock()
+        instance._result_ready = threading.Event()
         return instance
 
     def start(self, on_exit: Callable[[], None] | None = None) -> None:
@@ -159,34 +162,51 @@ class EditorSession:
             self._exit_callback()
 
     def _read_result(self) -> None:
-        """Read the editor result from the temp file. Called by monitor thread on exit."""
+        """Read the editor result from the temp file. Called by monitor thread on exit.
+
+        Thread-safe: Uses a lock to ensure only one thread reads the file, and
+        signals an event when the result is ready for other threads waiting.
+        """
         if self._process is None:
             return
 
-        self._exit_code = self._process.returncode
-        self._is_finished = True
-        logger.trace("Editor exited with code {}", self._exit_code)
+        # Use lock to ensure only one thread reads the result
+        with self._read_lock:
+            # Check if already read by another thread
+            if self._is_finished:
+                return
 
-        # Check exit code
-        if self._exit_code != 0:
-            logger.warning("Editor exited with non-zero code: {}", self._exit_code)
-            return
+            self._exit_code = self._process.returncode
+            logger.trace("Editor exited with code {}", self._exit_code)
 
-        # Read the edited content
-        if not self.temp_file_path.exists():
-            logger.debug("Editor temp file no longer exists")
-            return
+            # Check exit code
+            if self._exit_code != 0:
+                logger.warning("Editor exited with non-zero code: {}", self._exit_code)
+                self._is_finished = True
+                self._result_ready.set()
+                return
 
-        content = self.temp_file_path.read_text()
+            # Read the edited content
+            if not self.temp_file_path.exists():
+                logger.debug("Editor temp file no longer exists")
+                self._is_finished = True
+                self._result_ready.set()
+                return
 
-        # Strip trailing whitespace but preserve intentional content
-        self._result_content = content.rstrip()
+            content = self.temp_file_path.read_text()
 
-        if not self._result_content:
-            logger.debug("Editor content is empty")
-            self._result_content = None
-        else:
-            logger.trace("Read {} characters from edited file", len(self._result_content))
+            # Strip trailing whitespace but preserve intentional content
+            self._result_content = content.rstrip()
+
+            if not self._result_content:
+                logger.debug("Editor content is empty")
+                self._result_content = None
+            else:
+                logger.trace("Read {} characters from edited file", len(self._result_content))
+
+            # Mark as finished and signal waiting threads
+            self._is_finished = True
+            self._result_ready.set()
 
     def is_running(self) -> bool:
         """Check if the editor process is still running."""
@@ -214,8 +234,8 @@ class EditorSession:
         if not self._is_started or self._process is None:
             raise UserInputError("Editor session not started")
 
-        # If monitor thread already read the result, return it
-        if self._is_finished:
+        # If result is already ready, return it immediately
+        if self._result_ready.is_set():
             return self._result_content
 
         logger.debug("Waiting for editor to finish...")
@@ -229,11 +249,15 @@ class EditorSession:
             self._process.wait()
             self._exit_code = -1
             self._is_finished = True
+            self._result_ready.set()
             return None
 
         # Read result if not already done by monitor thread
-        if not self._is_finished:
-            self._read_result()
+        # This also handles the case where no monitor thread was started
+        self._read_result()
+
+        # Wait for the result to be fully ready (handles race with monitor thread)
+        self._result_ready.wait(timeout=1.0)
 
         return self._result_content
 

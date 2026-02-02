@@ -134,6 +134,8 @@ omit = [
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
+    "case _ as unreachable:",
+    "assert_never(unreachable)",
     "raise AssertionError",
     "raise NotImplementedError",
     "if __name__ == .__main__.:",

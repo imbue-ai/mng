@@ -1,20 +1,22 @@
 from pathlib import Path
+from typing import assert_never
 
-import deal
 from loguru import logger
 from pydantic import Field
-from pyinfra.api.exceptions import ConnectError
 
 from imbue.imbue_common.frozen_model import FrozenModel
-from imbue.mngr.api.providers import get_all_provider_instances
+from imbue.imbue_common.pure import pure
+from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundError
-from imbue.mngr.errors import HostConnectionError
+from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import UserInputError
+from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
@@ -36,7 +38,7 @@ class ParsedSourceLocation(FrozenModel):
     path: str | None = Field(description="File path")
 
 
-@deal.has()
+@pure
 def parse_source_string(
     source: str | None,
     source_agent: str | None = None,
@@ -93,7 +95,7 @@ def parse_source_string(
     )
 
 
-@deal.has()
+@pure
 def determine_resolved_path(
     parsed_path: str | None,
     resolved_agent: AgentReference | None,
@@ -113,7 +115,7 @@ def determine_resolved_path(
     raise UserInputError("Must specify a path if no agent is specified")
 
 
-@deal.has()
+@pure
 def resolve_host_reference(
     host_identifier: str | None,
     all_hosts: list[HostReference],
@@ -139,7 +141,7 @@ def resolve_host_reference(
     return resolved_host
 
 
-@deal.has()
+@pure
 def resolve_agent_reference(
     agent_identifier: str | None,
     resolved_host: HostReference | None,
@@ -223,12 +225,16 @@ def resolve_source_location(
         host_interface = provider.get_host(resolved_host.host_id)
     logger.trace("Resolved to host id={}", host_interface.id)
 
+    # Ensure host is online for file operations
+    if not isinstance(host_interface, OnlineHostInterface):
+        raise HostOfflineError(f"Host '{host_interface.id}' is offline. Start the host first.")
+
     # Resolve the final path
     agent_work_dir: Path | None = None
     if resolved_agent is not None:
-        for agent in host_interface.get_agents():
-            if agent.id == resolved_agent.agent_id:
-                agent_work_dir = agent.work_dir
+        for agent_ref in host_interface.get_agent_references():
+            if agent_ref.agent_id == resolved_agent.agent_id:
+                agent_work_dir = agent_ref.work_dir
                 break
 
     resolved_path = determine_resolved_path(
@@ -243,7 +249,7 @@ def resolve_source_location(
     )
 
 
-@deal.has()
+@pure
 def get_host_from_list_by_id(host_id: HostId, all_hosts: list[HostReference]) -> HostReference | None:
     for host in all_hosts:
         if host.host_id == host_id:
@@ -251,7 +257,7 @@ def get_host_from_list_by_id(host_id: HostId, all_hosts: list[HostReference]) ->
     return None
 
 
-@deal.has()
+@pure
 def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostReference]) -> HostReference | None:
     matching_hosts = [host for host in all_hosts if host.host_name == host_name]
     if len(matching_hosts) == 1:
@@ -262,23 +268,37 @@ def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostR
         return None
 
 
-def _ensure_host_started(host: HostInterface, is_start_desired: bool, provider: BaseProviderInstance):
-    if host.is_online:
-        return
-    if is_start_desired:
-        logger.info("Host is offline, starting it...", host_id=host.id, provider=provider.name)
-        provider.start_host(host)
-    else:
-        raise UserInputError(
-            f"Host '{host.connector.name}' is offline and --no-start was specified. "
-            "Use --start to automatically start the host."
-        )
+def ensure_host_started(
+    host: HostInterface, is_start_desired: bool, provider: BaseProviderInstance
+) -> tuple[Host, bool]:
+    """Ensure the host is online and started.
+
+    If the host is already online, returns it cast to OnlineHostInterface.
+    If offline and start is desired, starts the host and returns the online host.
+    If offline and start is not desired, raises UserInputError.
+
+    Also returns a boolean indicating whether the host was started.
+    """
+    match host:
+        case Host() as online_host:
+            return online_host, False
+        case HostInterface() as offline_host:
+            if is_start_desired:
+                logger.info("Host is offline, starting it...", host_id=offline_host.id, provider=provider.name)
+                started_host = provider.start_host(offline_host)
+                return started_host, True
+            else:
+                raise UserInputError(
+                    f"Host '{offline_host.id}' is offline and --no-start was specified. Use --start to automatically start the host."
+                )
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
-def _ensure_agent_started(agent: AgentInterface, host: HostInterface, is_start_desired: bool) -> None:
+def _ensure_agent_started(agent: AgentInterface, host: OnlineHostInterface, is_start_desired: bool) -> None:
     # Check if the agent's tmux session exists and start it if needed
     lifecycle_state = agent.get_lifecycle_state()
-    if lifecycle_state != AgentLifecycleState.RUNNING:
+    if lifecycle_state not in (AgentLifecycleState.RUNNING, AgentLifecycleState.REPLACED, AgentLifecycleState.WAITING):
         if is_start_desired:
             logger.info("Agent {} is stopped, starting it", agent.name)
             host.start_agents([agent.id])
@@ -296,7 +316,7 @@ def find_and_maybe_start_agent_by_name_or_id(
     mngr_ctx: MngrContext,
     command_name: str,
     is_start_desired: bool = False,
-) -> tuple[AgentInterface, HostInterface]:
+) -> tuple[AgentInterface, OnlineHostInterface]:
     """Find an agent by name or ID and return the agent and host interfaces.
 
     This function resolves an agent identifier to the actual agent and host objects,
@@ -317,27 +337,27 @@ def find_and_maybe_start_agent_by_name_or_id(
                 if agent_ref.agent_id == agent_id:
                     provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                     host = provider.get_host(host_ref.host_id)
-                    _ensure_host_started(host, is_start_desired, provider)
-                    for agent in host.get_agents():
+                    online_host, _was_started = ensure_host_started(host, is_start_desired, provider)
+                    for agent in online_host.get_agents():
                         if agent.id == agent_id:
-                            _ensure_agent_started(agent, host, is_start_desired)
-                            return agent, host
+                            _ensure_agent_started(agent, online_host, is_start_desired)
+                            return agent, online_host
         raise AgentNotFoundError(agent_id)
 
     # Try matching by name
     agent_name = AgentName(agent_str)
-    matching: list[tuple[AgentInterface, HostInterface]] = []
+    matching: list[tuple[AgentInterface, OnlineHostInterface]] = []
 
     for host_ref, agent_refs in agents_by_host.items():
         for agent_ref in agent_refs:
             if agent_ref.agent_name == agent_name:
                 provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                 host = provider.get_host(host_ref.host_id)
-                _ensure_host_started(host, is_start_desired, provider)
+                online_host, _was_started = ensure_host_started(host, is_start_desired, provider)
                 # Find the specific agent by ID (not name, to avoid duplicates)
-                for agent in host.get_agents():
+                for agent in online_host.get_agents():
                     if agent.id == agent_ref.agent_id:
-                        matching.append((agent, host))
+                        matching.append((agent, online_host))
                         break
 
     if not matching:
@@ -361,61 +381,81 @@ def find_and_maybe_start_agent_by_name_or_id(
     return agent, host
 
 
-@log_call
-def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference, list[AgentReference]]:
-    """Load all agents from all providers, grouped by their host.
+class AgentMatch(FrozenModel):
+    """Information about an agent that matched a search query."""
 
-    Loops through all providers, gets all hosts from each provider, and then gets all agents for each host.
+    agent_id: AgentId
+    agent_name: AgentName
+    host_id: HostId
+    provider_name: ProviderInstanceName
+
+
+@pure
+def find_agents_by_identifiers_or_state(
+    agent_identifiers: list[str],
+    filter_all: bool,
+    target_state: AgentLifecycleState,
+    mngr_ctx: MngrContext,
+) -> list[AgentMatch]:
+    """Find agents matching identifiers or a target lifecycle state.
+
+    When filter_all is True, returns all agents in the target_state.
+    When filter_all is False, returns agents matching the given identifiers
+    (by name or ID).
+
+    Raises AgentNotFoundError if any identifier does not match an agent.
     """
-    agents_by_host: dict[HostReference, list[AgentReference]] = {}
 
-    logger.debug("Loading all agents from all providers")
-    providers = get_all_provider_instances(mngr_ctx)
-    logger.trace("Found {} provider instances", len(providers))
+    matches: list[AgentMatch] = []
+    matched_identifiers: set[str] = set()
 
-    for provider in providers:
-        logger.trace("Loading hosts from provider {}", provider.name)
-        hosts = provider.list_hosts(include_destroyed=False)
+    for agent_ref in list_agents(mngr_ctx).agents:
+        should_include: bool
+        if filter_all:
+            should_include = agent_ref.lifecycle_state == target_state
+        elif agent_identifiers:
+            agent_name_str = str(agent_ref.name)
+            agent_id_str = str(agent_ref.id)
 
-        for host in hosts:
-            host_ref = HostReference(
-                host_id=host.id,
-                host_name=HostName(host.connector.name),
-                provider_name=provider.name,
+            should_include = False
+            for identifier in agent_identifiers:
+                if identifier == agent_name_str or identifier == agent_id_str:
+                    should_include = True
+                    matched_identifiers.add(identifier)
+        else:
+            should_include = False
+
+        if should_include:
+            matches.append(
+                AgentMatch(
+                    agent_id=agent_ref.id,
+                    agent_name=agent_ref.name,
+                    host_id=agent_ref.host.id,
+                    provider_name=agent_ref.host.provider_name,
+                )
             )
 
-            # Try to get agents from the host. For stopped/unreachable hosts,
-            # connection will fail - try to get persisted agent data from volume.
-            try:
-                agents = host.get_agents()
-                agent_refs = [
-                    AgentReference(
-                        host_id=host.id,
-                        agent_id=agent.id,
-                        agent_name=agent.name,
-                        provider_name=provider.name,
-                    )
-                    for agent in agents
-                ]
-            except (ConnectError, HostConnectionError, OSError) as e:
-                logger.trace("Could not get agents from host {} (may be stopped): {}", host.id, e)
-                # Try to get persisted agent data from the provider (for stopped hosts)
-                agent_refs = []
-                try:
-                    agent_records = provider.list_persisted_agent_data_for_host(host.id)
-                    for agent_data in agent_records:
-                        agent_refs.append(
-                            AgentReference(
-                                host_id=host.id,
-                                agent_id=AgentId(agent_data["id"]),
-                                agent_name=AgentName(agent_data["name"]),
-                                provider_name=provider.name,
-                            )
-                        )
-                    logger.trace("Loaded {} persisted agents for stopped host {}", len(agent_refs), host.id)
-                except (KeyError, ValueError) as inner_e:
-                    logger.trace("Could not load persisted agents for host {}: {}", host.id, inner_e)
+    # Verify all specified identifiers were found
+    if agent_identifiers:
+        unmatched_identifiers = set(agent_identifiers) - matched_identifiers
+        if unmatched_identifiers:
+            unmatched_list = ", ".join(sorted(unmatched_identifiers))
+            raise AgentNotFoundError(f"No agent(s) found matching: {unmatched_list}")
 
-            agents_by_host[host_ref] = agent_refs
+    return matches
 
+
+@pure
+def group_agents_by_host(agents: list[AgentMatch]) -> dict[str, list[AgentMatch]]:
+    """Group a list of AgentMatch objects by their host.
+
+    Returns a dictionary where keys are "{host_id}:{provider_name}" and
+    values are lists of AgentMatch objects on that host.
+    """
+    agents_by_host: dict[str, list[AgentMatch]] = {}
+    for match in agents:
+        key = f"{match.host_id}:{match.provider_name}"
+        if key not in agents_by_host:
+            agents_by_host[key] = []
+        agents_by_host[key].append(match)
     return agents_by_host

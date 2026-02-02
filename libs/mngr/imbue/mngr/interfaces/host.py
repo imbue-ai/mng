@@ -27,9 +27,11 @@ from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import Permission
 from imbue.mngr.primitives import WorkDirCopyMode
@@ -39,8 +41,6 @@ class HostInterface(MutableModel, ABC):
     """Interface for host implementations."""
 
     id: HostId = Field(frozen=True, description="Unique identifier for this host")
-    connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
-    is_online: bool = Field(default=True, description="Whether the host is currently online/started")
 
     @property
     @abstractmethod
@@ -53,6 +53,110 @@ class HostInterface(MutableModel, ABC):
     def host_dir(self) -> Path:
         """Get the host state directory path."""
         ...
+
+    @abstractmethod
+    def get_name(self) -> HostName:
+        """Return the human-readable name of this host."""
+        ...
+
+    # =========================================================================
+    # Activity Configuration
+    # =========================================================================
+
+    @abstractmethod
+    def get_activity_config(self) -> ActivityConfig:
+        """Return the activity configuration for idle detection on this host."""
+        ...
+
+    @abstractmethod
+    def set_activity_config(self, config: ActivityConfig) -> None:
+        """Update the activity configuration for idle detection on this host."""
+        ...
+
+    # =========================================================================
+    # Certified Data
+    # =========================================================================
+
+    @abstractmethod
+    def get_certified_data(self) -> CertifiedHostData:
+        """Return all certified (trustworthy) host data stored in data.json."""
+        ...
+
+    @abstractmethod
+    def set_certified_data(self, data: CertifiedHostData) -> None:
+        """Save certified data to data.json and notify the provider."""
+        ...
+
+    @abstractmethod
+    def get_plugin_data(self, plugin_name: str) -> dict[str, Any]:
+        """Return the certified plugin data for the given plugin name."""
+        ...
+
+    # =========================================================================
+    # Provider-Derived Information
+    # =========================================================================
+
+    @abstractmethod
+    def get_seconds_since_stopped(self) -> float | None:
+        """Return the number of seconds since this host was stopped (or None if it is running)."""
+        ...
+
+    @abstractmethod
+    def get_stop_time(self) -> datetime | None:
+        """Return the host last stop time as a datetime, or None if unknown."""
+        ...
+
+    @abstractmethod
+    def get_snapshots(self) -> list[SnapshotInfo]:
+        """Return a list of all snapshots available for this host."""
+        ...
+
+    @abstractmethod
+    def get_image(self) -> str | None:
+        """Return the base image used for this host, or None if not applicable."""
+        ...
+
+    @abstractmethod
+    def get_tags(self) -> dict[str, str]:
+        """Return all metadata tags associated with this host."""
+        ...
+
+    # =========================================================================
+    # Agent Information
+    # =========================================================================
+
+    @abstractmethod
+    def get_agent_references(self) -> list[AgentReference]:
+        """Return a list of all agent references for this host."""
+        ...
+
+    # =========================================================================
+    # Agent-Derived Information
+    # =========================================================================
+
+    @abstractmethod
+    def get_permissions(self) -> list[str]:
+        """Return the union of all permissions granted to agents on this host."""
+        ...
+
+    @abstractmethod
+    def get_state(self) -> HostState:
+        """Return the current lifecycle state of this host."""
+        ...
+
+    @abstractmethod
+    def get_failure_reason(self) -> str | None:
+        """Return the failure reason if this host failed during creation, or None."""
+        ...
+
+    @abstractmethod
+    def get_build_log(self) -> str | None:
+        """Return the build log if this host failed during creation, or None."""
+        ...
+
+
+class OnlineHostInterface(HostInterface, ABC):
+    connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
 
     # =========================================================================
     # Core Primitives
@@ -114,26 +218,16 @@ class HostInterface(MutableModel, ABC):
         ...
 
     # =========================================================================
-    # Activity Configuration
-    # =========================================================================
-
-    @abstractmethod
-    def get_activity_config(self) -> ActivityConfig:
-        """Return the activity configuration for idle detection on this host."""
-        ...
-
-    @abstractmethod
-    def set_activity_config(self, config: ActivityConfig) -> None:
-        """Update the activity configuration for idle detection on this host."""
-        ...
-
-    # =========================================================================
     # Activity Times (aggregated across all agents on this host)
     # =========================================================================
 
     @abstractmethod
     def get_reported_activity_time(self, activity_type: ActivitySource) -> datetime | None:
-        """Return the last reported activity time for the given activity type, or None if unknown."""
+        """
+        Return the last reported activity time for the given activity type, or None if unknown.
+
+        For offline hosts, we can look at the time at which the host data file was written
+        """
         ...
 
     @abstractmethod
@@ -166,18 +260,17 @@ class HostInterface(MutableModel, ABC):
     # =========================================================================
 
     @abstractmethod
-    def get_all_certified_data(self) -> CertifiedHostData:
-        """Return all certified (trustworthy) host data stored in data.json."""
-        ...
-
-    @abstractmethod
-    def get_plugin_data(self, plugin_name: str) -> dict[str, Any]:
-        """Return the certified plugin data for the given plugin name."""
-        ...
-
-    @abstractmethod
     def set_plugin_data(self, plugin_name: str, data: dict[str, Any]) -> None:
         """Update the certified plugin data for the given plugin name."""
+        ...
+
+    # =========================================================================
+    # Agent-Derived Information
+    # =========================================================================
+
+    @abstractmethod
+    def get_idle_seconds(self) -> float:
+        """Return the number of seconds since the host was last considered active."""
         ...
 
     # =========================================================================
@@ -248,23 +341,13 @@ class HostInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
+    def get_boot_time(self) -> datetime | None:
+        """Return the host boot time as a datetime, or None if unknown."""
+        ...
+
+    @abstractmethod
     def get_provider_resources(self) -> HostResources:
         """Return the resource allocation (CPU, memory, disk) for this host."""
-        ...
-
-    @abstractmethod
-    def get_snapshots(self) -> list[SnapshotInfo]:
-        """Return a list of all snapshots available for this host."""
-        ...
-
-    @abstractmethod
-    def get_image(self) -> str | None:
-        """Return the base image used for this host, or None if not applicable."""
-        ...
-
-    @abstractmethod
-    def get_tags(self) -> dict[str, str]:
-        """Return all metadata tags associated with this host."""
         ...
 
     @abstractmethod
@@ -294,7 +377,7 @@ class HostInterface(MutableModel, ABC):
     @abstractmethod
     def create_agent_work_dir(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         path: Path,
         options: CreateAgentOptions,
     ) -> Path:
@@ -335,27 +418,8 @@ class HostInterface(MutableModel, ABC):
         """Stop the specified agents gracefully within the given timeout."""
         ...
 
-    # =========================================================================
-    # Agent-Derived Information
-    # =========================================================================
-
     @abstractmethod
-    def get_idle_seconds(self) -> float:
-        """Return the number of seconds since the host was last considered active."""
-        ...
-
-    @abstractmethod
-    def get_permissions(self) -> list[str]:
-        """Return the union of all permissions granted to agents on this host."""
-        ...
-
-    @abstractmethod
-    def get_state(self) -> HostState:
-        """Return the current lifecycle state of this host."""
-        ...
-
-    @abstractmethod
-    def persist_agent_data(self, agent_id: AgentId, agent_data: Mapping[str, object]) -> None:
+    def save_agent_data(self, agent_id: AgentId, agent_data: Mapping[str, object]) -> None:
         """Persist agent data to external storage.
 
         Called when an agent's data.json is updated. Providers that support
@@ -618,6 +682,10 @@ class CreateAgentOptions(FrozenModel):
     initial_message: str | None = Field(
         default=None,
         description="Initial message to pipe to the agent on startup",
+    )
+    resume_message: str | None = Field(
+        default=None,
+        description="Message to send when the agent is started (resumed) after being stopped",
     )
     message_delay_seconds: float = Field(
         default=1.0,

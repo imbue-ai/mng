@@ -43,7 +43,7 @@ def test_resource_to_cel_context_for_snapshot() -> None:
     """Test converting SnapshotInfo to CEL context."""
     created_time = datetime.now(timezone.utc) - timedelta(days=7)
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("test-snapshot"),
         created_at=created_time,
         size_bytes=1000000,
@@ -83,7 +83,7 @@ def test_resource_to_cel_context_for_volume() -> None:
 def test_compile_and_apply_cel_filters_include() -> None:
     """Test CEL filter compilation and application with include filters."""
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("large-snapshot"),
         created_at=datetime.now(timezone.utc) - timedelta(days=10),
         size_bytes=2000000000,
@@ -100,7 +100,7 @@ def test_compile_and_apply_cel_filters_include() -> None:
 def test_compile_and_apply_cel_filters_exclude() -> None:
     """Test CEL filter compilation and application with exclude filters."""
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("old-snapshot"),
         created_at=datetime.now(timezone.utc) - timedelta(days=30),
         size_bytes=500000,
@@ -117,7 +117,7 @@ def test_compile_and_apply_cel_filters_exclude() -> None:
 def test_compile_and_apply_cel_filters_name_matching() -> None:
     """Test CEL filter with name pattern matching."""
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("temp-snapshot-123"),
         created_at=datetime.now(timezone.utc),
         size_bytes=100000,
@@ -134,7 +134,7 @@ def test_compile_and_apply_cel_filters_name_matching() -> None:
 def test_compile_and_apply_cel_filters_multiple() -> None:
     """Test CEL filter with multiple conditions."""
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("prod-snapshot"),
         created_at=datetime.now(timezone.utc) - timedelta(days=15),
         size_bytes=3000000000,
@@ -151,7 +151,7 @@ def test_compile_and_apply_cel_filters_multiple() -> None:
 def test_compile_and_apply_cel_filters_empty_filters() -> None:
     """Test CEL filter with no filters returns True."""
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("any-snapshot"),
         created_at=datetime.now(timezone.utc),
         size_bytes=1000,
@@ -168,7 +168,7 @@ def test_compile_and_apply_cel_filters_empty_filters() -> None:
 def test_compile_and_apply_cel_filters_include_not_matching() -> None:
     """Test CEL filter with include that doesn't match returns False."""
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("small-snapshot"),
         created_at=datetime.now(timezone.utc),
         size_bytes=100,

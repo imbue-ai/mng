@@ -5,13 +5,15 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.mutable_model import MutableModel
-from imbue.mngr.api.find import load_all_agents_grouped_by_host
+from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
+from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
@@ -80,7 +82,22 @@ def send_message_to_agents(
                 logger.warning("Provider not found: {}", host_ref.provider_name)
                 continue
 
-            host = provider.get_host(host_ref.host_id)
+            host_interface = provider.get_host(host_ref.host_id)
+
+            # FIXME: much like how the connect command has an option for bringing a host online, we should have a similar option here (to bring online any specified host so that it can be messaged)
+            #  Then this whole next block should be updated (to have a similar "ensure_host_online" and "ensure_agent_running" functions, and use that second one below)
+            # Check if host is online - can't send messages to offline hosts
+            if not isinstance(host_interface, OnlineHostInterface):
+                exception = HostOfflineError(f"Host '{host_ref.host_id}' is offline. Cannot send messages.")
+                if error_behavior == ErrorBehavior.ABORT:
+                    raise exception
+                logger.warning("Host is offline: {}", host_ref.host_id)
+                for agent_ref in agent_refs:
+                    result.failed_agents.append((str(agent_ref.agent_name), str(exception)))
+                    if on_error:
+                        on_error(str(agent_ref.agent_name), str(exception))
+                continue
+            host = host_interface
 
             # Get all agents on this host
             agents = host.get_agents()

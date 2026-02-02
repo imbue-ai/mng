@@ -23,7 +23,7 @@ from imbue.mngr.primitives import SnapshotName
 def _create_test_snapshot(name: str, idx: int) -> SnapshotInfo:
     """Create a test SnapshotInfo for testing."""
     return SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId(f"snap-test-{idx}"),
         name=SnapshotName(name),
         created_at=datetime.now(timezone.utc),
         recency_idx=idx,

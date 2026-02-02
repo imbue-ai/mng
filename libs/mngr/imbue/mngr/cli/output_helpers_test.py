@@ -179,19 +179,6 @@ def test_format_mngr_error_for_cli_with_help_text() -> None:
     assert "Use 'mngr list' to see available agents." in result
 
 
-def test_format_mngr_error_for_cli_separates_error_and_help_text() -> None:
-    """format_mngr_error_for_cli should separate error and help text with blank line."""
-    error = ValueError("Test error")
-    help_text = "Help text here"
-    result = format_mngr_error_for_cli(error, help_text)
-    lines = result.split("\n")
-    assert len(lines) == 3
-    # No "Error:" prefix - Click adds that when displaying MngrError exceptions
-    assert lines[0] == "Test error"
-    assert lines[1] == ""
-    assert lines[2] == "Help text here"
-
-
 def test_format_mngr_error_for_cli_with_multiline_help_text() -> None:
     """format_mngr_error_for_cli should handle multiline help text."""
     error = ValueError("Test error")

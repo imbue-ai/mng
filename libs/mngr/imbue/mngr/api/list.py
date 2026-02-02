@@ -5,28 +5,32 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any
 
-import deal
 from loguru import logger
 from pydantic import Field
 from pyinfra.api.exceptions import ConnectError
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import MngrError
+from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
@@ -199,18 +203,22 @@ def list_agents(
                         # This avoids expensive HostInfo construction for hosts without agents
                         agents = None
                         agent_records = None
-                        host_is_stopped = not host.is_online
 
-                        if not host_is_stopped:
+                        # Use isinstance check to determine if host is online
+                        if isinstance(host, OnlineHostInterface):
                             try:
                                 agents = host.get_agents()
                             except (ConnectError, HostConnectionError, OSError) as e:
                                 # Host is unreachable (probably stopped) - try persisted data
                                 logger.trace("Could not get agents from host {} (may be stopped): {}", host.id, e)
-                                host_is_stopped = True
-
-                        if host_is_stopped:
-                            # Try to get persisted agent data for stopped hosts
+                                # Fall through to try persisted data
+                                try:
+                                    agent_records = provider.list_persisted_agent_data_for_host(host.id)
+                                except (KeyError, ValueError, OSError) as e2:
+                                    logger.trace("Could not load persisted agents for host {}: {}", host.id, e2)
+                                    agent_records = []
+                        else:
+                            # Offline host - try to get persisted agent data
                             try:
                                 agent_records = provider.list_persisted_agent_data_for_host(host.id)
                             except (KeyError, ValueError, OSError) as e:
@@ -221,38 +229,52 @@ def list_agents(
                         if not agents and not agent_records:
                             continue
 
-                        # Build SSH info if this is a remote host
+                        # Build SSH info if this is a remote host (only available for online hosts)
                         ssh_info: SSHInfo | None = None
-                        # Default for local hosts
-                        host_hostname: str = "localhost"
-                        ssh_connection = host._get_ssh_connection_info()
-                        if ssh_connection is not None:
-                            user, hostname, port, key_path = ssh_connection
-                            host_hostname = hostname
-                            ssh_info = SSHInfo(
-                                user=user,
-                                host=hostname,
-                                port=port,
-                                key_path=key_path,
-                                command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
-                            )
+                        host_hostname: str | None = None
+
+                        # Host is the implementation of OnlineHostInterface
+                        if isinstance(host, Host):
+                            ssh_connection = host._get_ssh_connection_info()
+                            if ssh_connection is None:
+                                # Default for local hosts
+                                host_hostname = "localhost"
+                            else:
+                                user, hostname, port, key_path = ssh_connection
+                                host_hostname = hostname
+                                ssh_info = SSHInfo(
+                                    user=user,
+                                    host=hostname,
+                                    port=port,
+                                    key_path=key_path,
+                                    command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
+                                )
+                            boot_time = host.get_boot_time()
+                            uptime_seconds = host.get_uptime_seconds()
+                            resource = host.get_provider_resources()
+                        else:
+                            boot_time = None
+                            uptime_seconds = None
+                            resource = None
 
                         host_info = HostInfo(
                             id=host.id,
-                            name=host.connector.name,
+                            name=str(host.get_name()),
                             provider_name=provider.name,
                             host=host_hostname,
                             state=host.get_state().value.lower(),
-                            image=host.get_image() if host.is_online else None,
-                            tags=host.get_tags() if host.is_online else {},
-                            boot_time=host.get_boot_time() if host.is_online else None,
-                            uptime_seconds=host.get_uptime_seconds() if host.is_online else None,
-                            resource=host.get_provider_resources() if host.is_online else None,
+                            image=host.get_image(),
+                            tags=host.get_tags(),
+                            boot_time=boot_time,
+                            uptime_seconds=uptime_seconds,
+                            resource=resource,
                             ssh=ssh_info,
-                            snapshots=host.get_snapshots() if host.is_online else [],
+                            snapshots=host.get_snapshots(),
+                            failure_reason=host.get_failure_reason(),
+                            build_log=host.get_build_log(),
                         )
 
-                        if host_is_stopped:
+                        if agents is None:
                             # Use persisted agent data for stopped hosts
                             for agent_data in agent_records or []:
                                 try:
@@ -375,7 +397,7 @@ def list_agents(
     return result
 
 
-@deal.has()
+@pure
 def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
     """Convert an AgentInfo object to a CEL-friendly dict.
 
@@ -447,3 +469,32 @@ def _apply_cel_filters(
         exclude_filters=exclude_filters,
         error_context_description=f"agent {agent.name}",
     )
+
+
+@log_call
+def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference, list[AgentReference]]:
+    """Load all agents from all providers, grouped by their host.
+
+    Loops through all providers, gets all hosts from each provider, and then gets all agents for each host.
+    Handles both online hosts (which can be queried directly) and offline hosts (which use persisted data).
+    """
+    agents_by_host: dict[HostReference, list[AgentReference]] = {}
+
+    logger.debug("Loading all agents from all providers")
+    providers = get_all_provider_instances(mngr_ctx)
+    logger.trace("Found {} provider instances", len(providers))
+
+    for provider in providers:
+        logger.trace("Loading hosts from provider {}", provider.name)
+        hosts = provider.list_hosts(include_destroyed=False)
+
+        for host in hosts:
+            host_ref = HostReference(
+                host_id=host.id,
+                host_name=host.get_name(),
+                provider_name=provider.name,
+            )
+            agent_refs = host.get_agent_references()
+            agents_by_host[host_ref] = agent_refs
+
+    return agents_by_host

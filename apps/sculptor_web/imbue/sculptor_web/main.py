@@ -5,7 +5,6 @@ import subprocess
 import threading
 from typing import Final
 
-import deal
 from fastcore.xml import FT
 from fasthtml.common import Div
 from fasthtml.common import Html
@@ -26,6 +25,7 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.imbue_common.pure import pure
 from imbue.sculptor_web.data_types import AgentDisplayInfo
 from imbue.sculptor_web.data_types import AgentHostInfo
 from imbue.sculptor_web.data_types import AgentListResult
@@ -83,7 +83,7 @@ def _run_mngr_list() -> AgentListResult:
         raise AgentListingError(f"Invalid JSON output: {e}") from e
 
 
-@deal.has()
+@pure
 def _parse_agent_info(data: dict) -> AgentDisplayInfo:
     """Parse agent info from JSON data."""
     host_data = data.get("host", {})
@@ -171,7 +171,7 @@ def _stop_polling() -> None:
 app, rt = fast_app()
 
 
-@deal.has()
+@pure
 def _render_page_head() -> tuple:
     """Render the page head elements."""
     return (
@@ -183,7 +183,7 @@ def _render_page_head() -> tuple:
     )
 
 
-@deal.has()
+@pure
 def _render_sidebar(agents: tuple[AgentDisplayInfo, ...], selected_agent_id: str | None) -> FT:
     """Render the sidebar with the list of agents."""
     agent_items = []
@@ -231,7 +231,7 @@ def _render_sidebar(agents: tuple[AgentDisplayInfo, ...], selected_agent_id: str
     )
 
 
-@deal.has()
+@pure
 def _render_main_content(agents: tuple[AgentDisplayInfo, ...]) -> FT:
     """Render the main content area with iframes (lazy-loaded on first click)."""
     iframes = []

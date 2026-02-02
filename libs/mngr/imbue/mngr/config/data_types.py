@@ -4,12 +4,13 @@ from pathlib import Path
 from typing import Any
 from typing import Self
 from typing import TypeVar
+from uuid import uuid4
 
-import deal
 import pluggy
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import ConfigParseError
 from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.primitives import AgentTypeName
@@ -27,7 +28,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 T = TypeVar("T")
 
 
-@deal.has()
+@pure
 def merge_cli_args(base: str, override: str) -> str:
     """Merge CLI arguments, concatenating if both present."""
     if override:
@@ -37,7 +38,7 @@ def merge_cli_args(base: str, override: str) -> str:
     return base
 
 
-@deal.has()
+@pure
 def merge_list_fields(base: list[T], override: list[T] | None) -> list[T]:
     """Merge list fields, concatenating if override is not None."""
     if override is not None:
@@ -49,7 +50,7 @@ K = TypeVar("K")
 V = TypeVar("V")
 
 
-@deal.has()
+@pure
 def merge_dict_fields(base: dict[K, V], override: dict[K, V] | None) -> dict[K, V]:
     """Merge dict fields, with override keys taking precedence."""
     if override is not None:
@@ -485,6 +486,13 @@ class MngrContext(FrozenModel):
         default=False,
         description="Whether the CLI is running in interactive mode (can prompt user for input)",
     )
+    user_id: str = Field(
+        default_factory=lambda: str(uuid4()),
+        description="Unique identifier for the current user/session",
+    )
+    profile_dir: Path = Field(
+        description="Profile-specific directory for user data (user_id, providers, settings)",
+    )
 
 
 class OutputOptions(FrozenModel):
@@ -518,3 +526,8 @@ class OutputOptions(FrozenModel):
         default=False,
         description="Log environment variables (security risk)",
     )
+
+
+USER_ID_FILENAME = "user_id"
+PROFILES_DIRNAME = "profiles"
+ROOT_CONFIG_FILENAME = "config.toml"

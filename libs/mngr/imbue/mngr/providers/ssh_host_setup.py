@@ -9,15 +9,14 @@ import importlib.resources
 from pathlib import Path
 from typing import Final
 
-import deal
-
+from imbue.imbue_common.pure import pure
 from imbue.mngr import resources
 
 # Prefix used in shell output to identify warnings that should be shown to the user
 WARNING_PREFIX: Final[str] = "MNGR_WARN:"
 
 
-@deal.has()
+@pure
 def get_user_ssh_dir(user: str) -> Path:
     """Get the SSH directory path for a given user.
 
@@ -29,7 +28,7 @@ def get_user_ssh_dir(user: str) -> Path:
         return Path(f"/home/{user}/.ssh")
 
 
-@deal.has()
+@pure
 def build_check_and_install_packages_command(
     mngr_host_dir: str,
 ) -> str:
@@ -82,6 +81,12 @@ def build_check_and_install_packages_command(
         "Installing at runtime. For faster startup, consider using an image with git pre-installed.'; "
         'PKGS_TO_INSTALL="$PKGS_TO_INSTALL git"; '
         "fi",
+        # Check for jq (required for activity_watcher.sh to read data.json)
+        "if ! command -v jq >/dev/null 2>&1; then "
+        f"echo '{WARNING_PREFIX}jq is not pre-installed in the base image. "
+        "Installing at runtime. For faster startup, consider using an image with jq pre-installed.'; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL jq"; '
+        "fi",
         # Install missing packages if any
         'if [ -n "$PKGS_TO_INSTALL" ]; then apt-get update -qq && apt-get install -y -qq $PKGS_TO_INSTALL; fi',
         # Create sshd run directory (required for sshd to start)
@@ -93,7 +98,7 @@ def build_check_and_install_packages_command(
     return "; ".join(script_lines)
 
 
-@deal.has()
+@pure
 def build_configure_ssh_command(
     user: str,
     client_public_key: str,
@@ -141,7 +146,7 @@ def build_configure_ssh_command(
     return "; ".join(script_lines)
 
 
-@deal.has()
+@pure
 def parse_warnings_from_output(output: str) -> list[str]:
     """Parse warning messages from command output.
 
@@ -165,7 +170,7 @@ def _load_activity_watcher_script() -> str:
     return script_path.read_text()
 
 
-@deal.has()
+@pure
 def build_start_activity_watcher_command(
     mngr_host_dir: str,
 ) -> str:

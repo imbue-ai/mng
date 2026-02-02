@@ -44,7 +44,7 @@ class BaseProviderInstance(ProviderInstanceInterface):
     def get_host(
         self,
         host: HostId | HostName,
-    ) -> Host:
+    ) -> HostInterface:
         raise NotImplementedError()
 
     def list_hosts(
@@ -57,5 +57,5 @@ class BaseProviderInstance(ProviderInstanceInterface):
         self,
         host: HostInterface | HostId,
         name: HostName,
-    ) -> Host:
+    ) -> HostInterface:
         raise NotImplementedError()

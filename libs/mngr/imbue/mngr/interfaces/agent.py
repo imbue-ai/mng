@@ -28,7 +28,7 @@ from imbue.mngr.primitives import Permission
 # this is the only place where it is acceptable to use the TYPE_CHECKING flag
 if TYPE_CHECKING:
     from imbue.mngr.interfaces.host import CreateAgentOptions
-    from imbue.mngr.interfaces.host import HostInterface
+    from imbue.mngr.interfaces.host import OnlineHostInterface
 
 
 class AgentStatus(FrozenModel):
@@ -52,14 +52,14 @@ class AgentInterface(MutableModel, ABC):
     agent_config: AgentTypeConfig = Field(frozen=True, repr=False, description="Agent type config")
 
     @abstractmethod
-    def get_host(self) -> HostInterface:
-        """Return the host this agent runs on."""
+    def get_host(self) -> OnlineHostInterface:
+        """Return the host this agent runs on (must be online)."""
         ...
 
     @abstractmethod
     def assemble_command(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         agent_args: tuple[str, ...],
         command_override: CommandString | None,
     ) -> CommandString:
@@ -114,7 +114,17 @@ class AgentInterface(MutableModel, ABC):
 
     @abstractmethod
     def get_initial_message(self) -> str | None:
-        """Return the initial message to send to the agent on start, or None if not set."""
+        """Return the initial message to send to the agent on creation, or None if not set."""
+        ...
+
+    @abstractmethod
+    def get_resume_message(self) -> str | None:
+        """Return the resume message to send when the agent is started (resumed), or None if not set."""
+        ...
+
+    @abstractmethod
+    def get_message_delay_seconds(self) -> float:
+        """Return the delay in seconds to wait before sending messages to the agent."""
         ...
 
     @abstractmethod
@@ -244,7 +254,7 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def on_before_provisioning(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
@@ -267,7 +277,7 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def get_provision_file_transfers(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> Sequence[FileTransferSpec]:
@@ -291,7 +301,7 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def provision(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
@@ -312,7 +322,7 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def on_after_provisioning(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:

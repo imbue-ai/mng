@@ -10,6 +10,7 @@ from imbue.mngr.cli.data_types import OptionStackItem
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 
 hookspec = pluggy.HookspecMarker("mngr")
@@ -43,7 +44,7 @@ def register_agent_type() -> tuple[str, type[AgentInterface] | None, type | None
 
 
 @hookspec
-def on_agent_created(agent: AgentInterface, host: HostInterface) -> None:
+def on_agent_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
     """Called after an agent has been created.
 
     This hook is called after an agent is fully created and started.

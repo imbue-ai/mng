@@ -8,14 +8,6 @@
             "command": "uv sync --all-packages"
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "./scripts/claude_request_start.sh"
-          }
-        ]
       }
     ],
     "UserPromptSubmit": [
@@ -24,6 +16,16 @@
           {
             "type": "command",
             "command": "touch .claude/active"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/claude_prevent_commit_rewrite.sh"
           }
         ]
       }

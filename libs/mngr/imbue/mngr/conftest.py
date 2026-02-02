@@ -21,11 +21,11 @@ import imbue.mngr.main
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
-from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
 from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
@@ -163,12 +163,17 @@ def temp_config(temp_host_dir: Path, mngr_test_prefix: str) -> MngrConfig:
 
 
 @pytest.fixture
-def temp_mngr_ctx(temp_config: MngrConfig, plugin_manager: pluggy.PluginManager) -> MngrContext:
+def temp_mngr_ctx(
+    temp_config: MngrConfig, temp_host_dir: Path, plugin_manager: pluggy.PluginManager
+) -> MngrContext:
     """Create a MngrContext with a temporary host directory.
 
     Use this fixture when calling API functions that need a context.
     """
-    return MngrContext(config=temp_config, pm=plugin_manager)
+    # Create a profile directory in the temp host dir
+    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return MngrContext(config=temp_config, pm=plugin_manager, profile_dir=profile_dir)
 
 
 @pytest.fixture
@@ -225,10 +230,8 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     imbue.mngr.main.reset_plugin_manager()
     reset_backend_registry()
 
-    # Clean up Modal app contexts and sandbox cache to prevent async cleanup errors
-    # and ensure test isolation
+    # Clean up Modal app contexts to prevent async cleanup errors
     ModalProviderBackend.reset_app_registry()
-    ModalProviderInstance.reset_sandbox_cache()
 
 
 # =============================================================================

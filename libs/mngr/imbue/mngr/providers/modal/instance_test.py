@@ -34,6 +34,8 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
+from imbue.mngr.interfaces.data_types import CertifiedHostData
+from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -49,7 +51,6 @@ from imbue.mngr.providers.modal.instance import HostRecord
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.instance import SandboxConfig
-from imbue.mngr.providers.modal.instance import SnapshotRecord
 from imbue.mngr.providers.modal.instance import TAG_HOST_ID
 from imbue.mngr.providers.modal.instance import TAG_HOST_NAME
 from imbue.mngr.providers.modal.instance import TAG_USER_PREFIX
@@ -550,25 +551,28 @@ def _make_host_record(
     snapshots: list[SnapshotRecord] | None = None,
 ) -> HostRecord:
     """Create a HostRecord for testing."""
-    return HostRecord(
+    certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name=host_name,
+        user_tags={},
+        snapshots=snapshots or [],
+    )
+    return HostRecord(
         ssh_host="test.host",
         ssh_port=22,
         ssh_host_public_key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQ...",
         config=SandboxConfig(cpu=1.0, memory=1.0),
-        user_tags={},
-        snapshots=snapshots or [],
+        certified_host_data=certified_data,
     )
 
 
 def _make_snapshot_record(name: str = "initial") -> SnapshotRecord:
     """Create a SnapshotRecord for testing."""
+    # The id is now the Modal image ID directly
     return SnapshotRecord(
-        id=str(SnapshotId.generate()),
+        id="im-abc123",
         name=name,
         created_at="2026-01-01T00:00:00Z",
-        modal_image_id="im-abc123",
     )
 
 
@@ -1499,6 +1503,8 @@ def test_list_snapshots_returns_initial_snapshot(initial_snapshot_provider: Moda
     host = None
     try:
         host = initial_snapshot_provider.create_host(HostName("test-host"))
+        # we have to manually trigger the on_agent_created hook to create the initial snapshot (this is normally done automatically during the api::create_host call as a plugin callback)
+        initial_snapshot_provider.on_agent_created(MagicMock(), host)
         snapshots = initial_snapshot_provider.list_snapshots(host)
         assert len(snapshots) == 1
         assert snapshots[0].name == "initial"
@@ -1541,7 +1547,7 @@ def test_delete_nonexistent_snapshot_raises_error(real_modal_provider: ModalProv
     try:
         host = real_modal_provider.create_host(HostName("test-host"))
 
-        fake_id = SnapshotId.generate()
+        fake_id = SnapshotId("snap-nonexistent")
         with pytest.raises(SnapshotNotFoundError):
             real_modal_provider.delete_snapshot(host, fake_id)
 
@@ -1628,6 +1634,9 @@ def test_start_host_on_stopped_host_uses_initial_snapshot(initial_snapshot_provi
         host = initial_snapshot_provider.create_host(HostName("test-host"))
         host_id = host.id
 
+        # we have to manually trigger the on_agent_created hook to create the initial snapshot (this is normally done automatically during the api::create_host call as a plugin callback)
+        initial_snapshot_provider.on_agent_created(MagicMock(), host)
+
         # Verify an initial snapshot was created
         snapshots = initial_snapshot_provider.list_snapshots(host)
         assert len(snapshots) == 1
@@ -1691,6 +1700,9 @@ def test_restart_after_hard_kill_with_initial_snapshot(initial_snapshot_provider
         host = initial_snapshot_provider.create_host(HostName("test-host"))
         host_id = host.id
         host_name = HostName("test-host")
+
+        # we have to manually trigger the on_agent_created hook to create the initial snapshot (this is normally done automatically during the api::create_host call as a plugin callback)
+        initial_snapshot_provider.on_agent_created(MagicMock(), host)
 
         # Verify initial snapshot was created
         snapshots = initial_snapshot_provider.list_snapshots(host)

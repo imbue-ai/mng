@@ -112,8 +112,7 @@ def format_mngr_error_for_cli(error: Exception, user_help_text: str | None) -> s
     Produces a user-friendly error message without a stack trace.
     If the error has user_help_text, it is appended after the error message.
     """
-    lines = [str(error)]
     if user_help_text:
-        lines.append("")
-        lines.append(user_help_text)
-    return "\n".join(lines)
+        return str(error) + "  " + user_help_text
+    else:
+        return str(error)

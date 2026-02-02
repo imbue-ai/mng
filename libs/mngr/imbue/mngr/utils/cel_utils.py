@@ -2,15 +2,15 @@ from collections.abc import Sequence
 from typing import Any
 
 import celpy
-import deal
 from celpy.celparser import CELParseError
 from celpy.evaluation import CELEvalError
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import MngrError
 
 
-@deal.has()
+@pure
 def compile_cel_filters(
     include_filters: Sequence[str],
     exclude_filters: Sequence[str],

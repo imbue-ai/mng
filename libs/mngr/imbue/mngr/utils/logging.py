@@ -16,9 +16,9 @@ from typing import TextIO
 from typing import TypeVar
 from typing import cast
 
-import deal
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -234,7 +234,7 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-@deal.has()
+@pure
 def _format_arg_value(value: Any) -> str:
     """Format an argument value for logging, truncating if too long."""
     str_value = repr(value)

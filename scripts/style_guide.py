@@ -12,9 +12,9 @@ from imbue.imbue_common.primitives import NonNegativeInt
 from imbue.imbue_common.primitives import PositiveFloat
 from imbue.imbue_common.primitives import PositiveInt
 from pydantic import SecretStr
-import deal
 from datetime import datetime
 from datetime import timezone
+from imbue.imbue_common.pure import pure
 from decimal import Decimal
 from functools import cached_property
 from pydantic import computed_field
@@ -159,7 +159,7 @@ class TodoSyncCredentials(FrozenModel):
 
 
 
-@deal.has()
+@pure
 def get_current_utc_timestamp() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -206,7 +206,7 @@ class OutputFormat(UpperCaseStrEnum):
     YAML = auto()
 
 
-@deal.has()
+@pure
 def serialize_todo_list(
     todo_list: TodoList,
     output_format: OutputFormat,
@@ -226,7 +226,7 @@ def serialize_todo_list(
 # === Example block 12 ===
 
 
-@deal.has()
+@pure
 def categorize_todo_by_priority_and_age(
     todo: TodoItem,
     current_time: datetime,
@@ -428,7 +428,7 @@ class TodoNotificationService(MutableModel):
 
 # === Example block 20 ===
 # a function that is so simple that no docstring or comments are needed
-@deal.has()
+@pure
 def filter_todos_by_status(
     todos: tuple[TodoItem, ...],
     status: TodoStatus,
@@ -437,7 +437,7 @@ def filter_todos_by_status(
 
 
 # An example that is complex enough to warrant a docstring and some comments
-@deal.has()
+@pure
 def walk_todo_tree(
     root_todo: TodoItem,
     # A callback function to invoke on each todo item as it is visited. If it returns a non-None result, 
@@ -457,7 +457,7 @@ class ArchiveCompletedTodosResult(FrozenModel):
     archived_todos: tuple[TodoItem, ...] = Field(description="Todos that were archived")
 
 
-@deal.has()
+@pure
 def archive_todos_completed_before(
     todo_list: TodoList,
     archive_before_date: datetime,
@@ -486,7 +486,7 @@ def archive_todos_completed_before(
 _DEFAULT_TODO_PAGE_SIZE: Final[int] = 50
 
 
-@deal.has()
+@pure
 def _sort_todos_by_due_date_ascending(
     todos: tuple[TodoItem, ...],
 ) -> tuple[TodoItem, ...]:
@@ -536,7 +536,7 @@ def get_todo_at_display_idx(self, display_idx: int) -> TodoItem:
 MAX_TODOS_PER_LIST: Final[int] = 1000
 
 
-@deal.has()
+@pure
 def find_todos_matching_title_or_description(
     todo_list: TodoList,
     search_text: str,
@@ -548,7 +548,7 @@ def find_todos_matching_title_or_description(
 # === Example block 27 ===
 
 
-@deal.has()
+@pure
 def find_todos_with_any_tag(
     todos: Sequence[TodoItem],
     allowed_tags: Mapping[str, TagPriority],
@@ -560,7 +560,7 @@ def find_todos_with_any_tag(
 
 
 # === Example block 28 ===
-@deal.has()
+@pure
 def add_tag_to_todo(todo_item: TodoItem, tag_to_add: Tag) -> TodoItem:
     updated_tags = todo_item.tags + (tag_to_add,)
     return todo_item.model_copy(update={"tags": updated_tags})
@@ -574,7 +574,7 @@ class ValidatedTodoInput(FrozenModel):
     description: str = Field(description="Todo description")
 
 
-@deal.has()
+@pure
 def create_todo_from_validated_input(validated_input: ValidatedTodoInput) -> TodoItem:
     new_todo_id = TodoId.generate()
     return TodoItem(
@@ -605,7 +605,7 @@ def main() -> None:
     )
 
 
-@deal.has()
+@pure
 def add_todo_to_list(todo_item: TodoItem, todo_list: TodoList) -> TodoList:
     return todo_list.with_added_todo(todo_item)
 
@@ -658,15 +658,15 @@ class TodoRepositoryInterface(MutableModel, ABC):
 
     @abstractmethod
     def save_todo(self, todo_item: TodoItem) -> None:
-        ...
+        """Persist a todo item to storage, overwriting if it already exists."""
 
     @abstractmethod
     def get_todo_by_id(self, todo_id: TodoId) -> TodoItem | None:
-        ...
+        """Retrieve a todo by its ID, returning None if not found."""
 
     @abstractmethod
     def delete_todo(self, todo_id: TodoId) -> None:
-        ...
+        """Remove a todo from storage. Raises TodoNotFoundError if not found."""
 
 
 # === Example block 34 ===
@@ -682,22 +682,22 @@ class TodoChange(FrozenModel):
 
 class TodoSyncServiceInterface(MutableModel, ABC):
     """Defines the contract for synchronizing todos with a remote server."""
-
+    
     @abstractmethod
     def connect(self, server_url: str) -> None:
-        ...
+        """Establish a connection to the sync server."""
 
     @abstractmethod
     def disconnect(self) -> None:
-        ...
+        """Close the connection to the sync server."""
 
     @abstractmethod
     def push_changes(self, changes: tuple[TodoChange, ...]) -> None:
-        ...
+        """Upload local changes to the remote server."""
 
     @abstractmethod
     def pull_changes(self) -> tuple[TodoChange, ...]:
-        ...
+        """Download pending changes from the remote server."""
 
 
 # === Example block 35 ===
@@ -751,7 +751,7 @@ class TodoSummaryReport(FrozenModel):
     statistics: TodoStatistics = Field(description="Summary statistics")
 
 
-@deal.has()
+@pure
 def generate_todo_summary_report(
     todo_list: TodoList,
     report_date: datetime,
@@ -791,7 +791,7 @@ PRIORITY_SORT_ORDER: Final[dict[TodoPriority, int]] = {
 }
 
 
-@deal.has()
+@pure
 def sort_todos_by_priority_then_due_date(
     todos: tuple[TodoItem, ...],
 ) -> tuple[TodoItem, ...]:
@@ -809,7 +809,7 @@ def sort_todos_by_priority_then_due_date(
 DEFAULT_PAGE_SIZE: Final[int] = 25
 
 
-@deal.has()
+@pure
 def filter_todos_by_completion_status(
     todos: tuple[TodoItem, ...],
     is_completed: bool,
@@ -849,10 +849,10 @@ class TodoDisplayInterface(ABC, MutableModel):
 
     @abstractmethod
     def display_todo(self, todo: TodoItem) -> None:
-        ...
+        """Render a todo item to the output destination."""
 
 
-@deal.has()
+@pure
 def format_todo_for_display(todo: TodoItem, is_verbose: bool) -> str:
     status_marker = "[x]" if todo.is_completed else "[ ]"
     if is_verbose and todo.description:
@@ -886,12 +886,30 @@ def save_todo_to_repository(
     todo_repository: TodoRepositoryInterface,
     todo_item: TodoItem,
 ) -> None:
-    logger.info("Saving todo with ID {}", todo_item.todo_id)
+    # Log BEFORE the action
+    logger.debug("Saving todo to repository")
     todo_repository.save_todo(todo_item)
-    logger.debug("Todo saved successfully: {}", todo_item.title)
+    logger.trace("Saved todo id={} title={}", todo_item.todo_id, todo_item.title)
 
 
 # === Example block 45 ===
+
+
+# In CLI code - info is appropriate
+def cli_create_todo(title: str) -> None:
+    todo = create_todo(title)
+    logger.info("Created todo (ID={})", todo.todo_id)
+
+
+# In library/API code - use debug instead
+def create_todo(title: str) -> TodoItem:
+    logger.debug("Creating todo item")
+    todo = TodoItem(title=title)
+    logger.trace("Created todo id={} title={}", todo.todo_id, todo.title)
+    return todo
+
+
+# === Example block 46 ===
 
 
 class TodoStorageError(TodoAppError):
@@ -904,18 +922,14 @@ class TodoNotificationService(MutableModel):
     """Service for sending todo notifications."""
 
     def send_reminder(self, reminder: TodoReminder) -> None:
-        logger.info("Sending reminder {}", reminder.reminder_id)
-        logger.debug("Reminder for todo: {}", reminder.todo_id)
-
         try:
             self._send_notification(reminder)
-            logger.trace("Notification sent for {}", reminder.reminder_id)
         except ConnectionError as e:
             logger.exception(e, "Failed to send notification")
             raise
 
 
-# === Example block 46 ===
+# === Example block 47 ===
 
 
 def main() -> None:
@@ -924,7 +938,7 @@ def main() -> None:
 
 
 
-# === Example block 47 ===
+# === Example block 48 ===
 
 
 
@@ -977,7 +991,7 @@ def load_todo_app_configuration() -> TodoAppConfiguration:
     return TodoAppConfiguration.model_validate(raw_config)
 
 
-# === Example block 48 ===
+# === Example block 49 ===
 
 
 
@@ -1030,7 +1044,7 @@ def list_todos(
     run_list_todos(arguments)
 
 
-# === Example block 49 ===
+# === Example block 50 ===
 
 
 def test_format_todo_for_display_shows_checkbox_and_title() -> None:
@@ -1057,7 +1071,7 @@ def test_format_todo_for_display_shows_completed_marker_when_done() -> None:
     assert formatted_output == snapshot("[x] Send email")
 
 
-# === Example block 50 ===
+# === Example block 51 ===
 
 
 
@@ -1097,7 +1111,7 @@ def test_export_large_todo_dataset_to_json_produces_expected_output() -> None:
     )
 
 
-# === Example block 51 ===
+# === Example block 52 ===
 def test_add_todo_to_list_appends_todo_to_end_of_list() -> None:
     todo_list = TodoList(list_id=TodoListId.generate(), todos=())
     new_todo = create_test_todo(title="New task")
@@ -1108,7 +1122,7 @@ def test_add_todo_to_list_appends_todo_to_end_of_list() -> None:
     assert updated_list.todos[0] == new_todo
 
 
-# === Example block 52 ===
+# === Example block 53 ===
 
 
 
@@ -1151,7 +1165,27 @@ def test_sync_todo_list_to_remote_server_handles_response_correctly(
     assert sync_response.synced_count == snapshot(1)
 
 
-# === Example block 53 ===
+# === Example block 54 ===
+
+
+@pytest.mark.acceptance
+def test_sync_todos_to_remote_server_succeeds_with_valid_credentials() -> None:
+    """Test that we can sync todos to a real remote server."""
+    # This test makes real network requests
+    ...
+
+
+# === Example block 55 ===
+
+
+@pytest.mark.release
+def test_full_end_to_end_workflow_with_all_providers() -> None:
+    """Comprehensive test that exercises all providers."""
+    # This test may take longer but ensures full functionality
+    ...
+
+
+# === Example block 56 ===
 
 
 class TodoSyncError(TodoAppError):

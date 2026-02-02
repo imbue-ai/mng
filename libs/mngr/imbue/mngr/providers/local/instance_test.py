@@ -3,10 +3,12 @@
 import json
 import tempfile
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
 from imbue.mngr.config.data_types import MngrConfig
+from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
@@ -32,8 +34,10 @@ def test_local_provider_supports_mutable_tags(local_provider: LocalProviderInsta
 
 
 def test_create_host_returns_host_with_persistent_id(temp_host_dir: Path, temp_config: MngrConfig) -> None:
-    provider1 = make_local_provider(temp_host_dir, temp_config)
-    provider2 = make_local_provider(temp_host_dir, temp_config)
+    # Use the same profile_dir for both providers to test persistence
+    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
+    provider1 = make_local_provider(temp_host_dir, temp_config, profile_dir=profile_dir)
+    provider2 = make_local_provider(temp_host_dir, temp_config, profile_dir=profile_dir)
 
     host1 = provider1.create_host(HostName("test"))
     host2 = provider2.create_host(HostName("test"))
@@ -56,16 +60,19 @@ def test_create_host_generates_new_id_for_different_dirs(mngr_test_prefix: str) 
 
 
 def test_host_id_persists_across_provider_instances(temp_host_dir: Path, temp_config: MngrConfig) -> None:
-    provider1 = make_local_provider(temp_host_dir, temp_config)
+    # Use the same profile_dir for both providers to test persistence
+    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
+    provider1 = make_local_provider(temp_host_dir, temp_config, profile_dir=profile_dir)
     host1 = provider1.create_host(HostName("test"))
     host_id = host1.id
 
-    provider2 = make_local_provider(temp_host_dir, temp_config)
+    provider2 = make_local_provider(temp_host_dir, temp_config, profile_dir=profile_dir)
     host2 = provider2.create_host(HostName("test"))
 
     assert host2.id == host_id
 
-    host_id_path = temp_host_dir / "providers" / "local" / "host_id"
+    # host_id is now stored in the profile directory
+    host_id_path = profile_dir / "providers" / "local" / "host_id"
     assert host_id_path.exists()
     assert host_id_path.read_text().strip() == host_id
 
@@ -135,7 +142,7 @@ def test_list_snapshots_returns_empty_list(local_provider: LocalProviderInstance
 def test_delete_snapshot_raises_error(local_provider: LocalProviderInstance) -> None:
     host = local_provider.create_host(HostName("test"))
     with pytest.raises(SnapshotsNotSupportedError):
-        local_provider.delete_snapshot(host, SnapshotId.generate())
+        local_provider.delete_snapshot(host, SnapshotId("snap-test"))
 
 
 def test_get_host_tags_empty_by_default(local_provider: LocalProviderInstance) -> None:
@@ -191,12 +198,13 @@ def test_remove_tags_from_host(local_provider: LocalProviderInstance) -> None:
 
 
 def test_tags_persist_to_file(temp_host_dir: Path, temp_config: MngrConfig) -> None:
-    provider = make_local_provider(temp_host_dir, temp_config)
+    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
+    provider = make_local_provider(temp_host_dir, temp_config, profile_dir=profile_dir)
     host = provider.create_host(HostName("test"))
 
     provider.set_host_tags(host, {"env": "test"})
 
-    labels_path = temp_host_dir / "providers" / "local" / "labels.json"
+    labels_path = profile_dir / "providers" / "local" / "labels.json"
     assert labels_path.exists()
 
     with open(labels_path) as f:
@@ -250,10 +258,11 @@ def test_list_volumes_returns_empty_list(local_provider: LocalProviderInstance) 
 
 def test_get_host_tags_returns_empty_when_labels_file_is_empty(temp_host_dir: Path, temp_config: MngrConfig) -> None:
     """get_host_tags should return empty dict when labels file exists but is empty."""
-    provider = make_local_provider(temp_host_dir, temp_config)
+    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
+    provider = make_local_provider(temp_host_dir, temp_config, profile_dir=profile_dir)
     host = provider.create_host(HostName("test"))
 
-    labels_path = temp_host_dir / "providers" / "local" / "labels.json"
+    labels_path = profile_dir / "providers" / "local" / "labels.json"
     labels_path.parent.mkdir(parents=True, exist_ok=True)
     labels_path.write_text("")
 

@@ -95,5 +95,5 @@ Snapshots are stored as Modal images and persist even after the sandbox is termi
 
 ## Limitations
 
-- Sandboxes have a maximum lifetime (timeout) after which they are automatically terminated by Modal
-- Sandboxes cannot be stopped and resumed directly - use snapshots to preserve state before termination
+- Sandboxes have a maximum lifetime (timeout) after which they are automatically terminated by Modal. It is useful as a hard restriction on agent lifetime, but cannot be longer than 24 hours (currently)
+- Sandboxes cannot be stopped and resumed directly. Instead, snapshots are used to preserve state before termination. Snapshots are taken periodically

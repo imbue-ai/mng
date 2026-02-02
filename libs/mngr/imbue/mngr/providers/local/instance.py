@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 from typing import Final
 from typing import Mapping
@@ -32,7 +31,7 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 
-LOCAL_PROVIDER_DATA_DIR: Final[str] = "providers/local"
+LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
 HOST_ID_FILENAME: Final[str] = "host_id"
 TAGS_FILENAME: Final[str] = "labels.json"
 
@@ -59,9 +58,8 @@ class LocalProviderInstance(BaseProviderInstance):
 
     @property
     def _provider_data_dir(self) -> Path:
-        """Get the provider data directory path."""
-        base_dir = Path(os.path.expanduser(self.host_dir))
-        return base_dir / LOCAL_PROVIDER_DATA_DIR
+        """Get the provider data directory path (profile-specific)."""
+        return self.mngr_ctx.profile_dir / "providers" / LOCAL_PROVIDER_SUBDIR
 
     def _ensure_provider_data_dir(self) -> None:
         """Ensure the provider data directory exists."""

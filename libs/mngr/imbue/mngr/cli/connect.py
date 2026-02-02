@@ -3,7 +3,6 @@ import time
 from typing import Any
 
 import click
-import deal
 from click_option_group import optgroup
 from loguru import logger
 from pydantic import ConfigDict
@@ -20,12 +19,13 @@ from urwid.widget.text import Text
 from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
-from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import list_agents
+from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -34,7 +34,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentLifecycleState
 
 
@@ -56,7 +56,7 @@ class ConnectCliOptions(CommonCliOptions):
     allow_unknown_host: bool
 
 
-@deal.has()
+@pure
 def filter_agents(
     agents: list[AgentInfo],
     hide_stopped: bool,
@@ -419,7 +419,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
 
     agent: AgentInterface
-    host: HostInterface
+    host: OnlineHostInterface
 
     if opts.agent is not None:
         agent, host = find_and_maybe_start_agent_by_name_or_id(

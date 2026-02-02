@@ -4,27 +4,28 @@ from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import assert_never
+from typing import cast
 
 import click
-import deal
 from click_option_group import optgroup
 from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.create import create as api_create
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.data_types import CreateAgentResult
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.data_types import NewHostBuildOptions
-from imbue.mngr.api.data_types import NewHostEnvironmentOptions
+from imbue.mngr.api.data_types import HostEnvironmentOptions
 from imbue.mngr.api.data_types import NewHostOptions
 from imbue.mngr.api.data_types import SourceLocation
 from imbue.mngr.api.find import get_host_from_list_by_id
 from imbue.mngr.api.find import get_unique_host_from_list_by_name
-from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.find import resolve_source_location
+from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -40,6 +41,7 @@ from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
+from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import AgentDataOptions
@@ -50,8 +52,8 @@ from imbue.mngr.interfaces.host import AgentPermissionsOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import FileModificationSpec
-from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import NamedCommand
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.host import UploadFileSpec
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
@@ -83,31 +85,31 @@ from imbue.mngr.utils.name_generator import generate_host_name
 from imbue.mngr.utils.polling import wait_for
 
 
-@deal.has()
+@pure
 def _make_name_style_choices() -> list[str]:
     """Get lowercase name style choices."""
     return [s.value.lower() for s in AgentNameStyle]
 
 
-@deal.has()
+@pure
 def _make_host_name_style_choices() -> list[str]:
     """Get lowercase host name style choices."""
     return [s.value.lower() for s in HostNameStyle]
 
 
-@deal.has()
+@pure
 def _make_log_level_choices() -> list[str]:
     """Get log level choices."""
     return [level.value for level in LogLevel]
 
 
-@deal.has()
+@pure
 def _make_idle_mode_choices() -> list[str]:
     """Get lowercase idle mode choices."""
     return [m.value.lower() for m in IdleMode]
 
 
-@deal.has()
+@pure
 def _make_output_format_choices() -> list[str]:
     """Get lowercase output format choices."""
     return [f.value.lower() for f in OutputFormat]
@@ -182,6 +184,8 @@ class CreateCliOptions(CommonCliOptions):
     message: str | None
     message_file: str | None
     edit_message: bool
+    resume_message: str | None
+    resume_message_file: str | None
     retry: int
     retry_delay: str
     attach_command: str | None
@@ -430,6 +434,10 @@ class CreateCliOptions(CommonCliOptions):
     is_flag=True,
     help="Open an editor to compose the initial message (uses $EDITOR). Editor runs in parallel with agent creation. If --message or --message-file is provided, their content is used as initial editor content.",
 )
+@optgroup.option("--resume-message", help="Message to send when the agent is started (resumed) after being stopped")
+@optgroup.option(
+    "--resume-message-file", type=click.Path(exists=True), help="File containing resume message to send on start"
+)
 @optgroup.option(
     "--message-delay",
     type=float,
@@ -463,6 +471,10 @@ def create(ctx: click.Context, **kwargs) -> None:
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
+
+    # Validate that both --resume-message and --resume-message-file are not provided
+    if opts.resume_message is not None and opts.resume_message_file is not None:
+        raise UserInputError("Cannot provide both --resume-message and --resume-message-file")
 
     # validate that we're not waiting for the agent to stop and trying to connect:
     if opts.await_agent_stopped and opts.connect:
@@ -498,6 +510,16 @@ def create(ctx: click.Context, **kwargs) -> None:
         initial_message_content = opts.message
     else:
         initial_message_content = None
+
+    # Read resume message from file if --resume-message-file is provided
+    resume_message_content: str | None
+    if opts.resume_message_file is not None:
+        resume_message_file_path = Path(opts.resume_message_file)
+        resume_message_content = resume_message_file_path.read_text()
+    elif opts.resume_message is not None:
+        resume_message_content = opts.resume_message
+    else:
+        resume_message_content = None
 
     # If --edit-message is set, start the editor immediately
     # The editor runs in parallel with agent creation
@@ -539,7 +561,9 @@ def create(ctx: click.Context, **kwargs) -> None:
     )
 
     # Parse agent options
-    agent_opts = _parse_agent_opts(opts=opts, initial_message=initial_message, source_location=source_location)
+    agent_opts = _parse_agent_opts(
+        opts=opts, initial_message=initial_message, resume_message=resume_message_content, source_location=source_location
+    )
 
     # parse the connection options
     connection_opts = ConnectionOptions(
@@ -572,7 +596,7 @@ def create(ctx: click.Context, **kwargs) -> None:
     # and obviously only matters if we're not creating a new host
     final_source_location: HostLocation
     is_work_dir_created: bool
-    if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, HostInterface):
+    if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, OnlineHostInterface):
         work_dir_path = resolved_target_host.create_agent_work_dir(
             source_location.host, source_location.path, agent_opts
         )
@@ -699,7 +723,7 @@ def _handle_editor_message(
 
 def _create_agent_in_background(
     source_location: HostLocation,
-    target_host: HostInterface | NewHostOptions,
+    target_host: OnlineHostInterface | NewHostOptions,
     agent_options: CreateAgentOptions,
     mngr_ctx: MngrContext,
     is_work_dir_created: bool,
@@ -773,7 +797,11 @@ def _resolve_source_location(
             source_path = str(git_root) if git_root is not None else os.getcwd()
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
         source_location = HostLocation(
-            host=provider.get_host(HostName("local")),
+            # FIXME: rather than casting (and assuming this is online), we should be doing the whole "ensure host is online"
+            #  logic from other parts of the codebase, eg, connect, and have some flag that controls whether we
+            #  automatically start (source or target) hosts if we're offline. A single arg (--start / --no-start) for both seems fine, just needs to get wired through
+            #  Also we would need to update _resolve_target_host to do the same logic for target hosts
+            host=cast(OnlineHostInterface, provider.get_host(HostName("local"))),
             path=Path(source_path),
         )
     else:
@@ -787,15 +815,15 @@ def _resolve_source_location(
 
 def _resolve_target_host(
     target_host: HostReference | NewHostOptions | None, mngr_ctx: MngrContext
-) -> HostInterface | NewHostOptions:
-    resolved_target_host: HostInterface | NewHostOptions
+) -> OnlineHostInterface | NewHostOptions:
+    resolved_target_host: OnlineHostInterface | NewHostOptions
     if target_host is None:
         # No host specified, use the local provider's default host
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
-        resolved_target_host = provider.get_host(HostName("local"))
+        resolved_target_host = cast(OnlineHostInterface, provider.get_host(HostName("local")))
     elif isinstance(target_host, HostReference):
         provider = get_provider_instance(target_host.provider_name, mngr_ctx)
-        resolved_target_host = provider.get_host(target_host.host_id)
+        resolved_target_host = cast(OnlineHostInterface, provider.get_host(target_host.host_id))
     else:
         resolved_target_host = target_host
     return resolved_target_host
@@ -842,7 +870,9 @@ def _snapshot_if_required(
     # 2. whose provider can snapshot
     # 3. and the user didn't explicitly disable
     is_remote_agent = not source_location.host.is_local
-    is_provider_able_to_snapshot = source_location.host.provider_instance.supports_snapshots
+    # Cast to Host to access provider_instance (implementation detail)
+    host = cast(Host, source_location.host)
+    is_provider_able_to_snapshot = host.provider_instance.supports_snapshots
     is_snapshot_behavior_specified_by_user = should_snapshot is not None
     if is_remote_agent and is_provider_able_to_snapshot and not is_snapshot_behavior_specified_by_user:
         should_snapshot = True
@@ -863,13 +893,13 @@ def _get_current_git_branch(source_location: HostLocation) -> str | None:
     return get_current_git_branch(source_location.path)
 
 
-@deal.has()
+@pure
 def _is_git_repo(path: Path) -> bool:
     """Check if the given path is inside a git repository."""
     return find_git_worktree_root(path) is not None
 
 
-@deal.has()
+@pure
 def _was_value_after_double_dash(value: str) -> bool:
     """Check if a value appears after -- in sys.argv.
 
@@ -884,7 +914,7 @@ def _was_value_after_double_dash(value: str) -> bool:
 
 
 def _parse_agent_opts(
-    opts: CreateCliOptions, initial_message: str | None, source_location: HostLocation
+    opts: CreateCliOptions, initial_message: str | None, resume_message: str | None, source_location: HostLocation
 ) -> CreateAgentOptions:
     # Get agent name from positional argument or --name flag, otherwise auto-generate
     parsed_agent_name: AgentName
@@ -1048,6 +1078,7 @@ def _parse_agent_opts(
         target_path=parsed_target_path,
         is_copy_immediate=should_copy,
         initial_message=initial_message,
+        resume_message=resume_message,
         message_delay_seconds=opts.message_delay,
         data_options=data_options,
         git=git,
@@ -1148,7 +1179,7 @@ def _parse_target_host(
             name=parsed_host_name,
             tags=tags,
             build=build_options,
-            environment=NewHostEnvironmentOptions(
+            environment=HostEnvironmentOptions(
                 env_vars=host_env_vars,
                 env_files=host_env_files,
                 pass_env_vars=opts.pass_host_env,
@@ -1172,7 +1203,7 @@ class ParsedSourceString(FrozenModel):
     host_name: str | None = Field(description="Host name component")
 
 
-@deal.has()
+@pure
 def _parse_source_string(source_str: str) -> ParsedSourceString:
     """Parse [AGENT[.HOST]]:PATH format into components."""
     if ":" not in source_str:
@@ -1244,7 +1275,7 @@ def _await_agent_stopped(
         raise click.ClickException(str(e)) from e
 
 
-def _find_agent_in_host(host: HostInterface, agent_id: AgentId) -> AgentInterface:
+def _find_agent_in_host(host: OnlineHostInterface, agent_id: AgentId) -> AgentInterface:
     """Find an agent by ID in a host."""
     for agent in host.get_agents():
         if agent.id == agent_id:

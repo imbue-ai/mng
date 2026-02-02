@@ -21,13 +21,13 @@ from datetime import timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any
-from typing import ClassVar
 from typing import Final
 from typing import Mapping
 from typing import ParamSpec
 from typing import Sequence
 from typing import TypeVar
 from typing import cast
+from uuid import uuid4
 
 import modal
 import modal.exception
@@ -37,6 +37,7 @@ from modal.config import Config as ModalConfig
 from modal.stream_type import StreamType
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import PrivateAttr
 from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
@@ -50,16 +51,23 @@ from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.hosts.offline_host import OfflineHost
+from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CpuResources
+from imbue.mngr.interfaces.data_types import HostConfig
 from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.data_types import SnapshotInfo
+from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
@@ -155,7 +163,7 @@ def handle_modal_auth_error(func: Callable[P, T]) -> Callable[P, T]:
     return wrapper
 
 
-class SandboxConfig(FrozenModel):
+class SandboxConfig(HostConfig):
     """Configuration parsed from build arguments."""
 
     gpu: str | None = None
@@ -172,30 +180,41 @@ class SandboxConfig(FrozenModel):
     )
 
 
-class SnapshotRecord(FrozenModel):
-    """Snapshot metadata stored in the host record on the volume."""
-
-    id: str = Field(description="Unique identifier for the snapshot")
-    name: str = Field(description="Human-readable name")
-    created_at: str = Field(description="ISO format timestamp")
-    modal_image_id: str = Field(description="Modal image ID for restoration")
-
-
 class HostRecord(FrozenModel):
     """Host metadata stored on the Modal Volume.
 
     This record contains all information needed to connect to and restore a host.
     It is stored at /<host_id>.json on the volume.
+
+    For failed hosts (those that failed during creation), only certified_host_data
+    is required. The SSH fields and config will be None since the host never started.
     """
 
-    host_id: str = Field(description="Unique identifier for the host")
-    host_name: str = Field(description="Human-readable name")
-    ssh_host: str = Field(description="SSH hostname for connecting to the sandbox")
-    ssh_port: int = Field(description="SSH port number")
-    ssh_host_public_key: str = Field(description="SSH host public key for verification")
-    config: SandboxConfig = Field(description="Sandbox configuration")
-    user_tags: dict[str, str] = Field(default_factory=dict, description="User-defined tags")
-    snapshots: list[SnapshotRecord] = Field(default_factory=list, description="List of snapshots")
+    certified_host_data: CertifiedHostData = Field(
+        frozen=True,
+        description="The certified host data loaded from data.json",
+    )
+    ssh_host: str | None = Field(default=None, description="SSH hostname for connecting to the sandbox")
+    ssh_port: int | None = Field(default=None, description="SSH port number")
+    ssh_host_public_key: str | None = Field(default=None, description="SSH host public key for verification")
+    config: SandboxConfig | None = Field(default=None, description="Sandbox configuration")
+
+    # FIXME: remove these once we're fully using certified_host_data
+    @property
+    def host_name(self) -> str:
+        return self.certified_host_data.host_name
+
+    @property
+    def host_id(self) -> str:
+        return self.certified_host_data.host_id
+
+    @property
+    def user_tags(self) -> dict[str, str]:
+        return self.certified_host_data.user_tags
+
+    @property
+    def snapshots(self) -> list[SnapshotRecord]:
+        return self.certified_host_data.snapshots
 
 
 class ModalProviderApp(FrozenModel):
@@ -244,16 +263,15 @@ class ModalProviderInstance(BaseProviderInstance):
     for persistence and sharing between mngr instances. Only host_id, host_name,
     and user tags are stored as sandbox tags for discovery via Sandbox.list().
 
-    A class-level cache maps host_id to sandbox objects to avoid relying on Modal's
+    An instance-level cache maps host_id to sandbox objects to avoid relying on Modal's
     eventually consistent tag queries for recently created sandboxes.
     """
 
-    # FIXME: no, these should all be PrivateAttr instead of ClassVars
-    # Class-level caches of sandboxes. These avoid the need to query
+    # Instance-level caches of sandboxes. These avoid the need to query
     # Modal's eventually consistent tag API for recently created sandboxes.
-    _sandbox_cache_by_id: ClassVar[dict[HostId, modal.Sandbox]] = {}
-    _sandbox_cache_by_name: ClassVar[dict[HostName, modal.Sandbox]] = {}
-    _host_by_id_cache: ClassVar[dict[HostId, Host]] = {}
+    _sandbox_cache_by_id: dict[HostId, modal.Sandbox] = PrivateAttr(default_factory=dict)
+    _sandbox_cache_by_name: dict[HostName, modal.Sandbox] = PrivateAttr(default_factory=dict)
+    _host_by_id_cache: dict[HostId, HostInterface] = PrivateAttr(default_factory=dict)
 
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
@@ -346,6 +364,36 @@ class ModalProviderInstance(BaseProviderInstance):
         # Upload the data as a file-like object
         with volume.batch_upload(force=True) as batch:
             batch.put_file(io.BytesIO(data.encode("utf-8")), path)
+
+    def _save_failed_host_record(
+        self,
+        host_id: HostId,
+        host_name: HostName,
+        tags: Mapping[str, str] | None,
+        failure_reason: str,
+        build_log: str,
+    ) -> None:
+        """Save a host record for a host that failed during creation.
+
+        This allows the failed host to be visible in 'mngr list' so users can see
+        what went wrong and debug build failures.
+        """
+        host_data = CertifiedHostData(
+            host_id=str(host_id),
+            host_name=str(host_name),
+            user_tags=dict(tags) if tags else {},
+            snapshots=[],
+            state=HostState.FAILED.value,
+            failure_reason=failure_reason,
+            build_log=build_log,
+        )
+
+        host_record = HostRecord(
+            certified_host_data=host_data,
+        )
+
+        logger.debug("Saving failed host record for host_id={}", host_id)
+        self._write_host_record(host_record)
 
     def _read_host_record(self, host_id: HostId) -> HostRecord | None:
         """Read a host record from the volume.
@@ -484,6 +532,24 @@ class ModalProviderInstance(BaseProviderInstance):
         except FileNotFoundError:
             # File doesn't exist, nothing to remove
             pass
+
+    def _on_certified_host_data_updated(self, host_id: HostId, certified_data: CertifiedHostData) -> None:
+        """Update the certified host data in the volume's host record.
+
+        Called when the host's data.json is modified. Updates the
+        certified_host_data field in the volume's host record to keep
+        the volume in sync with the host.
+
+        Reads the current host record from the volume to avoid overwriting
+        any changes made by other operations (snapshots, tags, etc.).
+        """
+        logger.debug("Updating certified host data on volume", host_id=str(host_id))
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            raise Exception(f"Host record not found on volume for {host_id}")
+        updated_host_record = host_record.model_copy(update={"certified_host_data": certified_data})
+        self._write_host_record(updated_host_record)
+        logger.trace("Updated certified host data on volume for {}", host_id)
 
     def _build_modal_image(
         self,
@@ -659,6 +725,8 @@ class ModalProviderInstance(BaseProviderInstance):
         host_id: HostId,
         host_name: HostName,
         user_tags: Mapping[str, str] | None,
+        config: SandboxConfig,
+        host_data: CertifiedHostData,
     ) -> tuple[Host, str, int, str]:
         """Set up SSH in a sandbox and create a Host object.
 
@@ -702,13 +770,34 @@ class ModalProviderInstance(BaseProviderInstance):
         pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
         connector = PyinfraConnector(pyinfra_host)
 
-        # Create the Host object
+        # Create and write the initial host record to the volume
+        # This must happen BEFORE host.set_certified_data() because the callback
+        # _on_certified_host_data_updated expects the host record to already exist
+        host_record = HostRecord(
+            ssh_host=ssh_host,
+            ssh_port=ssh_port,
+            ssh_host_public_key=host_public_key,
+            config=config,
+            certified_host_data=host_data,
+        )
+        self._write_host_record(host_record)
+
+        # Create the Host object with callback for future certified data updates
         host = Host(
             id=host_id,
             connector=connector,
             provider_instance=self,
             mngr_ctx=self.mngr_ctx,
+            on_updated_host_data=lambda callback_host_id, certified_data: self._on_certified_host_data_updated(
+                callback_host_id, certified_data
+            ),
         )
+
+        # Record BOOT activity for idle detection
+        host.record_activity(ActivitySource.BOOT)
+
+        # Write the host data.json (will also update volume via callback since host record already exists)
+        host.set_certified_data(host_data)
 
         return host, ssh_host, ssh_port, host_public_key
 
@@ -730,15 +819,22 @@ class ModalProviderInstance(BaseProviderInstance):
         # Create the shutdown script content
         # The script sends a POST request to the snapshot_and_shutdown endpoint
         # It also gathers agent data from the agents directory to persist to the volume
+        # The stop_reason parameter indicates why the host stopped:
+        # - PAUSED: Host became idle (called by activity_watcher.sh)
+        # - STOPPED: User explicitly stopped the host
         script_content = f'''#!/bin/bash
 # Auto-generated shutdown script for mngr Modal host
 # This script snapshots and shuts down the host by calling the deployed Modal function
 # It also gathers agent data to persist to the volume so agents show up in mngr list
+#
+# Usage: shutdown.sh [stop_reason]
+#   stop_reason: 'PAUSED' (idle shutdown, default) or 'STOPPED' (user requested)
 
 SNAPSHOT_URL="{snapshot_url}"
 SANDBOX_ID="{sandbox_id}"
 HOST_ID="{host_id}"
 HOST_DIR="{host_dir_str}"
+STOP_REASON="${{1:-PAUSED}}"
 
 # Gather agent data from all agent directories
 # This creates a JSON array of agent data objects
@@ -764,10 +860,10 @@ gather_agents() {{
 # Build the JSON payload with agent data
 AGENTS=$(gather_agents)
 
-# Send the shutdown request with agent data
+# Send the shutdown request with agent data and stop reason
 curl -s -X POST "$SNAPSHOT_URL" \\
     -H "Content-Type: application/json" \\
-    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "agents": '"$AGENTS"'}}'
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}'
 '''
 
         # Write the script to the host
@@ -899,23 +995,31 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
     def _cache_sandbox(self, host_id: HostId, name: HostName, sandbox: modal.Sandbox) -> None:
         """Cache a sandbox by host_id and name for fast lookup."""
-        ModalProviderInstance._sandbox_cache_by_id[host_id] = sandbox
-        ModalProviderInstance._sandbox_cache_by_name[name] = sandbox
+        self._sandbox_cache_by_id[host_id] = sandbox
+        self._sandbox_cache_by_name[name] = sandbox
 
     def _uncache_sandbox(self, host_id: HostId, name: HostName | None = None) -> None:
         """Remove a sandbox from the caches."""
-        ModalProviderInstance._sandbox_cache_by_id.pop(host_id, None)
+        self._sandbox_cache_by_id.pop(host_id, None)
         if name is not None:
-            ModalProviderInstance._sandbox_cache_by_name.pop(name, None)
+            self._sandbox_cache_by_name.pop(name, None)
 
-    @classmethod
-    def reset_sandbox_cache(cls) -> None:
-        """Reset the sandbox caches.
+    def _uncache_host(self, host_id: HostId) -> None:
+        """Remove a host from the host cache.
+
+        This should be called when a host transitions state (e.g., from online to offline
+        or vice versa) to ensure the next lookup returns the correct host type.
+        """
+        self._host_by_id_cache.pop(host_id, None)
+
+    def reset_caches(self) -> None:
+        """Reset all caches on this instance.
 
         This is primarily used for test isolation to ensure a clean state between tests.
         """
-        cls._sandbox_cache_by_id.clear()
-        cls._sandbox_cache_by_name.clear()
+        self._sandbox_cache_by_id.clear()
+        self._sandbox_cache_by_name.clear()
+        self._host_by_id_cache.clear()
 
     def _find_sandbox_by_host_id(
         self, host_id: HostId, timeout: float = 5.0, poll_interval: float = 1.0
@@ -936,8 +1040,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         logger.trace("Looking up sandbox with host_id={} in env={}", host_id, self.environment_name)
 
         # Check cache first - this avoids eventual consistency issues for recently created sandboxes
-        if host_id in ModalProviderInstance._sandbox_cache_by_id:
-            sandbox = ModalProviderInstance._sandbox_cache_by_id[host_id]
+        if host_id in self._sandbox_cache_by_id:
+            sandbox = self._sandbox_cache_by_id[host_id]
             logger.trace("Found sandbox in cache for host_id={}", host_id)
             return sandbox
 
@@ -987,8 +1091,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         logger.trace("Looking up sandbox with name={} in env={}", name, self.environment_name)
 
         # Check cache first - this avoids eventual consistency issues for recently created sandboxes
-        if name in ModalProviderInstance._sandbox_cache_by_name:
-            sandbox = ModalProviderInstance._sandbox_cache_by_name[name]
+        if name in self._sandbox_cache_by_name:
+            sandbox = self._sandbox_cache_by_name[name]
             logger.trace("Found sandbox in cache for name={}", name)
             return sandbox
 
@@ -1031,6 +1135,10 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         known_hosts for the sandbox's SSH endpoint, enabling SSH connections
         to succeed without host key verification prompts.
 
+        The Host is configured with a callback to sync certified data changes
+        back to the volume, ensuring operations like snapshot creation persist
+        their metadata.
+
         Returns None if the host record doesn't exist on the volume.
         """
         tags = sandbox.get_tags()
@@ -1040,6 +1148,11 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         host_record = self._read_host_record(host_id)
         if host_record is None:
             logger.debug("Skipping sandbox {} - no host record on volume", sandbox.object_id)
+            return None
+
+        # Failed hosts don't have SSH info and can't be connected to
+        if host_record.ssh_host is None or host_record.ssh_port is None or host_record.ssh_host_public_key is None:
+            logger.debug("Skipping sandbox {} - host record missing SSH info (likely failed host)", sandbox.object_id)
             return None
 
         # Add the sandbox's host key to known_hosts so SSH connections will work
@@ -1063,43 +1176,33 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             connector=connector,
             provider_instance=self,
             mngr_ctx=self.mngr_ctx,
+            on_updated_host_data=lambda callback_host_id, certified_data: self._on_certified_host_data_updated(
+                callback_host_id, certified_data
+            ),
         )
 
     def _create_host_from_host_record(
         self,
         host_record: HostRecord,
-    ) -> Host:
-        """Create a Host object from a host record (for stopped hosts).
+    ) -> OfflineHost:
+        """Create an OfflineHost object from a host record (for stopped hosts).
 
         This is used when there is no running sandbox but the host record
-        exists on the volume. The Host will have stale SSH info, so SSH
-        operations will fail, and get_state() will return STOPPED or DESTROYED.
+        exists on the volume. The OfflineHost provides read-only access to
+        stored host data without SSH connectivity.
+
+        The certified_host_data is populated with information available from
+        the host record.
         """
         host_id = HostId(host_record.host_id)
-
-        # Add the host key to known_hosts (even though it's stale, it's needed
-        # for the pyinfra connector setup)
-        add_host_to_known_hosts(
-            self._known_hosts_path,
-            host_record.ssh_host,
-            host_record.ssh_port,
-            host_record.ssh_host_public_key,
-        )
-
-        private_key_path, _ = self._get_ssh_keypair()
-        pyinfra_host = self._create_pyinfra_host(
-            host_record.ssh_host,
-            host_record.ssh_port,
-            private_key_path,
-        )
-        connector = PyinfraConnector(pyinfra_host)
-
-        return Host(
+        return OfflineHost(
             id=host_id,
-            connector=connector,
+            certified_host_data=host_record.certified_host_data,
             provider_instance=self,
             mngr_ctx=self.mngr_ctx,
-            is_online=False,
+            on_updated_host_data=lambda callback_host_id, certified_data: self._on_certified_host_data_updated(
+                callback_host_id, certified_data
+            ),
         )
 
     # =========================================================================
@@ -1142,30 +1245,30 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
         context_dir_path = Path(config.context_dir) if config.context_dir else None
 
-        # Build the Modal image
-        logger.debug("Building Modal image...")
-        modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
-
-        # Get or create the Modal app (uses singleton pattern with context manager)
-        logger.debug("Getting Modal app", app_name=self.app_name)
-        app = self._get_modal_app()
-
-        # Create the sandbox
-        # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
-        # trigger a clean shutdown before Modal's hard timeout kills the host
-        modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
-        logger.debug(
-            "Creating Modal sandbox",
-            timeout=config.timeout,
-            modal_timeout=modal_timeout,
-            shutdown_buffer=self.config.shutdown_buffer_seconds,
-            cpu=config.cpu,
-            memory_gb=config.memory,
-        )
-
-        # Memory is in GB but Modal expects MB
-        memory_mb = int(config.memory * 1024)
         try:
+            # Build the Modal image
+            logger.debug("Building Modal image...")
+            modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
+
+            # Get or create the Modal app (uses singleton pattern with context manager)
+            logger.debug("Getting Modal app", app_name=self.app_name)
+            app = self._get_modal_app()
+
+            # Create the sandbox
+            # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
+            # trigger a clean shutdown before Modal's hard timeout kills the host
+            modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
+            logger.debug(
+                "Creating Modal sandbox",
+                timeout=config.timeout,
+                modal_timeout=modal_timeout,
+                shutdown_buffer=self.config.shutdown_buffer_seconds,
+                cpu=config.cpu,
+                memory_gb=config.memory,
+            )
+
+            # Memory is in GB but Modal expects MB
+            memory_mb = int(config.memory * 1024)
             sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
@@ -1178,12 +1281,47 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                 gpu=config.gpu,
                 region=config.region,
             )
-        except modal.exception.RemoteError as e:
-            raise MngrError(f"Failed to create Modal sandbox: {e}\n{self.get_captured_output()}") from None
-        logger.debug("Created Modal sandbox", sandbox_id=sandbox.object_id)
+            logger.debug("Created Modal sandbox", sandbox_id=sandbox.object_id)
+        except (modal.exception.Error, MngrError) as e:
+            # On failure, save a failed host record so the user can see what happened
+            failure_reason = str(e)
+            build_log = self.get_captured_output()
+            logger.error("Host creation failed: {}", failure_reason)
+            self._save_failed_host_record(
+                host_id=host_id,
+                host_name=name,
+                tags=tags,
+                failure_reason=failure_reason,
+                build_log=build_log,
+            )
+            if isinstance(e, modal.exception.RemoteError):
+                raise MngrError(f"Failed to create Modal sandbox: {e}\n{build_log}") from None
+            else:
+                raise
 
         # Cache the sandbox for fast lookup (avoids Modal's eventual consistency issues)
         self._cache_sandbox(host_id, name, sandbox)
+
+        lifecycle_options = lifecycle if lifecycle is not None else HostLifecycleOptions()
+        activity_config = lifecycle_options.to_activity_config(
+            default_idle_timeout_seconds=self.config.default_idle_timeout,
+            default_idle_mode=self.config.default_idle_mode,
+            default_activity_sources=self.config.default_activity_sources,
+        )
+
+        # Store full host metadata on the volume for persistence
+        # Note: max_host_age is the sandbox timeout (without the buffer we added to modal_timeout)
+        # so the activity watcher can trigger a clean shutdown before Modal's hard kill
+        host_data = CertifiedHostData(
+            idle_mode=activity_config.idle_mode,
+            idle_timeout_seconds=activity_config.idle_timeout_seconds,
+            activity_sources=activity_config.activity_sources,
+            max_host_age=config.timeout,
+            host_id=str(host_id),
+            host_name=str(name),
+            user_tags=dict(tags) if tags else {},
+            snapshots=[],
+        )
 
         # Set up SSH and create host object using shared helper
         host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
@@ -1191,30 +1329,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             host_id=host_id,
             host_name=name,
             user_tags=tags,
-        )
-
-        # Store full host metadata on the volume for persistence
-        host_record = HostRecord(
-            host_id=str(host_id),
-            host_name=str(name),
-            ssh_host=ssh_host,
-            ssh_port=ssh_port,
-            ssh_host_public_key=host_public_key,
             config=config,
-            user_tags=dict(tags) if tags else {},
-            snapshots=[],
+            host_data=host_data,
         )
-        logger.debug("Writing host record to volume", host_id=str(host_id))
-        self._write_host_record(host_record)
-
-        # Set up activity configuration for idle detection, merging CLI options with provider defaults
-        lifecycle_options = lifecycle if lifecycle is not None else HostLifecycleOptions()
-        activity_config = lifecycle_options.to_activity_config(
-            default_idle_timeout_seconds=self.config.default_idle_timeout,
-            default_idle_mode=self.config.default_idle_mode,
-            default_activity_sources=self.config.default_activity_sources,
-        )
-        host.set_activity_config(activity_config)
 
         # For persistent apps, deploy the snapshot function and create shutdown script
         if self.config.is_persistent:
@@ -1222,23 +1339,16 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             if snapshot_url:
                 self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
 
-        # Record BOOT activity for idle detection
-        host.record_activity(ActivitySource.BOOT)
+        return host
 
-        # Write max_host_age file so the activity watcher can trigger a clean shutdown
-        # before Modal's hard timeout kills the host. The value is the sandbox timeout
-        # (without the buffer we added to modal_timeout)
-        max_host_age_path = host.host_dir / "max_host_age"
-        host.write_text_file(max_host_age_path, str(config.timeout))
-        logger.debug("Wrote max_host_age file", max_host_age_seconds=config.timeout)
-
+    def on_agent_created(self, agent: AgentInterface, host: OnlineHostInterface) -> None:
         # Optionally create an initial snapshot based on config
         # When enabled, this ensures the host can be restarted even after a hard kill
         if self.config.is_snapshotted_after_create:
-            logger.debug("Creating initial snapshot for host", host_id=str(host_id))
-            self._create_initial_snapshot(sandbox, host_id)
-
-        return host
+            logger.debug("Creating initial snapshot for host", host_id=str(host.id))
+            sandbox = self._find_sandbox_by_host_id(host.id)
+            assert sandbox is not None, "Sandbox must exist for online host"
+            self._create_initial_snapshot(sandbox, host.id)
 
     @handle_modal_auth_error
     def stop_host(
@@ -1262,6 +1372,18 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         host_id = host.id if isinstance(host, HostInterface) else host
         logger.info("Stopping (terminating) Modal sandbox: {}", host_id)
 
+        # Disconnect the SSH connection before terminating the sandbox.
+        # This prevents stale socket state that can cause "Socket is closed" errors.
+        # We check the cache first, then fall back to the passed host object.
+        cached_host = self._host_by_id_cache.get(host_id)
+        if cached_host is not None and isinstance(cached_host, Host):
+            cached_host.disconnect()
+        elif isinstance(host, Host):
+            host.disconnect()
+        else:
+            # No Host instance available (e.g., only have a host_id string or HostInterface stub)
+            pass
+
         sandbox = self._find_sandbox_by_host_id(host_id)
         if sandbox:
             # Create a snapshot before termination if requested
@@ -1279,11 +1401,21 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         else:
             logger.debug("No sandbox found, may already be terminated", host_id=str(host_id))
 
-        # Remove from cache since the sandbox is now terminated
-        # Read host record to get the name for cache cleanup
+        # Record stop_reason=STOPPED to distinguish user-initiated stops from idle pauses
+        # Note that we are explicitly avoiding going through the normal host.set_certified_data(host_data) call here
+        # because A) we *don't* want to save this into the host record on the host, so that it makes more sense when it
+        # is eventually started again, and B) this is a small optimization so that we don't need to get the host
+        # record twice, since we use it to figure out the name below as well
         host_record = self._read_host_record(host_id)
+        updated_certified_data = host_record.certified_host_data.model_copy(update={"stop_reason": "STOPPED"})
+        self._write_host_record(host_record.model_copy(update={"certified_host_data": updated_certified_data}))
+
+        # Remove from all caches since the sandbox is now terminated
+        # Read host record to get the name for cache cleanup (re-read in case it was just updated)
         host_name = HostName(host_record.host_name) if host_record else None
         self._uncache_sandbox(host_id, host_name)
+        # Also invalidate host cache so next lookup returns an OfflineHost
+        self._uncache_host(host_id)
 
     @handle_modal_auth_error
     def start_host(
@@ -1328,10 +1460,17 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                 return host_obj
 
         # Sandbox is not running - restore from snapshot
+        # First check if this is a failed host (can't be started)
+        host_record = self._read_host_record(host_id)
+        if host_record is not None and host_record.certified_host_data.state == HostState.FAILED.value:
+            raise MngrError(
+                f"Host {host_id} failed during creation and cannot be started. "
+                f"Reason: {host_record.certified_host_data.failure_reason}"
+            )
+
         # If no snapshot_id provided, use the most recent snapshot
         if snapshot_id is None:
             # Load host record to get available snapshots
-            host_record = self._read_host_record(host_id)
             if host_record is None:
                 raise HostNotFoundError(host_id)
 
@@ -1361,18 +1500,21 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         if snapshot_data is None:
             raise SnapshotNotFoundError(snapshot_id)
 
-        modal_image_id = snapshot_data.modal_image_id
-        if not modal_image_id:
-            raise MngrError(f"Snapshot {snapshot_id} does not contain a Modal image ID for restoration.")
-
+        # The snapshot id is the Modal image ID
+        modal_image_id = snapshot_data.id
         logger.info("Restoring Modal sandbox from snapshot", host_id=str(host_id), snapshot_id=str(snapshot_id))
 
         # Use configuration from host record
         config = host_record.config
+        if config is None:
+            raise MngrError(
+                f"Host {host_id} has no configuration and cannot be started. "
+                "This may indicate the host was never fully created."
+            )
         host_name = HostName(host_record.host_name)
         user_tags = host_record.user_tags
 
-        # Create the image reference from the snapshot
+        # Create the image reference from the snapshot (the id IS the Modal image ID)
         logger.debug("Creating sandbox from snapshot image", image_id=modal_image_id)
         # Cast needed because modal.Image.from_id returns Self which the type checker can't resolve
         modal_image = cast(modal.Image, modal.Image.from_id(modal_image_id))
@@ -1401,6 +1543,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Cache the sandbox for fast lookup (avoids Modal's eventual consistency issues)
         self._cache_sandbox(host_id, host_name, new_sandbox)
+        # Invalidate any cached OfflineHost so we return the new online Host
+        self._uncache_host(host_id)
 
         # Set up SSH and create host object using shared helper
         restored_host, ssh_host, ssh_port, host_public_key = self._setup_sandbox_ssh_and_create_host(
@@ -1408,29 +1552,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             host_id=host_id,
             host_name=host_name,
             user_tags=user_tags,
+            config=config,
+            host_data=host_record.certified_host_data,
         )
 
-        # Update host record on volume with new SSH info
-        updated_host_record = host_record.model_copy(
-            update={
-                "ssh_host": ssh_host,
-                "ssh_port": ssh_port,
-                "ssh_host_public_key": host_public_key,
-            }
-        )
-        self._write_host_record(updated_host_record)
-
-        logger.info("Restored Modal host from snapshot", host_id=str(host_id), host_name=str(host_name))
-
-        # Record BOOT activity for idle detection
-        restored_host.record_activity(ActivitySource.BOOT)
-
-        # Write max_host_age file so the activity watcher can trigger a clean shutdown
-        # before Modal's hard timeout kills the host. The value is the sandbox timeout
-        # (without the buffer we added to modal_timeout)
-        max_host_age_path = restored_host.host_dir / "max_host_age"
-        restored_host.write_text_file(max_host_age_path, str(config.timeout))
-        logger.debug("Wrote max_host_age file", max_host_age_seconds=config.timeout)
+        # Cache the new online host
+        self._host_by_id_cache[host_id] = restored_host
 
         return restored_host
 
@@ -1464,7 +1591,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
     def get_host(
         self,
         host: HostId | HostName,
-    ) -> Host:
+    ) -> HostInterface:
         """Get a host by ID or name.
 
         First tries to find a running sandbox. If not found, falls back to
@@ -1476,7 +1603,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                 auth_help="Run 'modal token set' to authenticate with Modal.",
             )
 
-        host_obj: Host | None = None
+        host_obj: HostInterface | None = None
 
         if isinstance(host, HostId) and host in self._host_by_id_cache:
             return self._host_by_id_cache[host]
@@ -1569,10 +1696,19 @@ curl -s -X POST "$SNAPSHOT_URL" \\
                     logger.debug("Failed to create host from sandbox {}: {}", host_id, e)
                     continue
             else:
-                # Host has no running sandbox - it's stopped or destroyed
+                # Host has no running sandbox - it's stopped, failed, or destroyed
                 has_snapshots = len(host_record.snapshots) > 0
+                is_failed = host_record.certified_host_data.state == HostState.FAILED.value
 
-                if has_snapshots:
+                if is_failed:
+                    # Failed host - always include so users can debug build failures
+                    try:
+                        host_obj = self._create_host_from_host_record(host_record)
+                        hosts.append(host_obj)
+                    except (OSError, IOError, ValueError, KeyError) as e:
+                        logger.debug("Failed to create host from host record {}: {}", host_id, e)
+                        continue
+                elif has_snapshots:
                     # Stopped host (can be restarted)
                     try:
                         host_obj = self._create_host_from_host_record(host_record)
@@ -1616,7 +1752,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         """Get resource information for a Modal sandbox."""
         # Read host record from volume
         host_record = self._read_host_record(host.id)
-        if host_record is None:
+        if host_record is None or host_record.config is None:
+            # No config available (e.g., failed host that never started)
             return HostResources(
                 cpu=CpuResources(count=1, frequency_ghz=None),
                 memory_gb=1.0,
@@ -1660,31 +1797,27 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # Create the filesystem snapshot
         logger.debug("Creating filesystem snapshot", name=str(name))
         modal_image = sandbox.snapshot_filesystem()
-        modal_image_id = modal_image.object_id
-
-        # Generate mngr snapshot ID and metadata
-        snapshot_id = SnapshotId.generate()
+        # Use the Modal image ID directly as the snapshot ID
+        snapshot_id = SnapshotId(modal_image.object_id)
         created_at = datetime.now(timezone.utc)
 
         new_snapshot = SnapshotRecord(
             id=str(snapshot_id),
             name=str(name),
             created_at=created_at.isoformat(),
-            modal_image_id=modal_image_id,
         )
 
         # Update host record with new snapshot and write to volume
-        updated_host_record = host_record.model_copy(
+        updated_certified_data = host_record.certified_host_data.model_copy(
             update={"snapshots": list(host_record.snapshots) + [new_snapshot]}
         )
-        self._write_host_record(updated_host_record)
-
+        self.get_host(host_id).set_certified_data(updated_certified_data)
         logger.debug(
-            "Created snapshot: id={}, name={}, modal_image_id={}",
+            "Created snapshot: id={}, name={}",
             snapshot_id,
             name,
-            modal_image_id,
         )
+
         return snapshot_id
 
     def _create_initial_snapshot(
@@ -1721,8 +1854,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Generate snapshot name if not provided
         if name is None:
-            # Use last 8 characters of a generated ID as a short identifier
-            short_id = str(SnapshotId.generate())[-8:]
+            # FIXME: this is a dumb default--use the creation time instead
+            # Use first 8 characters of a random UUID as a short identifier
+            short_id = uuid4().hex[:8]
             name = SnapshotName(f"snapshot-{short_id}")
 
         snapshot_id = self._record_snapshot(sandbox, host_id, name)
@@ -1791,8 +1925,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             raise SnapshotNotFoundError(snapshot_id)
 
         # Update host record on volume
-        updated_host_record = host_record.model_copy(update={"snapshots": updated_snapshots})
-        self._write_host_record(updated_host_record)
+        updated_certified_data = host_record.certified_host_data.model_copy(update={"snapshots": updated_snapshots})
+        self.get_host(host_id).set_certified_data(updated_certified_data)
 
         logger.info("Deleted snapshot", snapshot_id=str(snapshot_id))
 
@@ -1863,10 +1997,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             sandbox.set_tags(new_tags)
 
         # Update volume record
-        host_record = self._read_host_record(host_id)
-        if host_record is not None:
-            updated_host_record = host_record.model_copy(update={"user_tags": dict(tags)})
-            self._write_host_record(updated_host_record)
+        host_obj = self.get_host(host_id)
+        updated_certified_data = host_obj.get_certified_data().model_copy(update={"user_tags": dict(tags)})
+        host_obj.set_certified_data(updated_certified_data)
 
     def add_tags_to_host(
         self,
@@ -1889,12 +2022,12 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             sandbox.set_tags(new_tags)
 
         # Update volume record
-        host_record = self._read_host_record(host_id)
-        if host_record is not None:
-            merged_tags = dict(host_record.user_tags)
-            merged_tags.update(tags)
-            updated_host_record = host_record.model_copy(update={"user_tags": merged_tags})
-            self._write_host_record(updated_host_record)
+        host_obj = self.get_host(host_id)
+        certified_data = host_obj.get_certified_data()
+        merged_tags = dict(certified_data.user_tags)
+        merged_tags.update(tags)
+        updated_certified_data = certified_data.model_copy(update={"user_tags": merged_tags})
+        host_obj.set_certified_data(updated_certified_data)
 
     def remove_tags_from_host(
         self,
@@ -1919,17 +2052,17 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             sandbox.set_tags(new_tags)
 
         # Update volume record
-        host_record = self._read_host_record(host_id)
-        if host_record is not None:
-            updated_tags = {k: v for k, v in host_record.user_tags.items() if k not in keys}
-            updated_host_record = host_record.model_copy(update={"user_tags": updated_tags})
-            self._write_host_record(updated_host_record)
+        host_obj = self.get_host(host_id)
+        certified_data = host_obj.get_certified_data()
+        updated_tags = {k: v for k, v in certified_data.user_tags.items() if k not in keys}
+        updated_certified_data = certified_data.model_copy(update={"user_tags": updated_tags})
+        host_obj.set_certified_data(updated_certified_data)
 
     def rename_host(
         self,
         host: HostInterface | HostId,
         name: HostName,
-    ) -> Host:
+    ) -> HostInterface:
         """Rename a host.
 
         Updates both sandbox tags (for quick access) and volume (for persistence).
@@ -1944,12 +2077,11 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             sandbox.set_tags(current_tags)
 
         # Update volume record
-        host_record = self._read_host_record(host_id)
-        if host_record is not None:
-            updated_host_record = host_record.model_copy(update={"host_name": str(name)})
-            self._write_host_record(updated_host_record)
+        host_obj = self.get_host(host_id)
+        updated_certified_data = host_obj.get_certified_data().model_copy(update={"host_name": str(name)})
+        host_obj.set_certified_data(updated_certified_data)
 
-        return self.get_host(host_id)
+        return host_obj
 
     # =========================================================================
     # Connector Method
@@ -1966,6 +2098,10 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         host_record = self._read_host_record(host_id)
         if host_record is None:
             raise HostNotFoundError(host_id)
+
+        # Failed hosts don't have SSH info and can't be connected to
+        if host_record.ssh_host is None or host_record.ssh_port is None or host_record.ssh_host_public_key is None:
+            raise MngrError(f"Cannot get connector for host {host_id}: host has no SSH info (likely a failed host)")
 
         # Add the host key to known_hosts so SSH connections will work
         add_host_to_known_hosts(

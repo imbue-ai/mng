@@ -22,6 +22,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.config.loader import get_or_create_profile_dir
 from imbue.mngr.errors import ConfigKeyNotFoundError
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigStructureError
@@ -47,13 +48,19 @@ class ConfigCliOptions(CommonCliOptions):
     """
 
     scope: str | None
+    # Arguments used by subcommands (get, set, unset)
+    key: str | None = None
+    value: str | None = None
 
 
 def _get_config_path(scope: ConfigScope, root_name: str = "mngr") -> Path:
     """Get the config file path for the given scope."""
     match scope:
         case ConfigScope.USER:
-            return Path.home() / ".config" / root_name / "settings.toml"
+            # User config is in the active profile directory
+            base_dir = Path.home() / f".{root_name}"
+            profile_dir = get_or_create_profile_dir(base_dir)
+            return profile_dir / "settings.toml"
         case ConfigScope.PROJECT:
             git_root = find_git_worktree_root()
             if git_root is None:
@@ -186,7 +193,7 @@ def _flatten_config(config: dict[str, Any], prefix: str = "") -> list[tuple[str,
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -217,7 +224,7 @@ def config(ctx: click.Context, **kwargs: Any) -> None:
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -307,7 +314,7 @@ def _emit_config_list(
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -393,7 +400,7 @@ def _emit_key_not_found(key: str, output_opts: OutputOptions) -> None:
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
     default="project",
     show_default=True,
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -489,7 +496,7 @@ def _emit_config_set_result(
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
     default="project",
     show_default=True,
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -578,7 +585,7 @@ def _emit_config_unset_result(
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
     default="project",
     show_default=True,
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -703,7 +710,7 @@ def _get_config_template() -> str:
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context

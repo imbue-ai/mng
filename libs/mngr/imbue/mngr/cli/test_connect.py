@@ -84,12 +84,13 @@ def test_connect_to_agent_by_name(
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
         with patch("imbue.mngr.api.connect.os.execvp") as mock_execvp:
-            cli_runner.invoke(
+            result = cli_runner.invoke(
                 connect,
                 [agent_name],
                 obj=plugin_manager,
                 catch_exceptions=False,
             )
+            assert result.exit_code == 0, f"Connect failed with output: {result.output}"
             mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
 
 
@@ -97,6 +98,7 @@ def test_connect_via_cli_group(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test calling connect through the main CLI group."""
     agent_name = f"test-connect-cli-{int(time.time())}"
@@ -119,6 +121,7 @@ def test_connect_via_cli_group(
                 "--no-copy-work-dir",
                 "--no-ensure-clean",
             ],
+            obj=plugin_manager,
             catch_exceptions=False,
         )
         assert create_result.exit_code == 0, f"Create failed with: {create_result.output}"
@@ -128,6 +131,7 @@ def test_connect_via_cli_group(
             cli_runner.invoke(
                 cli,
                 ["connect", agent_name],
+                obj=plugin_manager,
                 catch_exceptions=False,
             )
 
