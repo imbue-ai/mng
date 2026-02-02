@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 from typing import Self
@@ -11,7 +12,6 @@ from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
-from imbue.mngr.config.loader import get_or_create_user_id
 from imbue.mngr.errors import ConfigParseError
 from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.primitives import AgentTypeName
@@ -23,6 +23,10 @@ from imbue.mngr.primitives import Permission
 from imbue.mngr.primitives import PluginName
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
+
+USER_ID_FILENAME = "user_id"
+PROFILES_DIRNAME = "profiles"
+ROOT_CONFIG_FILENAME = "config.toml"
 
 # === Helper Functions ===
 
@@ -528,6 +532,25 @@ class OutputOptions(FrozenModel):
     )
 
 
-USER_ID_FILENAME = "user_id"
-PROFILES_DIRNAME = "profiles"
-ROOT_CONFIG_FILENAME = "config.toml"
+# FIXME: this should obviously this should return a concrete type, not a str
+def get_or_create_user_id(profile_dir: Path) -> str:
+    """Get or create a unique user ID for this mngr profile.
+
+    The user ID is stored in a file in the profile directory. This ID is used
+    to namespace Modal apps, ensuring that sandboxes created by different mngr
+    installations on a shared Modal account don't interfere with each other.
+    """
+    user_id_file = profile_dir / USER_ID_FILENAME
+
+    if user_id_file.exists():
+        user_id = user_id_file.read_text().strip()
+        if os.environ.get("MNGR_USER_ID", ""):
+            assert user_id == os.environ.get("MNGR_USER_ID", ""), "MNGR_USER_ID environment variable does not match existing user ID file"
+    else:
+        if os.environ.get("MNGR_USER_ID", ""):
+            user_id = os.environ.get("MNGR_USER_ID", "")
+        else:
+            # Generate a new user ID
+            user_id = uuid4().hex
+        user_id_file.write_text(user_id)
+    return user_id

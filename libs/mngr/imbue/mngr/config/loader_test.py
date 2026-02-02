@@ -7,13 +7,12 @@ import click
 import pluggy
 import pytest
 
-from imbue.mngr.config.data_types import CommandDefaults
+from imbue.mngr.config.data_types import CommandDefaults, get_or_create_user_id
 from imbue.mngr.config.data_types import LoggingConfig
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.loader import _apply_plugin_overrides
 from imbue.mngr.config.loader import _get_local_config_name
 from imbue.mngr.config.loader import get_or_create_profile_dir
-from imbue.mngr.config.loader import get_or_create_user_id
 from imbue.mngr.config.loader import _get_project_config_name
 from imbue.mngr.config.loader import _get_user_config_path
 from imbue.mngr.config.loader import _load_toml

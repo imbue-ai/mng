@@ -18,7 +18,6 @@ from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.config.data_types import ROOT_CONFIG_FILENAME
-from imbue.mngr.config.data_types import USER_ID_FILENAME
 from imbue.mngr.config.plugin_registry import get_plugin_config_class
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
@@ -235,28 +234,6 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
     return profile_dir
 
 
-# FIXME: this should obviously this should return a concrete type, not a str
-def get_or_create_user_id(profile_dir: Path) -> str:
-    """Get or create a unique user ID for this mngr profile.
-
-    The user ID is stored in a file in the profile directory. This ID is used
-    to namespace Modal apps, ensuring that sandboxes created by different mngr
-    installations on a shared Modal account don't interfere with each other.
-    """
-    user_id_file = profile_dir / USER_ID_FILENAME
-
-    if user_id_file.exists():
-        user_id = user_id_file.read_text().strip()
-        if os.environ.get("MNGR_USER_ID", ""):
-            assert user_id == os.environ.get("MNGR_USER_ID", ""), "MNGR_USER_ID environment variable does not match existing user ID file"
-    else:
-        if os.environ.get("MNGR_USER_ID", ""):
-            user_id = os.environ.get("MNGR_USER_ID", "")
-        else:
-            # Generate a new user ID
-            user_id = uuid4().hex
-        user_id_file.write_text(user_id)
-    return user_id
 
 
 # =============================================================================
