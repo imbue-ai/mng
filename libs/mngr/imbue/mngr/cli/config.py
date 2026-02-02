@@ -2,7 +2,6 @@ import json
 import os
 import subprocess
 import tomllib
-import uuid
 from collections.abc import MutableMapping
 from enum import auto
 from pathlib import Path
@@ -23,6 +22,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.config.loader import get_or_create_profile_dir
 from imbue.mngr.errors import ConfigKeyNotFoundError
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigStructureError
@@ -59,37 +59,8 @@ def _get_config_path(scope: ConfigScope, root_name: str = "mngr") -> Path:
         case ConfigScope.USER:
             # User config is in the active profile directory
             base_dir = Path.home() / f".{root_name}"
-            root_config_path = base_dir / "config.toml"
-            profile_id = None
-
-            # Try to read the active profile from config.toml
-            if root_config_path.exists():
-                try:
-                    with open(root_config_path, "rb") as f:
-                        root_config = tomllib.load(f)
-                    profile_id = root_config.get("profile")
-                except tomllib.TOMLDecodeError:
-                    pass
-
-            # If no profile found, check for existing profiles
-            if profile_id is None:
-                profiles_dir = base_dir / "profiles"
-                if profiles_dir.exists():
-                    existing_profiles = [d for d in profiles_dir.iterdir() if d.is_dir()]
-                    if existing_profiles:
-                        profile_id = existing_profiles[0].name
-
-            # If still no profile, create a new one
-            if profile_id is None:
-                profile_id = uuid.uuid4().hex
-                profiles_dir = base_dir / "profiles"
-                profile_dir = profiles_dir / profile_id
-                profile_dir.mkdir(parents=True, exist_ok=True)
-                # Save the new profile ID to config.toml
-                base_dir.mkdir(parents=True, exist_ok=True)
-                root_config_path.write_text(f'profile = "{profile_id}"\n')
-
-            return base_dir / "profiles" / profile_id / "settings.toml"
+            profile_dir = get_or_create_profile_dir(base_dir)
+            return profile_dir / "settings.toml"
         case ConfigScope.PROJECT:
             git_root = find_git_worktree_root()
             if git_root is None:

@@ -81,7 +81,7 @@ def load_config(
     base_dir = base_dir.expanduser()
 
     # Get/create profile directory first (needed for user config and user_id)
-    profile_dir = _get_or_create_profile_dir(base_dir)
+    profile_dir = get_or_create_profile_dir(base_dir)
     user_id = _get_or_create_user_id(profile_dir)
 
     # Start with base config that has defaults based on root_name
@@ -197,7 +197,7 @@ def load_config(
     )
 
 
-def _get_or_create_profile_dir(base_dir: Path) -> Path:
+def get_or_create_profile_dir(base_dir: Path) -> Path:
     """Get or create the profile directory for this mngr installation.
 
     The profile directory is stored at ~/.mngr/profiles/<profile_id>/. The active

@@ -12,7 +12,7 @@ from imbue.mngr.config.data_types import LoggingConfig
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.loader import _apply_plugin_overrides
 from imbue.mngr.config.loader import _get_local_config_name
-from imbue.mngr.config.loader import _get_or_create_profile_dir
+from imbue.mngr.config.loader import get_or_create_profile_dir
 from imbue.mngr.config.loader import _get_or_create_user_id
 from imbue.mngr.config.loader import _get_project_config_name
 from imbue.mngr.config.loader import _get_user_config_path
@@ -576,15 +576,15 @@ def test_on_load_config_hook_can_add_new_fields(
 
 
 # =============================================================================
-# Tests for _get_or_create_profile_dir
+# Tests for get_or_create_profile_dir
 # =============================================================================
 
 
-def test_get_or_create_profile_dir_creates_new_profile_when_no_config(tmp_path: Path) -> None:
-    """_get_or_create_profile_dir should create a new profile when config.toml doesn't exist."""
+def testget_or_create_profile_dir_creates_new_profile_when_no_config(tmp_path: Path) -> None:
+    """get_or_create_profile_dir should create a new profile when config.toml doesn't exist."""
     base_dir = tmp_path / "mngr"
 
-    result = _get_or_create_profile_dir(base_dir)
+    result = get_or_create_profile_dir(base_dir)
 
     # Should have created the directories
     assert (base_dir / "profiles").exists()
@@ -599,8 +599,8 @@ def test_get_or_create_profile_dir_creates_new_profile_when_no_config(tmp_path: 
     assert f'profile = "{profile_id}"' in content
 
 
-def test_get_or_create_profile_dir_reads_existing_profile_from_config(tmp_path: Path) -> None:
-    """_get_or_create_profile_dir should read existing profile from config.toml."""
+def testget_or_create_profile_dir_reads_existing_profile_from_config(tmp_path: Path) -> None:
+    """get_or_create_profile_dir should read existing profile from config.toml."""
     base_dir = tmp_path / "mngr"
     base_dir.mkdir(parents=True, exist_ok=True)
     profiles_dir = base_dir / "profiles"
@@ -615,14 +615,14 @@ def test_get_or_create_profile_dir_reads_existing_profile_from_config(tmp_path: 
     config_path = base_dir / "config.toml"
     config_path.write_text(f'profile = "{existing_profile_id}"\n')
 
-    result = _get_or_create_profile_dir(base_dir)
+    result = get_or_create_profile_dir(base_dir)
 
     assert result == existing_profile_dir
     assert result.name == existing_profile_id
 
 
-def test_get_or_create_profile_dir_creates_profile_dir_if_specified_but_missing(tmp_path: Path) -> None:
-    """_get_or_create_profile_dir should create profile dir if config.toml specifies it but dir doesn't exist."""
+def testget_or_create_profile_dir_creates_profile_dir_if_specified_but_missing(tmp_path: Path) -> None:
+    """get_or_create_profile_dir should create profile dir if config.toml specifies it but dir doesn't exist."""
     base_dir = tmp_path / "mngr"
     base_dir.mkdir(parents=True, exist_ok=True)
     profiles_dir = base_dir / "profiles"
@@ -633,15 +633,15 @@ def test_get_or_create_profile_dir_creates_profile_dir_if_specified_but_missing(
     config_path = base_dir / "config.toml"
     config_path.write_text(f'profile = "{specified_profile_id}"\n')
 
-    result = _get_or_create_profile_dir(base_dir)
+    result = get_or_create_profile_dir(base_dir)
 
     # Should have created the specified profile directory
     assert result == profiles_dir / specified_profile_id
     assert result.exists()
 
 
-def test_get_or_create_profile_dir_handles_invalid_config_toml(tmp_path: Path) -> None:
-    """_get_or_create_profile_dir should handle invalid config.toml by creating new profile."""
+def testget_or_create_profile_dir_handles_invalid_config_toml(tmp_path: Path) -> None:
+    """get_or_create_profile_dir should handle invalid config.toml by creating new profile."""
     base_dir = tmp_path / "mngr"
     base_dir.mkdir(parents=True, exist_ok=True)
 
@@ -649,7 +649,7 @@ def test_get_or_create_profile_dir_handles_invalid_config_toml(tmp_path: Path) -
     config_path = base_dir / "config.toml"
     config_path.write_text("[invalid toml syntax")
 
-    result = _get_or_create_profile_dir(base_dir)
+    result = get_or_create_profile_dir(base_dir)
 
     # Should have created a new profile (with new config)
     assert result.exists()
@@ -660,8 +660,8 @@ def test_get_or_create_profile_dir_handles_invalid_config_toml(tmp_path: Path) -
     assert 'profile = "' in new_content
 
 
-def test_get_or_create_profile_dir_handles_config_without_profile_key(tmp_path: Path) -> None:
-    """_get_or_create_profile_dir should create new profile if config.toml has no 'profile' key."""
+def testget_or_create_profile_dir_handles_config_without_profile_key(tmp_path: Path) -> None:
+    """get_or_create_profile_dir should create new profile if config.toml has no 'profile' key."""
     base_dir = tmp_path / "mngr"
     base_dir.mkdir(parents=True, exist_ok=True)
 
@@ -669,19 +669,19 @@ def test_get_or_create_profile_dir_handles_config_without_profile_key(tmp_path: 
     config_path = base_dir / "config.toml"
     config_path.write_text('other_key = "value"\n')
 
-    result = _get_or_create_profile_dir(base_dir)
+    result = get_or_create_profile_dir(base_dir)
 
     # Should have created a new profile
     assert result.exists()
     assert result.parent == base_dir / "profiles"
 
 
-def test_get_or_create_profile_dir_returns_same_profile_on_subsequent_calls(tmp_path: Path) -> None:
-    """_get_or_create_profile_dir should return the same profile on subsequent calls."""
+def testget_or_create_profile_dir_returns_same_profile_on_subsequent_calls(tmp_path: Path) -> None:
+    """get_or_create_profile_dir should return the same profile on subsequent calls."""
     base_dir = tmp_path / "mngr"
 
-    result1 = _get_or_create_profile_dir(base_dir)
-    result2 = _get_or_create_profile_dir(base_dir)
+    result1 = get_or_create_profile_dir(base_dir)
+    result2 = get_or_create_profile_dir(base_dir)
 
     assert result1 == result2
 

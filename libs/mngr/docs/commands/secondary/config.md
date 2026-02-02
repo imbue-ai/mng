@@ -54,7 +54,7 @@ mngr config [OPTIONS] COMMAND [ARGS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
 
 ## mngr config list
 
@@ -98,7 +98,7 @@ mngr config list [OPTIONS]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
 
 ## mngr config get
 
@@ -142,7 +142,7 @@ mngr config get [OPTIONS] KEY
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
 
 ## mngr config set
 
@@ -189,7 +189,7 @@ mngr config set [OPTIONS] KEY VALUE
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
 
 ## mngr config unset
 
@@ -231,7 +231,7 @@ mngr config unset [OPTIONS] KEY
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
 
 ## mngr config edit
 
@@ -277,7 +277,7 @@ mngr config edit [OPTIONS]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
 
 ## mngr config path
 
@@ -319,7 +319,7 @@ mngr config path [OPTIONS]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
 
 ## See Also
 
