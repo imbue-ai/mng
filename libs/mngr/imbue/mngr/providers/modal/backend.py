@@ -4,7 +4,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 from typing import ClassVar
-from uuid import uuid4
 
 import modal
 import modal.exception
@@ -33,7 +32,6 @@ from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 
 MODAL_BACKEND_NAME = ProviderBackendName("modal")
-USER_ID_FILENAME = "user_id"
 STATE_VOLUME_SUFFIX = "-state"
 MODAL_NAME_MAX_LENGTH = 64
 
@@ -187,28 +185,6 @@ def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
     # suppress any errors
     with contextlib.suppress(OSError, RuntimeError):
         handle.output_capture_context.__exit__(None, None, None)
-
-
-# FIXME: this function should be moved to a much lower level (many other things may want a user id, should be part of MngrContext?)
-#  also, obviously this should return a concrete type, not a str
-def _get_or_create_user_id(mngr_ctx: MngrContext) -> str:
-    """Get or create a unique user ID for this mngr installation.
-
-    The user ID is stored in a file in the mngr data directory. This ID is used
-    to namespace Modal apps, ensuring that sandboxes created by different mngr
-    installations on a shared Modal account don't interfere with each other.
-    """
-    data_dir = mngr_ctx.config.default_host_dir.expanduser()
-    data_dir.mkdir(parents=True, exist_ok=True)
-    user_id_file = data_dir / USER_ID_FILENAME
-
-    if user_id_file.exists():
-        return user_id_file.read_text().strip()
-
-    # Generate a new user ID
-    user_id = uuid4().hex
-    user_id_file.write_text(user_id)
-    return user_id
 
 
 class ModalProviderBackend(ProviderBackendInterface):
@@ -412,7 +388,7 @@ Supported build arguments for the modal provider:
         # between different mngr installations sharing the same Modal account.
         # The app name is just prefix + name (no user_id).
         prefix = mngr_ctx.config.prefix
-        user_id = _get_or_create_user_id(mngr_ctx)
+        user_id = mngr_ctx.user_id
         environment_name = f"{prefix}{user_id}"
         default_app_name = f"{prefix}{name}"
 
