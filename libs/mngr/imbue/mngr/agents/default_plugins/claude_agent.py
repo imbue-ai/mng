@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -53,6 +54,10 @@ class ClaudeAgentConfig(AgentTypeConfig):
         default=True,
         description="Check if claude is installed (if False, assumes it is already present)",
     )
+    configure_readiness_hooks: bool = Field(
+        default=True,
+        description="Whether to configure Claude hooks for readiness signaling (waiting file)",
+    )
 
 
 def _check_claude_installed(host: OnlineHostInterface) -> bool:
@@ -75,6 +80,52 @@ def _prompt_user_for_installation() -> bool:
         "\nClaude is not installed on this machine.\nYou can install it by running:\n  curl -fsSL https://claude.ai/install.sh | bash\n"
     )
     return click.confirm("Would you like to install it now?", default=True)
+
+
+def _build_readiness_hooks_config() -> dict:
+    """Build the hooks configuration for readiness signaling.
+
+    These hooks use the MNGR_AGENT_STATE_DIR environment variable to create/remove
+    a 'waiting' file that signals when Claude is ready for input vs actively working.
+
+    - SessionStart: creates the waiting file (Claude is ready for input)
+    - UserPromptSubmit: removes the waiting file (Claude is processing a prompt)
+    - Stop: creates the waiting file (Claude finished and is ready again)
+    """
+    return {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": 'touch "$MNGR_AGENT_STATE_DIR/waiting"',
+                        }
+                    ]
+                }
+            ],
+            "UserPromptSubmit": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": 'rm -f "$MNGR_AGENT_STATE_DIR/waiting"',
+                        }
+                    ]
+                }
+            ],
+            "Stop": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": 'touch "$MNGR_AGENT_STATE_DIR/waiting"',
+                        }
+                    ]
+                }
+            ],
+        }
+    }
 
 
 class ClaudeAgent(BaseAgent):
@@ -195,6 +246,37 @@ class ClaudeAgent(BaseAgent):
 
         return transfers
 
+    def _configure_readiness_hooks(self, host: OnlineHostInterface) -> None:
+        """Configure Claude hooks for readiness signaling in the agent's work_dir.
+
+        This writes hooks to .claude/settings.local.json in the agent's work_dir.
+        The hooks signal when Claude is ready for input by creating/removing a
+        'waiting' file in the agent's state directory.
+        """
+        hooks_config = _build_readiness_hooks_config()
+        settings_path = self.work_dir / ".claude" / "settings.local.json"
+
+        # Read existing settings if present
+        existing_settings: dict = {}
+        try:
+            content = host.read_text_file(settings_path)
+            existing_settings = json.loads(content)
+        except FileNotFoundError:
+            pass
+
+        # Merge hooks into existing settings
+        if "hooks" not in existing_settings:
+            existing_settings["hooks"] = {}
+
+        for event_name, event_hooks in hooks_config["hooks"].items():
+            if event_name not in existing_settings["hooks"]:
+                existing_settings["hooks"][event_name] = []
+            existing_settings["hooks"][event_name].extend(event_hooks)
+
+        # Write the merged settings
+        logger.debug("Configuring readiness hooks in {}", settings_path)
+        host.write_text_file(settings_path, json.dumps(existing_settings, indent=2))
+
     def provision(
         self,
         host: OnlineHostInterface,
@@ -282,6 +364,10 @@ class ClaudeAgent(BaseAgent):
                     host.write_text_file(Path(".claude/.credentials.json"), credentials_path.read_text())
                 else:
                     logger.debug("Skipping ~/.claude/.credentials.json (file does not exist)")
+
+        # Configure readiness hooks (for both local and remote hosts)
+        if config.configure_readiness_hooks:
+            self._configure_readiness_hooks(host)
 
 
 @hookimpl

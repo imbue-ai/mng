@@ -9,9 +9,34 @@ from imbue.mngr.api.data_types import OnBeforeCreateArgs
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.host import HostLocation
+from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.utils.logging import log_call
+
+
+def _wait_for_agent_ready(
+    agent: AgentInterface,
+    timeout_seconds: float,
+    poll_interval_seconds: float = 0.2,
+) -> bool:
+    """Wait for the agent to reach WAITING state, indicating it's ready for input.
+
+    Some agents (like Claude) configure hooks that create a 'waiting' file when
+    they're ready to accept input. This function polls the agent's lifecycle state
+    until it reaches WAITING, or until the timeout expires.
+
+    Returns True if the agent reached WAITING state, False if timeout occurred.
+    """
+    start_time = time.monotonic()
+    while time.monotonic() - start_time < timeout_seconds:
+        state = agent.get_lifecycle_state()
+        if state == AgentLifecycleState.WAITING:
+            logger.debug("Agent {} reached WAITING state", agent.name)
+            return True
+        time.sleep(poll_interval_seconds)
+    return False
 
 
 def _call_on_before_create_hooks(
@@ -104,11 +129,18 @@ def create(
     initial_message = agent.get_initial_message()
     if initial_message is not None:
         logger.info("Sending initial message...")
-        # Note: ideally agents would have their own mechanism for signaling readiness
-        # (e.g., claude has hooks we could use). For now, use configurable delay.
-        # Give the agent a moment to start up before sending the message
+        # Wait for the agent to signal readiness via the WAITING lifecycle state.
+        # Agents like Claude configure hooks that create a 'waiting' file when ready.
+        # If the agent doesn't support this (no WAITING state within timeout),
+        # fall back to a time-based delay.
         logger.debug("Waiting for agent to become ready before sending initial message")
-        time.sleep(agent_options.message_delay_seconds)
+        if _wait_for_agent_ready(agent, timeout_seconds=agent_options.message_delay_seconds):
+            logger.debug("Agent signaled readiness via WAITING state")
+        else:
+            logger.debug(
+                "Agent did not reach WAITING state within {}s, proceeding anyway",
+                agent_options.message_delay_seconds,
+            )
         agent.send_message(initial_message)
 
     # Build and return the result
