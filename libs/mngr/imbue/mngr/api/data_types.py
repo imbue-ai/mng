@@ -91,8 +91,8 @@ class NewHostBuildOptions(FrozenModel):
     )
 
 
-class NewHostEnvironmentOptions(FrozenModel):
-    """Environment variable configuration for a new host."""
+class HostEnvironmentOptions(FrozenModel):
+    """Environment variable configuration for a host."""
 
     env_vars: tuple[EnvVar, ...] = Field(
         default=(),
@@ -161,8 +161,8 @@ class NewHostOptions(FrozenModel):
         default_factory=NewHostBuildOptions,
         description="Build options for the host image",
     )
-    environment: NewHostEnvironmentOptions = Field(
-        default_factory=NewHostEnvironmentOptions,
+    environment: HostEnvironmentOptions = Field(
+        default_factory=HostEnvironmentOptions,
         description="Environment variable configuration",
     )
     lifecycle: HostLifecycleOptions = Field(
