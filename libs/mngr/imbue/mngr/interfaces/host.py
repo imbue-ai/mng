@@ -341,11 +341,6 @@ class OnlineHostInterface(HostInterface, ABC):
         ...
 
     @abstractmethod
-    def get_boot_time(self) -> datetime | None:
-        """Return the host boot time as a datetime, or None if unknown."""
-        ...
-
-    @abstractmethod
     def get_provider_resources(self) -> HostResources:
         """Return the resource allocation (CPU, memory, disk) for this host."""
         ...
