@@ -21,18 +21,25 @@ Agent state is separated into two classes:
 
 ### Certified Fields
 
-| JSON Path (within `data.json`) | Notes                                             |
-|--------------------------------|---------------------------------------------------|
-| `id`                           | Unique identifier.                                |
-| `name`                         | Human-readable name                               |
-| `type`                         | Agent type (claude, codex, etc.)                  |
-| `command`                      | The command used to start the agent               |
-| `work_dir`                     | Working directory for this agent                  |
-| `permissions`                  | List of permissions assigned to this agent        |
-| `create_time`                  | When the agent was created                        |
-| `start_on_boot`                | If present and true, the agent will start at boot |
-| `plugin.*`                     | Plugin-specific (certified) state                 |
-| `host.*`                       | Host-specific state, see [host.md](./host.md)     |
+| JSON Path (within agent `data.json`) | Notes                                             |
+|--------------------------------------|---------------------------------------------------|
+| `id`                                 | Unique identifier.                                |
+| `name`                               | Human-readable name                               |
+| `type`                               | Agent type (claude, codex, etc.)                  |
+| `command`                            | The command used to start the agent               |
+| `work_dir`                           | Working directory for this agent                  |
+| `permissions`                        | List of permissions assigned to this agent        |
+| `create_time`                        | When the agent was created                        |
+| `start_on_boot`                      | If present and true, the agent will start at boot |
+| `plugin.*`                           | Plugin-specific (certified) state                 |
+
+### Inlined certified fields
+
+When agents are reported from the CLI, certain other fields are inlined into the JSON to make it more convenient for users:
+
+| JSON Path (within CLI json objects) | Notes                                             |
+|-------------------------------------|---------------------------------------------------|
+| `host.*`                            | Host-specific state, see [host.md](./host.md)     |
 
 ### Reported Fields
 

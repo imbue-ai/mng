@@ -39,17 +39,17 @@ building  →  starting      →       running     →    stopping    →    sto
   failed   failed/stopped/crashed  stopped/paused/crashed/destroyed     destroyed
 ```
 
-| State         | Description                                                                      |
-|---------------|----------------------------------------------------------------------------------|
-| **building**  | Building the image, etc.                                                         |
-| **starting**  | Creating and provisioning the host, starting the agent, etc.                     |
-| **running**   | While any agent is running and considered active                                 |
+| State         | Description                                                                          |
+|---------------|--------------------------------------------------------------------------------------|
+| **building**  | Building the image, etc.                                                             |
+| **starting**  | Creating and provisioning the host, starting the agent, etc.                         |
+| **running**   | While any agent is running and considered active                                     |
 | **stopping**  | When all agents become idle, the host is being stopped (snapshotted, host shut down) |
-| **paused**    | Host became idle and was snapshotted/shut down (can be restarted)               |
-| **stopped**   | User explicitly stopped the host (can be restarted)                              |
-| **crashed**   | Host shut down unexpectedly without a controlled shutdown                        |
-| **failed**    | Something went wrong before the host could be created                            |
-| **destroyed** | Host gone, resources freed                                                       |
+| **paused**    | Host became idle and was snapshotted/shut down (can be restarted)                    |
+| **stopped**   | User explicitly stopped all agents on the host (agents can be started up again)      |
+| **crashed**   | Host shut down unexpectedly without a controlled shutdown                            |
+| **failed**    | Something went wrong before the host could be created                                |
+| **destroyed** | Host gone, resources freed                                                           |
 
 Transitional states have configurable timeouts. If exceeded, hosts auto-transition to `failed`, `stopped`, or `destroyed` (as appropriate).
 
@@ -114,7 +114,19 @@ When a host is "stopping", it performs these steps:
 
 While a host is "stopped", it is completely shut down and only consuming storage (for snapshots, etc.)
 
-You can "start" a stopped host, which causes it to transition to the `starting` state.
+You can "start" agents on a stopped host, which causes the host to transition to the `starting` state.
+
+### Paused
+
+While a host is "paused", it is completely shut down and only consuming storage (for snapshots, etc.)
+
+You can "start" agents on a paused host, which causes the host to transition to the `starting` state.
+
+### Crashed
+
+A host is considered "crashed" if, according to the provider-specific stored state, the host *should* be running, but it is not.
+
+Hosts that are "crashed" can be started by starting any of their agent(s)
 
 ### Failed
 

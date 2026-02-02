@@ -110,37 +110,30 @@ TODO: put a ton of examples here!
 
 ## How it works
 
-`mngr` uses existing tools like SSH, git, docker and tmux to run and manage your agents.
+You can interact with `mngr` either via:
 
-### Core concepts
+1. The terminal (run `mngr --help` to learn more)
+2. One of many [web interfaces](./web_interfaces.md) (ex: [TheEye](http://ididntmakethisyet.com)) 
 
-- **[agents](./docs/concepts/agents.md)** are processes running in tmux sessions, each with their own work_dir and configuration
-- **[hosts](./docs/concepts/hosts.md)** are environments where agents run (local, Docker, Modal, etc.). Multiple agents can share a host.
-- **[provider instances](./docs/concepts/providers.md)** create and manage hosts (local, Docker, Modal, etc.)
-- **[plugins](./docs/concepts/plugins.md)** define agent types, provider backends, and extend functionality
+`mngr` uses robust open source tools like SSH, git, and tmux to run and manage your agents:
 
-### Basics
-
-Agents are simply "a process running in a tmux session on some computer." Like any process, each agent has a working directory and environment variables.
-
-By default, agents run on your locally without isolation. Use `--in docker` or `--in modal` to create a new isolated host, or `--host <name>` to target an existing host.
-
-Agents follow a few conventions:
-- Agents run inside tmux sessions with a `mngr-` prefix
-- Agents can self-report activity (enabling automatic idle detection)
-- Agents can expose web interfaces (and the default plugins make a secure web terminal for CLI agents by using `ttyd`)
-- Agents should store their status, events, and logs in a standard location (default: `$MNGR_STATE_DIR/<agent_id>/`)
-- ...[and more](./docs/conventions.md)
-
-Hosts provide the environment:
-- Remote hosts run an SSH server (all remote access goes over SSH)
-- Hosts are discoverable via their provider (anything with a `mngr-` name prefix)
-- Hosts can be stopped and started
-- ...[and more](./docs/conventions.md)
-
-As long as you follow the [conventions](./docs/conventions.md), you can pick and choose any `mngr` commands—there's no lock-in or required workflow.
+- **[agents](./docs/concepts/agents.md)** are simply [processes](TK-process) that run in [tmux](TK-tmux) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
+- [agents](./docs/concepts/agents.md) usually expose URLs so you can access them from the web
+- [agents](./docs/concepts/agents.md) run on **[hosts](./docs/concepts/hosts.md)**--either locally (by default), or special environments like [Modal]() [Sandboxes]() (`--in modal`) or [Docker]() [containers]() (`--in docker`).  Use `--host <name>` to target an existing host.
+- multiple [agents](./docs/concepts/agents.md) can share a single [host](./docs/concepts/hosts.md).
+- [hosts](./docs/concepts/hosts.md) come from **[providers](./docs/concepts/providers.md)** (ex: Modal, AWS, docker, etc)
+- [hosts](./docs/concepts/hosts.md) help save money by automatically "pausing" when all of their [agents](./docs/concepts/agents.md) are "idle". See [idle detection](./docs/concepts/idle_detection.md)) for more details.
+- [hosts](./docs/concepts/hosts.md) automatically "stop" when all of their [agents](./docs/concepts/agents.md) are "stopped"
+- `mngr` is absurdly extensible--there are existing **[plugins](./docs/concepts/plugins.md)** for almost everything, and `mngr` can even [dynamically generate new plugins]()
 
 ### Architecture
+
+`mngr` stores very little state (beyond configuration and local caches for performance), and instead relies on conventions:
+
+- any process running in window 0 of a `mngr-` prefixed tmux sessions is considered an agent
+- agents store their status, events, and logs in a standard location (default: `$MNGR_STATE_DIR/<agent_id>/`)
+- all hosts are accessed via SSH--if you can SSH into it, it can be a host
+- ...[and more](./docs/conventions.md)
 
 See [`architecture.md`](./docs/architecture.md) for an in-depth overview of the `mngr` architecture and design principles.
 

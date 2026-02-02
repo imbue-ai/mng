@@ -16,7 +16,7 @@ mngr create my-agent --agent-cmd "sleep 1000"   # run a literal command
 
 Using `--agent-cmd` implicitly uses the "generic" agent type, which simply runs the provided command. This means `--agent-cmd` and `--agent-type` are mutually exclusive.
 
-Agent types include any program in your PATH, as well as types registered by [plugins](./plugins.md), which can also specify:
+Agent types include any program in your `PATH`, as well as types registered by [plugins](./plugins.md), which can also specify:
 
 - Command to run (e.g., `claude`, `codex`)
 - Environment variables (API keys, model selection, feature flags)
