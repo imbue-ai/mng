@@ -6,7 +6,7 @@
 
 `mngr` loads configuration from multiple sources with the following precedence (lowest to highest):
 
-1. User config: `~/.config/mngr/settings.toml`
+1. User config: `~/.mngr/profiles/<profile_id>/settings.toml`
 2. Project config: `.mngr/settings.toml` (at git root or context dir)
 3. Local config: `.mngr/settings.local.toml` (at git root or context dir)
 4. Environment variables: `MNGR_PREFIX`, `MNGR_HOST_DIR`, `MNGR_ROOT_NAME`

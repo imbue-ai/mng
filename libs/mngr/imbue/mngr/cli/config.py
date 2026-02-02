@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import tomllib
+import uuid
 from collections.abc import MutableMapping
 from enum import auto
 from pathlib import Path
@@ -56,7 +57,39 @@ def _get_config_path(scope: ConfigScope, root_name: str = "mngr") -> Path:
     """Get the config file path for the given scope."""
     match scope:
         case ConfigScope.USER:
-            return Path.home() / ".config" / root_name / "settings.toml"
+            # User config is in the active profile directory
+            base_dir = Path.home() / f".{root_name}"
+            root_config_path = base_dir / "config.toml"
+            profile_id = None
+
+            # Try to read the active profile from config.toml
+            if root_config_path.exists():
+                try:
+                    with open(root_config_path, "rb") as f:
+                        root_config = tomllib.load(f)
+                    profile_id = root_config.get("profile")
+                except tomllib.TOMLDecodeError:
+                    pass
+
+            # If no profile found, check for existing profiles
+            if profile_id is None:
+                profiles_dir = base_dir / "profiles"
+                if profiles_dir.exists():
+                    existing_profiles = [d for d in profiles_dir.iterdir() if d.is_dir()]
+                    if existing_profiles:
+                        profile_id = existing_profiles[0].name
+
+            # If still no profile, create a new one
+            if profile_id is None:
+                profile_id = uuid.uuid4().hex
+                profiles_dir = base_dir / "profiles"
+                profile_dir = profiles_dir / profile_id
+                profile_dir.mkdir(parents=True, exist_ok=True)
+                # Save the new profile ID to config.toml
+                base_dir.mkdir(parents=True, exist_ok=True)
+                root_config_path.write_text(f'profile = "{profile_id}"\n')
+
+            return base_dir / "profiles" / profile_id / "settings.toml"
         case ConfigScope.PROJECT:
             git_root = find_git_worktree_root()
             if git_root is None:
@@ -189,7 +222,7 @@ def _flatten_config(config: dict[str, Any], prefix: str = "") -> list[tuple[str,
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -220,7 +253,7 @@ def config(ctx: click.Context, **kwargs: Any) -> None:
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -310,7 +343,7 @@ def _emit_config_list(
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -396,7 +429,7 @@ def _emit_key_not_found(key: str, output_opts: OutputOptions) -> None:
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
     default="project",
     show_default=True,
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -492,7 +525,7 @@ def _emit_config_set_result(
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
     default="project",
     show_default=True,
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -581,7 +614,7 @@ def _emit_config_unset_result(
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
     default="project",
     show_default=True,
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -706,7 +739,7 @@ def _get_config_template() -> str:
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
