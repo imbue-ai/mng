@@ -19,7 +19,7 @@ from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.data_types import CreateAgentResult
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.data_types import NewHostBuildOptions
-from imbue.mngr.api.data_types import NewHostEnvironmentOptions
+from imbue.mngr.api.data_types import HostEnvironmentOptions
 from imbue.mngr.api.data_types import NewHostOptions
 from imbue.mngr.api.data_types import SourceLocation
 from imbue.mngr.api.find import get_host_from_list_by_id
@@ -1179,7 +1179,7 @@ def _parse_target_host(
             name=parsed_host_name,
             tags=tags,
             build=build_options,
-            environment=NewHostEnvironmentOptions(
+            environment=HostEnvironmentOptions(
                 env_vars=host_env_vars,
                 env_files=host_env_files,
                 pass_env_vars=opts.pass_host_env,
