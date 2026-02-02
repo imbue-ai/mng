@@ -10,6 +10,7 @@ from imbue.mngr.api.message import _agent_to_cel_context
 from imbue.mngr.api.message import send_message_to_agents
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
@@ -32,6 +33,13 @@ def temp_work_dir(tmp_path: Path) -> Path:
     work_dir = tmp_path / "work_dir"
     work_dir.mkdir(parents=True, exist_ok=True)
     return work_dir
+
+
+@pytest.fixture
+def temp_profile_dir(temp_host_dir: Path) -> Path:
+    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return profile_dir
 
 
 @pytest.fixture
@@ -63,12 +71,13 @@ def test_message_result_can_add_failed_agent() -> None:
 def test_agent_to_cel_context_returns_expected_fields(
     temp_host_dir: Path,
     temp_work_dir: Path,
+    temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
     mngr_test_prefix: str,
 ) -> None:
     """Test that _agent_to_cel_context returns the expected fields."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -99,12 +108,13 @@ def test_agent_to_cel_context_returns_expected_fields(
 def test_send_message_to_agents_returns_empty_result_when_no_agents_match(
     temp_host_dir: Path,
     temp_work_dir: Path,
+    temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
     mngr_test_prefix: str,
 ) -> None:
     """Test that send_message returns empty result when no agents match filters."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
 
     result = send_message_to_agents(
         mngr_ctx=mngr_ctx,
@@ -120,12 +130,13 @@ def test_send_message_to_agents_returns_empty_result_when_no_agents_match(
 def test_send_message_to_agents_calls_success_callback(
     temp_host_dir: Path,
     temp_work_dir: Path,
+    temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
     mngr_test_prefix: str,
 ) -> None:
     """Test that send_message calls the success callback when message is sent."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -167,12 +178,13 @@ def test_send_message_to_agents_calls_success_callback(
 def test_send_message_to_agents_fails_for_stopped_agent(
     temp_host_dir: Path,
     temp_work_dir: Path,
+    temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
     mngr_test_prefix: str,
 ) -> None:
     """Test that sending message to stopped agent fails."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -211,12 +223,13 @@ def test_send_message_to_agents_fails_for_stopped_agent(
 def test_send_message_to_agents_with_include_filter(
     temp_host_dir: Path,
     temp_work_dir: Path,
+    temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
     mngr_test_prefix: str,
 ) -> None:
     """Test that send_message respects include filters."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,

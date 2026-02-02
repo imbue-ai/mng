@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from typing import Sequence
+from uuid import uuid4
 
 import pluggy
 
@@ -14,7 +15,10 @@ from imbue.mngr.config.data_types import LoggingConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PluginConfig
+from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.config.data_types import ROOT_CONFIG_FILENAME
+from imbue.mngr.config.data_types import USER_ID_FILENAME
 from imbue.mngr.config.plugin_registry import get_plugin_config_class
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
@@ -53,7 +57,7 @@ def load_config(
     """Load and merge configuration from all sources.
 
     Precedence (lowest to highest):
-    1. User config (~/.{root_name}/settings.toml)
+    1. User config (~/.{root_name}/profiles/<profile_id>/settings.toml)
     2. Project config (.{root_name}/settings.toml at context_dir or git root)
     3. Local config (.{root_name}/settings.local.toml at context_dir or git root)
     4. Environment variables (MNGR_ROOT_NAME, MNGR_PREFIX, MNGR_HOST_DIR)
@@ -71,6 +75,15 @@ def load_config(
     # Read MNGR_ROOT_NAME early to use for config file discovery
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
 
+    # Determine base directory (may be overridden by env var)
+    env_host_dir = os.environ.get("MNGR_HOST_DIR")
+    base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
+    base_dir = base_dir.expanduser()
+
+    # Get/create profile directory first (needed for user config and user_id)
+    profile_dir = get_or_create_profile_dir(base_dir)
+    user_id = _get_or_create_user_id(profile_dir)
+
     # Start with base config that has defaults based on root_name
     # Use model_construct with None to allow merging to work properly
     config = MngrConfig.model_construct(
@@ -83,8 +96,8 @@ def load_config(
         commands={"create": CommandDefaults(defaults={"pass_host_env": ["EDITOR"]})},
     )
 
-    # Load user config
-    user_config_path = _get_user_config_path(root_name)
+    # Load user config from profile directory
+    user_config_path = _get_user_config_path(profile_dir)
     if user_config_path.exists():
         try:
             raw_user = _load_toml(user_config_path)
@@ -175,7 +188,72 @@ def load_config(
             )
 
     # Return MngrContext containing both config and plugin manager
-    return MngrContext(config=final_config, pm=pm, is_interactive=is_interactive)
+    return MngrContext(
+        config=final_config,
+        pm=pm,
+        is_interactive=is_interactive,
+        user_id=user_id,
+        profile_dir=profile_dir,
+    )
+
+
+def get_or_create_profile_dir(base_dir: Path) -> Path:
+    """Get or create the profile directory for this mngr installation.
+
+    The profile directory is stored at ~/.mngr/profiles/<profile_id>/. The active
+    profile is specified in ~/.mngr/config.toml. If no profile exists, a new one
+    is created with a generated profile ID and saved to config.toml.
+    """
+    base_dir.mkdir(parents=True, exist_ok=True)
+    profiles_dir = base_dir / PROFILES_DIRNAME
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    config_path = base_dir / ROOT_CONFIG_FILENAME
+
+    # Try to read the active profile from config.toml
+    if config_path.exists():
+        try:
+            with open(config_path, "rb") as f:
+                root_config = tomllib.load(f)
+            profile_id = root_config.get("profile")
+            if profile_id:
+                profile_dir = profiles_dir / profile_id
+                if profile_dir.exists() and profile_dir.is_dir():
+                    return profile_dir
+                # Profile specified but doesn't exist - create it
+                profile_dir.mkdir(parents=True, exist_ok=True)
+                return profile_dir
+        except tomllib.TOMLDecodeError:
+            # Invalid config.toml - will create new profile
+            pass
+
+    # No valid config.toml or no profile specified - create a new profile
+    profile_id = uuid4().hex
+    profile_dir = profiles_dir / profile_id
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save the new profile ID to config.toml
+    config_path.write_text(f'profile = "{profile_id}"\n')
+
+    return profile_dir
+
+
+# FIXME: this should obviously this should return a concrete type, not a str
+def _get_or_create_user_id(profile_dir: Path) -> str:
+    """Get or create a unique user ID for this mngr profile.
+
+    The user ID is stored in a file in the profile directory. This ID is used
+    to namespace Modal apps, ensuring that sandboxes created by different mngr
+    installations on a shared Modal account don't interfere with each other.
+    """
+    user_id_file = profile_dir / USER_ID_FILENAME
+
+    if user_id_file.exists():
+        return user_id_file.read_text().strip()
+
+    # Generate a new user ID
+    user_id = uuid4().hex
+    user_id_file.write_text(user_id)
+    return user_id
 
 
 # =============================================================================
@@ -183,9 +261,9 @@ def load_config(
 # =============================================================================
 
 
-def _get_user_config_path(root_name: str) -> Path:
-    """Get the user config path based on root name."""
-    return Path.home() / ".config" / root_name / "settings.toml"
+def _get_user_config_path(profile_dir: Path) -> Path:
+    """Get the user config path based on profile directory."""
+    return profile_dir / "settings.toml"
 
 
 def _get_project_config_name(root_name: str) -> Path:

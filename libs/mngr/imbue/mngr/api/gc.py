@@ -427,8 +427,8 @@ def gc_build_cache(
     """Garbage collect build cache entries."""
     compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
-    # Construct providers directory from config
-    base_cache_dir = mngr_ctx.config.default_host_dir.expanduser() / "providers"
+    # Construct providers directory from profile
+    base_cache_dir = mngr_ctx.profile_dir / "providers"
 
     if not base_cache_dir.exists():
         logger.trace("Build cache directory {} does not exist, skipping", base_cache_dir)

@@ -13,6 +13,7 @@ import threading
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from uuid import uuid4
 
 import pluggy
 import pytest
@@ -21,6 +22,7 @@ from pyinfra.api.command import StringCommand
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
@@ -58,6 +60,14 @@ def host_with_temp_dir(local_provider: LocalProviderInstance, temp_host_dir: Pat
     host = local_provider.create_host(HostName("test"))
     assert isinstance(host, Host)
     return host, temp_host_dir
+
+
+@pytest.fixture
+def temp_profile_dir(temp_host_dir: Path) -> Path:
+    """Create a temporary profile directory for tests that create their own MngrContext."""
+    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return profile_dir
 
 
 # =============================================================================
@@ -542,7 +552,11 @@ def test_get_idle_seconds_after_boot_activity(host_with_temp_dir: tuple[Host, Pa
 
 
 def test_unset_vars_applied_during_agent_start(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that unset_vars config is applied when starting agents."""
     config_with_unset = MngrConfig(
@@ -551,7 +565,7 @@ def test_unset_vars_applied_during_agent_start(
         unset_vars=["HISTFILE", "PROFILE"],
     )
 
-    mngr_ctx_with_unset = MngrContext(config=config_with_unset, pm=plugin_manager)
+    mngr_ctx_with_unset = MngrContext(config=config_with_unset, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider_with_unset = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -607,11 +621,15 @@ def test_unset_vars_applied_during_agent_start(
 
 
 def test_stop_agent_kills_single_pane_processes(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that stop_agents kills all processes in a single-pane session."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -649,11 +667,15 @@ def test_stop_agent_kills_single_pane_processes(
 
 
 def test_stop_agent_kills_multi_pane_processes(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that stop_agents kills all processes in a multi-pane session."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -699,11 +721,15 @@ def test_stop_agent_kills_multi_pane_processes(
 
 
 def test_start_agent_creates_process_group(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that start_agents creates tmux sessions in their own process group."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -751,11 +777,15 @@ def test_start_agent_creates_process_group(
 
 
 def test_start_agent_starts_process_activity_monitor(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that start_agents launches a process activity monitor that writes PROCESS activity."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -805,11 +835,15 @@ def test_start_agent_starts_process_activity_monitor(
 
 
 def test_additional_commands_stored_in_agent_data(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that additional_commands are stored in the agent's data.json."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -843,11 +877,15 @@ def test_additional_commands_stored_in_agent_data(
 
 
 def test_start_agent_creates_additional_tmux_windows(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that start_agents creates additional tmux windows for additional_commands."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -895,11 +933,15 @@ def test_start_agent_creates_additional_tmux_windows(
 
 
 def test_start_agent_additional_windows_run_commands(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that additional tmux windows actually run the specified commands."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -1736,7 +1778,11 @@ def test_provision_agent_env_vars_precedence(
 
 
 def test_start_agent_has_access_to_env_vars(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that started agents have access to environment variables.
 
@@ -1745,7 +1791,7 @@ def test_start_agent_has_access_to_env_vars(
     that prints an env var to a file to verify this.
     """
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -1794,7 +1840,11 @@ def test_start_agent_has_access_to_env_vars(
 
 @pytest.mark.timeout(15)
 def test_new_tmux_window_inherits_env_vars(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that new tmux windows created by the user also have env vars.
 
@@ -1802,7 +1852,7 @@ def test_new_tmux_window_inherits_env_vars(
     any new window/pane created by the user will automatically source the env files.
     """
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,

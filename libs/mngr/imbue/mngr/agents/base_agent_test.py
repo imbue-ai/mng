@@ -5,12 +5,8 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 
-import pluggy
-
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import AgentTypeConfig
-from imbue.mngr.config.data_types import MngrConfig
-from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
@@ -27,8 +23,6 @@ def create_test_agent(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> BaseAgent:
     """Create a test agent for lifecycle state testing with unique name."""
     host = local_provider.create_host(HostName("test"))
@@ -60,7 +54,7 @@ def create_test_agent(
     data_path = agent_dir / "data.json"
     data_path.write_text(json.dumps(data, indent=2))
 
-    mngr_ctx = MngrContext(config=temp_config, pm=plugin_manager)
+    # Use the mngr_ctx from the local_provider (which has profile_dir set)
     agent = BaseAgent(
         id=agent_id,
         name=agent_name,
@@ -69,7 +63,7 @@ def create_test_agent(
         create_time=datetime.now(timezone.utc),
         host_id=host.id,
         host=host,
-        mngr_ctx=mngr_ctx,
+        mngr_ctx=local_provider.mngr_ctx,
         agent_config=agent_config,
     )
 
@@ -80,11 +74,9 @@ def test_lifecycle_state_stopped_when_no_tmux_session(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that agent is STOPPED when there is no tmux session."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     state = test_agent.get_lifecycle_state()
     assert state == AgentLifecycleState.STOPPED
 
@@ -93,11 +85,9 @@ def test_lifecycle_state_running_when_expected_process_exists(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that agent is RUNNING when tmux session exists with expected process."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session and run the expected command
@@ -125,11 +115,9 @@ def test_lifecycle_state_replaced_when_different_process_exists(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that agent is REPLACED when tmux session exists with different process."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session with a different command (cat waits for input indefinitely)
@@ -158,11 +146,9 @@ def test_lifecycle_state_done_when_no_process_in_pane(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that agent is DONE when tmux session exists but no process is running."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session, then manually stop the process inside it
@@ -192,11 +178,9 @@ def test_get_reported_status_returns_none_when_no_status_files(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that get_reported_status returns None when no status files exist."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     status = test_agent.get_reported_status()
     assert status is None
 
@@ -205,11 +189,9 @@ def test_get_reported_status_returns_status_with_markdown_only(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that get_reported_status returns AgentStatus with markdown content."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = temp_host_dir / "agents" / str(test_agent.id)
     status_dir = agent_dir / "status"
     status_dir.mkdir(parents=True, exist_ok=True)
@@ -228,11 +210,9 @@ def test_get_reported_status_returns_status_with_html_and_markdown(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that get_reported_status returns AgentStatus with both markdown and html."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = temp_host_dir / "agents" / str(test_agent.id)
     status_dir = agent_dir / "status"
     status_dir.mkdir(parents=True, exist_ok=True)
@@ -253,11 +233,9 @@ def test_lifecycle_state_waiting_when_waiting_file_exists(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that agent is WAITING when tmux session exists with expected process and waiting file exists."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session and run the expected command
@@ -289,11 +267,9 @@ def test_lifecycle_state_running_when_waiting_file_removed(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that agent transitions from WAITING to RUNNING when waiting file is removed."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session and run the expected command
@@ -334,11 +310,9 @@ def test_get_initial_message_returns_none_when_not_set(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that get_initial_message returns None when not set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.get_initial_message() is None
 
 
@@ -346,11 +320,9 @@ def test_get_initial_message_returns_message_when_set(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that get_initial_message returns the message when set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = temp_host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
@@ -366,11 +338,9 @@ def test_get_resume_message_returns_none_when_not_set(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that get_resume_message returns None when not set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.get_resume_message() is None
 
 
@@ -378,11 +348,9 @@ def test_get_resume_message_returns_message_when_set(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that get_resume_message returns the message when set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = temp_host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
@@ -398,11 +366,9 @@ def test_get_message_delay_seconds_returns_default_when_not_set(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that get_message_delay_seconds returns 1.0 when not set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.get_message_delay_seconds() == 1.0
 
 
@@ -410,11 +376,9 @@ def test_get_message_delay_seconds_returns_value_when_set(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_config: MngrConfig,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that get_message_delay_seconds returns the value when set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, temp_config, plugin_manager)
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = temp_host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
