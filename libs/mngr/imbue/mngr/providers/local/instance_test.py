@@ -264,7 +264,7 @@ def test_get_host_tags_returns_empty_when_labels_file_is_empty(temp_host_dir: Pa
     provider = make_local_provider(temp_host_dir, temp_config, profile_dir=profile_dir)
     host = provider.create_host(HostName("test"))
 
-    labels_path = profile_dir / "providers" / "local" / "labels.json"
+    labels_path = temp_host_dir / "providers" / "local" / "labels.json"
     labels_path.parent.mkdir(parents=True, exist_ok=True)
     labels_path.write_text("")
 
