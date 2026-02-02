@@ -1,6 +1,7 @@
 """Unit tests for Host implementation."""
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -228,3 +229,54 @@ def test_get_agent_references_skips_bad_records_but_loads_good_ones(
     assert good_id in ref_ids
     assert good_id_2 in ref_ids
     assert bad_id not in ref_ids
+
+
+def test_git_branch_exists_returns_true_when_branch_exists(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+) -> None:
+    """Test that _git_branch_exists returns True when a branch exists."""
+    host = local_provider.create_host(HostName("test-branch-check"))
+    assert isinstance(host, Host)
+
+    # Create a git repo with a branch
+    git_dir = tmp_path / "repo"
+    git_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=git_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "initial"],
+        cwd=git_dir,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "branch", "test-branch"],
+        cwd=git_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    assert host._git_branch_exists(git_dir, "test-branch") is True
+    assert host._git_branch_exists(git_dir, "nonexistent-branch") is False
+
+
+def test_git_branch_exists_returns_false_for_nonexistent_branch(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+) -> None:
+    """Test that _git_branch_exists returns False when branch doesn't exist."""
+    host = local_provider.create_host(HostName("test-branch-not-found"))
+    assert isinstance(host, Host)
+
+    # Create a git repo without the branch
+    git_dir = tmp_path / "repo"
+    git_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=git_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "initial"],
+        cwd=git_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    assert host._git_branch_exists(git_dir, "nonexistent") is False
