@@ -80,9 +80,8 @@ def load_config(
     base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
     base_dir = base_dir.expanduser()
 
-    # Get/create profile directory first (needed for user config and user_id)
+    # Get/create profile directory first (needed for user config
     profile_dir = get_or_create_profile_dir(base_dir)
-    user_id = _get_or_create_user_id(profile_dir)
 
     # Start with base config that has defaults based on root_name
     # Use model_construct with None to allow merging to work properly
@@ -192,7 +191,6 @@ def load_config(
         config=final_config,
         pm=pm,
         is_interactive=is_interactive,
-        user_id=user_id,
         profile_dir=profile_dir,
     )
 
@@ -238,7 +236,7 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
 
 
 # FIXME: this should obviously this should return a concrete type, not a str
-def _get_or_create_user_id(profile_dir: Path) -> str:
+def get_or_create_user_id(profile_dir: Path) -> str:
     """Get or create a unique user ID for this mngr profile.
 
     The user ID is stored in a file in the profile directory. This ID is used
@@ -248,11 +246,16 @@ def _get_or_create_user_id(profile_dir: Path) -> str:
     user_id_file = profile_dir / USER_ID_FILENAME
 
     if user_id_file.exists():
-        return user_id_file.read_text().strip()
-
-    # Generate a new user ID
-    user_id = uuid4().hex
-    user_id_file.write_text(user_id)
+        user_id = user_id_file.read_text().strip()
+        if os.environ.get("MNGR_USER_ID", ""):
+            assert user_id == os.environ.get("MNGR_USER_ID", ""), "MNGR_USER_ID environment variable does not match existing user ID file"
+    else:
+        if os.environ.get("MNGR_USER_ID", ""):
+            user_id = os.environ.get("MNGR_USER_ID", "")
+        else:
+            # Generate a new user ID
+            user_id = uuid4().hex
+        user_id_file.write_text(user_id)
     return user_id
 
 

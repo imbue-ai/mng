@@ -59,6 +59,8 @@ def _get_config_path(scope: ConfigScope, root_name: str = "mngr") -> Path:
         case ConfigScope.USER:
             # User config is in the active profile directory
             base_dir = Path.home() / f".{root_name}"
+            # TODO: this function really needs to be passed a MngrContext, which we can use to get the profile_dir out of
+            #  We really should not be just randomly making new ones here
             profile_dir = get_or_create_profile_dir(base_dir)
             return profile_dir / "settings.toml"
         case ConfigScope.PROJECT:

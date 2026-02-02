@@ -388,7 +388,7 @@ Supported build arguments for the modal provider:
         # between different mngr installations sharing the same Modal account.
         # The app name is just prefix + name (no user_id).
         prefix = mngr_ctx.config.prefix
-        user_id = mngr_ctx.user_id
+        user_id = mngr_ctx.get_profile_user_id()
         environment_name = f"{prefix}{user_id}"
         default_app_name = f"{prefix}{name}"
 

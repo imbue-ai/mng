@@ -11,6 +11,7 @@ from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
+from imbue.mngr.config.loader import get_or_create_user_id
 from imbue.mngr.errors import ConfigParseError
 from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.primitives import AgentTypeName
@@ -486,13 +487,12 @@ class MngrContext(FrozenModel):
         default=False,
         description="Whether the CLI is running in interactive mode (can prompt user for input)",
     )
-    user_id: str = Field(
-        default_factory=lambda: str(uuid4()),
-        description="Unique identifier for the current user/session",
-    )
     profile_dir: Path = Field(
         description="Profile-specific directory for user data (user_id, providers, settings)",
     )
+
+    def get_profile_user_id(self) -> str:
+        return get_or_create_user_id(self.profile_dir)
 
 
 class OutputOptions(FrozenModel):
