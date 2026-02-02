@@ -223,15 +223,10 @@ def test_all_cli_commands_are_single_word() -> None:
 
 
 def test_get_user_config_path_returns_correct_path() -> None:
-    """_get_user_config_path should return path in .config directory."""
-    path = _get_user_config_path("mngr")
-    assert path == Path.home() / ".config" / "mngr" / "settings.toml"
-
-
-def test_get_user_config_path_uses_root_name() -> None:
-    """_get_user_config_path should use the provided root name."""
-    path = _get_user_config_path("custom")
-    assert path == Path.home() / ".config" / "custom" / "settings.toml"
+    """_get_user_config_path should return settings.toml in profile directory."""
+    profile_dir = Path("/home/user/.mngr/profiles/abc123")
+    path = _get_user_config_path(profile_dir)
+    assert path == profile_dir / "settings.toml"
 
 
 def test_get_project_config_name_returns_correct_path() -> None:

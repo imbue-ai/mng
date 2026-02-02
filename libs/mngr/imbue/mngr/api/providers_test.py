@@ -54,7 +54,7 @@ def test_get_configured_provider_instance(temp_mngr_ctx: MngrContext, mngr_test_
             ),
         },
     )
-    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm)
+    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm, profile_dir=temp_mngr_ctx.profile_dir)
     provider = get_provider_instance(custom_name, mngr_ctx)
     assert isinstance(provider, LocalProviderInstance)
     assert provider.name == custom_name
@@ -74,7 +74,7 @@ def test_get_all_provider_instances_with_configured_providers(
             ),
         },
     )
-    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm)
+    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm, profile_dir=temp_mngr_ctx.profile_dir)
     providers = get_all_provider_instances(mngr_ctx)
 
     provider_names = [p.name for p in providers]
@@ -104,7 +104,7 @@ def test_get_all_provider_instances_excludes_disabled_providers(
             ),
         },
     )
-    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm)
+    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm, profile_dir=temp_mngr_ctx.profile_dir)
     providers = get_all_provider_instances(mngr_ctx)
 
     provider_names = [p.name for p in providers]
@@ -120,7 +120,7 @@ def test_get_all_provider_instances_filters_by_enabled_backends(
         prefix=mngr_test_prefix,
         enabled_backends=[ProviderBackendName("local")],
     )
-    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm)
+    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm, profile_dir=temp_mngr_ctx.profile_dir)
     providers = get_all_provider_instances(mngr_ctx)
 
     provider_names = [str(p.name) for p in providers]

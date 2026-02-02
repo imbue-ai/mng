@@ -490,6 +490,9 @@ class MngrContext(FrozenModel):
         default_factory=lambda: str(uuid4()),
         description="Unique identifier for the current user/session",
     )
+    profile_dir: Path = Field(
+        description="Profile-specific directory for user data (user_id, providers, settings)",
+    )
 
 
 class OutputOptions(FrozenModel):
@@ -526,3 +529,5 @@ class OutputOptions(FrozenModel):
 
 
 USER_ID_FILENAME = "user_id"
+PROFILES_DIRNAME = "profiles"
+ROOT_CONFIG_FILENAME = "config.toml"
