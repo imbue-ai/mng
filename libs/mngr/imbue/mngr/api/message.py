@@ -6,7 +6,6 @@ from pydantic import Field
 
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
-from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import HostOfflineError
@@ -64,10 +63,7 @@ def send_message_to_agents(
 
     # Load all agents grouped by host
     logger.debug("Loading agents from all providers")
-    agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
-
-    # Get all provider instances
-    providers = get_all_provider_instances(mngr_ctx)
+    agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx)
     provider_map = {provider.name: provider for provider in providers}
     logger.trace("Found {} hosts with agents", len(agents_by_host))
 

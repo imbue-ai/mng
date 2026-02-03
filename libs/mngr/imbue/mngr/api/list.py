@@ -32,6 +32,7 @@ from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
 from imbue.mngr.utils.logging import log_call
@@ -174,9 +175,6 @@ def list_agents(
     """List all agents with optional filtering."""
     result = ListResult()
 
-    if provider_names:
-        raise NotImplementedError("Provider filtering not implemented yet")
-
     # Compile CEL filters if provided
     # Note: compilation errors always abort - bad filters should never silently continue
     compiled_include_filters: list[Any] = []
@@ -191,10 +189,7 @@ def list_agents(
     try:
         # Load all agents grouped by host
         logger.debug("Loading agents from all providers")
-        agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
-
-        # Get all provider instances
-        providers = get_all_provider_instances(mngr_ctx)
+        agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx, provider_names)
         provider_map = {provider.name: provider for provider in providers}
         logger.trace("Found {} hosts with agents", len(agents_by_host))
 
@@ -464,7 +459,9 @@ def _apply_cel_filters(
 
 
 @log_call
-def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference, list[AgentReference]]:
+def load_all_agents_grouped_by_host(
+    mngr_ctx: MngrContext, provider_names: tuple[str, ...] | None = None
+) -> tuple[dict[HostReference, list[AgentReference]], list[BaseProviderInstance]]:
     """Load all agents from all providers, grouped by their host.
 
     Loops through all providers, gets all hosts from each provider, and then gets all agents for each host.
@@ -473,7 +470,7 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
     agents_by_host: dict[HostReference, list[AgentReference]] = {}
 
     logger.debug("Loading all agents from all providers")
-    providers = get_all_provider_instances(mngr_ctx)
+    providers = get_all_provider_instances(mngr_ctx, provider_names)
     logger.trace("Found {} provider instances", len(providers))
 
     for provider in providers:
@@ -489,4 +486,4 @@ def load_all_agents_grouped_by_host(mngr_ctx: MngrContext) -> dict[HostReference
             agent_refs = host.get_agent_references()
             agents_by_host[host_ref] = agent_refs
 
-    return agents_by_host
+    return (agents_by_host, providers)

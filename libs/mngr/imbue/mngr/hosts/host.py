@@ -316,6 +316,12 @@ class Host(BaseHost, OnlineHostInterface):
 
     def _get_file_mtime(self, path: Path) -> datetime | None:
         """Get the mtime of a file on the host."""
+        if self.is_local:
+            try:
+                mtime = path.stat().st_mtime
+                return datetime.fromtimestamp(mtime, tz=timezone.utc)
+            except (FileNotFoundError, OSError):
+                return None
         result = self.execute_command(f"stat -c %Y '{str(path)}' 2>/dev/null || stat -f %m '{str(path)}' 2>/dev/null")
         if result.success and result.stdout.strip():
             try:
@@ -331,16 +337,25 @@ class Host(BaseHost, OnlineHostInterface):
 
     def _path_exists(self, path: Path) -> bool:
         """Check if a path exists on the host."""
+        if self.is_local:
+            return path.exists()
         result = self.execute_command(f"test -e '{str(path)}'")
         return result.success
 
     def _is_directory(self, path: Path) -> bool:
         """Check if a path is a directory on the host."""
+        if self.is_local:
+            return path.is_dir()
         result = self.execute_command(f"test -d '{str(path)}'")
         return result.success
 
     def _list_directory(self, path: Path) -> list[str]:
         """List files in a directory on the host."""
+        if self.is_local:
+            try:
+                return list(entry.name for entry in path.iterdir())
+            except (FileNotFoundError, OSError):
+                return []
         result = self.execute_command(f"ls -1 '{str(path)}' 2>/dev/null")
         if result.success and result.stdout.strip():
             return result.stdout.strip().split("\n")
@@ -588,9 +603,11 @@ class Host(BaseHost, OnlineHostInterface):
         """Return the host last stop time as a datetime, or None if unknown."""
         return None
 
+    # FIXME: both this and the below method will be broken if we ever have remote hosts that are OSX
+    #  instead of this, we should, for each of them, make a single command that does the platform check before dispatching to the resulting platform-dependent logic
     def get_uptime_seconds(self) -> float:
         """Get host uptime in seconds."""
-        if is_macos():
+        if is_macos() and self.is_local:
             # macOS: use sysctl kern.boottime to get boot time, then compute uptime
             # Output format: { sec = 1234567890, usec = 123456 } ...
             # Use awk to reliably extract the sec value (not usec)
@@ -618,7 +635,7 @@ class Host(BaseHost, OnlineHostInterface):
         Returns the actual boot time from the OS, not computed from uptime,
         to avoid timing inconsistencies.
         """
-        if is_macos():
+        if is_macos() and self.is_local:
             # macOS: use sysctl kern.boottime which gives boot time directly
             # Output format: { sec = 1234567890, usec = 123456 } ...
             # Use awk to reliably extract the sec value (not usec)

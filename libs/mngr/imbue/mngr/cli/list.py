@@ -7,6 +7,7 @@ from typing import Any
 import click
 from click_option_group import optgroup
 from loguru import logger
+from pydantic import BaseModel
 from tabulate import tabulate
 
 from imbue.mngr.api.list import AgentInfo
@@ -20,6 +21,9 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.watch_mode import run_watch_loop
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
@@ -68,22 +72,22 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--running",
     is_flag=True,
-    help="Show only running agents (alias for --include 'state == \"running\"') [future]",
+    help="Show only running agents (alias for --include 'state == \"running\"')",
 )
 @optgroup.option(
     "--stopped",
     is_flag=True,
-    help="Show only stopped agents (alias for --include 'state == \"stopped\"') [future]",
+    help="Show only stopped agents (alias for --include 'state == \"stopped\"')",
 )
 @optgroup.option(
     "--local",
     is_flag=True,
-    help="Show only local agents (alias for --include 'host.provider == \"local\"') [future]",
+    help="Show only local agents (alias for --include 'host.provider == \"local\"')",
 )
 @optgroup.option(
     "--remote",
     is_flag=True,
-    help="Show only remote agents (alias for --exclude 'host.provider == \"local\"') [future]",
+    help="Show only remote agents (alias for --exclude 'host.provider == \"local\"')",
 )
 @optgroup.option(
     "--provider",
@@ -108,7 +112,7 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--sort",
     default="create_time",
-    help="Sort by field [default: create_time] [future]",
+    help="Sort by field (supports nested fields like host.name) [default: create_time]",
 )
 @optgroup.option(
     "--sort-order",
@@ -119,14 +123,14 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--limit",
     type=int,
-    help="Limit number of results [future]",
+    help="Limit number of results (applied after fetching from all providers)",
 )
 @optgroup.group("Watch Mode")
 @optgroup.option(
     "-w",
     "--watch",
     type=int,
-    help="Continuously watch and update status at specified interval (seconds) [future]",
+    help="Continuously watch and update status at specified interval (seconds)",
 )
 @optgroup.group("Error Handling")
 @optgroup.option(
@@ -179,11 +183,6 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     if opts.fields:
         fields = [f.strip() for f in opts.fields.split(",") if f.strip()]
 
-    # -w, --watch SECONDS: Continuously watch and update status at interval [default: 2]
-    # Should refresh the agent list display periodically until interrupted
-    if opts.watch:
-        raise NotImplementedError("Watch mode not implemented yet")
-
     # Build list of include filters
     include_filters = list(opts.include)
 
@@ -205,29 +204,48 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     # --stopped: alias for --include 'state == "stopped"'
     # --local: alias for --include 'host.provider == "local"'
     # --remote: alias for --exclude 'host.provider == "local"'
-    if opts.running or opts.stopped or opts.local or opts.remote:
-        raise NotImplementedError("Convenience filter aliases not implemented yet")
+    if opts.running:
+        include_filters.append('state == "running"')
+    if opts.stopped:
+        include_filters.append('state == "stopped"')
+    if opts.local:
+        include_filters.append('host.provider == "local"')
+
+    # Build list of exclude filters
+    exclude_filters = list(opts.exclude)
+    if opts.remote:
+        exclude_filters.append('host.provider == "local"')
 
     # --sort FIELD: Sort by any available field [default: create_time]
     # --sort-order ORDER: Sort order (asc, desc) [default: asc]
-    if opts.sort != "create_time":
-        raise NotImplementedError("Custom sorting not implemented yet")
+    sort_field = opts.sort
+    sort_reverse = opts.sort_order.lower() == "desc"
 
     # --limit N: Limit number of results returned
-    if opts.limit:
-        raise NotImplementedError("Result limiting not implemented yet")
+    # NOTE: The limit is applied after fetching results. The full list is still retrieved
+    # from providers and then sliced client-side. For large deployments, this means the
+    # command may still take time proportional to the total number of agents.
+    limit = opts.limit
 
     error_behavior = ErrorBehavior(opts.on_error.upper())
 
     # For JSONL format, use streaming callbacks to emit output as agents are found
+    # Watch mode is not supported for JSONL (streaming doesn't work well with refresh)
     if output_opts.output_format == OutputFormat.JSONL:
+        if opts.watch:
+            logger.warning("Watch mode is not supported with JSONL format, running once")
+
+        # Use a callback wrapper that limits output count
+        limited_callback = _LimitedJsonlEmitter()
+        limited_callback.limit = limit
+
         result = api_list_agents(
             mngr_ctx=mngr_ctx,
             include_filters=tuple(include_filters),
-            exclude_filters=opts.exclude,
+            exclude_filters=tuple(exclude_filters),
             provider_names=opts.provider if opts.provider else None,
             error_behavior=error_behavior,
-            on_agent=_emit_jsonl_agent,
+            on_agent=limited_callback,
             on_error=_emit_jsonl_error,
         )
         # Exit with non-zero code if there were errors (per error_handling.md spec)
@@ -235,39 +253,106 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             ctx.exit(1)
         return
 
-    # For other formats, collect all results first
-    result = api_list_agents(
+    # Build iteration parameters for reuse in watch mode
+    iteration_params = _ListIterationParams(
         mngr_ctx=mngr_ctx,
+        output_opts=output_opts,
         include_filters=tuple(include_filters),
-        exclude_filters=opts.exclude,
+        exclude_filters=tuple(exclude_filters),
         provider_names=opts.provider if opts.provider else None,
         error_behavior=error_behavior,
+        sort_field=sort_field,
+        sort_reverse=sort_reverse,
+        limit=limit,
+        fields=fields,
+    )
+
+    # Watch mode: run list repeatedly at the specified interval
+    if opts.watch:
+        try:
+            run_watch_loop(
+                iteration_fn=lambda: _run_list_iteration(iteration_params, ctx),
+                interval_seconds=opts.watch,
+                on_error_continue=True,
+            )
+        except KeyboardInterrupt:
+            logger.info("\nWatch mode stopped")
+            return
+    else:
+        _run_list_iteration(iteration_params, ctx)
+
+
+class _LimitedJsonlEmitter:
+    """Callable class for emitting JSONL output with a limit (avoids inline function)."""
+
+    limit: int | None
+    count: int = 0
+
+    def __call__(self, agent: AgentInfo) -> None:
+        if self.limit is not None and self.count >= self.limit:
+            return
+        _emit_jsonl_agent(agent)
+        self.count += 1
+
+
+class _ListIterationParams(BaseModel):
+    """Parameters for a single list iteration, used for watch mode."""
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    mngr_ctx: MngrContext
+    output_opts: OutputOptions
+    include_filters: tuple[str, ...]
+    exclude_filters: tuple[str, ...]
+    provider_names: tuple[str, ...] | None
+    error_behavior: ErrorBehavior
+    sort_field: str
+    sort_reverse: bool
+    limit: int | None
+    fields: list[str] | None
+
+
+def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> None:
+    """Run a single list iteration."""
+    result = api_list_agents(
+        mngr_ctx=params.mngr_ctx,
+        include_filters=params.include_filters,
+        exclude_filters=params.exclude_filters,
+        provider_names=params.provider_names,
+        error_behavior=params.error_behavior,
     )
 
     if result.errors:
         for error in result.errors:
             logger.warning("{}: {}", error.exception_type, error.message)
 
-    if not result.agents:
-        if output_opts.output_format == OutputFormat.HUMAN:
+    # Apply sorting to results
+    agents_to_display = _sort_agents(result.agents, params.sort_field, params.sort_reverse)
+
+    # Apply limit to results (after sorting)
+    if params.limit is not None:
+        agents_to_display = agents_to_display[: params.limit]
+
+    if not agents_to_display:
+        if params.output_opts.output_format == OutputFormat.HUMAN:
             logger.info("No agents found")
-        elif output_opts.output_format == OutputFormat.JSON:
+        elif params.output_opts.output_format == OutputFormat.JSON:
             emit_final_json({"agents": [], "errors": result.errors})
         else:
             # JSONL is handled above with streaming, so this should be unreachable
-            raise AssertionError(f"Unexpected output format: {output_opts.output_format}")
+            raise AssertionError(f"Unexpected output format: {params.output_opts.output_format}")
         # Exit with non-zero code if there were errors (per error_handling.md spec)
         if result.errors:
             ctx.exit(1)
         return
 
-    if output_opts.output_format == OutputFormat.HUMAN:
-        _emit_human_output(result.agents, fields)
-    elif output_opts.output_format == OutputFormat.JSON:
-        _emit_json_output(result.agents, result.errors)
+    if params.output_opts.output_format == OutputFormat.HUMAN:
+        _emit_human_output(agents_to_display, params.fields)
+    elif params.output_opts.output_format == OutputFormat.JSON:
+        _emit_json_output(agents_to_display, result.errors)
     else:
         # JSONL is handled above with streaming, so this should be unreachable
-        raise AssertionError(f"Unexpected output format: {output_opts.output_format}")
+        raise AssertionError(f"Unexpected output format: {params.output_opts.output_format}")
 
     # Exit with non-zero code if there were errors (per error_handling.md spec)
     if result.errors:
@@ -384,6 +469,62 @@ def _format_value_as_string(value: Any) -> str:
 # Pattern to match a field part with optional bracket notation
 # Matches: "fieldname", "fieldname[0]", "fieldname[-1]", "fieldname[:3]", "fieldname[1:3]", etc.
 _BRACKET_PATTERN = re.compile(r"^([^\[]+)(?:\[([^\]]+)\])?$")
+
+
+def _get_sortable_value(agent: AgentInfo, field: str) -> Any:
+    """Extract a field value from an AgentInfo object for sorting.
+
+    Returns the raw value (not string-formatted) for proper sorting behavior.
+    Supports nested fields like "host.name" and field aliases.
+    """
+    # Handle special field aliases for backward compatibility and convenience
+    field_aliases = {
+        "state": "lifecycle_state",
+        "host": "host.name",
+        "provider": "host.provider_name",
+        "host.provider": "host.provider_name",
+    }
+
+    # Apply alias if it exists
+    if field in field_aliases:
+        field = field_aliases[field]
+
+    # Handle nested fields (e.g., "host.name")
+    parts = field.split(".")
+    value: Any = agent
+
+    try:
+        for part in parts:
+            # Strip any bracket notation for sorting (use base field only)
+            base_part = part.split("[")[0]
+            if hasattr(value, base_part):
+                value = getattr(value, base_part)
+            else:
+                return None
+        return value
+    except (AttributeError, KeyError):
+        return None
+
+
+class _AgentSortKey:
+    """Callable class for sorting agents by a field (avoids inline function definitions)."""
+
+    sort_field: str
+
+    def __call__(self, agent: AgentInfo) -> tuple[int, Any]:
+        value = _get_sortable_value(agent, self.sort_field)
+        if value is None:
+            return (1, "")
+        if hasattr(value, "value"):
+            value = value.value
+        return (0, str(value))
+
+
+def _sort_agents(agents: list[AgentInfo], sort_field: str, reverse: bool) -> list[AgentInfo]:
+    """Sort a list of agents by the specified field."""
+    key = _AgentSortKey()
+    key.sort_field = sort_field
+    return sorted(agents, key=key, reverse=reverse)
 
 
 def _get_field_value(agent: AgentInfo, field: str) -> str:
