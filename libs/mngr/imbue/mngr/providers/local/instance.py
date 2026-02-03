@@ -10,6 +10,7 @@ from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State
 from pyinfra.api.inventory import Inventory
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
@@ -250,11 +251,13 @@ class LocalProviderInstance(BaseProviderInstance):
     def list_hosts(
         self,
         include_destroyed: bool = False,
+        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         """List all hosts managed by this provider.
 
         For the local provider, this always returns a single-element list
-        containing the local host.
+        containing the local host. The cg parameter is accepted but not used
+        since local host listing is fast and doesn't benefit from parallelization.
         """
         logger.trace("Listing hosts for local provider {}", self.name)
         return [self._create_host(HostName("local"))]
