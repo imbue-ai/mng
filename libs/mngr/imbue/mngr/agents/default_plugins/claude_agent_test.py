@@ -327,94 +327,62 @@ def test_get_claude_config_returns_default_when_not_claude_agent_config(
 # =============================================================================
 
 
-def test_on_before_provisioning_skips_check_when_disabled(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
+def test_on_before_provisioning_skips_check_when_disabled(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
     """on_before_provisioning should skip installation check when check_installation=False."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
-
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=mngr_ctx,
-        agent_config=ClaudeAgentConfig(check_installation=False),
-        host=mock_host,
-    )
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
     options = Mock()
 
     # Should not raise and should complete without error
-    agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+    agent.on_before_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
 
 def test_get_provision_file_transfers_returns_empty_when_no_local_settings(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """get_provision_file_transfers should return empty list when no .claude/ settings exist."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
-
     # Create agent with sync_repo_settings=True but no .claude/ directory exists
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=tmp_path,
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=mngr_ctx,
-        agent_config=ClaudeAgentConfig(sync_repo_settings=True),
-        host=mock_host,
+    agent, host = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False, sync_repo_settings=True),
     )
 
     options = Mock()
 
-    transfers = agent.get_provision_file_transfers(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+    transfers = agent.get_provision_file_transfers(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
     assert list(transfers) == []
 
 
 def test_get_provision_file_transfers_returns_override_folder_files(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """get_provision_file_transfers should return files from override_settings_folder."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
-
     # Create override folder with a test file
     override_folder = tmp_path / "override_settings"
     override_folder.mkdir()
     test_file = override_folder / "test_config.json"
     test_file.write_text('{"test": true}')
 
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=tmp_path,
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=mngr_ctx,
-        # Disable sync_repo_settings to test override folder only
+    # Disable sync_repo_settings to test override folder only
+    agent, host = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
         agent_config=ClaudeAgentConfig(
+            check_installation=False,
             sync_repo_settings=False,
             override_settings_folder=override_folder,
         ),
-        host=mock_host,
     )
 
     options = Mock()
 
-    transfers = list(agent.get_provision_file_transfers(host=mock_host, options=options, mngr_ctx=mngr_ctx))
+    transfers = list(agent.get_provision_file_transfers(host=host, options=options, mngr_ctx=temp_mngr_ctx))
 
     assert len(transfers) == 1
     assert transfers[0].local_path == test_file
@@ -423,29 +391,19 @@ def test_get_provision_file_transfers_returns_override_folder_files(
 
 
 def test_get_provision_file_transfers_with_sync_repo_settings_disabled(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """get_provision_file_transfers should skip repo settings when sync_repo_settings=False."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
-
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=tmp_path,
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=mngr_ctx,
-        agent_config=ClaudeAgentConfig(sync_repo_settings=False),
-        host=mock_host,
+    agent, host = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False, sync_repo_settings=False),
     )
 
     options = Mock()
 
-    transfers = list(agent.get_provision_file_transfers(host=mock_host, options=options, mngr_ctx=mngr_ctx))
+    transfers = list(agent.get_provision_file_transfers(host=host, options=options, mngr_ctx=temp_mngr_ctx))
 
     # Should return empty since sync_repo_settings=False and no override folder
     assert transfers == []
@@ -600,75 +558,49 @@ def test_configure_readiness_hooks_merges_with_existing_settings(
 
 
 def test_provision_configures_readiness_hooks_when_enabled(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """provision should configure readiness hooks when configure_readiness_hooks=True."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mock_host.is_local = True
-    mock_host.read_text_file.side_effect = FileNotFoundError()
-
-    # Mock execute_command for the installation check
-    mock_result = Mock()
-    mock_result.success = True
-    mock_host.execute_command.return_value = mock_result
-
-    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
-
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=tmp_path,
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=mngr_ctx,
-        agent_config=ClaudeAgentConfig(configure_readiness_hooks=True),
-        host=mock_host,
+    # check_installation=False avoids running `claude --version` which would fail in test env
+    agent, host = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
+        agent_config=ClaudeAgentConfig(
+            check_installation=False,
+            configure_readiness_hooks=True,
+        ),
     )
 
     options = Mock()
-    agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
-    # Verify write_text_file was called (for the hooks config)
-    mock_host.write_text_file.assert_called()
+    # Verify the hooks file was actually created
+    settings_path = agent.work_dir / ".claude" / "settings.local.json"
+    assert settings_path.exists()
+    settings = json.loads(settings_path.read_text())
+    assert "hooks" in settings
+    assert "SessionStart" in settings["hooks"]
 
 
 def test_provision_skips_readiness_hooks_when_disabled(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """provision should skip readiness hooks when configure_readiness_hooks=False."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mock_host.is_local = True
-
-    # Mock execute_command for the installation check
-    mock_result = Mock()
-    mock_result.success = True
-    mock_host.execute_command.return_value = mock_result
-
-    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
-
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=tmp_path,
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=mngr_ctx,
+    # check_installation=False avoids running `claude --version` which would fail in test env
+    agent, host = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
         agent_config=ClaudeAgentConfig(
             check_installation=False,
             configure_readiness_hooks=False,
         ),
-        host=mock_host,
     )
 
     options = Mock()
-    agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
-    # write_text_file should not be called since both check_installation and
-    # configure_readiness_hooks are False
-    mock_host.write_text_file.assert_not_called()
+    # Hooks file should not be created
+    settings_path = agent.work_dir / ".claude" / "settings.local.json"
+    assert not settings_path.exists()
