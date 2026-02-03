@@ -273,6 +273,8 @@ class ModalProviderInstance(BaseProviderInstance):
     _sandbox_cache_by_id: dict[HostId, modal.Sandbox] = PrivateAttr(default_factory=dict)
     _sandbox_cache_by_name: dict[HostName, modal.Sandbox] = PrivateAttr(default_factory=dict)
     _host_by_id_cache: dict[HostId, HostInterface] = PrivateAttr(default_factory=dict)
+    # Cache for host records read from the volume to avoid repeated reads
+    _host_record_cache_by_id: dict[HostId, HostRecord] = PrivateAttr(default_factory=dict)
 
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
@@ -396,11 +398,17 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.debug("Saving failed host record for host_id={}", host_id)
         self._write_host_record(host_record)
 
-    def _read_host_record(self, host_id: HostId) -> HostRecord | None:
+    def _read_host_record(self, host_id: HostId, use_cache: bool = True) -> HostRecord | None:
         """Read a host record from the volume.
 
         Returns None if the host record doesn't exist.
+        Uses a cache to avoid repeated reads of the same host record.
         """
+        # Check cache first
+        if use_cache and host_id in self._host_record_cache_by_id:
+            logger.trace("Using cached host record for host_id={}", host_id)
+            return self._host_record_cache_by_id[host_id]
+
         volume = self._get_volume()
         path = self._get_host_record_path(host_id)
         logger.trace("Reading host record from volume: {}", path)
@@ -411,7 +419,10 @@ class ModalProviderInstance(BaseProviderInstance):
             for chunk in volume.read_file(path):
                 chunks.append(chunk)
             data = b"".join(chunks)
-            return HostRecord.model_validate_json(data)
+            host_record = HostRecord.model_validate_json(data)
+            # Cache the result
+            self._host_record_cache_by_id[host_id] = host_record
+            return host_record
         except FileNotFoundError:
             return None
 
@@ -1032,6 +1043,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         self._sandbox_cache_by_id.clear()
         self._sandbox_cache_by_name.clear()
         self._host_by_id_cache.clear()
+        self._host_record_cache_by_id.clear()
 
     def _find_sandbox_by_host_id(
         self, host_id: HostId, timeout: float = 5.0, poll_interval: float = 1.0
@@ -1758,8 +1770,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # add these hosts to a cache so we don't need to look them up by name or id again
         for host in hosts:
-            if isinstance(host, Host):
-                self._host_by_id_cache[host.id] = host
+            self._host_by_id_cache[host.id] = host
 
         return hosts
 

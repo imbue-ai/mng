@@ -1,7 +1,5 @@
 """Unit tests for OfflineHost implementation."""
 
-from datetime import datetime
-from datetime import timezone
 from unittest.mock import create_autospec
 
 import pytest
@@ -10,7 +8,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
-from imbue.mngr.interfaces.data_types import SnapshotInfo
+from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
@@ -93,21 +91,36 @@ def test_get_plugin_data_returns_empty_dict_when_missing(offline_host: OfflineHo
     assert data == {}
 
 
-def test_get_snapshots_delegates_to_provider(offline_host: OfflineHost, mock_provider):
-    """Test that get_snapshots calls the provider's list_snapshots method."""
-    expected_snapshots = [
-        SnapshotInfo(
-            id=SnapshotId("snap-test-1"),
-            name=SnapshotName("snap1"),
-            created_at=datetime.now(timezone.utc),
-        )
-    ]
-    mock_provider.list_snapshots.return_value = expected_snapshots
+def test_get_snapshots_uses_certified_data(mock_provider, mock_mngr_ctx):
+    """Test that get_snapshots returns data from certified_host_data.snapshots (avoids provider call)."""
+    host_id = HostId.generate()
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="test-host",
+        snapshots=[
+            SnapshotRecord(id="snap-test-1", name="snap1", created_at="2026-01-15T10:30:00+00:00"),
+            SnapshotRecord(id="snap-test-2", name="snap2", created_at="2026-01-16T12:00:00+00:00"),
+        ],
+    )
+    host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=mock_provider,
+        mngr_ctx=mock_mngr_ctx,
+    )
 
-    snapshots = offline_host.get_snapshots()
+    snapshots = host.get_snapshots()
 
-    assert snapshots == expected_snapshots
-    mock_provider.list_snapshots.assert_called_once_with(offline_host)
+    # Should return snapshots sorted by created_at descending (most recent first)
+    assert len(snapshots) == 2
+    assert snapshots[0].id == SnapshotId("snap-test-2")
+    assert snapshots[0].name == SnapshotName("snap2")
+    assert snapshots[0].recency_idx == 0
+    assert snapshots[1].id == SnapshotId("snap-test-1")
+    assert snapshots[1].name == SnapshotName("snap1")
+    assert snapshots[1].recency_idx == 1
+    # Should NOT call provider
+    mock_provider.list_snapshots.assert_not_called()
 
 
 def test_get_image_returns_image_from_certified_data(offline_host: OfflineHost):
@@ -116,12 +129,26 @@ def test_get_image_returns_image_from_certified_data(offline_host: OfflineHost):
     assert image == "test-image:latest"
 
 
-def test_get_tags_delegates_to_provider(offline_host: OfflineHost, mock_provider):
-    """Test that get_tags calls the provider's get_host_tags method."""
-    tags = offline_host.get_tags()
+def test_get_tags_uses_certified_data(mock_provider, mock_mngr_ctx):
+    """Test that get_tags returns data from certified_host_data.user_tags (avoids provider call)."""
+    host_id = HostId.generate()
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="test-host",
+        user_tags={"env": "production", "team": "infra"},
+    )
+    host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=mock_provider,
+        mngr_ctx=mock_mngr_ctx,
+    )
 
-    assert tags == {"env": "test"}
-    mock_provider.get_host_tags.assert_called_once_with(offline_host)
+    tags = host.get_tags()
+
+    assert tags == {"env": "production", "team": "infra"}
+    # Should NOT call provider
+    mock_provider.get_host_tags.assert_not_called()
 
 
 def test_get_agent_references_returns_refs_from_provider(offline_host: OfflineHost, mock_provider):
@@ -180,18 +207,25 @@ def test_get_permissions_returns_permissions_from_agents(offline_host: OfflineHo
     assert set(permissions) == {"read", "write", "execute"}
 
 
-def test_get_state_returns_crashed_when_no_stop_reason(offline_host: OfflineHost, mock_provider):
+def test_get_state_returns_crashed_when_no_stop_reason(mock_provider, mock_mngr_ctx):
     """Test that get_state returns CRASHED when snapshots exist but no stop_reason is set."""
+    host_id = HostId.generate()
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="test-host",
+        snapshots=[
+            SnapshotRecord(id="snap-test-2", name="snap1", created_at="2026-01-15T10:30:00+00:00"),
+        ],
+    )
     mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.return_value = [
-        SnapshotInfo(
-            id=SnapshotId("snap-test-2"),
-            name=SnapshotName("snap1"),
-            created_at=datetime.now(timezone.utc),
-        )
-    ]
+    host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=mock_provider,
+        mngr_ctx=mock_mngr_ctx,
+    )
 
-    state = offline_host.get_state()
+    state = host.get_state()
     # No stop_reason means host didn't shut down cleanly
     assert state == HostState.CRASHED
 
@@ -210,18 +244,6 @@ def test_get_state_returns_crashed_when_provider_does_not_support_snapshots_and_
 ):
     """Test that get_state returns CRASHED when provider doesn't support snapshots and no stop_reason."""
     mock_provider.supports_snapshots = False
-
-    state = offline_host.get_state()
-    # No stop_reason means host didn't shut down cleanly
-    assert state == HostState.CRASHED
-
-
-def test_get_state_returns_crashed_when_snapshot_check_fails_and_no_stop_reason(
-    offline_host: OfflineHost, mock_provider
-):
-    """Test that get_state falls back to stop_reason when snapshot check raises an exception."""
-    mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.side_effect = OSError("Connection failed")
 
     state = offline_host.get_state()
     # No stop_reason means host didn't shut down cleanly
@@ -312,15 +334,11 @@ def test_failed_state_takes_precedence_over_snapshot_check(mock_provider, mock_m
         host_name="failed-host",
         state=HostState.FAILED.value,
         failure_reason="Build failed",
+        snapshots=[
+            SnapshotRecord(id="snap-test", name="should-not-matter", created_at="2026-01-15T10:30:00+00:00"),
+        ],
     )
     mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.return_value = [
-        SnapshotInfo(
-            id=SnapshotId("snap-test"),
-            name=SnapshotName("should-not-matter"),
-            created_at=datetime.now(timezone.utc),
-        )
-    ]
     failed_host = OfflineHost(
         id=host_id,
         certified_host_data=certified_data,
@@ -329,9 +347,8 @@ def test_failed_state_takes_precedence_over_snapshot_check(mock_provider, mock_m
     )
 
     state = failed_host.get_state()
+    # FAILED state takes precedence over snapshots
     assert state == HostState.FAILED
-    # Snapshot check should not be called since FAILED state is checked first
-    mock_provider.list_snapshots.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -350,15 +367,11 @@ def test_get_state_based_on_stop_reason(mock_provider, mock_mngr_ctx, stop_reaso
         host_id=str(host_id),
         host_name="test-host",
         stop_reason=stop_reason,
+        snapshots=[
+            SnapshotRecord(id="snap-test", name="snapshot", created_at="2026-01-15T10:30:00+00:00"),
+        ],
     )
     mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.return_value = [
-        SnapshotInfo(
-            id=SnapshotId("snap-test"),
-            name=SnapshotName("snapshot"),
-            created_at=datetime.now(timezone.utc),
-        )
-    ]
     host = OfflineHost(
         id=host_id,
         certified_host_data=certified_data,

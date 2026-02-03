@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Callable
@@ -20,6 +21,8 @@ from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
+from imbue.mngr.primitives import SnapshotId
+from imbue.mngr.primitives import SnapshotName
 
 
 class BaseHost(HostInterface):
@@ -244,6 +247,32 @@ class OfflineHost(BaseHost):
     def get_seconds_since_stopped(self) -> float | None:
         """Return the number of seconds since this host was stopped (or None if it is running)."""
         return None
+
+    # =========================================================================
+    # Provider-Derived Information (overridden for offline hosts)
+    # =========================================================================
+
+    def get_tags(self) -> dict[str, str]:
+        """Get tags from the certified host data (avoids provider call for offline hosts)."""
+        return dict(self.certified_host_data.user_tags)
+
+    def get_snapshots(self) -> list[SnapshotInfo]:
+        """Get snapshots from the certified host data (avoids provider call for offline hosts)."""
+        snapshots: list[SnapshotInfo] = []
+        sorted_snapshot_records = sorted(self.certified_host_data.snapshots, key=lambda s: s.created_at, reverse=True)
+        for idx, snap_record in enumerate(sorted_snapshot_records):
+            created_at_str = snap_record.created_at
+            created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now(timezone.utc)
+            snapshots.append(
+                SnapshotInfo(
+                    id=SnapshotId(snap_record.id),
+                    name=SnapshotName(snap_record.name),
+                    created_at=created_at,
+                    size_bytes=None,
+                    recency_idx=idx,
+                )
+            )
+        return snapshots
 
     # =========================================================================
     # Certified Data
