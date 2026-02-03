@@ -16,10 +16,13 @@ from click_option_group import OptionGroup
 from click_option_group import optgroup
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.config.loader import load_config
+from imbue.mngr.errors import ParseSpecError
+from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import LogLevel
 from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.utils.logging import setup_logging
@@ -164,6 +167,10 @@ def setup_command_context(
     # Apply config defaults to parameters that came from defaults (not user-specified)
     updated_params = apply_config_defaults(ctx, mngr_ctx.config, command_name)
 
+    # Apply create template if this is the create command and a template was specified
+    if command_name == "create":
+        updated_params = apply_create_template(updated_params, mngr_ctx.config)
+
     # Allow plugins to override command options before creating the options object
     _apply_plugin_option_overrides(pm, command_name, command_class, updated_params)
 
@@ -258,6 +265,52 @@ def apply_config_defaults(ctx: click.Context, config: MngrConfig, command_name: 
                 updated_params[param_name] = ()
             else:
                 updated_params[param_name] = config_value
+
+    return updated_params
+
+
+def apply_create_template(
+    params: dict[str, Any],
+    config: MngrConfig,
+) -> dict[str, Any]:
+    """Apply a create template to parameters if one is specified.
+
+    Templates are named presets of create command arguments that can be applied
+    using --template <name>. Template values override defaults for any field
+    that is set in the template.
+
+    This function should only be called for the 'create' command.
+    """
+    template_name = params.get("template")
+    if not template_name:
+        return params
+
+    try:
+        template_key = CreateTemplateName(template_name)
+    except ParseSpecError as e:
+        raise UserInputError(f"Invalid template name: {e}") from e
+
+    if template_key not in config.create_templates:
+        available = list(config.create_templates.keys())
+        if available:
+            raise UserInputError(
+                f"Template '{template_name}' not found. Available templates: {', '.join(str(t) for t in available)}"
+            )
+        else:
+            raise UserInputError(
+                f"Template '{template_name}' not found. No templates are configured. "
+                "Add templates to your settings.toml under [create_templates.<name>]"
+            )
+
+    template = config.create_templates[template_key]
+
+    # Start with existing params
+    updated_params = params.copy()
+
+    # Apply template options, overriding params for any non-None values
+    for param_name, template_value in template.options.items():
+        if template_value is not None:
+            updated_params[param_name] = template_value
 
     return updated_params
 

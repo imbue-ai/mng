@@ -9,6 +9,9 @@ from uuid import uuid4
 
 import pluggy
 from pydantic import Field
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import CoreSchema
+from pydantic_core import core_schema
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
@@ -300,6 +303,53 @@ class CommandDefaults(FrozenModel):
         return self.__class__(defaults=merged_defaults)
 
 
+class CreateTemplateName(str):
+    """Name of a create template."""
+
+    def __new__(cls, value: str) -> Self:
+        if not value:
+            raise ParseSpecError("Template name cannot be empty")
+        return super().__new__(cls, value)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        return core_schema.no_info_after_validator_function(
+            cls,
+            core_schema.str_schema(min_length=1),
+            serialization=core_schema.to_string_ser_schema(),
+        )
+
+
+class CreateTemplate(FrozenModel):
+    """Template for the create command.
+
+    Templates are named presets of create command arguments that can be applied
+    using --template <name>. All fields are optional; only specified fields
+    will override the defaults when the template is applied.
+
+    Templates are useful for setting up common configurations for different
+    providers or environments (e.g., different paths in remote containers vs locally).
+    """
+
+    # Store as a flexible dict since templates can contain any create command parameter
+    options: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Map of parameter name to value for create command options",
+    )
+
+    def merge_with(self, override: Self) -> Self:
+        """Merge this template with an override template.
+
+        For templates, later configs override earlier ones on a per-key basis.
+        """
+        merged_options = {**self.options, **override.options}
+        return self.__class__(options=merged_options)
+
+
 class MngrConfig(FrozenModel):
     """Root configuration model for mngr."""
 
@@ -343,6 +393,10 @@ class MngrConfig(FrozenModel):
     commands: dict[str, CommandDefaults] = Field(
         default_factory=dict,
         description="Default values for CLI command parameters (e.g., 'commands.create')",
+    )
+    create_templates: dict[CreateTemplateName, CreateTemplate] = Field(
+        default_factory=dict,
+        description="Named templates for the create command (e.g., 'create_templates.modal-dev')",
     )
     pre_command_scripts: dict[str, list[str]] = Field(
         default_factory=dict,
@@ -442,6 +496,20 @@ class MngrConfig(FrozenModel):
                 # Only base has this key
                 merged_commands[key] = self.commands[key]
 
+        # Merge create_templates (dict - merge keys, with per-key merge)
+        merged_create_templates: dict[CreateTemplateName, CreateTemplate] = {}
+        all_template_keys = set(self.create_templates.keys()) | set(override.create_templates.keys())
+        for key in all_template_keys:
+            if key in self.create_templates and key in override.create_templates:
+                # Both have this key - merge the templates
+                merged_create_templates[key] = self.create_templates[key].merge_with(override.create_templates[key])
+            elif key in override.create_templates:
+                # Only override has this key
+                merged_create_templates[key] = override.create_templates[key]
+            else:
+                # Only base has this key
+                merged_create_templates[key] = self.create_templates[key]
+
         # Merge pre_command_scripts (dict - override keys take precedence)
         merged_pre_command_scripts = merge_dict_fields(self.pre_command_scripts, override.pre_command_scripts)
 
@@ -465,6 +533,7 @@ class MngrConfig(FrozenModel):
             plugins=merged_plugins,
             disabled_plugins=merged_disabled_plugins,
             commands=merged_commands,
+            create_templates=merged_create_templates,
             pre_command_scripts=merged_pre_command_scripts,
             logging=merged_logging,
             is_allowed_in_pytest=is_allowed_in_pytest,
@@ -545,7 +614,9 @@ def get_or_create_user_id(profile_dir: Path) -> str:
     if user_id_file.exists():
         user_id = user_id_file.read_text().strip()
         if os.environ.get("MNGR_USER_ID", ""):
-            assert user_id == os.environ.get("MNGR_USER_ID", ""), "MNGR_USER_ID environment variable does not match existing user ID file"
+            assert user_id == os.environ.get("MNGR_USER_ID", ""), (
+                "MNGR_USER_ID environment variable does not match existing user ID file"
+            )
     else:
         if os.environ.get("MNGR_USER_ID", ""):
             user_id = os.environ.get("MNGR_USER_ID", "")

@@ -9,8 +9,12 @@ from click.core import ParameterSource
 from imbue.mngr.cli.common_opts import _run_pre_command_scripts
 from imbue.mngr.cli.common_opts import _run_single_script
 from imbue.mngr.cli.common_opts import apply_config_defaults
+from imbue.mngr.cli.common_opts import apply_create_template
 from imbue.mngr.config.data_types import CommandDefaults
+from imbue.mngr.config.data_types import CreateTemplate
+from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import MngrConfig
+from imbue.mngr.errors import UserInputError
 
 
 def test_run_single_script_success() -> None:
@@ -167,3 +171,88 @@ def test_apply_config_defaults_empty_string_does_not_affect_non_tuple_params(mng
 
     # Empty string should be kept as-is for non-tuple params
     assert result["name"] == ""
+
+
+def test_apply_create_template_no_template_returns_params_unchanged(mngr_test_prefix: str) -> None:
+    """apply_create_template should return params unchanged when no template is specified."""
+    params = {"name": "my-agent", "template": None}
+    config = MngrConfig(prefix=mngr_test_prefix)
+
+    result = apply_create_template(params, config)
+
+    assert result == params
+
+
+def test_apply_create_template_applies_template_values(mngr_test_prefix: str) -> None:
+    """apply_create_template should apply template values to params."""
+    template = CreateTemplate(options={"new_host": "docker", "target_path": "/workspace"})
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={CreateTemplateName("mytemplate"): template},
+    )
+    params = {"name": "my-agent", "template": "mytemplate", "new_host": "local", "target_path": None}
+
+    result = apply_create_template(params, config)
+
+    assert result["new_host"] == "docker"
+    assert result["target_path"] == "/workspace"
+    assert result["name"] == "my-agent"
+
+
+def test_apply_create_template_preserves_non_template_params(mngr_test_prefix: str) -> None:
+    """apply_create_template should preserve params not in the template."""
+    template = CreateTemplate(options={"new_host": "docker"})
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={CreateTemplateName("mytemplate"): template},
+    )
+    params = {"name": "my-agent", "template": "mytemplate", "new_host": "local", "message": "hello"}
+
+    result = apply_create_template(params, config)
+
+    assert result["new_host"] == "docker"
+    assert result["message"] == "hello"
+    assert result["name"] == "my-agent"
+
+
+def test_apply_create_template_does_not_apply_none_values(mngr_test_prefix: str) -> None:
+    """apply_create_template should not override params with None template values."""
+    template = CreateTemplate(options={"new_host": "docker", "target_path": None})
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={CreateTemplateName("mytemplate"): template},
+    )
+    params = {"name": "my-agent", "template": "mytemplate", "new_host": "local", "target_path": "/original"}
+
+    result = apply_create_template(params, config)
+
+    assert result["new_host"] == "docker"
+    # None values in template should not overwrite existing params
+    assert result["target_path"] == "/original"
+
+
+def test_apply_create_template_raises_for_unknown_template(mngr_test_prefix: str) -> None:
+    """apply_create_template should raise UserInputError for unknown template."""
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={CreateTemplateName("existing"): CreateTemplate()},
+    )
+    params = {"name": "my-agent", "template": "nonexistent"}
+
+    with pytest.raises(UserInputError) as exc_info:
+        apply_create_template(params, config)
+
+    assert "Template 'nonexistent' not found" in str(exc_info.value)
+    assert "existing" in str(exc_info.value)
+
+
+def test_apply_create_template_raises_for_unknown_template_no_templates_configured(mngr_test_prefix: str) -> None:
+    """apply_create_template should raise descriptive error when no templates configured."""
+    config = MngrConfig(prefix=mngr_test_prefix)
+    params = {"name": "my-agent", "template": "nonexistent"}
+
+    with pytest.raises(UserInputError) as exc_info:
+        apply_create_template(params, config)
+
+    assert "Template 'nonexistent' not found" in str(exc_info.value)
+    assert "No templates are configured" in str(exc_info.value)
