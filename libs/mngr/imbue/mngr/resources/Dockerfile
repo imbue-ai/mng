@@ -29,20 +29,13 @@ ENV PATH="/root/.claude/local/bin:$PATH"
 ENV UV_LINK_MODE=copy
 
 # copy in all of our code:
-COPY . /code/mngr/
+COPY . /code/
 
 # set working directory
 WORKDIR /code/mngr/
 
-# extract our code if we're running from Docker. Modal builds will not have the tar.
-RUN if [ -f /code/current.tar.gz ]; then \
-       tar -xzf /code/current.tar.gz -C /code/mngr/ && rm /code/*.tar.gz; \
-     fi && \
-     git config --global --add safe.directory /code/mngr/ && \
-     chown -R root:root /code/mngr/
-
-# Delete the .venv file if we accidentally picked it up from the host system
-RUN rm -rf /code/mngr/.venv
+# extract our code
+RUN tar -xzf /code/current.tar.gz -C /code/mngr/ && rm /code/*.tar.gz && git config --global --add safe.directory /code/mngr/ && chown -R root:root /code/mngr/
 
 # install python dependencies
 RUN unset UV_INDEX_URL && uv sync --all-packages

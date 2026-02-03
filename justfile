@@ -30,21 +30,6 @@ test-integration:
 test-quick:
   uv run pytest --no-cov --cov-fail-under=0
 
-# Run tests locally, excludes acceptance and release tests
-test-offload:
-    #!/bin/bash
-    set -ueo pipefail
-    # If not set, default LAST_COMMIT_SHA to the current HEAD
-    export LAST_COMMIT_SHA=${LAST_COMMIT_SHA:-$(git rev-parse HEAD)}
-    tmpdir=$(mktemp -d)
-    ./scripts/make_tar_of_repo.sh $LAST_COMMIT_SHA $tmpdir
-    export OFFLOAD_PATCH_UUID=`uv run python -c"import uuid;print(uuid.uuid4())"`
-    mkdir -p /tmp/$OFFLOAD_PATCH_UUID
-    ./scripts/generate_patch_for_offload.sh $LAST_COMMIT_SHA > /tmp/$OFFLOAD_PATCH_UUID/patch
-    offload -c offload-modal.toml run --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload_upload"
-    rm -rf $tmpdir
-    rm -rf /tmp/$OFFLOAD_PATCH_UUID
-
 test-acceptance:
   # when running these locally, we set the max duration super high just so that we don't fail (which makes it harder to see the errors)
   PYTEST_MAX_DURATION=600 uv run pytest --override-ini='cov-fail-under=0' --no-cov -n 4 -m "no release"
