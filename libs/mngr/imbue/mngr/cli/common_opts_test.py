@@ -175,16 +175,19 @@ def test_apply_config_defaults_empty_string_does_not_affect_non_tuple_params(mng
 
 def test_apply_create_template_no_template_returns_params_unchanged(mngr_test_prefix: str) -> None:
     """apply_create_template should return params unchanged when no template is specified."""
+    ctx = MagicMock(spec=click.Context)
     params = {"name": "my-agent", "template": None}
     config = MngrConfig(prefix=mngr_test_prefix)
 
-    result = apply_create_template(params, config)
+    result = apply_create_template(ctx, params, config)
 
     assert result == params
 
 
-def test_apply_create_template_applies_template_values(mngr_test_prefix: str) -> None:
-    """apply_create_template should apply template values to params."""
+def test_apply_create_template_applies_template_values_for_default_params(mngr_test_prefix: str) -> None:
+    """apply_create_template should apply template values to params that came from defaults."""
+    ctx = MagicMock(spec=click.Context)
+    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
     template = CreateTemplate(options={"new_host": "docker", "target_path": "/workspace"})
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -192,15 +195,35 @@ def test_apply_create_template_applies_template_values(mngr_test_prefix: str) ->
     )
     params = {"name": "my-agent", "template": "mytemplate", "new_host": "local", "target_path": None}
 
-    result = apply_create_template(params, config)
+    result = apply_create_template(ctx, params, config)
 
     assert result["new_host"] == "docker"
     assert result["target_path"] == "/workspace"
     assert result["name"] == "my-agent"
 
 
+def test_apply_create_template_preserves_cli_specified_params(mngr_test_prefix: str) -> None:
+    """apply_create_template should not override CLI-specified params with template values."""
+    ctx = MagicMock(spec=click.Context)
+    ctx.get_parameter_source.return_value = ParameterSource.COMMANDLINE
+    template = CreateTemplate(options={"new_host": "docker", "target_path": "/workspace"})
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={CreateTemplateName("mytemplate"): template},
+    )
+    params = {"name": "my-agent", "template": "mytemplate", "new_host": "local", "target_path": "/cli-path"}
+
+    result = apply_create_template(ctx, params, config)
+
+    assert result["new_host"] == "local"
+    assert result["target_path"] == "/cli-path"
+    assert result["name"] == "my-agent"
+
+
 def test_apply_create_template_preserves_non_template_params(mngr_test_prefix: str) -> None:
     """apply_create_template should preserve params not in the template."""
+    ctx = MagicMock(spec=click.Context)
+    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
     template = CreateTemplate(options={"new_host": "docker"})
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -208,7 +231,7 @@ def test_apply_create_template_preserves_non_template_params(mngr_test_prefix: s
     )
     params = {"name": "my-agent", "template": "mytemplate", "new_host": "local", "message": "hello"}
 
-    result = apply_create_template(params, config)
+    result = apply_create_template(ctx, params, config)
 
     assert result["new_host"] == "docker"
     assert result["message"] == "hello"
@@ -217,6 +240,8 @@ def test_apply_create_template_preserves_non_template_params(mngr_test_prefix: s
 
 def test_apply_create_template_does_not_apply_none_values(mngr_test_prefix: str) -> None:
     """apply_create_template should not override params with None template values."""
+    ctx = MagicMock(spec=click.Context)
+    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
     template = CreateTemplate(options={"new_host": "docker", "target_path": None})
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -224,7 +249,7 @@ def test_apply_create_template_does_not_apply_none_values(mngr_test_prefix: str)
     )
     params = {"name": "my-agent", "template": "mytemplate", "new_host": "local", "target_path": "/original"}
 
-    result = apply_create_template(params, config)
+    result = apply_create_template(ctx, params, config)
 
     assert result["new_host"] == "docker"
     # None values in template should not overwrite existing params
@@ -233,6 +258,7 @@ def test_apply_create_template_does_not_apply_none_values(mngr_test_prefix: str)
 
 def test_apply_create_template_raises_for_unknown_template(mngr_test_prefix: str) -> None:
     """apply_create_template should raise UserInputError for unknown template."""
+    ctx = MagicMock(spec=click.Context)
     config = MngrConfig(
         prefix=mngr_test_prefix,
         create_templates={CreateTemplateName("existing"): CreateTemplate()},
@@ -240,7 +266,7 @@ def test_apply_create_template_raises_for_unknown_template(mngr_test_prefix: str
     params = {"name": "my-agent", "template": "nonexistent"}
 
     with pytest.raises(UserInputError) as exc_info:
-        apply_create_template(params, config)
+        apply_create_template(ctx, params, config)
 
     assert "Template 'nonexistent' not found" in str(exc_info.value)
     assert "existing" in str(exc_info.value)
@@ -248,11 +274,12 @@ def test_apply_create_template_raises_for_unknown_template(mngr_test_prefix: str
 
 def test_apply_create_template_raises_for_unknown_template_no_templates_configured(mngr_test_prefix: str) -> None:
     """apply_create_template should raise descriptive error when no templates configured."""
+    ctx = MagicMock(spec=click.Context)
     config = MngrConfig(prefix=mngr_test_prefix)
     params = {"name": "my-agent", "template": "nonexistent"}
 
     with pytest.raises(UserInputError) as exc_info:
-        apply_create_template(params, config)
+        apply_create_template(ctx, params, config)
 
     assert "Template 'nonexistent' not found" in str(exc_info.value)
     assert "No templates are configured" in str(exc_info.value)

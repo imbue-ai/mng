@@ -169,7 +169,7 @@ def setup_command_context(
 
     # Apply create template if this is the create command and a template was specified
     if command_name == "create":
-        updated_params = apply_create_template(updated_params, mngr_ctx.config)
+        updated_params = apply_create_template(ctx, updated_params, mngr_ctx.config)
 
     # Allow plugins to override command options before creating the options object
     _apply_plugin_option_overrides(pm, command_name, command_class, updated_params)
@@ -270,14 +270,17 @@ def apply_config_defaults(ctx: click.Context, config: MngrConfig, command_name: 
 
 
 def apply_create_template(
+    ctx: click.Context,
     params: dict[str, Any],
     config: MngrConfig,
 ) -> dict[str, Any]:
     """Apply a create template to parameters if one is specified.
 
     Templates are named presets of create command arguments that can be applied
-    using --template <name>. Template values override defaults for any field
-    that is set in the template.
+    using --template <name>. Template values act as defaults - they only override
+    parameters that came from DEFAULT source, not user-specified values.
+
+    CLI arguments always take precedence over template values.
 
     This function should only be called for the 'create' command.
     """
@@ -307,9 +310,14 @@ def apply_create_template(
     # Start with existing params
     updated_params = params.copy()
 
-    # Apply template options, overriding params for any non-None values
+    # Apply template options only for parameters that came from defaults (not CLI)
     for param_name, template_value in template.options.items():
-        if template_value is not None:
+        if template_value is None:
+            continue
+        if param_name not in params:
+            continue
+        source = ctx.get_parameter_source(param_name)
+        if source == ParameterSource.DEFAULT:
             updated_params[param_name] = template_value
 
     return updated_params
