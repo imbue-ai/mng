@@ -8,6 +8,7 @@ import subprocess
 import time
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 
 import pluggy
 
@@ -64,6 +65,21 @@ def _get_agent_from_create_result(result: CreateAgentResult, temp_mngr_ctx: Mngr
     agent = next((a for a in agents if a.id == result.agent.id), None)
     assert agent is not None
     return agent
+
+
+def _setup_claude_trust_config(work_dir: Path):
+    """Create a fake Claude trust config for testing worktree creation."""
+    claude_config_file = work_dir.parent / ".claude.json"
+    claude_config = {
+        "projects": {
+            str(work_dir): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True},
+        }
+    }
+    claude_config_file.write_text(json.dumps(claude_config))
+    return patch(
+        "imbue.mngr.utils.claude_config.get_claude_config_path",
+        return_value=claude_config_file,
+    )
 
 
 def test_create_simple_echo_agent(
@@ -282,7 +298,10 @@ def test_create_agent_with_worktree(
     )
 
     worktree_path: Path | None = None
-    with tmux_session_cleanup(session_name):
+    with (
+        _setup_claude_trust_config(temp_work_dir),
+        tmux_session_cleanup(session_name),
+    ):
         try:
             local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
@@ -371,7 +390,10 @@ def test_worktree_with_custom_branch_name(
     current_branch = branch_result.stdout.strip()
 
     worktree_path: Path | None = None
-    with tmux_session_cleanup(session_name):
+    with (
+        _setup_claude_trust_config(temp_work_dir),
+        tmux_session_cleanup(session_name),
+    ):
         try:
             local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 
@@ -496,7 +518,10 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
     )
 
     worktree_path: Path | None = None
-    with tmux_session_cleanup(session_name):
+    with (
+        _setup_claude_trust_config(temp_work_dir),
+        tmux_session_cleanup(session_name),
+    ):
         try:
             local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
 

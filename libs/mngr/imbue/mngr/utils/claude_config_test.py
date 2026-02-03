@@ -9,8 +9,9 @@ from unittest.mock import patch
 import pytest
 
 from imbue.mngr.errors import ClaudeDirectoryNotTrustedError
+from imbue.mngr.errors import ClaudeTrustNotFoundError
 from imbue.mngr.utils.claude_config import _find_project_config
-from imbue.mngr.utils.claude_config import copy_claude_project_config
+from imbue.mngr.utils.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.utils.claude_config import get_claude_config_path
 
 
@@ -55,8 +56,8 @@ def test_find_project_config_empty_projects() -> None:
     assert result is None
 
 
-def test_copy_claude_project_config_creates_entry(tmp_path: Path) -> None:
-    """Test that copy_claude_project_config copies config to target path."""
+def test_extend_claude_trust_to_worktree_creates_entry(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree copies config to target path."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "source"
     target_path = tmp_path / "target"
@@ -72,7 +73,7 @@ def test_copy_claude_project_config_creates_entry(tmp_path: Path) -> None:
     config_file.write_text(json.dumps(config, indent=2))
 
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
-        copy_claude_project_config(source_path, target_path)
+        extend_claude_trust_to_worktree(source_path, target_path)
 
     # Read the updated config
     updated_config = json.loads(config_file.read_text())
@@ -85,8 +86,8 @@ def test_copy_claude_project_config_creates_entry(tmp_path: Path) -> None:
     assert str(source_path) in updated_config["projects"]
 
 
-def test_copy_claude_project_config_no_source_config(tmp_path: Path) -> None:
-    """Test that copy_claude_project_config does nothing if source has no config."""
+def test_extend_claude_trust_to_worktree_no_source_config(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree raises if source has no config."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "source"
     target_path = tmp_path / "target"
@@ -96,17 +97,18 @@ def test_copy_claude_project_config_no_source_config(tmp_path: Path) -> None:
     # Create config without the source project
     config = {"projects": {"/other/project": {"allowedTools": [], "hasTrustDialogAccepted": True}}}
     config_file.write_text(json.dumps(config, indent=2))
+    original_content = config_file.read_text()
 
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
-        copy_claude_project_config(source_path, target_path)
+        with pytest.raises(ClaudeDirectoryNotTrustedError):
+            extend_claude_trust_to_worktree(source_path, target_path)
 
-    # Target should not be added
-    updated_config = json.loads(config_file.read_text())
-    assert str(target_path) not in updated_config["projects"]
+    # File should be unchanged after error
+    assert config_file.read_text() == original_content
 
 
-def test_copy_claude_project_config_target_already_exists(tmp_path: Path) -> None:
-    """Test that copy_claude_project_config does not overwrite existing target config."""
+def test_extend_claude_trust_to_worktree_target_already_exists(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree does not overwrite existing target config."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "source"
     target_path = tmp_path / "target"
@@ -123,7 +125,7 @@ def test_copy_claude_project_config_target_already_exists(tmp_path: Path) -> Non
     config_file.write_text(json.dumps(config, indent=2))
 
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
-        copy_claude_project_config(source_path, target_path)
+        extend_claude_trust_to_worktree(source_path, target_path)
 
     # Target should not be overwritten
     updated_config = json.loads(config_file.read_text())
@@ -133,8 +135,8 @@ def test_copy_claude_project_config_target_already_exists(tmp_path: Path) -> Non
     }
 
 
-def test_copy_claude_project_config_no_config_file(tmp_path: Path) -> None:
-    """Test that copy_claude_project_config handles missing config file."""
+def test_extend_claude_trust_to_worktree_no_config_file(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree raises if ~/.claude.json doesn't exist."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "source"
     target_path = tmp_path / "target"
@@ -144,12 +146,12 @@ def test_copy_claude_project_config_no_config_file(tmp_path: Path) -> None:
     # Don't create the config file
 
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
-        # Should not raise
-        copy_claude_project_config(source_path, target_path)
+        with pytest.raises(ClaudeTrustNotFoundError):
+            extend_claude_trust_to_worktree(source_path, target_path)
 
 
-def test_copy_claude_project_config_empty_config_file(tmp_path: Path) -> None:
-    """Test that copy_claude_project_config handles empty config file."""
+def test_extend_claude_trust_to_worktree_empty_config_file(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree raises if config file is empty."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "source"
     target_path = tmp_path / "target"
@@ -160,12 +162,15 @@ def test_copy_claude_project_config_empty_config_file(tmp_path: Path) -> None:
     config_file.write_text("")
 
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
-        # Should not raise
-        copy_claude_project_config(source_path, target_path)
+        with pytest.raises(ClaudeDirectoryNotTrustedError):
+            extend_claude_trust_to_worktree(source_path, target_path)
+
+    # File should be unchanged after error
+    assert config_file.read_text() == ""
 
 
-def test_copy_claude_project_config_from_ancestor(tmp_path: Path) -> None:
-    """Test that copy_claude_project_config copies from ancestor if exact match not found."""
+def test_extend_claude_trust_to_worktree_from_ancestor(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree copies from ancestor if exact match not found."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "project" / "src" / "components"
     target_path = tmp_path / "worktree"
@@ -182,7 +187,7 @@ def test_copy_claude_project_config_from_ancestor(tmp_path: Path) -> None:
     config_file.write_text(json.dumps(config, indent=2))
 
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
-        copy_claude_project_config(source_path, target_path)
+        extend_claude_trust_to_worktree(source_path, target_path)
 
     # Target should have the config from the ancestor
     updated_config = json.loads(config_file.read_text())
@@ -193,7 +198,7 @@ def test_copy_claude_project_config_from_ancestor(tmp_path: Path) -> None:
     }
 
 
-def test_copy_claude_project_config_config_is_copied_not_referenced(tmp_path: Path) -> None:
+def test_extend_claude_trust_to_worktree_config_is_copied_not_referenced(tmp_path: Path) -> None:
     """Test that the config is copied, not just referenced."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "source"
@@ -210,7 +215,7 @@ def test_copy_claude_project_config_config_is_copied_not_referenced(tmp_path: Pa
     config_file.write_text(json.dumps(config, indent=2))
 
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
-        copy_claude_project_config(source_path, target_path)
+        extend_claude_trust_to_worktree(source_path, target_path)
 
     # Modify the source config
     updated_config = json.loads(config_file.read_text())
@@ -222,8 +227,8 @@ def test_copy_claude_project_config_config_is_copied_not_referenced(tmp_path: Pa
     assert final_config["projects"][str(target_path)]["allowedTools"] == ["bash"]
 
 
-def test_copy_claude_project_config_preserves_other_fields(tmp_path: Path) -> None:
-    """Test that copy_claude_project_config preserves other fields in config."""
+def test_extend_claude_trust_to_worktree_preserves_other_fields(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree preserves other fields in config."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "source"
     target_path = tmp_path / "target"
@@ -241,7 +246,7 @@ def test_copy_claude_project_config_preserves_other_fields(tmp_path: Path) -> No
     config_file.write_text(json.dumps(config, indent=2))
 
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
-        copy_claude_project_config(source_path, target_path)
+        extend_claude_trust_to_worktree(source_path, target_path)
 
     # Other fields should be preserved
     updated_config = json.loads(config_file.read_text())
@@ -256,8 +261,8 @@ def test_copy_claude_project_config_preserves_other_fields(tmp_path: Path) -> No
         {"allowedTools": ["bash"], "hasTrustDialogAccepted": True, "extraField": "value"},
     ],
 )
-def test_copy_claude_project_config_various_configs(tmp_path: Path, source_config: dict[str, Any]) -> None:
-    """Test that copy_claude_project_config handles various config structures."""
+def test_extend_claude_trust_to_worktree_various_configs(tmp_path: Path, source_config: dict[str, Any]) -> None:
+    """Test that extend_claude_trust_to_worktree handles various config structures."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "source"
     target_path = tmp_path / "target"
@@ -269,15 +274,15 @@ def test_copy_claude_project_config_various_configs(tmp_path: Path, source_confi
     config_file.write_text(json.dumps(config, indent=2))
 
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
-        copy_claude_project_config(source_path, target_path)
+        extend_claude_trust_to_worktree(source_path, target_path)
 
     # Target should have the same config
     updated_config = json.loads(config_file.read_text())
     assert updated_config["projects"][str(target_path)] == source_config
 
 
-def test_copy_claude_project_config_raises_if_not_trusted(tmp_path: Path) -> None:
-    """Test that copy_claude_project_config raises if source has hasTrustDialogAccepted=false."""
+def test_extend_claude_trust_to_worktree_raises_if_not_trusted(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree raises if source has hasTrustDialogAccepted=false."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "source"
     target_path = tmp_path / "target"
@@ -291,16 +296,19 @@ def test_copy_claude_project_config_raises_if_not_trusted(tmp_path: Path) -> Non
         }
     }
     config_file.write_text(json.dumps(config, indent=2))
+    original_content = config_file.read_text()
 
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
         with pytest.raises(ClaudeDirectoryNotTrustedError) as exc_info:
-            copy_claude_project_config(source_path, target_path)
+            extend_claude_trust_to_worktree(source_path, target_path)
 
     assert str(source_path) in str(exc_info.value)
+    # File should be unchanged after error
+    assert config_file.read_text() == original_content
 
 
-def test_copy_claude_project_config_raises_if_trust_field_missing(tmp_path: Path) -> None:
-    """Test that copy_claude_project_config raises if hasTrustDialogAccepted is missing."""
+def test_extend_claude_trust_to_worktree_raises_if_trust_field_missing(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree raises if hasTrustDialogAccepted is missing."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "source"
     target_path = tmp_path / "target"
@@ -314,14 +322,18 @@ def test_copy_claude_project_config_raises_if_trust_field_missing(tmp_path: Path
         }
     }
     config_file.write_text(json.dumps(config, indent=2))
+    original_content = config_file.read_text()
 
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
-            copy_claude_project_config(source_path, target_path)
+            extend_claude_trust_to_worktree(source_path, target_path)
+
+    # File should be unchanged after error
+    assert config_file.read_text() == original_content
 
 
-def test_copy_claude_project_config_concurrent_writes(tmp_path: Path) -> None:
-    """Test that concurrent calls to copy_claude_project_config don't corrupt the file.
+def test_extend_claude_trust_to_worktree_concurrent_writes(tmp_path: Path) -> None:
+    """Test that concurrent calls to extend_claude_trust_to_worktree don't corrupt the file.
 
     Multiple threads write to the same config file simultaneously, and the result
     should be a valid JSON file with all expected entries.
@@ -349,7 +361,7 @@ def test_copy_claude_project_config_concurrent_writes(tmp_path: Path) -> None:
 
     def write_config(target_path: Path) -> None:
         with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
-            copy_claude_project_config(source_path, target_path)
+            extend_claude_trust_to_worktree(source_path, target_path)
 
     # Run all writes concurrently - any exception will propagate via .result()
     with ThreadPoolExecutor(max_workers=thread_count) as executor:

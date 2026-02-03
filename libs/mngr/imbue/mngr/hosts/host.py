@@ -60,7 +60,7 @@ from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
-from imbue.mngr.utils.claude_config import copy_claude_project_config
+from imbue.mngr.utils.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.git_utils import get_current_git_branch
 
@@ -1158,9 +1158,8 @@ class Host(BaseHost, OnlineHostInterface):
         # Track generated work directories at the host level
         self._add_generated_work_dir(work_dir_path)
 
-        # Copy Claude project configuration from source to the new worktree
-        # This ensures the new worktree inherits allowedTools and hasTrustDialogAccepted
-        copy_claude_project_config(source_path, work_dir_path)
+        # Extend Claude's trust to the new worktree so the agent doesn't see a trust dialog
+        extend_claude_trust_to_worktree(source_path, work_dir_path)
 
         return work_dir_path
 

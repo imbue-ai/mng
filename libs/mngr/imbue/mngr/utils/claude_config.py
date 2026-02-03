@@ -10,6 +10,7 @@ from loguru import logger
 
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import ClaudeDirectoryNotTrustedError
+from imbue.mngr.errors import ClaudeTrustNotFoundError
 
 
 def get_claude_config_path() -> Path:
@@ -17,11 +18,11 @@ def get_claude_config_path() -> Path:
     return Path.home() / ".claude.json"
 
 
-def copy_claude_project_config(source_path: Path, target_path: Path) -> None:
-    """Copy Claude project configuration from source_path to target_path.
+def extend_claude_trust_to_worktree(source_path: Path, worktree_path: Path) -> None:
+    """Extend Claude's trust settings from source_path to a new worktree.
 
     Reads ~/.claude.json, finds the project entry for source_path (or the closest
-    ancestor with a config entry), and creates a new entry for target_path with
+    ancestor with a config entry), and creates a new entry for worktree_path with
     the same settings (allowedTools, hasTrustDialogAccepted).
 
     Uses file locking to prevent race conditions when multiple agents are running.
@@ -31,14 +32,12 @@ def copy_claude_project_config(source_path: Path, target_path: Path) -> None:
     """
     config_path = get_claude_config_path()
 
-    # Return early if config file doesn't exist
     if not config_path.exists():
-        logger.debug("Claude config file does not exist, nothing to copy")
-        return
+        raise ClaudeTrustNotFoundError(str(source_path))
 
     # Resolve paths to absolute paths for consistent comparison
     source_path = source_path.resolve()
-    target_path = target_path.resolve()
+    worktree_path = worktree_path.resolve()
 
     # Use file locking to prevent race conditions
     # Open in r+ mode for read and write
@@ -49,8 +48,7 @@ def copy_claude_project_config(source_path: Path, target_path: Path) -> None:
             f.seek(0)
             content = f.read()
             if not content.strip():
-                logger.debug("Claude config file is empty, nothing to copy")
-                return
+                raise ClaudeDirectoryNotTrustedError(str(source_path))
 
             config = json.loads(content)
 
@@ -59,27 +57,23 @@ def copy_claude_project_config(source_path: Path, target_path: Path) -> None:
             source_config = _find_project_config(projects, source_path)
 
             if source_config is None:
-                logger.debug(
-                    "No Claude project config found for source path {}",
-                    source_path,
-                )
-                return
+                raise ClaudeDirectoryNotTrustedError(str(source_path))
 
             # Verify the source directory was actually trusted
             if not source_config.get("hasTrustDialogAccepted", False):
                 raise ClaudeDirectoryNotTrustedError(str(source_path))
 
-            # Check if target already has config
-            target_path_str = str(target_path)
-            if target_path_str in projects:
+            # Check if worktree already has config
+            worktree_path_str = str(worktree_path)
+            if worktree_path_str in projects:
                 logger.debug(
-                    "Claude project config already exists for target path {}",
-                    target_path,
+                    "Claude trust already exists for worktree {}",
+                    worktree_path,
                 )
                 return
 
-            # Copy the config to the target path
-            projects[target_path_str] = copy.deepcopy(source_config)
+            # Extend trust to the worktree
+            projects[worktree_path_str] = copy.deepcopy(source_config)
             config["projects"] = projects
 
             # Write the updated config
@@ -93,9 +87,9 @@ def copy_claude_project_config(source_path: Path, target_path: Path) -> None:
             os.fsync(f.fileno())
 
             logger.debug(
-                "Copied Claude project config from {} to {}",
+                "Extended Claude trust from {} to worktree {}",
                 source_path,
-                target_path,
+                worktree_path,
             )
         finally:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)

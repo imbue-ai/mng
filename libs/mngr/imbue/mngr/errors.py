@@ -310,5 +310,17 @@ class ClaudeDirectoryNotTrustedError(ConfigError):
     def __init__(self, source_path: str) -> None:
         self.source_path = source_path
         super().__init__(
-            f"Cannot copy Claude project config: source path {source_path} does not have hasTrustDialogAccepted=true, so the new agent would not trust its workspace"
+            f"Cannot extend Claude trust: source path {source_path} does not have "
+            "hasTrustDialogAccepted=true, so the new agent would not trust its workspace"
+        )
+
+
+class ClaudeTrustNotFoundError(ConfigError):
+    """~/.claude.json does not exist, so if we create an agent in a new worktree it'll get a trust dialog and then tmux will send-keys at the dialog and it'll eat the message."""
+
+    def __init__(self, source_path: str) -> None:
+        self.source_path = source_path
+        super().__init__(
+            f"Cannot extend Claude trust: ~/.claude.json does not exist, so the new agent would not trust its workspace. "
+            f"Run Claude Code manually in {source_path} first to create the trust config."
         )
