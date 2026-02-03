@@ -439,3 +439,13 @@ def test_get_expected_process_name_uses_command_basename(
     test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     # Default command is "sleep 1000" based on create_test_agent
     assert test_agent.get_expected_process_name() == "sleep"
+
+
+def test_uses_marker_based_send_message_returns_false_by_default(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that uses_marker_based_send_message returns False by default."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    assert test_agent.uses_marker_based_send_message() is False

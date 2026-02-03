@@ -497,6 +497,14 @@ def test_get_ready_prompt_pattern_returns_prompt_char(
     assert agent.get_ready_prompt_pattern() == "❯"
 
 
+def test_uses_marker_based_send_message_returns_true(
+    local_provider: "LocalProviderInstance", tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """ClaudeAgent.uses_marker_based_send_message should return True."""
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    assert agent.uses_marker_based_send_message() is True
+
+
 def test_configure_readiness_hooks_creates_settings_file(
     local_provider: "LocalProviderInstance", tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
