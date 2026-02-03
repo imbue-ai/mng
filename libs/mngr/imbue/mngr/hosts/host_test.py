@@ -244,6 +244,18 @@ def test_git_branch_exists_returns_true_when_branch_exists(
     git_dir.mkdir()
     subprocess.run(["git", "init"], cwd=git_dir, check=True, capture_output=True)
     subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=git_dir,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=git_dir,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "initial"],
         cwd=git_dir,
         check=True,
@@ -272,6 +284,18 @@ def test_git_branch_exists_returns_false_for_nonexistent_branch(
     git_dir = tmp_path / "repo"
     git_dir.mkdir()
     subprocess.run(["git", "init"], cwd=git_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=git_dir,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=git_dir,
+        check=True,
+        capture_output=True,
+    )
     subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "initial"],
         cwd=git_dir,
