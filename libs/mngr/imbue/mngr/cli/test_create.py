@@ -830,3 +830,162 @@ def test_edit_message_empty_content_does_not_send(
     finally:
         restore_env_var("EDITOR", original_editor)
         restore_env_var("VISUAL", original_visual)
+
+
+def test_template_applies_values_from_config(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+    mngr_test_root_name: str,
+    plugin_manager: pluggy.PluginManager,
+    tmp_path: Path,
+) -> None:
+    """Test that --template applies values from the config file."""
+    agent_name = f"test-template-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    # Create a config directory with a template (using test root name)
+    config_dir = tmp_path / "project"
+    config_dir.mkdir()
+    mngr_dir = config_dir / f".{mngr_test_root_name}"
+    mngr_dir.mkdir()
+    settings_file = mngr_dir / "settings.toml"
+    settings_file.write_text("""
+[create_templates.mytemplate]
+no_copy_work_dir = true
+no_ensure_clean = true
+""")
+
+    with tmux_session_cleanup(session_name):
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 847192",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--context",
+                str(config_dir),
+                "--template",
+                "mytemplate",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
+        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+
+
+def test_template_cli_args_take_precedence(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+    mngr_test_root_name: str,
+    plugin_manager: pluggy.PluginManager,
+    tmp_path: Path,
+) -> None:
+    """Test that CLI arguments override template values."""
+    agent_name = f"test-template-cli-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    # Create a config with a template that sets a message (using test root name)
+    config_dir = tmp_path / "project"
+    config_dir.mkdir()
+    mngr_dir = config_dir / f".{mngr_test_root_name}"
+    mngr_dir.mkdir()
+    settings_file = mngr_dir / "settings.toml"
+    settings_file.write_text("""
+[create_templates.mytemplate]
+message = "template-message"
+no_copy_work_dir = true
+no_ensure_clean = true
+""")
+
+    with tmux_session_cleanup(session_name):
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "cat",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--context",
+                str(config_dir),
+                "--template",
+                "mytemplate",
+                "--message",
+                "cli-message",
+                "--message-delay",
+                "0.01",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
+
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            error_message=f"Expected tmux session {session_name} to exist",
+        )
+
+        # CLI message should appear, not template message
+        wait_for(
+            lambda: "cli-message" in capture_tmux_pane_contents(session_name),
+            error_message="Expected CLI message 'cli-message' to appear in tmux pane output",
+        )
+
+
+def test_template_unknown_template_raises_error(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_root_name: str,
+    plugin_manager: pluggy.PluginManager,
+    tmp_path: Path,
+) -> None:
+    """Test that using an unknown template raises an error."""
+    agent_name = f"test-unknown-template-{int(time.time())}"
+
+    # Create a config with one template (using test root name)
+    config_dir = tmp_path / "project"
+    config_dir.mkdir()
+    mngr_dir = config_dir / f".{mngr_test_root_name}"
+    mngr_dir.mkdir()
+    settings_file = mngr_dir / "settings.toml"
+    settings_file.write_text("""
+[create_templates.existing]
+no_copy_work_dir = true
+""")
+
+    result = cli_runner.invoke(
+        create,
+        [
+            "--name",
+            agent_name,
+            "--agent-cmd",
+            "sleep 123456",
+            "--source",
+            str(temp_work_dir),
+            "--no-connect",
+            "--context",
+            str(config_dir),
+            "--template",
+            "nonexistent",
+        ],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "Template 'nonexistent' not found" in result.output
+    assert "existing" in result.output

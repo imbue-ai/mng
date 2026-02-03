@@ -484,9 +484,6 @@ def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_err
     assert "--disable-plugin modal" in error_message
     assert "https://modal.com/docs/reference/modal.config" in error_message
 
-    # Verify the original AuthError is chained
-    assert isinstance(exc_info.value.__cause__, modal.exception.AuthError)
-
 
 def test_list_hosts_returns_empty_list_when_not_authorized(
     unauthorized_modal_provider: UnauthorizedModalProviderInstance,

@@ -7,6 +7,8 @@ from pydantic import Field
 
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import CommandDefaults
+from imbue.mngr.config.data_types import CreateTemplate
+from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import HookDefinition
 from imbue.mngr.config.data_types import LoggingConfig
@@ -499,6 +501,91 @@ def test_command_defaults_merge_with_combines_defaults() -> None:
     merged = base.merge_with(override)
     assert merged.defaults["name"] == "override"
     assert merged.defaults["other"] == "base_value"
+
+
+# =============================================================================
+# Tests for CreateTemplate.merge_with
+# =============================================================================
+
+
+def test_create_template_merge_with_combines_options() -> None:
+    """CreateTemplate.merge_with should combine options from both templates."""
+    base = CreateTemplate(options={"new_host": "local", "target_path": "/base"})
+    override = CreateTemplate(options={"new_host": "docker"})
+    merged = base.merge_with(override)
+    assert merged.options["new_host"] == "docker"
+    assert merged.options["target_path"] == "/base"
+
+
+def test_create_template_merge_with_override_wins_for_same_key() -> None:
+    """CreateTemplate.merge_with should let override win for same keys."""
+    base = CreateTemplate(options={"connect": True, "await_ready": True})
+    override = CreateTemplate(options={"connect": False})
+    merged = base.merge_with(override)
+    assert merged.options["connect"] is False
+    assert merged.options["await_ready"] is True
+
+
+def test_create_template_merge_with_empty_base() -> None:
+    """CreateTemplate.merge_with should handle empty base template."""
+    base = CreateTemplate()
+    override = CreateTemplate(options={"new_host": "docker"})
+    merged = base.merge_with(override)
+    assert merged.options["new_host"] == "docker"
+
+
+def test_create_template_merge_with_empty_override() -> None:
+    """CreateTemplate.merge_with should handle empty override template."""
+    base = CreateTemplate(options={"new_host": "local"})
+    override = CreateTemplate()
+    merged = base.merge_with(override)
+    assert merged.options["new_host"] == "local"
+
+
+# =============================================================================
+# Tests for MngrConfig.create_templates
+# =============================================================================
+
+
+def test_mngr_config_merge_with_merges_create_templates(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should merge create_templates with same key."""
+    base = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={
+            CreateTemplateName("modal"): CreateTemplate(options={"new_host": "modal", "target_path": "/base"}),
+        },
+    )
+    override = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={
+            CreateTemplateName("modal"): CreateTemplate(options={"target_path": "/override"}),
+        },
+    )
+    merged = base.merge_with(override)
+    modal_template = merged.create_templates[CreateTemplateName("modal")]
+    assert modal_template.options["new_host"] == "modal"
+    assert modal_template.options["target_path"] == "/override"
+
+
+def test_mngr_config_merge_with_adds_new_create_templates(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should add new create_templates from override."""
+    base = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={CreateTemplateName("modal"): CreateTemplate(options={"new_host": "modal"})},
+    )
+    override = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={CreateTemplateName("docker"): CreateTemplate(options={"new_host": "docker"})},
+    )
+    merged = base.merge_with(override)
+    assert CreateTemplateName("modal") in merged.create_templates
+    assert CreateTemplateName("docker") in merged.create_templates
+
+
+def test_mngr_config_create_templates_default_is_empty_dict(mngr_test_prefix: str) -> None:
+    """MngrConfig should have empty create_templates by default."""
+    config = MngrConfig(prefix=mngr_test_prefix)
+    assert config.create_templates == {}
 
 
 # =============================================================================
