@@ -801,9 +801,31 @@ def _resolve_source_location(
     mngr_ctx: MngrContext,
 ) -> HostLocation:
     # figure out the agent source data
+    # Check if we can use the fast local path (avoid loading all agents from all providers)
+    # This is possible when:
+    # 1. No source options at all (use current dir)
+    # 2. --source is just a local path (no agent/host reference)
+    can_use_local_fast_path = False
+    local_source_path: str | None = None
+
     if opts.source is None and opts.source_agent is None and opts.source_host is None:
+        # No source options, use current directory
+        can_use_local_fast_path = True
+        local_source_path = opts.source_path
+    elif opts.source is not None and opts.source_agent is None and opts.source_host is None:
+        # --source was provided, check if it's just a local path (no agent/host reference)
+        parsed = _parse_source_string(opts.source)
+        if parsed.agent_name is None and parsed.host_name is None and parsed.path is not None:
+            # Just a local path like "/tmp/foo" or "." - no need to load agents
+            can_use_local_fast_path = True
+            local_source_path = str(parsed.path)
+    else:
+        # --source-agent or --source-host was provided, need to load agents
+        pass
+
+    if can_use_local_fast_path:
         # easy, source location is on current host
-        source_path = opts.source_path
+        source_path = local_source_path
         if source_path is None:
             git_root = find_git_worktree_root()
             source_path = str(git_root) if git_root is not None else os.getcwd()

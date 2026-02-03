@@ -71,10 +71,6 @@ def _get_host_state(env: dict[str, str], provider: str, host_name: str) -> str |
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-@pytest.mark.xfail(
-    reason="Modal API often times out during load_all_agents_grouped_by_host in CI",
-    strict=False,
-)
 def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
     modal_subprocess_env: ModalSubprocessTestEnv,
 ) -> None:
