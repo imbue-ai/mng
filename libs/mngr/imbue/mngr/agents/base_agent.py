@@ -1,5 +1,6 @@
 import json
 import shlex
+import time
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -323,6 +324,10 @@ class BaseAgent(AgentInterface):
         result = self.host.execute_command(send_msg_cmd)
         if not result.success:
             raise SendMessageError(str(self.name), f"tmux send-keys failed: {result.stderr or result.stdout}")
+
+        # Small delay to let the input handler process the text before sending Enter.
+        # Without this, Enter can be interpreted as a literal newline instead of submit.
+        time.sleep(1)
 
         send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
         result = self.host.execute_command(send_enter_cmd)
