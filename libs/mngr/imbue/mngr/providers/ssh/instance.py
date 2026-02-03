@@ -15,6 +15,7 @@ from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import SnapshotsNotSupportedError
@@ -174,8 +175,13 @@ class SSHProviderInstance(BaseProviderInstance):
     def list_hosts(
         self,
         include_destroyed: bool = False,
+        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
-        """List all configured hosts."""
+        """List all configured hosts.
+
+        The cg parameter is accepted but not used since SSH host listing is
+        fast and doesn't benefit from parallelization.
+        """
         hosts: list[HostInterface] = []
         for host_name, host_config in self.hosts.items():
             host = self._create_host_object(host_name, host_config)
