@@ -1,3 +1,7 @@
+[default]
+help:
+    @just --list
+
 build target:
   @if [ "{{target}}" = "flexmux" ]; then \
     cd libs/flexmux/frontend && pnpm install && pnpm run build; \
