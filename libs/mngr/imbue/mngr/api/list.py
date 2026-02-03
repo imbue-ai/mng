@@ -265,6 +265,7 @@ def list_agents(
 
                 for agent_ref in agent_refs:
                     try:
+                        # FIXME: consolidate the below code--it's pretty duplicated between the if and the else
                         if agents is None:
                             # Use persisted agent data for stopped hosts
                             agent_data = _get_persisted_agent_data(provider, host.id, agent_ref.agent_id)
