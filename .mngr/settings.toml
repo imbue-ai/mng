@@ -15,5 +15,6 @@ default_sandbox_timeout = 900
 [providers.github_modal]
 backend = "modal"
 is_enabled = true
+user_id = "github-ci"
 default_idle_timeout = 600
 default_sandbox_timeout = 900

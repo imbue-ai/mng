@@ -933,6 +933,8 @@ class Host(BaseHost, OnlineHostInterface):
             user, hostname, port, key_path = target_ssh_info
             git_url = f"ssh://{user}@{hostname}:{port}{target_path}/.git"
 
+        # FIXME: this whole block is a bit duplicated. Refactor to do the same thing, but assemble the args a bit more coherently
+        #  For example, the reason we need --no-verify is to skip any hooks, since they can sometimes fail
         if source_host.is_local:
             logger.debug("Pushing git repo to target: {}", git_url)
             env: dict[str, str] = {}
@@ -945,7 +947,7 @@ class Host(BaseHost, OnlineHostInterface):
             # and without this, it can take a ridiculously long time.
             env["GIT_LFS_SKIP_PUSH"] = "1"
 
-            command_args = ["git", "-C", str(source_path), "push", "--mirror", git_url]
+            command_args = ["git", "-C", str(source_path), "push", "--no-verify", "--mirror", git_url]
             logger.trace(" ".join(command_args))
             logger.trace("Running git push --mirror from local source to target with env: {}", env)
             result = subprocess.run(
@@ -961,12 +963,12 @@ class Host(BaseHost, OnlineHostInterface):
                 user, hostname, port, key_path = target_ssh_info
                 git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
                 result = source_host.execute_command(
-                    f"GIT_SSH_COMMAND={shlex.quote(git_ssh_cmd)} git push --mirror {shlex.quote(git_url)}",
+                    f"GIT_SSH_COMMAND={shlex.quote(git_ssh_cmd)} git push --no-verify --mirror {shlex.quote(git_url)}",
                     cwd=source_path,
                 )
             else:
                 result = source_host.execute_command(
-                    f"git push --mirror {shlex.quote(git_url)}",
+                    f"git push --no-verify --mirror {shlex.quote(git_url)}",
                     cwd=source_path,
                 )
             if not result.success:
