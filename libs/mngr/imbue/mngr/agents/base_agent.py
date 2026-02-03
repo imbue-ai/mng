@@ -248,11 +248,45 @@ class BaseAgent(AgentInterface):
         waiting_path = self._get_agent_dir() / "waiting"
         try:
             self.host.read_text_file(waiting_path)
-            logger.trace("Agent {} lifecycle state: WAITING", self.name)
-            return AgentLifecycleState.WAITING
         except FileNotFoundError:
-            logger.trace("Agent {} lifecycle state: RUNNING", self.name)
+            logger.trace("Agent {} lifecycle state: RUNNING (no waiting file)", self.name)
             return AgentLifecycleState.RUNNING
+
+        # Waiting file exists, but also check if prompt is visible (if pattern is set).
+        # This is needed because some agents (like Claude Code) fire their SessionStart
+        # hook before the UI is fully rendered. If we send a message at that point, the
+        # text appears in the terminal buffer but gets mangled when the prompt renders.
+        prompt_pattern = self.get_ready_prompt_pattern()
+        if prompt_pattern is not None:
+            if not self._is_prompt_visible(prompt_pattern):
+                logger.trace(
+                    "Agent {} lifecycle state: RUNNING (waiting file exists but prompt not visible)",
+                    self.name,
+                )
+                return AgentLifecycleState.RUNNING
+
+        logger.trace("Agent {} lifecycle state: WAITING", self.name)
+        return AgentLifecycleState.WAITING
+
+    def get_ready_prompt_pattern(self) -> str | None:
+        """Get the prompt pattern to look for when determining if the agent is ready.
+
+        Subclasses can override this to return a pattern (e.g., "❯") that must be
+        visible in the tmux pane before the agent is considered ready for input.
+        Returns None by default, meaning no prompt check is performed.
+        """
+        return None
+
+    def _is_prompt_visible(self, pattern: str) -> bool:
+        """Check if the given prompt pattern is visible in the tmux pane."""
+        session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
+        result = self.host.execute_command(
+            f"tmux capture-pane -t '{session_name}' -p | tail -5",
+            timeout_seconds=5.0,
+        )
+        if result.success and pattern in result.stdout:
+            return True
+        return False
 
     def _command_basename_matches(self, current: str, expected: str) -> bool:
         """Check if current command basename matches expected command."""

@@ -146,6 +146,14 @@ class ClaudeAgent(BaseAgent):
         """
         return "claude"
 
+    def get_ready_prompt_pattern(self) -> str | None:
+        """Return the Claude Code prompt character.
+
+        Claude Code displays '❯' when it's ready for input. We check for this
+        to ensure the UI is fully rendered before sending messages.
+        """
+        return "❯"
+
     def assemble_command(
         self,
         host: OnlineHostInterface,

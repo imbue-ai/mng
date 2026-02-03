@@ -481,6 +481,22 @@ def test_build_readiness_hooks_config_has_stop_hook() -> None:
     assert "MNGR_AGENT_STATE_DIR" in hook["command"]
 
 
+def test_get_expected_process_name_returns_claude(
+    local_provider: "LocalProviderInstance", tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """ClaudeAgent.get_expected_process_name should return 'claude'."""
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    assert agent.get_expected_process_name() == "claude"
+
+
+def test_get_ready_prompt_pattern_returns_prompt_char(
+    local_provider: "LocalProviderInstance", tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """ClaudeAgent.get_ready_prompt_pattern should return the prompt character."""
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    assert agent.get_ready_prompt_pattern() == "❯"
+
+
 def test_configure_readiness_hooks_creates_settings_file(
     local_provider: "LocalProviderInstance", tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:

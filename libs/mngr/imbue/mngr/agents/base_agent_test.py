@@ -389,3 +389,24 @@ def test_get_message_delay_seconds_returns_value_when_set(
     data_path.write_text(json.dumps(data, indent=2))
 
     assert test_agent.get_message_delay_seconds() == 2.5
+
+
+def test_get_ready_prompt_pattern_returns_none_by_default(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that get_ready_prompt_pattern returns None by default."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    assert test_agent.get_ready_prompt_pattern() is None
+
+
+def test_get_expected_process_name_uses_command_basename(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that get_expected_process_name returns the command basename."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    # Default command is "sleep 1000" based on create_test_agent
+    assert test_agent.get_expected_process_name() == "sleep"
