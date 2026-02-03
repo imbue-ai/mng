@@ -33,39 +33,40 @@ The label for GitHub issues should be based on the folder name under `_tasks/` w
 - If the file is in `_tasks/style/`, the label should be `style`
 - If the file is in `_tasks/docs/`, the label should be `docs`
 
-### 3. Load All Existing GitHub Issues with This Label
+### 3. Load All Open GitHub Issues with This Label
 
-Query GitHub for all existing issues with this label using:
+Query GitHub for all open issues with this label using:
 
 ```bash
-gh issue list --label "<label>" --state all --json number,title,body,state --limit 1000
+gh issue list --label "<label>" --state open --json number,title,body,state --limit 1000
 ```
 
-This returns all issues (both open and closed) with the specified label so you can avoid creating duplicates.
+This returns all open issues with the specified label so you can avoid creating duplicates.
 
 ### 4. Create New GitHub Issues
 
 For each issue in the file that does not already exist in GitHub:
 
 1. Parse the issue from the markdown file (each issue is typically a numbered section like `## 1. <title>`)
-2. Check if a similar issue already exists by comparing titles
+2. Check if a similar issue already exists by comparing titles and descriptions
 3. If no matching issue exists, create a new one:
 
 ```bash
 gh issue create --title "<Short description>" --body "<Full issue content>" --label "<label>"
 ```
 
-The body should include:
-- The description of the issue
+The body should include all data from the issue file, including:
+- The full description of the issue
 - File names and line numbers where applicable
 - The recommendation for how to fix it
+- etc.
 
 ### 5. Update Existing Issues
 
 For any issues that already exist in GitHub but have new data or details in the file:
 
 ```bash
-gh issue edit <issue_number> --body "<Updated body content>"
+gh issue edit <issue_number> --title "<Updated description>" --body "<Updated body content>"
 ```
 
 Only update if there is meaningful new information to add.
@@ -82,38 +83,31 @@ gh issue list --label "<label>" --state open --json number,title,body,createdAt 
 
 Review all open issues with this label and create your own ranking from most important to least important. Consider:
 
-- Impact on code quality and maintainability
-- How confusing or misleading the current state is
-- Effort required to fix
-- Whether it blocks other work
+- Impact (how important it is to fix the issue, how confusing the current state is, etc.). Higher impact = more important
+- Certainty (how likely this issue is to actually be a problem). Higher certainty = more important
+- Effort required to fix. Lower effort = more important
+
+Make an explicit ranked list of issue numbers in order from the most important to the least important by writing the issue numbers to a file (ranked_issue_list.txt) in order from most important to least important, one per line.
 
 ### 8. Prune Excess Issues
 
-If there are more than 50 open issues with this label, close the least important ones until only 50 remain:
+If there are more than 50 open issues with this label, delete the least important ones until only 50 remain:
 
 ```bash
-gh issue close <issue_number> --comment "Closing as lower priority - too many issues with this label."
+tail -n +51 ranked_issue_list.txt | xargs -I {} gh issue delete {} --yes
 ```
 
 ### 9. Update Timestamps for Sorting
 
-In reverse order (from least important to most important), update each open issue by adding or updating a "last updated" timestamp at the end of the description. This will cause them to sort properly when viewing by recently updated.
+In reverse order (from least important to most important), update each open issue by adding and then removing the "updated" label. This will cause them to sort properly when viewing by "recently updated".
 
-For each issue, from least important to most important:
+This can be done by running the following commands:
 
 ```bash
-gh issue edit <issue_number> --body "<existing body>
-
----
-Last updated: <current timestamp>"
+head -n 50 ranked_issue_list.txt > reversed_issue_list.txt
+tac reversed_issue_list.txt | xargs -I {} gh issue --add-label updated
+tac reversed_issue_list.txt | xargs -I {} gh issue --remove-label updated
 ```
-
-Get the current timestamp using:
-```bash
-date -u +"%Y-%m-%dT%H:%M:%SZ"
-```
-
-By updating from least to most important, the most important issues will have the most recent "updated at" timestamp and will appear first when sorting by recently updated.
 
 ## Notes
 
