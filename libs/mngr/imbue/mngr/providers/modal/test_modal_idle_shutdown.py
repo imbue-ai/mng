@@ -45,7 +45,7 @@ def _run_mngr_list_json(env: dict[str, str], provider: str) -> dict:
         env=env,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"mngr list failed: {result.stderr}")
+        pytest.fail(f"mngr list failed: {result.stderr}")
     return json.loads(result.stdout)
 
 
