@@ -43,6 +43,7 @@ from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 from pyinfra.connectors.sshuserclient.client import get_host_keys
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.data_types import HostLifecycleOptions
@@ -1719,30 +1720,32 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Fetch sandboxes and host records in parallel since they are independent.
         # This reduces list_hosts latency by ~1.5s by overlapping the network calls.
-        sandboxes: list[modal.Sandbox] = []
-        all_host_records: list[HostRecord] = []
-
-        if cg is not None:
-            # Use ConcurrencyGroup for thread-safe parallel fetching
-            cg_result: dict[str, Any] = {}
-            with cg.make_concurrency_group(f"modal_list_hosts_{self.name}") as list_cg:
-                list_cg.start_new_thread(
+        # Use ConcurrencyGroup for thread-safe parallel fetching
+        cg_result: dict[str, Any] = {}
+        try:
+            with (
+                cg.make_concurrency_group(f"modal_list_hosts_{self.name}")
+                if cg is not None
+                else ConcurrencyGroup(name="modal::list_hosts")
+            ) as list_cg:
+                thread_1 = list_cg.start_new_thread(
                     target=_store_result_from_callable,
                     args=(cg_result, "sandboxes", self._list_sandboxes),
                     name="fetch_sandboxes",
                 )
-                list_cg.start_new_thread(
+                thread_2 = list_cg.start_new_thread(
                     target=_store_result_from_callable,
                     args=(cg_result, "host_records", self._list_all_host_records),
                     name="fetch_host_records",
                 )
+                thread_1.join()
+                thread_2.join()
 
-            sandboxes = cg_result.get("sandboxes", [])
-            all_host_records = cg_result.get("host_records", [])
-        else:
-            # Fallback to direct sequential calls when no ConcurrencyGroup is provided
-            sandboxes = self._list_sandboxes()
-            all_host_records = self._list_all_host_records()
+                sandboxes = cg_result.get("sandboxes", [])
+                all_host_records = cg_result.get("host_records", [])
+        except ConcurrencyExceptionGroup as e:
+            if e.only_exception_is_instance_of(modal.exception.AuthError):
+                raise ModalAuthError() from e
 
         # Map running sandboxes by host_id
         running_sandbox_by_host_id: dict[HostId, modal.Sandbox] = {}

@@ -177,11 +177,7 @@ class SSHProviderInstance(BaseProviderInstance):
         include_destroyed: bool = False,
         cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
-        """List all configured hosts.
-
-        The cg parameter is accepted but not used since SSH host listing is
-        fast and doesn't benefit from parallelization.
-        """
+        """List all configured hosts."""
         hosts: list[HostInterface] = []
         for host_name, host_config in self.hosts.items():
             host = self._create_host_object(host_name, host_config)

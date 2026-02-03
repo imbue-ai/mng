@@ -10,6 +10,7 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
@@ -510,11 +511,16 @@ def load_all_agents_grouped_by_host(
 
     # Process all providers in parallel using ConcurrencyGroup
     with ConcurrencyGroup(name="load_all_agents_grouped_by_host") as cg:
+        threads: list[ObservableThread] = []
         for provider in providers:
-            cg.start_new_thread(
-                target=_process_provider_for_host_listing,
-                args=(provider, agents_by_host, include_destroyed, results_lock, cg),
-                name=f"load_hosts_{provider.name}",
+            threads.append(
+                cg.start_new_thread(
+                    target=_process_provider_for_host_listing,
+                    args=(provider, agents_by_host, include_destroyed, results_lock, cg),
+                    name=f"load_hosts_{provider.name}",
+                )
             )
+        for thread in threads:
+            thread.join()
 
     return (agents_by_host, providers)
