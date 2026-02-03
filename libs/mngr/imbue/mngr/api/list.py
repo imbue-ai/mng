@@ -189,7 +189,7 @@ def list_agents(
     try:
         # Load all agents grouped by host
         logger.debug("Loading agents from all providers")
-        agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx, provider_names)
+        agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx, provider_names, include_destroyed=True)
         provider_map = {provider.name: provider for provider in providers}
         logger.trace("Found {} hosts with agents", len(agents_by_host))
 
@@ -461,7 +461,7 @@ def _apply_cel_filters(
 
 @log_call
 def load_all_agents_grouped_by_host(
-    mngr_ctx: MngrContext, provider_names: tuple[str, ...] | None = None
+    mngr_ctx: MngrContext, provider_names: tuple[str, ...] | None = None, include_destroyed: bool = False
 ) -> tuple[dict[HostReference, list[AgentReference]], list[BaseProviderInstance]]:
     """Load all agents from all providers, grouped by their host.
 
@@ -476,7 +476,7 @@ def load_all_agents_grouped_by_host(
 
     for provider in providers:
         logger.trace("Loading hosts from provider {}", provider.name)
-        hosts = provider.list_hosts(include_destroyed=False)
+        hosts = provider.list_hosts(include_destroyed=include_destroyed)
 
         for host in hosts:
             host_ref = HostReference(
