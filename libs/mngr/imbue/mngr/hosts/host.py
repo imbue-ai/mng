@@ -1265,10 +1265,9 @@ class Host(BaseHost, OnlineHostInterface):
         2. programmatic defaults
         3. env_files (loaded in order)
         4. env_vars (explicit KEY=VALUE pairs)
+        5. pass_env_vars (forwarded from current shell)
 
         Later sources override earlier ones.
-
-        Note: pass_env_vars is handled at the CLI level before this is called.
         """
         env_vars: dict[str, str] = {}
 
@@ -1292,6 +1291,12 @@ class Host(BaseHost, OnlineHostInterface):
         # 4. Add explicit env_vars
         for env_var in options.environment.env_vars:
             env_vars[env_var.key] = env_var.value
+
+        # 5. Add pass-through env vars from current shell (highest priority)
+        for var_name in options.environment.pass_env_vars:
+            value = os.environ.get(var_name)
+            if value is not None:
+                env_vars[var_name] = value
 
         return env_vars
 
