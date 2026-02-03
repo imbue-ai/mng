@@ -96,6 +96,8 @@ def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
         # - Very short idle timeout (15 seconds) so it shuts down quickly
         # - Short sandbox timeout (120 seconds) with buffer time for clean shutdown
         # - Echo command that exits immediately so the host becomes idle
+        # - idle-mode=boot so only BOOT activity is checked (not PROCESS which
+        #   keeps getting updated while the tmux bash shell is running)
         result = subprocess.run(
             [
                 "uv",
@@ -114,6 +116,11 @@ def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
                 # Set idle timeout to 15 seconds
                 "--idle-timeout",
                 "15",
+                # Use boot idle mode so only BOOT activity is checked
+                # (the default IO mode includes PROCESS which keeps getting
+                # updated while the tmux bash shell is alive after echo exits)
+                "--idle-mode",
+                "boot",
                 # Set sandbox timeout to 120 seconds via build args
                 "-b",
                 "--timeout=120",
