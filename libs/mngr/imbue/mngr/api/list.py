@@ -3,11 +3,13 @@ from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from loguru import logger
 from pydantic import Field
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
@@ -459,32 +461,59 @@ def _apply_cel_filters(
     )
 
 
+def _process_provider_for_host_listing(
+    provider: BaseProviderInstance,
+    agents_by_host: dict[HostReference, list[AgentReference]],
+    include_destroyed: bool,
+    results_lock: Lock,
+) -> None:
+    """Process a single provider and collect its hosts and agents.
+
+    This function is run in a thread by load_all_agents_grouped_by_host.
+    Results are merged into the shared agents_by_host dict under the results_lock.
+    """
+    logger.trace("Loading hosts from provider {}", provider.name)
+    hosts = provider.list_hosts(include_destroyed=include_destroyed)
+
+    # Collect results for this provider
+    provider_results: dict[HostReference, list[AgentReference]] = {}
+    for host in hosts:
+        host_ref = HostReference(
+            host_id=host.id,
+            host_name=host.get_name(),
+            provider_name=provider.name,
+        )
+        agent_refs = host.get_agent_references()
+        provider_results[host_ref] = agent_refs
+
+    # Merge results into the main dict under lock
+    with results_lock:
+        agents_by_host.update(provider_results)
+
+
 @log_call
 def load_all_agents_grouped_by_host(
     mngr_ctx: MngrContext, provider_names: tuple[str, ...] | None = None, include_destroyed: bool = False
 ) -> tuple[dict[HostReference, list[AgentReference]], list[BaseProviderInstance]]:
     """Load all agents from all providers, grouped by their host.
 
-    Loops through all providers, gets all hosts from each provider, and then gets all agents for each host.
+    Uses ConcurrencyGroup to query providers in parallel for better performance.
     Handles both online hosts (which can be queried directly) and offline hosts (which use persisted data).
     """
     agents_by_host: dict[HostReference, list[AgentReference]] = {}
+    results_lock = Lock()
 
     logger.debug("Loading all agents from all providers")
     providers = get_all_provider_instances(mngr_ctx, provider_names)
     logger.trace("Found {} provider instances", len(providers))
 
-    for provider in providers:
-        logger.trace("Loading hosts from provider {}", provider.name)
-        hosts = provider.list_hosts(include_destroyed=include_destroyed)
-
-        for host in hosts:
-            host_ref = HostReference(
-                host_id=host.id,
-                host_name=host.get_name(),
-                provider_name=provider.name,
+    # Process all providers in parallel using ConcurrencyGroup
+    with ConcurrencyGroup(name="load_all_agents_grouped_by_host") as cg:
+        for provider in providers:
+            cg.start_new_thread(
+                target=_process_provider_for_host_listing,
+                args=(provider, agents_by_host, include_destroyed, results_lock),
+                name=f"load_hosts_{provider.name}",
             )
-            agent_refs = host.get_agent_references()
-            agents_by_host[host_ref] = agent_refs
 
     return (agents_by_host, providers)
