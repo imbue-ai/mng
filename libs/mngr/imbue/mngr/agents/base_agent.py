@@ -1,6 +1,5 @@
 import json
 import shlex
-import time
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -27,6 +26,7 @@ from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import Permission
 from imbue.mngr.utils.env_utils import parse_env_file
+from imbue.mngr.utils.polling import poll_until
 
 # Constants for send_message marker-based synchronization
 _SEND_MESSAGE_POLL_INTERVAL_SECONDS: Final[float] = 0.05
@@ -395,8 +395,10 @@ class BaseAgent(AgentInterface):
                     str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}"
                 )
 
-        # Verify the marker is gone
-        self._wait_for_marker_removed(session_name, marker)
+        # Verify the marker is gone and the message ends correctly
+        # Use the last 20 chars of the message as the expected ending (or full message if shorter)
+        expected_ending = message[-20:] if len(message) > 20 else message
+        self._wait_for_message_ending(session_name, marker, expected_ending)
 
         # Now send Enter to submit the message
         send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
@@ -404,51 +406,55 @@ class BaseAgent(AgentInterface):
         if not result.success:
             raise SendMessageError(str(self.name), f"tmux send-keys Enter failed: {result.stderr or result.stdout}")
 
+    def _capture_pane_content(self, session_name: str) -> str | None:
+        """Capture the current pane content, returning None on failure."""
+        result = self.host.execute_command(
+            f"tmux capture-pane -t '{session_name}' -p",
+            timeout_seconds=5.0,
+        )
+        if result.success:
+            return result.stdout.rstrip()
+        return None
+
     def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:
         """Wait until the marker is visible at the end of the tmux pane."""
-        deadline = time.monotonic() + _SEND_MESSAGE_TIMEOUT_SECONDS
-        is_marker_found = False
-
-        while not is_marker_found and time.monotonic() < deadline:
-            result = self.host.execute_command(
-                f"tmux capture-pane -t '{session_name}' -p",
-                timeout_seconds=5.0,
-            )
-            if result.success and result.stdout.rstrip().endswith(marker):
-                is_marker_found = True
-                logger.trace("Marker {} found at end of pane", marker)
-            else:
-                time.sleep(_SEND_MESSAGE_POLL_INTERVAL_SECONDS)
-
-        if not is_marker_found:
-            elapsed = _SEND_MESSAGE_TIMEOUT_SECONDS
+        if not poll_until(
+            lambda: self._check_pane_ends_with(session_name, marker),
+            timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
+            poll_interval=_SEND_MESSAGE_POLL_INTERVAL_SECONDS,
+        ):
             raise SendMessageError(
                 str(self.name),
-                f"Timeout waiting for message marker to appear (waited {elapsed:.1f}s)",
+                f"Timeout waiting for message marker to appear (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
             )
+        logger.trace("Marker {} found at end of pane", marker)
 
-    def _wait_for_marker_removed(self, session_name: str, marker: str) -> None:
-        """Wait until the marker is no longer visible in the tmux pane."""
-        deadline = time.monotonic() + _SEND_MESSAGE_TIMEOUT_SECONDS
-        is_marker_removed = False
+    def _check_pane_ends_with(self, session_name: str, expected_ending: str) -> bool:
+        """Check if the pane content ends with the expected string."""
+        content = self._capture_pane_content(session_name)
+        return content is not None and content.endswith(expected_ending)
 
-        while not is_marker_removed and time.monotonic() < deadline:
-            result = self.host.execute_command(
-                f"tmux capture-pane -t '{session_name}' -p",
-                timeout_seconds=5.0,
-            )
-            if result.success and marker not in result.stdout:
-                is_marker_removed = True
-                logger.trace("Marker {} removed from pane", marker)
-            else:
-                time.sleep(_SEND_MESSAGE_POLL_INTERVAL_SECONDS)
-
-        if not is_marker_removed:
-            elapsed = _SEND_MESSAGE_TIMEOUT_SECONDS
+    def _wait_for_message_ending(self, session_name: str, marker: str, expected_ending: str) -> None:
+        """Wait until the marker is removed and the pane ends with the expected message ending."""
+        if not poll_until(
+            lambda: self._check_marker_removed_and_ends_with(session_name, marker, expected_ending),
+            timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
+            poll_interval=_SEND_MESSAGE_POLL_INTERVAL_SECONDS,
+        ):
             raise SendMessageError(
                 str(self.name),
-                f"Timeout waiting for message marker to be removed (waited {elapsed:.1f}s)",
+                f"Timeout waiting for message to be ready for submission (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
             )
+        logger.trace("Marker removed and pane ends with expected content")
+
+    def _check_marker_removed_and_ends_with(self, session_name: str, marker: str, expected_ending: str) -> bool:
+        """Check if the marker is gone and pane ends with expected content."""
+        content = self._capture_pane_content(session_name)
+        if content is None:
+            return False
+        marker_gone = marker not in content
+        ends_correctly = content.endswith(expected_ending)
+        return marker_gone and ends_correctly
 
     # =========================================================================
     # Status (Reported)
