@@ -23,7 +23,7 @@ Do NOT report issues that are already covered by an existing FIXME
 
 Do NOT report issues that are highlighted as non-issues in non_issues.md
 
-After reviewing all the code in the library, ultrathink about the most important disagreements between the docs and code.
+After reviewing all the code in the library, think carefully about the most important disagreements between the docs and code.
 
 Then put them, in order from most important to least important, into a markdown file in the library's "_tasks/docs/" folder (make one if you have to)  Name the file "<date>.md` (where you should get "date" by calling this precise command: "date +%Y-%m-%d-%T | tr : -")
 

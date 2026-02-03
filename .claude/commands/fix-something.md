@@ -32,7 +32,7 @@ If the tests start out passing, then you must select and fix a random FIXME by f
 1. Simply run this bash command, and it will give you a random FIXME line: "./scripts/random_fixme.sh $1". If no lines are returned, then there are no more remaining FIXMEs, so use your "think-of-something-to-fix" skill to come up with something else to fix instead.
 2. Find that FIXME and be sure to read the surrounding context (the optional additional context lines below the FIXME line may be important). This is the task you will be working on.
 3. Go gather all the context for the library that contains that FIXME (per instructions in CLAUDE.md).
-4. ultrathink about how best to fix that FIXME
+4. Think carefully about how best to fix that FIXME
 5. Implement the fix
 6. Get all the tests passing (use "uv run pytest" to run them, and be sure to fix any issues, no matter how small)
 

@@ -33,7 +33,7 @@ Only after doing all of the above should you begin writing code.
 # Always remember these guidelines:
 
 - Never misrepresent your progress. It is far better to say "I made some progress but didn't finish" than to say "I finished" when you did not.
-- Always finish your response by using ultrathink to reflect on your work and identify any potential issues.
+- Always finish your response by reflecting on your work and identify any potential issues.
 - If I ask for something that seems misguided, flag that immediately. Then attempt to do whatever makes the most sense given the request, and in your final reflection, be sure to flag that you had to diverge from the request and explain why.
 - During your final reflection, if you see a potentially better way to do something (e.g. by using an existing library or reusing existing code), flag that as a potential task for future improvement.
 - Never use emojis. Remove any emojis you see in the code or docs whenever you are modifying that code or those docs.
