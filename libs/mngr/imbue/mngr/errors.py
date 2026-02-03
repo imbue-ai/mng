@@ -302,3 +302,13 @@ class ConfigStructureError(ConfigError, TypeError):
 
 class UnknownBackendError(ConfigError):
     """Unknown provider backend."""
+
+
+class ClaudeDirectoryNotTrustedError(ConfigError):
+    """The source directory's Claude config does not have hasTrustDialogAccepted=true, so if we copy it it'll give the agent an accept dialog and then tmux will send-keys at the dialog and it'll eat the message."""
+
+    def __init__(self, source_path: str) -> None:
+        self.source_path = source_path
+        super().__init__(
+            f"Cannot copy Claude project config: source path {source_path} does not have hasTrustDialogAccepted=true, so the new agent would not trust its workspace"
+        )

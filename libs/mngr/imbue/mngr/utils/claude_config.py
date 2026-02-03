@@ -9,6 +9,7 @@ from typing import Any
 from loguru import logger
 
 from imbue.imbue_common.pure import pure
+from imbue.mngr.errors import ClaudeDirectoryNotTrustedError
 
 
 def get_claude_config_path() -> Path:
@@ -17,7 +18,7 @@ def get_claude_config_path() -> Path:
 
 
 def copy_claude_project_config(source_path: Path, target_path: Path) -> None:
-    """Copy Claude project configuration from source path to target path.
+    """Copy Claude project configuration from source_path to target_path.
 
     Reads ~/.claude.json, finds the project entry for source_path (or the closest
     ancestor with a config entry), and creates a new entry for target_path with
@@ -25,9 +26,8 @@ def copy_claude_project_config(source_path: Path, target_path: Path) -> None:
 
     Uses file locking to prevent race conditions when multiple agents are running.
 
-    Args:
-        source_path: The original project directory path
-        target_path: The new worktree/clone directory path
+    Raises ClaudeDirectoryNotTrustedError if the source config does not have
+    hasTrustDialogAccepted=true.
     """
     config_path = get_claude_config_path()
 
@@ -64,6 +64,10 @@ def copy_claude_project_config(source_path: Path, target_path: Path) -> None:
                     source_path,
                 )
                 return
+
+            # Verify the source directory was actually trusted
+            if not source_config.get("hasTrustDialogAccepted", False):
+                raise ClaudeDirectoryNotTrustedError(str(source_path))
 
             # Check if target already has config
             target_path_str = str(target_path)
@@ -102,14 +106,8 @@ def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, A
     """Find the project configuration for a path or its closest ancestor.
 
     Searches for an exact match first, then walks up the directory tree
-    to find the closest ancestor with a configuration entry.
-
-    Args:
-        projects: The projects dictionary from ~/.claude.json
-        path: The path to search for
-
-    Returns:
-        The project configuration dict if found, None otherwise
+    to find the closest ancestor with a configuration entry. Returns the
+    project configuration dict if found, None otherwise.
     """
     # Try exact match first
     path_str = str(path)

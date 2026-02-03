@@ -1,12 +1,14 @@
 """Unit tests for claude_config.py."""
 
 import json
-import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
+from imbue.mngr.errors import ClaudeDirectoryNotTrustedError
 from imbue.mngr.utils.claude_config import _find_project_config
 from imbue.mngr.utils.claude_config import copy_claude_project_config
 from imbue.mngr.utils.claude_config import get_claude_config_path
@@ -250,12 +252,11 @@ def test_copy_claude_project_config_preserves_other_fields(tmp_path: Path) -> No
 @pytest.mark.parametrize(
     "source_config",
     [
-        {"allowedTools": [], "hasTrustDialogAccepted": False},
         {"allowedTools": ["bash", "edit", "write"], "hasTrustDialogAccepted": True},
         {"allowedTools": ["bash"], "hasTrustDialogAccepted": True, "extraField": "value"},
     ],
 )
-def test_copy_claude_project_config_various_configs(tmp_path: Path, source_config: dict) -> None:
+def test_copy_claude_project_config_various_configs(tmp_path: Path, source_config: dict[str, Any]) -> None:
     """Test that copy_claude_project_config handles various config structures."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "source"
@@ -273,6 +274,50 @@ def test_copy_claude_project_config_various_configs(tmp_path: Path, source_confi
     # Target should have the same config
     updated_config = json.loads(config_file.read_text())
     assert updated_config["projects"][str(target_path)] == source_config
+
+
+def test_copy_claude_project_config_raises_if_not_trusted(tmp_path: Path) -> None:
+    """Test that copy_claude_project_config raises if source has hasTrustDialogAccepted=false."""
+    config_file = tmp_path / ".claude.json"
+    source_path = tmp_path / "source"
+    target_path = tmp_path / "target"
+    source_path.mkdir()
+    target_path.mkdir()
+
+    # Create config with hasTrustDialogAccepted=False
+    config = {
+        "projects": {
+            str(source_path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": False},
+        }
+    }
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+        with pytest.raises(ClaudeDirectoryNotTrustedError) as exc_info:
+            copy_claude_project_config(source_path, target_path)
+
+    assert str(source_path) in str(exc_info.value)
+
+
+def test_copy_claude_project_config_raises_if_trust_field_missing(tmp_path: Path) -> None:
+    """Test that copy_claude_project_config raises if hasTrustDialogAccepted is missing."""
+    config_file = tmp_path / ".claude.json"
+    source_path = tmp_path / "source"
+    target_path = tmp_path / "target"
+    source_path.mkdir()
+    target_path.mkdir()
+
+    # Create config without hasTrustDialogAccepted field
+    config = {
+        "projects": {
+            str(source_path): {"allowedTools": ["bash"]},
+        }
+    }
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+        with pytest.raises(ClaudeDirectoryNotTrustedError):
+            copy_claude_project_config(source_path, target_path)
 
 
 def test_copy_claude_project_config_concurrent_writes(tmp_path: Path) -> None:
@@ -293,39 +338,24 @@ def test_copy_claude_project_config_concurrent_writes(tmp_path: Path) -> None:
     }
     config_file.write_text(json.dumps(config, indent=2))
 
-    num_threads = 10
+    thread_count = 10
     target_paths = []
-    errors: list[Exception] = []
 
     # Create all target directories
-    for i in range(num_threads):
+    for i in range(thread_count):
         target_path = tmp_path / f"target_{i}"
         target_path.mkdir()
         target_paths.append(target_path)
 
     def write_config(target_path: Path) -> None:
-        try:
-            with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
-                copy_claude_project_config(source_path, target_path)
-        except Exception as e:
-            errors.append(e)
+        with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+            copy_claude_project_config(source_path, target_path)
 
-    # Launch all threads simultaneously
-    threads = []
-    for target_path in target_paths:
-        thread = threading.Thread(target=write_config, args=(target_path,))
-        threads.append(thread)
-
-    # Start all threads at roughly the same time
-    for thread in threads:
-        thread.start()
-
-    # Wait for all threads to complete
-    for thread in threads:
-        thread.join()
-
-    # Check for errors
-    assert not errors, f"Errors occurred during concurrent writes: {errors}"
+    # Run all writes concurrently - any exception will propagate via .result()
+    with ThreadPoolExecutor(max_workers=thread_count) as executor:
+        futures = [executor.submit(write_config, target_path) for target_path in target_paths]
+        for future in futures:
+            future.result()
 
     # Verify the final config is valid JSON
     final_config = json.loads(config_file.read_text())
