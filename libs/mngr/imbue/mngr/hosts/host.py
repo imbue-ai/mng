@@ -1299,11 +1299,10 @@ class Host(BaseHost, OnlineHostInterface):
         1. MNGR-specific agent variables (id, name, state_dir, work_dir)
         2. programmatic defaults
         3. env_files (loaded in order)
-        4. env_vars (explicit KEY=VALUE pairs)
+        4. pass_env_vars (forwarded from current shell)
+        5. env_vars (explicit KEY=VALUE pairs, highest priority)
 
         Later sources override earlier ones.
-
-        Note: pass_env_vars is handled at the CLI level before this is called.
         """
         env_vars: dict[str, str] = {}
 
@@ -1324,7 +1323,13 @@ class Host(BaseHost, OnlineHostInterface):
             file_vars = parse_env_file(content)
             env_vars.update(file_vars)
 
-        # 4. Add explicit env_vars
+        # 4. Add pass-through env vars from current shell
+        for var_name in options.environment.pass_env_vars:
+            value = os.environ.get(var_name)
+            if value is not None:
+                env_vars[var_name] = value
+
+        # 5. Add explicit env_vars (highest priority)
         for env_var in options.environment.env_vars:
             env_vars[env_var.key] = env_var.value
 
@@ -1585,8 +1590,8 @@ class Host(BaseHost, OnlineHostInterface):
             "# Ctrl-q: Detach and destroy the agent whose session this is",
             """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'""",
             "",
-            "# Ctrl-s: Detach and stop the agent whose session this is",
-            """bind -n C-s run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
+            "# Ctrl-h: Detach and stop the agent whose session this is",
+            """bind -n C-h run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
             "",
             # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
             "# Automatically signal claude to tell it to resize on client attach",
@@ -1616,7 +1621,7 @@ class Host(BaseHost, OnlineHostInterface):
         A custom tmux config is used that:
         - Sources the user's default ~/.tmux.conf if it exists
         - Adds a Ctrl-q binding to detach and destroy the current agent
-        - Adds a Ctrl-s binding to detach and stop the current agent
+        - Adds a Ctrl-h binding to detach and halt (stop) the current agent
         """
         logger.debug("Starting {} agent(s)", len(agent_ids))
 
