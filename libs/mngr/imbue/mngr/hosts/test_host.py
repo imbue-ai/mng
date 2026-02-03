@@ -1804,10 +1804,10 @@ def test_provision_agent_pass_env_vars(
     assert "MY_PASS_THROUGH_VAR=passed_value_123" in content
 
 
-def test_provision_agent_pass_env_vars_overrides_env_vars(
+def test_provision_agent_env_vars_overrides_pass_env_vars(
     host_with_temp_dir: tuple[Host, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that pass_env_vars takes precedence over env_vars."""
+    """Test that env_vars takes precedence over pass_env_vars."""
     host, temp_dir = host_with_temp_dir
     agent = _create_minimal_agent(host, temp_dir)
 
@@ -1815,7 +1815,7 @@ def test_provision_agent_pass_env_vars_overrides_env_vars(
     monkeypatch.setenv("OVERRIDE_VAR", "from_pass_env")
 
     options = CreateAgentOptions(
-        name=AgentName("pass-env-precedence-test"),
+        name=AgentName("env-var-precedence-test"),
         agent_type=AgentTypeName("generic"),
         command=CommandString("sleep 1"),
         environment=AgentEnvironmentOptions(
@@ -1826,11 +1826,11 @@ def test_provision_agent_pass_env_vars_overrides_env_vars(
 
     host.provision_agent(agent, options, host.mngr_ctx)
 
-    # Check that pass_env_vars overrode env_vars
+    # Check that env_vars overrode pass_env_vars
     env_path = temp_dir / "agents" / str(agent.id) / "env"
     content = env_path.read_text()
-    assert "OVERRIDE_VAR=from_pass_env" in content
-    assert "from_env_var" not in content
+    assert "OVERRIDE_VAR=from_env_var" in content
+    assert "from_pass_env" not in content
 
 
 def test_provision_agent_pass_env_vars_missing_var(
