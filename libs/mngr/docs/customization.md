@@ -57,6 +57,63 @@ Command defaults are particularly useful for:
 
 **Note:** Some CLI arguments (like `--context`) affect which config file is loaded, so they are parsed before config defaults are applied. The implementation handles this correctly by loading the config first, then applying defaults only to parameters that weren't explicitly specified.
 
+### Create Templates
+
+Templates provide named presets of create command arguments that can be quickly applied using `--template <name>` (or `-t <name>`). This is particularly useful when working with different providers where paths, environment variables, or other settings need to be different.
+
+**How it works:**
+
+- Templates are defined in config files under `[create_templates.<template_name>]` sections
+- When using `--template <name>`, all template options are applied as defaults
+- CLI arguments still take precedence over template values
+- Templates from multiple config files with the same name are merged (later configs override earlier ones)
+
+**Example:**
+
+```toml
+# .mngr/settings.toml
+
+# Template for running agents in Modal
+[create_templates.modal]
+new_host = "modal"
+target_path = "/root/workspace"
+idle_timeout = 3600
+
+# Template for running agents in Docker
+[create_templates.docker]
+new_host = "docker"
+target_path = "/workspace"
+
+# Template with extra commands for development
+[create_templates.dev]
+new_host = "modal"
+add_command = ["server=npm run dev", "logs=tail -f /var/log/app.log"]
+```
+
+**Usage:**
+
+```bash
+# Use the modal template
+mngr create my-agent --template modal
+
+# Use the docker template (short form)
+mngr create my-agent -t docker
+
+# Template with CLI override
+mngr create my-agent --template modal --idle-timeout 7200
+```
+
+**Why use templates?**
+
+Templates are useful when:
+
+- Working with multiple providers that have different path conventions
+- Setting up common configurations that you use frequently
+- Sharing consistent settings across a team without repeating CLI arguments
+- Creating environment-specific presets (development, staging, production)
+
+Templates differ from command defaults in that they must be explicitly selected with `--template`, while command defaults are always applied automatically.
+
 ## See Also
 
 - [Agent Types](./concepts/agent_types.md) - Creating custom agent types and overriding defaults

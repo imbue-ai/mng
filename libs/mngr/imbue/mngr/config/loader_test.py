@@ -7,12 +7,13 @@ import click
 import pluggy
 import pytest
 
-from imbue.mngr.config.data_types import CommandDefaults, get_or_create_user_id
+from imbue.mngr.config.data_types import CommandDefaults
+from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import LoggingConfig
 from imbue.mngr.config.data_types import PluginConfig
+from imbue.mngr.config.data_types import get_or_create_user_id
 from imbue.mngr.config.loader import _apply_plugin_overrides
 from imbue.mngr.config.loader import _get_local_config_name
-from imbue.mngr.config.loader import get_or_create_profile_dir
 from imbue.mngr.config.loader import _get_project_config_name
 from imbue.mngr.config.loader import _get_user_config_path
 from imbue.mngr.config.loader import _load_toml
@@ -21,9 +22,11 @@ from imbue.mngr.config.loader import _parse_agent_types
 from imbue.mngr.config.loader import _parse_command_env_vars
 from imbue.mngr.config.loader import _parse_commands
 from imbue.mngr.config.loader import _parse_config
+from imbue.mngr.config.loader import _parse_create_templates
 from imbue.mngr.config.loader import _parse_logging_config
 from imbue.mngr.config.loader import _parse_plugins
 from imbue.mngr.config.loader import _parse_providers
+from imbue.mngr.config.loader import get_or_create_profile_dir
 from imbue.mngr.config.loader import load_config
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
@@ -422,6 +425,40 @@ def test_parse_commands_handles_empty_dict() -> None:
 
 
 # =============================================================================
+# Tests for _parse_create_templates
+# =============================================================================
+
+
+def test_parse_create_templates_parses_valid_templates() -> None:
+    """_parse_create_templates should parse valid create templates."""
+    raw = {"modal-dev": {"new_host": "modal", "target_path": "/root/workspace"}}
+    result = _parse_create_templates(raw)
+    assert CreateTemplateName("modal-dev") in result
+    assert result[CreateTemplateName("modal-dev")].options["new_host"] == "modal"
+    assert result[CreateTemplateName("modal-dev")].options["target_path"] == "/root/workspace"
+
+
+def test_parse_create_templates_handles_empty_dict() -> None:
+    """_parse_create_templates should handle empty dict."""
+    result = _parse_create_templates({})
+    assert result == {}
+
+
+def test_parse_create_templates_multiple_templates() -> None:
+    """_parse_create_templates should parse multiple templates."""
+    raw = {
+        "modal": {"new_host": "modal"},
+        "docker": {"new_host": "docker"},
+        "local": {"in_place": True},
+    }
+    result = _parse_create_templates(raw)
+    assert len(result) == 3
+    assert CreateTemplateName("modal") in result
+    assert CreateTemplateName("docker") in result
+    assert CreateTemplateName("local") in result
+
+
+# =============================================================================
 # Tests for _parse_config
 # =============================================================================
 
@@ -435,6 +472,7 @@ def test_parse_config_parses_full_config() -> None:
         "providers": {"local": {"backend": "local"}},
         "plugins": {"my-plugin": {"enabled": True}},
         "commands": {"create": {"name": "test"}},
+        "create_templates": {"modal": {"new_host": "modal"}},
         "logging": {"file_level": "DEBUG"},
     }
     result = _parse_config(raw)
@@ -444,6 +482,7 @@ def test_parse_config_parses_full_config() -> None:
     assert ProviderInstanceName("local") in result.providers
     assert PluginName("my-plugin") in result.plugins
     assert "create" in result.commands
+    assert CreateTemplateName("modal") in result.create_templates
     assert result.logging is not None
 
 
