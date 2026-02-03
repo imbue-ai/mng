@@ -565,7 +565,7 @@ class ModalProviderInstance(BaseProviderInstance):
         any changes made by other operations (snapshots, tags, etc.).
         """
         logger.debug("Updating certified host data on volume", host_id=str(host_id))
-        host_record = self._read_host_record(host_id)
+        host_record = self._read_host_record(host_id, use_cache=False)
         if host_record is None:
             raise Exception(f"Host record not found on volume for {host_id}")
         updated_host_record = host_record.model_copy(update={"certified_host_data": certified_data})
@@ -1178,7 +1178,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         host_id, name, user_tags = self._parse_sandbox_tags(tags)
 
         # Read host metadata from the volume
-        host_record = self._read_host_record(host_id)
+        host_record = self._read_host_record(host_id, use_cache=False)
         if host_record is None:
             logger.debug("Skipping sandbox {} - no host record on volume", sandbox.object_id)
             return None
@@ -1441,7 +1441,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # because A) we *don't* want to save this into the host record on the host, so that it makes more sense when it
         # is eventually started again, and B) this is a small optimization so that we don't need to get the host
         # record twice, since we use it to figure out the name below as well
-        host_record = self._read_host_record(host_id)
+        host_record = self._read_host_record(host_id, use_cache=False)
         if host_record is not None:
             updated_certified_data = host_record.certified_host_data.model_copy(update={"stop_reason": "STOPPED"})
             self._write_host_record(host_record.model_copy(update={"certified_host_data": updated_certified_data}))
@@ -1497,7 +1497,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Sandbox is not running - restore from snapshot
         # First check if this is a failed host (can't be started)
-        host_record = self._read_host_record(host_id)
+        host_record = self._read_host_record(host_id, use_cache=False)
         if host_record is not None and host_record.certified_host_data.state == HostState.FAILED.value:
             raise MngrError(
                 f"Host {host_id} failed during creation and cannot be started. "
@@ -1522,7 +1522,6 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             logger.info("Using most recent snapshot for restart", snapshot_id=str(snapshot_id))
 
         # Load host record from volume
-        host_record = self._read_host_record(host_id)
         if host_record is None:
             raise HostNotFoundError(host_id)
 
@@ -1831,7 +1830,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         host record, and writes the updated host record back to the volume.
         """
         # Read existing host record from volume
-        host_record = self._read_host_record(host_id)
+        host_record = self._read_host_record(host_id, use_cache=False)
         if host_record is None:
             raise HostNotFoundError(host_id)
 
@@ -1954,7 +1953,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         logger.debug("Deleting snapshot from Modal sandbox", snapshot_id=str(snapshot_id), host_id=str(host_id))
 
         # Read host record from volume
-        host_record = self._read_host_record(host_id)
+        host_record = self._read_host_record(host_id, use_cache=False)
         if host_record is None:
             raise HostNotFoundError(host_id)
 
@@ -1996,23 +1995,23 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         """
         host_id = host.id if isinstance(host, HostInterface) else host
 
-        # Try to read from volume first (source of truth)
+        # try getting live sandbox tags
+        sandbox = self._find_sandbox_by_host_id(host_id)
+        if sandbox is not None:
+            tags = sandbox.get_tags()
+            user_tags: dict[str, str] = {}
+            for key, value in tags.items():
+                if key.startswith(TAG_USER_PREFIX):
+                    user_key = key[len(TAG_USER_PREFIX) :]
+                    user_tags[user_key] = value
+            return user_tags
+
+        # Try to read from volume (maybe it's offline)
         host_record = self._read_host_record(host_id)
         if host_record is not None:
             return dict(host_record.user_tags)
 
-        # Fall back to sandbox tags
-        sandbox = self._find_sandbox_by_host_id(host_id)
-        if sandbox is None:
-            return {}
-
-        tags = sandbox.get_tags()
-        user_tags: dict[str, str] = {}
-        for key, value in tags.items():
-            if key.startswith(TAG_USER_PREFIX):
-                user_key = key[len(TAG_USER_PREFIX) :]
-                user_tags[user_key] = value
-        return user_tags
+        raise HostNotFoundError(host_id)
 
     def set_host_tags(
         self,
