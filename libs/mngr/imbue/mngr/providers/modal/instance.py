@@ -360,13 +360,17 @@ class ModalProviderInstance(BaseProviderInstance):
     def _write_host_record(self, host_record: HostRecord) -> None:
         """Write a host record to the volume."""
         volume = self._get_volume()
-        path = self._get_host_record_path(HostId(host_record.host_id))
+        host_id = HostId(host_record.host_id)
+        path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
         logger.trace("Writing host record to volume: {}", path)
 
         # Upload the data as a file-like object
         with volume.batch_upload(force=True) as batch:
             batch.put_file(io.BytesIO(data.encode("utf-8")), path)
+
+        # Update the cache with the new host record
+        self._host_record_cache_by_id[host_id] = host_record
 
     def _save_failed_host_record(
         self,
