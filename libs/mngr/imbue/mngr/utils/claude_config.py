@@ -1,16 +1,14 @@
-"""Utilities for managing Claude Code's ~/.claude.json configuration file.
-
-This module provides functions to read and modify the Claude Code configuration file,
-with proper file locking to prevent race conditions when multiple agents are running.
-"""
-
+import copy
 import fcntl
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+
+from imbue.imbue_common.pure import pure
 
 
 def get_claude_config_path() -> Path:
@@ -33,7 +31,7 @@ def copy_claude_project_config(source_path: Path, target_path: Path) -> None:
     """
     config_path = get_claude_config_path()
 
-    # Create the config file if it doesn't exist
+    # Return early if config file doesn't exist
     if not config_path.exists():
         logger.debug("Claude config file does not exist, nothing to copy")
         return
@@ -43,7 +41,7 @@ def copy_claude_project_config(source_path: Path, target_path: Path) -> None:
     target_path = target_path.resolve()
 
     # Use file locking to prevent race conditions
-    # Open in r+ mode for read and write, create if doesn't exist
+    # Open in r+ mode for read and write
     with open(config_path, "r+") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
@@ -77,7 +75,7 @@ def copy_claude_project_config(source_path: Path, target_path: Path) -> None:
                 return
 
             # Copy the config to the target path
-            projects[target_path_str] = source_config.copy()
+            projects[target_path_str] = copy.deepcopy(source_config)
             config["projects"] = projects
 
             # Write the updated config
@@ -99,7 +97,8 @@ def copy_claude_project_config(source_path: Path, target_path: Path) -> None:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
-def _find_project_config(projects: dict[str, Any], path: Path) -> dict[str, Any] | None:
+@pure
+def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, Any] | None:
     """Find the project configuration for a path or its closest ancestor.
 
     Searches for an exact match first, then walks up the directory tree
