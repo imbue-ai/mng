@@ -83,7 +83,7 @@ def _select_agent_for_pull(
         return None
 
     # Find the actual agent and host from the selection
-    agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
+    agents_by_host, _providers = load_all_agents_grouped_by_host(mngr_ctx)
     return find_and_maybe_start_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "pull")
 
 
@@ -330,7 +330,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
     host: OnlineHostInterface
 
     if agent_identifier is not None:
-        agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
+        agents_by_host, _providers = load_all_agents_grouped_by_host(mngr_ctx)
         agent, host = find_and_maybe_start_agent_by_name_or_id(
             agent_identifier, agents_by_host, mngr_ctx, "pull <agent-id> <path>"
         )
