@@ -1,11 +1,14 @@
 import json
 import shlex
+import time
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from typing import Final
 from typing import Mapping
 from typing import Sequence
+from uuid import uuid4
 
 from loguru import logger
 from pydantic import Field
@@ -24,6 +27,10 @@ from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import Permission
 from imbue.mngr.utils.env_utils import parse_env_file
+
+# Constants for send_message marker-based synchronization
+_SEND_MESSAGE_POLL_INTERVAL_SECONDS: Final[float] = 0.05
+_SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
 
 
 class BaseAgent(AgentInterface):
@@ -315,10 +322,38 @@ class BaseAgent(AgentInterface):
         return data.get("message_delay_seconds", DEFAULT_AGENT_READY_TIMEOUT_SECONDS)
 
     def send_message(self, message: str) -> None:
-        """Send a message to the running agent."""
+        """Send a message to the running agent.
+
+        For agents that echo input to the terminal (like Claude Code), uses a
+        marker-based synchronization approach to ensure the message is fully
+        received before sending Enter. This avoids race conditions where Enter
+        could be interpreted as a literal newline instead of a submit action.
+
+        Subclasses can enable this by overriding uses_marker_based_send_message().
+        """
         logger.debug("Sending message to agent {} (length={})", self.name, len(message))
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
 
+        if self.uses_marker_based_send_message():
+            self._send_message_with_marker(session_name, message)
+        else:
+            self._send_message_simple(session_name, message)
+
+        logger.trace("Message sent to agent {}", self.name)
+
+    def uses_marker_based_send_message(self) -> bool:
+        """Return True to use marker-based synchronization for send_message.
+
+        Marker-based send requires the application to echo input to the terminal.
+        This is useful for interactive agents like Claude Code where sending Enter
+        immediately after the message text can cause race conditions.
+
+        Returns False by default. Subclasses can override to enable.
+        """
+        return False
+
+    def _send_message_simple(self, session_name: str, message: str) -> None:
+        """Send a message without marker-based synchronization."""
         send_msg_cmd = f"tmux send-keys -t '{session_name}' -l {shlex.quote(message)}"
         result = self.host.execute_command(send_msg_cmd)
         if not result.success:
@@ -329,7 +364,91 @@ class BaseAgent(AgentInterface):
         if not result.success:
             raise SendMessageError(str(self.name), f"tmux send-keys Enter failed: {result.stderr or result.stdout}")
 
-        logger.trace("Message sent to agent {}", self.name)
+    def _send_message_with_marker(self, session_name: str, message: str) -> None:
+        """Send a message using marker-based synchronization.
+
+        This approach appends a unique marker to the message, waits for it to appear
+        in the terminal, removes it with backspaces, and then sends Enter. This ensures
+        the input handler has fully processed the message text before submitting.
+        """
+        # Generate a unique marker to detect when the message has been fully received
+        marker = uuid4().hex
+        marker_suffix = f"\n\n{marker}"
+        message_with_marker = message + marker_suffix
+
+        # Send the message with marker
+        send_msg_cmd = f"tmux send-keys -t '{session_name}' -l {shlex.quote(message_with_marker)}"
+        result = self.host.execute_command(send_msg_cmd)
+        if not result.success:
+            raise SendMessageError(str(self.name), f"tmux send-keys failed: {result.stderr or result.stdout}")
+
+        # Wait for the marker to appear in the pane (confirms message was fully received)
+        self._wait_for_marker_visible(session_name, marker)
+
+        # Remove the marker by sending backspaces (2 newlines + 32 hex chars = 34 chars)
+        backspace_count = len(marker_suffix)
+        for _ in range(backspace_count):
+            backspace_cmd = f"tmux send-keys -t '{session_name}' BSpace"
+            result = self.host.execute_command(backspace_cmd)
+            if not result.success:
+                raise SendMessageError(
+                    str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}"
+                )
+
+        # Verify the marker is gone
+        self._wait_for_marker_removed(session_name, marker)
+
+        # Now send Enter to submit the message
+        send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
+        result = self.host.execute_command(send_enter_cmd)
+        if not result.success:
+            raise SendMessageError(str(self.name), f"tmux send-keys Enter failed: {result.stderr or result.stdout}")
+
+    def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:
+        """Wait until the marker is visible in the tmux pane."""
+        deadline = time.monotonic() + _SEND_MESSAGE_TIMEOUT_SECONDS
+        is_marker_found = False
+
+        while not is_marker_found and time.monotonic() < deadline:
+            result = self.host.execute_command(
+                f"tmux capture-pane -t '{session_name}' -p | tail -5",
+                timeout_seconds=5.0,
+            )
+            if result.success and marker in result.stdout:
+                is_marker_found = True
+                logger.trace("Marker {} found in pane", marker)
+            else:
+                time.sleep(_SEND_MESSAGE_POLL_INTERVAL_SECONDS)
+
+        if not is_marker_found:
+            elapsed = _SEND_MESSAGE_TIMEOUT_SECONDS
+            raise SendMessageError(
+                str(self.name),
+                f"Timeout waiting for message marker to appear (waited {elapsed:.1f}s)",
+            )
+
+    def _wait_for_marker_removed(self, session_name: str, marker: str) -> None:
+        """Wait until the marker is no longer visible in the tmux pane."""
+        deadline = time.monotonic() + _SEND_MESSAGE_TIMEOUT_SECONDS
+        is_marker_removed = False
+
+        while not is_marker_removed and time.monotonic() < deadline:
+            result = self.host.execute_command(
+                f"tmux capture-pane -t '{session_name}' -p | tail -5",
+                timeout_seconds=5.0,
+            )
+            if result.success and marker not in result.stdout:
+                is_marker_removed = True
+                logger.trace("Marker {} removed from pane", marker)
+            else:
+                time.sleep(_SEND_MESSAGE_POLL_INTERVAL_SECONDS)
+
+        if not is_marker_removed:
+            elapsed = _SEND_MESSAGE_TIMEOUT_SECONDS
+            raise SendMessageError(
+                str(self.name),
+                f"Timeout waiting for message marker to be removed (waited {elapsed:.1f}s)",
+            )
 
     # =========================================================================
     # Status (Reported)

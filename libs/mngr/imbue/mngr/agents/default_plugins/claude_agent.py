@@ -154,6 +154,16 @@ class ClaudeAgent(BaseAgent):
         """
         return "❯"
 
+    def uses_marker_based_send_message(self) -> bool:
+        """Enable marker-based send_message for Claude Code.
+
+        Claude Code echoes input to the terminal and has a complex input handler
+        that can misinterpret Enter as a literal newline if sent too quickly after
+        the message text. The marker-based approach ensures the input handler has
+        fully processed the message before submitting.
+        """
+        return True
+
     def assemble_command(
         self,
         host: OnlineHostInterface,
