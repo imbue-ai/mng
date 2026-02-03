@@ -146,13 +146,40 @@ class HostState(UpperCaseStrEnum):
 
 
 class AgentLifecycleState(UpperCaseStrEnum):
-    """The lifecycle state of an agent."""
+    """The lifecycle state of an agent.
 
+    When the host is running, agents can be in one of the agent-specific states:
+    - STOPPED: the agent folder exists but there is no tmux session
+    - RUNNING: tmux session exists and the expected process exists in pane 0
+    - WAITING: tmux session exists and the process is waiting for input
+    - REPLACED: tmux session exists and a different process is in pane 0
+    - DONE: the tmux session exists and there is no process under the shell
+
+    When the host is NOT running, the agent inherits the host's state:
+    - PAUSED: host became idle and was snapshotted/shut down
+    - CRASHED: host shut down unexpectedly without a controlled shutdown
+    - DESTROYED: host is gone, resources freed (no snapshots available)
+    - FAILED: something went wrong before the host could be created
+    - BUILDING: host image is being built
+    - STARTING: host is being created and provisioned
+    - STOPPING: host is being stopped/snapshotted
+    """
+
+    # Agent-specific states (when host IS running)
     STOPPED = auto()
     RUNNING = auto()
     WAITING = auto()
     REPLACED = auto()
     DONE = auto()
+
+    # Host states that agents inherit (when host is NOT running)
+    PAUSED = auto()
+    CRASHED = auto()
+    DESTROYED = auto()
+    FAILED = auto()
+    BUILDING = auto()
+    STARTING = auto()
+    STOPPING = auto()
 
 
 class AgentId(RandomId):

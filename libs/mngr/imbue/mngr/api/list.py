@@ -287,6 +287,10 @@ def list_agents(
                                 if create_time_str
                                 else datetime(1970, 1, 1, tzinfo=timezone.utc)
                             )
+                            # Map host state to agent lifecycle state for offline hosts
+                            host_state = host.get_state()
+                            agent_lifecycle_state = AgentLifecycleState(host_state.value)
+
                             agent_info = AgentInfo(
                                 id=AgentId(agent_data["id"]),
                                 name=AgentName(agent_data["name"]),
@@ -295,7 +299,7 @@ def list_agents(
                                 work_dir=Path(agent_data.get("work_dir", "/")),
                                 create_time=create_time,
                                 start_on_boot=agent_data.get("start_on_boot", False),
-                                lifecycle_state=AgentLifecycleState.STOPPED,
+                                lifecycle_state=agent_lifecycle_state,
                                 status=None,
                                 url=None,
                                 start_time=None,
