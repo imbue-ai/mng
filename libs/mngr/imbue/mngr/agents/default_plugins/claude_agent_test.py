@@ -16,11 +16,14 @@ from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import NoCommandDefinedError
+from imbue.mngr.hosts.host import Host
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostName
+from imbue.mngr.providers.local.instance import LocalProviderInstance
 
 
 @pytest.fixture
@@ -28,6 +31,38 @@ def temp_profile_dir(tmp_path: Path) -> Path:
     profile_dir = tmp_path / PROFILES_DIRNAME / uuid4().hex
     profile_dir.mkdir(parents=True, exist_ok=True)
     return profile_dir
+
+
+def make_claude_agent(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    mngr_ctx: MngrContext,
+    agent_config: ClaudeAgentConfig | AgentTypeConfig | None = None,
+    agent_type: AgentTypeName | None = None,
+) -> tuple[ClaudeAgent, Host]:
+    """Create a ClaudeAgent with a real local host for testing."""
+    host = local_provider.create_host(HostName(f"test-host-{uuid4().hex[:8]}"))
+    assert isinstance(host, Host)
+    work_dir = tmp_path / f"work-{uuid4().hex[:8]}"
+    work_dir.mkdir()
+
+    if agent_config is None:
+        agent_config = ClaudeAgentConfig(check_installation=False)
+    if agent_type is None:
+        agent_type = AgentTypeName("claude")
+
+    agent = ClaudeAgent.model_construct(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        agent_type=agent_type,
+        work_dir=work_dir,
+        create_time=datetime.now(timezone.utc),
+        host_id=host.id,
+        mngr_ctx=mngr_ctx,
+        agent_config=agent_config,
+        host=host,
+    )
+    return agent, host
 
 
 def test_claude_agent_config_has_default_command() -> None:
@@ -489,40 +524,33 @@ def test_build_readiness_hooks_config_has_stop_hook() -> None:
 
 
 def test_configure_readiness_hooks_creates_settings_file(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: "LocalProviderInstance", tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """_configure_readiness_hooks should create .claude/settings.local.json."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mock_host.is_local = True
-    mock_host.read_text_file.side_effect = FileNotFoundError()
-    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
+    host = local_provider.create_host(HostName("test-hooks"))
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
 
     agent = ClaudeAgent.model_construct(
-        id=agent_id,
+        id=AgentId.generate(),
         name=AgentName("test-agent"),
         agent_type=AgentTypeName("claude"),
-        work_dir=tmp_path,
+        work_dir=work_dir,
         create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=mngr_ctx,
+        host_id=host.id,
+        mngr_ctx=temp_mngr_ctx,
         agent_config=ClaudeAgentConfig(check_installation=False),
-        host=mock_host,
+        host=host,
     )
 
-    agent._configure_readiness_hooks(mock_host)
+    agent._configure_readiness_hooks(host)
 
-    # Verify write_text_file was called with the correct path
-    mock_host.write_text_file.assert_called_once()
-    call_args = mock_host.write_text_file.call_args
-    path = call_args[0][0]
-    content = call_args[0][1]
-
-    assert str(path) == str(tmp_path / ".claude" / "settings.local.json")
+    # Verify the file was actually created
+    settings_path = work_dir / ".claude" / "settings.local.json"
+    assert settings_path.exists()
 
     # Verify the content has the expected hooks
-    settings = json.loads(content)
+    settings = json.loads(settings_path.read_text())
     assert "hooks" in settings
     assert "SessionStart" in settings["hooks"]
     assert "UserPromptSubmit" in settings["hooks"]
@@ -530,38 +558,36 @@ def test_configure_readiness_hooks_creates_settings_file(
 
 
 def test_configure_readiness_hooks_merges_with_existing_settings(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: "LocalProviderInstance", tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """_configure_readiness_hooks should merge with existing settings."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mock_host.is_local = True
+    host = local_provider.create_host(HostName("test-hooks-merge"))
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
 
-    # Simulate existing settings file
+    # Create existing settings file
+    claude_dir = work_dir / ".claude"
+    claude_dir.mkdir()
     existing_settings = {"model": "opus", "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": []}]}}
-    mock_host.read_text_file.return_value = json.dumps(existing_settings)
-
-    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
+    (claude_dir / "settings.local.json").write_text(json.dumps(existing_settings))
 
     agent = ClaudeAgent.model_construct(
-        id=agent_id,
+        id=AgentId.generate(),
         name=AgentName("test-agent"),
         agent_type=AgentTypeName("claude"),
-        work_dir=tmp_path,
+        work_dir=work_dir,
         create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=mngr_ctx,
+        host_id=host.id,
+        mngr_ctx=temp_mngr_ctx,
         agent_config=ClaudeAgentConfig(check_installation=False),
-        host=mock_host,
+        host=host,
     )
 
-    agent._configure_readiness_hooks(mock_host)
+    agent._configure_readiness_hooks(host)
 
-    # Verify write_text_file was called
-    mock_host.write_text_file.assert_called_once()
-    content = mock_host.write_text_file.call_args[0][1]
-    settings = json.loads(content)
+    # Read the file and verify it was merged
+    settings_path = work_dir / ".claude" / "settings.local.json"
+    settings = json.loads(settings_path.read_text())
 
     # Should preserve existing settings
     assert settings["model"] == "opus"
