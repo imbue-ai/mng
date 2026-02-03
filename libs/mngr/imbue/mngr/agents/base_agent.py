@@ -19,6 +19,7 @@ from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
+from imbue.mngr.interfaces.host import DEFAULT_ENTER_DELAY_SECONDS
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentLifecycleState
@@ -315,6 +316,14 @@ class BaseAgent(AgentInterface):
         data = self._read_data()
         return data.get("message_delay_seconds", DEFAULT_AGENT_READY_TIMEOUT_SECONDS)
 
+    def get_enter_delay_seconds(self) -> float:
+        """Get the delay between sending message text and Enter key.
+
+        This can be configured per-agent via `enter_delay_seconds` in data.json.
+        """
+        data = self._read_data()
+        return data.get("enter_delay_seconds", DEFAULT_ENTER_DELAY_SECONDS)
+
     def send_message(self, message: str) -> None:
         """Send a message to the running agent."""
         logger.debug("Sending message to agent {} (length={})", self.name, len(message))
@@ -325,9 +334,9 @@ class BaseAgent(AgentInterface):
         if not result.success:
             raise SendMessageError(str(self.name), f"tmux send-keys failed: {result.stderr or result.stdout}")
 
-        # Small delay to let the input handler process the text before sending Enter.
+        # Delay to let the input handler process the text before sending Enter.
         # Without this, Enter can be interpreted as a literal newline instead of submit.
-        time.sleep(1)
+        time.sleep(self.get_enter_delay_seconds())
 
         send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
         result = self.host.execute_command(send_enter_cmd)
