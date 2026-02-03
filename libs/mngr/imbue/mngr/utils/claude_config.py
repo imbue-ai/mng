@@ -2,6 +2,7 @@ import copy
 import fcntl
 import json
 import os
+import shutil
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,11 @@ from imbue.mngr.errors import ClaudeTrustNotFoundError
 def get_claude_config_path() -> Path:
     """Return the path to the Claude config file."""
     return Path.home() / ".claude.json"
+
+
+def get_claude_config_backup_path() -> Path:
+    """Return the path to the Claude config backup file."""
+    return Path.home() / ".claude.json.bak"
 
 
 def extend_claude_trust_to_worktree(source_path: Path, worktree_path: Path) -> None:
@@ -71,6 +77,11 @@ def extend_claude_trust_to_worktree(source_path: Path, worktree_path: Path) -> N
                     worktree_path,
                 )
                 return
+
+            # Create a backup before modifying the config
+            backup_path = get_claude_config_backup_path()
+            shutil.copy2(config_path, backup_path)
+            logger.debug("Created backup of Claude config at {}", backup_path)
 
             # Extend trust to the worktree
             projects[worktree_path_str] = copy.deepcopy(source_config)

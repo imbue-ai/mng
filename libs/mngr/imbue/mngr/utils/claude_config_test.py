@@ -12,6 +12,7 @@ from imbue.mngr.errors import ClaudeDirectoryNotTrustedError
 from imbue.mngr.errors import ClaudeTrustNotFoundError
 from imbue.mngr.utils.claude_config import _find_project_config
 from imbue.mngr.utils.claude_config import extend_claude_trust_to_worktree
+from imbue.mngr.utils.claude_config import get_claude_config_backup_path
 from imbue.mngr.utils.claude_config import get_claude_config_path
 
 
@@ -19,6 +20,12 @@ def test_get_claude_config_path_returns_home_dot_claude_json() -> None:
     """Test that get_claude_config_path returns ~/.claude.json."""
     result = get_claude_config_path()
     assert result == Path.home() / ".claude.json"
+
+
+def test_get_claude_config_backup_path_returns_home_dot_claude_json_bak() -> None:
+    """Test that get_claude_config_backup_path returns ~/.claude.json.bak."""
+    result = get_claude_config_backup_path()
+    assert result == Path.home() / ".claude.json.bak"
 
 
 def test_find_project_config_exact_match() -> None:
@@ -84,6 +91,59 @@ def test_extend_claude_trust_to_worktree_creates_entry(tmp_path: Path) -> None:
     }
     # Original entry should still exist
     assert str(source_path) in updated_config["projects"]
+
+
+def test_extend_claude_trust_to_worktree_creates_backup(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree creates a backup before modifying."""
+    config_file = tmp_path / ".claude.json"
+    backup_file = tmp_path / ".claude.json.bak"
+    source_path = tmp_path / "source"
+    target_path = tmp_path / "target"
+    source_path.mkdir()
+    target_path.mkdir()
+
+    # Create initial config
+    config = {
+        "projects": {
+            str(source_path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True},
+        }
+    }
+    original_content = json.dumps(config, indent=2)
+    config_file.write_text(original_content)
+
+    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+        with patch("imbue.mngr.utils.claude_config.get_claude_config_backup_path", return_value=backup_file):
+            extend_claude_trust_to_worktree(source_path, target_path)
+
+    # Backup should exist with original content
+    assert backup_file.exists()
+    assert backup_file.read_text() == original_content
+
+
+def test_extend_claude_trust_to_worktree_no_backup_when_no_change(tmp_path: Path) -> None:
+    """Test that no backup is created when target already exists (no modification)."""
+    config_file = tmp_path / ".claude.json"
+    backup_file = tmp_path / ".claude.json.bak"
+    source_path = tmp_path / "source"
+    target_path = tmp_path / "target"
+    source_path.mkdir()
+    target_path.mkdir()
+
+    # Create config with both source and target already present
+    config = {
+        "projects": {
+            str(source_path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True},
+            str(target_path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True},
+        }
+    }
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+        with patch("imbue.mngr.utils.claude_config.get_claude_config_backup_path", return_value=backup_file):
+            extend_claude_trust_to_worktree(source_path, target_path)
+
+    # Backup should NOT exist since no modification was made
+    assert not backup_file.exists()
 
 
 def test_extend_claude_trust_to_worktree_no_source_config(tmp_path: Path) -> None:
