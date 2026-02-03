@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -104,15 +105,26 @@ def mngr_test_prefix(mngr_test_id: str) -> str:
 
 
 @pytest.fixture
-def mngr_test_root_name(mngr_test_id: str) -> str:
+def mngr_test_root_name(mngr_test_id: str) -> Generator[str, None, None]:
     """Get the test root name for config isolation.
 
     Format: mngr-test-{test_id}
 
     This ensures tests don't load the project's .mngr/settings.toml config,
     which might have settings like add_command that would interfere with tests.
+
+    After the test completes, this fixture cleans up any directories that may
+    have been created at ~/.{root_name}/ if load_config was called without
+    MNGR_HOST_DIR being set (which shouldn't happen, but can occur in edge cases).
     """
-    return f"mngr-test-{mngr_test_id}"
+    root_name = f"mngr-test-{mngr_test_id}"
+    yield root_name
+
+    # Clean up any directories created at ~/.{root_name}/ in the real home directory.
+    # This handles edge cases where load_config is called without MNGR_HOST_DIR set.
+    home_test_dir = Path.home() / f".{root_name}"
+    if home_test_dir.exists():
+        shutil.rmtree(home_test_dir)
 
 
 @pytest.fixture(autouse=True)

@@ -1054,6 +1054,18 @@ def test_parse_build_args_explicit_args_override_config_defaults(temp_mngr_ctx: 
     assert config.region == "ap-south"
 
 
+def test_modal_provider_config_user_id_defaults_to_none() -> None:
+    """ModalProviderConfig user_id should default to None."""
+    config = ModalProviderConfig()
+    assert config.user_id is None
+
+
+def test_modal_provider_config_user_id_can_be_set() -> None:
+    """ModalProviderConfig user_id can be set to override profile user_id."""
+    config = ModalProviderConfig(user_id="custom-user-id")
+    assert config.user_id == "custom-user-id"
+
+
 # =============================================================================
 # Tests for _build_modal_secrets_from_env helper function
 # =============================================================================

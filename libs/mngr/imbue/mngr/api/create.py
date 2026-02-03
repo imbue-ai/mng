@@ -132,11 +132,12 @@ def resolve_target_host(
         provider = get_provider_instance(target_host.provider, mngr_ctx)
 
         logger.trace(
-            "Creating host with tags={} build_args={} start_args={} lifecycle={}",
+            "Creating host with tags={} build_args={} start_args={} lifecycle={} known_hosts={}",
             target_host.tags,
             target_host.build.build_args,
             target_host.build.start_args,
             target_host.lifecycle,
+            len(target_host.environment.known_hosts),
         )
         return provider.create_host(
             name=target_host.name,
@@ -144,6 +145,7 @@ def resolve_target_host(
             build_args=target_host.build.build_args,
             start_args=target_host.build.start_args,
             lifecycle=target_host.lifecycle,
+            known_hosts=target_host.environment.known_hosts,
         )
     else:
         # already have the host

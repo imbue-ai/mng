@@ -79,6 +79,7 @@ from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
+from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
 from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
@@ -318,8 +319,8 @@ class ModalProviderInstance(BaseProviderInstance):
 
     @property
     def _keys_dir(self) -> Path:
-        config_dir = self.mngr_ctx.config.default_host_dir.expanduser()
-        return config_dir / "providers" / "modal"
+        """Get the directory for SSH keys (profile-specific)."""
+        return self.mngr_ctx.profile_dir / "providers" / "modal"
 
     def _get_ssh_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH keypair for this provider instance."""
@@ -629,6 +630,7 @@ class ModalProviderInstance(BaseProviderInstance):
         host_private_key: str,
         host_public_key: str,
         ssh_user: str = "root",
+        known_hosts: Sequence[str] | None = None,
     ) -> None:
         """Set up SSH access and start sshd in the sandbox.
 
@@ -651,6 +653,13 @@ class ModalProviderInstance(BaseProviderInstance):
             host_public_key=host_public_key,
         )
         sandbox.exec("sh", "-c", configure_ssh_cmd).wait()
+
+        # Add known_hosts entries for outbound SSH if specified
+        if known_hosts:
+            logger.debug("Adding {} known_hosts entries to sandbox", len(known_hosts))
+            add_known_hosts_cmd = build_add_known_hosts_command(ssh_user, tuple(known_hosts))
+            if add_known_hosts_cmd is not None:
+                sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
 
         # Start the activity watcher
         logger.debug("Starting activity watcher in sandbox")
@@ -727,6 +736,7 @@ class ModalProviderInstance(BaseProviderInstance):
         user_tags: Mapping[str, str] | None,
         config: SandboxConfig,
         host_data: CertifiedHostData,
+        known_hosts: Sequence[str] | None = None,
     ) -> tuple[Host, str, int, str]:
         """Set up SSH in a sandbox and create a Host object.
 
@@ -742,7 +752,9 @@ class ModalProviderInstance(BaseProviderInstance):
         host_private_key = host_key_path.read_text()
 
         # Start sshd with our host key
-        self._start_sshd_in_sandbox(sandbox, client_public_key, host_private_key, host_public_key)
+        self._start_sshd_in_sandbox(
+            sandbox, client_public_key, host_private_key, host_public_key, known_hosts=known_hosts
+        )
 
         # Get SSH connection info
         ssh_host, ssh_port = self._get_ssh_info_from_sandbox(sandbox)
@@ -1218,6 +1230,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
+        known_hosts: Sequence[str] | None = None,
     ) -> Host:
         """Create a new Modal sandbox host."""
         if not self.is_authorized:
@@ -1331,6 +1344,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             user_tags=tags,
             config=config,
             host_data=host_data,
+            known_hosts=known_hosts,
         )
 
         # For persistent apps, deploy the snapshot function and create shutdown script

@@ -147,6 +147,45 @@ def build_configure_ssh_command(
 
 
 @pure
+def build_add_known_hosts_command(
+    user: str,
+    known_hosts_entries: tuple[str, ...],
+) -> str | None:
+    """Build a shell command that adds entries to the user's known_hosts file.
+
+    This command:
+    1. Creates the user's .ssh directory if it doesn't exist
+    2. Appends each known_hosts entry to the known_hosts file
+
+    Each entry should be a full known_hosts line (e.g., "github.com ssh-rsa AAAA...")
+
+    Returns a shell command string that can be executed via sh -c, or None if
+    there are no entries to add.
+    """
+    if not known_hosts_entries:
+        return None
+
+    ssh_dir = get_user_ssh_dir(user)
+    known_hosts_path = ssh_dir / "known_hosts"
+
+    script_lines: list[str] = [
+        # Create .ssh directory if needed
+        f"mkdir -p '{ssh_dir}'",
+    ]
+
+    for entry in known_hosts_entries:
+        # Escape single quotes in the entry
+        escaped_entry = entry.replace("'", "'\"'\"'")
+        # Append entry to known_hosts (with a newline)
+        script_lines.append(f"printf '%s\\n' '{escaped_entry}' >> '{known_hosts_path}'")
+
+    # Set proper permissions on known_hosts file
+    script_lines.append(f"chmod 600 '{known_hosts_path}'")
+
+    return "; ".join(script_lines)
+
+
+@pure
 def parse_warnings_from_output(output: str) -> list[str]:
     """Parse warning messages from command output.
 

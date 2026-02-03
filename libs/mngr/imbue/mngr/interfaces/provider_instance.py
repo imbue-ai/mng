@@ -90,6 +90,7 @@ class ProviderInstanceInterface(MutableModel, ABC):
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
+        known_hosts: Sequence[str] | None = None,
     ) -> OnlineHostInterface:
         """Create and start a new host with the given name and configuration."""
         ...

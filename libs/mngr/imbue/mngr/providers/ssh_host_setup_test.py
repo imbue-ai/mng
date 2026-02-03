@@ -4,6 +4,7 @@ from pathlib import Path
 
 from imbue.mngr.providers.ssh_host_setup import WARNING_PREFIX
 from imbue.mngr.providers.ssh_host_setup import _load_activity_watcher_script
+from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
 from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
@@ -113,3 +114,53 @@ def test_build_start_activity_watcher_command_escapes_quotes() -> None:
     # Since the script contains single quotes in strings like 'MNGR_HOST_DIR'
     # they should be properly escaped
     assert cmd.count("printf") >= 1
+
+
+def test_build_add_known_hosts_command_empty() -> None:
+    """Should return None when no entries are provided."""
+    result = build_add_known_hosts_command("root", ())
+    assert result is None
+
+
+def test_build_add_known_hosts_command_single_entry() -> None:
+    """Should build a valid command for a single known_hosts entry."""
+    entry = "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+    cmd = build_add_known_hosts_command("root", (entry,))
+    assert cmd is not None
+    assert isinstance(cmd, str)
+    assert "mkdir -p '/root/.ssh'" in cmd
+    assert "github.com" in cmd
+    assert "chmod 600" in cmd
+    assert "/root/.ssh/known_hosts" in cmd
+
+
+def test_build_add_known_hosts_command_multiple_entries() -> None:
+    """Should build a command that adds all entries."""
+    entries = (
+        "github.com ssh-ed25519 AAAAC3...",
+        "gitlab.com ssh-rsa AAAAB3...",
+    )
+    cmd = build_add_known_hosts_command("root", entries)
+    assert cmd is not None
+    assert "github.com" in cmd
+    assert "gitlab.com" in cmd
+    # Should have two printf commands for the entries
+    assert cmd.count("printf") == 2
+
+
+def test_build_add_known_hosts_command_regular_user() -> None:
+    """Should use the correct path for non-root users."""
+    entry = "github.com ssh-ed25519 AAAAC3..."
+    cmd = build_add_known_hosts_command("alice", (entry,))
+    assert cmd is not None
+    assert "/home/alice/.ssh" in cmd
+    assert "/root" not in cmd
+
+
+def test_build_add_known_hosts_command_escapes_quotes() -> None:
+    """Should properly escape single quotes in entries."""
+    entry = "host.example.com ssh-rsa key'with'quotes"
+    cmd = build_add_known_hosts_command("root", (entry,))
+    assert cmd is not None
+    # Single quotes should be escaped as '\"'\"'
+    assert "'\"'\"'" in cmd

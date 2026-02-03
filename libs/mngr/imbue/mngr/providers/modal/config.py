@@ -15,6 +15,15 @@ class ModalProviderConfig(ProviderInstanceConfig):
         default=ProviderBackendName("modal"),
         description="Provider backend (always 'modal' for this type)",
     )
+    user_id: str | None = Field(
+        default=None,
+        description=(
+            "Override the profile user_id for this provider instance. When set, this "
+            "user_id is used instead of the profile's user_id for namespacing Modal "
+            "resources (environments, apps, volumes). This allows sharing Modal resources "
+            "across different mngr profiles or installations."
+        ),
+    )
     environment: str = Field(
         default="main",
         description="Modal environment name",
@@ -34,10 +43,7 @@ class ModalProviderConfig(ProviderInstanceConfig):
     shutdown_buffer_seconds: int = Field(
         default=90,
         description=(
-            "Buffer time added to the sandbox timeout sent to Modal. This ensures the "
-            "activity watcher can trigger a clean shutdown before Modal's hard kill. "
-            "The max_host_age in data.json is set to the original timeout (without buffer), "
-            "so the host shuts down gracefully before the Modal timeout expires."
+            "Buffer time added to the host shutdown timeout. This ensures the activity watcher can trigger a clean shutdown before a hard kill. The max_host_age in data.json is set to the original timeout (without buffer), so the host shuts down gracefully before the infrastructure-level timeout expires."
         ),
     )
     default_idle_timeout: int = Field(
