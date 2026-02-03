@@ -26,8 +26,17 @@ from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import get_short_random_string
 
 
+class MngrListError(Exception):
+    """Error raised when mngr list fails."""
+
+    pass
+
+
 def _run_mngr_list_json(env: dict[str, str], provider: str) -> dict:
-    """Run mngr list with JSON output and return the parsed result."""
+    """Run mngr list with JSON output and return the parsed result.
+
+    Raises MngrListError if the command fails.
+    """
     result = subprocess.run(
         [
             "uv",
@@ -45,13 +54,27 @@ def _run_mngr_list_json(env: dict[str, str], provider: str) -> dict:
         env=env,
     )
     if result.returncode != 0:
-        pytest.fail(f"mngr list failed: {result.stderr}")
+        raise MngrListError(f"mngr list failed: {result.stderr}")
     return json.loads(result.stdout)
 
 
-def _get_host_snapshots(env: dict[str, str], provider: str, host_name: str) -> list[dict]:
-    """Get the snapshots for a host by name."""
-    list_result = _run_mngr_list_json(env, provider)
+def _get_host_snapshots(
+    env: dict[str, str],
+    provider: str,
+    host_name: str,
+    *,
+    tolerate_errors: bool = False,
+) -> list[dict]:
+    """Get the snapshots for a host by name.
+
+    If tolerate_errors is True, returns empty list on listing errors (useful for polling).
+    """
+    try:
+        list_result = _run_mngr_list_json(env, provider)
+    except MngrListError:
+        if tolerate_errors:
+            return []
+        raise
     for agent in list_result.get("agents", []):
         host = agent.get("host", {})
         if host.get("name") == host_name:
@@ -59,9 +82,25 @@ def _get_host_snapshots(env: dict[str, str], provider: str, host_name: str) -> l
     return []
 
 
-def _get_host_state(env: dict[str, str], provider: str, host_name: str) -> str | None:
-    """Get the state of a host by name."""
-    list_result = _run_mngr_list_json(env, provider)
+def _get_host_state(
+    env: dict[str, str],
+    provider: str,
+    host_name: str,
+    *,
+    tolerate_errors: bool = False,
+) -> str | None:
+    """Get the state of a host by name.
+
+    If tolerate_errors is True, returns None on listing errors (useful for polling during transitions).
+    """
+    try:
+        list_result = _run_mngr_list_json(env, provider)
+    except MngrListError:
+        if tolerate_errors:
+            # During host transitions (e.g., sandbox terminating), SSH/SFTP errors
+            # can occur. Return None to indicate we couldn't determine the state.
+            return None
+        raise
     for agent in list_result.get("agents", []):
         host = agent.get("host", {})
         if host.get("name") == host_name:
@@ -167,8 +206,12 @@ def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
         # - ~30 seconds for snapshot and shutdown
         # = ~105 seconds total, use 150 for safety margin
         def host_is_offline() -> bool:
-            state = _get_host_state(modal_subprocess_env.env, "modal", host_name)
+            # Use tolerate_errors=True during polling because SSH/SFTP errors
+            # can occur during the transition period when the sandbox is terminating.
+            # We keep polling until we can successfully query the host state.
+            state = _get_host_state(modal_subprocess_env.env, "modal", host_name, tolerate_errors=True)
             # Host should be in a non-running state (stopped, paused, destroyed, etc.)
+            # If state is None, we couldn't query it (transient error), so keep polling.
             return state is not None and state not in ("running", "starting", "building")
 
         wait_for(
