@@ -875,6 +875,20 @@ class ModalProviderInstance(BaseProviderInstance):
 # Usage: shutdown.sh [stop_reason]
 #   stop_reason: 'PAUSED' (idle shutdown, default) or 'STOPPED' (user requested)
 
+LOG_FILE="{host_dir_str}/logs/shutdown.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+
+log() {{
+    echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG_FILE"
+    echo "$*"
+}}
+
+log "=== Shutdown script started ==="
+log "SNAPSHOT_URL: {snapshot_url}"
+log "SANDBOX_ID: {sandbox_id}"
+log "HOST_ID: {host_id}"
+log "STOP_REASON: ${{1:-PAUSED}}"
+
 SNAPSHOT_URL="{snapshot_url}"
 SANDBOX_ID="{sandbox_id}"
 HOST_ID="{host_id}"
@@ -903,12 +917,22 @@ gather_agents() {{
 }}
 
 # Build the JSON payload with agent data
+log "Gathering agents..."
 AGENTS=$(gather_agents)
+log "Agents: $AGENTS"
 
 # Send the shutdown request with agent data and stop reason
-curl -s -X POST "$SNAPSHOT_URL" \\
+# Use --max-time to prevent hanging if the endpoint is slow
+log "Sending shutdown request to $SNAPSHOT_URL"
+RESPONSE=$(curl -s --max-time 30 -w "\\n%%{{http_code}}" -X POST "$SNAPSHOT_URL" \\
     -H "Content-Type: application/json" \\
-    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}'
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}')
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+log "HTTP status: $HTTP_CODE"
+log "Response: $BODY"
+log "=== Shutdown script completed ==="
 '''
 
         # Write the script to the host
@@ -1288,6 +1312,14 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Parse build arguments (including --dockerfile if specified)
         config = self._parse_build_args(build_args)
+
+        # For persistent apps, deploy the snapshot function early so it's ready when we need it.
+        # This runs in parallel with the build to minimize total time. The function deployment
+        # needs to complete before we can create shutdown.sh, which the activity watcher needs.
+        snapshot_url: str | None = None
+        if self.config.is_persistent:
+            logger.debug("Deploying snapshot_and_shutdown function")
+            snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
         base_image = str(image) if image else config.image
         dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
         context_dir_path = Path(config.context_dir) if config.context_dir else None
@@ -1381,11 +1413,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             known_hosts=known_hosts,
         )
 
-        # For persistent apps, deploy the snapshot function and create shutdown script
-        if self.config.is_persistent:
-            snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
-            if snapshot_url:
-                self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
+        # For persistent apps, create shutdown script using the function URL we deployed earlier
+        if self.config.is_persistent and snapshot_url:
+            self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
 
         return host
 
@@ -1763,18 +1793,38 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             host_id = HostId(host_record.host_id)
             processed_host_ids.add(host_id)
 
+            # Check if there's a running sandbox for this host
+            sandbox_is_running = False
             if host_id in running_sandbox_by_host_id:
-                # Host has a running sandbox - create from sandbox
+                # Host has a sandbox in the list - check if it's actually still running
+                # (Modal's sandbox list has eventual consistency, so a terminated sandbox
+                # might still appear in the list for a short time)
                 sandbox = running_sandbox_by_host_id[host_id]
+                # Get a fresh sandbox object to check the current status
+                # (the sandbox object from the list might have stale state)
                 try:
-                    host_obj = self._create_host_from_sandbox(sandbox)
-                    if host_obj is not None:
-                        hosts.append(host_obj)
-                except (KeyError, ValueError) as e:
-                    logger.debug("Failed to create host from sandbox {}: {}", host_id, e)
-                    continue
-            else:
-                # Host has no running sandbox - it's stopped, failed, or destroyed
+                    fresh_sandbox = modal.Sandbox.from_id(sandbox.object_id)
+                    poll_result = fresh_sandbox.poll()
+                except modal.exception.NotFoundError:
+                    # Sandbox was deleted, treat as terminated
+                    poll_result = "terminated"
+                if poll_result is None:
+                    # Sandbox is actually running - create from sandbox
+                    try:
+                        host_obj = self._create_host_from_sandbox(sandbox)
+                        if host_obj is not None:
+                            hosts.append(host_obj)
+                            sandbox_is_running = True
+                    except (KeyError, ValueError) as e:
+                        logger.debug("Failed to create host from sandbox {}: {}", host_id, e)
+                else:
+                    # Sandbox has terminated - will be handled as offline host below
+                    logger.debug(
+                        "Sandbox {} has terminated (poll returned {}), treating as offline", host_id, poll_result
+                    )
+
+            # If the sandbox is not running (or terminated), treat as offline host
+            if not sandbox_is_running:
                 has_snapshots = len(host_record.snapshots) > 0
                 is_failed = host_record.certified_host_data.state == HostState.FAILED.value
 
@@ -1810,6 +1860,18 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # (handles eventual consistency of volume or legacy sandboxes)
         for host_id, sandbox in running_sandbox_by_host_id.items():
             if host_id in processed_host_ids:
+                continue
+            # Check if the sandbox is actually still running
+            try:
+                fresh_sandbox = modal.Sandbox.from_id(sandbox.object_id)
+                poll_result = fresh_sandbox.poll()
+            except modal.exception.NotFoundError:
+                # Sandbox was deleted, skip it
+                logger.debug("Sandbox {} was deleted, skipping", host_id)
+                continue
+            if poll_result is not None:
+                # Sandbox has terminated, skip it (no host record to fall back to)
+                logger.debug("Sandbox {} has terminated (poll returned {}), skipping", host_id, poll_result)
                 continue
             try:
                 host_obj = self._create_host_from_sandbox(sandbox)

@@ -162,8 +162,40 @@ get_max_activity_mtime() {
 
 main() {
     echo "Activity watcher starting for $HOST_DATA_DIR"
+    echo "Data JSON path: $DATA_JSON_PATH"
+    echo "Boot activity path: $BOOT_ACTIVITY_PATH"
+    echo "Shutdown script path: $SHUTDOWN_SCRIPT"
+    echo "Check interval: $CHECK_INTERVAL seconds"
 
     while true; do
+        echo "--- Activity watcher check at $(date) ---"
+
+        # Log current state for debugging
+        if [ -f "$DATA_JSON_PATH" ]; then
+            echo "data.json exists"
+            local max_host_age_val
+            max_host_age_val=$(get_max_host_age)
+            echo "max_host_age from data.json: $max_host_age_val"
+        else
+            echo "data.json NOT found at $DATA_JSON_PATH"
+        fi
+
+        if [ -f "$BOOT_ACTIVITY_PATH" ]; then
+            local boot_mtime
+            boot_mtime=$(get_mtime "$BOOT_ACTIVITY_PATH")
+            echo "boot activity file exists, mtime: $boot_mtime"
+        else
+            echo "boot activity file NOT found at $BOOT_ACTIVITY_PATH"
+        fi
+
+        if [ -x "$SHUTDOWN_SCRIPT" ]; then
+            echo "shutdown.sh exists and is executable"
+        elif [ -f "$SHUTDOWN_SCRIPT" ]; then
+            echo "shutdown.sh exists but is NOT executable"
+        else
+            echo "shutdown.sh NOT found at $SHUTDOWN_SCRIPT"
+        fi
+
         # Check if host has exceeded maximum age (hard timeout)
         # This takes precedence over idle timeout to ensure clean shutdown before
         # external timeout (e.g., Modal sandbox timeout) kills the host

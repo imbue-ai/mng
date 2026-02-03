@@ -638,10 +638,15 @@ def test_list_hosts_includes_running_sandboxes_without_host_records(
 
     # Mock _list_sandboxes to return a sandbox
     mock_sandbox = MagicMock()
+    mock_sandbox.object_id = "sandbox-123"
     mock_sandbox.get_tags.return_value = {
         TAG_HOST_ID: str(host_id),
         TAG_HOST_NAME: "test-host",
     }
+
+    # Mock fresh_sandbox.poll() to return None (sandbox is running)
+    mock_fresh_sandbox = MagicMock()
+    mock_fresh_sandbox.poll.return_value = None
 
     # Mock _list_all_host_records to return empty (eventual consistency scenario)
     # Mock _create_host_from_sandbox to return a mock host
@@ -652,6 +657,7 @@ def test_list_hosts_includes_running_sandboxes_without_host_records(
         patch.object(modal_provider, "_list_sandboxes", return_value=[mock_sandbox]),
         patch.object(modal_provider, "_list_all_host_records", return_value=[]),
         patch.object(modal_provider, "_create_host_from_sandbox", return_value=mock_host),
+        patch("modal.Sandbox.from_id", return_value=mock_fresh_sandbox),
     ):
         hosts = modal_provider.list_hosts()
 
@@ -733,10 +739,15 @@ def test_list_hosts_prefers_running_sandbox_over_host_record(
 
     # Mock sandbox with same host_id
     mock_sandbox = MagicMock()
+    mock_sandbox.object_id = "sandbox-123"
     mock_sandbox.get_tags.return_value = {
         TAG_HOST_ID: str(host_id),
         TAG_HOST_NAME: "test-host",
     }
+
+    # Mock fresh_sandbox.poll() to return None (sandbox is running)
+    mock_fresh_sandbox = MagicMock()
+    mock_fresh_sandbox.poll.return_value = None
 
     mock_host = MagicMock()
     mock_host.id = host_id
@@ -746,6 +757,7 @@ def test_list_hosts_prefers_running_sandbox_over_host_record(
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
         patch.object(modal_provider, "_create_host_from_sandbox", return_value=mock_host) as mock_from_sandbox,
         patch.object(modal_provider, "_create_host_from_host_record") as mock_from_record,
+        patch("modal.Sandbox.from_id", return_value=mock_fresh_sandbox),
     ):
         hosts = modal_provider.list_hosts()
 

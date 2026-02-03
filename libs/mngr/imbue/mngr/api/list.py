@@ -20,6 +20,7 @@ from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.hosts.offline_host import BaseHost
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
@@ -489,12 +490,52 @@ def _process_provider_for_host_listing(
             host_name=host.get_name(),
             provider_name=provider.name,
         )
-        agent_refs = host.get_agent_references()
+        try:
+            agent_refs = host.get_agent_references()
+        except (OSError, IOError, ConnectionError, Exception) as e:
+            # SSH/SFTP errors can occur if the host terminated between list_hosts
+            # and get_agent_references. Fall back to persisted data.
+            # We catch broad Exception here because pyinfra/paramiko can raise various
+            # exception types (ConnectError, SSHException, socket.error, etc.)
+            logger.debug(
+                "Failed to get agent references from host {} via SSH, falling back to persisted data: {}",
+                host.id,
+                e,
+            )
+            # All hosts from list_hosts() are BaseHost subclasses in practice
+            if isinstance(host, BaseHost):
+                agent_refs = _get_agent_refs_from_persisted_data(provider, host)
+            else:
+                agent_refs = []
         provider_results[host_ref] = agent_refs
 
     # Merge results into the main dict under lock
     with results_lock:
         agents_by_host.update(provider_results)
+
+
+def _get_agent_refs_from_persisted_data(
+    provider: BaseProviderInstance,
+    host: BaseHost,
+) -> list[AgentReference]:
+    """Get agent references from persisted data when SSH access fails.
+
+    This is a fallback for when the host's get_agent_references() method fails
+    due to SSH errors (e.g., sandbox terminated during listing).
+    """
+    try:
+        agent_records = provider.list_persisted_agent_data_for_host(host.id)
+    except (KeyError, ValueError, OSError) as e:
+        logger.trace("Could not get persisted agent data for host {}: {}", host.id, e)
+        return []
+
+    agent_refs: list[AgentReference] = []
+    for agent_data in agent_records:
+        ref = host._validate_and_create_agent_reference(agent_data)
+        if ref is not None:
+            agent_refs.append(ref)
+
+    return agent_refs
 
 
 @log_call
