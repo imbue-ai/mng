@@ -11,6 +11,7 @@ Usage:
 import json
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -48,19 +49,23 @@ class TriagedIssuesOutput(FrozenModel):
 
 def load_authorized_users() -> tuple[str, ...]:
     """Load the list of authorized GitHub usernames from the config file."""
-    config_path = Path(__file__).parent / "authorized_github_users.json"
+    config_path = Path(__file__).parent / "authorized_github_users.toml"
     if not config_path.exists():
         print(
-            f"Error: authorized_github_users.json not found at {config_path}",
+            f"Error: authorized_github_users.toml not found at {config_path}",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    with config_path.open() as f:
-        users = json.load(f)
+    with config_path.open("rb") as f:
+        config = tomllib.load(f)
 
+    users = config.get("authorized_users", [])
     if not isinstance(users, list):
-        print("Error: authorized_github_users.json must contain a JSON array", file=sys.stderr)
+        print(
+            "Error: authorized_github_users.toml must contain an authorized_users array",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     return tuple(users)

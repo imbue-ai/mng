@@ -13,7 +13,7 @@ Issues created by the `create-github-issues` skill are labeled with "autoclaude"
 
 ## Prerequisites
 
-The authorized users list is maintained in `scripts/authorized_github_users.json`. This file contains an array of GitHub usernames whose comments are considered authoritative for triage decisions.
+The authorized users list is maintained in `scripts/authorized_github_users.toml`. This file contains an array of GitHub usernames whose comments are considered authoritative for triage decisions.
 
 ## Process
 
@@ -34,7 +34,7 @@ This script:
 
 ### 2. Check If There Are Any Issues to Process
 
-Read the `triaged_issues.json` file. If it contains an empty array `[]`, there are no triaged issues to process. Stop here.
+Read the `triaged_issues.json` file. If the `issues` array is empty (i.e., `{"issues": []}`), there are no triaged issues to process. Stop here.
 
 ### 3. Create a Working Branch
 
