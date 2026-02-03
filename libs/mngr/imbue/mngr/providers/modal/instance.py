@@ -9,6 +9,7 @@ Only host_id and host_name are stored as sandbox tags for discovery purposes.
 """
 
 import argparse
+import concurrent.futures
 import io
 import json
 import os
@@ -1701,9 +1702,17 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         hosts: list[HostInterface] = []
         processed_host_ids: set[HostId] = set()
 
-        # Get all running sandboxes and map them by host_id
+        # Fetch sandboxes and host records in parallel since they are independent
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            sandboxes_future = executor.submit(self._list_sandboxes)
+            host_records_future = executor.submit(self._list_all_host_records)
+
+            sandboxes = sandboxes_future.result()
+            all_host_records = host_records_future.result()
+
+        # Map running sandboxes by host_id
         running_sandbox_by_host_id: dict[HostId, modal.Sandbox] = {}
-        for sandbox in self._list_sandboxes():
+        for sandbox in sandboxes:
             try:
                 tags = sandbox.get_tags()
                 host_id = HostId(tags[TAG_HOST_ID])
@@ -1711,9 +1720,6 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             except (KeyError, ValueError) as e:
                 logger.debug("Skipping sandbox with invalid tags: {}", e)
                 continue
-
-        # Get all host records from the volume
-        all_host_records = self._list_all_host_records()
 
         # First, process host records (includes both running and stopped hosts)
         for host_record in all_host_records:
