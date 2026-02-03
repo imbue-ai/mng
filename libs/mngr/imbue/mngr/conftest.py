@@ -175,9 +175,7 @@ def temp_config(temp_host_dir: Path, mngr_test_prefix: str) -> MngrConfig:
 
 
 @pytest.fixture
-def temp_mngr_ctx(
-    temp_config: MngrConfig, temp_host_dir: Path, plugin_manager: pluggy.PluginManager
-) -> MngrContext:
+def temp_mngr_ctx(temp_config: MngrConfig, temp_host_dir: Path, plugin_manager: pluggy.PluginManager) -> MngrContext:
     """Create a MngrContext with a temporary host directory.
 
     Use this fixture when calling API functions that need a context.
