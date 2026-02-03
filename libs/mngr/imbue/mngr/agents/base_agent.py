@@ -17,6 +17,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.host import CreateAgentOptions
+from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentLifecycleState
@@ -270,7 +271,7 @@ class BaseAgent(AgentInterface):
 
     def get_message_delay_seconds(self) -> float:
         data = self._read_data()
-        return data.get("message_delay_seconds", 1.0)
+        return data.get("message_delay_seconds", DEFAULT_AGENT_READY_TIMEOUT_SECONDS)
 
     def send_message(self, message: str) -> None:
         """Send a message to the running agent."""

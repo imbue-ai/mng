@@ -36,6 +36,11 @@ from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import Permission
 from imbue.mngr.primitives import WorkDirCopyMode
 
+# Default timeout for waiting for agent readiness before sending messages.
+# With hook-based polling, we return early when the agent signals readiness,
+# so this is a max wait time, not an unconditional delay.
+DEFAULT_AGENT_READY_TIMEOUT_SECONDS = 10.0
+
 
 class HostInterface(MutableModel, ABC):
     """Interface for host implementations."""
@@ -690,8 +695,8 @@ class CreateAgentOptions(FrozenModel):
         description="Message to send when the agent is started (resumed) after being stopped",
     )
     message_delay_seconds: float = Field(
-        default=1.0,
-        description="Delay in seconds before sending initial message (to allow agent startup)",
+        default=DEFAULT_AGENT_READY_TIMEOUT_SECONDS,
+        description="Timeout in seconds to wait for agent readiness before sending initial message",
     )
     git: AgentGitOptions | None = Field(
         default=None,

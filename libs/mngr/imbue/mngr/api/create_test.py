@@ -1,66 +1,49 @@
 """Unit tests for the create API."""
 
-from unittest.mock import Mock
-
-from imbue.mngr.api.create import _wait_for_agent_ready
 from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.utils.polling import poll_until
 
 
-def test_wait_for_agent_ready_returns_true_when_waiting() -> None:
-    """_wait_for_agent_ready should return True when agent reaches WAITING state."""
-    mock_agent = Mock()
-    mock_agent.name = "test-agent"
-    mock_agent.get_lifecycle_state.return_value = AgentLifecycleState.WAITING
-
-    result = _wait_for_agent_ready(mock_agent, timeout_seconds=1.0)
+def test_poll_until_returns_true_when_condition_met() -> None:
+    """poll_until should return True when condition is met."""
+    result = poll_until(lambda: True, timeout=1.0)
 
     assert result is True
-    mock_agent.get_lifecycle_state.assert_called()
 
 
-def test_wait_for_agent_ready_returns_false_on_timeout() -> None:
-    """_wait_for_agent_ready should return False when timeout expires without WAITING state."""
-    mock_agent = Mock()
-    mock_agent.name = "test-agent"
-    # Always return RUNNING, never WAITING
-    mock_agent.get_lifecycle_state.return_value = AgentLifecycleState.RUNNING
-
-    result = _wait_for_agent_ready(mock_agent, timeout_seconds=0.5, poll_interval_seconds=0.1)
+def test_poll_until_returns_false_on_timeout() -> None:
+    """poll_until should return False when timeout expires without condition being met."""
+    result = poll_until(lambda: False, timeout=0.3, poll_interval=0.1)
 
     assert result is False
-    # Should have been called multiple times during polling
-    assert mock_agent.get_lifecycle_state.call_count >= 2
 
 
-def test_wait_for_agent_ready_polls_until_waiting() -> None:
-    """_wait_for_agent_ready should poll until agent reaches WAITING state."""
-    mock_agent = Mock()
-    mock_agent.name = "test-agent"
-
-    # First few calls return RUNNING, then return WAITING
+def test_poll_until_polls_until_condition_met() -> None:
+    """poll_until should poll until condition is met."""
     call_count = 0
 
-    def get_state():
+    def condition():
         nonlocal call_count
         call_count += 1
-        if call_count < 3:
-            return AgentLifecycleState.RUNNING
-        return AgentLifecycleState.WAITING
+        return call_count >= 3
 
-    mock_agent.get_lifecycle_state.side_effect = get_state
-
-    result = _wait_for_agent_ready(mock_agent, timeout_seconds=5.0, poll_interval_seconds=0.05)
+    result = poll_until(condition, timeout=5.0, poll_interval=0.05)
 
     assert result is True
     assert call_count >= 3
 
 
-def test_wait_for_agent_ready_handles_stopped_state() -> None:
-    """_wait_for_agent_ready should timeout if agent stays in STOPPED state."""
-    mock_agent = Mock()
-    mock_agent.name = "test-agent"
-    mock_agent.get_lifecycle_state.return_value = AgentLifecycleState.STOPPED
+def test_poll_until_with_lifecycle_state_condition() -> None:
+    """poll_until should work with agent lifecycle state checks."""
+    states = [AgentLifecycleState.RUNNING, AgentLifecycleState.RUNNING, AgentLifecycleState.WAITING]
+    call_count = 0
 
-    result = _wait_for_agent_ready(mock_agent, timeout_seconds=0.3, poll_interval_seconds=0.1)
+    def get_state():
+        nonlocal call_count
+        state = states[min(call_count, len(states) - 1)]
+        call_count += 1
+        return state
 
-    assert result is False
+    result = poll_until(lambda: get_state() == AgentLifecycleState.WAITING, timeout=5.0, poll_interval=0.05)
+
+    assert result is True

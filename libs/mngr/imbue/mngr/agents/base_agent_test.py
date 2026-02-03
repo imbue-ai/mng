@@ -8,6 +8,7 @@ from pathlib import Path
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
@@ -367,9 +368,9 @@ def test_get_message_delay_seconds_returns_default_when_not_set(
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """Test that get_message_delay_seconds returns 1.0 when not set in data.json."""
+    """Test that get_message_delay_seconds returns default when not set in data.json."""
     test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert test_agent.get_message_delay_seconds() == 1.0
+    assert test_agent.get_message_delay_seconds() == DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 
 
 def test_get_message_delay_seconds_returns_value_when_set(
