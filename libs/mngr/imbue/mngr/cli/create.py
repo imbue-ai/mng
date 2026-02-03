@@ -51,6 +51,7 @@ from imbue.mngr.interfaces.host import AgentLifecycleOptions
 from imbue.mngr.interfaces.host import AgentPermissionsOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
+from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mngr.interfaces.host import FileModificationSpec
 from imbue.mngr.interfaces.host import NamedCommand
 from imbue.mngr.interfaces.host import OnlineHostInterface
@@ -448,9 +449,9 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option(
     "--message-delay",
     type=float,
-    default=1.0,
+    default=DEFAULT_AGENT_READY_TIMEOUT_SECONDS,
     show_default=True,
-    help="Seconds to wait before sending initial message",
+    help="Timeout in seconds to wait for agent readiness before sending initial message",
 )
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries (e.g., 5s, 1m)")
