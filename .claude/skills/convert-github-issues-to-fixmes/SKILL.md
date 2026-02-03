@@ -22,11 +22,11 @@ The authorized users list is maintained in `scripts/authorized_github_users.toml
 Run the helper script to fetch all open "autoclaude" issues and their comments, filtering to only include comments from authorized users:
 
 ```bash
-uv run python scripts/load_triaged_issues.py > triaged_issues.json
+./scripts/load_triaged_issues.sh > triaged_issues.json
 ```
 
-This script:
-1. Loads the list of authorized users from `scripts/authorized_github_users.json`
+This script (requires `gh` and `jq`):
+1. Loads the list of authorized users from `scripts/authorized_github_users.toml`
 2. Fetches all open issues with the "autoclaude" label
 3. For each issue, fetches comments and filters to only those from authorized users
 4. Outputs only issues that have at least one comment from an authorized user
