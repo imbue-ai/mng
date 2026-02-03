@@ -31,15 +31,19 @@ test-offload:
     # If not set, default LAST_COMMIT_SHA to the current HEAD
     export LAST_COMMIT_SHA=${LAST_COMMIT_SHA:-$(git rev-parse HEAD)}
     tmpdir=$(mktemp -d)
+    trap "rm -rf $tmpdir" EXIT
+
     ./scripts/make_tar_of_repo.sh $LAST_COMMIT_SHA $tmpdir
     export OFFLOAD_PATCH_UUID=`uv run python -c"import uuid;print(uuid.uuid4())"`
     mkdir -p /tmp/$OFFLOAD_PATCH_UUID
+    trap "rm -rf /tmp/$OFFLOAD_PATCH_UUID" EXIT
+
     ./scripts/generate_patch_for_offload.sh $LAST_COMMIT_SHA > /tmp/$OFFLOAD_PATCH_UUID/patch
     cp $tmpdir/current.tar.gz .
+    trap "rm -f current.tar.gz" EXIT
+
     offload -c offload-modal.toml run --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" 
-    rm -rf $tmpdir
-    rm -rf current.tar.gz
-    rm -rf /tmp/$OFFLOAD_PATCH_UUID
+
 
 test-unit:
   uv run pytest --ignore-glob="**/test_*.py" --cov-fail-under=36
