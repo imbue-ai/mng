@@ -405,18 +405,18 @@ class BaseAgent(AgentInterface):
             raise SendMessageError(str(self.name), f"tmux send-keys Enter failed: {result.stderr or result.stdout}")
 
     def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:
-        """Wait until the marker is visible in the tmux pane."""
+        """Wait until the marker is visible at the end of the tmux pane."""
         deadline = time.monotonic() + _SEND_MESSAGE_TIMEOUT_SECONDS
         is_marker_found = False
 
         while not is_marker_found and time.monotonic() < deadline:
             result = self.host.execute_command(
-                f"tmux capture-pane -t '{session_name}' -p | tail -5",
+                f"tmux capture-pane -t '{session_name}' -p",
                 timeout_seconds=5.0,
             )
-            if result.success and marker in result.stdout:
+            if result.success and result.stdout.rstrip().endswith(marker):
                 is_marker_found = True
-                logger.trace("Marker {} found in pane", marker)
+                logger.trace("Marker {} found at end of pane", marker)
             else:
                 time.sleep(_SEND_MESSAGE_POLL_INTERVAL_SECONDS)
 
@@ -434,7 +434,7 @@ class BaseAgent(AgentInterface):
 
         while not is_marker_removed and time.monotonic() < deadline:
             result = self.host.execute_command(
-                f"tmux capture-pane -t '{session_name}' -p | tail -5",
+                f"tmux capture-pane -t '{session_name}' -p",
                 timeout_seconds=5.0,
             )
             if result.success and marker not in result.stdout:
