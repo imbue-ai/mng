@@ -256,8 +256,7 @@ class LocalProviderInstance(BaseProviderInstance):
         """List all hosts managed by this provider.
 
         For the local provider, this always returns a single-element list
-        containing the local host. The cg parameter is accepted but not used
-        since local host listing is fast and doesn't benefit from parallelization.
+        containing the local host.
         """
         logger.trace("Listing hosts for local provider {}", self.name)
         return [self._create_host(HostName("local"))]
