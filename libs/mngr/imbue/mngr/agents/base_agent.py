@@ -170,9 +170,8 @@ class BaseAgent(AgentInterface):
             return AgentLifecycleState.DONE
 
         # Check if current command matches expected command (by basename)
-        expected_command = self.get_command()
-        expected_basename = self._get_command_basename(expected_command)
-        if self._command_basename_matches(current_command, expected_command):
+        expected_basename = self.get_expected_process_name()
+        if current_command == expected_basename:
             return self._check_waiting_state()
 
         # Current command doesn't match expected - check descendant processes
@@ -209,6 +208,14 @@ class BaseAgent(AgentInterface):
         """Extract the basename from a command string."""
         # Handle both "sleep 1000" and "/usr/bin/sleep 1000"
         return command.split()[0].split("/")[-1] if command else ""
+
+    def get_expected_process_name(self) -> str:
+        """Get the expected process name for lifecycle state detection.
+
+        Subclasses can override this to return a hardcoded process name
+        when the command is complex (e.g., shell wrappers with exports).
+        """
+        return self._get_command_basename(self.get_command())
 
     def _get_descendant_process_names(self, root_pid: str, ps_output: str) -> list[str]:
         """Get names of all descendant processes from ps output."""

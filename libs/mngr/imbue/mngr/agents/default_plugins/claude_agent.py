@@ -138,6 +138,14 @@ class ClaudeAgent(BaseAgent):
         # Fall back to default config if not a ClaudeAgentConfig
         return ClaudeAgentConfig()
 
+    def get_expected_process_name(self) -> str:
+        """Return 'claude' as the expected process name.
+
+        This overrides the base implementation because ClaudeAgent uses a complex
+        shell command with exports and fallbacks, but the actual process is always 'claude'.
+        """
+        return "claude"
+
     def assemble_command(
         self,
         host: OnlineHostInterface,
