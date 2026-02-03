@@ -326,13 +326,25 @@ class OnlineHostInterface(HostInterface, ABC):
     # =========================================================================
 
     @abstractmethod
-    def get_uptime_seconds(self) -> float:
-        """Return the number of seconds since this host was last started."""
+    def _get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
+        """Get SSH connection info for this host if it's remote.
+
+        Returns (user, hostname, port, private_key_path) if remote, None if local.
+        """
         ...
 
     @abstractmethod
     def get_boot_time(self) -> datetime | None:
-        """Return the host boot time as a datetime, or None if unknown."""
+        """Get the host boot time as a datetime.
+
+        Returns the actual boot time from the OS, not computed from uptime,
+        to avoid timing inconsistencies.
+        """
+        ...
+
+    @abstractmethod
+    def get_uptime_seconds(self) -> float:
+        """Return the number of seconds since this host was last started."""
         ...
 
     @abstractmethod

@@ -318,6 +318,12 @@ class Host(BaseHost, OnlineHostInterface):
 
     def _get_file_mtime(self, path: Path) -> datetime | None:
         """Get the mtime of a file on the host."""
+        if self.is_local:
+            try:
+                mtime = path.stat().st_mtime
+                return datetime.fromtimestamp(mtime, tz=timezone.utc)
+            except (FileNotFoundError, OSError):
+                return None
         result = self.execute_command(f"stat -c %Y '{str(path)}' 2>/dev/null || stat -f %m '{str(path)}' 2>/dev/null")
         if result.success and result.stdout.strip():
             try:
@@ -333,16 +339,25 @@ class Host(BaseHost, OnlineHostInterface):
 
     def _path_exists(self, path: Path) -> bool:
         """Check if a path exists on the host."""
+        if self.is_local:
+            return path.exists()
         result = self.execute_command(f"test -e '{str(path)}'")
         return result.success
 
     def _is_directory(self, path: Path) -> bool:
         """Check if a path is a directory on the host."""
+        if self.is_local:
+            return path.is_dir()
         result = self.execute_command(f"test -d '{str(path)}'")
         return result.success
 
     def _list_directory(self, path: Path) -> list[str]:
         """List files in a directory on the host."""
+        if self.is_local:
+            try:
+                return list(entry.name for entry in path.iterdir())
+            except (FileNotFoundError, OSError):
+                return []
         result = self.execute_command(f"ls -1 '{str(path)}' 2>/dev/null")
         if result.success and result.stdout.strip():
             return result.stdout.strip().split("\n")
@@ -592,9 +607,11 @@ class Host(BaseHost, OnlineHostInterface):
         """Return the host last stop time as a datetime, or None if unknown."""
         return None
 
+    # FIXME: both this and the below method will be broken if we ever have remote hosts that are OSX
+    #  instead of this, we should, for each of them, make a single command that does the platform check before dispatching to the resulting platform-dependent logic
     def get_uptime_seconds(self) -> float:
         """Get host uptime in seconds."""
-        if is_macos():
+        if is_macos() and self.is_local:
             # macOS: use sysctl kern.boottime to get boot time, then compute uptime
             # Output format: { sec = 1234567890, usec = 123456 } ...
             # Use awk to reliably extract the sec value (not usec)
@@ -622,7 +639,7 @@ class Host(BaseHost, OnlineHostInterface):
         Returns the actual boot time from the OS, not computed from uptime,
         to avoid timing inconsistencies.
         """
-        if is_macos():
+        if is_macos() and self.is_local:
             # macOS: use sysctl kern.boottime which gives boot time directly
             # Output format: { sec = 1234567890, usec = 123456 } ...
             # Use awk to reliably extract the sec value (not usec)
@@ -933,6 +950,8 @@ class Host(BaseHost, OnlineHostInterface):
             user, hostname, port, key_path = target_ssh_info
             git_url = f"ssh://{user}@{hostname}:{port}{target_path}/.git"
 
+        # FIXME: this whole block is a bit duplicated. Refactor to do the same thing, but assemble the args a bit more coherently
+        #  For example, the reason we need --no-verify is to skip any hooks, since they can sometimes fail
         if source_host.is_local:
             logger.debug("Pushing git repo to target: {}", git_url)
             env: dict[str, str] = {}
@@ -945,7 +964,7 @@ class Host(BaseHost, OnlineHostInterface):
             # and without this, it can take a ridiculously long time.
             env["GIT_LFS_SKIP_PUSH"] = "1"
 
-            command_args = ["git", "-C", str(source_path), "push", "--mirror", git_url]
+            command_args = ["git", "-C", str(source_path), "push", "--no-verify", "--mirror", git_url]
             logger.trace(" ".join(command_args))
             logger.trace("Running git push --mirror from local source to target with env: {}", env)
             result = subprocess.run(
@@ -961,12 +980,12 @@ class Host(BaseHost, OnlineHostInterface):
                 user, hostname, port, key_path = target_ssh_info
                 git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
                 result = source_host.execute_command(
-                    f"GIT_SSH_COMMAND={shlex.quote(git_ssh_cmd)} git push --mirror {shlex.quote(git_url)}",
+                    f"GIT_SSH_COMMAND={shlex.quote(git_ssh_cmd)} git push --no-verify --mirror {shlex.quote(git_url)}",
                     cwd=source_path,
                 )
             else:
                 result = source_host.execute_command(
-                    f"git push --mirror {shlex.quote(git_url)}",
+                    f"git push --no-verify --mirror {shlex.quote(git_url)}",
                     cwd=source_path,
                 )
             if not result.success:

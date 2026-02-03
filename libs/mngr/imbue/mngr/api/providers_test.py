@@ -139,3 +139,48 @@ def test_get_all_provider_instances_empty_enabled_backends_allows_all(temp_mngr_
     # Should have at least local backend
     provider_names = [str(p.name) for p in providers]
     assert "local" in provider_names
+
+
+def test_get_all_provider_instances_filters_by_provider_names(temp_mngr_ctx: MngrContext) -> None:
+    """Test get_all_provider_instances filters to only specified providers."""
+    providers = get_all_provider_instances(temp_mngr_ctx, provider_names=("local",))
+
+    assert len(providers) == 1
+    assert str(providers[0].name) == "local"
+
+
+def test_get_all_provider_instances_provider_names_excludes_others(temp_mngr_ctx: MngrContext) -> None:
+    """Test providers not in provider_names are excluded."""
+    providers = get_all_provider_instances(temp_mngr_ctx, provider_names=("nonexistent",))
+
+    assert len(providers) == 0
+
+
+def test_get_all_provider_instances_provider_names_with_configured_provider(
+    temp_mngr_ctx: MngrContext, mngr_test_prefix: str
+) -> None:
+    """Test provider_names filtering works with configured providers."""
+    custom_name = ProviderInstanceName("my-filtered-local")
+    config = MngrConfig(
+        default_host_dir=temp_mngr_ctx.config.default_host_dir,
+        prefix=mngr_test_prefix,
+        providers={
+            custom_name: LocalProviderConfig(
+                backend=ProviderBackendName("local"),
+            ),
+        },
+    )
+    mngr_ctx = MngrContext(config=config, pm=temp_mngr_ctx.pm, profile_dir=temp_mngr_ctx.profile_dir)
+
+    # Filter to only the custom provider
+    providers = get_all_provider_instances(mngr_ctx, provider_names=("my-filtered-local",))
+
+    assert len(providers) == 1
+    assert providers[0].name == custom_name
+
+    # Filter to only local (should not include custom)
+    providers_local = get_all_provider_instances(mngr_ctx, provider_names=("local",))
+
+    provider_names = [str(p.name) for p in providers_local]
+    assert "local" in provider_names
+    assert "my-filtered-local" not in provider_names

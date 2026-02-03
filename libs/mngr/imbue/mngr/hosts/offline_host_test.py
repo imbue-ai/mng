@@ -216,18 +216,6 @@ def test_get_state_returns_crashed_when_provider_does_not_support_snapshots_and_
     assert state == HostState.CRASHED
 
 
-def test_get_state_returns_crashed_when_snapshot_check_fails_and_no_stop_reason(
-    offline_host: OfflineHost, mock_provider
-):
-    """Test that get_state falls back to stop_reason when snapshot check raises an exception."""
-    mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.side_effect = OSError("Connection failed")
-
-    state = offline_host.get_state()
-    # No stop_reason means host didn't shut down cleanly
-    assert state == HostState.CRASHED
-
-
 def test_get_state_returns_failed_when_certified_data_has_failed_state(mock_provider, mock_mngr_ctx):
     """Test that get_state returns FAILED when certified data indicates failure."""
     host_id = HostId.generate()
@@ -302,6 +290,18 @@ def test_get_build_log_returns_none_for_successful_host(offline_host: OfflineHos
     """Test that get_build_log returns None for hosts that did not fail."""
     log = offline_host.get_build_log()
     assert log is None
+
+
+def test_get_state_returns_crashed_when_snapshot_check_fails_and_no_stop_reason(
+    offline_host: OfflineHost, mock_provider
+):
+    """Test that get_state falls back to stop_reason when snapshot check raises an exception."""
+    mock_provider.supports_snapshots = True
+    mock_provider.list_snapshots.side_effect = OSError("Connection failed")
+
+    state = offline_host.get_state()
+    # No stop_reason means host didn't shut down cleanly
+    assert state == HostState.CRASHED
 
 
 def test_failed_state_takes_precedence_over_snapshot_check(mock_provider, mock_mngr_ctx):

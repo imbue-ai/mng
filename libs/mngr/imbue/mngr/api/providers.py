@@ -98,23 +98,36 @@ def _is_backend_enabled(backend_name: str, mngr_ctx: MngrContext) -> bool:
     return ProviderBackendName(backend_name) in enabled_backends
 
 
-def get_all_provider_instances(mngr_ctx: MngrContext) -> list[BaseProviderInstance]:
+def get_all_provider_instances(
+    mngr_ctx: MngrContext,
+    provider_names: tuple[str, ...] | None = None,
+) -> list[BaseProviderInstance]:
     """Get all available provider instances.
+
+    If provider_names is provided, only returns providers matching those names,
+    allowing skipping expensive initialization of providers that won't be used.
 
     Returns configured providers plus default instances for all registered backends,
     excluding:
     - Backends disabled via --disable-plugin
     - Provider instances with is_enabled=False in their config
     - Backends not in enabled_backends list (if the list is non-empty)
+    - Providers not in provider_names (if provider_names is specified)
     """
     providers: list[BaseProviderInstance] = []
     seen_names: set[str] = set()
     disabled = mngr_ctx.config.disabled_plugins
 
+    # Convert provider_names to a set for efficient lookup
+    provider_filter: set[str] | None = set(provider_names) if provider_names else None
+
     # First, add all configured providers (unless disabled or not enabled)
     logger.trace("Loading configured provider instances")
     for name, provider_config in mngr_ctx.config.providers.items():
         seen_names.add(str(name))
+        if provider_filter is not None and str(name) not in provider_filter:
+            logger.trace("Skipping provider {} (not in provider filter)", name)
+            continue
         if str(name) in disabled:
             logger.trace("Skipping disabled provider {}", name)
             continue
@@ -129,6 +142,9 @@ def get_all_provider_instances(mngr_ctx: MngrContext) -> list[BaseProviderInstan
     # Then, add default instances for backends not already configured (unless disabled)
     logger.trace("Loading default provider instances for remaining backends")
     for backend_name in list_backends():
+        if provider_filter is not None and backend_name not in provider_filter:
+            logger.trace("Skipping backend {} (not in provider filter)", backend_name)
+            continue
         if backend_name in disabled:
             logger.trace("Skipping disabled backend {}", backend_name)
             continue

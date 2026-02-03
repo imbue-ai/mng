@@ -17,9 +17,9 @@ from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.create import create as api_create
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.data_types import CreateAgentResult
+from imbue.mngr.api.data_types import HostEnvironmentOptions
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.data_types import NewHostBuildOptions
-from imbue.mngr.api.data_types import HostEnvironmentOptions
 from imbue.mngr.api.data_types import NewHostOptions
 from imbue.mngr.api.data_types import SourceLocation
 from imbue.mngr.api.find import get_host_from_list_by_id
@@ -548,7 +548,7 @@ def create(ctx: click.Context, **kwargs) -> None:
     @lru_cache
     def agent_and_host_loader() -> dict[HostReference, list[AgentReference]]:
         """Lazily load all agents grouped by host, caching the result."""
-        return load_all_agents_grouped_by_host(mngr_ctx)
+        return load_all_agents_grouped_by_host(mngr_ctx)[0]
 
     # figure out where the source data is coming from
     source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx)
@@ -569,7 +569,10 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     # Parse agent options
     agent_opts = _parse_agent_opts(
-        opts=opts, initial_message=initial_message, resume_message=resume_message_content, source_location=source_location
+        opts=opts,
+        initial_message=initial_message,
+        resume_message=resume_message_content,
+        source_location=source_location,
     )
 
     # parse the connection options

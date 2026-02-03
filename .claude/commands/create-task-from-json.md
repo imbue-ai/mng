@@ -17,7 +17,7 @@ Next, look at the git log for the past ~10 or so commits to better understand wh
 
 After that, gather context (as appropriate) from the project in this repo that is being worked on (read the docs, specs, interfaces, and any code that seems like it might be related)
 
-Finally, ultrathink about how best to convert this task into a complete, concise, clear prompt that can be sent along to an AI coding model.
+Finally, think carefully about how best to convert this task into a complete, concise, clear prompt that can be sent along to an AI coding model.
 
 Keep the following guidelines in mind:
 

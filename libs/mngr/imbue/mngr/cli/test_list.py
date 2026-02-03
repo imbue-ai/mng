@@ -583,3 +583,461 @@ def test_list_command_with_invalid_fields(
         assert "NAME" in result.output
         assert "INVALID_FIELD" in result.output
         assert agent_name in result.output
+
+
+def test_list_command_with_running_filter_alias(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --running filter alias."""
+    agent_name = f"test-list-running-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create a running agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 907727",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with --running should show the agent
+        result = cli_runner.invoke(
+            list_command,
+            ["--running"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name in result.output
+
+
+def test_list_command_with_stopped_filter_alias(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --stopped filter alias (no agents to find)."""
+    # Without any stopped agents, this should return no agents
+    result = cli_runner.invoke(
+        list_command,
+        ["--stopped"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    # Should indicate no agents found or empty output
+    assert "No agents found" in result.output or "stopped" not in result.output.lower()
+
+
+def test_list_command_with_local_filter_alias(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --local filter alias."""
+    agent_name = f"test-list-local-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create a local agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 806616",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with --local should show the agent
+        result = cli_runner.invoke(
+            list_command,
+            ["--local"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name in result.output
+
+
+def test_list_command_with_remote_filter_alias(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --remote filter alias (excludes local agents)."""
+    agent_name = f"test-list-remote-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create a local agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 705505",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with --remote should NOT show the local agent
+        result = cli_runner.invoke(
+            list_command,
+            ["--remote"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name not in result.output
+
+
+def test_list_command_with_limit(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --limit option.
+
+    Note: The limit is applied after fetching all results from providers.
+    This test verifies that only the specified number of agents are displayed.
+    """
+    agent_name_1 = f"test-list-limit-1-{int(time.time())}"
+    agent_name_2 = f"test-list-limit-2-{int(time.time())}"
+    session_name_1 = f"{mngr_test_prefix}{agent_name_1}"
+    session_name_2 = f"{mngr_test_prefix}{agent_name_2}"
+
+    with tmux_session_cleanup(session_name_1):
+        with tmux_session_cleanup(session_name_2):
+            # Create first agent
+            create_result_1 = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name_1,
+                    "--agent-cmd",
+                    "sleep 604394",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert create_result_1.exit_code == 0
+
+            # Create second agent
+            create_result_2 = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name_2,
+                    "--agent-cmd",
+                    "sleep 503283",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert create_result_2.exit_code == 0
+
+            # List with --limit 1 should show only one agent
+            result = cli_runner.invoke(
+                list_command,
+                ["--limit", "1"],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            assert result.exit_code == 0
+            # Count how many of our test agents are shown
+            # (only one should be shown)
+            agent_count = sum(1 for name in [agent_name_1, agent_name_2] if name in result.output)
+            assert agent_count == 1
+
+
+def test_list_command_with_limit_json_format(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --limit option in JSON format."""
+    agent_name = f"test-list-limit-json-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 402172",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with --limit 1 --format json
+        result = cli_runner.invoke(
+            list_command,
+            ["--limit", "1", "--format", "json"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert '"agents":' in result.output
+
+
+def test_list_command_with_sort_by_name(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --sort option by name."""
+    agent_name_a = f"aaa-list-sort-{int(time.time())}"
+    agent_name_z = f"zzz-list-sort-{int(time.time())}"
+    session_name_a = f"{mngr_test_prefix}{agent_name_a}"
+    session_name_z = f"{mngr_test_prefix}{agent_name_z}"
+
+    with tmux_session_cleanup(session_name_a):
+        with tmux_session_cleanup(session_name_z):
+            # Create agents in reverse alphabetical order
+            create_result_z = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name_z,
+                    "--agent-cmd",
+                    "sleep 200950",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert create_result_z.exit_code == 0
+
+            create_result_a = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name_a,
+                    "--agent-cmd",
+                    "sleep 109839",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert create_result_a.exit_code == 0
+
+            # List sorted by name ascending
+            result = cli_runner.invoke(
+                list_command,
+                ["--sort", "name", "--sort-order", "asc"],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            assert result.exit_code == 0
+            # Agent 'aaa' should appear before 'zzz'
+            pos_a = result.output.find(agent_name_a)
+            pos_z = result.output.find(agent_name_z)
+            assert pos_a != -1
+            assert pos_z != -1
+            assert pos_a < pos_z, "Agent 'aaa' should appear before 'zzz' in ascending order"
+
+
+def test_list_command_with_sort_descending(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --sort option in descending order."""
+    agent_name_a = f"aaa-list-desc-{int(time.time())}"
+    agent_name_z = f"zzz-list-desc-{int(time.time())}"
+    session_name_a = f"{mngr_test_prefix}{agent_name_a}"
+    session_name_z = f"{mngr_test_prefix}{agent_name_z}"
+
+    with tmux_session_cleanup(session_name_a):
+        with tmux_session_cleanup(session_name_z):
+            # Create both agents
+            create_result_a = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name_a,
+                    "--agent-cmd",
+                    "sleep 008728",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert create_result_a.exit_code == 0
+
+            create_result_z = cli_runner.invoke(
+                create,
+                [
+                    "--name",
+                    agent_name_z,
+                    "--agent-cmd",
+                    "sleep 007617",
+                    "--source",
+                    str(temp_work_dir),
+                    "--no-connect",
+                    "--await-ready",
+                    "--no-copy-work-dir",
+                    "--no-ensure-clean",
+                ],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert create_result_z.exit_code == 0
+
+            # List sorted by name descending
+            result = cli_runner.invoke(
+                list_command,
+                ["--sort", "name", "--sort-order", "desc"],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            assert result.exit_code == 0
+            # Agent 'zzz' should appear before 'aaa'
+            pos_a = result.output.find(agent_name_a)
+            pos_z = result.output.find(agent_name_z)
+            assert pos_a != -1
+            assert pos_z != -1
+            assert pos_z < pos_a, "Agent 'zzz' should appear before 'aaa' in descending order"
+
+
+def test_list_command_with_provider_filter(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --provider filter."""
+    agent_name = f"test-list-provider-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent on the local provider
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 345678",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with --provider local - should find the agent
+        result = cli_runner.invoke(
+            list_command,
+            ["--provider", "local"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name in result.output
+
+        # List with --provider nonexistent - should not find any agents
+        result_empty = cli_runner.invoke(
+            list_command,
+            ["--provider", "nonexistent"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result_empty.exit_code == 0
+        assert agent_name not in result_empty.output
+        assert "No agents found" in result_empty.output

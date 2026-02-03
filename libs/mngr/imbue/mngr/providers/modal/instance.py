@@ -273,6 +273,8 @@ class ModalProviderInstance(BaseProviderInstance):
     _sandbox_cache_by_id: dict[HostId, modal.Sandbox] = PrivateAttr(default_factory=dict)
     _sandbox_cache_by_name: dict[HostName, modal.Sandbox] = PrivateAttr(default_factory=dict)
     _host_by_id_cache: dict[HostId, HostInterface] = PrivateAttr(default_factory=dict)
+    # Cache for host records read from the volume to avoid repeated reads
+    _host_record_cache_by_id: dict[HostId, HostRecord] = PrivateAttr(default_factory=dict)
 
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
@@ -319,8 +321,8 @@ class ModalProviderInstance(BaseProviderInstance):
 
     @property
     def _keys_dir(self) -> Path:
-        config_dir = self.mngr_ctx.config.default_host_dir.expanduser()
-        return config_dir / "providers" / "modal"
+        """Get the directory for SSH keys (profile-specific)."""
+        return self.mngr_ctx.profile_dir / "providers" / "modal"
 
     def _get_ssh_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH keypair for this provider instance."""
@@ -358,13 +360,17 @@ class ModalProviderInstance(BaseProviderInstance):
     def _write_host_record(self, host_record: HostRecord) -> None:
         """Write a host record to the volume."""
         volume = self._get_volume()
-        path = self._get_host_record_path(HostId(host_record.host_id))
+        host_id = HostId(host_record.host_id)
+        path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
         logger.trace("Writing host record to volume: {}", path)
 
         # Upload the data as a file-like object
         with volume.batch_upload(force=True) as batch:
             batch.put_file(io.BytesIO(data.encode("utf-8")), path)
+
+        # Update the cache with the new host record
+        self._host_record_cache_by_id[host_id] = host_record
 
     def _save_failed_host_record(
         self,
@@ -396,11 +402,17 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.debug("Saving failed host record for host_id={}", host_id)
         self._write_host_record(host_record)
 
-    def _read_host_record(self, host_id: HostId) -> HostRecord | None:
+    def _read_host_record(self, host_id: HostId, use_cache: bool = True) -> HostRecord | None:
         """Read a host record from the volume.
 
         Returns None if the host record doesn't exist.
+        Uses a cache to avoid repeated reads of the same host record.
         """
+        # Check cache first
+        if use_cache and host_id in self._host_record_cache_by_id:
+            logger.trace("Using cached host record for host_id={}", host_id)
+            return self._host_record_cache_by_id[host_id]
+
         volume = self._get_volume()
         path = self._get_host_record_path(host_id)
         logger.trace("Reading host record from volume: {}", path)
@@ -411,12 +423,15 @@ class ModalProviderInstance(BaseProviderInstance):
             for chunk in volume.read_file(path):
                 chunks.append(chunk)
             data = b"".join(chunks)
-            return HostRecord.model_validate_json(data)
+            host_record = HostRecord.model_validate_json(data)
+            # Cache the result
+            self._host_record_cache_by_id[host_id] = host_record
+            return host_record
         except FileNotFoundError:
             return None
 
     def _delete_host_record(self, host_id: HostId) -> None:
-        """Delete a host record from the volume."""
+        """Delete a host record from the volume and clear caches."""
         volume = self._get_volume()
         path = self._get_host_record_path(host_id)
         logger.trace("Deleting host record from volume: {}", path)
@@ -425,6 +440,10 @@ class ModalProviderInstance(BaseProviderInstance):
             volume.remove_file(path)
         except FileNotFoundError:
             pass
+
+        # Clear cache entries for this host
+        self._host_by_id_cache.pop(host_id, None)
+        self._host_record_cache_by_id.pop(host_id, None)
 
     def _list_all_host_records(self) -> list[HostRecord]:
         """List all host records stored on the volume.
@@ -1032,6 +1051,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         self._sandbox_cache_by_id.clear()
         self._sandbox_cache_by_name.clear()
         self._host_by_id_cache.clear()
+        self._host_record_cache_by_id.clear()
 
     def _find_sandbox_by_host_id(
         self, host_id: HostId, timeout: float = 5.0, poll_interval: float = 1.0
@@ -1421,8 +1441,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # is eventually started again, and B) this is a small optimization so that we don't need to get the host
         # record twice, since we use it to figure out the name below as well
         host_record = self._read_host_record(host_id)
-        updated_certified_data = host_record.certified_host_data.model_copy(update={"stop_reason": "STOPPED"})
-        self._write_host_record(host_record.model_copy(update={"certified_host_data": updated_certified_data}))
+        if host_record is not None:
+            updated_certified_data = host_record.certified_host_data.model_copy(update={"stop_reason": "STOPPED"})
+            self._write_host_record(host_record.model_copy(update={"certified_host_data": updated_certified_data}))
 
         # Remove from all caches since the sandbox is now terminated
         # Read host record to get the name for cache cleanup (re-read in case it was just updated)
@@ -1757,8 +1778,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # add these hosts to a cache so we don't need to look them up by name or id again
         for host in hosts:
-            if isinstance(host, Host):
-                self._host_by_id_cache[host.id] = host
+            self._host_by_id_cache[host.id] = host
 
         return hosts
 
