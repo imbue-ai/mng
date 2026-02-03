@@ -47,7 +47,11 @@ def _call_on_before_create_hooks(
             current_args = result
 
     # Return the final values
-    return current_args.target_host, current_args.agent_options, current_args.create_work_dir
+    return (
+        current_args.target_host,
+        current_args.agent_options,
+        current_args.create_work_dir,
+    )
 
 
 @log_call
@@ -109,6 +113,13 @@ def create(
         # Give the agent a moment to start up before sending the message
         logger.debug("Waiting for agent to become ready before sending initial message")
         time.sleep(agent_options.message_delay_seconds)
+
+        # Claude shows a workspace trust dialog when starting in a new directory.
+        # For Claude agents, send Enter to accept it (if present).
+        if agent.agent_type == "claude":
+            session_name = f"{mngr_ctx.config.prefix}{agent.name}"
+            host.execute_command(f"tmux send-keys -t '{session_name}' Enter", timeout_seconds=5.0)
+        time.sleep(agent_options.message_delay_seconds)
         agent.send_message(initial_message)
 
     # Build and return the result
@@ -128,7 +139,11 @@ def resolve_target_host(
     """Resolve which host to use for the agent."""
     if target_host is not None and isinstance(target_host, NewHostOptions):
         # Create a new host using the specified provider
-        logger.debug("Creating new host '{}' using provider '{}'", target_host.name, target_host.provider)
+        logger.debug(
+            "Creating new host '{}' using provider '{}'",
+            target_host.name,
+            target_host.provider,
+        )
         provider = get_provider_instance(target_host.provider, mngr_ctx)
 
         logger.trace(
