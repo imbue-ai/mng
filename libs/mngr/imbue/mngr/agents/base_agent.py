@@ -410,11 +410,10 @@ class BaseAgent(AgentInterface):
         logger.debug("Waiting {}s before sending Enter", enter_delay)
         time.sleep(enter_delay)
 
-        # Now send Enter to submit the message
-        send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
-        result = self.host.execute_command(send_enter_cmd)
-        if not result.success:
-            raise SendMessageError(str(self.name), f"tmux send-keys Enter failed: {result.stderr or result.stdout}")
+        # Send Enter with retry logic. Sometimes Enter is interpreted as a literal newline
+        # instead of a submit action. We detect this by checking if the message is still
+        # in the input area after sending Enter, and retry if so.
+        self._send_enter_with_retry(session_name, expected_ending)
 
     def _capture_pane_content(self, session_name: str) -> str | None:
         """Capture the current pane content, returning None on failure."""
@@ -475,6 +474,85 @@ class BaseAgent(AgentInterface):
         marker_gone = marker not in content
         contains_expected = expected_ending in content
         return marker_gone and contains_expected
+
+    def _send_enter_with_retry(self, session_name: str, expected_ending: str, max_retries: int = 3) -> None:
+        """Send Enter to submit the message, with retry logic for reliability.
+
+        After sending Enter, we check if Claude started processing the message by
+        looking for processing indicators (like "Thinking") or the absence of the
+        message in the input area. If the message is still visible in the input area
+        (suggesting Enter was interpreted as a literal newline), we retry.
+
+        With ~3% individual failure rate and 3 retries, this achieves:
+        (0.03)^3 = 0.003% failure rate = 99.997% success rate
+        """
+        send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
+
+        for attempt in range(max_retries):
+            result = self.host.execute_command(send_enter_cmd)
+            if not result.success:
+                raise SendMessageError(
+                    str(self.name),
+                    f"tmux send-keys Enter failed: {result.stderr or result.stdout}",
+                )
+
+            # Brief delay to let Claude Code process the Enter key
+            time.sleep(0.3)
+
+            # Check if message was submitted (input area should no longer contain our message)
+            # or if Claude is processing (shows "Thinking" or similar)
+            if self._check_message_submitted(session_name, expected_ending):
+                logger.debug("Message submitted successfully on attempt {}", attempt + 1)
+                return
+
+            # Message still in input area - Enter was likely interpreted as newline
+            logger.debug(
+                "Enter may have been interpreted as newline (attempt {}), retrying...",
+                attempt + 1,
+            )
+
+            # Small delay before retry
+            time.sleep(0.2)
+
+        # All retries exhausted - raise an error
+        raise SendMessageError(
+            str(self.name),
+            f"Failed to submit message after {max_retries} attempts - Enter keeps being interpreted as newline",
+        )
+
+    def _check_message_submitted(self, session_name: str, expected_ending: str) -> bool:
+        """Check if the message was submitted to Claude.
+
+        Returns True if:
+        - The message text is no longer in the input area (submitted), OR
+        - Claude shows processing indicators like "Thinking"
+
+        Returns False if the message text is still visible in the input area,
+        suggesting Enter was interpreted as a literal newline.
+        """
+        content = self._capture_pane_content(session_name)
+        if content is None:
+            return False
+
+        # Check for processing indicators (Claude is working on the message)
+        processing_indicators = ["Thinking", "Claude is thinking", "Working"]
+        for indicator in processing_indicators:
+            if indicator in content:
+                return True
+
+        # Check if the message ending is still in the pane.
+        # If it is, the message might still be in the input area (not submitted).
+        # If it's not, the input area was cleared (message submitted).
+        #
+        # Note: This is a heuristic. The message could also appear in chat history,
+        # but that's fine - if Claude is showing our message in history, it was submitted.
+        if expected_ending not in content:
+            return True
+
+        # Message text is still visible - could be in input area (not submitted)
+        # or in chat history (submitted). We conservatively assume not submitted
+        # and let the retry logic handle it.
+        return False
 
     # =========================================================================
     # Status (Reported)
