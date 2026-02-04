@@ -6,7 +6,6 @@ from queue import Empty
 from queue import Queue
 from subprocess import TimeoutExpired
 from threading import Event
-from typing import Callable
 from typing import Iterator
 from typing import Mapping
 from typing import Sequence

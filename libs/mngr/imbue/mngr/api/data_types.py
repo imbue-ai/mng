@@ -9,6 +9,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import BuildCacheInfo
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import LogFileInfo
@@ -16,11 +17,13 @@ from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.data_types import WorkDirInfo
 from imbue.mngr.interfaces.host import CreateAgentOptions
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotName
 
@@ -29,7 +32,7 @@ class CreateAgentResult(FrozenModel):
     """Result of creating an agent."""
 
     agent: AgentInterface = Field(description="The created agent")
-    host: HostInterface = Field(description="The host running the agent")
+    host: OnlineHostInterface = Field(description="The host running the agent")
 
 
 class SourceLocation(FrozenModel):
@@ -88,8 +91,8 @@ class NewHostBuildOptions(FrozenModel):
     )
 
 
-class NewHostEnvironmentOptions(FrozenModel):
-    """Environment variable configuration for a new host."""
+class HostEnvironmentOptions(FrozenModel):
+    """Environment variable configuration for a host."""
 
     env_vars: tuple[EnvVar, ...] = Field(
         default=(),
@@ -103,6 +106,46 @@ class NewHostEnvironmentOptions(FrozenModel):
         default=(),
         description="Environment variable names to forward from current shell",
     )
+    known_hosts: tuple[str, ...] = Field(
+        default=(),
+        description="SSH known_hosts entries to add to the host (for outbound SSH connections)",
+    )
+
+
+class HostLifecycleOptions(FrozenModel):
+    """Lifecycle and idle detection options for the host.
+
+    These options control when a host is considered idle and should be shut down.
+    All fields are optional; when None, provider defaults are used.
+    """
+
+    idle_timeout_seconds: int | None = Field(
+        default=None,
+        description="Shutdown after idle for N seconds (None for provider default)",
+    )
+    idle_mode: IdleMode | None = Field(
+        default=None,
+        description="When to consider host idle (None for provider default)",
+    )
+    activity_sources: tuple[ActivitySource, ...] | None = Field(
+        default=None,
+        description="Activity sources for idle detection (None for provider default)",
+    )
+
+    def to_activity_config(
+        self,
+        default_idle_timeout_seconds: int,
+        default_idle_mode: IdleMode,
+        default_activity_sources: tuple[ActivitySource, ...],
+    ) -> ActivityConfig:
+        """Convert to ActivityConfig, using provided defaults for None values."""
+        return ActivityConfig(
+            idle_timeout_seconds=self.idle_timeout_seconds
+            if self.idle_timeout_seconds is not None
+            else default_idle_timeout_seconds,
+            idle_mode=self.idle_mode if self.idle_mode is not None else default_idle_mode,
+            activity_sources=self.activity_sources if self.activity_sources is not None else default_activity_sources,
+        )
 
 
 class NewHostOptions(FrozenModel):
@@ -122,9 +165,13 @@ class NewHostOptions(FrozenModel):
         default_factory=NewHostBuildOptions,
         description="Build options for the host image",
     )
-    environment: NewHostEnvironmentOptions = Field(
-        default_factory=NewHostEnvironmentOptions,
+    environment: HostEnvironmentOptions = Field(
+        default_factory=HostEnvironmentOptions,
         description="Environment variable configuration",
+    )
+    lifecycle: HostLifecycleOptions = Field(
+        default_factory=HostLifecycleOptions,
+        description="Lifecycle and idle detection options",
     )
 
 
@@ -218,7 +265,7 @@ class OnBeforeCreateArgs(FrozenModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
-    target_host: HostInterface | NewHostOptions = Field(
+    target_host: OnlineHostInterface | NewHostOptions = Field(
         description="The target host (or options to create one) for the agent"
     )
     agent_options: CreateAgentOptions = Field(description="Options for creating the agent")

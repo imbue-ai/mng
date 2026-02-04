@@ -17,6 +17,8 @@ from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import OutputOptions
@@ -45,13 +47,19 @@ class ConfigCliOptions(CommonCliOptions):
     """
 
     scope: str | None
+    # Arguments used by subcommands (get, set, unset)
+    key: str | None = None
+    value: str | None = None
 
 
-def _get_config_path(scope: ConfigScope, root_name: str = "mngr") -> Path:
-    """Get the config file path for the given scope."""
+def _get_config_path(scope: ConfigScope, root_name: str = "mngr", profile_dir: Path | None = None) -> Path:
+    """Get the config file path for the given scope. The profile_dir is required for USER scope."""
     match scope:
         case ConfigScope.USER:
-            return Path.home() / ".config" / root_name / "settings.toml"
+            # User config is in the active profile directory
+            if profile_dir is None:
+                raise ConfigNotFoundError("profile_dir is required for USER scope")
+            return profile_dir / "settings.toml"
         case ConfigScope.PROJECT:
             git_root = find_git_worktree_root()
             if git_root is None:
@@ -184,7 +192,7 @@ def _flatten_config(config: dict[str, Any], prefix: str = "") -> list[tuple[str,
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -215,7 +223,7 @@ def config(ctx: click.Context, **kwargs: Any) -> None:
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -253,7 +261,7 @@ def _config_list_impl(ctx: click.Context, **kwargs: Any) -> None:
     if opts.scope:
         # List config from specific scope
         scope = ConfigScope(opts.scope.upper())
-        config_path = _get_config_path(scope, root_name)
+        config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
         config_data = _load_config_file(config_path)
         _emit_config_list(config_data, output_opts, scope, config_path)
     else:
@@ -305,7 +313,7 @@ def _emit_config_list(
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -343,7 +351,7 @@ def _config_get_impl(ctx: click.Context, key: str, **kwargs: Any) -> None:
     if opts.scope:
         # Get from specific scope
         scope = ConfigScope(opts.scope.upper())
-        config_path = _get_config_path(scope, root_name)
+        config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
         config_data = _load_config_file(config_path)
     else:
         # Get from merged config
@@ -391,7 +399,7 @@ def _emit_key_not_found(key: str, output_opts: OutputOptions) -> None:
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
     default="project",
     show_default=True,
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -429,7 +437,7 @@ def _config_set_impl(ctx: click.Context, key: str, value: str, **kwargs: Any) ->
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
     scope = ConfigScope((opts.scope or "project").upper())
-    config_path = _get_config_path(scope, root_name)
+    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
 
     # Load existing config
     doc = _load_config_file_tomlkit(config_path)
@@ -454,22 +462,28 @@ def _emit_config_set_result(
     """Emit the result of a config set operation."""
     match output_opts.output_format:
         case OutputFormat.JSON:
-            emit_final_json({
-                "key": key,
-                "value": value,
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-            })
+            emit_final_json(
+                {
+                    "key": key,
+                    "value": value,
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
         case OutputFormat.JSONL:
-            emit_final_json({
-                "event": "config_set",
-                "key": key,
-                "value": value,
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-            })
+            emit_final_json(
+                {
+                    "event": "config_set",
+                    "key": key,
+                    "value": value,
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
         case OutputFormat.HUMAN:
-            logger.info("Set {} = {} in {} ({})", key, _format_value_for_display(value), scope.value.lower(), config_path)
+            logger.info(
+                "Set {} = {} in {} ({})", key, _format_value_for_display(value), scope.value.lower(), config_path
+            )
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -481,7 +495,7 @@ def _emit_config_set_result(
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
     default="project",
     show_default=True,
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -514,7 +528,7 @@ def _config_unset_impl(ctx: click.Context, key: str, **kwargs: Any) -> None:
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
     scope = ConfigScope((opts.scope or "project").upper())
-    config_path = _get_config_path(scope, root_name)
+    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
 
     if not config_path.exists():
         _emit_key_not_found(key, output_opts)
@@ -542,18 +556,22 @@ def _emit_config_unset_result(
     """Emit the result of a config unset operation."""
     match output_opts.output_format:
         case OutputFormat.JSON:
-            emit_final_json({
-                "key": key,
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-            })
+            emit_final_json(
+                {
+                    "key": key,
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
         case OutputFormat.JSONL:
-            emit_final_json({
-                "event": "config_unset",
-                "key": key,
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-            })
+            emit_final_json(
+                {
+                    "event": "config_unset",
+                    "key": key,
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
         case OutputFormat.HUMAN:
             logger.info("Removed {} from {} ({})", key, scope.value.lower(), config_path)
         case _ as unreachable:
@@ -566,7 +584,7 @@ def _emit_config_unset_result(
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
     default="project",
     show_default=True,
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -603,7 +621,7 @@ def _config_edit_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
     scope = ConfigScope((opts.scope or "project").upper())
-    config_path = _get_config_path(scope, root_name)
+    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
 
     # Create the config file if it doesn't exist
     if not config_path.exists():
@@ -634,16 +652,20 @@ def _config_edit_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     match output_opts.output_format:
         case OutputFormat.JSON:
-            emit_final_json({
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-            })
+            emit_final_json(
+                {
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
         case OutputFormat.JSONL:
-            emit_final_json({
-                "event": "config_edited",
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-            })
+            emit_final_json(
+                {
+                    "event": "config_edited",
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
         case OutputFormat.HUMAN:
             pass
         case _ as unreachable:
@@ -687,7 +709,7 @@ def _get_config_template() -> str:
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
-    help="Config scope: user (~/.config/mngr/), project (.mngr/), or local (.mngr/settings.local.toml)",
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
 )
 @add_common_options
 @click.pass_context
@@ -724,7 +746,7 @@ def _config_path_impl(ctx: click.Context, **kwargs: Any) -> None:
         # Show specific scope
         scope = ConfigScope(opts.scope.upper())
         try:
-            config_path = _get_config_path(scope, root_name)
+            config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
             _emit_single_path(scope, config_path, output_opts)
         except ConfigNotFoundError as e:
             match output_opts.output_format:
@@ -742,19 +764,23 @@ def _config_path_impl(ctx: click.Context, **kwargs: Any) -> None:
         paths: list[dict[str, Any]] = []
         for scope in ConfigScope:
             try:
-                config_path = _get_config_path(scope, root_name)
-                paths.append({
-                    "scope": scope.value.lower(),
-                    "path": str(config_path),
-                    "exists": config_path.exists(),
-                })
+                config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
+                paths.append(
+                    {
+                        "scope": scope.value.lower(),
+                        "path": str(config_path),
+                        "exists": config_path.exists(),
+                    }
+                )
             except ConfigNotFoundError:
-                paths.append({
-                    "scope": scope.value.lower(),
-                    "path": None,
-                    "exists": False,
-                    "error": f"No git repository found for {scope.value.lower()} config",
-                })
+                paths.append(
+                    {
+                        "scope": scope.value.lower(),
+                        "path": None,
+                        "exists": False,
+                        "error": f"No git repository found for {scope.value.lower()} config",
+                    }
+                )
         _emit_all_paths(paths, output_opts)
 
 
@@ -762,18 +788,22 @@ def _emit_single_path(scope: ConfigScope, config_path: Path, output_opts: Output
     """Emit a single config path."""
     match output_opts.output_format:
         case OutputFormat.JSON:
-            emit_final_json({
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-                "exists": config_path.exists(),
-            })
+            emit_final_json(
+                {
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                    "exists": config_path.exists(),
+                }
+            )
         case OutputFormat.JSONL:
-            emit_final_json({
-                "event": "config_path",
-                "scope": scope.value.lower(),
-                "path": str(config_path),
-                "exists": config_path.exists(),
-            })
+            emit_final_json(
+                {
+                    "event": "config_path",
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                    "exists": config_path.exists(),
+                }
+            )
         case OutputFormat.HUMAN:
             logger.info("{}", config_path)
         case _ as unreachable:
@@ -800,3 +830,35 @@ def _emit_all_paths(paths: list[dict[str, Any]], output_opts: OutputOptions) -> 
                     logger.info("{}: {}", scope, error)
         case _ as unreachable:
             assert_never(unreachable)
+
+
+# Register help metadata for git-style help formatting
+_CONFIG_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-config",
+    one_line_description="Manage mngr configuration",
+    synopsis="mngr [config|cfg] <subcommand> [OPTIONS]",
+    description="""Manage mngr configuration.
+
+View, edit, and modify mngr configuration settings at the user, project, or
+local level. Much like a simpler version of `git config`, this command allows
+you to manage configuration settings at different scopes.
+
+Configuration is stored in TOML files:
+- User: ~/.mngr/settings.toml
+- Project: .mngr/settings.toml (in your git root)
+- Local: .mngr/settings.local.toml (git-ignored, for local overrides)""",
+    aliases=("cfg",),
+    examples=(
+        ("List all configuration values", "mngr config list"),
+        ("Get a specific value", "mngr config get provider.docker.image"),
+        ("Set a value at user scope", "mngr config set --user provider.docker.image my-image:latest"),
+        ("Edit config in your editor", "mngr config edit"),
+        ("Show config file paths", "mngr config path"),
+    ),
+    see_also=(("create", "Create a new agent with configuration"),),
+)
+
+register_help_metadata("config", _CONFIG_HELP_METADATA)
+# Also register under alias for consistent help output
+for alias in _CONFIG_HELP_METADATA.aliases:
+    register_help_metadata(alias, _CONFIG_HELP_METADATA)

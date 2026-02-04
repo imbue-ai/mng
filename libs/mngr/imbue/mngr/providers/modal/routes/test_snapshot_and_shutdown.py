@@ -1,8 +1,8 @@
-"""Acceptance tests for the snapshot_and_shutdown Modal function.
+"""Tests for the snapshot_and_shutdown Modal function.
 
-These tests deploy the function to Modal and verify end-to-end functionality.
-They are marked as acceptance tests since they require network access and
-Modal credentials.
+Acceptance tests deploy the function to Modal and verify end-to-end functionality.
+
+It is not really possible to unit test those functions (they all rely on Modal SDK calls, and cannot even be imported due to the App context requirements), so we focus on acceptance tests here.
 """
 
 import io
@@ -20,6 +20,10 @@ from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
 from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import get_short_random_string
+
+# =============================================================================
+# Acceptance tests (require Modal network access)
+# =============================================================================
 
 
 class DeploymentError(RuntimeError):
@@ -40,6 +44,15 @@ def _stop_app(app_name: str) -> None:
     subprocess.run(
         ["uv", "run", "modal", "app", "stop", app_name],
         input=b"y\n",
+        capture_output=True,
+        timeout=60,
+    )
+
+
+def _delete_volume(volume_name: str) -> None:
+    """Delete a Modal volume."""
+    subprocess.run(
+        ["uv", "run", "modal", "volume", "delete", volume_name, "--yes"],
         capture_output=True,
         timeout=60,
     )
@@ -79,15 +92,18 @@ def _write_host_record_to_volume(app_name: str, host_id: str) -> None:
     """Write a host record to the Modal volume for testing.
 
     Creates a minimal host record that the snapshot function can update.
+    The structure matches HostRecord model with nested certified_host_data.
     """
     volume_name = f"{app_name}-state"
     register_modal_test_volume(volume_name)
     volume = modal.Volume.from_name(volume_name, create_if_missing=True)
 
     host_record = {
-        "host_id": host_id,
-        "sandbox_id": "",
-        "snapshots": [],
+        "certified_host_data": {
+            "host_id": host_id,
+            "host_name": "test-host",
+            "snapshots": [],
+        },
     }
 
     content = json.dumps(host_record, indent=2).encode("utf-8")
@@ -115,6 +131,9 @@ def deployed_snapshot_function() -> Generator[tuple[str, str], None, None]:
     Yields a tuple of (app_name, function_url).
     """
     app_name = _get_test_app_name()
+    # The deployed function creates a volume named {app_name}-state
+    volume_name = f"{app_name}-state"
+    register_modal_test_volume(volume_name)
 
     try:
         url = deploy_function("snapshot_and_shutdown", app_name, None)
@@ -123,6 +142,7 @@ def deployed_snapshot_function() -> Generator[tuple[str, str], None, None]:
         yield (app_name, url)
     finally:
         _stop_app(app_name)
+        _delete_volume(volume_name)
 
 
 @pytest.mark.acceptance
@@ -162,15 +182,18 @@ def test_snapshot_and_shutdown_success(
         result = response.json()
         assert result["success"] is True, f"Expected success=True: {result}"
         assert "snapshot_id" in result
-        assert "modal_image_id" in result
-        assert result["snapshot_id"].startswith("snap-")
+        # snapshot_id is now the Modal image ID (starts with "im-")
+        assert result["snapshot_id"].startswith("im-")
 
         # Verify the host record was updated
         host_record = _read_host_record_from_volume(app_name, host_id)
         assert host_record is not None, "Host record not found after snapshot"
-        assert len(host_record["snapshots"]) == 1
-        assert host_record["snapshots"][0]["id"] == result["snapshot_id"]
-        assert host_record["snapshots"][0]["modal_image_id"] == result["modal_image_id"]
+        certified_data = host_record["certified_host_data"]
+        assert len(certified_data["snapshots"]) == 1
+        # The id IS the Modal image ID now
+        assert certified_data["snapshots"][0]["id"] == result["snapshot_id"]
+        # Verify stop_reason was set (defaults to PAUSED for idle shutdown)
+        assert certified_data["stop_reason"] == "PAUSED"
 
         # Verify the sandbox was terminated by polling for termination
         def sandbox_terminated() -> bool:

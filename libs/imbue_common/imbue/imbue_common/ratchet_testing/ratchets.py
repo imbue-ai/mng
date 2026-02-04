@@ -1,14 +1,13 @@
 import ast
 from pathlib import Path
 
-import deal
-
+from imbue.imbue_common.pure import pure
 from imbue.imbue_common.ratchet_testing.core import FileExtension
 from imbue.imbue_common.ratchet_testing.core import LineNumber
 from imbue.imbue_common.ratchet_testing.core import RatchetMatchChunk
 from imbue.imbue_common.ratchet_testing.core import _get_chunk_commit_date
 from imbue.imbue_common.ratchet_testing.core import _get_non_ignored_files_with_extension
-from imbue.imbue_common.ratchet_testing.core import _read_file_contents
+from imbue.imbue_common.ratchet_testing.core import _parse_file_ast
 
 
 def find_if_elif_without_else(
@@ -20,11 +19,8 @@ def find_if_elif_without_else(
     chunks: list[RatchetMatchChunk] = []
 
     for file_path in file_paths:
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         visited_if_nodes: set[int] = set()
@@ -65,7 +61,7 @@ def _mark_if_chain_as_visited(if_node: ast.If, visited: set[int]) -> None:
             break
 
 
-@deal.has()
+@pure
 def _has_elif_without_else(if_node: ast.If) -> bool:
     """Check if an If node has elif but no else clause."""
     if not if_node.orelse:
@@ -86,7 +82,7 @@ def _has_elif_without_else(if_node: ast.If) -> bool:
     return False
 
 
-@deal.has()
+@pure
 def _get_if_chain_end_line(if_node: ast.If) -> int:
     """Get the last line number of an if/elif chain."""
     current = if_node
@@ -103,7 +99,7 @@ def _get_if_chain_end_line(if_node: ast.If) -> int:
     return current.lineno
 
 
-@deal.has()
+@pure
 def _is_test_file(file_path: Path) -> bool:
     """Check if a file is a test file."""
     return file_path.name.endswith("_test.py") or file_path.name.startswith("test_")
@@ -155,11 +151,8 @@ def find_init_methods_in_non_exception_classes(
         if _is_test_file(file_path):
             continue
 
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         # Build a map of class names to their base classes
@@ -204,7 +197,7 @@ def find_init_methods_in_non_exception_classes(
     return tuple(sorted_chunks)
 
 
-@deal.has()
+@pure
 def _has_functools_wraps_decorator(func_node: ast.FunctionDef) -> bool:
     """Check if a function is decorated with @functools.wraps or @wraps.
 
@@ -242,11 +235,8 @@ def find_inline_functions(
         if _is_test_file(file_path):
             continue
 
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -287,11 +277,8 @@ def find_underscore_imports(
         if _is_test_file(file_path):
             continue
 
-        file_contents = _read_file_contents(file_path)
-
-        try:
-            tree = ast.parse(file_contents, filename=str(file_path))
-        except SyntaxError:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
             continue
 
         for node in ast.walk(tree):
@@ -323,6 +310,110 @@ def find_underscore_imports(
                         last_modified_date=commit_date,
                     )
                     chunks.append(chunk)
+
+    sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
+    return tuple(sorted_chunks)
+
+
+def find_cast_usages(
+    source_dir: Path,
+    excluded_file: Path | None = None,
+) -> tuple[RatchetMatchChunk, ...]:
+    """Find usages of cast() from typing in non-test files using AST analysis.
+
+    This function finds all calls to cast() in Python files, excluding test files.
+    cast() usage should be avoided in favor of type: ignore comments when there's
+    no other way to satisfy the type checker.
+    """
+    file_paths = _get_non_ignored_files_with_extension(source_dir, FileExtension(".py"), excluded_file)
+    chunks: list[RatchetMatchChunk] = []
+
+    for file_path in file_paths:
+        if _is_test_file(file_path):
+            continue
+
+        tree = _parse_file_ast(file_path)
+        if tree is None:
+            continue
+
+        # Check if 'cast' is imported from typing
+        has_cast_import = False
+        cast_alias = "cast"
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.module == "typing":
+                    for alias in node.names:
+                        if alias.name == "cast":
+                            has_cast_import = True
+                            cast_alias = alias.asname if alias.asname else "cast"
+                            break
+
+        if not has_cast_import:
+            continue
+
+        # Find all calls to cast()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id == cast_alias:
+                    start_line = LineNumber(node.lineno)
+                    end_line = LineNumber(node.end_lineno if node.end_lineno else node.lineno)
+
+                    commit_date = _get_chunk_commit_date(file_path, start_line, end_line)
+
+                    chunk = RatchetMatchChunk(
+                        file_path=file_path,
+                        matched_content=f"cast() usage at line {start_line}",
+                        start_line=start_line,
+                        end_line=end_line,
+                        last_modified_date=commit_date,
+                    )
+                    chunks.append(chunk)
+
+    sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
+    return tuple(sorted_chunks)
+
+
+def find_assert_isinstance_usages(
+    source_dir: Path,
+    excluded_file: Path | None = None,
+) -> tuple[RatchetMatchChunk, ...]:
+    """Find usages of 'assert isinstance(...)' in non-test files using AST analysis.
+
+    This function finds all assert statements containing isinstance() calls in Python
+    files, excluding test files. 'assert isinstance()' usage should be replaced with
+    match constructs that exhaustively handle all cases using
+    'case _ as unreachable: assert_never(unreachable)'.
+    """
+    file_paths = _get_non_ignored_files_with_extension(source_dir, FileExtension(".py"), excluded_file)
+    chunks: list[RatchetMatchChunk] = []
+
+    for file_path in file_paths:
+        if _is_test_file(file_path):
+            continue
+
+        tree = _parse_file_ast(file_path)
+        if tree is None:
+            continue
+
+        # Find all 'assert isinstance(...)' statements
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assert):
+                # Check if the test is an isinstance() call
+                if isinstance(node.test, ast.Call):
+                    if isinstance(node.test.func, ast.Name) and node.test.func.id == "isinstance":
+                        start_line = LineNumber(node.lineno)
+                        end_line = LineNumber(node.end_lineno if node.end_lineno else node.lineno)
+
+                        commit_date = _get_chunk_commit_date(file_path, start_line, end_line)
+
+                        chunk = RatchetMatchChunk(
+                            file_path=file_path,
+                            matched_content=f"assert isinstance() at line {start_line}",
+                            start_line=start_line,
+                            end_line=end_line,
+                            last_modified_date=commit_date,
+                        )
+                        chunks.append(chunk)
 
     sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
     return tuple(sorted_chunks)

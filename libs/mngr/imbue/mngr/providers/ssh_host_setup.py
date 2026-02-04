@@ -5,16 +5,18 @@ These utilities are designed to be reusable across different providers (Modal, D
 that need to configure SSH access on newly created hosts.
 """
 
+import importlib.resources
 from pathlib import Path
 from typing import Final
 
-import deal
+from imbue.imbue_common.pure import pure
+from imbue.mngr import resources
 
 # Prefix used in shell output to identify warnings that should be shown to the user
 WARNING_PREFIX: Final[str] = "MNGR_WARN:"
 
 
-@deal.has()
+@pure
 def get_user_ssh_dir(user: str) -> Path:
     """Get the SSH directory path for a given user.
 
@@ -26,7 +28,7 @@ def get_user_ssh_dir(user: str) -> Path:
         return Path(f"/home/{user}/.ssh")
 
 
-@deal.has()
+@pure
 def build_check_and_install_packages_command(
     mngr_host_dir: str,
 ) -> str:
@@ -53,36 +55,40 @@ def build_check_and_install_packages_command(
         "if ! test -x /usr/sbin/sshd; then "
         f"echo '{WARNING_PREFIX}openssh-server is not pre-installed in the base image. "
         "Installing at runtime. For faster startup, consider using an image with openssh-server pre-installed.'; "
-        "PKGS_TO_INSTALL=\"$PKGS_TO_INSTALL openssh-server\"; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL openssh-server"; '
         "fi",
         # Check for tmux
         "if ! command -v tmux >/dev/null 2>&1; then "
         f"echo '{WARNING_PREFIX}tmux is not pre-installed in the base image. "
         "Installing at runtime. For faster startup, consider using an image with tmux pre-installed.'; "
-        "PKGS_TO_INSTALL=\"$PKGS_TO_INSTALL tmux\"; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL tmux"; '
         "fi",
         # Check for curl
         "if ! command -v curl >/dev/null 2>&1; then "
         f"echo '{WARNING_PREFIX}curl is not pre-installed in the base image. "
         "Installing at runtime. For faster startup, consider using an image with curl pre-installed.'; "
-        "PKGS_TO_INSTALL=\"$PKGS_TO_INSTALL curl\"; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL curl"; '
         "fi",
         # Check for rsync
         "if ! command -v rsync >/dev/null 2>&1; then "
         f"echo '{WARNING_PREFIX}rsync is not pre-installed in the base image. "
         "Installing at runtime. For faster startup, consider using an image with rsync pre-installed.'; "
-        "PKGS_TO_INSTALL=\"$PKGS_TO_INSTALL rsync\"; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL rsync"; '
         "fi",
         # Check for git
         "if ! command -v git >/dev/null 2>&1; then "
         f"echo '{WARNING_PREFIX}git is not pre-installed in the base image. "
         "Installing at runtime. For faster startup, consider using an image with git pre-installed.'; "
-        "PKGS_TO_INSTALL=\"$PKGS_TO_INSTALL git\"; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL git"; '
+        "fi",
+        # Check for jq (required for activity_watcher.sh to read data.json)
+        "if ! command -v jq >/dev/null 2>&1; then "
+        f"echo '{WARNING_PREFIX}jq is not pre-installed in the base image. "
+        "Installing at runtime. For faster startup, consider using an image with jq pre-installed.'; "
+        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL jq"; '
         "fi",
         # Install missing packages if any
-        "if [ -n \"$PKGS_TO_INSTALL\" ]; then "
-        "apt-get update -qq && apt-get install -y -qq $PKGS_TO_INSTALL; "
-        "fi",
+        'if [ -n "$PKGS_TO_INSTALL" ]; then apt-get update -qq && apt-get install -y -qq $PKGS_TO_INSTALL; fi',
         # Create sshd run directory (required for sshd to start)
         "mkdir -p /run/sshd",
         # Create mngr host directory
@@ -92,7 +98,7 @@ def build_check_and_install_packages_command(
     return "; ".join(script_lines)
 
 
-@deal.has()
+@pure
 def build_configure_ssh_command(
     user: str,
     client_public_key: str,
@@ -140,7 +146,46 @@ def build_configure_ssh_command(
     return "; ".join(script_lines)
 
 
-@deal.has()
+@pure
+def build_add_known_hosts_command(
+    user: str,
+    known_hosts_entries: tuple[str, ...],
+) -> str | None:
+    """Build a shell command that adds entries to the user's known_hosts file.
+
+    This command:
+    1. Creates the user's .ssh directory if it doesn't exist
+    2. Appends each known_hosts entry to the known_hosts file
+
+    Each entry should be a full known_hosts line (e.g., "github.com ssh-rsa AAAA...")
+
+    Returns a shell command string that can be executed via sh -c, or None if
+    there are no entries to add.
+    """
+    if not known_hosts_entries:
+        return None
+
+    ssh_dir = get_user_ssh_dir(user)
+    known_hosts_path = ssh_dir / "known_hosts"
+
+    script_lines: list[str] = [
+        # Create .ssh directory if needed
+        f"mkdir -p '{ssh_dir}'",
+    ]
+
+    for entry in known_hosts_entries:
+        # Escape single quotes in the entry
+        escaped_entry = entry.replace("'", "'\"'\"'")
+        # Append entry to known_hosts (with a newline)
+        script_lines.append(f"printf '%s\\n' '{escaped_entry}' >> '{known_hosts_path}'")
+
+    # Set proper permissions on known_hosts file
+    script_lines.append(f"chmod 600 '{known_hosts_path}'")
+
+    return "; ".join(script_lines)
+
+
+@pure
 def parse_warnings_from_output(output: str) -> list[str]:
     """Parse warning messages from command output.
 
@@ -155,3 +200,51 @@ def parse_warnings_from_output(output: str) -> list[str]:
             if warning_message:
                 warnings.append(warning_message)
     return warnings
+
+
+def _load_activity_watcher_script() -> str:
+    """Load the activity watcher script from resources."""
+    resource_files = importlib.resources.files(resources)
+    script_path = resource_files.joinpath("activity_watcher.sh")
+    return script_path.read_text()
+
+
+@pure
+def build_start_activity_watcher_command(
+    mngr_host_dir: str,
+) -> str:
+    """Build a shell command that installs and starts the activity watcher.
+
+    The activity watcher monitors activity files and calls the shutdown script
+    when the host becomes idle (based on idle_mode and idle_timeout_seconds
+    from data.json).
+
+    This command:
+    1. Creates the commands directory
+    2. Writes the activity watcher script to the host
+    3. Makes it executable
+    4. Starts it in the background with nohup
+
+    Returns a shell command string that can be executed via sh -c.
+    """
+    script_content = _load_activity_watcher_script()
+
+    # Escape single quotes in script content
+    escaped_script = script_content.replace("'", "'\"'\"'")
+
+    script_path = f"{mngr_host_dir}/commands/activity_watcher.sh"
+    log_path = f"{mngr_host_dir}/logs/activity_watcher.log"
+
+    script_lines = [
+        # Create commands and logs directories
+        f"mkdir -p '{mngr_host_dir}/commands'",
+        f"mkdir -p '{mngr_host_dir}/logs'",
+        # Write the activity watcher script
+        f"printf '%s' '{escaped_script}' > '{script_path}'",
+        # Make it executable
+        f"chmod +x '{script_path}'",
+        # Start the activity watcher in the background, redirecting output to log
+        f"nohup '{script_path}' '{mngr_host_dir}' > '{log_path}' 2>&1 &",
+    ]
+
+    return "; ".join(script_lines)

@@ -16,6 +16,8 @@ from imbue.mngr.cli.message import message
 from imbue.mngr.cli.pair import pair
 from imbue.mngr.cli.pull import pull
 from imbue.mngr.cli.push import push
+from imbue.mngr.cli.start import start
+from imbue.mngr.cli.stop import stop
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.providers.registry import load_all_registries
 
@@ -23,15 +25,66 @@ from imbue.mngr.providers.registry import load_all_registries
 # Using a dict avoids the need for the 'global' keyword while still allowing module-level state.
 _plugin_manager_container: dict[str, pluggy.PluginManager | None] = {"pm": None}
 
+# Command aliases - maps canonical command names to their aliases
+# This is used by the help formatter to display aliases
+COMMAND_ALIASES: dict[str, list[str]] = {
+    "create": ["c"],
+    "config": ["cfg"],
+    "destroy": ["rm"],
+    "message": ["msg"],
+    "list": ["ls"],
+    "connect": ["conn"],
+    "stop": ["s"],
+}
 
-@click.group()
+# Build reverse mapping: alias -> canonical name
+_ALIAS_TO_CANONICAL: dict[str, str] = {}
+for canonical, aliases in COMMAND_ALIASES.items():
+    for alias in aliases:
+        _ALIAS_TO_CANONICAL[alias] = canonical
+
+
+class AliasAwareGroup(click.Group):
+    """Custom click.Group that shows aliases inline with commands in --help."""
+
+    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        """Write the command list with aliases shown inline."""
+        commands: list[tuple[str, click.Command]] = []
+        for subcommand in self.list_commands(ctx):
+            cmd = self.get_command(ctx, subcommand)
+            if cmd is None or cmd.hidden:
+                continue
+            # Skip alias entries - we'll show them with the main command
+            if subcommand in _ALIAS_TO_CANONICAL:
+                continue
+            commands.append((subcommand, cmd))
+
+        if not commands:
+            return
+
+        # Calculate max width for alignment
+        limit = formatter.width - 6 - max(len(cmd[0]) for cmd in commands)
+
+        rows: list[tuple[str, str]] = []
+        for subcommand, cmd in commands:
+            help_text = cmd.get_short_help_str(limit=limit)
+            # Add aliases if this command has them
+            aliases = COMMAND_ALIASES.get(subcommand, [])
+            if aliases:
+                subcommand = ", ".join([subcommand] + aliases)
+            rows.append((subcommand, help_text))
+
+        if rows:
+            with formatter.section("Commands"):
+                formatter.write_dl(rows)
+
+
+@click.command(cls=AliasAwareGroup)
 @click.version_option(prog_name="mngr", message="%(prog)s %(version)s")
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """
     Initial entry point for mngr CLI commands.
-
-    Makes the plugin manager available in the command context.
     """
     # expose the plugin manager in the command context so that all commands have access to it
     # This uses the singleton that was already created during command registration
@@ -160,15 +213,31 @@ def reset_plugin_manager() -> None:
 
 
 # Add built-in commands to the CLI group
-BUILTIN_COMMANDS: list[click.Command] = [config, connect, create, destroy, gc, list_command, message, pair, pull, push]
+BUILTIN_COMMANDS: list[click.Command] = [
+    config,
+    connect,
+    create,
+    destroy,
+    gc,
+    list_command,
+    message,
+    pair,
+    pull,
+    push,
+    start,
+    stop,
+]
 
 for cmd in BUILTIN_COMMANDS:
     cli.add_command(cmd)
 
-# Add command aliases ("c" is a shorthand for "create", "cfg" for "config", "msg" for "message")
+# Add command aliases
 cli.add_command(create, name="c")
 cli.add_command(config, name="cfg")
+cli.add_command(destroy, name="rm")
 cli.add_command(message, name="msg")
+cli.add_command(list_command, name="ls")
+cli.add_command(connect, name="conn")
 
 # Register plugin commands after built-in commands but before applying CLI options.
 # This ordering allows plugins to add CLI options to other plugin commands.

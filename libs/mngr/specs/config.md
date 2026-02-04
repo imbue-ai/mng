@@ -19,8 +19,8 @@ Configuration uses TOML format. Files are loaded from:
 
 | Scope | Location |
 |-------|----------|
-| User | `~/.config/mngr/config.toml` |
-| Project | `.mngr/config.toml` (relative to project root) |
+| User | `~/.mngr/profiles/<profile_id>/settings.toml` |
+| Project | `.mngr/settings.toml` (relative to project root) |
 
 If both files exist, they are merged with project scope taking precedence.
 

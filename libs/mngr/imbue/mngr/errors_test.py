@@ -1,5 +1,8 @@
 """Tests for error classes."""
 
+import click
+from click.testing import CliRunner
+
 from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import HostNameConflictError
@@ -9,6 +12,7 @@ from imbue.mngr.errors import HostNotStoppedError
 from imbue.mngr.errors import ImageNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
+from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.errors import SnapshotsNotSupportedError
 from imbue.mngr.errors import TagLimitExceededError
@@ -82,7 +86,7 @@ def test_host_not_stopped_error_includes_state() -> None:
 
 def test_snapshot_not_found_error_sets_snapshot_id() -> None:
     """SnapshotNotFoundError should set snapshot_id attribute."""
-    snapshot_id = SnapshotId.generate()
+    snapshot_id = SnapshotId("snap-test")
     error = SnapshotNotFoundError(snapshot_id)
     assert error.snapshot_id == snapshot_id
     assert "Snapshot not found" in str(error)
@@ -180,7 +184,7 @@ def test_host_not_stopped_error_has_user_help_text() -> None:
 
 def test_snapshot_not_found_error_has_user_help_text() -> None:
     """SnapshotNotFoundError should have user_help_text."""
-    snapshot_id = SnapshotId.generate()
+    snapshot_id = SnapshotId("snap-test")
     error = SnapshotNotFoundError(snapshot_id)
     assert error.user_help_text is not None
     assert "snapshot" in error.user_help_text.lower()
@@ -192,3 +196,51 @@ def test_provider_instance_not_found_error_has_user_help_text() -> None:
     error = ProviderInstanceNotFoundError(provider_name)
     assert error.user_help_text is not None
     assert "provider" in error.user_help_text.lower()
+
+
+def test_provider_not_authorized_error_sets_provider_name() -> None:
+    """ProviderNotAuthorizedError should set provider_name attribute."""
+    provider_name = ProviderInstanceName("modal")
+    error = ProviderNotAuthorizedError(provider_name)
+    assert error.provider_name == provider_name
+    assert "not authorized" in str(error).lower()
+
+
+def test_provider_not_authorized_error_includes_auth_help() -> None:
+    """ProviderNotAuthorizedError should include auth_help in message when provided."""
+    provider_name = ProviderInstanceName("modal")
+    auth_help = "Run 'modal token set' to authenticate."
+    error = ProviderNotAuthorizedError(provider_name, auth_help=auth_help)
+    assert auth_help in str(error)
+
+
+def test_provider_not_authorized_error_has_user_help_text() -> None:
+    """ProviderNotAuthorizedError should have user_help_text with disable instructions."""
+    provider_name = ProviderInstanceName("modal")
+    error = ProviderNotAuthorizedError(provider_name)
+    assert error.user_help_text is not None
+    # Should contain instructions to disable the provider
+    assert "mngr config set" in error.user_help_text
+    assert "is_enabled" in error.user_help_text
+    assert "enabled_backends" in error.user_help_text
+
+
+def test_mngr_error_displays_single_error_prefix_via_click() -> None:
+    """MngrError should display exactly one 'Error: ' prefix when shown via Click.
+
+    Click automatically adds 'Error: ' when displaying ClickException subclasses,
+    so MngrError.format_message() should NOT add its own prefix.
+    """
+
+    @click.command()
+    def cmd() -> None:
+        raise AgentNotFoundError("test-agent")
+
+    runner = CliRunner()
+    result = runner.invoke(cmd)
+
+    # Should have exactly one "Error: " prefix, not "Error: Error: "
+    assert result.exit_code == 1
+    assert result.output.startswith("Error: ")
+    assert "Error: Error:" not in result.output
+    assert "Agent not found: test-agent" in result.output

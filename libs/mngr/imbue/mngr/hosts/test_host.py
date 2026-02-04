@@ -3,13 +3,17 @@
 Note: Unit tests for env file parsing are in utils/env_utils_test.py
 """
 
+import datetime as dt
 import fcntl
 import json
 import os
 import stat
 import subprocess
 import threading
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
+from uuid import uuid4
 
 import pluggy
 import pytest
@@ -18,11 +22,12 @@ from pyinfra.api.command import StringCommand
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
+from imbue.mngr.hosts.common import is_macos
 from imbue.mngr.hosts.host import Host
-from imbue.mngr.hosts.host import _is_macos
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.host import AgentDataOptions
@@ -55,6 +60,14 @@ def host_with_temp_dir(local_provider: LocalProviderInstance, temp_host_dir: Pat
     host = local_provider.create_host(HostName("test"))
     assert isinstance(host, Host)
     return host, temp_host_dir
+
+
+@pytest.fixture
+def temp_profile_dir(temp_host_dir: Path) -> Path:
+    """Create a temporary profile directory for tests that create their own MngrContext."""
+    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return profile_dir
 
 
 # =============================================================================
@@ -231,7 +244,7 @@ def test_get_default_activity_config(host_with_temp_dir: tuple[Host, Path]) -> N
     """Test getting default activity config when no file exists."""
     host, _ = host_with_temp_dir
     config = host.get_activity_config()
-    assert config.idle_mode == IdleMode.AGENT
+    assert config.idle_mode == IdleMode.IO
     assert config.idle_timeout_seconds == 3600
     assert len(config.activity_sources) > 0
 
@@ -341,7 +354,7 @@ def test_lock_timeout(host_with_temp_dir: tuple[Host, Path]) -> None:
 
     try:
         with pytest.raises(LockNotHeldError):
-            with host.lock_cooperatively(timeout_seconds=0.5):
+            with host.lock_cooperatively(timeout_seconds=0.1):
                 pass
     finally:
         release_lock.set()
@@ -356,8 +369,8 @@ def test_lock_timeout(host_with_temp_dir: tuple[Host, Path]) -> None:
 def test_get_empty_certified_data(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test getting certified data when no file exists."""
     host, _ = host_with_temp_dir
-    data = host.get_all_certified_data()
-    assert data.idle_mode == IdleMode.AGENT
+    data = host.get_certified_data()
+    assert data.idle_mode == IdleMode.IO
     assert data.idle_timeout_seconds == 3600
     assert data.plugin == {}
 
@@ -472,6 +485,42 @@ def test_get_uptime(host_with_temp_dir: tuple[Host, Path]) -> None:
     assert uptime > 0
 
 
+def test_get_boot_time(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test getting host boot time."""
+    host, _ = host_with_temp_dir
+    boot_time = host.get_boot_time()
+    assert boot_time is not None
+    # Boot time should be in the past
+    now = datetime.now(timezone.utc)
+    assert boot_time < now
+    # Boot time should be within a reasonable range (not more than 1 year ago)
+    one_year_ago = now - dt.timedelta(days=365)
+    assert boot_time > one_year_ago
+
+
+def test_get_boot_time_and_uptime_are_consistent(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that boot_time and uptime_seconds give consistent results."""
+    host, _ = host_with_temp_dir
+
+    boot_time = host.get_boot_time()
+    uptime = host.get_uptime_seconds()
+
+    assert boot_time is not None
+
+    # Calculate expected boot time from uptime
+    now = datetime.now(timezone.utc)
+    expected_boot_time = now - dt.timedelta(seconds=uptime)
+
+    # They should be within 1.5 seconds of each other.
+    # We need > 1 second tolerance because:
+    # - get_uptime_seconds() uses `date +%s` which truncates to integer seconds
+    # - datetime.now() has microsecond precision
+    # - If these calls span a second boundary, we get ~1 second of error
+    # The extra 0.5s accounts for time elapsed between the calls.
+    diff = abs((boot_time - expected_boot_time).total_seconds())
+    assert diff < 1.5, f"boot_time and uptime differ by {diff} seconds"
+
+
 # =============================================================================
 # Idle Detection Tests
 # =============================================================================
@@ -503,7 +552,11 @@ def test_get_idle_seconds_after_boot_activity(host_with_temp_dir: tuple[Host, Pa
 
 
 def test_unset_vars_applied_during_agent_start(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that unset_vars config is applied when starting agents."""
     config_with_unset = MngrConfig(
@@ -512,7 +565,7 @@ def test_unset_vars_applied_during_agent_start(
         unset_vars=["HISTFILE", "PROFILE"],
     )
 
-    mngr_ctx_with_unset = MngrContext(config=config_with_unset, pm=plugin_manager)
+    mngr_ctx_with_unset = MngrContext(config=config_with_unset, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider_with_unset = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -568,11 +621,15 @@ def test_unset_vars_applied_during_agent_start(
 
 
 def test_stop_agent_kills_single_pane_processes(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that stop_agents kills all processes in a single-pane session."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -610,11 +667,15 @@ def test_stop_agent_kills_single_pane_processes(
 
 
 def test_stop_agent_kills_multi_pane_processes(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that stop_agents kills all processes in a multi-pane session."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -660,11 +721,15 @@ def test_stop_agent_kills_multi_pane_processes(
 
 
 def test_start_agent_creates_process_group(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that start_agents creates tmux sessions in their own process group."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -694,7 +759,7 @@ def test_start_agent_creates_process_group(
         assert pane_pid
 
         # Get process group ID using platform-specific method
-        if _is_macos():
+        if is_macos():
             # macOS: use ps command
             success, output = host._run_shell_command(StringCommand(f"ps -o pgid= -p {pane_pid}"))
             assert success, f"Failed to get pgid for pid {pane_pid}"
@@ -712,11 +777,15 @@ def test_start_agent_creates_process_group(
 
 
 def test_start_agent_starts_process_activity_monitor(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that start_agents launches a process activity monitor that writes PROCESS activity."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -737,13 +806,13 @@ def test_start_agent_starts_process_activity_monitor(
     host.start_agents([agent.id])
 
     try:
-        # The process activity monitor should write PROCESS activity within ~5-6 seconds
-        activity_path = temp_host_dir / "agents" / str(agent.id) / "activity" / "PROCESS"
+        # The process activity monitor should write process activity within ~5-6 seconds
+        activity_path = temp_host_dir / "agents" / str(agent.id) / "activity" / "process"
 
         def activity_file_exists() -> bool:
             return activity_path.exists()
 
-        wait_for(activity_file_exists, timeout=10.0, error_message="PROCESS activity file not created")
+        wait_for(activity_file_exists, timeout=10.0, error_message="process activity file not created")
 
         # Verify the activity file has valid JSON content with time in milliseconds
         content = activity_path.read_text()
@@ -766,11 +835,15 @@ def test_start_agent_starts_process_activity_monitor(
 
 
 def test_additional_commands_stored_in_agent_data(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that additional_commands are stored in the agent's data.json."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -804,11 +877,15 @@ def test_additional_commands_stored_in_agent_data(
 
 
 def test_start_agent_creates_additional_tmux_windows(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that start_agents creates additional tmux windows for additional_commands."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -856,11 +933,15 @@ def test_start_agent_creates_additional_tmux_windows(
 
 
 def test_start_agent_additional_windows_run_commands(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that additional tmux windows actually run the specified commands."""
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -1697,7 +1778,11 @@ def test_provision_agent_env_vars_precedence(
 
 
 def test_start_agent_has_access_to_env_vars(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that started agents have access to environment variables.
 
@@ -1706,7 +1791,7 @@ def test_start_agent_has_access_to_env_vars(
     that prints an env var to a file to verify this.
     """
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,
@@ -1755,7 +1840,11 @@ def test_start_agent_has_access_to_env_vars(
 
 @pytest.mark.timeout(15)
 def test_new_tmux_window_inherits_env_vars(
-    temp_host_dir: Path, temp_work_dir: Path, plugin_manager: pluggy.PluginManager, mngr_test_prefix: str
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    mngr_test_prefix: str,
 ) -> None:
     """Test that new tmux windows created by the user also have env vars.
 
@@ -1763,7 +1852,7 @@ def test_new_tmux_window_inherits_env_vars(
     any new window/pane created by the user will automatically source the env files.
     """
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager)
+    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
         host_dir=temp_host_dir,

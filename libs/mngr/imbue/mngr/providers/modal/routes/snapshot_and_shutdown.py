@@ -13,7 +13,6 @@ Required environment variable (must be set when deploying):
 
 import json
 import os
-import uuid
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -48,11 +47,6 @@ VOLUME_NAME = f"{APP_NAME}-state"
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 
 
-def _generate_snapshot_id() -> str:
-    """Generate a unique snapshot ID in the format snap-<random_hex>."""
-    return f"snap-{uuid.uuid4().hex}"
-
-
 def _read_host_record(host_id: str) -> dict[str, Any] | None:
     """Read a host record from the volume.
 
@@ -71,10 +65,34 @@ def _read_host_record(host_id: str) -> dict[str, Any] | None:
 
 def _write_host_record(host_record: dict[str, Any]) -> None:
     """Write a host record to the volume."""
-    host_id = host_record["host_id"]
+    host_id = host_record["certified_host_data"]["host_id"]
     path = f"/vol/{host_id}.json"
     with open(path, "w") as f:
         json.dump(host_record, f, indent=2)
+    volume.commit()
+
+
+def _write_agent_records(host_id: str, agents: list[dict[str, Any]]) -> None:
+    """Write agent records to the volume.
+
+    Each agent is stored at /vol/{host_id}/{agent_id}.json so that
+    stopped hosts can still show their agents in mngr list.
+    """
+    if not agents:
+        return
+
+    # Create the host directory if it doesn't exist
+    host_dir = f"/vol/{host_id}"
+    os.makedirs(host_dir, exist_ok=True)
+
+    # Write each agent's data
+    for agent in agents:
+        agent_id = agent.get("id")
+        if agent_id:
+            agent_path = f"{host_dir}/{agent_id}.json"
+            with open(agent_path, "w") as f:
+                json.dump(agent, f, indent=2)
+
     volume.commit()
 
 
@@ -84,11 +102,15 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     """Snapshot a Modal sandbox and shut it down.
 
     Request body should contain sandbox_id (Modal sandbox object ID) and
-    host_id (mngr host ID). Optionally accepts snapshot_name.
+    host_id (mngr host ID). Optionally accepts snapshot_name, agents
+    (list of agent data to persist to the volume), and stop_reason
+    ('PAUSED' for idle shutdown, 'STOPPED' for user-requested stop).
     """
     sandbox_id = request_body.get("sandbox_id")
     host_id = request_body.get("host_id")
     snapshot_name = request_body.get("snapshot_name")
+    agents = request_body.get("agents", [])
+    stop_reason = request_body.get("stop_reason", "PAUSED")
 
     if not sandbox_id:
         raise HTTPException(status_code=400, detail="sandbox_id is required")
@@ -109,38 +131,42 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
 
         # Create the filesystem snapshot
         modal_image = sandbox.snapshot_filesystem()
-        modal_image_id = modal_image.object_id
-
-        # Generate snapshot ID and metadata
-        mngr_snapshot_id = _generate_snapshot_id()
+        # Use the Modal image ID directly as the snapshot ID
+        snapshot_id = modal_image.object_id
         created_at = datetime.now(timezone.utc).isoformat()
 
         if snapshot_name is None:
-            short_id = mngr_snapshot_id[-8:]
+            short_id = snapshot_id[-8:]
             snapshot_name = f"snapshot-{short_id}"
 
-        # Add the new snapshot to the record
+        # Add the new snapshot to the certified_host_data (id is the Modal image ID)
         new_snapshot = {
-            "id": mngr_snapshot_id,
+            "id": snapshot_id,
             "name": snapshot_name,
             "created_at": created_at,
-            "modal_image_id": modal_image_id,
         }
 
-        if "snapshots" not in host_record:
-            host_record["snapshots"] = []
-        host_record["snapshots"].append(new_snapshot)
+        certified_data = host_record.get("certified_host_data", {})
+        if "snapshots" not in certified_data:
+            certified_data["snapshots"] = []
+        certified_data["snapshots"].append(new_snapshot)
+
+        # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
+        certified_data["stop_reason"] = stop_reason
+        host_record["certified_host_data"] = certified_data
 
         # Write updated host record
         _write_host_record(host_record)
+
+        # Write agent records so they appear in mngr list for stopped hosts
+        _write_agent_records(host_id, agents)
 
         # Terminate the sandbox
         sandbox.terminate()
 
         return {
             "success": True,
-            "snapshot_id": mngr_snapshot_id,
-            "modal_image_id": modal_image_id,
+            "snapshot_id": snapshot_id,
             "snapshot_name": snapshot_name,
         }
 

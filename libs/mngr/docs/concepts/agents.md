@@ -1,12 +1,12 @@
 # Agents
 
-An agent is a process running in tmux that `mngr` manages.
+An agent is simply a process running in window 0 of a properly-named tmux session (e.g. `mngr-<agent-id>`)
 
-Each agent runs inside a properly-named tmux session (e.g. `mngr-<agent-id>`) inside a working directory on a [host](./hosts.md).
+Each agent runs inside a working directory (`work_dir`) on a [host](./hosts.md).
 
 Each agent has a name, a unique identifier (`agent-id`), and is a particular ["agent type"](agent_types.md)
 
-Nothing stops you from creating additional invocations of agent programs inside the tmux session (e.g. launching multiple Claude Code's), but only the main agent process for a given tmux session is considered by `mngr`.
+Nothing stops you from creating additional invocations of agent programs inside the tmux session (e.g. launching multiple Claude Code's), but only the main agent process for a given tmux session is considered by `mngr` for the purposes of detecting the agent's state.
 
 ## Passing Arguments
 
@@ -68,12 +68,14 @@ If you want to allow agents to create remote/untrusted child agents, see the [re
 
 ## Lifecycle
 
-An agent can be in one of the following states:
+Assuming the agent's [host](./hosts.md) is in the "running" state, an agent can be in one of the following states:
 
 - **stopped**: the agent folder exists (but there is no tmux session)
 - **running**: tmux session exists and the expected process exists in pane 0
 - **replaced**: tmux session exists and a different process in pane 0
 - **done**: the tmux session exists and there is no process under the shell for that pane
+
+If the host's state is not "running", then the agent inherits it state from the host (ex: paused, crashed, etc, see [host lifecycle](./hosts.md#Lifecycle) for more details)
 
 ## Properties
 

@@ -10,16 +10,16 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.host import CreateAgentOptions
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.utils.logging import log_call
 
 
 def _call_on_before_create_hooks(
     mngr_ctx: MngrContext,
-    target_host: HostInterface | NewHostOptions,
+    target_host: OnlineHostInterface | NewHostOptions,
     agent_options: CreateAgentOptions,
     create_work_dir: bool,
-) -> tuple[HostInterface | NewHostOptions, CreateAgentOptions, bool]:
+) -> tuple[OnlineHostInterface | NewHostOptions, CreateAgentOptions, bool]:
     """Call on_before_create hooks in a chain, passing each hook's output to the next.
 
     Each hook receives an OnBeforeCreateArgs containing the current values.
@@ -53,7 +53,7 @@ def _call_on_before_create_hooks(
 @log_call
 def create(
     source_location: HostLocation,
-    target_host: HostInterface | NewHostOptions,
+    target_host: OnlineHostInterface | NewHostOptions,
     agent_options: CreateAgentOptions,
     mngr_ctx: MngrContext,
     create_work_dir: bool = True,
@@ -112,13 +112,19 @@ def create(
         agent.send_message(initial_message)
 
     # Build and return the result
-    return CreateAgentResult(agent=agent, host=host)
+    result = CreateAgentResult(agent=agent, host=host)
+
+    # Call on_agent_created hooks to notify plugins about the new agent
+    logger.debug("Calling on_agent_created hooks")
+    mngr_ctx.pm.hook.on_agent_created(agent=result.agent, host=result.host)
+
+    return result
 
 
 def resolve_target_host(
-    target_host: HostInterface | NewHostOptions,
+    target_host: OnlineHostInterface | NewHostOptions,
     mngr_ctx: MngrContext,
-) -> HostInterface:
+) -> OnlineHostInterface:
     """Resolve which host to use for the agent."""
     if target_host is not None and isinstance(target_host, NewHostOptions):
         # Create a new host using the specified provider
@@ -126,16 +132,20 @@ def resolve_target_host(
         provider = get_provider_instance(target_host.provider, mngr_ctx)
 
         logger.trace(
-            "Creating host with tags={} build_args={} start_args={}",
+            "Creating host with tags={} build_args={} start_args={} lifecycle={} known_hosts={}",
             target_host.tags,
             target_host.build.build_args,
             target_host.build.start_args,
+            target_host.lifecycle,
+            len(target_host.environment.known_hosts),
         )
         return provider.create_host(
             name=target_host.name,
             tags=target_host.tags,
             build_args=target_host.build.build_args,
             start_args=target_host.build.start_args,
+            lifecycle=target_host.lifecycle,
+            known_hosts=target_host.environment.known_hosts,
         )
     else:
         # already have the host

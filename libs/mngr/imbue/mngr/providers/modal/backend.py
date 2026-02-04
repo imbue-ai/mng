@@ -4,18 +4,24 @@ import subprocess
 from pathlib import Path
 from typing import Any
 from typing import ClassVar
-from uuid import uuid4
 
 import modal
 import modal.exception
 from loguru import logger
 from pydantic import Field
+from tenacity import retry
+from tenacity import retry_if_exception_type
+from tenacity import stop_after_attempt
+from tenacity import wait_exponential
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import MngrError
+from imbue.mngr.hosts.host import Host
+from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
@@ -26,7 +32,6 @@ from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 
 MODAL_BACKEND_NAME = ProviderBackendName("modal")
-USER_ID_FILENAME = "user_id"
 STATE_VOLUME_SUFFIX = "-state"
 MODAL_NAME_MAX_LENGTH = 64
 
@@ -74,6 +79,64 @@ def _ensure_environment_exists(environment_name: str) -> None:
             logger.debug("Modal environment create returned non-zero: {}", result.stderr)
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
         logger.warning("Failed to create Modal environment via CLI: {}", e)
+
+
+def _lookup_persistent_app_with_env_retry(app_name: str, environment_name: str) -> modal.App:
+    """Look up or create a persistent Modal app, retrying if the environment is not found.
+
+    On the first NotFoundError, creates the environment and retries with exponential backoff
+    to handle the race condition where Modal's API may not immediately see the newly created
+    environment.
+    """
+    try:
+        return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
+    except modal.exception.NotFoundError:
+        # Ensure the environment exists before retrying
+        _ensure_environment_exists(environment_name)
+        return _lookup_persistent_app_with_retry(app_name, environment_name)
+
+
+@retry(
+    retry=retry_if_exception_type(modal.exception.NotFoundError),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    reraise=True,
+)
+def _lookup_persistent_app_with_retry(app_name: str, environment_name: str) -> modal.App:
+    """Look up or create a persistent Modal app with tenacity retry."""
+    logger.debug("Retrying Modal app lookup: {} (env: {})", app_name, environment_name)
+    return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
+
+
+def _enter_ephemeral_app_context_with_env_retry(app: modal.App, environment_name: str) -> Any:
+    """Enter an ephemeral Modal app's run context, retrying if the environment is not found.
+
+    On the first NotFoundError, creates the environment and retries with exponential backoff
+    to handle the race condition where Modal's API may not immediately see the newly created
+    environment.
+    """
+    try:
+        run_context = app.run(environment_name=environment_name)
+        run_context.__enter__()
+        return run_context
+    except modal.exception.NotFoundError:
+        # Ensure the environment exists before retrying
+        _ensure_environment_exists(environment_name)
+        return _enter_ephemeral_app_context_with_retry(app, environment_name)
+
+
+@retry(
+    retry=retry_if_exception_type(modal.exception.NotFoundError),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    reraise=True,
+)
+def _enter_ephemeral_app_context_with_retry(app: modal.App, environment_name: str) -> Any:
+    """Enter an ephemeral Modal app's run context with tenacity retry."""
+    logger.debug("Retrying Modal app context entry (env: {})", environment_name)
+    run_context = app.run(environment_name=environment_name)
+    run_context.__enter__()
+    return run_context
 
 
 class ModalAppContextHandle(FrozenModel):
@@ -124,28 +187,6 @@ def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
         handle.output_capture_context.__exit__(None, None, None)
 
 
-# FIXME: this function should be moved to a much lower level (many other things may want a user id, should be part of MngrContext?)
-#  also, obviously this should return a concrete type, not a str
-def _get_or_create_user_id(mngr_ctx: MngrContext) -> str:
-    """Get or create a unique user ID for this mngr installation.
-
-    The user ID is stored in a file in the mngr data directory. This ID is used
-    to namespace Modal apps, ensuring that sandboxes created by different mngr
-    installations on a shared Modal account don't interfere with each other.
-    """
-    data_dir = mngr_ctx.config.default_host_dir.expanduser()
-    data_dir.mkdir(parents=True, exist_ok=True)
-    user_id_file = data_dir / USER_ID_FILENAME
-
-    if user_id_file.exists():
-        return user_id_file.read_text().strip()
-
-    # Generate a new user ID
-    user_id = uuid4().hex
-    user_id_file.write_text(user_id)
-    return user_id
-
-
 class ModalProviderBackend(ProviderBackendInterface):
     """Backend for creating Modal sandbox provider instances.
 
@@ -194,13 +235,7 @@ class ModalProviderBackend(ProviderBackendInterface):
         output_buffer, loguru_writer = output_capture_context.__enter__()
 
         if is_persistent:
-            # FIXME: make this more clearly a retry after making the environment by using tenacity
-            try:
-                app = modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
-            except modal.exception.NotFoundError:
-                # Ensure the environment exists before trying to use it
-                _ensure_environment_exists(environment_name)
-                app = modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
+            app = _lookup_persistent_app_with_env_retry(app_name, environment_name)
             run_context = None
         else:
             # Create the Modal app
@@ -208,15 +243,7 @@ class ModalProviderBackend(ProviderBackendInterface):
 
             # Enter the app.run() context manager manually so we can return the app
             # while keeping the context active until close() is called
-            # FIXME: make this more clearly a retry after making the environment by using tenacity
-            try:
-                run_context = app.run(environment_name=environment_name)
-                run_context.__enter__()
-            except modal.exception.NotFoundError:
-                # Ensure the environment exists before trying to use it
-                _ensure_environment_exists(environment_name)
-                run_context = app.run(environment_name=environment_name)
-                run_context.__enter__()
+            run_context = _enter_ephemeral_app_context_with_env_retry(app, environment_name)
 
         # Set app metadata on the loguru writer for structured logging
         if loguru_writer is not None:
@@ -360,8 +387,10 @@ Supported build arguments for the modal provider:
         # Use prefix + user_id for the environment name, ensuring isolation
         # between different mngr installations sharing the same Modal account.
         # The app name is just prefix + name (no user_id).
+        # The provider config can override the profile's user_id to allow sharing
+        # Modal resources across different profiles or installations.
         prefix = mngr_ctx.config.prefix
-        user_id = _get_or_create_user_id(mngr_ctx)
+        user_id = config.user_id if config.user_id is not None else mngr_ctx.get_profile_user_id()
         environment_name = f"{prefix}{user_id}"
         default_app_name = f"{prefix}{name}"
 
@@ -382,17 +411,25 @@ Supported build arguments for the modal provider:
             app_name = app_name[:max_app_name_length]
 
         # Create the ModalProviderApp that manages the Modal app and its resources
-        app, context_handle = ModalProviderBackend._get_or_create_app(app_name, environment_name, config.is_persistent)
-        volume = ModalProviderBackend.get_volume_for_app(app_name)
+        try:
+            app, context_handle = ModalProviderBackend._get_or_create_app(
+                app_name, environment_name, config.is_persistent
+            )
+            volume = ModalProviderBackend.get_volume_for_app(app_name)
 
-        modal_app = ModalProviderApp(
-            app_name=app_name,
-            environment_name=environment_name,
-            app=app,
-            volume=volume,
-            close_callback=lambda: ModalProviderBackend.close_app(app_name),
-            get_output_callback=lambda: context_handle.output_buffer.getvalue(),
-        )
+            modal_app = ModalProviderApp(
+                app_name=app_name,
+                environment_name=environment_name,
+                app=app,
+                volume=volume,
+                close_callback=lambda: ModalProviderBackend.close_app(app_name),
+                get_output_callback=lambda: context_handle.output_buffer.getvalue(),
+            )
+        except modal.exception.AuthError as e:
+            raise MngrError(
+                "Modal is not authorized: run 'modal token set' to authenticate, or disable this provider with "
+                f"'mngr config set --scope local providers.{name}.is_enabled false'.",
+            ) from e
 
         return ModalProviderInstance(
             name=name,
@@ -407,3 +444,15 @@ Supported build arguments for the modal provider:
 def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]:
     """Register the Modal provider backend."""
     return (ModalProviderBackend, ModalProviderConfig)
+
+
+@hookimpl
+def on_agent_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
+    """We need to snapshot the sandbox after the agents are created and initial messages are delivered."""
+
+    if not isinstance(host, Host):
+        raise Exception("Host is not an instance of Host class")
+
+    provider_instance = host.provider_instance
+    if isinstance(provider_instance, ModalProviderInstance):
+        provider_instance.on_agent_created(agent, host)

@@ -14,7 +14,6 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
-from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.git_utils import get_current_branch
 from imbue.mngr.utils.git_utils import is_git_repository
@@ -228,11 +227,11 @@ class RemoteGitContext:
 
     __slots__ = ("_host",)
 
-    def __init__(self, host: HostInterface) -> None:
+    def __init__(self, host: OnlineHostInterface) -> None:
         self._host = host
 
     @property
-    def host(self) -> HostInterface:
+    def host(self) -> OnlineHostInterface:
         return self._host
 
     def has_uncommitted_changes(self, path: Path) -> bool:
@@ -313,7 +312,7 @@ def handle_uncommitted_changes(
 
 def sync_files(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     mode: SyncMode,
     local_path: Path,
     remote_path: Path | None = None,
@@ -432,7 +431,7 @@ def _get_head_commit(path: Path) -> str:
 
 def _sync_git_push(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     local_path: Path,
     source_branch: str,
     target_branch: str,
@@ -575,7 +574,7 @@ def _sync_git_push(
 
 def _sync_git_pull(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     local_path: Path,
     source_branch: str,
     target_branch: str,
@@ -716,7 +715,7 @@ def _sync_git_pull(
 
 def sync_git(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     mode: SyncMode,
     local_path: Path,
     source_branch: str | None = None,

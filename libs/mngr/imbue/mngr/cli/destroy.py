@@ -6,24 +6,31 @@ from loguru import logger
 
 from imbue.mngr.api.data_types import GcResourceTypes
 from imbue.mngr.api.gc import gc as api_gc
+from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_all_provider_instances
+from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundError
+from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
 
-def _get_agent_name_from_session(session_name: str, prefix: str) -> str | None:
+def get_agent_name_from_session(session_name: str, prefix: str) -> str | None:
     """Extract the agent name from a tmux session name.
 
     The session name is expected to be in the format "{prefix}{agent_name}".
@@ -72,6 +79,10 @@ class DestroyCliOptions(CommonCliOptions):
     dry_run: bool
     gc: bool
     sessions: tuple[str, ...]
+    # Planned features (not yet implemented)
+    include: tuple[str, ...]
+    exclude: tuple[str, ...]
+    stdin: bool
 
 
 @click.command(name="destroy")
@@ -98,6 +109,21 @@ class DestroyCliOptions(CommonCliOptions):
     help="Tmux session name to destroy (can be specified multiple times). The agent name is extracted by "
     "stripping the configured prefix from the session name.",
 )
+@optgroup.option(
+    "--include",
+    multiple=True,
+    help="Filter agents to destroy by CEL expression (repeatable). [future]",
+)
+@optgroup.option(
+    "--exclude",
+    multiple=True,
+    help="Exclude agents matching CEL expression from destruction (repeatable). [future]",
+)
+@optgroup.option(
+    "--stdin",
+    is_flag=True,
+    help="Read agent names/IDs from stdin, one per line. [future]",
+)
 @optgroup.group("Behavior")
 @optgroup.option(
     "-f",
@@ -122,6 +148,8 @@ def destroy(ctx: click.Context, **kwargs) -> None:
 
     When the last agent on a host is destroyed, the host itself is also destroyed.
 
+    Use with caution! This operation is irreversible.
+
     Examples:
 
       mngr destroy my-agent
@@ -143,6 +171,29 @@ def destroy(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("Running destroy command")
 
+    # Filter agents to destroy using CEL expressions like:
+    # --include 'name.startsWith("test-")' or --include 'host.provider == "docker"'
+    # See mngr list --include for the pattern to follow
+    if opts.include:
+        raise NotImplementedError(
+            "The --include option is not yet implemented. "
+            "See https://github.com/imbue-ai/mngr/issues/XXX for progress."
+        )
+    # Exclude agents matching CEL expressions from destruction:
+    # --exclude 'state == "running"' to skip running agents
+    # See mngr list --exclude for the pattern to follow
+    if opts.exclude:
+        raise NotImplementedError(
+            "The --exclude option is not yet implemented. "
+            "See https://github.com/imbue-ai/mngr/issues/XXX for progress."
+        )
+    # Read agent names/IDs from stdin to allow piping agent lists:
+    # mngr list --format jsonl | jq -r .name | mngr destroy --stdin
+    if opts.stdin:
+        raise NotImplementedError(
+            "The --stdin option is not yet implemented. See https://github.com/imbue-ai/mngr/issues/XXX for progress."
+        )
+
     # Validate input
     agent_identifiers = list(opts.agents) + list(opts.agent_list)
 
@@ -151,7 +202,7 @@ def destroy(ctx: click.Context, **kwargs) -> None:
         if agent_identifiers or opts.destroy_all:
             raise UserInputError("Cannot specify --session with agent names or --all")
         for session_name in opts.sessions:
-            agent_name = _get_agent_name_from_session(session_name, mngr_ctx.config.prefix)
+            agent_name = get_agent_name_from_session(session_name, mngr_ctx.config.prefix)
             if agent_name is None:
                 raise UserInputError(
                     f"Session '{session_name}' does not match the expected format. "
@@ -166,11 +217,18 @@ def destroy(ctx: click.Context, **kwargs) -> None:
         raise UserInputError("Cannot specify both agent names and --all")
 
     # Find agents to destroy
-    agents_to_destroy = _find_agents_to_destroy(
-        agent_identifiers=agent_identifiers,
-        destroy_all=opts.destroy_all,
-        mngr_ctx=mngr_ctx,
-    )
+    try:
+        agents_to_destroy = _find_agents_to_destroy(
+            agent_identifiers=agent_identifiers,
+            destroy_all=opts.destroy_all,
+            mngr_ctx=mngr_ctx,
+        )
+    except AgentNotFoundError as e:
+        if opts.force:
+            agents_to_destroy = []
+            _output(f"Error destroying agent(s): {e}", output_opts)
+        else:
+            raise
 
     if not agents_to_destroy:
         _output("No agents found to destroy", output_opts)
@@ -215,37 +273,50 @@ def _find_agents_to_destroy(
     agent_identifiers: list[str],
     destroy_all: bool,
     mngr_ctx: MngrContext,
-) -> list[tuple[AgentInterface, HostInterface]]:
+) -> list[tuple[AgentInterface, OnlineHostInterface]]:
     """Find all agents to destroy.
 
     Returns a list of (agent, host) tuples.
     Raises AgentNotFoundError if any specified identifier does not match an agent.
     """
-    agents_to_destroy: list[tuple[AgentInterface, HostInterface]] = []
+    agents_to_destroy: list[tuple[AgentInterface, OnlineHostInterface]] = []
     matched_identifiers: set[str] = set()
 
-    providers = get_all_provider_instances(mngr_ctx)
+    for agent_ref in list_agents(mngr_ctx).agents:
+        should_include: bool
+        if destroy_all:
+            should_include = True
+        elif agent_identifiers:
+            agent_name_str = str(agent_ref.name)
+            agent_id_str = str(agent_ref.id)
 
-    for provider_instance in providers:
-        for host in provider_instance.list_hosts():
-            for agent in host.get_agents():
-                should_include: bool
-                if destroy_all:
+            should_include = False
+            for identifier in agent_identifiers:
+                if identifier == agent_name_str or identifier == agent_id_str:
                     should_include = True
-                elif agent_identifiers:
-                    agent_name_str = str(agent.name)
-                    agent_id_str = str(agent.id)
+                    matched_identifiers.add(identifier)
+        else:
+            should_include = False
 
-                    should_include = False
-                    for identifier in agent_identifiers:
-                        if identifier == agent_name_str or identifier == agent_id_str:
-                            should_include = True
-                            matched_identifiers.add(identifier)
-                else:
-                    should_include = False
+        if should_include:
+            provider = get_provider_instance(agent_ref.host.provider_name, mngr_ctx)
+            host_interface = provider.get_host(agent_ref.host.id)
 
-                if should_include:
-                    agents_to_destroy.append((agent, host))
+            match host_interface:
+                case OnlineHostInterface() as online_host:
+                    for agent in online_host.get_agents():
+                        if agent.id == agent_ref.id:
+                            agents_to_destroy.append((agent, online_host))
+                            break
+                    else:
+                        raise AgentNotFoundError(f"Agent with ID {agent_ref.id} not found on host {online_host.id}")
+                case HostInterface():
+                    # can't destroy agents on offline hosts
+                    raise HostOfflineError(
+                        f"Host '{agent_ref.host.id}' is offline. Start the host first to destroy agents."
+                    )
+                case _ as unreachable:
+                    assert_never(unreachable)
 
     # Verify all specified identifiers were found
     if agent_identifiers:
@@ -257,7 +328,7 @@ def _find_agents_to_destroy(
     return agents_to_destroy
 
 
-def _confirm_destruction(agents: list[tuple[AgentInterface, HostInterface]]) -> None:
+def _confirm_destruction(agents: list[tuple[AgentInterface, OnlineHostInterface]]) -> None:
     """Prompt user to confirm destruction of agents."""
     agent_names = [agent.name for agent, _ in agents]
 
@@ -272,7 +343,7 @@ def _confirm_destruction(agents: list[tuple[AgentInterface, HostInterface]]) -> 
 
 
 def _output_agents_list(
-    agents: list[tuple[AgentInterface, HostInterface]],
+    agents: list[tuple[AgentInterface, OnlineHostInterface]],
     prefix: str,
     output_opts: OutputOptions,
 ) -> None:
@@ -354,3 +425,48 @@ def _run_post_destroy_gc(mngr_ctx: MngrContext, output_opts: OutputOptions) -> N
     except MngrError as e:
         logger.warning("Garbage collection failed: {}", e)
         logger.debug("This does not affect the destroy operation, which completed successfully")
+
+
+# Register help metadata for git-style help formatting
+_DESTROY_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-destroy",
+    one_line_description="Destroy agent(s) and clean up resources",
+    synopsis="mngr [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]",
+    description="""Destroy one or more agents and clean up their resources.
+
+When the last agent on a host is destroyed, the host itself is also destroyed
+(including containers, volumes, snapshots, and any remote infrastructure).
+
+Use with caution! This operation is irreversible.
+
+By default, running agents cannot be destroyed. Use --force to stop and destroy
+running agents. The command will prompt for confirmation before destroying
+agents unless --force is specified.""",
+    aliases=("rm",),
+    examples=(
+        ("Destroy an agent by name", "mngr destroy my-agent"),
+        ("Destroy multiple agents", "mngr destroy agent1 agent2 agent3"),
+        ("Destroy all agents", "mngr destroy --all --force"),
+        ("Preview what would be destroyed", "mngr destroy my-agent --dry-run"),
+    ),
+    see_also=(
+        ("create", "Create a new agent"),
+        ("list", "List existing agents"),
+        ("gc", "Garbage collect orphaned resources"),
+    ),
+    additional_sections=(
+        (
+            "Related Documentation",
+            """- [Resource Cleanup Options](../generic/resource_cleanup.md) - Control which associated resources are destroyed
+- [Multi-target Options](../generic/multi_target.md) - Behavior when targeting multiple agents""",
+        ),
+    ),
+)
+
+register_help_metadata("destroy", _DESTROY_HELP_METADATA)
+# Also register under alias for consistent help output
+for alias in _DESTROY_HELP_METADATA.aliases:
+    register_help_metadata(alias, _DESTROY_HELP_METADATA)
+
+# Add pager-enabled help option to the destroy command
+add_pager_help_option(destroy)

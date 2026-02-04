@@ -1,3 +1,16 @@
+# NOTE: These top-level imports cause Modal to be loaded even when not needed,
+# adding ~0.1s to every command. Profiling of `mngr list --provider local` shows:
+#   - Total CLI time: ~0.9s
+#   - With Modal disabled entirely (--disable-plugin modal): ~0.76s
+#   - Python-level work (imports + list_agents): ~0.58s
+#
+# The Modal import happens here unconditionally, even when --provider filters to
+# local-only. To fix: move these imports inside load_backends_from_plugins() and
+# load_local_backend_only(), or only import backends that are actually enabled.
+#
+# Another candidate for lazy loading: celpy (~45ms) in api/list.py. It's only
+# needed when CEL filters are used (--include/--exclude), but is currently
+# imported at the top level via imbue.mngr.utils.cel_utils.
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
@@ -39,18 +52,20 @@ def reset_backend_registry() -> None:
     _registry_state["backends_loaded"] = False
 
 
-# FIXME: consolidate with the below function, the code is mostly duplicated
-def load_local_backend_only(pm) -> None:
-    """Load only the local and SSH provider backends.
+def _load_backends(pm, *, include_modal: bool) -> None:
+    """Load provider backends from the specified modules.
 
-    This is used by tests to avoid depending on Modal credentials.
-    Unlike load_backends_from_plugins, this only registers the local and SSH backends.
+    The pm parameter is the pluggy plugin manager. If include_modal is True,
+    the Modal backend is included (requires Modal credentials).
     """
     if _registry_state["backends_loaded"]:
         return
 
     pm.register(local_backend_module)
     pm.register(ssh_backend_module)
+    if include_modal:
+        pm.register(modal_backend_module)
+
     registrations = pm.hook.register_provider_backend()
 
     for registration in registrations:
@@ -60,34 +75,24 @@ def load_local_backend_only(pm) -> None:
             _backend_registry[backend_name] = backend_class
             _config_registry[backend_name] = config_class
 
-    # FIXME: make a placeholder docker backend for now that just raises NotImplementedError for everything
     # Register docker config (no backend implementation yet)
     _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
 
     _registry_state["backends_loaded"] = True
+
+
+def load_local_backend_only(pm) -> None:
+    """Load only the local and SSH provider backends.
+
+    This is used by tests to avoid depending on Modal credentials.
+    Unlike load_backends_from_plugins, this only registers the local and SSH backends.
+    """
+    _load_backends(pm, include_modal=False)
 
 
 def load_backends_from_plugins(pm) -> None:
     """Load all provider backends from plugins."""
-    if _registry_state["backends_loaded"]:
-        return
-
-    pm.register(local_backend_module)
-    pm.register(modal_backend_module)
-    pm.register(ssh_backend_module)
-    registrations = pm.hook.register_provider_backend()
-
-    for registration in registrations:
-        if registration is not None:
-            backend_class, config_class = registration
-            backend_name = backend_class.get_name()
-            _backend_registry[backend_name] = backend_class
-            _config_registry[backend_name] = config_class
-
-    # Register docker config (no backend implementation yet)
-    _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
-
-    _registry_state["backends_loaded"] = True
+    _load_backends(pm, include_modal=True)
 
 
 def get_backend(name: str | ProviderBackendName) -> type[ProviderBackendInterface]:

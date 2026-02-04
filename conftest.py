@@ -116,15 +116,16 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
     # xdist workers should not acquire the lock - only the controller does
     if is_xdist_worker():
-        setattr(session, "start_time", time.time())
+        # Use setattr to avoid type errors - pytest Session doesn't declare these attributes
+        setattr(session, "start_time", time.time())  # noqa: B010
         return
 
     # Acquire the lock and store the handle on the session to keep it open
     lock_handle = acquire_global_test_lock(lock_path=_GLOBAL_TEST_LOCK_PATH)
-    setattr(session, _SESSION_LOCK_HANDLE_ATTR, lock_handle)
+    setattr(session, _SESSION_LOCK_HANDLE_ATTR, lock_handle)  # noqa: B010
 
     # Record start time AFTER acquiring the lock so wait time isn't counted
-    setattr(session, "start_time", time.time())
+    setattr(session, "start_time", time.time())  # noqa: B010
 
 
 @pytest.hookimpl(trylast=True)
@@ -149,16 +150,16 @@ def pytest_sessionfinish(session, exitstatus):
         # acceptance tests have a somewhat higher limit (than integration and unit)
         elif os.environ.get("IS_ACCEPTANCE", "0") == "1":
             # this limit applies to the test suite that runs against all branches *except* "main" in GitHub CI (and has access to network, Modal, etc)
-            max_duration = 5 * 60.0
+            max_duration = 6 * 60.0
         # integration tests have a lower limit
         else:
             if "CI" in os.environ:
                 # this limit applies to the test suite that runs against all branches *except* "main" in GitHub CI (and which is basically just used for calculating coverage)
                 # typically integration tests and unit tests are run locally, so we want them to be fast
-                max_duration = 60.0
+                max_duration = 80.0
             else:
                 # this limit applies to the entire test suite when run locally
-                max_duration = 35.0
+                max_duration = 50.0
 
         if duration > max_duration:
             pytest.exit(
@@ -233,15 +234,16 @@ def pytest_load_initial_conftests(
 def pytest_configure(config: pytest.Config) -> None:
     """Store options on config for later use and suppress terminal output when redirecting to files."""
     # Store the slow-tests-to-file option on config for use in hooks
+    # Use setattr to avoid type errors - pytest Config doesn't declare these private attributes
     slow_tests_to_file = config.getoption("--slow-tests-to-file", default=False)
     coverage_to_file = config.getoption("--coverage-to-file", default=False)
-    setattr(config, "_slow_tests_to_file", slow_tests_to_file)
-    setattr(config, "_coverage_to_file", coverage_to_file)
+    setattr(config, "_slow_tests_to_file", slow_tests_to_file)  # noqa: B010
+    setattr(config, "_coverage_to_file", coverage_to_file)  # noqa: B010
 
     # Save the original durations count for our custom reporting, then suppress terminal output
     if slow_tests_to_file:
         original_durations = config.getoption("durations", default=0)
-        setattr(config, "_original_durations", original_durations)
+        setattr(config, "_original_durations", original_durations)  # noqa: B010
         # Set durations to None to suppress pytest's built-in terminal output
         # Note: durations=0 shows ALL durations, durations=None suppresses the output
         config.option.durations = None

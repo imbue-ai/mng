@@ -68,7 +68,7 @@ def test_list_snapshots_returns_empty_list(temp_mngr_ctx: MngrContext) -> None:
 def test_delete_snapshot_raises_error(temp_mngr_ctx: MngrContext) -> None:
     provider = make_ssh_provider(temp_mngr_ctx)
     with pytest.raises(SnapshotsNotSupportedError):
-        provider.delete_snapshot(HostId.generate(), SnapshotId.generate())
+        provider.delete_snapshot(HostId.generate(), SnapshotId("snap-test"))
 
 
 def test_list_volumes_returns_empty_list(temp_mngr_ctx: MngrContext) -> None:

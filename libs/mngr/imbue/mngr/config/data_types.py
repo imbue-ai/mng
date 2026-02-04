@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 from typing import Self
 from typing import TypeVar
+from uuid import uuid4
 
-import deal
 import pluggy
 from pydantic import Field
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import CoreSchema
+from pydantic_core import core_schema
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import ConfigParseError
 from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.primitives import AgentTypeName
@@ -22,12 +27,16 @@ from imbue.mngr.primitives import PluginName
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 
+USER_ID_FILENAME = "user_id"
+PROFILES_DIRNAME = "profiles"
+ROOT_CONFIG_FILENAME = "config.toml"
+
 # === Helper Functions ===
 
 T = TypeVar("T")
 
 
-@deal.has()
+@pure
 def merge_cli_args(base: str, override: str) -> str:
     """Merge CLI arguments, concatenating if both present."""
     if override:
@@ -37,7 +46,7 @@ def merge_cli_args(base: str, override: str) -> str:
     return base
 
 
-@deal.has()
+@pure
 def merge_list_fields(base: list[T], override: list[T] | None) -> list[T]:
     """Merge list fields, concatenating if override is not None."""
     if override is not None:
@@ -49,7 +58,7 @@ K = TypeVar("K")
 V = TypeVar("V")
 
 
-@deal.has()
+@pure
 def merge_dict_fields(base: dict[K, V], override: dict[K, V] | None) -> dict[K, V]:
     """Merge dict fields, with override keys taking precedence."""
     if override is not None:
@@ -155,6 +164,10 @@ class ProviderInstanceConfig(FrozenModel):
 
     backend: ProviderBackendName = Field(
         description="Provider backend to use (e.g., 'docker', 'modal', 'aws')",
+    )
+    is_enabled: bool | None = Field(
+        default=None,
+        description="Whether this provider instance is enabled. Set to false to disable without removing configuration.",
     )
 
     def merge_with(self, override: "ProviderInstanceConfig") -> "ProviderInstanceConfig":
@@ -290,6 +303,53 @@ class CommandDefaults(FrozenModel):
         return self.__class__(defaults=merged_defaults)
 
 
+class CreateTemplateName(str):
+    """Name of a create template."""
+
+    def __new__(cls, value: str) -> Self:
+        if not value:
+            raise ParseSpecError("Template name cannot be empty")
+        return super().__new__(cls, value)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        source_type: Any,
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        return core_schema.no_info_after_validator_function(
+            cls,
+            core_schema.str_schema(min_length=1),
+            serialization=core_schema.to_string_ser_schema(),
+        )
+
+
+class CreateTemplate(FrozenModel):
+    """Template for the create command.
+
+    Templates are named presets of create command arguments that can be applied
+    using --template <name>. All fields are optional; only specified fields
+    will override the defaults when the template is applied.
+
+    Templates are useful for setting up common configurations for different
+    providers or environments (e.g., different paths in remote containers vs locally).
+    """
+
+    # Store as a flexible dict since templates can contain any create command parameter
+    options: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Map of parameter name to value for create command options",
+    )
+
+    def merge_with(self, override: Self) -> Self:
+        """Merge this template with an override template.
+
+        For templates, later configs override earlier ones on a per-key basis.
+        """
+        merged_options = {**self.options, **override.options}
+        return self.__class__(options=merged_options)
+
+
 class MngrConfig(FrozenModel):
     """Root configuration model for mngr."""
 
@@ -310,6 +370,10 @@ class MngrConfig(FrozenModel):
         default=None,
         description="Pager command for help output (e.g., 'less'). If None, uses PAGER env var or 'less' as fallback.",
     )
+    enabled_backends: list[ProviderBackendName] = Field(
+        default_factory=list,
+        description="List of enabled provider backends. If empty, all backends are enabled. If non-empty, only the listed backends are enabled.",
+    )
     agent_types: dict[AgentTypeName, AgentTypeConfig] = Field(
         default_factory=dict,
         description="Custom agent type definitions",
@@ -329,6 +393,10 @@ class MngrConfig(FrozenModel):
     commands: dict[str, CommandDefaults] = Field(
         default_factory=dict,
         description="Default values for CLI command parameters (e.g., 'commands.create')",
+    )
+    create_templates: dict[CreateTemplateName, CreateTemplate] = Field(
+        default_factory=dict,
+        description="Named templates for the create command (e.g., 'create_templates.modal-dev')",
     )
     pre_command_scripts: dict[str, list[str]] = Field(
         default_factory=dict,
@@ -365,6 +433,9 @@ class MngrConfig(FrozenModel):
 
         # Merge unset_vars (list - concatenate)
         merged_unset_vars = list(self.unset_vars) + list(override.unset_vars)
+
+        # Merge enabled_backends (list - override wins if not empty, otherwise keep base)
+        merged_enabled_backends = override.enabled_backends if override.enabled_backends else self.enabled_backends
 
         # Merge agent_types (dict - merge keys, with per-key merge)
         merged_agent_types: dict[AgentTypeName, AgentTypeConfig] = {}
@@ -425,6 +496,20 @@ class MngrConfig(FrozenModel):
                 # Only base has this key
                 merged_commands[key] = self.commands[key]
 
+        # Merge create_templates (dict - merge keys, with per-key merge)
+        merged_create_templates: dict[CreateTemplateName, CreateTemplate] = {}
+        all_template_keys = set(self.create_templates.keys()) | set(override.create_templates.keys())
+        for key in all_template_keys:
+            if key in self.create_templates and key in override.create_templates:
+                # Both have this key - merge the templates
+                merged_create_templates[key] = self.create_templates[key].merge_with(override.create_templates[key])
+            elif key in override.create_templates:
+                # Only override has this key
+                merged_create_templates[key] = override.create_templates[key]
+            else:
+                # Only base has this key
+                merged_create_templates[key] = self.create_templates[key]
+
         # Merge pre_command_scripts (dict - override keys take precedence)
         merged_pre_command_scripts = merge_dict_fields(self.pre_command_scripts, override.pre_command_scripts)
 
@@ -442,11 +527,13 @@ class MngrConfig(FrozenModel):
             default_host_dir=merged_default_host_dir,
             pager=merged_pager,
             unset_vars=merged_unset_vars,
+            enabled_backends=merged_enabled_backends,
             agent_types=merged_agent_types,
             providers=merged_providers,
             plugins=merged_plugins,
             disabled_plugins=merged_disabled_plugins,
             commands=merged_commands,
+            create_templates=merged_create_templates,
             pre_command_scripts=merged_pre_command_scripts,
             logging=merged_logging,
             is_allowed_in_pytest=is_allowed_in_pytest,
@@ -473,6 +560,12 @@ class MngrContext(FrozenModel):
         default=False,
         description="Whether the CLI is running in interactive mode (can prompt user for input)",
     )
+    profile_dir: Path = Field(
+        description="Profile-specific directory for user data (user_id, providers, settings)",
+    )
+
+    def get_profile_user_id(self) -> str:
+        return get_or_create_user_id(self.profile_dir)
 
 
 class OutputOptions(FrozenModel):
@@ -506,3 +599,29 @@ class OutputOptions(FrozenModel):
         default=False,
         description="Log environment variables (security risk)",
     )
+
+
+# FIXME: this should obviously this should return a concrete type, not a str
+def get_or_create_user_id(profile_dir: Path) -> str:
+    """Get or create a unique user ID for this mngr profile.
+
+    The user ID is stored in a file in the profile directory. This ID is used
+    to namespace Modal apps, ensuring that sandboxes created by different mngr
+    installations on a shared Modal account don't interfere with each other.
+    """
+    user_id_file = profile_dir / USER_ID_FILENAME
+
+    if user_id_file.exists():
+        user_id = user_id_file.read_text().strip()
+        if os.environ.get("MNGR_USER_ID", ""):
+            assert user_id == os.environ.get("MNGR_USER_ID", ""), (
+                "MNGR_USER_ID environment variable does not match existing user ID file"
+            )
+    else:
+        if os.environ.get("MNGR_USER_ID", ""):
+            user_id = os.environ.get("MNGR_USER_ID", "")
+        else:
+            # Generate a new user ID
+            user_id = uuid4().hex
+        user_id_file.write_text(user_id)
+    return user_id

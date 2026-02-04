@@ -12,21 +12,21 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.primitives import LogLevel
 from imbue.mngr.primitives import OutputFormat
+from imbue.mngr.utils.logging import BUILD_COLOR
+from imbue.mngr.utils.logging import BufferedMessage
+from imbue.mngr.utils.logging import DEBUG_COLOR
+from imbue.mngr.utils.logging import ERROR_COLOR
+from imbue.mngr.utils.logging import LoggingSuppressor
+from imbue.mngr.utils.logging import RESET_COLOR
+from imbue.mngr.utils.logging import WARNING_COLOR
 from imbue.mngr.utils.logging import _console_handler_ids
 from imbue.mngr.utils.logging import _format_arg_value
 from imbue.mngr.utils.logging import _format_user_message
 from imbue.mngr.utils.logging import _resolve_log_dir
 from imbue.mngr.utils.logging import _rotate_old_logs
-from imbue.mngr.utils.logging import BUILD_COLOR
-from imbue.mngr.utils.logging import BufferedMessage
-from imbue.mngr.utils.logging import DEBUG_COLOR
-from imbue.mngr.utils.logging import ERROR_COLOR
 from imbue.mngr.utils.logging import log_call
-from imbue.mngr.utils.logging import LoggingSuppressor
 from imbue.mngr.utils.logging import remove_console_handlers
-from imbue.mngr.utils.logging import RESET_COLOR
 from imbue.mngr.utils.logging import setup_logging
-from imbue.mngr.utils.logging import WARNING_COLOR
 
 
 def test_resolve_log_dir_uses_absolute_path(mngr_test_prefix: str) -> None:

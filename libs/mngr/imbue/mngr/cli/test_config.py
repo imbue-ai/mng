@@ -48,19 +48,22 @@ def test_config_list_with_json_format(
 def test_config_list_with_scope_shows_file_path(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    mngr_test_root_name: str,
+    temp_host_dir: Path,
 ) -> None:
     """Test config list with scope shows the config file path."""
-    # Create a mock user config directory using the test root name
-    user_config_dir = tmp_path / ".config" / mngr_test_root_name
-    user_config_dir.mkdir(parents=True)
-    user_config_path = user_config_dir / "settings.toml"
-    user_config_path.write_text('prefix = "custom-"\n')
+    # Create a profile directory in the temp_host_dir (where MNGR_HOST_DIR points)
+    # The setup_test_mngr_env autouse fixture sets MNGR_HOST_DIR to temp_host_dir
+    profile_id = "test-profile-123"
+    profile_dir = temp_host_dir / "profiles" / profile_id
+    profile_dir.mkdir(parents=True)
 
-    # Monkeypatch Path.home() to return tmp_path
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    # Create the config.toml that specifies the active profile
+    root_config_path = temp_host_dir / "config.toml"
+    root_config_path.write_text(f'profile = "{profile_id}"\n')
+
+    # Create the settings.toml in the profile directory
+    user_config_path = profile_dir / "settings.toml"
+    user_config_path.write_text('prefix = "custom-"\n')
 
     result = cli_runner.invoke(
         config,

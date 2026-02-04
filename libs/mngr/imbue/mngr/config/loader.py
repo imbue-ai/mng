@@ -4,20 +4,26 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from typing import Sequence
+from uuid import uuid4
 
 import pluggy
 
 from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import CommandDefaults
+from imbue.mngr.config.data_types import CreateTemplate
+from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import LoggingConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.config.data_types import ROOT_CONFIG_FILENAME
 from imbue.mngr.config.plugin_registry import get_plugin_config_class
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
+from imbue.mngr.errors import UnknownBackendError
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import PluginName
 from imbue.mngr.primitives import ProviderInstanceName
@@ -52,7 +58,7 @@ def load_config(
     """Load and merge configuration from all sources.
 
     Precedence (lowest to highest):
-    1. User config (~/.{root_name}/settings.toml)
+    1. User config (~/.{root_name}/profiles/<profile_id>/settings.toml)
     2. Project config (.{root_name}/settings.toml at context_dir or git root)
     3. Local config (.{root_name}/settings.local.toml at context_dir or git root)
     4. Environment variables (MNGR_ROOT_NAME, MNGR_PREFIX, MNGR_HOST_DIR)
@@ -70,6 +76,14 @@ def load_config(
     # Read MNGR_ROOT_NAME early to use for config file discovery
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
 
+    # Determine base directory (may be overridden by env var)
+    env_host_dir = os.environ.get("MNGR_HOST_DIR")
+    base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
+    base_dir = base_dir.expanduser()
+
+    # Get/create profile directory first (needed for user config
+    profile_dir = get_or_create_profile_dir(base_dir)
+
     # Start with base config that has defaults based on root_name
     # Use model_construct with None to allow merging to work properly
     config = MngrConfig.model_construct(
@@ -79,10 +93,11 @@ def load_config(
         providers={},
         plugins={},
         logging=LoggingConfig(),
+        commands={"create": CommandDefaults(defaults={"pass_host_env": ["EDITOR"]})},
     )
 
-    # Load user config
-    user_config_path = _get_user_config_path(root_name)
+    # Load user config from profile directory
+    user_config_path = _get_user_config_path(profile_dir)
     if user_config_path.exists():
         try:
             raw_user = _load_toml(user_config_path)
@@ -129,11 +144,12 @@ def load_config(
         # Neither env var nor config has default_host_dir - will use pydantic default
         pass
 
-    # Always include agent_types, providers, plugins, and commands (they default to empty dicts)
+    # Always include agent_types, providers, plugins, commands, and create_templates (they default to empty dicts)
     config_dict["agent_types"] = config.agent_types
     config_dict["providers"] = config.providers
     config_dict["plugins"] = config.plugins
     config_dict["commands"] = config.commands
+    config_dict["create_templates"] = config.create_templates
 
     # Apply environment variable overrides for commands
     # Format: MNGR_COMMANDS_<COMMANDNAME>_<PARAMNAME>=<value>
@@ -173,7 +189,52 @@ def load_config(
             )
 
     # Return MngrContext containing both config and plugin manager
-    return MngrContext(config=final_config, pm=pm, is_interactive=is_interactive)
+    return MngrContext(
+        config=final_config,
+        pm=pm,
+        is_interactive=is_interactive,
+        profile_dir=profile_dir,
+    )
+
+
+def get_or_create_profile_dir(base_dir: Path) -> Path:
+    """Get or create the profile directory for this mngr installation.
+
+    The profile directory is stored at ~/.mngr/profiles/<profile_id>/. The active
+    profile is specified in ~/.mngr/config.toml. If no profile exists, a new one
+    is created with a generated profile ID and saved to config.toml.
+    """
+    base_dir.mkdir(parents=True, exist_ok=True)
+    profiles_dir = base_dir / PROFILES_DIRNAME
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    config_path = base_dir / ROOT_CONFIG_FILENAME
+
+    # Try to read the active profile from config.toml
+    if config_path.exists():
+        try:
+            with open(config_path, "rb") as f:
+                root_config = tomllib.load(f)
+            profile_id = root_config.get("profile")
+            if profile_id:
+                profile_dir = profiles_dir / profile_id
+                if profile_dir.exists() and profile_dir.is_dir():
+                    return profile_dir
+                # Profile specified but doesn't exist - create it
+                profile_dir.mkdir(parents=True, exist_ok=True)
+                return profile_dir
+        except tomllib.TOMLDecodeError:
+            # Invalid config.toml - will create new profile
+            pass
+
+    # No valid config.toml or no profile specified - create a new profile
+    profile_id = uuid4().hex
+    profile_dir = profiles_dir / profile_id
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save the new profile ID to config.toml
+    config_path.write_text(f'profile = "{profile_id}"\n')
+
+    return profile_dir
 
 
 # =============================================================================
@@ -181,9 +242,9 @@ def load_config(
 # =============================================================================
 
 
-def _get_user_config_path(root_name: str) -> Path:
-    """Get the user config path based on root name."""
-    return Path.home() / ".config" / root_name / "settings.toml"
+def _get_user_config_path(profile_dir: Path) -> Path:
+    """Get the user config path based on profile directory."""
+    return profile_dir / "settings.toml"
 
 
 def _get_project_config_name(root_name: str) -> Path:
@@ -246,10 +307,11 @@ def _parse_providers(
     providers: dict[ProviderInstanceName, ProviderInstanceConfig] = {}
 
     for name, raw_config in raw_providers.items():
-        backend = raw_config.get("backend")
-        if backend is None:
-            raise ConfigParseError(f"Provider '{name}' missing required 'backend' field")
-        config_class = get_provider_config_class(backend)
+        backend = raw_config.get("backend") or name
+        try:
+            config_class = get_provider_config_class(backend)
+        except UnknownBackendError as e:
+            raise ConfigParseError(f"Provider '{name}' missing required 'backend' field") from e
         providers[ProviderInstanceName(name)] = config_class.model_construct(**raw_config)
 
     return providers
@@ -355,6 +417,24 @@ def _parse_commands(raw_commands: dict[str, dict[str, Any]]) -> dict[str, Comman
     return commands
 
 
+def _parse_create_templates(raw_templates: dict[str, dict[str, Any]]) -> dict[CreateTemplateName, CreateTemplate]:
+    """Parse create templates from config.
+
+    Format: create_templates.{template_name}.{param_name} = value
+    Example: [create_templates.modal-dev]
+             new_host = "modal"
+             target_path = "/root/workspace"
+
+    Uses model_construct to bypass validation and explicitly set None for unset fields.
+    """
+    templates: dict[CreateTemplateName, CreateTemplate] = {}
+
+    for template_name, raw_options in raw_templates.items():
+        templates[CreateTemplateName(template_name)] = CreateTemplate.model_construct(options=raw_options)
+
+    return templates
+
+
 def _parse_config(raw: dict[str, Any]) -> MngrConfig:
     """Parse a raw config dict into MngrConfig.
 
@@ -368,6 +448,9 @@ def _parse_config(raw: dict[str, Any]) -> MngrConfig:
     kwargs["providers"] = _parse_providers(raw.pop("providers", {})) if "providers" in raw else {}
     kwargs["plugins"] = _parse_plugins(raw.pop("plugins", {})) if "plugins" in raw else {}
     kwargs["commands"] = _parse_commands(raw.pop("commands", {})) if "commands" in raw else {}
+    kwargs["create_templates"] = (
+        _parse_create_templates(raw.pop("create_templates", {})) if "create_templates" in raw else {}
+    )
     kwargs["logging"] = _parse_logging_config(raw.pop("logging", {})) if "logging" in raw else None
     kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", {}) if "is_allowed_in_pytest" in raw else None
     kwargs["pre_command_scripts"] = raw.pop("pre_command_scripts", {}) if "pre_command_scripts" in raw else None
