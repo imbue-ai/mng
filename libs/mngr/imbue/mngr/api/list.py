@@ -29,7 +29,6 @@ from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
 from imbue.mngr.interfaces.host import OnlineHostInterface
-from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
@@ -149,27 +148,6 @@ class ListResult(MutableModel):
 
     agents: list[AgentInfo] = Field(default_factory=list, description="List of agents with their full information")
     errors: list[ErrorInfo] = Field(default_factory=list, description="Errors encountered while listing")
-
-
-def _get_persisted_agent_data(
-    provider: ProviderInstanceInterface,
-    host_id: HostId,
-    agent_id: AgentId,
-) -> dict[str, Any] | None:
-    """Get persisted agent data from the provider's volume storage.
-
-    This is used for stopped hosts where we can't SSH to get live agent data.
-    Returns the agent data dict or None if not found.
-    """
-    try:
-        agent_records = provider.list_persisted_agent_data_for_host(host_id)
-        for agent_data in agent_records:
-            if agent_data.get("id") == str(agent_id):
-                return agent_data
-    except (KeyError, ValueError, OSError) as e:
-        logger.trace("Could not get persisted agent data for {}: {}", agent_id, e)
-
-    return None
 
 
 @log_call
@@ -370,36 +348,17 @@ def _assemble_host_info(
                 )
             # if this host is offline, or if we failed to get the online host (ex: because it went offline)
             if agents is None or agent_info is None:
-                # then use persisted agent data for stopped hosts
-                # FIXME: there's not need for this method at all:  _get_persisted_agent_data
-                #  Instead, we should just call host.get_agent_references() and then update the rest of this logic to use those
-                agent_data = _get_persisted_agent_data(provider, host.id, agent_ref.agent_id)
-                if agent_data is None:
-                    exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
-                    if error_behavior == ErrorBehavior.ABORT:
-                        raise exception
-                    error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
-                    result.errors.append(error_info)
-                    if on_error:
-                        on_error(error_info)
-                    continue
-
-                # Create minimal AgentInfo from persisted data
-                # Use epoch as fallback for create_time (should always be present)
-                create_time_str = agent_data.get("create_time")
-                create_time = (
-                    datetime.fromisoformat(create_time_str)
-                    if create_time_str
-                    else datetime(1970, 1, 1, tzinfo=timezone.utc)
-                )
+                # Use the certified_data from the agent_ref directly
+                # agent_ref already has all the data we need from host.get_agent_references()
+                create_time = agent_ref.create_time or datetime(1970, 1, 1, tzinfo=timezone.utc)
                 agent_info = AgentInfo(
-                    id=AgentId(agent_data["id"]),
-                    name=AgentName(agent_data["name"]),
-                    type=agent_data.get("type", "unknown"),
-                    command=CommandString(agent_data.get("command", "")),
-                    work_dir=Path(agent_data.get("work_dir", "/")),
+                    id=agent_ref.agent_id,
+                    name=agent_ref.agent_name,
+                    type=str(agent_ref.agent_type) if agent_ref.agent_type else "unknown",
+                    command=agent_ref.command or CommandString(""),
+                    work_dir=agent_ref.work_dir or Path("/"),
                     create_time=create_time,
-                    start_on_boot=agent_data.get("start_on_boot", False),
+                    start_on_boot=agent_ref.start_on_boot,
                     lifecycle_state=AgentLifecycleState.STOPPED,
                     status=None,
                     url=None,
