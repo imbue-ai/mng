@@ -500,15 +500,17 @@ class BaseAgent(AgentInterface):
                     f"tmux send-keys Enter failed: {result.stderr or result.stdout}",
                 )
 
-            # Brief delay to let Claude Code process the Enter key and fire the hook
-            time.sleep(0.1)
-
-            # Check if message was submitted (waiting file removed or processing indicators visible)
-            if self._check_message_submitted(session_name, expected_ending):
+            # Poll for message submission signal (waiting file removed or processing indicators)
+            # Give the hook a reasonable time to fire before concluding Enter was a newline
+            if poll_until(
+                lambda: self._check_message_submitted(session_name, expected_ending),
+                timeout=0.5,
+                poll_interval=0.05,
+            ):
                 logger.debug("Message submitted successfully on attempt {}", attempt + 1)
                 return
 
-            # Message still in input area - Enter was likely interpreted as newline
+            # Timed out waiting for signal - Enter was likely interpreted as newline
             logger.debug(
                 "Enter may have been interpreted as newline (attempt {}), cleaning up and retrying...",
                 attempt + 1,
