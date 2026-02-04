@@ -1,5 +1,4 @@
 ---
-name: create-github-issues
 description: Convert a file containing identified issues into GitHub issues. Use after running identify-* commands to create corresponding GitHub issues.
 ---
 
