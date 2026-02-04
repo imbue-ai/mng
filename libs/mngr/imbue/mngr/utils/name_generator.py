@@ -9,6 +9,11 @@ from imbue.mngr.primitives import AgentNameStyle
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostNameStyle
 
+# Styles that use first_name + last_name format
+_STYLES_WITH_LAST_NAMES: frozenset[AgentNameStyle] = frozenset(
+    {AgentNameStyle.ENGLISH, AgentNameStyle.FANTASY, AgentNameStyle.SCIFI}
+)
+
 
 @pure
 def _get_resources_path() -> Path:
@@ -16,19 +21,14 @@ def _get_resources_path() -> Path:
     return Path(__file__).parent.parent / "resources" / "data" / "name_lists"
 
 
-def _load_wordlist(category: str, style: str) -> list[list[str]]:
-    """Load a wordlist from a txt file.
-
-    Returns words wrapped in single-item lists because coolname expects each
-    word to be a list of parts that get joined. Without this wrapping, coolname
-    treats each character as a separate part and joins them with hyphens.
-    """
+def _load_wordlist(category: str, style: str) -> list[str]:
+    """Load a wordlist from a txt file, returning a flat list of strings."""
     wordlist_path = _get_resources_path() / category / f"{style}.txt"
-    words: list[list[str]] = []
+    words: list[str] = []
     for line in wordlist_path.read_text().splitlines():
         stripped_line = line.strip()
         if stripped_line and not stripped_line.startswith("#"):
-            words.append([stripped_line])
+            words.append(stripped_line)
     return words
 
 
@@ -36,13 +36,33 @@ def _load_wordlist(category: str, style: str) -> list[list[str]]:
 def _get_agent_generator(style: AgentNameStyle) -> RandomGenerator:
     """Get a cached RandomGenerator for the given agent name style."""
     style_name = style.value.lower()
-    words = _load_wordlist("agent", style_name)
-    config = {
-        "all": {
-            "type": "words",
-            "words": words,
-        },
-    }
+    first_names = _load_wordlist("agent", style_name)
+
+    if style in _STYLES_WITH_LAST_NAMES:
+        last_names = _load_wordlist("agent", f"{style_name}_last")
+        config = {
+            "all": {
+                "type": "cartesian",
+                "lists": ["first", "last"],
+            },
+            "first": {
+                "type": "words",
+                "words": first_names,
+            },
+            "last": {
+                "type": "words",
+                "words": last_names,
+            },
+        }
+    else:
+        # Wrap each word in a list for single-word configs (coolname requirement)
+        wrapped_names = [[name] for name in first_names]
+        config = {
+            "all": {
+                "type": "words",
+                "words": wrapped_names,
+            },
+        }
     return RandomGenerator(config)
 
 
@@ -51,10 +71,12 @@ def _get_host_generator(style: HostNameStyle) -> RandomGenerator:
     """Get a cached RandomGenerator for the given host name style."""
     style_name = style.value.lower()
     words = _load_wordlist("host", style_name)
+    # Wrap each word in a list for single-word configs (coolname requirement)
+    wrapped_words = [[word] for word in words]
     config = {
         "all": {
             "type": "words",
-            "words": words,
+            "words": wrapped_words,
         },
     }
     return RandomGenerator(config)
@@ -63,7 +85,11 @@ def _get_host_generator(style: HostNameStyle) -> RandomGenerator:
 def generate_agent_name(style: AgentNameStyle) -> AgentName:
     """Generate a random agent name based on the specified style."""
     generator = _get_agent_generator(style)
-    name = generator.generate_slug()
+    if style in _STYLES_WITH_LAST_NAMES:
+        # Use underscore separator for firstname_lastname format
+        name = "_".join(generator.generate())
+    else:
+        name = generator.generate_slug()
     return AgentName(name)
 
 

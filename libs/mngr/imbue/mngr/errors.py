@@ -1,4 +1,4 @@
-from datetime import datetime
+from pathlib import Path
 
 from click import ClickException
 
@@ -70,13 +70,14 @@ class HostDataSchemaError(HostError):
     def __init__(self, data_path: str, validation_error: str) -> None:
         self.data_path = data_path
         self.validation_error = validation_error
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        data_dir = str(Path(data_path).parent)
         message = (
             f"Host data file has incompatible schema: {data_path}\n"
             f"This usually means mngr was upgraded and the data format changed.\n"
             f"To fix, either delete the file:\n"
             f"  rm {data_path}\n"
-            f'Or run: mngr c migrate-host-data-{timestamp} --message "migrate {data_path} to new schema"'
+            f"Or run:\n"
+            f'  claude --add-dir {data_dir} -p "migrate {data_path} to the new schema"'
         )
         super().__init__(message)
         self.user_help_text = f"Validation error details: {validation_error}"
