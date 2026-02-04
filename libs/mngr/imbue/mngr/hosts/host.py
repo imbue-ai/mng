@@ -13,6 +13,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from typing import Final
 from typing import IO
 from typing import Iterator
 from typing import Mapping
@@ -65,6 +66,10 @@ from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.git_utils import get_current_git_branch
+
+# Maximum number of branch name suffix attempts when auto-deriving branch names.
+# Kept small (20) to ensure the branch name fits in a typical tmux pane (~80 chars).
+_MAX_BRANCH_SUFFIX_ATTEMPTS: Final[int] = 20
 
 
 class HostLocation(FrozenModel):
@@ -1154,30 +1159,17 @@ class Host(BaseHost, OnlineHostInterface):
 
         self._mkdir(work_dir_path.parent)
 
-        branch_name = self._determine_branch_name(options)
+        base_branch_name = self._determine_branch_name(options)
 
         # If the branch name was auto-derived (not explicitly set by user),
         # check if it exists and append a suffix if needed
         is_branch_name_auto_derived = not (options.git and options.git.new_branch_name)
-        if is_branch_name_auto_derived and self._git_branch_exists(source_path, branch_name):
-            # Try appending numeric suffixes until we find an available name
-            base_branch_name = branch_name
-            for suffix in range(2, 100):
-                branch_name = f"{base_branch_name}-{suffix}"
-                if not self._git_branch_exists(source_path, branch_name):
-                    logger.debug(
-                        "Branch {} already exists, using {} instead",
-                        base_branch_name,
-                        branch_name,
-                    )
-                    break
-            else:
-                raise MngrError(
-                    f"Could not find available branch name (tried {base_branch_name} through {branch_name})"
-                )
+        final_branch_name = self._resolve_available_branch_name(
+            source_path, base_branch_name, is_branch_name_auto_derived
+        )
 
-        logger.debug("Creating git worktree", path=str(work_dir_path), branch=branch_name)
-        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
+        logger.debug("Creating git worktree", path=str(work_dir_path), branch=final_branch_name)
+        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(final_branch_name)}"
 
         if options.git and options.git.base_branch:
             cmd += f" {shlex.quote(options.git.base_branch)}"
@@ -1193,6 +1185,31 @@ class Host(BaseHost, OnlineHostInterface):
         extend_claude_trust_to_worktree(source_path, work_dir_path)
 
         return work_dir_path
+
+    def _resolve_available_branch_name(self, source_path: Path, base_branch_name: str, is_auto_derived: bool) -> str:
+        """Find an available branch name, appending suffixes if needed.
+
+        If is_auto_derived is True and the base name exists, tries appending
+        numeric suffixes (-2, -3, etc.) up to _MAX_BRANCH_SUFFIX_ATTEMPTS.
+        """
+        if not is_auto_derived or not self._git_branch_exists(source_path, base_branch_name):
+            return base_branch_name
+
+        # Try appending numeric suffixes until we find an available name
+        for suffix in range(2, 2 + _MAX_BRANCH_SUFFIX_ATTEMPTS):
+            candidate_branch_name = f"{base_branch_name}-{suffix}"
+            if not self._git_branch_exists(source_path, candidate_branch_name):
+                logger.debug(
+                    "Branch {} already exists, using {} instead",
+                    base_branch_name,
+                    candidate_branch_name,
+                )
+                return candidate_branch_name
+
+        max_suffix = 1 + _MAX_BRANCH_SUFFIX_ATTEMPTS
+        raise MngrError(
+            f"Could not find available branch name (tried {base_branch_name} through {base_branch_name}-{max_suffix})"
+        )
 
     def _determine_branch_name(self, options: CreateAgentOptions) -> str:
         """Determine the branch name for a new work_dir."""

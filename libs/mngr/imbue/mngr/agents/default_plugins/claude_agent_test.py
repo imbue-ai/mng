@@ -482,7 +482,7 @@ def test_build_readiness_hooks_config_has_stop_hook() -> None:
 
 
 def test_get_expected_process_name_returns_claude(
-    local_provider: "LocalProviderInstance", tmp_path: Path, temp_mngr_ctx: MngrContext
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """ClaudeAgent.get_expected_process_name should return 'claude'."""
     agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
@@ -490,7 +490,7 @@ def test_get_expected_process_name_returns_claude(
 
 
 def test_uses_marker_based_send_message_returns_true(
-    local_provider: "LocalProviderInstance", tmp_path: Path, temp_mngr_ctx: MngrContext
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """ClaudeAgent.uses_marker_based_send_message should return True."""
     agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
@@ -498,7 +498,7 @@ def test_uses_marker_based_send_message_returns_true(
 
 
 def test_configure_readiness_hooks_creates_settings_file(
-    local_provider: "LocalProviderInstance", tmp_path: Path, temp_mngr_ctx: MngrContext
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """_configure_readiness_hooks should create .claude/settings.local.json."""
     host = local_provider.create_host(HostName("test-hooks"))
@@ -532,7 +532,7 @@ def test_configure_readiness_hooks_creates_settings_file(
 
 
 def test_configure_readiness_hooks_merges_with_existing_settings(
-    local_provider: "LocalProviderInstance", tmp_path: Path, temp_mngr_ctx: MngrContext
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """_configure_readiness_hooks should merge with existing settings."""
     host = local_provider.create_host(HostName("test-hooks-merge"))

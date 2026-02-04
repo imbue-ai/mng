@@ -257,12 +257,11 @@ class BaseAgent(AgentInterface):
         waiting_path = self._get_agent_dir() / "waiting"
         try:
             self.host.read_text_file(waiting_path)
+            logger.trace("Agent {} lifecycle state: WAITING", self.name)
+            return AgentLifecycleState.WAITING
         except FileNotFoundError:
             logger.trace("Agent {} lifecycle state: RUNNING (no waiting file)", self.name)
             return AgentLifecycleState.RUNNING
-
-        logger.trace("Agent {} lifecycle state: WAITING", self.name)
-        return AgentLifecycleState.WAITING
 
     def _command_basename_matches(self, current: str, expected: str) -> bool:
         """Check if current command basename matches expected command."""
@@ -367,14 +366,13 @@ class BaseAgent(AgentInterface):
         self._wait_for_marker_visible(session_name, marker)
 
         # Remove the marker by sending backspaces (2 newlines + 32 hex chars = 34 chars)
+        # Send all backspaces in a single tmux command for efficiency
         backspace_count = len(marker_suffix)
-        for _ in range(backspace_count):
-            backspace_cmd = f"tmux send-keys -t '{session_name}' BSpace"
-            result = self.host.execute_command(backspace_cmd)
-            if not result.success:
-                raise SendMessageError(
-                    str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}"
-                )
+        backspace_keys = " ".join(["BSpace"] * backspace_count)
+        backspace_cmd = f"tmux send-keys -t '{session_name}' {backspace_keys}"
+        result = self.host.execute_command(backspace_cmd)
+        if not result.success:
+            raise SendMessageError(str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}")
 
         # Verify the marker is gone and the message ends correctly
         # Use the last 20 chars of the message as the expected ending (or full message if shorter)

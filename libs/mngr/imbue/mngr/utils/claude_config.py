@@ -1,17 +1,29 @@
-import copy
 import fcntl
 import json
 import os
 import shutil
 from collections.abc import Mapping
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from pydantic import Field
 
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import ClaudeDirectoryNotTrustedError
 from imbue.mngr.errors import ClaudeTrustNotFoundError
+
+
+class ClaudeProjectConfig(FrozenModel, extra="allow"):
+    """Configuration for a Claude project entry in ~/.claude.json.
+
+    Allows extra fields since Claude's config may contain additional properties.
+    """
+
+    allowedTools: Sequence[str] = Field(default_factory=list, description="List of allowed tools for this project")
+    hasTrustDialogAccepted: bool = Field(default=False, description="Whether the trust dialog has been accepted")
 
 
 def get_claude_config_path() -> Path:
@@ -66,7 +78,7 @@ def extend_claude_trust_to_worktree(source_path: Path, worktree_path: Path) -> N
                 raise ClaudeDirectoryNotTrustedError(str(source_path))
 
             # Verify the source directory was actually trusted
-            if not source_config.get("hasTrustDialogAccepted", False):
+            if not source_config.hasTrustDialogAccepted:
                 raise ClaudeDirectoryNotTrustedError(str(source_path))
 
             # Check if worktree already has config
@@ -84,7 +96,7 @@ def extend_claude_trust_to_worktree(source_path: Path, worktree_path: Path) -> N
             logger.debug("Created backup of Claude config at {}", backup_path)
 
             # Extend trust to the worktree
-            projects[worktree_path_str] = copy.deepcopy(source_config)
+            projects[worktree_path_str] = source_config.model_dump()
             config["projects"] = projects
 
             # Write the updated config
@@ -107,17 +119,17 @@ def extend_claude_trust_to_worktree(source_path: Path, worktree_path: Path) -> N
 
 
 @pure
-def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, Any] | None:
+def _find_project_config(projects: Mapping[str, Any], path: Path) -> ClaudeProjectConfig | None:
     """Find the project configuration for a path or its closest ancestor.
 
     Searches for an exact match first, then walks up the directory tree
     to find the closest ancestor with a configuration entry. Returns the
-    project configuration dict if found, None otherwise.
+    project configuration if found, None otherwise.
     """
     # Try exact match first
     path_str = str(path)
     if path_str in projects:
-        return projects[path_str]
+        return ClaudeProjectConfig.model_validate(projects[path_str])
 
     # Walk up the directory tree to find closest ancestor
     current = path.parent
@@ -126,11 +138,11 @@ def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, A
     while current != root:
         current_str = str(current)
         if current_str in projects:
-            return projects[current_str]
+            return ClaudeProjectConfig.model_validate(projects[current_str])
         current = current.parent
 
     # Check root as well
     if str(root) in projects:
-        return projects[str(root)]
+        return ClaudeProjectConfig.model_validate(projects[str(root)])
 
     return None

@@ -12,6 +12,7 @@ import click
 from loguru import logger
 from pydantic import Field
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr import hookimpl
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import AgentTypeConfig
@@ -86,7 +87,8 @@ def _prompt_user_for_installation() -> bool:
     return click.confirm("Would you like to install it now?", default=True)
 
 
-def _build_readiness_hooks_config() -> dict:
+@pure
+def _build_readiness_hooks_config() -> dict[str, Any]:
     """Build the hooks configuration for readiness signaling.
 
     These hooks use the MNGR_AGENT_STATE_DIR environment variable to create/remove
@@ -132,6 +134,7 @@ def _build_readiness_hooks_config() -> dict:
     }
 
 
+@pure
 def _hook_already_exists(existing_hooks: list[dict[str, Any]], new_hook: dict[str, Any]) -> bool:
     """Check if a hook with the same command already exists in the list.
 

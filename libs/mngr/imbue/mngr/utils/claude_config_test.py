@@ -35,7 +35,9 @@ def test_find_project_config_exact_match() -> None:
         "/Users/test/project2": {"allowedTools": [], "hasTrustDialogAccepted": False},
     }
     result = _find_project_config(projects, Path("/Users/test/project1"))
-    assert result == {"allowedTools": ["bash"], "hasTrustDialogAccepted": True}
+    assert result is not None
+    assert result.allowedTools == ["bash"]
+    assert result.hasTrustDialogAccepted is True
 
 
 def test_find_project_config_ancestor_match() -> None:
@@ -45,7 +47,9 @@ def test_find_project_config_ancestor_match() -> None:
     }
     # Search for a subdirectory
     result = _find_project_config(projects, Path("/Users/test/project/src/components"))
-    assert result == {"allowedTools": ["bash"], "hasTrustDialogAccepted": True}
+    assert result is not None
+    assert result.allowedTools == ["bash"]
+    assert result.hasTrustDialogAccepted is True
 
 
 def test_find_project_config_no_match() -> None:

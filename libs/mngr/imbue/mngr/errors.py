@@ -328,7 +328,11 @@ class UnknownBackendError(ConfigError):
 
 
 class ClaudeDirectoryNotTrustedError(ConfigError):
-    """The source directory's Claude config does not have hasTrustDialogAccepted=true, so if we copy it it'll give the agent an accept dialog and then tmux will send-keys at the dialog and it'll eat the message."""
+    """Source directory lacks hasTrustDialogAccepted=true in Claude config.
+
+    Without this, the new agent would see a trust dialog and tmux send-keys
+    would be consumed by it instead of being passed to the agent.
+    """
 
     def __init__(self, source_path: str) -> None:
         self.source_path = source_path
@@ -339,7 +343,11 @@ class ClaudeDirectoryNotTrustedError(ConfigError):
 
 
 class ClaudeTrustNotFoundError(ConfigError):
-    """~/.claude.json does not exist, so if we create an agent in a new worktree it'll get a trust dialog and then tmux will send-keys at the dialog and it'll eat the message."""
+    """The ~/.claude.json config file does not exist.
+
+    Without this, the new agent would see a trust dialog and tmux send-keys
+    would be consumed by it instead of being passed to the agent.
+    """
 
     def __init__(self, source_path: str) -> None:
         self.source_path = source_path
