@@ -381,6 +381,10 @@ class BaseAgent(AgentInterface):
         expected_ending = message[-20:] if len(message) > 20 else message
         self._wait_for_message_ending(session_name, marker, expected_ending)
 
+        # Delay to let the input handler fully process the text before sending Enter.
+        # Even with marker-based sync, a small delay helps avoid race conditions.
+        time.sleep(self.get_enter_delay_seconds())
+
         # Now send Enter to submit the message
         send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
         result = self.host.execute_command(send_enter_cmd)
