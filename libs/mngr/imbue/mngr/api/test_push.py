@@ -778,3 +778,140 @@ def test_push_git_mirror_mode(git_push_ctx: PushTestContext) -> None:
     # The commits should match after mirror push
     assert host_commit == agent_commit
     assert result.is_dry_run is False
+
+
+# =============================================================================
+# Test: Remote (non-local) host behavior
+# =============================================================================
+
+
+class _FakeRemoteHost(MutableModel):
+    """Test double for a remote (non-local) host.
+
+    Simulates a remote host by setting is_local=False while still executing
+    commands locally. This tests the code paths for remote hosts.
+    """
+
+    is_local: bool = Field(default=False, description="Whether this is a local host")
+
+    def execute_command(
+        self,
+        command: str,
+        cwd: Path | None = None,
+    ) -> CommandResult:
+        """Execute a shell command locally and return the result."""
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+        )
+        return CommandResult(
+            stdout=result.stdout,
+            stderr=result.stderr,
+            success=result.returncode == 0,
+        )
+
+
+@pytest.fixture
+def remote_push_ctx(tmp_path: Path) -> PushTestContext:
+    """Create a test context with a remote (non-local) host."""
+    host_dir = tmp_path / "host"
+    agent_dir = tmp_path / "agent"
+    host_dir.mkdir(parents=True)
+    _init_git_repo(agent_dir)
+    return PushTestContext(
+        host_dir=host_dir,
+        agent_dir=agent_dir,
+        agent=cast(AgentInterface, _FakeAgent(work_dir=agent_dir)),
+        host=cast(OnlineHostInterface, _FakeRemoteHost()),
+    )
+
+
+@pytest.fixture
+def remote_git_push_ctx(tmp_path: Path) -> PushTestContext:
+    """Create a test context with remote host for git push testing."""
+    host_dir = tmp_path / "host"
+    agent_dir = tmp_path / "agent"
+
+    _init_git_repo(host_dir)
+
+    subprocess.run(
+        ["git", "clone", str(host_dir), str(agent_dir)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    _run_git(agent_dir, "config", "receive.denyCurrentBranch", "ignore")
+    _run_git(agent_dir, "config", "user.email", "test@example.com")
+    _run_git(agent_dir, "config", "user.name", "Test User")
+
+    return PushTestContext(
+        host_dir=host_dir,
+        agent_dir=agent_dir,
+        agent=cast(AgentInterface, _FakeAgent(work_dir=agent_dir)),
+        host=cast(OnlineHostInterface, _FakeRemoteHost()),
+    )
+
+
+def test_push_files_with_remote_host_succeeds(
+    remote_push_ctx: PushTestContext,
+) -> None:
+    """Test that push_files works with a remote (non-local) host.
+
+    rsync is executed via host.execute_command, which works for both local
+    and remote hosts.
+    """
+    (remote_push_ctx.host_dir / "file.txt").write_text("host content")
+
+    result = push_files(
+        agent=remote_push_ctx.agent,
+        host=remote_push_ctx.host,
+        source=remote_push_ctx.host_dir,
+        uncommitted_changes=UncommittedChangesMode.CLOBBER,
+    )
+
+    assert (remote_push_ctx.agent_dir / "file.txt").exists()
+    assert (remote_push_ctx.agent_dir / "file.txt").read_text() == "host content"
+    assert result.destination_path == remote_push_ctx.agent_dir
+
+
+def test_push_files_with_remote_host_handles_uncommitted_changes(
+    remote_push_ctx: PushTestContext,
+) -> None:
+    """Test that push_files handles uncommitted changes on remote host."""
+    (remote_push_ctx.host_dir / "file.txt").write_text("host content")
+    (remote_push_ctx.agent_dir / "README.md").write_text("modified content")
+    initial_stash_count = _get_stash_count(remote_push_ctx.agent_dir)
+
+    push_files(
+        agent=remote_push_ctx.agent,
+        host=remote_push_ctx.host,
+        source=remote_push_ctx.host_dir,
+        uncommitted_changes=UncommittedChangesMode.STASH,
+    )
+
+    final_stash_count = _get_stash_count(remote_push_ctx.agent_dir)
+    assert final_stash_count == initial_stash_count + 1
+    assert (remote_push_ctx.agent_dir / "file.txt").read_text() == "host content"
+
+
+def test_push_git_with_remote_host_raises_not_implemented(
+    remote_git_push_ctx: PushTestContext,
+) -> None:
+    """Test that push_git raises NotImplementedError for remote hosts.
+
+    Git push to remote hosts requires SSH URL support which is not implemented.
+    """
+    (remote_git_push_ctx.host_dir / "new_file.txt").write_text("new content")
+    _run_git(remote_git_push_ctx.host_dir, "add", "new_file.txt")
+    _run_git(remote_git_push_ctx.host_dir, "commit", "-m", "Add new file")
+
+    with pytest.raises(NotImplementedError, match="remote hosts is not implemented"):
+        push_git(
+            agent=remote_git_push_ctx.agent,
+            host=remote_git_push_ctx.host,
+            source=remote_git_push_ctx.host_dir,
+            uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        )

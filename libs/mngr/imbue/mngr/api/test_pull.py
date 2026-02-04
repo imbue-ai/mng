@@ -9,12 +9,14 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.pull import pull_files
+from imbue.mngr.api.pull import pull_git
 from imbue.mngr.api.sync import LocalGitContext
 from imbue.mngr.api.sync import UncommittedChangesError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
 
 
@@ -550,3 +552,154 @@ def test_pull_files_with_custom_source_path(
     assert (pull_ctx.host_dir / "file_in_subdir.txt").read_text() == "content from subdir"
     assert not (pull_ctx.host_dir / "file_in_root.txt").exists()
     assert result.source_path == custom_source
+
+
+# =============================================================================
+# Test: Remote (non-local) host behavior
+# =============================================================================
+
+
+class _FakeRemoteHost(MutableModel):
+    """Test double for a remote (non-local) host.
+
+    Simulates a remote host by setting is_local=False while still executing
+    commands locally. This tests the code paths for remote hosts.
+    """
+
+    is_local: bool = Field(default=False, description="Whether this is a local host")
+
+    def execute_command(
+        self,
+        command: str,
+        cwd: Path | None = None,
+    ) -> CommandResult:
+        """Execute a shell command locally and return the result."""
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+        )
+        return CommandResult(
+            stdout=result.stdout,
+            stderr=result.stderr,
+            success=result.returncode == 0,
+        )
+
+
+@pytest.fixture
+def remote_pull_ctx(tmp_path: Path) -> PullTestContext:
+    """Create a test context with a remote (non-local) host."""
+    agent_dir = tmp_path / "agent"
+    host_dir = tmp_path / "host"
+    agent_dir.mkdir(parents=True)
+    _init_git_repo(host_dir)
+    return PullTestContext(
+        agent_dir=agent_dir,
+        host_dir=host_dir,
+        agent=cast(AgentInterface, _FakeAgent(work_dir=agent_dir)),
+        host=cast(HostInterface, _FakeRemoteHost()),
+    )
+
+
+@pytest.fixture
+def remote_git_pull_ctx(tmp_path: Path) -> PullTestContext:
+    """Create a test context with remote host for git pull testing.
+
+    Both agent and host directories are git repos with shared history.
+    """
+    agent_dir = tmp_path / "agent"
+    host_dir = tmp_path / "host"
+
+    # Initialize agent repo (the source for pull)
+    _init_git_repo(agent_dir)
+
+    # Clone agent to create host (so they share history)
+    subprocess.run(
+        ["git", "clone", str(agent_dir), str(host_dir)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    _run_git(host_dir, "config", "user.email", "test@example.com")
+    _run_git(host_dir, "config", "user.name", "Test User")
+
+    return PullTestContext(
+        agent_dir=agent_dir,
+        host_dir=host_dir,
+        agent=cast(AgentInterface, _FakeAgent(work_dir=agent_dir)),
+        host=cast(OnlineHostInterface, _FakeRemoteHost()),
+    )
+
+
+def test_pull_files_with_remote_host_succeeds(
+    remote_pull_ctx: PullTestContext,
+) -> None:
+    """Test that pull_files works with a remote (non-local) host.
+
+    rsync is executed via host.execute_command, which works for both local
+    and remote hosts.
+    """
+    (remote_pull_ctx.agent_dir / "file.txt").write_text("agent content")
+
+    result = pull_files(
+        agent=remote_pull_ctx.agent,
+        host=remote_pull_ctx.host,
+        destination=remote_pull_ctx.host_dir,
+        uncommitted_changes=UncommittedChangesMode.CLOBBER,
+    )
+
+    assert (remote_pull_ctx.host_dir / "file.txt").exists()
+    assert (remote_pull_ctx.host_dir / "file.txt").read_text() == "agent content"
+    assert result.source_path == remote_pull_ctx.agent_dir
+
+
+def test_pull_files_with_remote_host_handles_uncommitted_changes(
+    remote_pull_ctx: PullTestContext,
+) -> None:
+    """Test that pull_files handles uncommitted changes when pulling from remote host."""
+    (remote_pull_ctx.agent_dir / "file.txt").write_text("agent content")
+    (remote_pull_ctx.host_dir / "README.md").write_text("modified content")
+    initial_stash_count = _get_stash_count(remote_pull_ctx.host_dir)
+
+    pull_files(
+        agent=remote_pull_ctx.agent,
+        host=remote_pull_ctx.host,
+        destination=remote_pull_ctx.host_dir,
+        uncommitted_changes=UncommittedChangesMode.STASH,
+    )
+
+    final_stash_count = _get_stash_count(remote_pull_ctx.host_dir)
+    assert final_stash_count == initial_stash_count + 1
+    assert (remote_pull_ctx.host_dir / "file.txt").read_text() == "agent content"
+
+
+def test_pull_git_with_local_path_from_remote_host_works(
+    remote_git_pull_ctx: PullTestContext,
+) -> None:
+    """Test that pull_git works when the agent path is locally accessible.
+
+    Even when the host is marked as non-local (is_local=False), if the agent's
+    work_dir is actually a local path, git operations will succeed. This is
+    the case for our test environment where we simulate remote hosts locally.
+
+    In a real remote scenario (where the path is on a different machine),
+    this would fail because git fetch cannot access the remote path directly.
+    """
+    # Create a new commit on the agent
+    (remote_git_pull_ctx.agent_dir / "new_file.txt").write_text("agent content")
+    _run_git(remote_git_pull_ctx.agent_dir, "add", "new_file.txt")
+    _run_git(remote_git_pull_ctx.agent_dir, "commit", "-m", "Add new file")
+
+    result = pull_git(
+        agent=remote_git_pull_ctx.agent,
+        host=remote_git_pull_ctx.host,
+        destination=remote_git_pull_ctx.host_dir,
+        uncommitted_changes=UncommittedChangesMode.CLOBBER,
+    )
+
+    # The new file should now exist in the host directory
+    assert (remote_git_pull_ctx.host_dir / "new_file.txt").exists()
+    assert (remote_git_pull_ctx.host_dir / "new_file.txt").read_text() == "agent content"
+    assert result.is_dry_run is False
