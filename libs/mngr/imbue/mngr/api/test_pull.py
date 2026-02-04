@@ -12,12 +12,13 @@ from imbue.mngr.api.pull import pull_files
 from imbue.mngr.api.pull import pull_git
 from imbue.mngr.api.sync import LocalGitContext
 from imbue.mngr.api.sync import UncommittedChangesError
-from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.utils.testing import init_git_repo
+from imbue.mngr.utils.testing import run_git_command
 
 
 def _has_uncommitted_changes(path: Path) -> bool:
@@ -56,31 +57,6 @@ class _FakeHost(MutableModel):
         )
 
 
-def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    """Run a git command in the given directory."""
-    result = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise MngrError(f"git {' '.join(args)} failed: {result.stderr}")
-    return result
-
-
-def _init_git_repo(path: Path) -> None:
-    """Initialize a git repository with an initial commit."""
-    path.mkdir(parents=True, exist_ok=True)
-    _run_git(path, "init")
-    _run_git(path, "config", "user.email", "test@example.com")
-    _run_git(path, "config", "user.name", "Test User")
-    # Create an initial file and commit
-    (path / "README.md").write_text("Initial content")
-    _run_git(path, "add", "README.md")
-    _run_git(path, "commit", "-m", "Initial commit")
-
-
 def _get_stash_count(path: Path) -> int:
     """Get the number of stash entries."""
     result = subprocess.run(
@@ -111,7 +87,7 @@ def pull_ctx(tmp_path: Path) -> PullTestContext:
     agent_dir = tmp_path / "agent"
     host_dir = tmp_path / "host"
     agent_dir.mkdir(parents=True)
-    _init_git_repo(host_dir)
+    init_git_repo(host_dir)
     return PullTestContext(
         agent_dir=agent_dir,
         host_dir=host_dir,
@@ -214,8 +190,8 @@ def test_pull_files_clobber_mode_with_delete_flag_removes_host_only_files(
     """Test CLOBBER mode with delete=True removes files not in agent."""
     (pull_ctx.agent_dir / "agent_file.txt").write_text("agent content")
     (pull_ctx.host_dir / "host_extra.txt").write_text("this should be deleted")
-    _run_git(pull_ctx.host_dir, "add", "host_extra.txt")
-    _run_git(pull_ctx.host_dir, "commit", "-m", "Add host extra file")
+    run_git_command(pull_ctx.host_dir, "add", "host_extra.txt")
+    run_git_command(pull_ctx.host_dir, "commit", "-m", "Add host extra file")
 
     pull_files(
         agent=pull_ctx.agent,
@@ -264,8 +240,8 @@ def test_pull_files_stash_mode_when_both_agent_and_host_modify_same_file(
     """Test STASH mode when both agent and host have modified the same file."""
     # Add and commit a shared file in host
     (pull_ctx.host_dir / "shared.txt").write_text("original content")
-    _run_git(pull_ctx.host_dir, "add", "shared.txt")
-    _run_git(pull_ctx.host_dir, "commit", "-m", "Add shared file")
+    run_git_command(pull_ctx.host_dir, "add", "shared.txt")
+    run_git_command(pull_ctx.host_dir, "commit", "-m", "Add shared file")
 
     # Modify the shared file (uncommitted change to a tracked file)
     (pull_ctx.host_dir / "shared.txt").write_text("host version of shared")
@@ -388,8 +364,8 @@ def test_pull_files_merge_mode_when_only_agent_file_is_modified(
     (pull_ctx.agent_dir / "shared.txt").write_text("agent modified content")
     # Add and commit the file in host first
     (pull_ctx.host_dir / "shared.txt").write_text("original content")
-    _run_git(pull_ctx.host_dir, "add", "shared.txt")
-    _run_git(pull_ctx.host_dir, "commit", "-m", "Add shared file")
+    run_git_command(pull_ctx.host_dir, "add", "shared.txt")
+    run_git_command(pull_ctx.host_dir, "commit", "-m", "Add shared file")
     assert not _has_uncommitted_changes(pull_ctx.host_dir)
 
     pull_files(
@@ -473,12 +449,12 @@ def test_pull_files_excludes_git_directory(
 ) -> None:
     """Test that pull_files excludes the .git directory from rsync."""
     # Make the agent directory a git repo too
-    _run_git(pull_ctx.agent_dir, "init")
-    _run_git(pull_ctx.agent_dir, "config", "user.email", "test@example.com")
-    _run_git(pull_ctx.agent_dir, "config", "user.name", "Test User")
+    run_git_command(pull_ctx.agent_dir, "init")
+    run_git_command(pull_ctx.agent_dir, "config", "user.email", "test@example.com")
+    run_git_command(pull_ctx.agent_dir, "config", "user.name", "Test User")
     (pull_ctx.agent_dir / "file.txt").write_text("agent content")
-    _run_git(pull_ctx.agent_dir, "add", "file.txt")
-    _run_git(pull_ctx.agent_dir, "commit", "-m", "Add file")
+    run_git_command(pull_ctx.agent_dir, "add", "file.txt")
+    run_git_command(pull_ctx.agent_dir, "commit", "-m", "Add file")
 
     host_commit_before = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -594,7 +570,7 @@ def remote_pull_ctx(tmp_path: Path) -> PullTestContext:
     agent_dir = tmp_path / "agent"
     host_dir = tmp_path / "host"
     agent_dir.mkdir(parents=True)
-    _init_git_repo(host_dir)
+    init_git_repo(host_dir)
     return PullTestContext(
         agent_dir=agent_dir,
         host_dir=host_dir,
@@ -613,7 +589,7 @@ def remote_git_pull_ctx(tmp_path: Path) -> PullTestContext:
     host_dir = tmp_path / "host"
 
     # Initialize agent repo (the source for pull)
-    _init_git_repo(agent_dir)
+    init_git_repo(agent_dir)
 
     # Clone agent to create host (so they share history)
     subprocess.run(
@@ -622,8 +598,8 @@ def remote_git_pull_ctx(tmp_path: Path) -> PullTestContext:
         text=True,
         check=True,
     )
-    _run_git(host_dir, "config", "user.email", "test@example.com")
-    _run_git(host_dir, "config", "user.name", "Test User")
+    run_git_command(host_dir, "config", "user.email", "test@example.com")
+    run_git_command(host_dir, "config", "user.name", "Test User")
 
     return PullTestContext(
         agent_dir=agent_dir,
@@ -689,8 +665,8 @@ def test_pull_git_with_local_path_from_remote_host_works(
     """
     # Create a new commit on the agent
     (remote_git_pull_ctx.agent_dir / "new_file.txt").write_text("agent content")
-    _run_git(remote_git_pull_ctx.agent_dir, "add", "new_file.txt")
-    _run_git(remote_git_pull_ctx.agent_dir, "commit", "-m", "Add new file")
+    run_git_command(remote_git_pull_ctx.agent_dir, "add", "new_file.txt")
+    run_git_command(remote_git_pull_ctx.agent_dir, "commit", "-m", "Add new file")
 
     result = pull_git(
         agent=remote_git_pull_ctx.agent,

@@ -2,12 +2,9 @@
 
 from pathlib import Path
 
-from imbue.mngr.api.sync import GitSyncError
-from imbue.mngr.api.sync import NotAGitRepositoryError
 from imbue.mngr.api.sync import SyncFilesResult
 from imbue.mngr.api.sync import SyncGitResult
 from imbue.mngr.api.sync import SyncMode
-from imbue.mngr.api.sync import UncommittedChangesError
 from imbue.mngr.api.sync import sync_files
 from imbue.mngr.api.sync import sync_git
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -57,17 +54,3 @@ def pull_git(
         dry_run=dry_run,
         uncommitted_changes=uncommitted_changes,
     )
-
-
-__all__ = [
-    # Result classes (re-exported from sync)
-    "SyncFilesResult",
-    "SyncGitResult",
-    # Error classes (re-exported from sync)
-    "UncommittedChangesError",
-    "NotAGitRepositoryError",
-    "GitSyncError",
-    # Functions
-    "pull_files",
-    "pull_git",
-]

@@ -12,11 +12,12 @@ from imbue.mngr.api.push import push_files
 from imbue.mngr.api.push import push_git
 from imbue.mngr.api.sync import RemoteGitContext
 from imbue.mngr.api.sync import UncommittedChangesError
-from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.utils.testing import init_git_repo
+from imbue.mngr.utils.testing import run_git_command
 
 
 def _has_uncommitted_changes_on_host(host: OnlineHostInterface, path: Path) -> bool:
@@ -62,31 +63,6 @@ class _FakeHost(MutableModel):
         )
 
 
-def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    """Run a git command in the given directory."""
-    result = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise MngrError(f"git {' '.join(args)} failed: {result.stderr}")
-    return result
-
-
-def _init_git_repo(path: Path) -> None:
-    """Initialize a git repository with an initial commit."""
-    path.mkdir(parents=True, exist_ok=True)
-    _run_git(path, "init")
-    _run_git(path, "config", "user.email", "test@example.com")
-    _run_git(path, "config", "user.name", "Test User")
-    # Create an initial file and commit
-    (path / "README.md").write_text("Initial content")
-    _run_git(path, "add", "README.md")
-    _run_git(path, "commit", "-m", "Initial commit")
-
-
 def _get_stash_count(path: Path) -> int:
     """Get the number of stash entries."""
     result = subprocess.run(
@@ -117,7 +93,7 @@ def push_ctx(tmp_path: Path) -> PushTestContext:
     host_dir = tmp_path / "host"
     agent_dir = tmp_path / "agent"
     host_dir.mkdir(parents=True)
-    _init_git_repo(agent_dir)
+    init_git_repo(agent_dir)
     return PushTestContext(
         host_dir=host_dir,
         agent_dir=agent_dir,
@@ -220,8 +196,8 @@ def test_push_files_clobber_mode_with_delete_flag_removes_agent_only_files(
     """Test CLOBBER mode with delete=True removes files not in source."""
     (push_ctx.host_dir / "host_file.txt").write_text("host content")
     (push_ctx.agent_dir / "agent_extra.txt").write_text("this should be deleted")
-    _run_git(push_ctx.agent_dir, "add", "agent_extra.txt")
-    _run_git(push_ctx.agent_dir, "commit", "-m", "Add agent extra file")
+    run_git_command(push_ctx.agent_dir, "add", "agent_extra.txt")
+    run_git_command(push_ctx.agent_dir, "commit", "-m", "Add agent extra file")
 
     push_files(
         agent=push_ctx.agent,
@@ -412,12 +388,12 @@ def test_push_files_excludes_git_directory(
 ) -> None:
     """Test that push_files excludes the .git directory from rsync."""
     # Make the host directory a git repo too
-    _run_git(push_ctx.host_dir, "init")
-    _run_git(push_ctx.host_dir, "config", "user.email", "test@example.com")
-    _run_git(push_ctx.host_dir, "config", "user.name", "Test User")
+    run_git_command(push_ctx.host_dir, "init")
+    run_git_command(push_ctx.host_dir, "config", "user.email", "test@example.com")
+    run_git_command(push_ctx.host_dir, "config", "user.name", "Test User")
     (push_ctx.host_dir / "file.txt").write_text("host content")
-    _run_git(push_ctx.host_dir, "add", "file.txt")
-    _run_git(push_ctx.host_dir, "commit", "-m", "Add file")
+    run_git_command(push_ctx.host_dir, "add", "file.txt")
+    run_git_command(push_ctx.host_dir, "commit", "-m", "Add file")
 
     agent_commit_before = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -559,7 +535,7 @@ def git_push_ctx(tmp_path: Path) -> PushTestContext:
     agent_dir = tmp_path / "agent"
 
     # Initialize host repo with a commit
-    _init_git_repo(host_dir)
+    init_git_repo(host_dir)
 
     # Clone the host repo to create the agent repo (so they share history)
     subprocess.run(
@@ -571,11 +547,11 @@ def git_push_ctx(tmp_path: Path) -> PushTestContext:
 
     # Configure agent repo to allow receiving pushes to the current branch
     # This is required for our push mechanism to work
-    _run_git(agent_dir, "config", "receive.denyCurrentBranch", "ignore")
+    run_git_command(agent_dir, "config", "receive.denyCurrentBranch", "ignore")
 
     # Configure git user for the agent repo
-    _run_git(agent_dir, "config", "user.email", "test@example.com")
-    _run_git(agent_dir, "config", "user.name", "Test User")
+    run_git_command(agent_dir, "config", "user.email", "test@example.com")
+    run_git_command(agent_dir, "config", "user.name", "Test User")
 
     return PushTestContext(
         host_dir=host_dir,
@@ -589,8 +565,8 @@ def test_push_git_basic_push(git_push_ctx: PushTestContext) -> None:
     """Test basic git push from host to agent."""
     # Create a new commit on the host
     (git_push_ctx.host_dir / "new_file.txt").write_text("new content")
-    _run_git(git_push_ctx.host_dir, "add", "new_file.txt")
-    _run_git(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
 
     result = push_git(
         agent=git_push_ctx.agent,
@@ -611,8 +587,8 @@ def test_push_git_dry_run(git_push_ctx: PushTestContext) -> None:
     """Test that dry_run=True does not actually push commits."""
     # Create a new commit on the host
     (git_push_ctx.host_dir / "new_file.txt").write_text("new content")
-    _run_git(git_push_ctx.host_dir, "add", "new_file.txt")
-    _run_git(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
 
     result = push_git(
         agent=git_push_ctx.agent,
@@ -631,8 +607,8 @@ def test_push_git_with_stash_mode(git_push_ctx: PushTestContext) -> None:
     """Test push_git with STASH mode for uncommitted changes on agent."""
     # Create a new commit on the host
     (git_push_ctx.host_dir / "new_file.txt").write_text("new content from host")
-    _run_git(git_push_ctx.host_dir, "add", "new_file.txt")
-    _run_git(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
 
     # Create uncommitted changes on the agent
     (git_push_ctx.agent_dir / "README.md").write_text("agent uncommitted changes")
@@ -655,8 +631,8 @@ def test_push_git_with_merge_mode(git_push_ctx: PushTestContext) -> None:
     """Test push_git with MERGE mode restores uncommitted changes after push."""
     # Create a new commit on the host
     (git_push_ctx.host_dir / "new_file.txt").write_text("new content from host")
-    _run_git(git_push_ctx.host_dir, "add", "new_file.txt")
-    _run_git(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
 
     # Create an untracked file on the agent (different from host's new file)
     (git_push_ctx.agent_dir / "agent_local_file.txt").write_text("agent local content")
@@ -681,8 +657,8 @@ def test_push_git_does_not_modify_host_directory(git_push_ctx: PushTestContext) 
     """Test that push_git NEVER modifies the host (source) directory."""
     # Create a commit on the host
     (git_push_ctx.host_dir / "new_file.txt").write_text("host content")
-    _run_git(git_push_ctx.host_dir, "add", "new_file.txt")
-    _run_git(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
 
     # Record the state of the host directory
     host_files_before = set(git_push_ctx.host_dir.iterdir())
@@ -725,8 +701,8 @@ def test_push_git_mirror_mode_dry_run(git_push_ctx: PushTestContext) -> None:
     """Test that mirror mode with dry_run=True shows what would be pushed."""
     # Create a new commit on the host
     (git_push_ctx.host_dir / "new_file.txt").write_text("new content")
-    _run_git(git_push_ctx.host_dir, "add", "new_file.txt")
-    _run_git(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
 
     result = push_git(
         agent=git_push_ctx.agent,
@@ -748,8 +724,8 @@ def test_push_git_mirror_mode(git_push_ctx: PushTestContext) -> None:
     """Test that mirror mode pushes all refs to the agent repository."""
     # Create a new commit on the host
     (git_push_ctx.host_dir / "new_file.txt").write_text("new content")
-    _run_git(git_push_ctx.host_dir, "add", "new_file.txt")
-    _run_git(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
 
     # Get host commit before push
     host_commit = subprocess.run(
@@ -820,7 +796,7 @@ def remote_push_ctx(tmp_path: Path) -> PushTestContext:
     host_dir = tmp_path / "host"
     agent_dir = tmp_path / "agent"
     host_dir.mkdir(parents=True)
-    _init_git_repo(agent_dir)
+    init_git_repo(agent_dir)
     return PushTestContext(
         host_dir=host_dir,
         agent_dir=agent_dir,
@@ -835,7 +811,7 @@ def remote_git_push_ctx(tmp_path: Path) -> PushTestContext:
     host_dir = tmp_path / "host"
     agent_dir = tmp_path / "agent"
 
-    _init_git_repo(host_dir)
+    init_git_repo(host_dir)
 
     subprocess.run(
         ["git", "clone", str(host_dir), str(agent_dir)],
@@ -843,9 +819,9 @@ def remote_git_push_ctx(tmp_path: Path) -> PushTestContext:
         text=True,
         check=True,
     )
-    _run_git(agent_dir, "config", "receive.denyCurrentBranch", "ignore")
-    _run_git(agent_dir, "config", "user.email", "test@example.com")
-    _run_git(agent_dir, "config", "user.name", "Test User")
+    run_git_command(agent_dir, "config", "receive.denyCurrentBranch", "ignore")
+    run_git_command(agent_dir, "config", "user.email", "test@example.com")
+    run_git_command(agent_dir, "config", "user.name", "Test User")
 
     return PushTestContext(
         host_dir=host_dir,
@@ -905,8 +881,8 @@ def test_push_git_with_remote_host_raises_not_implemented(
     Git push to remote hosts requires SSH URL support which is not implemented.
     """
     (remote_git_push_ctx.host_dir / "new_file.txt").write_text("new content")
-    _run_git(remote_git_push_ctx.host_dir, "add", "new_file.txt")
-    _run_git(remote_git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    run_git_command(remote_git_push_ctx.host_dir, "add", "new_file.txt")
+    run_git_command(remote_git_push_ctx.host_dir, "commit", "-m", "Add new file")
 
     with pytest.raises(NotImplementedError, match="remote hosts is not implemented"):
         push_git(
