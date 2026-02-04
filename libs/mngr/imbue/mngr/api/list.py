@@ -209,6 +209,10 @@ def list_agents(
         provider_map = {provider.name: provider for provider in providers}
         logger.trace("Found {} hosts with agents", len(agents_by_host))
 
+        # FIXME: parallelize the processing of this data by using a ConcurrencyGroup
+        #  See the example (load_all_agents_grouped_by_host) for how to use it
+        #  Remember that you need to join all of the threads that you create
+
         # Process each host and its agents
         for host_ref, agent_refs in agents_by_host.items():
             # Skip hosts with no agents to process
