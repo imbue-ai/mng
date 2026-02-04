@@ -22,6 +22,7 @@ from typing import cast
 from loguru import logger
 from paramiko import SSHException
 from pydantic import Field
+from pydantic import ValidationError
 from pyinfra.api.command import StringCommand
 from pyinfra.connectors.util import CommandOutput
 
@@ -35,6 +36,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import HostConnectionError
+from imbue.mngr.errors import HostDataSchemaError
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
@@ -532,6 +534,8 @@ class Host(BaseHost, OnlineHostInterface):
                 host_id=str(self.id),
                 host_name=str(self.get_name()),
             )
+        except ValidationError as e:
+            raise HostDataSchemaError(str(data_path), str(e)) from e
 
     def set_certified_data(self, data: CertifiedHostData) -> None:
         """Save certified data to data.json and notify the provider."""
