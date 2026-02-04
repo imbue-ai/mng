@@ -376,6 +376,11 @@ class BaseAgent(AgentInterface):
         if not result.success:
             raise SendMessageError(str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}")
 
+        # Give Claude Code's input handler time to process the backspaces
+        backspace_settle_delay = self.get_enter_delay_seconds()
+        logger.debug("Waiting {}s for backspaces to settle", backspace_settle_delay)
+        time.sleep(backspace_settle_delay)
+
         # Send a no-op key sequence (Right then Left) to reset Claude Code's input
         # handler state after backspaces. Without this, Enter may be interpreted
         # as a literal newline instead of submit.
