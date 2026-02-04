@@ -1586,8 +1586,8 @@ class Host(BaseHost, OnlineHostInterface):
             "# Ctrl-q: Detach and destroy the agent whose session this is",
             """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'""",
             "",
-            "# Ctrl-h: Detach and stop the agent whose session this is",
-            """bind -n C-h run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
+            "# Ctrl-@: Detach and stop the agent whose session this is",
+            """bind -n C-@ run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
             "",
             # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
             "# Automatically signal claude to tell it to resize on client attach",
@@ -1617,7 +1617,7 @@ class Host(BaseHost, OnlineHostInterface):
         A custom tmux config is used that:
         - Sources the user's default ~/.tmux.conf if it exists
         - Adds a Ctrl-q binding to detach and destroy the current agent
-        - Adds a Ctrl-h binding to detach and halt (stop) the current agent
+        - Adds a Ctrl-@ binding to detach and halt (stop) the current agent
         """
         logger.debug("Starting {} agent(s)", len(agent_ids))
 

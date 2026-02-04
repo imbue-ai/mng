@@ -38,6 +38,7 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostReference
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
@@ -78,7 +79,11 @@ class AgentInfo(FrozenModel):
     def combined_state(self) -> str:
         lifecycle_state = self.lifecycle_state
         if lifecycle_state is None or lifecycle_state == AgentLifecycleState.STOPPED:
-            return self.host.state
+            host_state = self.host.state
+            if host_state is not None:
+                return host_state
+            else:
+                return HostState.DESTROYED.value.lower()
         else:
             return lifecycle_state.value.lower()
 
@@ -186,6 +191,10 @@ def list_agents(
         agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx, provider_names, include_destroyed=True)
         provider_map = {provider.name: provider for provider in providers}
         logger.trace("Found {} hosts with agents", len(agents_by_host))
+
+        # FIXME: parallelize the processing of this data by using a ConcurrencyGroup
+        #  See the example (load_all_agents_grouped_by_host) for how to use it
+        #  Remember that you need to join all of the threads that you create
 
         # Process each host and its agents
         for host_ref, agent_refs in agents_by_host.items():

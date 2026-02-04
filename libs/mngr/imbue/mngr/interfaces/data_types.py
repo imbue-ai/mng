@@ -311,6 +311,7 @@ class HostInfo(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
 
     # Extended fields (all optional)
+    # FIXME: this should be of this type: HostState
     state: str | None = Field(default=None, description="Current host state (running, stopped, etc.)")
     image: str | None = Field(default=None, description="Host image (Docker image name, Modal image ID, etc.)")
     tags: dict[str, str] = Field(default_factory=dict, description="Metadata tags for the host")
