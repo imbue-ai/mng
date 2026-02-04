@@ -47,6 +47,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.data_types import HostLifecycleOptions
+from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
@@ -421,8 +422,6 @@ class ModalProviderInstance(BaseProviderInstance):
         Returns None if the host record doesn't exist.
         Uses a cache to avoid repeated reads of the same host record.
         """
-        # TODO: remove this!!!
-        use_cache = False
 
         # Check cache first
         if use_cache and host_id in self._host_record_cache_by_id:
@@ -1660,14 +1659,18 @@ log "=== Shutdown script completed ==="
         if isinstance(host, HostId) and host in self._host_by_id_cache:
             return self._host_by_id_cache[host]
 
+        host_obj: HostInterface | None = None
         if isinstance(host, HostId):
             # Try to find a running sandbox first
             sandbox = self._find_sandbox_by_host_id(host)
             if sandbox is not None:
-                host_obj = self._create_host_from_sandbox(sandbox)
+                try:
+                    host_obj = self._create_host_from_sandbox(sandbox)
+                except HostConnectionError as e:
+                    logger.debug("Failed to create host from sandbox {}: {}", host, e)
 
             if host_obj is None:
-                # No sandbox - try host record (for stopped hosts)
+                # No sandbox or couldn't connect - try host record (for stopped hosts)
                 host_record = self._read_host_record(host)
                 if host_record is not None:
                     host_obj = self._create_host_from_host_record(host_record)
@@ -1675,9 +1678,12 @@ log "=== Shutdown script completed ==="
             # If it's a HostName, search by name
             sandbox = self._find_sandbox_by_name(host)
             if sandbox is not None:
-                host_obj = self._create_host_from_sandbox(sandbox)
+                try:
+                    host_obj = self._create_host_from_sandbox(sandbox)
+                except HostConnectionError as e:
+                    logger.debug("Failed to create host from sandbox {}: {}", host, e)
 
-            # No sandbox - search host records by name (for stopped hosts)
+            # No sandbox or couldn't connect - search host records by name (for stopped hosts)
             if host_obj is None:
                 for host_record in self._list_all_host_records():
                     if host_record.host_name == str(host):
@@ -1767,6 +1773,7 @@ log "=== Shutdown script completed ==="
             host_id = HostId(host_record.host_id)
             processed_host_ids.add(host_id)
 
+            host_obj: HostInterface | None = None
             if host_id in running_sandbox_by_host_id:
                 # Host has a running sandbox - create from sandbox
                 sandbox = running_sandbox_by_host_id[host_id]
@@ -1774,11 +1781,11 @@ log "=== Shutdown script completed ==="
                     host_obj = self._create_host_from_sandbox(sandbox)
                     if host_obj is not None:
                         hosts.append(host_obj)
-                except (KeyError, ValueError) as e:
+                except (KeyError, ValueError, HostConnectionError) as e:
                     logger.debug("Failed to create host from sandbox {}: {}", host_id, e)
                     continue
-            else:
-                # Host has no running sandbox - it's stopped, failed, or destroyed
+            if host_id not in running_sandbox_by_host_id or host_obj is None:
+                # Host has no running sandbox - it's stopped, failed, destroyed, or we couldn't connect
                 has_snapshots = len(host_record.snapshots) > 0
                 is_failed = host_record.certified_host_data.state == HostState.FAILED.value
 
@@ -1819,7 +1826,7 @@ log "=== Shutdown script completed ==="
                 host_obj = self._create_host_from_sandbox(sandbox)
                 if host_obj is not None:
                     hosts.append(host_obj)
-            except (KeyError, ValueError) as e:
+            except (KeyError, ValueError, HostConnectionError) as e:
                 logger.debug("Failed to create host from sandbox {}: {}", host_id, e)
                 continue
 

@@ -212,16 +212,16 @@ def reset_plugin_manager() -> None:
 
 # Add built-in commands to the CLI group
 BUILTIN_COMMANDS: list[click.Command] = [
-    config,
-    connect,
     create,
     destroy,
-    gc,
     list_command,
+    connect,
     message,
-    pull,
     start,
     stop,
+    pull,
+    config,
+    gc,
 ]
 
 for cmd in BUILTIN_COMMANDS:
