@@ -261,40 +261,8 @@ class BaseAgent(AgentInterface):
             logger.trace("Agent {} lifecycle state: RUNNING (no waiting file)", self.name)
             return AgentLifecycleState.RUNNING
 
-        # Waiting file exists, but also check if prompt is visible (if pattern is set).
-        # This is needed because some agents (like Claude Code) fire their SessionStart
-        # hook before the UI is fully rendered. If we send a message at that point, the
-        # text appears in the terminal buffer but gets mangled when the prompt renders.
-        prompt_pattern = self.get_ready_prompt_pattern()
-        if prompt_pattern is not None:
-            if not self._is_prompt_visible(prompt_pattern):
-                logger.trace(
-                    "Agent {} lifecycle state: RUNNING (waiting file exists but prompt not visible)",
-                    self.name,
-                )
-                return AgentLifecycleState.RUNNING
-
         logger.trace("Agent {} lifecycle state: WAITING", self.name)
         return AgentLifecycleState.WAITING
-
-    def get_ready_prompt_pattern(self) -> str | None:
-        """Get the prompt pattern to look for when determining if the agent is ready.
-
-        Subclasses can override this to return a pattern (e.g., "❯") that must be
-        visible in the tmux pane before the agent is considered ready for input.
-        Returns None by default, meaning no prompt check is performed.
-        """
-        return None
-
-    def _is_prompt_visible(self, pattern: str) -> bool:
-        """Check if the given prompt pattern is visible in the tmux pane.
-
-        Note: We check the entire pane, not just the last few lines, because
-        tmux panes often have many trailing blank lines (pane is taller than content).
-        """
-        session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
-        content = self._capture_pane_content(session_name)
-        return content is not None and pattern in content
 
     def _command_basename_matches(self, current: str, expected: str) -> bool:
         """Check if current command basename matches expected command."""

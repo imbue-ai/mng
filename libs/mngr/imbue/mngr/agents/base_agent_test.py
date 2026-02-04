@@ -420,16 +420,6 @@ def test_get_enter_delay_seconds_returns_value_when_set(
     assert test_agent.get_enter_delay_seconds() == 0.5
 
 
-def test_get_ready_prompt_pattern_returns_none_by_default(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> None:
-    """Test that get_ready_prompt_pattern returns None by default."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert test_agent.get_ready_prompt_pattern() is None
-
-
 def test_get_expected_process_name_uses_command_basename(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
