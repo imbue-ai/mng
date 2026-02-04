@@ -153,11 +153,9 @@ def test_mngr_create_with_message_multiple_times() -> None:
         finally:
             run_mngr("destroy", agent_name, "--force")
 
-    # Require at least 80% success rate
-    success_rate = successes / trial_count
-    assert success_rate >= 0.8, (
-        f"Message reliability test failed: {successes}/{trial_count} succeeded ({success_rate:.0%})\n"
-        f"Failures: {failures}"
+    # Require 100% success rate
+    assert successes == trial_count, (
+        f"Message reliability test failed: {successes}/{trial_count} succeeded\nFailures: {failures}"
     )
 
 
@@ -195,9 +193,7 @@ def test_mngr_message_multiple_times(claude_agent: str) -> None:
         except subprocess.TimeoutExpired:
             failures.append(f"Trial {i}: timeout")
 
-    # Require at least 80% success rate
-    success_rate = successes / trial_count
-    assert success_rate >= 0.8, (
-        f"Message reliability test failed: {successes}/{trial_count} succeeded ({success_rate:.0%})\n"
-        f"Failures: {failures}"
+    # Require 100% success rate
+    assert successes == trial_count, (
+        f"Message reliability test failed: {successes}/{trial_count} succeeded\nFailures: {failures}"
     )
