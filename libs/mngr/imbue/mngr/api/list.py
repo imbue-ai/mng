@@ -77,10 +77,11 @@ class AgentInfo(FrozenModel):
 
     @property
     def combined_state(self) -> str:
-        if self.lifecycle_state == AgentLifecycleState.STOPPED:
+        lifecycle_state = self.lifecycle_state
+        if lifecycle_state is None or lifecycle_state == AgentLifecycleState.STOPPED:
             return self.host.state
         else:
-            return self.lifecycle_state.value.lower()
+            return lifecycle_state.value.lower()
 
 
 class ErrorInfo(FrozenModel):
