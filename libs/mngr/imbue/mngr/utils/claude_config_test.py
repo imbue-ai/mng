@@ -175,8 +175,8 @@ def test_check_source_directory_trusted_raises_when_trust_field_missing(tmp_path
             check_source_directory_trusted(source_path)
 
 
-def test_check_source_directory_trusted_handles_invalid_json(tmp_path: Path) -> None:
-    """Test that check_source_directory_trusted raises for invalid JSON."""
+def test_check_source_directory_trusted_raises_json_error_for_invalid_json(tmp_path: Path) -> None:
+    """Test that check_source_directory_trusted lets JSONDecodeError bubble up."""
     config_file = tmp_path / ".claude.json"
     source_path = tmp_path / "source"
     source_path.mkdir()
@@ -185,5 +185,5 @@ def test_check_source_directory_trusted_handles_invalid_json(tmp_path: Path) -> 
     config_file.write_text("{ invalid json }")
 
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
-        with pytest.raises(ClaudeDirectoryNotTrustedError):
+        with pytest.raises(json.JSONDecodeError):
             check_source_directory_trusted(source_path)
