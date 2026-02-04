@@ -7,16 +7,16 @@ import pytest
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
-from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.pair import UnisonSyncer
 from imbue.mngr.api.pair import check_unison_installed
 from imbue.mngr.api.pair import determine_git_sync_actions
 from imbue.mngr.api.pair import pair_files
 from imbue.mngr.api.pair import sync_git_state
+from imbue.mngr.api.test_fixtures import FakeAgent
+from imbue.mngr.api.test_fixtures import FakeHost
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UnisonNotInstalledError
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
@@ -24,37 +24,6 @@ from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import init_git_repo
 from imbue.mngr.utils.testing import run_git_command
-
-
-class _FakeAgent(FrozenModel):
-    """Minimal test double for AgentInterface."""
-
-    work_dir: Path = Field(description="Working directory for this agent")
-
-
-class _FakeHost(MutableModel):
-    """Minimal test double for HostInterface."""
-
-    is_local: bool = Field(default=True, description="Whether this is a local host")
-
-    def execute_command(
-        self,
-        command: str,
-        cwd: Path | None = None,
-    ) -> CommandResult:
-        """Execute a shell command locally and return the result."""
-        result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            cwd=cwd,
-        )
-        return CommandResult(
-            stdout=result.stdout,
-            stderr=result.stderr,
-            success=result.returncode == 0,
-        )
 
 
 class PairTestContext(FrozenModel):
@@ -88,8 +57,8 @@ def pair_ctx(tmp_path: Path) -> PairTestContext:
     return PairTestContext(
         source_dir=source_dir,
         target_dir=target_dir,
-        agent=cast(AgentInterface, _FakeAgent(work_dir=source_dir)),
-        host=cast(OnlineHostInterface, _FakeHost()),
+        agent=cast(AgentInterface, FakeAgent(work_dir=source_dir)),
+        host=cast(OnlineHostInterface, FakeHost()),
     )
 
 
@@ -192,8 +161,8 @@ def test_pair_files_raises_when_git_required_but_not_present(
     source_dir.mkdir()
     target_dir.mkdir()
 
-    agent = cast(AgentInterface, _FakeAgent(work_dir=source_dir))
-    host = cast(OnlineHostInterface, _FakeHost())
+    agent = cast(AgentInterface, FakeAgent(work_dir=source_dir))
+    host = cast(OnlineHostInterface, FakeHost())
 
     with pytest.raises(MngrError) as exc_info:
         with pair_files(
@@ -281,8 +250,8 @@ def test_pair_files_with_no_git_requirement(tmp_path: Path) -> None:
     # Create a file in source
     (source_dir / "test_file.txt").write_text("test content")
 
-    agent = cast(AgentInterface, _FakeAgent(work_dir=source_dir))
-    host = cast(OnlineHostInterface, _FakeHost())
+    agent = cast(AgentInterface, FakeAgent(work_dir=source_dir))
+    host = cast(OnlineHostInterface, FakeHost())
 
     with pair_files(
         agent=agent,

@@ -525,7 +525,7 @@ def _sync_git_push(
                         target_branch,
                     )
         else:
-            raise NotImplementedError("Pushing to remote hosts is not implemented yet")
+            raise NotImplementedError("Pushing to remote hosts is not yet implemented")
 
     finally:
         # For merge mode, restore the stashed changes

@@ -185,6 +185,20 @@ def init_git_repo(path: Path) -> None:
     run_git_command(path, "commit", "-m", "Initial commit")
 
 
+def get_stash_count(path: Path) -> int:
+    """Get the number of stash entries in a git repository."""
+    result = subprocess.run(
+        ["git", "stash", "list"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return 0
+    lines = result.stdout.strip().split("\n")
+    return len([line for line in lines if line])
+
+
 # =============================================================================
 # Modal test environment cleanup utilities
 # =============================================================================

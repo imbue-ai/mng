@@ -7,16 +7,18 @@ import pytest
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
-from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.api.pull import pull_git
 from imbue.mngr.api.sync import LocalGitContext
 from imbue.mngr.api.sync import UncommittedChangesError
+from imbue.mngr.api.test_fixtures import FakeAgent
+from imbue.mngr.api.test_fixtures import FakeHost
+from imbue.mngr.api.test_fixtures import FakeRemoteHost
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.utils.testing import get_stash_count
 from imbue.mngr.utils.testing import init_git_repo
 from imbue.mngr.utils.testing import run_git_command
 
@@ -24,51 +26,6 @@ from imbue.mngr.utils.testing import run_git_command
 def _has_uncommitted_changes(path: Path) -> bool:
     """Helper to check for uncommitted changes using LocalGitContext."""
     return LocalGitContext().has_uncommitted_changes(path)
-
-
-class _FakeAgent(FrozenModel):
-    """Minimal test double for AgentInterface.
-
-    Only implements work_dir, which is all pull_files actually uses.
-    """
-
-    work_dir: Path = Field(description="Working directory for this agent")
-
-
-class _FakeHost(MutableModel):
-    """Minimal test double for HostInterface.
-
-    Only implements execute_command, which is all pull_files actually uses.
-    Executes commands locally via subprocess.
-    """
-
-    def execute_command(self, command: str) -> CommandResult:
-        """Execute a shell command locally and return the result."""
-        result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-        return CommandResult(
-            stdout=result.stdout,
-            stderr=result.stderr,
-            success=result.returncode == 0,
-        )
-
-
-def _get_stash_count(path: Path) -> int:
-    """Get the number of stash entries."""
-    result = subprocess.run(
-        ["git", "stash", "list"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return 0
-    lines = result.stdout.strip().split("\n")
-    return len([line for line in lines if line])
 
 
 class PullTestContext(FrozenModel):
@@ -91,8 +48,8 @@ def pull_ctx(tmp_path: Path) -> PullTestContext:
     return PullTestContext(
         agent_dir=agent_dir,
         host_dir=host_dir,
-        agent=cast(AgentInterface, _FakeAgent(work_dir=agent_dir)),
-        host=cast(HostInterface, _FakeHost()),
+        agent=cast(AgentInterface, FakeAgent(work_dir=agent_dir)),
+        host=cast(HostInterface, FakeHost()),
     )
 
 
@@ -217,7 +174,7 @@ def test_pull_files_stash_mode_stashes_changes_and_leaves_stashed(
     (pull_ctx.agent_dir / "agent_file.txt").write_text("agent content")
     # Modify a tracked file (README.md was created by _init_git_repo)
     (pull_ctx.host_dir / "README.md").write_text("modified content")
-    initial_stash_count = _get_stash_count(pull_ctx.host_dir)
+    initial_stash_count = get_stash_count(pull_ctx.host_dir)
     assert _has_uncommitted_changes(pull_ctx.host_dir)
 
     pull_files(
@@ -227,7 +184,7 @@ def test_pull_files_stash_mode_stashes_changes_and_leaves_stashed(
         uncommitted_changes=UncommittedChangesMode.STASH,
     )
 
-    final_stash_count = _get_stash_count(pull_ctx.host_dir)
+    final_stash_count = get_stash_count(pull_ctx.host_dir)
     assert final_stash_count == initial_stash_count + 1
     # The modified tracked file should be reverted to its committed state
     assert (pull_ctx.host_dir / "README.md").read_text() == "Initial content"
@@ -258,7 +215,7 @@ def test_pull_files_stash_mode_when_both_agent_and_host_modify_same_file(
     )
 
     assert (pull_ctx.host_dir / "shared.txt").read_text() == "agent version of shared"
-    assert _get_stash_count(pull_ctx.host_dir) == 1
+    assert get_stash_count(pull_ctx.host_dir) == 1
 
 
 def test_pull_files_stash_mode_stashes_untracked_files(
@@ -268,7 +225,7 @@ def test_pull_files_stash_mode_stashes_untracked_files(
     (pull_ctx.agent_dir / "agent_file.txt").write_text("agent content")
     # Create an UNTRACKED file (git status --porcelain includes these)
     (pull_ctx.host_dir / "untracked_file.txt").write_text("untracked content")
-    initial_stash_count = _get_stash_count(pull_ctx.host_dir)
+    initial_stash_count = get_stash_count(pull_ctx.host_dir)
     assert _has_uncommitted_changes(pull_ctx.host_dir)
 
     pull_files(
@@ -279,7 +236,7 @@ def test_pull_files_stash_mode_stashes_untracked_files(
     )
 
     # Untracked file should be stashed with -u flag
-    final_stash_count = _get_stash_count(pull_ctx.host_dir)
+    final_stash_count = get_stash_count(pull_ctx.host_dir)
     assert final_stash_count == initial_stash_count + 1
     assert not (pull_ctx.host_dir / "untracked_file.txt").exists()
     assert (pull_ctx.host_dir / "agent_file.txt").read_text() == "agent content"
@@ -291,7 +248,7 @@ def test_pull_files_merge_mode_restores_untracked_files(
     """Test that MERGE mode properly stashes and restores untracked files."""
     (pull_ctx.agent_dir / "agent_file.txt").write_text("agent content")
     (pull_ctx.host_dir / "untracked_file.txt").write_text("untracked content")
-    initial_stash_count = _get_stash_count(pull_ctx.host_dir)
+    initial_stash_count = get_stash_count(pull_ctx.host_dir)
     assert _has_uncommitted_changes(pull_ctx.host_dir)
 
     pull_files(
@@ -302,7 +259,7 @@ def test_pull_files_merge_mode_restores_untracked_files(
     )
 
     # Stash should be created and popped
-    final_stash_count = _get_stash_count(pull_ctx.host_dir)
+    final_stash_count = get_stash_count(pull_ctx.host_dir)
     assert final_stash_count == initial_stash_count
     assert (pull_ctx.host_dir / "untracked_file.txt").exists()
     assert (pull_ctx.host_dir / "untracked_file.txt").read_text() == "untracked content"
@@ -315,7 +272,7 @@ def test_pull_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
     """Test that STASH mode does not create a stash when no changes exist."""
     (pull_ctx.agent_dir / "agent_file.txt").write_text("agent content")
     assert not _has_uncommitted_changes(pull_ctx.host_dir)
-    initial_stash_count = _get_stash_count(pull_ctx.host_dir)
+    initial_stash_count = get_stash_count(pull_ctx.host_dir)
 
     pull_files(
         agent=pull_ctx.agent,
@@ -324,7 +281,7 @@ def test_pull_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
         uncommitted_changes=UncommittedChangesMode.STASH,
     )
 
-    final_stash_count = _get_stash_count(pull_ctx.host_dir)
+    final_stash_count = get_stash_count(pull_ctx.host_dir)
     assert final_stash_count == initial_stash_count
     assert (pull_ctx.host_dir / "agent_file.txt").read_text() == "agent content"
 
@@ -341,7 +298,7 @@ def test_pull_files_merge_mode_stashes_and_restores_changes(
     (pull_ctx.agent_dir / "agent_file.txt").write_text("agent content")
     # Modify the tracked README.md file
     (pull_ctx.host_dir / "README.md").write_text("host modified content")
-    initial_stash_count = _get_stash_count(pull_ctx.host_dir)
+    initial_stash_count = get_stash_count(pull_ctx.host_dir)
     assert _has_uncommitted_changes(pull_ctx.host_dir)
 
     pull_files(
@@ -351,7 +308,7 @@ def test_pull_files_merge_mode_stashes_and_restores_changes(
         uncommitted_changes=UncommittedChangesMode.MERGE,
     )
 
-    final_stash_count = _get_stash_count(pull_ctx.host_dir)
+    final_stash_count = get_stash_count(pull_ctx.host_dir)
     assert final_stash_count == initial_stash_count
     assert (pull_ctx.host_dir / "README.md").read_text() == "host modified content"
     assert (pull_ctx.host_dir / "agent_file.txt").read_text() == "agent content"
@@ -403,7 +360,7 @@ def test_pull_files_merge_mode_when_both_modify_different_files(
     """Test MERGE mode when agent and host modify different files."""
     (pull_ctx.agent_dir / "agent_only.txt").write_text("agent content")
     (pull_ctx.host_dir / "README.md").write_text("host modified content")
-    initial_stash_count = _get_stash_count(pull_ctx.host_dir)
+    initial_stash_count = get_stash_count(pull_ctx.host_dir)
     assert _has_uncommitted_changes(pull_ctx.host_dir)
 
     pull_files(
@@ -415,7 +372,7 @@ def test_pull_files_merge_mode_when_both_modify_different_files(
 
     assert (pull_ctx.host_dir / "agent_only.txt").read_text() == "agent content"
     assert (pull_ctx.host_dir / "README.md").read_text() == "host modified content"
-    final_stash_count = _get_stash_count(pull_ctx.host_dir)
+    final_stash_count = get_stash_count(pull_ctx.host_dir)
     assert final_stash_count == initial_stash_count
 
 
@@ -425,7 +382,7 @@ def test_pull_files_merge_mode_with_no_uncommitted_changes(
     """Test that MERGE mode works correctly when there are no uncommitted changes."""
     (pull_ctx.agent_dir / "agent_file.txt").write_text("agent content")
     assert not _has_uncommitted_changes(pull_ctx.host_dir)
-    initial_stash_count = _get_stash_count(pull_ctx.host_dir)
+    initial_stash_count = get_stash_count(pull_ctx.host_dir)
 
     pull_files(
         agent=pull_ctx.agent,
@@ -434,7 +391,7 @@ def test_pull_files_merge_mode_with_no_uncommitted_changes(
         uncommitted_changes=UncommittedChangesMode.MERGE,
     )
 
-    final_stash_count = _get_stash_count(pull_ctx.host_dir)
+    final_stash_count = get_stash_count(pull_ctx.host_dir)
     assert final_stash_count == initial_stash_count
     assert (pull_ctx.host_dir / "agent_file.txt").read_text() == "agent content"
 
@@ -535,35 +492,6 @@ def test_pull_files_with_custom_source_path(
 # =============================================================================
 
 
-class _FakeRemoteHost(MutableModel):
-    """Test double for a remote (non-local) host.
-
-    Simulates a remote host by setting is_local=False while still executing
-    commands locally. This tests the code paths for remote hosts.
-    """
-
-    is_local: bool = Field(default=False, description="Whether this is a local host")
-
-    def execute_command(
-        self,
-        command: str,
-        cwd: Path | None = None,
-    ) -> CommandResult:
-        """Execute a shell command locally and return the result."""
-        result = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            cwd=cwd,
-        )
-        return CommandResult(
-            stdout=result.stdout,
-            stderr=result.stderr,
-            success=result.returncode == 0,
-        )
-
-
 @pytest.fixture
 def remote_pull_ctx(tmp_path: Path) -> PullTestContext:
     """Create a test context with a remote (non-local) host."""
@@ -574,8 +502,8 @@ def remote_pull_ctx(tmp_path: Path) -> PullTestContext:
     return PullTestContext(
         agent_dir=agent_dir,
         host_dir=host_dir,
-        agent=cast(AgentInterface, _FakeAgent(work_dir=agent_dir)),
-        host=cast(HostInterface, _FakeRemoteHost()),
+        agent=cast(AgentInterface, FakeAgent(work_dir=agent_dir)),
+        host=cast(HostInterface, FakeRemoteHost()),
     )
 
 
@@ -604,8 +532,8 @@ def remote_git_pull_ctx(tmp_path: Path) -> PullTestContext:
     return PullTestContext(
         agent_dir=agent_dir,
         host_dir=host_dir,
-        agent=cast(AgentInterface, _FakeAgent(work_dir=agent_dir)),
-        host=cast(OnlineHostInterface, _FakeRemoteHost()),
+        agent=cast(AgentInterface, FakeAgent(work_dir=agent_dir)),
+        host=cast(OnlineHostInterface, FakeRemoteHost()),
     )
 
 
@@ -637,7 +565,7 @@ def test_pull_files_with_remote_host_handles_uncommitted_changes(
     """Test that pull_files handles uncommitted changes when pulling from remote host."""
     (remote_pull_ctx.agent_dir / "file.txt").write_text("agent content")
     (remote_pull_ctx.host_dir / "README.md").write_text("modified content")
-    initial_stash_count = _get_stash_count(remote_pull_ctx.host_dir)
+    initial_stash_count = get_stash_count(remote_pull_ctx.host_dir)
 
     pull_files(
         agent=remote_pull_ctx.agent,
@@ -646,7 +574,7 @@ def test_pull_files_with_remote_host_handles_uncommitted_changes(
         uncommitted_changes=UncommittedChangesMode.STASH,
     )
 
-    final_stash_count = _get_stash_count(remote_pull_ctx.host_dir)
+    final_stash_count = get_stash_count(remote_pull_ctx.host_dir)
     assert final_stash_count == initial_stash_count + 1
     assert (remote_pull_ctx.host_dir / "file.txt").read_text() == "agent content"
 

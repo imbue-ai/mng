@@ -173,7 +173,7 @@ See [connect options](./connect.md) for full details (only applies if `--connect
 | `--edit-message` | boolean | Open an editor to compose the initial message (uses $EDITOR). Editor runs in parallel with agent creation. If --message or --message-file is provided, their content is used as initial editor content. | `False` |
 | `--resume-message` | text | Message to send when the agent is started (resumed) after being stopped | None |
 | `--resume-message-file` | path | File containing resume message to send on start | None |
-| `--message-delay` | float | Timeout in seconds to wait for agent readiness before sending initial message | `10.0` |
+| `--message-delay` | float | Seconds to wait before sending initial message | `1.0` |
 | `--retry` | integer | Number of connection retries | `3` |
 | `--retry-delay` | text | Delay between retries (e.g., 5s, 1m) | `5s` |
 | `--attach-command` | text | Command to run instead of attaching to main session | None |
