@@ -16,7 +16,7 @@ from imbue.mngr.api.push import push_git
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UnisonNotInstalledError
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.primitives import UncommittedChangesMode
@@ -387,7 +387,7 @@ def determine_git_sync_actions(
 
 def sync_git_state(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     agent_path: Path,
     local_path: Path,
     git_sync_action: GitSyncAction,
@@ -444,7 +444,7 @@ def sync_git_state(
 @contextmanager
 def pair_files(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     source_path: Path,
     target_path: Path | None = None,
     sync_direction: SyncDirection = SyncDirection.BOTH,

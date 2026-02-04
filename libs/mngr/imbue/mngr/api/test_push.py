@@ -15,11 +15,11 @@ from imbue.mngr.api.sync import UncommittedChangesError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
 
 
-def _has_uncommitted_changes_on_host(host: HostInterface, path: Path) -> bool:
+def _has_uncommitted_changes_on_host(host: OnlineHostInterface, path: Path) -> bool:
     """Helper to check for uncommitted changes on a remote host using RemoteGitContext."""
     return RemoteGitContext(host=host).has_uncommitted_changes(path)
 
@@ -122,7 +122,7 @@ def push_ctx(tmp_path: Path) -> PushTestContext:
         host_dir=host_dir,
         agent_dir=agent_dir,
         agent=cast(AgentInterface, _FakeAgent(work_dir=agent_dir)),
-        host=cast(HostInterface, _FakeHost()),
+        host=cast(OnlineHostInterface, _FakeHost()),
     )
 
 
@@ -581,7 +581,7 @@ def git_push_ctx(tmp_path: Path) -> PushTestContext:
         host_dir=host_dir,
         agent_dir=agent_dir,
         agent=cast(AgentInterface, _FakeAgent(work_dir=agent_dir)),
-        host=cast(HostInterface, _FakeHost()),
+        host=cast(OnlineHostInterface, _FakeHost()),
     )
 
 

@@ -1,14 +1,15 @@
 """Shared utilities for CLI commands that work with agents."""
 
-from imbue.mngr.api.find import load_all_agents_grouped_by_host
 from imbue.mngr.api.list import list_agents
+from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.connect import select_agent_interactively
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundError
+from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentReference
@@ -19,7 +20,7 @@ def find_agent_by_name_or_id(
     agent_str: str,
     agents_by_host: dict[HostReference, list[AgentReference]],
     mngr_ctx: MngrContext,
-) -> tuple[AgentInterface, HostInterface]:
+) -> tuple[AgentInterface, OnlineHostInterface]:
     """Find an agent by name or ID.
 
     Searches through the provided agents_by_host mapping to find an agent
@@ -36,6 +37,8 @@ def find_agent_by_name_or_id(
                 if agent_ref.agent_id == agent_id:
                     provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                     host = provider.get_host(host_ref.host_id)
+                    if not isinstance(host, OnlineHostInterface):
+                        raise MngrError(f"Host {host_ref.host_id} is not online")
                     for agent in host.get_agents():
                         if agent.id == agent_id:
                             return agent, host
@@ -45,13 +48,16 @@ def find_agent_by_name_or_id(
 
     # Try matching by name
     agent_name = AgentName(agent_str)
-    matching: list[tuple[AgentInterface, HostInterface]] = []
+    matching: list[tuple[AgentInterface, OnlineHostInterface]] = []
 
     for host_ref, agent_refs in agents_by_host.items():
         for agent_ref in agent_refs:
             if agent_ref.agent_name == agent_name:
                 provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                 host = provider.get_host(host_ref.host_id)
+                # Skip offline hosts when searching by name
+                if not isinstance(host, OnlineHostInterface):
+                    continue
                 for agent in host.get_agents():
                     if agent.name == agent_name:
                         matching.append((agent, host))
@@ -69,7 +75,7 @@ def find_agent_by_name_or_id(
 
 def select_agent_interactively_with_host(
     mngr_ctx: MngrContext,
-) -> tuple[AgentInterface, HostInterface] | None:
+) -> tuple[AgentInterface, OnlineHostInterface] | None:
     """Show interactive UI to select an agent.
 
     Returns tuple of (agent, host) or None if user quit without selecting.
@@ -83,5 +89,5 @@ def select_agent_interactively_with_host(
         return None
 
     # Find the actual agent and host from the selection
-    agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
+    agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
     return find_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx)

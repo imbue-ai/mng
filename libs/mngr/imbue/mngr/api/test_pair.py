@@ -17,7 +17,7 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UnisonNotInstalledError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.primitives import UncommittedChangesMode
@@ -89,7 +89,7 @@ def pair_ctx(tmp_path: Path) -> PairTestContext:
         source_dir=source_dir,
         target_dir=target_dir,
         agent=cast(AgentInterface, _FakeAgent(work_dir=source_dir)),
-        host=cast(HostInterface, _FakeHost()),
+        host=cast(OnlineHostInterface, _FakeHost()),
     )
 
 
@@ -181,15 +181,19 @@ def test_pair_files_raises_when_unison_not_installed_and_mocked(
 
 def test_pair_files_raises_when_git_required_but_not_present(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that pair_files raises MngrError when git is required but directories are not repos."""
+    # Mock check_unison_installed to return True so we can test the git check
+    monkeypatch.setattr("imbue.mngr.api.pair.check_unison_installed", lambda: True)
+
     source_dir = tmp_path / "source"
     target_dir = tmp_path / "target"
     source_dir.mkdir()
     target_dir.mkdir()
 
     agent = cast(AgentInterface, _FakeAgent(work_dir=source_dir))
-    host = cast(HostInterface, _FakeHost())
+    host = cast(OnlineHostInterface, _FakeHost())
 
     with pytest.raises(MngrError) as exc_info:
         with pair_files(
@@ -278,7 +282,7 @@ def test_pair_files_with_no_git_requirement(tmp_path: Path) -> None:
     (source_dir / "test_file.txt").write_text("test content")
 
     agent = cast(AgentInterface, _FakeAgent(work_dir=source_dir))
-    host = cast(HostInterface, _FakeHost())
+    host = cast(OnlineHostInterface, _FakeHost())
 
     with pair_files(
         agent=agent,

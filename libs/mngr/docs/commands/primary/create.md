@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
+mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
@@ -42,6 +42,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
+| `-t`, `--template` | text | Use a named template from create_templates config | None |
 | `-n`, `--name` | text | Agent name (alternative to positional argument) [default: auto-generated] | None |
 | `--name-style` | choice (`english` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `animals` &#x7C; `scientists` &#x7C; `demons`) | Auto-generated name style | `english` |
 | `--agent-type` | text | Which type of agent to run [default: claude] | None |
@@ -172,7 +173,7 @@ See [connect options](./connect.md) for full details (only applies if `--connect
 | `--edit-message` | boolean | Open an editor to compose the initial message (uses $EDITOR). Editor runs in parallel with agent creation. If --message or --message-file is provided, their content is used as initial editor content. | `False` |
 | `--resume-message` | text | Message to send when the agent is started (resumed) after being stopped | None |
 | `--resume-message-file` | path | File containing resume message to send on start | None |
-| `--message-delay` | float | Seconds to wait before sending initial message | `1.0` |
+| `--message-delay` | float | Timeout in seconds to wait for agent readiness before sending initial message | `10.0` |
 | `--retry` | integer | Number of connection retries | `3` |
 | `--retry-delay` | text | Delay between retries (e.g., 5s, 1m) | `5s` |
 | `--attach-command` | text | Command to run instead of attaching to main session | None |
@@ -226,6 +227,12 @@ $ mngr create my-agent --in docker
 
 ```bash
 $ mngr create my-agent --in modal
+```
+
+**Create using a named template**
+
+```bash
+$ mngr create my-agent --template modal
 ```
 
 **Create a codex agent instead of claude**

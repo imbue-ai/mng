@@ -7,6 +7,7 @@ dependencies = [
     "imbue-common",
     "cel-python>=0.1.5",
     "click>=8.0",
+    "deal>=4.24.0",
     "click-option-group>=0.5.6",
     "coolname>=2.2.0",
     "cryptography>=42.0",

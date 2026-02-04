@@ -14,6 +14,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.git_utils import get_current_branch
 from imbue.mngr.utils.git_utils import is_git_repository

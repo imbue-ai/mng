@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -750,6 +750,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/99/55/181022996c4063fc0e7666a47049a1ca705abb9c8a13830f074edb347495/cryptography-46.0.3-pp311-pypy311_pp73-manylinux_2_34_aarch64.whl", hash = "sha256:9394673a9f4de09e28b5356e7fff97d778f8abad85c9d5ac4a4b7e25a0de7717", size = 4242957, upload-time = "2025-10-15T23:18:22.18Z" },
     { url = "https://files.pythonhosted.org/packages/ba/af/72cd6ef29f9c5f731251acadaeb821559fe25f10852f44a63374c9ca08c1/cryptography-46.0.3-pp311-pypy311_pp73-manylinux_2_34_x86_64.whl", hash = "sha256:94cd0549accc38d1494e1f8de71eca837d0509d0d44bf11d158524b0e12cebf9", size = 4409447, upload-time = "2025-10-15T23:18:24.209Z" },
     { url = "https://files.pythonhosted.org/packages/0d/c3/e90f4a4feae6410f914f8ebac129b9ae7a8c92eb60a638012dde42030a9d/cryptography-46.0.3-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:6b5063083824e5509fdba180721d55909ffacccc8adbec85268b48439423d78c", size = 3438528, upload-time = "2025-10-15T23:18:26.227Z" },
+]
+
+[[package]]
+name = "deal"
+version = "4.24.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c1/da/76d4c3898ed8901116c8ad9dc1e5babd466e50289ce3808de55f72760d0f/deal-4.24.6.tar.gz", hash = "sha256:1cf4d4bbcb2e84767535e066d3888d2809662d7356dee420331380ff94210a1d", size = 723315, upload-time = "2025-11-30T10:55:43.765Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/71/4d/2a940ef9caa02bb3d6ca2a78ecbcaf158e98da972a54bc3fd8f29f7d86a9/deal-4.24.6-py3-none-any.whl", hash = "sha256:44afc0b11df6be5a4edd81409c7cd02ab0188ad9e90e93a71b4ef3d46d04c546", size = 204440, upload-time = "2025-11-30T10:55:40.954Z" },
 ]
 
 [[package]]
@@ -1683,6 +1692,7 @@ dependencies = [
     { name = "click-option-group" },
     { name = "coolname" },
     { name = "cryptography" },
+    { name = "deal" },
     { name = "dockerfile-parse" },
     { name = "imbue-common" },
     { name = "modal" },
@@ -1702,6 +1712,7 @@ requires-dist = [
     { name = "click-option-group", specifier = ">=0.5.6" },
     { name = "coolname", specifier = ">=2.2.0" },
     { name = "cryptography", specifier = ">=42.0" },
+    { name = "deal", specifier = ">=4.24.0" },
     { name = "dockerfile-parse", specifier = ">=2.0.0" },
     { name = "imbue-common", editable = "libs/imbue_common" },
     { name = "modal", specifier = ">=1.3.1" },

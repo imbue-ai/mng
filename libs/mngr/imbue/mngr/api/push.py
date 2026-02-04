@@ -11,13 +11,13 @@ from imbue.mngr.api.sync import UncommittedChangesError
 from imbue.mngr.api.sync import sync_files
 from imbue.mngr.api.sync import sync_git
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
 
 
 def push_files(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     source: Path,
     destination_path: Path | None = None,
     dry_run: bool = False,
@@ -39,7 +39,7 @@ def push_files(
 
 def push_git(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     source: Path,
     source_branch: str | None = None,
     target_branch: str | None = None,
