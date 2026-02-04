@@ -285,15 +285,14 @@ class BaseAgent(AgentInterface):
         return None
 
     def _is_prompt_visible(self, pattern: str) -> bool:
-        """Check if the given prompt pattern is visible in the tmux pane."""
+        """Check if the given prompt pattern is visible in the tmux pane.
+
+        Note: We check the entire pane, not just the last few lines, because
+        tmux panes often have many trailing blank lines (pane is taller than content).
+        """
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
-        result = self.host.execute_command(
-            f"tmux capture-pane -t '{session_name}' -p | tail -5",
-            timeout_seconds=5.0,
-        )
-        if result.success and pattern in result.stdout:
-            return True
-        return False
+        content = self._capture_pane_content(session_name)
+        return content is not None and pattern in content
 
     def _command_basename_matches(self, current: str, expected: str) -> bool:
         """Check if current command basename matches expected command."""
@@ -422,6 +421,7 @@ class BaseAgent(AgentInterface):
         Note: We check if marker is IN the pane, not at the end, because
         Claude Code has a status line at the bottom that appears after the input area.
         """
+        logger.trace("Waiting for marker: {}", marker)
         if not poll_until(
             lambda: self._check_pane_contains(session_name, marker),
             timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
@@ -431,12 +431,13 @@ class BaseAgent(AgentInterface):
                 str(self.name),
                 f"Timeout waiting for message marker to appear (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
             )
-        logger.trace("Marker {} found in pane", marker)
+        logger.debug("Marker {} found in pane", marker)
 
     def _check_pane_contains(self, session_name: str, text: str) -> bool:
         """Check if the pane content contains the given text."""
         content = self._capture_pane_content(session_name)
-        return content is not None and text in content
+        found = content is not None and text in content
+        return found
 
     def _wait_for_message_ending(self, session_name: str, marker: str, expected_ending: str) -> None:
         """Wait until the marker is removed and the expected message ending is visible.
