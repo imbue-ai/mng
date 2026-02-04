@@ -83,13 +83,14 @@ def test_connect_to_agent_by_name(
     ) as session_name:
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
-        with patch("imbue.mngr.cli.connect.os.execvp") as mock_execvp:
-            cli_runner.invoke(
+        with patch("imbue.mngr.api.connect.os.execvp") as mock_execvp:
+            result = cli_runner.invoke(
                 connect,
                 [agent_name],
                 obj=plugin_manager,
                 catch_exceptions=False,
             )
+            assert result.exit_code == 0, f"Connect failed with output: {result.output}"
             mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
 
 
@@ -97,6 +98,7 @@ def test_connect_via_cli_group(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test calling connect through the main CLI group."""
     agent_name = f"test-connect-cli-{int(time.time())}"
@@ -119,15 +121,17 @@ def test_connect_via_cli_group(
                 "--no-copy-work-dir",
                 "--no-ensure-clean",
             ],
+            obj=plugin_manager,
             catch_exceptions=False,
         )
         assert create_result.exit_code == 0, f"Create failed with: {create_result.output}"
 
         # Now test connect via CLI group
-        with patch("imbue.mngr.cli.connect.os.execvp") as mock_execvp:
+        with patch("imbue.mngr.api.connect.os.execvp") as mock_execvp:
             cli_runner.invoke(
                 cli,
                 ["connect", agent_name],
+                obj=plugin_manager,
                 catch_exceptions=False,
             )
 
@@ -190,7 +194,7 @@ def test_connect_start_restarts_stopped_agent(
         assert not tmux_session_exists(session_name), f"Expected tmux session {session_name} to be killed"
 
         # Connect with --start (default), which should restart the agent
-        with patch("imbue.mngr.cli.connect.os.execvp") as mock_execvp:
+        with patch("imbue.mngr.api.connect.os.execvp") as mock_execvp:
             cli_runner.invoke(
                 connect,
                 [agent_name],
@@ -255,6 +259,64 @@ def test_connect_no_start_raises_error_for_stopped_agent(
 
     finally:
         cleanup_tmux_session(session_name)
+
+
+def test_connect_allow_unknown_host_flag_sets_connection_option(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --allow-unknown-host flag properly sets is_unknown_host_allowed in ConnectionOptions."""
+    agent_name = f"test-connect-unknown-host-{int(time.time())}"
+
+    with _created_agent(
+        cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name, 736485
+    ) as session_name:
+        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+
+        # Patch connect_to_agent to capture the ConnectionOptions
+        with patch("imbue.mngr.cli.connect.connect_to_agent") as mock_connect:
+            cli_runner.invoke(
+                connect,
+                [agent_name, "--allow-unknown-host"],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            # Verify connect_to_agent was called with is_unknown_host_allowed=True
+            mock_connect.assert_called_once()
+            connection_opts = mock_connect.call_args[0][3]
+            assert connection_opts.is_unknown_host_allowed is True
+
+
+def test_connect_no_allow_unknown_host_flag_default(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that is_unknown_host_allowed defaults to False when --allow-unknown-host is not specified."""
+    agent_name = f"test-connect-default-host-{int(time.time())}"
+
+    with _created_agent(
+        cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name, 849263
+    ) as session_name:
+        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+
+        # Patch connect_to_agent to capture the ConnectionOptions
+        with patch("imbue.mngr.cli.connect.connect_to_agent") as mock_connect:
+            cli_runner.invoke(
+                connect,
+                [agent_name],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+
+            # Verify connect_to_agent was called with is_unknown_host_allowed=False (default)
+            mock_connect.assert_called_once()
+            connection_opts = mock_connect.call_args[0][3]
+            assert connection_opts.is_unknown_host_allowed is False
 
 
 def _make_mock_agent(name: str, state: AgentLifecycleState) -> AgentInfo:
@@ -667,3 +729,38 @@ def test_select_agent_interactively_returns_none_for_empty_list() -> None:
     result = select_agent_interactively(agents)
 
     assert result is None
+
+
+def test_connect_defaults_to_most_recent_agent_non_interactive(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that connect defaults to most recently created agent in non-interactive mode.
+
+    When stdin is not a tty (non-interactive), the connect command should
+    automatically select the most recently created agent instead of showing
+    an interactive selector.
+    """
+    agent_name_old = f"test-connect-old-{int(time.time())}"
+    agent_name_new = f"test-connect-new-{int(time.time())}"
+
+    with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_old, 192837):
+        # Sleep briefly to ensure different create times
+        time.sleep(0.1)
+        with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_new, 283746):
+            # Simulate non-interactive mode by providing input (makes stdin not a tty)
+            with patch("imbue.mngr.cli.connect.connect_to_agent") as mock_connect:
+                cli_runner.invoke(
+                    connect,
+                    [],
+                    obj=plugin_manager,
+                    catch_exceptions=False,
+                    input="",
+                )
+
+                # Should have connected to the most recently created agent
+                mock_connect.assert_called_once()
+                connected_agent = mock_connect.call_args[0][0]
+                assert str(connected_agent.name) == agent_name_new

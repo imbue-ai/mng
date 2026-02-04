@@ -3,11 +3,13 @@
 import os
 import tempfile
 from pathlib import Path
+from uuid import uuid4
 
 import pluggy
 
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
@@ -113,8 +115,21 @@ def test_multiple_instances_with_different_names(mngr_test_prefix: str) -> None:
     with tempfile.TemporaryDirectory() as tmpdir1:
         with tempfile.TemporaryDirectory() as tmpdir2:
             pm = pluggy.PluginManager("mngr")
-            mngr_ctx1 = MngrContext(config=MngrConfig(default_host_dir=Path(tmpdir1), prefix=mngr_test_prefix), pm=pm)
-            mngr_ctx2 = MngrContext(config=MngrConfig(default_host_dir=Path(tmpdir2), prefix=mngr_test_prefix), pm=pm)
+            # Create profile directories for each context
+            profile_dir1 = Path(tmpdir1) / PROFILES_DIRNAME / uuid4().hex
+            profile_dir1.mkdir(parents=True, exist_ok=True)
+            profile_dir2 = Path(tmpdir2) / PROFILES_DIRNAME / uuid4().hex
+            profile_dir2.mkdir(parents=True, exist_ok=True)
+            mngr_ctx1 = MngrContext(
+                config=MngrConfig(default_host_dir=Path(tmpdir1), prefix=mngr_test_prefix),
+                pm=pm,
+                profile_dir=profile_dir1,
+            )
+            mngr_ctx2 = MngrContext(
+                config=MngrConfig(default_host_dir=Path(tmpdir2), prefix=mngr_test_prefix),
+                pm=pm,
+                profile_dir=profile_dir2,
+            )
             config1 = LocalProviderConfig(host_dir=Path(tmpdir1))
             config2 = LocalProviderConfig(host_dir=Path(tmpdir2))
             instance1 = LocalProviderBackend.build_provider_instance(

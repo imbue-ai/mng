@@ -10,6 +10,26 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "touch .claude/active"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/claude_prevent_commit_rewrite.sh"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

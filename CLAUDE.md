@@ -6,6 +6,7 @@ IF YOU FAIL TO FOLLOW ONE, YOU MUST EXPLICITLY CALL THAT OUT IN YOUR RESPONSE.
 
 - This is a monorepo.
 - ALWAYS run commands by calling "uv run" from the root of the git checkout (ex: "uv run mngr create ..."). Do NOT call "mngr" directly (it will refer to the wrong version).
+- NEVER amend commits or rebase--always create new commits.
 
 # How to get started on any task:
 
@@ -32,7 +33,7 @@ Only after doing all of the above should you begin writing code.
 # Always remember these guidelines:
 
 - Never misrepresent your progress. It is far better to say "I made some progress but didn't finish" than to say "I finished" when you did not.
-- Always finish your response by using ultrathink to reflect on your work and identify any potential issues.
+- Always finish your response by reflecting on your work and identify any potential issues.
 - If I ask for something that seems misguided, flag that immediately. Then attempt to do whatever makes the most sense given the request, and in your final reflection, be sure to flag that you had to diverge from the request and explain why.
 - During your final reflection, if you see a potentially better way to do something (e.g. by using an existing library or reusing existing code), flag that as a potential task for future improvement.
 - Never use emojis. Remove any emojis you see in the code or docs whenever you are modifying that code or those docs.
@@ -61,6 +62,7 @@ Only after doing all of the above should you begin writing code.
 - If tests fail because of a lack of coverage, you should add tests for the new code that you wrote.
 - When adding tests, consider whether it should be a unit test (in a _test.py file) or an integration/acceptance/release test (in a test_*.py file, and marked with @pytest.mark.acceptance or @pytest.mark.release, no marks needed for integration).  See the style_guide.md for exact details on the types of tests. In general, most slow tests of all functionality should be release tests, and only important / core functionality should be acceptance tests.
 - If you see a flaky test, YOU MUST HIGHLIGHT THIS IN YOUR RESPONSE. Flaky tests must be fixed as soon as possible. Ideally you should finish your task, then if you are allowed to commit, commit, and try to fix the flaky test in a separate commit.
+- Do not add TODO or FIXME unless explicitly asked to do so
 - To reiterate: code correctness and quality is the most important concern when writing code.
 
 If desired, the user will explicitly instruct you not to commit.

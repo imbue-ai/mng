@@ -10,7 +10,7 @@ Different [agent types](./concepts/agent_types.md) (Claude, Codex, etc.) and [pr
 
 ## Agent-centric state model
 
-Agents fully contain their own state.
+Agents fully contain their own state on their host.
 
 `mngr` itself has no persistent processes and stores almost no persistent state. Instead, everything is reconstructed from:
 

@@ -1,6 +1,6 @@
 # Conventions
 
-The `mngr` tool prefixes the names of many resources with `mngr-` (this can be customized via `MNGR_PREFIX` environment variable).
+The `mngr` tool prefixes the names of many resources with `mngr-` (this can be customized via `MNGR_PREFIX` environment variable--everything below that says "mngr-" will be replaced by that environment variable).
 
 Unless otherwise specified, `mngr` assumes:
 - the user is `root` (override via config or CLI args for most commands) 

@@ -3,30 +3,39 @@ from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
-import deal
 from loguru import logger
 from pydantic import Field
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
-from imbue.mngr.api.find import load_all_agents_grouped_by_host
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
+from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
+from imbue.mngr.interfaces.data_types import SSHInfo
+from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
 from imbue.mngr.utils.logging import log_call
@@ -129,6 +138,27 @@ class ListResult(MutableModel):
     errors: list[ErrorInfo] = Field(default_factory=list, description="Errors encountered while listing")
 
 
+def _get_persisted_agent_data(
+    provider: ProviderInstanceInterface,
+    host_id: HostId,
+    agent_id: AgentId,
+) -> dict[str, Any] | None:
+    """Get persisted agent data from the provider's volume storage.
+
+    This is used for stopped hosts where we can't SSH to get live agent data.
+    Returns the agent data dict or None if not found.
+    """
+    try:
+        agent_records = provider.list_persisted_agent_data_for_host(host_id)
+        for agent_data in agent_records:
+            if agent_data.get("id") == str(agent_id):
+                return agent_data
+    except (KeyError, ValueError, OSError) as e:
+        logger.trace("Could not get persisted agent data for {}: {}", agent_id, e)
+
+    return None
+
+
 @log_call
 def list_agents(
     mngr_ctx: MngrContext,
@@ -148,9 +178,6 @@ def list_agents(
     """List all agents with optional filtering."""
     result = ListResult()
 
-    if provider_names:
-        raise NotImplementedError("Provider filtering not implemented yet")
-
     # Compile CEL filters if provided
     # Note: compilation errors always abort - bad filters should never silently continue
     compiled_include_filters: list[Any] = []
@@ -165,15 +192,16 @@ def list_agents(
     try:
         # Load all agents grouped by host
         logger.debug("Loading agents from all providers")
-        agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
-
-        # Get all provider instances
-        providers = get_all_provider_instances(mngr_ctx)
+        agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx, provider_names, include_destroyed=True)
         provider_map = {provider.name: provider for provider in providers}
         logger.trace("Found {} hosts with agents", len(agents_by_host))
 
         # Process each host and its agents
         for host_ref, agent_refs in agents_by_host.items():
+            # Skip hosts with no agents to process
+            if not agent_refs:
+                continue
+
             try:
                 provider = provider_map.get(host_ref.provider_name)
                 if not provider:
@@ -188,53 +216,141 @@ def list_agents(
 
                 host = provider.get_host(host_ref.host_id)
 
+                # Build SSH info if this is a remote host (only available for online hosts)
+                ssh_info: SSHInfo | None = None
+
+                # Host is the implementation of OnlineHostInterface, ie, this host is online
+                if isinstance(host, Host):
+                    ssh_connection = host._get_ssh_connection_info()
+                    if ssh_connection is None:
+                        # Default for local hosts
+                        host_hostname: str | None = "localhost"
+                    else:
+                        user, hostname, port, key_path = ssh_connection
+                        host_hostname = hostname
+                        ssh_info = SSHInfo(
+                            user=user,
+                            host=hostname,
+                            port=port,
+                            key_path=key_path,
+                            command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
+                        )
+                    boot_time = host.get_boot_time()
+                    uptime_seconds = host.get_uptime_seconds()
+                    resource = host.get_provider_resources()
+                else:
+                    boot_time = None
+                    uptime_seconds = None
+                    resource = None
+                    host_hostname = None
+
                 host_info = HostInfo(
                     id=host.id,
-                    name=host.connector.name,
+                    name=str(host.get_name()),
                     provider_name=host_ref.provider_name,
+                    host=host_hostname,
+                    state=host.get_state().value.lower(),
+                    image=host.get_image(),
+                    tags=host.get_tags(),
+                    boot_time=boot_time,
+                    uptime_seconds=uptime_seconds,
+                    resource=resource,
+                    ssh=ssh_info,
+                    snapshots=host.get_snapshots(),
+                    failure_reason=host.get_failure_reason(),
+                    build_log=host.get_build_log(),
                 )
 
                 # Get all agents on this host
-                agents = host.get_agents()
+                agents = None
+                if isinstance(host, OnlineHostInterface):
+                    agents = host.get_agents()
 
                 for agent_ref in agent_refs:
                     try:
-                        # Find the agent in the list
-                        agent = next((a for a in agents if a.id == agent_ref.agent_id), None)
+                        # FIXME: consolidate the below code--it's pretty duplicated between the if and the else
+                        if agents is None:
+                            # Use persisted agent data for stopped hosts
+                            agent_data = _get_persisted_agent_data(provider, host.id, agent_ref.agent_id)
+                            if agent_data is None:
+                                exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
+                                if error_behavior == ErrorBehavior.ABORT:
+                                    raise exception
+                                error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
+                                result.errors.append(error_info)
+                                if on_error:
+                                    on_error(error_info)
+                                continue
 
-                        if agent is None:
-                            exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
-                            if error_behavior == ErrorBehavior.ABORT:
-                                raise exception
-                            error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
-                            result.errors.append(error_info)
-                            if on_error:
-                                on_error(error_info)
-                            continue
+                            # Create minimal AgentInfo from persisted data
+                            # Use epoch as fallback for create_time (should always be present)
+                            create_time_str = agent_data.get("create_time")
+                            create_time = (
+                                datetime.fromisoformat(create_time_str)
+                                if create_time_str
+                                else datetime(1970, 1, 1, tzinfo=timezone.utc)
+                            )
+                            agent_info = AgentInfo(
+                                id=AgentId(agent_data["id"]),
+                                name=AgentName(agent_data["name"]),
+                                type=agent_data.get("type", "unknown"),
+                                command=CommandString(agent_data.get("command", "")),
+                                work_dir=Path(agent_data.get("work_dir", "/")),
+                                create_time=create_time,
+                                start_on_boot=agent_data.get("start_on_boot", False),
+                                lifecycle_state=AgentLifecycleState.STOPPED,
+                                status=None,
+                                url=None,
+                                start_time=None,
+                                runtime_seconds=None,
+                                user_activity_time=None,
+                                agent_activity_time=None,
+                                ssh_activity_time=None,
+                                idle_seconds=None,
+                                idle_mode=None,
+                                host=host_info,
+                                plugin={},
+                            )
+                        else:
+                            # Find the agent in the list for running hosts
+                            agent = next((a for a in (agents or []) if a.id == agent_ref.agent_id), None)
 
-                        agent_status = agent.get_reported_status()
+                            if agent is None:
+                                exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
+                                if error_behavior == ErrorBehavior.ABORT:
+                                    raise exception
+                                error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
+                                result.errors.append(error_info)
+                                if on_error:
+                                    on_error(error_info)
+                                continue
 
-                        agent_info = AgentInfo(
-                            id=agent.id,
-                            name=agent.name,
-                            type=str(agent.agent_type),
-                            command=agent.get_command(),
-                            work_dir=agent.work_dir,
-                            create_time=agent.create_time,
-                            start_on_boot=agent.get_is_start_on_boot(),
-                            lifecycle_state=agent.get_lifecycle_state(),
-                            status=agent_status,
-                            url=agent.get_reported_url(),
-                            start_time=agent.get_reported_start_time(),
-                            runtime_seconds=agent.runtime_seconds,
-                            user_activity_time=agent.get_reported_activity_time(ActivitySource.USER),
-                            agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
-                            ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
-                            idle_seconds=None,
-                            idle_mode=None,
-                            host=host_info,
-                            plugin={},
-                        )
+                            agent_status = agent.get_reported_status()
+
+                            # Get idle_mode from host's activity config
+                            activity_config = host.get_activity_config()
+
+                            agent_info = AgentInfo(
+                                id=agent.id,
+                                name=agent.name,
+                                type=str(agent.agent_type),
+                                command=agent.get_command(),
+                                work_dir=agent.work_dir,
+                                create_time=agent.create_time,
+                                start_on_boot=agent.get_is_start_on_boot(),
+                                lifecycle_state=agent.get_lifecycle_state(),
+                                status=agent_status,
+                                url=agent.get_reported_url(),
+                                start_time=agent.get_reported_start_time(),
+                                runtime_seconds=agent.runtime_seconds,
+                                user_activity_time=agent.get_reported_activity_time(ActivitySource.USER),
+                                agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
+                                ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
+                                idle_seconds=None,
+                                idle_mode=activity_config.idle_mode.value.lower(),
+                                host=host_info,
+                                plugin={},
+                            )
 
                         # Apply CEL filters if provided
                         if compiled_include_filters or compiled_exclude_filters:
@@ -272,7 +388,7 @@ def list_agents(
     return result
 
 
-@deal.has()
+@pure
 def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
     """Convert an AgentInfo object to a CEL-friendly dict.
 
@@ -318,12 +434,11 @@ def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
         else:
             result["state"] = str(result["lifecycle_state"]).lower()
 
-    # Flatten host info for easier access
-    if result.get("host"):
+    # Normalize host.provider_name to host.provider for consistency
+    if result.get("host") and isinstance(result["host"], dict):
         host = result["host"]
-        result["host_name"] = host.get("name", "")
-        result["host_id"] = host.get("id", "")
-        result["host_provider"] = host.get("provider_name", "")
+        if "provider_name" in host:
+            host["provider"] = host.pop("provider_name")
 
     return result
 
@@ -345,3 +460,67 @@ def _apply_cel_filters(
         exclude_filters=exclude_filters,
         error_context_description=f"agent {agent.name}",
     )
+
+
+def _process_provider_for_host_listing(
+    provider: BaseProviderInstance,
+    agents_by_host: dict[HostReference, list[AgentReference]],
+    include_destroyed: bool,
+    results_lock: Lock,
+    cg: ConcurrencyGroup,
+) -> None:
+    """Process a single provider and collect its hosts and agents.
+
+    This function is run in a thread by load_all_agents_grouped_by_host.
+    Results are merged into the shared agents_by_host dict under the results_lock.
+    """
+    logger.trace("Loading hosts from provider {}", provider.name)
+    hosts = provider.list_hosts(include_destroyed=include_destroyed, cg=cg)
+
+    # Collect results for this provider
+    provider_results: dict[HostReference, list[AgentReference]] = {}
+    for host in hosts:
+        host_ref = HostReference(
+            host_id=host.id,
+            host_name=host.get_name(),
+            provider_name=provider.name,
+        )
+        agent_refs = host.get_agent_references()
+        provider_results[host_ref] = agent_refs
+
+    # Merge results into the main dict under lock
+    with results_lock:
+        agents_by_host.update(provider_results)
+
+
+@log_call
+def load_all_agents_grouped_by_host(
+    mngr_ctx: MngrContext, provider_names: tuple[str, ...] | None = None, include_destroyed: bool = False
+) -> tuple[dict[HostReference, list[AgentReference]], list[BaseProviderInstance]]:
+    """Load all agents from all providers, grouped by their host.
+
+    Uses ConcurrencyGroup to query providers in parallel for better performance.
+    Handles both online hosts (which can be queried directly) and offline hosts (which use persisted data).
+    """
+    agents_by_host: dict[HostReference, list[AgentReference]] = {}
+    results_lock = Lock()
+
+    logger.debug("Loading all agents from all providers")
+    providers = get_all_provider_instances(mngr_ctx, provider_names)
+    logger.trace("Found {} provider instances", len(providers))
+
+    # Process all providers in parallel using ConcurrencyGroup
+    with ConcurrencyGroup(name="load_all_agents_grouped_by_host") as cg:
+        threads: list[ObservableThread] = []
+        for provider in providers:
+            threads.append(
+                cg.start_new_thread(
+                    target=_process_provider_for_host_listing,
+                    args=(provider, agents_by_host, include_destroyed, results_lock, cg),
+                    name=f"load_hosts_{provider.name}",
+                )
+            )
+        for thread in threads:
+            thread.join()
+
+    return (agents_by_host, providers)

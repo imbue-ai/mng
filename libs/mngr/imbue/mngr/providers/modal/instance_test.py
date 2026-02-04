@@ -10,15 +10,18 @@ Or to run all tests including Modal tests:
     pytest --timeout=180
 """
 
+import json
 import subprocess
 from io import StringIO
 from pathlib import Path
 from typing import Any
 from typing import Generator
+from typing import TypeVar
 from typing import cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+import modal
 import modal.exception
 import pytest
 
@@ -29,7 +32,11 @@ from imbue.mngr.conftest import register_modal_test_volume
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
+from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
+from imbue.mngr.interfaces.data_types import CertifiedHostData
+from imbue.mngr.interfaces.data_types import SnapshotRecord
+from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
@@ -40,8 +47,10 @@ from imbue.mngr.providers.modal.backend import STATE_VOLUME_SUFFIX
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
 from imbue.mngr.providers.modal.errors import NoSnapshotsModalMngrError
+from imbue.mngr.providers.modal.instance import HostRecord
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
+from imbue.mngr.providers.modal.instance import SandboxConfig
 from imbue.mngr.providers.modal.instance import TAG_HOST_ID
 from imbue.mngr.providers.modal.instance import TAG_HOST_NAME
 from imbue.mngr.providers.modal.instance import TAG_USER_PREFIX
@@ -143,8 +152,54 @@ def test_build_and_parse_sandbox_tags_roundtrip() -> None:
     assert parsed_user_tags == user_tags
 
 
-def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
-    """Create a ModalProviderInstance with mocked Modal dependencies for unit tests.
+class AuthorizedModalProviderInstance(ModalProviderInstance):
+    """Test subclass that always reports as authorized.
+
+    This is used for unit tests with mocked Modal dependencies where we don't
+    have real credentials but want to test the provider logic.
+    """
+
+    @property
+    def is_authorized(self) -> bool:
+        return True
+
+
+class UnauthorizedModalProviderInstance(ModalProviderInstance):
+    """Test subclass that always reports as unauthorized.
+
+    This is used for testing authorization-related behavior without mocking.
+    """
+
+    @property
+    def is_authorized(self) -> bool:
+        return False
+
+
+class ExpiredCredentialsModalProviderInstance(ModalProviderInstance):
+    """Test subclass that reports as authorized but fails on API calls.
+
+    This simulates the case where credentials exist but are invalid/expired.
+    Used for testing the @handle_modal_auth_error decorator behavior.
+    """
+
+    @property
+    def is_authorized(self) -> bool:
+        return True
+
+    def _get_modal_app(self) -> modal.App:
+        raise modal.exception.AuthError("Token missing or expired")
+
+
+_T = TypeVar("_T", bound=ModalProviderInstance)
+
+
+def _make_modal_provider_with_mocks(
+    mngr_ctx: MngrContext,
+    app_name: str,
+    provider_cls: type[_T],
+    instance_name: str,
+) -> _T:
+    """Create a ModalProviderInstance subclass with mocked Modal dependencies for unit tests.
 
     Uses model_construct() to bypass Pydantic validation, allowing MagicMock objects
     to be used in place of real modal.App and modal.Volume instances.
@@ -155,11 +210,8 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
 
     mock_volume = MagicMock()
     output_buffer = StringIO()
-
-    # Create a mock environment name for testing
     mock_environment_name = f"test-env-{app_name}"
 
-    # Create ModalProviderApp using model_construct to skip validation
     modal_app = ModalProviderApp.model_construct(
         app_name=app_name,
         environment_name=mock_environment_name,
@@ -169,20 +221,18 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
         get_output_callback=output_buffer.getvalue,
     )
 
-    # Create config for the provider instance
-    # Set is_persistent=False for testing to enable cleanup
     config = ModalProviderConfig(
         app_name=app_name,
         host_dir=Path("/mngr"),
-        default_timeout=300,
+        default_sandbox_timeout=300,
         default_cpu=0.5,
         default_memory=0.5,
         is_persistent=False,
+        is_snapshotted_after_create=False,
     )
 
-    # Create ModalProviderInstance using model_construct to skip validation
-    instance = ModalProviderInstance.model_construct(
-        name=ProviderInstanceName("modal-test"),
+    instance = provider_cls.model_construct(
+        name=ProviderInstanceName(instance_name),
         host_dir=Path("/mngr"),
         mngr_ctx=mngr_ctx,
         config=config,
@@ -191,17 +241,51 @@ def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> Moda
     return instance
 
 
+def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> AuthorizedModalProviderInstance:
+    """Create an AuthorizedModalProviderInstance with mocked Modal dependencies for unit tests.
+
+    Uses AuthorizedModalProviderInstance so that is_authorized returns True, allowing
+    the provider methods to be tested without real Modal credentials.
+    """
+    return _make_modal_provider_with_mocks(mngr_ctx, app_name, AuthorizedModalProviderInstance, "modal-test")
+
+
+def make_unauthorized_modal_provider(mngr_ctx: MngrContext, app_name: str) -> UnauthorizedModalProviderInstance:
+    """Create an UnauthorizedModalProviderInstance for testing authorization checks."""
+    return _make_modal_provider_with_mocks(
+        mngr_ctx, app_name, UnauthorizedModalProviderInstance, "modal-test-unauthorized"
+    )
+
+
+def make_expired_credentials_modal_provider(
+    mngr_ctx: MngrContext, app_name: str
+) -> ExpiredCredentialsModalProviderInstance:
+    """Create an ExpiredCredentialsModalProviderInstance for testing AuthError handling."""
+    return _make_modal_provider_with_mocks(
+        mngr_ctx, app_name, ExpiredCredentialsModalProviderInstance, "modal-test-expired"
+    )
+
+
 def make_modal_provider_real(
-    mngr_ctx: MngrContext, app_name: str, is_persistent: bool = False
+    mngr_ctx: MngrContext,
+    app_name: str,
+    is_persistent: bool = False,
+    is_snapshotted_after_create: bool = False,
 ) -> ModalProviderInstance:
-    """Create a ModalProviderInstance with real Modal for acceptance tests."""
+    """Create a ModalProviderInstance with real Modal for acceptance tests.
+
+    By default, is_snapshotted_after_create=False to speed up tests by not creating
+    an initial snapshot. Tests that specifically need to test initial snapshot
+    behavior should pass is_snapshotted_after_create=True.
+    """
     config = ModalProviderConfig(
         app_name=app_name,
         host_dir=Path("/mngr"),
-        default_timeout=300,
+        default_sandbox_timeout=300,
         default_cpu=0.5,
         default_memory=0.5,
         is_persistent=is_persistent,
+        is_snapshotted_after_create=is_snapshotted_after_create,
     )
     instance = ModalProviderBackend.build_provider_instance(
         name=ProviderInstanceName("modal-test"),
@@ -212,10 +296,37 @@ def make_modal_provider_real(
 
 
 @pytest.fixture
-def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProviderInstance:
-    """Create a ModalProviderInstance with mocked Modal for unit/integration tests."""
+def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> AuthorizedModalProviderInstance:
+    """Create an AuthorizedModalProviderInstance with mocked Modal for unit/integration tests.
+
+    Uses AuthorizedModalProviderInstance so that is_authorized returns True, allowing
+    the provider methods to be tested without real Modal credentials.
+    """
     app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     return make_modal_provider_with_mocks(temp_mngr_ctx, app_name)
+
+
+@pytest.fixture
+def unauthorized_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> UnauthorizedModalProviderInstance:
+    """Create an UnauthorizedModalProviderInstance for testing authorization checks.
+
+    This provider always reports is_authorized=False, simulating missing credentials.
+    """
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
+    return make_unauthorized_modal_provider(temp_mngr_ctx, app_name)
+
+
+@pytest.fixture
+def expired_credentials_modal_provider(
+    temp_mngr_ctx: MngrContext, mngr_test_id: str
+) -> ExpiredCredentialsModalProviderInstance:
+    """Create an ExpiredCredentialsModalProviderInstance for testing AuthError handling.
+
+    This provider reports is_authorized=True (credentials exist) but raises
+    modal.exception.AuthError when API calls are made (credentials invalid/expired).
+    """
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
+    return make_expired_credentials_modal_provider(temp_mngr_ctx, app_name)
 
 
 def _cleanup_modal_test_resources(app_name: str, volume_name: str, environment_name: str) -> None:
@@ -297,6 +408,30 @@ def persistent_modal_provider(
     _cleanup_modal_test_resources(app_name, volume_name, environment_name)
 
 
+@pytest.fixture
+def initial_snapshot_provider(
+    temp_mngr_ctx: MngrContext, mngr_test_id: str
+) -> Generator[ModalProviderInstance, None, None]:
+    """Create a ModalProviderInstance with is_snapshotted_after_create=True.
+
+    Use this fixture for tests that specifically test initial snapshot behavior,
+    such as restarting a host after hard kill using the initial snapshot.
+    """
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
+    provider = make_modal_provider_real(temp_mngr_ctx, app_name, is_snapshotted_after_create=True)
+    environment_name = provider.environment_name
+    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
+
+    # Register resources for leak detection
+    register_modal_test_app(app_name)
+    register_modal_test_environment(environment_name)
+    register_modal_test_volume(volume_name)
+
+    yield provider
+
+    _cleanup_modal_test_resources(app_name, volume_name, environment_name)
+
+
 # =============================================================================
 # Basic property tests (no network required)
 # =============================================================================
@@ -329,25 +464,295 @@ def test_list_volumes_returns_empty_list(modal_provider: ModalProviderInstance) 
 
 
 def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_error(
+    expired_credentials_modal_provider: ExpiredCredentialsModalProviderInstance,
+) -> None:
+    """The @handle_modal_auth_error decorator should convert modal.exception.AuthError to ModalAuthError.
+
+    This tests the case where credentials are configured but invalid (e.g., expired token).
+    When is_authorized returns True but the actual API call fails with AuthError,
+    the decorator should convert it to ModalAuthError.
+    """
+    # The expired_credentials_modal_provider returns is_authorized=True but raises
+    # AuthError when _get_modal_app is called, simulating expired/invalid credentials.
+    # list_hosts is decorated with @handle_modal_auth_error
+    with pytest.raises(ModalAuthError) as exc_info:
+        expired_credentials_modal_provider.list_hosts()
+
+    # Verify the error message contains helpful information
+    error_message = str(exc_info.value)
+    assert "Modal authentication failed" in error_message
+    assert "--disable-plugin modal" in error_message
+    assert "https://modal.com/docs/reference/modal.config" in error_message
+
+
+def test_list_hosts_returns_empty_list_when_not_authorized(
+    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
+) -> None:
+    """When not authorized, list_hosts should return empty list (not raise error)."""
+    result = unauthorized_modal_provider.list_hosts()
+
+    # Should return empty list, not raise an error
+    assert result == []
+
+
+def test_create_host_raises_provider_not_authorized_error_when_not_authorized(
+    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
+) -> None:
+    """When not authorized, create_host should raise ProviderNotAuthorizedError."""
+    with pytest.raises(ProviderNotAuthorizedError) as exc_info:
+        unauthorized_modal_provider.create_host(HostName("test-host"))
+
+    assert "modal token set" in str(exc_info.value).lower()
+
+
+def test_stop_host_raises_provider_not_authorized_error_when_not_authorized(
+    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
+) -> None:
+    """When not authorized, stop_host should raise ProviderNotAuthorizedError."""
+    with pytest.raises(ProviderNotAuthorizedError):
+        unauthorized_modal_provider.stop_host(HostId.generate())
+
+
+def test_start_host_raises_provider_not_authorized_error_when_not_authorized(
+    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
+) -> None:
+    """When not authorized, start_host should raise ProviderNotAuthorizedError."""
+    with pytest.raises(ProviderNotAuthorizedError):
+        unauthorized_modal_provider.start_host(HostId.generate())
+
+
+def test_destroy_host_raises_provider_not_authorized_error_when_not_authorized(
+    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
+) -> None:
+    """When not authorized, destroy_host should raise ProviderNotAuthorizedError."""
+    with pytest.raises(ProviderNotAuthorizedError):
+        unauthorized_modal_provider.destroy_host(HostId.generate())
+
+
+def test_get_host_raises_provider_not_authorized_error_when_not_authorized(
+    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
+) -> None:
+    """When not authorized, get_host should raise ProviderNotAuthorizedError."""
+    with pytest.raises(ProviderNotAuthorizedError):
+        unauthorized_modal_provider.get_host(HostId.generate())
+
+
+# =============================================================================
+# list_hosts and stopped host tests (unit tests with mocked volume)
+# =============================================================================
+
+
+def _make_host_record(
+    host_id: HostId,
+    host_name: str = "test-host",
+    snapshots: list[SnapshotRecord] | None = None,
+) -> HostRecord:
+    """Create a HostRecord for testing."""
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name=host_name,
+        user_tags={},
+        snapshots=snapshots or [],
+    )
+    return HostRecord(
+        ssh_host="test.host",
+        ssh_port=22,
+        ssh_host_public_key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQ...",
+        config=SandboxConfig(cpu=1.0, memory=1.0),
+        certified_host_data=certified_data,
+    )
+
+
+def _make_snapshot_record(name: str = "initial") -> SnapshotRecord:
+    """Create a SnapshotRecord for testing."""
+    # The id is now the Modal image ID directly
+    return SnapshotRecord(
+        id="im-abc123",
+        name=name,
+        created_at="2026-01-01T00:00:00Z",
+    )
+
+
+def test_list_all_host_records_returns_empty_when_volume_empty(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """The @handle_modal_auth_error decorator should convert modal.exception.AuthError to ModalAuthError."""
-    # Mock the _get_modal_app method to raise an AuthError
-    with patch.object(modal_provider, "_get_modal_app") as mock_get_app:
-        mock_get_app.side_effect = modal.exception.AuthError("Token missing")
+    """_list_all_host_records should return empty list when volume has no host records."""
+    # Mock volume.listdir to return empty
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.return_value = []
 
-        # list_hosts is decorated with @handle_modal_auth_error
-        with pytest.raises(ModalAuthError) as exc_info:
-            modal_provider.list_hosts()
+    host_records = modal_provider._list_all_host_records()
 
-        # Verify the error message contains helpful information
-        error_message = str(exc_info.value)
-        assert "Modal authentication failed" in error_message
-        assert "--disable-plugin modal" in error_message
-        assert "https://modal.com/docs/reference/modal.config" in error_message
+    assert host_records == []
+    mock_volume.listdir.assert_called_once_with("/")
 
-        # Verify the original AuthError is chained
-        assert isinstance(exc_info.value.__cause__, modal.exception.AuthError)
+
+def test_list_all_host_records_returns_records_from_volume(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_records should return host records from volume."""
+    host_id = HostId.generate()
+    host_record = _make_host_record(host_id)
+
+    # Mock volume.listdir to return a file entry
+    mock_entry = MagicMock()
+    mock_entry.path = f"/{host_id}.json"
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.return_value = [mock_entry]
+
+    # Mock _read_host_record to return the host record
+    with patch.object(modal_provider, "_read_host_record", return_value=host_record):
+        host_records = modal_provider._list_all_host_records()
+
+    assert len(host_records) == 1
+    assert host_records[0].host_id == str(host_id)
+
+
+def test_list_all_host_records_skips_non_json_files(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_records should skip non-.json files."""
+    # Mock volume.listdir to return both .json and non-.json files
+    mock_entry_json = MagicMock()
+    mock_entry_json.path = f"/{HostId.generate()}.json"
+    mock_entry_txt = MagicMock()
+    mock_entry_txt.path = "/readme.txt"
+    mock_entry_dir = MagicMock()
+    mock_entry_dir.path = "/subdir"
+
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.return_value = [mock_entry_json, mock_entry_txt, mock_entry_dir]
+
+    # Mock _read_host_record - only called for .json files
+    with patch.object(modal_provider, "_read_host_record", return_value=None) as mock_read:
+        modal_provider._list_all_host_records()
+        # Should only have tried to read the .json file
+        assert mock_read.call_count == 1
+
+
+def test_list_hosts_includes_running_sandboxes_without_host_records(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """list_hosts should include running sandboxes even if host record hasn't propagated."""
+    host_id = HostId.generate()
+
+    # Mock _list_sandboxes to return a sandbox
+    mock_sandbox = MagicMock()
+    mock_sandbox.get_tags.return_value = {
+        TAG_HOST_ID: str(host_id),
+        TAG_HOST_NAME: "test-host",
+    }
+
+    # Mock _list_all_host_records to return empty (eventual consistency scenario)
+    # Mock _create_host_from_sandbox to return a mock host
+    mock_host = MagicMock()
+    mock_host.id = host_id
+
+    with (
+        patch.object(modal_provider, "_list_sandboxes", return_value=[mock_sandbox]),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[]),
+        patch.object(modal_provider, "_create_host_from_sandbox", return_value=mock_host),
+    ):
+        hosts = modal_provider.list_hosts()
+
+    assert len(hosts) == 1
+    assert hosts[0].id == host_id
+
+
+def test_list_hosts_returns_stopped_hosts_with_snapshots(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """list_hosts should return stopped hosts (no sandbox, has snapshots)."""
+    host_id = HostId.generate()
+    snapshot = _make_snapshot_record("initial")
+    host_record = _make_host_record(host_id, snapshots=[snapshot])
+
+    # Mock _list_sandboxes to return empty (no running sandboxes)
+    # Mock _list_all_host_records to return the host record with a snapshot
+    # Mock _create_host_from_host_record to return a mock host
+    mock_host = MagicMock()
+    mock_host.id = host_id
+
+    with (
+        patch.object(modal_provider, "_list_sandboxes", return_value=[]),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
+        patch.object(modal_provider, "_create_host_from_host_record", return_value=mock_host),
+    ):
+        hosts = modal_provider.list_hosts()
+
+    assert len(hosts) == 1
+    assert hosts[0].id == host_id
+
+
+def test_list_hosts_excludes_destroyed_hosts_by_default(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """list_hosts should exclude destroyed hosts (no sandbox, no snapshots) by default."""
+    host_id = HostId.generate()
+    # Host record with no snapshots = destroyed
+    host_record = _make_host_record(host_id, snapshots=[])
+
+    with (
+        patch.object(modal_provider, "_list_sandboxes", return_value=[]),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
+    ):
+        hosts = modal_provider.list_hosts(include_destroyed=False)
+
+    assert len(hosts) == 0
+
+
+def test_list_hosts_includes_destroyed_hosts_when_requested(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """list_hosts(include_destroyed=True) should include destroyed hosts."""
+    host_id = HostId.generate()
+    # Host record with no snapshots = destroyed
+    host_record = _make_host_record(host_id, snapshots=[])
+
+    mock_host = MagicMock()
+    mock_host.id = host_id
+
+    with (
+        patch.object(modal_provider, "_list_sandboxes", return_value=[]),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
+        patch.object(modal_provider, "_create_host_from_host_record", return_value=mock_host),
+    ):
+        hosts = modal_provider.list_hosts(include_destroyed=True)
+
+    assert len(hosts) == 1
+    assert hosts[0].id == host_id
+
+
+def test_list_hosts_prefers_running_sandbox_over_host_record(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """list_hosts should use sandbox for running hosts, not host record."""
+    host_id = HostId.generate()
+    snapshot = _make_snapshot_record("initial")
+    host_record = _make_host_record(host_id, snapshots=[snapshot])
+
+    # Mock sandbox with same host_id
+    mock_sandbox = MagicMock()
+    mock_sandbox.get_tags.return_value = {
+        TAG_HOST_ID: str(host_id),
+        TAG_HOST_NAME: "test-host",
+    }
+
+    mock_host = MagicMock()
+    mock_host.id = host_id
+
+    with (
+        patch.object(modal_provider, "_list_sandboxes", return_value=[mock_sandbox]),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
+        patch.object(modal_provider, "_create_host_from_sandbox", return_value=mock_host) as mock_from_sandbox,
+        patch.object(modal_provider, "_create_host_from_host_record") as mock_from_record,
+    ):
+        hosts = modal_provider.list_hosts()
+
+    assert len(hosts) == 1
+    # Should use sandbox, not host record
+    mock_from_sandbox.assert_called_once()
+    mock_from_record.assert_not_called()
 
 
 # =============================================================================
@@ -540,7 +945,7 @@ def make_modal_provider_with_config_defaults(
     config = ModalProviderConfig(
         app_name=app_name,
         host_dir=Path("/mngr"),
-        default_timeout=300,
+        default_sandbox_timeout=300,
         default_cpu=0.5,
         default_memory=0.5,
         default_gpu=default_gpu,
@@ -644,6 +1049,18 @@ def test_parse_build_args_explicit_args_override_config_defaults(temp_mngr_ctx: 
     assert config.gpu == "t4"
     assert config.image == "alpine:latest"
     assert config.region == "ap-south"
+
+
+def test_modal_provider_config_user_id_defaults_to_none() -> None:
+    """ModalProviderConfig user_id should default to None."""
+    config = ModalProviderConfig()
+    assert config.user_id is None
+
+
+def test_modal_provider_config_user_id_can_be_set() -> None:
+    """ModalProviderConfig user_id can be set to override profile user_id."""
+    config = ModalProviderConfig(user_id="custom-user-id")
+    assert config.user_id == "custom-user-id"
 
 
 # =============================================================================
@@ -759,6 +1176,109 @@ def test_create_shutdown_script_generates_correct_content(
 
     # Verify the mode is executable
     assert written_modes[expected_path] == "755"
+
+
+# =============================================================================
+# Tests for persist_agent_data and remove_persisted_agent_data
+# =============================================================================
+
+
+def test_persist_agent_data_writes_to_volume(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """persist_agent_data should write agent data as JSON to the volume."""
+    host_id = HostId.generate()
+    agent_id = AgentId.generate()
+    agent_data = {
+        "id": str(agent_id),
+        "name": "test-agent",
+        "type": "test",
+        "command": "echo hello",
+    }
+
+    # Track what was uploaded to the volume
+    uploaded_files: dict[str, bytes] = {}
+
+    class MockBatchUpload:
+        def __init__(self) -> None:
+            pass
+
+        def __enter__(self) -> "MockBatchUpload":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def put_file(self, file_obj: Any, path: str) -> None:
+            uploaded_files[path] = file_obj.read()
+
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.batch_upload.return_value = MockBatchUpload()
+
+    modal_provider.persist_agent_data(host_id, agent_data)
+
+    # Verify the file was written to the correct path
+    expected_path = f"/{host_id}/{agent_id}.json"
+    assert expected_path in uploaded_files
+
+    # Verify the content is valid JSON with expected fields
+    uploaded_content = json.loads(uploaded_files[expected_path].decode("utf-8"))
+    assert uploaded_content["id"] == str(agent_id)
+    assert uploaded_content["name"] == "test-agent"
+    assert uploaded_content["type"] == "test"
+    assert uploaded_content["command"] == "echo hello"
+
+
+def test_persist_agent_data_without_id_logs_warning_and_returns(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """persist_agent_data should warn and return early if agent_data has no id field."""
+    host_id = HostId.generate()
+    agent_data: dict[str, object] = {
+        "name": "test-agent",
+        "type": "test",
+    }
+
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+
+    # Should not raise, just return early
+    modal_provider.persist_agent_data(host_id, agent_data)
+
+    # Verify the volume was never accessed
+    mock_volume.batch_upload.assert_not_called()
+
+
+def test_remove_persisted_agent_data_removes_file(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """remove_persisted_agent_data should remove the agent file from the volume."""
+    host_id = HostId.generate()
+    agent_id = AgentId.generate()
+
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+
+    modal_provider.remove_persisted_agent_data(host_id, agent_id)
+
+    expected_path = f"/{host_id}/{agent_id}.json"
+    mock_volume.remove_file.assert_called_once_with(expected_path)
+
+
+def test_remove_persisted_agent_data_handles_file_not_found(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """remove_persisted_agent_data should silently handle FileNotFoundError."""
+    host_id = HostId.generate()
+    agent_id = AgentId.generate()
+
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.remove_file.side_effect = FileNotFoundError("File not found")
+
+    # Should not raise
+    modal_provider.remove_persisted_agent_data(host_id, agent_id)
+
+    # Verify the method was called
+    expected_path = f"/{host_id}/{agent_id}.json"
+    mock_volume.remove_file.assert_called_once_with(expected_path)
 
 
 # =============================================================================
@@ -965,9 +1485,9 @@ def test_create_and_list_snapshots(real_modal_provider: ModalProviderInstance) -
     try:
         host = real_modal_provider.create_host(HostName("test-host"))
 
-        # Initially no snapshots
+        # Initially there are no snapshots (is_snapshotted_after_create=False by default in tests)
         snapshots = real_modal_provider.list_snapshots(host)
-        assert snapshots == []
+        assert len(snapshots) == 0
 
         # Create a snapshot
         snapshot_id = real_modal_provider.create_snapshot(host, SnapshotName("test-snapshot"))
@@ -987,17 +1507,20 @@ def test_create_and_list_snapshots(real_modal_provider: ModalProviderInstance) -
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_list_snapshots_returns_empty_initially(real_modal_provider: ModalProviderInstance) -> None:
-    """list_snapshots should return empty list for a new host."""
+def test_list_snapshots_returns_initial_snapshot(initial_snapshot_provider: ModalProviderInstance) -> None:
+    """list_snapshots should return the initial snapshot when is_snapshotted_after_create=True."""
     host = None
     try:
-        host = real_modal_provider.create_host(HostName("test-host"))
-        snapshots = real_modal_provider.list_snapshots(host)
-        assert snapshots == []
+        host = initial_snapshot_provider.create_host(HostName("test-host"))
+        # we have to manually trigger the on_agent_created hook to create the initial snapshot (this is normally done automatically during the api::create_host call as a plugin callback)
+        initial_snapshot_provider.on_agent_created(MagicMock(), host)
+        snapshots = initial_snapshot_provider.list_snapshots(host)
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "initial"
 
     finally:
         if host:
-            real_modal_provider.destroy_host(host)
+            initial_snapshot_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
@@ -1008,12 +1531,16 @@ def test_delete_snapshot(real_modal_provider: ModalProviderInstance) -> None:
     try:
         host = real_modal_provider.create_host(HostName("test-host"))
 
+        # Initially no snapshots (is_snapshotted_after_create=False by default in tests)
+        assert len(real_modal_provider.list_snapshots(host)) == 0
+
         # Create a snapshot
         snapshot_id = real_modal_provider.create_snapshot(host)
         assert len(real_modal_provider.list_snapshots(host)) == 1
 
-        # Delete it
+        # Delete the created snapshot
         real_modal_provider.delete_snapshot(host, snapshot_id)
+        # Should be back to no snapshots
         assert len(real_modal_provider.list_snapshots(host)) == 0
 
     finally:
@@ -1029,7 +1556,7 @@ def test_delete_nonexistent_snapshot_raises_error(real_modal_provider: ModalProv
     try:
         host = real_modal_provider.create_host(HostName("test-host"))
 
-        fake_id = SnapshotId.generate()
+        fake_id = SnapshotId("snap-nonexistent")
         with pytest.raises(SnapshotNotFoundError):
             real_modal_provider.delete_snapshot(host, fake_id)
 
@@ -1102,22 +1629,49 @@ def test_start_host_on_running_host(real_modal_provider: ModalProviderInstance) 
             real_modal_provider.destroy_host(host)
 
 
-# FIXME: actually, this test is incorrect--we SHOULD be able to restart a stopped host
-#  The reason is that there should ALWAYS be a snapshot associated with any started host, because the initial image should be considered a snapshot when we're first creating the host
-#  Please fix the code, and then update this test accordingly
 @pytest.mark.acceptance
-@pytest.mark.timeout(180)
-def test_start_host_on_stopped_host_raises_error(real_modal_provider: ModalProviderInstance) -> None:
-    """start_host on a terminated host should raise an error."""
-    host = real_modal_provider.create_host(HostName("test-host"))
-    host_id = host.id
+@pytest.mark.timeout(300)
+def test_start_host_on_stopped_host_uses_initial_snapshot(initial_snapshot_provider: ModalProviderInstance) -> None:
+    """start_host on a terminated host should restart from the initial snapshot.
 
-    # Stop/destroy the host
-    real_modal_provider.stop_host(host)
+    This test uses initial_snapshot_provider (is_snapshotted_after_create=True) to
+    verify that hosts can be restarted using the initial snapshot.
+    """
+    host = None
+    restarted_host = None
+    try:
+        host = initial_snapshot_provider.create_host(HostName("test-host"))
+        host_id = host.id
 
-    # Trying to start it should fail
-    with pytest.raises(NoSnapshotsModalMngrError):
-        real_modal_provider.start_host(host_id)
+        # we have to manually trigger the on_agent_created hook to create the initial snapshot (this is normally done automatically during the api::create_host call as a plugin callback)
+        initial_snapshot_provider.on_agent_created(MagicMock(), host)
+
+        # Verify an initial snapshot was created
+        snapshots = initial_snapshot_provider.list_snapshots(host)
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "initial"
+
+        # Stop the host (this will also create a "stop" snapshot, but we ignore it)
+        initial_snapshot_provider.stop_host(host)
+
+        # Start it again without specifying a snapshot - should use most recent snapshot
+        restarted_host = initial_snapshot_provider.start_host(host_id)
+
+        # Verify the host was restarted with the same ID
+        assert restarted_host.id == host_id
+
+        # Verify we can execute commands on the restarted host
+        result = restarted_host.execute_command("echo 'restarted successfully'")
+        assert result.success
+        assert "restarted successfully" in result.stdout
+
+    finally:
+        if restarted_host:
+            initial_snapshot_provider.destroy_host(restarted_host)
+        elif host:
+            initial_snapshot_provider.destroy_host(host)
+        else:
+            pass
 
 
 @pytest.mark.acceptance
@@ -1133,3 +1687,144 @@ def test_get_host_by_name_not_found_raises_error(real_modal_provider: ModalProvi
     """Getting a non-existent host by name should raise HostNotFoundError."""
     with pytest.raises(HostNotFoundError):
         real_modal_provider.get_host(HostName("nonexistent-host"))
+
+
+# =============================================================================
+# Tests for is_snapshotted_after_create configuration
+# =============================================================================
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(300)
+def test_restart_after_hard_kill_with_initial_snapshot(initial_snapshot_provider: ModalProviderInstance) -> None:
+    """Host can restart after hard kill when initial snapshot is enabled.
+
+    This tests scenario 1: is_snapshotted_after_create=True.
+    Even if the sandbox is terminated directly (hard kill), the host should be
+    restartable because an initial snapshot exists.
+    """
+    host = None
+    restarted_host = None
+    try:
+        host = initial_snapshot_provider.create_host(HostName("test-host"))
+        host_id = host.id
+        host_name = HostName("test-host")
+
+        # we have to manually trigger the on_agent_created hook to create the initial snapshot (this is normally done automatically during the api::create_host call as a plugin callback)
+        initial_snapshot_provider.on_agent_created(MagicMock(), host)
+
+        # Verify initial snapshot was created
+        snapshots = initial_snapshot_provider.list_snapshots(host)
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "initial"
+
+        # Hard kill: directly terminate the sandbox without using stop_host
+        sandbox = initial_snapshot_provider._find_sandbox_by_host_id(host_id)
+        assert sandbox is not None
+        sandbox.terminate()
+        initial_snapshot_provider._uncache_sandbox(host_id, host_name)
+
+        # Should be able to restart using the initial snapshot
+        restarted_host = initial_snapshot_provider.start_host(host_id)
+        assert restarted_host.id == host_id
+
+        # Verify the host is functional
+        result = restarted_host.execute_command("echo 'restarted after hard kill'")
+        assert result.success
+        assert "restarted after hard kill" in result.stdout
+
+    finally:
+        if restarted_host:
+            initial_snapshot_provider.destroy_host(restarted_host)
+        elif host:
+            initial_snapshot_provider.destroy_host(host)
+        else:
+            pass
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(300)
+def test_restart_after_graceful_stop_without_initial_snapshot(
+    real_modal_provider: ModalProviderInstance,
+) -> None:
+    """Host can restart after graceful stop even without initial snapshot.
+
+    This tests scenario 2: is_snapshotted_after_create=False (the test default).
+    When the host is stopped gracefully via stop_host(), a snapshot is created
+    during the stop process, allowing the host to be restarted.
+    """
+    host = None
+    restarted_host = None
+    try:
+        host = real_modal_provider.create_host(HostName("test-host"))
+        host_id = host.id
+
+        # Verify NO initial snapshot was created
+        snapshots = real_modal_provider.list_snapshots(host)
+        assert len(snapshots) == 0
+
+        # Write a marker file to verify snapshot state
+        result = host.execute_command("echo 'before-stop' > /tmp/marker.txt")
+        assert result.success
+
+        # Graceful stop - should create a snapshot
+        real_modal_provider.stop_host(host_id, create_snapshot=True)
+
+        # Verify snapshot was created during stop
+        snapshots = real_modal_provider.list_snapshots(host_id)
+        assert len(snapshots) == 1
+        assert snapshots[0].name == "stop"
+
+        # Should be able to restart
+        restarted_host = real_modal_provider.start_host(host_id)
+        assert restarted_host.id == host_id
+
+        # Verify the marker file exists (state was preserved)
+        result = restarted_host.execute_command("cat /tmp/marker.txt")
+        assert result.success
+        assert "before-stop" in result.stdout
+
+    finally:
+        if restarted_host:
+            real_modal_provider.destroy_host(restarted_host)
+        elif host:
+            real_modal_provider.destroy_host(host)
+        else:
+            pass
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(180)
+def test_restart_fails_after_hard_kill_without_initial_snapshot(
+    real_modal_provider: ModalProviderInstance,
+) -> None:
+    """Host cannot restart after hard kill when no initial snapshot exists.
+
+    This tests scenario 3: is_snapshotted_after_create=False (the test default) + hard kill.
+    When the sandbox is terminated directly without stop_host() being called,
+    no snapshot exists, and the host cannot be restarted.
+    """
+    host = None
+    try:
+        host = real_modal_provider.create_host(HostName("test-host"))
+        host_id = host.id
+        host_name = HostName("test-host")
+
+        # Verify NO initial snapshot was created
+        snapshots = real_modal_provider.list_snapshots(host)
+        assert len(snapshots) == 0
+
+        # Hard kill: directly terminate the sandbox without using stop_host
+        sandbox = real_modal_provider._find_sandbox_by_host_id(host_id)
+        assert sandbox is not None
+        sandbox.terminate()
+        real_modal_provider._uncache_sandbox(host_id, host_name)
+
+        # Should fail to restart because no snapshots exist
+        with pytest.raises(NoSnapshotsModalMngrError):
+            real_modal_provider.start_host(host_id)
+
+    finally:
+        # Host record still exists on the volume, so clean up
+        if host:
+            real_modal_provider._delete_host_record(host.id)

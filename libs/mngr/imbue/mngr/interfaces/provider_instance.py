@@ -7,12 +7,16 @@ from typing import Sequence
 from pydantic import Field
 from pyinfra.api.host import Host as PyinfraHost
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ImageReference
@@ -35,6 +39,21 @@ class ProviderInstanceInterface(MutableModel, ABC):
     # =========================================================================
     # Capability Properties
     # =========================================================================
+
+    @property
+    @abstractmethod
+    def is_authorized(self) -> bool:
+        """Whether this provider instance is authorized/authenticated.
+
+        For providers that require authentication (like Modal), this checks if
+        valid credentials are available. For providers that don't require auth
+        (like local), this always returns True.
+
+        When a provider is not authorized:
+        - list_hosts() should warn and return empty list
+        - create_host() and other write operations should raise ProviderNotAuthorizedError
+        """
+        ...
 
     @property
     @abstractmethod
@@ -71,7 +90,9 @@ class ProviderInstanceInterface(MutableModel, ABC):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
-    ) -> HostInterface:
+        lifecycle: HostLifecycleOptions | None = None,
+        known_hosts: Sequence[str] | None = None,
+    ) -> OnlineHostInterface:
         """Create and start a new host with the given name and configuration."""
         ...
 
@@ -90,7 +111,7 @@ class ProviderInstanceInterface(MutableModel, ABC):
         self,
         host: HostInterface | HostId,
         snapshot_id: SnapshotId | None = None,
-    ) -> HostInterface:
+    ) -> OnlineHostInterface:
         """Start a stopped host, optionally restoring from a specific snapshot."""
         ...
 
@@ -119,6 +140,7 @@ class ProviderInstanceInterface(MutableModel, ABC):
     def list_hosts(
         self,
         include_destroyed: bool = False,
+        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         """List all hosts managed by this provider instance."""
         ...
@@ -250,4 +272,36 @@ class ProviderInstanceInterface(MutableModel, ABC):
         via atexit handlers.
 
         The default implementation does nothing.
+        """
+
+    def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict]:
+        """List persisted agent data for a stopped host.
+
+        Some providers (like Modal) persist agent state when hosts are stopped,
+        allowing agent information to be retrieved even when the host is not running.
+
+        Each dict in the returned list should contain at minimum an 'id' field with
+        the agent ID. Returns an empty list if no persisted data exists or the
+        provider doesn't support this feature.
+        """
+        return []
+
+    def persist_agent_data(self, host_id: HostId, agent_data: Mapping[str, object]) -> None:
+        """Persist agent data to external storage.
+
+        Called when an agent is created or its data.json is updated. Providers
+        that support persistent agent state (like Modal) should override this
+        to write the agent data to their storage backend.
+
+        The default implementation is a no-op for providers that don't need this.
+        """
+
+    def remove_persisted_agent_data(self, host_id: HostId, agent_id: AgentId) -> None:
+        """Remove persisted agent data from external storage.
+
+        Called when an agent is destroyed. Providers that support persistent
+        agent state (like Modal) should override this to remove the agent data
+        from their storage backend.
+
+        The default implementation is a no-op for providers that don't need this.
         """

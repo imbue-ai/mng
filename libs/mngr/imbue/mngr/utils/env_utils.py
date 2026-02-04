@@ -1,7 +1,7 @@
-import deal
+from imbue.imbue_common.pure import pure
 
 
-@deal.has()
+@pure
 def parse_env_file(content: str) -> dict[str, str]:
     """Parse an environment file into a dict."""
     env: dict[str, str] = {}

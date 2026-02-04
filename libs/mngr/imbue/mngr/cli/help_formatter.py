@@ -8,11 +8,11 @@ from typing import Any
 from typing import cast
 
 import click
-import deal
 from click_option_group import GroupedOption
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
 from imbue.mngr.config.data_types import MngrConfig
 
@@ -28,7 +28,28 @@ class CommandHelpMetadata(FrozenModel):
     one_line_description: str = Field(description="Brief one-line description of the command")
     synopsis: str = Field(description="Usage synopsis showing command patterns")
     description: str = Field(description="Detailed description of the command")
-    examples: tuple[tuple[str, str], ...] = Field(description="List of (description, command) example tuples")
+    aliases: tuple[str, ...] = Field(default=(), description="Command aliases (e.g., ('c',) for 'create')")
+    arguments_description: str | None = Field(
+        default=None,
+        description="Description of positional arguments (markdown). If None, auto-generated from click arguments.",
+    )
+    examples: tuple[tuple[str, str], ...] = Field(
+        default=(), description="List of (description, command) example tuples"
+    )
+    additional_sections: tuple[tuple[str, str], ...] = Field(
+        default=(),
+        description="Additional documentation sections as (title, markdown_content) tuples",
+    )
+    group_intros: tuple[tuple[str, str], ...] = Field(
+        default=(),
+        description="Introductory text for option groups as (group_name, markdown_content) tuples. "
+        "The intro text appears before the options table for that group.",
+    )
+    see_also: tuple[tuple[str, str], ...] = Field(
+        default=(),
+        description="See Also references as (command_name, description) tuples. "
+        "Command name is just the subcommand (e.g., 'create' not 'mngr create').",
+    )
 
 
 # Registry of help metadata for commands that have been configured
@@ -57,14 +78,14 @@ def is_interactive_terminal() -> bool:
         return False
 
 
-@deal.has()
+@pure
 def get_terminal_width() -> int:
     """Get the terminal width, defaulting to 80 if not detectable."""
     terminal_size = shutil.get_terminal_size()
     return terminal_size.columns
 
 
-@deal.has()
+@pure
 def get_pager_command(config: MngrConfig | None) -> str:
     """Determine the pager command to use.
 
@@ -119,7 +140,7 @@ def run_pager(text: str, config: MngrConfig | None) -> None:
         _write_to_stdout(text)
 
 
-@deal.has()
+@pure
 def _wrap_text(text: str, width: int, indent: str, subsequent_indent: str | None) -> str:
     """Wrap text with proper indentation."""
     if subsequent_indent is None:
@@ -134,7 +155,7 @@ def _wrap_text(text: str, width: int, indent: str, subsequent_indent: str | None
     return wrapper.fill(text)
 
 
-@deal.has()
+@pure
 def _format_section_title(title: str) -> str:
     """Format a section title in man-page style (uppercase)."""
     return title.upper()
@@ -195,6 +216,21 @@ def _write_git_style_help(
     # OPTIONS section
     output.write(f"{_format_section_title('Options')}\n")
     _write_options_section(output, ctx, command, width)
+
+    # ADDITIONAL SECTIONS (if provided)
+    if metadata.additional_sections:
+        for title, content in metadata.additional_sections:
+            output.write(f"{_format_section_title(title)}\n")
+            for line in content.strip().split("\n"):
+                output.write(f"       {line}\n")
+            output.write("\n")
+
+    # SEE ALSO section (if provided)
+    if metadata.see_also:
+        output.write(f"{_format_section_title('See Also')}\n")
+        for command_name, description in metadata.see_also:
+            output.write(f"       mngr {command_name} --help - {description}\n")
+        output.write("\n")
 
     # EXAMPLES section (if provided)
     if metadata.examples:

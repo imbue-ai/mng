@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 from typing import Final
 from typing import Mapping
@@ -11,6 +10,8 @@ from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State
 from pyinfra.api.inventory import Inventory
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
@@ -31,7 +32,7 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 
-LOCAL_PROVIDER_DATA_DIR: Final[str] = "providers/local"
+LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
 HOST_ID_FILENAME: Final[str] = "host_id"
 TAGS_FILENAME: Final[str] = "labels.json"
 
@@ -58,18 +59,32 @@ class LocalProviderInstance(BaseProviderInstance):
 
     @property
     def _provider_data_dir(self) -> Path:
-        """Get the provider data directory path."""
-        base_dir = Path(os.path.expanduser(self.host_dir))
-        return base_dir / LOCAL_PROVIDER_DATA_DIR
+        """Get the provider data directory path (not profile-specific, for tags etc)."""
+        return self.mngr_ctx.config.default_host_dir.expanduser() / "providers" / LOCAL_PROVIDER_SUBDIR
+
+    @property
+    def _host_id_dir(self) -> Path:
+        """Get the directory for host_id (global, not profile-specific).
+
+        The host_id is stored at ~/.mngr/host_id because it identifies this local
+        machine, not a particular profile. Different profiles on the same machine
+        should share the same local host_id.
+        """
+        return self.mngr_ctx.config.default_host_dir.expanduser()
 
     def _ensure_provider_data_dir(self) -> None:
         """Ensure the provider data directory exists."""
         self._provider_data_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_or_create_host_id(self) -> HostId:
-        """Get the persistent host ID, creating it if it doesn't exist."""
-        self._ensure_provider_data_dir()
-        host_id_path = self._provider_data_dir / HOST_ID_FILENAME
+        """Get the persistent host ID, creating it if it doesn't exist.
+
+        The host_id is stored globally at ~/.mngr/host_id (not per-profile)
+        because it identifies the local machine itself, not a profile.
+        """
+        host_id_dir = self._host_id_dir
+        host_id_dir.mkdir(parents=True, exist_ok=True)
+        host_id_path = host_id_dir / HOST_ID_FILENAME
 
         if host_id_path.exists():
             host_id = HostId(host_id_path.read_text().strip())
@@ -146,17 +161,22 @@ class LocalProviderInstance(BaseProviderInstance):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
+        lifecycle: HostLifecycleOptions | None = None,
+        known_hosts: Sequence[str] | None = None,
     ) -> Host:
         """Create (or return) the local host.
 
         For the local provider, this always returns the same host representing
         the local computer. The name and image parameters are ignored since
-        the local host is always the same machine.
+        the local host is always the same machine. The known_hosts parameter
+        is also ignored since the local machine uses its own known_hosts file.
         """
         logger.debug("Creating local host (provider={})", self.name)
         host = self._create_host(name, tags)
         logger.trace("Local host created: id={}", host.id)
 
+        # FIXME: should probably remove this--there is no boot time for local host
+        #  (there's another instance below, remove that as well)
         # Record BOOT activity for idle detection
         host.record_activity(ActivitySource.BOOT)
 
@@ -231,6 +251,7 @@ class LocalProviderInstance(BaseProviderInstance):
     def list_hosts(
         self,
         include_destroyed: bool = False,
+        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         """List all hosts managed by this provider.
 

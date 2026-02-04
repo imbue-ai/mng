@@ -17,7 +17,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.host import CreateAgentOptions
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import CommandString
@@ -28,14 +28,14 @@ from imbue.mngr.utils.env_utils import parse_env_file
 class BaseAgent(AgentInterface):
     """Concrete agent implementation that stores data on the host filesystem."""
 
-    host: HostInterface = Field(description="The host this agent runs on")
+    host: OnlineHostInterface = Field(description="The host this agent runs on (must be online)")
 
-    def get_host(self) -> HostInterface:
+    def get_host(self) -> OnlineHostInterface:
         return self.host
 
     def assemble_command(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         agent_args: tuple[str, ...],
         command_override: CommandString | None,
     ) -> CommandString:
@@ -80,8 +80,11 @@ class BaseAgent(AgentInterface):
             return {}
 
     def _write_data(self, data: dict[str, Any]) -> None:
-        """Write the agent's data.json file."""
+        """Write the agent's data.json file and persist to external storage."""
         self.host.write_text_file(self._get_data_path(), json.dumps(data, indent=2))
+
+        # Persist agent data to external storage (e.g., Modal volume)
+        self.host.save_agent_data(self.id, data)
 
     # =========================================================================
     # Certified Field Getters/Setters
@@ -258,14 +261,16 @@ class BaseAgent(AgentInterface):
         return command in shells
 
     def get_initial_message(self) -> str | None:
-        data_path = self.host.host_dir / "agents" / str(self.id) / "data.json"
-        try:
-            content = self.host.read_text_file(data_path)
-        except FileNotFoundError:
-            return None
-
-        data = json.loads(content)
+        data = self._read_data()
         return data.get("initial_message")
+
+    def get_resume_message(self) -> str | None:
+        data = self._read_data()
+        return data.get("resume_message")
+
+    def get_message_delay_seconds(self) -> float:
+        data = self._read_data()
+        return data.get("message_delay_seconds", 1.0)
 
     def send_message(self, message: str) -> None:
         """Send a message to the running agent."""
@@ -343,7 +348,7 @@ class BaseAgent(AgentInterface):
         This ensures consistency across all activity writers (Python, bash, lua)
         and allows simple scripts to just touch files without writing JSON.
         """
-        activity_path = self._get_agent_dir() / "activity" / activity_type.value
+        activity_path = self._get_agent_dir() / "activity" / activity_type.value.lower()
         return self.host.get_file_mtime(activity_path)
 
     def record_activity(self, activity_type: ActivitySource) -> None:
@@ -358,7 +363,7 @@ class BaseAgent(AgentInterface):
         JSON content. The JSON is for debugging/auditing purposes.
         """
         logger.trace("Recording {} activity for agent {}", activity_type, self.name)
-        activity_path = self._get_agent_dir() / "activity" / activity_type.value
+        activity_path = self._get_agent_dir() / "activity" / activity_type.value.lower()
         now = datetime.now(timezone.utc)
         data = {
             "time": int(now.timestamp() * 1000),
@@ -368,7 +373,7 @@ class BaseAgent(AgentInterface):
         self.host.write_text_file(activity_path, json.dumps(data, indent=2))
 
     def get_reported_activity_record(self, activity_type: ActivitySource) -> str | None:
-        activity_path = self._get_agent_dir() / "activity" / activity_type.value
+        activity_path = self._get_agent_dir() / "activity" / activity_type.value.lower()
         try:
             return self.host.read_text_file(activity_path)
         except FileNotFoundError:
@@ -457,7 +462,7 @@ class BaseAgent(AgentInterface):
 
     def on_before_provisioning(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
@@ -468,7 +473,7 @@ class BaseAgent(AgentInterface):
 
     def get_provision_file_transfers(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> Sequence[FileTransferSpec]:
@@ -480,7 +485,7 @@ class BaseAgent(AgentInterface):
 
     def provision(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
@@ -491,7 +496,7 @@ class BaseAgent(AgentInterface):
 
     def on_after_provisioning(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:

@@ -10,6 +10,7 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.git_utils import get_current_branch
 from imbue.mngr.utils.git_utils import is_git_repository
@@ -82,8 +83,7 @@ class NotAGitRepositoryError(MngrError):
     """Raised when a git operation is attempted on a non-git directory."""
 
     user_help_text = (
-        "Use --sync-mode=files to sync files without git, "
-        "or ensure both source and destination are git repositories."
+        "Use --sync-mode=files to sync files without git, or ensure both source and destination are git repositories."
     )
 
     def __init__(self, path: Path) -> None:
@@ -95,8 +95,7 @@ class GitMergeError(MngrError):
     """Raised when a git merge operation fails."""
 
     user_help_text = (
-        "Resolve the merge conflict manually, or use --uncommitted-changes=clobber "
-        "to discard local changes."
+        "Resolve the merge conflict manually, or use --uncommitted-changes=clobber to discard local changes."
     )
 
     def __init__(self, message: str) -> None:
@@ -207,7 +206,7 @@ def handle_uncommitted_changes(
 
 def pull_files(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     destination: Path,
     # Source path within agent's work_dir (defaults to work_dir itself)
     source_path: Path | None = None,

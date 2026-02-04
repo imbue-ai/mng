@@ -5,3 +5,16 @@ create = ["""bash -c './scripts/make_tar_of_repo.sh `cat .mngr/dev/modal_image_c
 
 [commands.create]
 add_command = ["reviewer_0=claude --dangerously-skip-permissions"]
+build_args = "dockerfile=libs/mngr/imbue/mngr/resources/Dockerfile context-dir=.mngr/dev/build/"
+
+[providers.modal]
+is_enabled = true
+default_idle_timeout = 600
+default_sandbox_timeout = 900
+
+[providers.modal_github]
+backend = "modal"
+is_enabled = true
+user_id = "github-ci"
+default_idle_timeout = 600
+default_sandbox_timeout = 900

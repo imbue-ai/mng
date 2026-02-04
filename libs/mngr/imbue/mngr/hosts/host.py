@@ -4,7 +4,6 @@ import fcntl
 import io
 import json
 import os
-import platform
 import shlex
 import subprocess
 import tempfile
@@ -14,14 +13,12 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
-from typing import Final
 from typing import IO
 from typing import Iterator
 from typing import Mapping
 from typing import Sequence
 from typing import cast
 
-import deal
 from loguru import logger
 from pydantic import Field
 from pyinfra.api.command import StringCommand
@@ -29,6 +26,7 @@ from pyinfra.connectors.util import CommandOutput
 
 from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.agents.agent_registry import get_agent_class
 from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.agents.base_agent import BaseAgent
@@ -41,39 +39,35 @@ from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import UserInputError
+from imbue.mngr.hosts.common import LOCAL_CONNECTOR_NAME
+from imbue.mngr.hosts.common import is_macos
+from imbue.mngr.hosts.offline_host import BaseHost
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.data_types import HostResources
-from imbue.mngr.interfaces.data_types import SnapshotInfo
+from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.host import CreateAgentOptions
-from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import NamedCommand
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import AgentTypeName
+from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.git_utils import get_current_git_branch
 
-LOCAL_CONNECTOR_NAME: Final[str] = "LocalConnector"
-
-
-@deal.has()
-def _is_macos() -> bool:
-    """Check if the current system is macOS (Darwin)."""
-    return platform.system() == "Darwin"
-
 
 class HostLocation(FrozenModel):
     """A path on a specific host."""
 
-    host: Host = Field(
+    host: OnlineHostInterface = Field(
         description="The actual host where the source resides",
     )
     path: Path = Field(
@@ -81,13 +75,14 @@ class HostLocation(FrozenModel):
     )
 
 
-class Host(HostInterface):
+class Host(BaseHost, OnlineHostInterface):
     """Host implementation that proxies operations through a pyinfra connector.
 
     All operations (command execution, file read/write) are performed through
     the pyinfra connector, which handles both local and remote hosts transparently.
     """
 
+    connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
     provider_instance: ProviderInstanceInterface = Field(
         frozen=True, description="The provider instance managing this host"
     )
@@ -98,10 +93,9 @@ class Host(HostInterface):
         """Check if this host uses the local connector."""
         return self.connector.connector_cls_name == LOCAL_CONNECTOR_NAME
 
-    @property
-    def host_dir(self) -> Path:
-        """Get the host state directory path from provider instance."""
-        return self.provider_instance.host_dir
+    def get_name(self) -> HostName:
+        """Return the human-readable name of this host."""
+        return HostName(self.connector.name)
 
     # =========================================================================
     # Core Primitives (pyinfra-compatible signatures)
@@ -111,6 +105,17 @@ class Host(HostInterface):
         """Ensure the pyinfra host is connected."""
         if not self.connector.host.connected:
             self.connector.host.connect(raise_exceptions=True)
+
+    def disconnect(self) -> None:
+        """Disconnect the pyinfra host if connected.
+
+        This should be called before destroying or stopping a host to cleanly
+        close the SSH connection. Failure to disconnect can lead to stale
+        socket state causing "Socket is closed" errors in subsequent operations.
+        """
+        if self.connector.host.connected:
+            logger.trace("Disconnecting pyinfra host {}", self.id)
+            self.connector.host.disconnect()
 
     def _run_shell_command(
         self,
@@ -311,6 +316,12 @@ class Host(HostInterface):
 
     def _get_file_mtime(self, path: Path) -> datetime | None:
         """Get the mtime of a file on the host."""
+        if self.is_local:
+            try:
+                mtime = path.stat().st_mtime
+                return datetime.fromtimestamp(mtime, tz=timezone.utc)
+            except (FileNotFoundError, OSError):
+                return None
         result = self.execute_command(f"stat -c %Y '{str(path)}' 2>/dev/null || stat -f %m '{str(path)}' 2>/dev/null")
         if result.success and result.stdout.strip():
             try:
@@ -326,16 +337,25 @@ class Host(HostInterface):
 
     def _path_exists(self, path: Path) -> bool:
         """Check if a path exists on the host."""
+        if self.is_local:
+            return path.exists()
         result = self.execute_command(f"test -e '{str(path)}'")
         return result.success
 
     def _is_directory(self, path: Path) -> bool:
         """Check if a path is a directory on the host."""
+        if self.is_local:
+            return path.is_dir()
         result = self.execute_command(f"test -d '{str(path)}'")
         return result.success
 
     def _list_directory(self, path: Path) -> list[str]:
         """List files in a directory on the host."""
+        if self.is_local:
+            try:
+                return list(entry.name for entry in path.iterdir())
+            except (FileNotFoundError, OSError):
+                return []
         result = self.execute_command(f"ls -1 '{str(path)}' 2>/dev/null")
         if result.success and result.stdout.strip():
             return result.stdout.strip().split("\n")
@@ -370,38 +390,6 @@ class Host(HostInterface):
         assert key_path_str, "SSH key path must be set for remote hosts"
 
         return (user, hostname, port, Path(key_path_str))
-
-    # =========================================================================
-    # Activity Configuration
-    # =========================================================================
-
-    def get_activity_config(self) -> ActivityConfig:
-        """Get the activity configuration for this host."""
-        certified_data = self.get_all_certified_data()
-        return ActivityConfig(
-            idle_mode=certified_data.idle_mode,
-            idle_timeout_seconds=certified_data.idle_timeout_seconds,
-            activity_sources=certified_data.activity_sources,
-        )
-
-    def set_activity_config(self, config: ActivityConfig) -> None:
-        """Set the activity configuration for this host."""
-        logger.debug(
-            "Setting activity config for host {}: idle_mode={}, idle_timeout={}s",
-            self.id,
-            config.idle_mode,
-            config.idle_timeout_seconds,
-        )
-        certified_data = self.get_all_certified_data()
-        updated_data = certified_data.model_copy(
-            update={
-                "idle_mode": config.idle_mode,
-                "idle_timeout_seconds": config.idle_timeout_seconds,
-                "activity_sources": config.activity_sources,
-            }
-        )
-        data_path = self.host_dir / "data.json"
-        self.write_text_file(data_path, json.dumps(updated_data.model_dump(by_alias=True), indent=2))
 
     # =========================================================================
     # Activity Times
@@ -496,7 +484,7 @@ class Host(HostInterface):
     # Certified Data
     # =========================================================================
 
-    def get_all_certified_data(self) -> CertifiedHostData:
+    def get_certified_data(self) -> CertifiedHostData:
         """Get all certified data from data.json."""
         data_path = self.host_dir / "data.json"
         try:
@@ -504,48 +492,48 @@ class Host(HostInterface):
             data = json.loads(content)
             return CertifiedHostData(**data)
         except FileNotFoundError:
-            return CertifiedHostData()
+            return CertifiedHostData(
+                host_id=str(self.id),
+                host_name=str(self.get_name()),
+            )
 
-    def _save_certified_data(self, certified_data: CertifiedHostData) -> None:
-        """Save certified data to data.json."""
+    def set_certified_data(self, data: CertifiedHostData) -> None:
+        """Save certified data to data.json and notify the provider."""
         data_path = self.host_dir / "data.json"
-        self.write_text_file(data_path, json.dumps(certified_data.model_dump(by_alias=True), indent=2))
+        self.write_text_file(data_path, json.dumps(data.model_dump(by_alias=True), indent=2))
+        # Notify the provider so it can update any external storage (e.g., Modal volume)
+        if self.on_updated_host_data:
+            self.on_updated_host_data(self.id, data)
 
     def _add_generated_work_dir(self, work_dir: Path) -> None:
         """Add a work directory to the list of generated work directories."""
-        certified_data = self.get_all_certified_data()
+        certified_data = self.get_certified_data()
         existing_dirs = set(certified_data.generated_work_dirs)
         existing_dirs.add(str(work_dir))
         updated_data = certified_data.model_copy(update={"generated_work_dirs": tuple(sorted(existing_dirs))})
-        self._save_certified_data(updated_data)
+        self.set_certified_data(updated_data)
 
     def _remove_generated_work_dir(self, work_dir: Path) -> None:
         """Remove a work directory from the list of generated work directories."""
-        certified_data = self.get_all_certified_data()
+        certified_data = self.get_certified_data()
         existing_dirs = set(certified_data.generated_work_dirs)
         existing_dirs.discard(str(work_dir))
         updated_data = certified_data.model_copy(update={"generated_work_dirs": tuple(sorted(existing_dirs))})
-        self._save_certified_data(updated_data)
+        self.set_certified_data(updated_data)
 
     def _is_generated_work_dir(self, work_dir: Path) -> bool:
         """Check if a work directory was generated by mngr."""
-        certified_data = self.get_all_certified_data()
+        certified_data = self.get_certified_data()
         return str(work_dir) in certified_data.generated_work_dirs
-
-    def get_plugin_data(self, plugin_name: str) -> dict[str, Any]:
-        """Get certified plugin data from data.json."""
-        certified_data = self.get_all_certified_data()
-        return certified_data.plugin.get(plugin_name, {})
 
     def set_plugin_data(self, plugin_name: str, data: dict[str, Any]) -> None:
         """Set certified plugin data in data.json."""
-        certified_data = self.get_all_certified_data()
+        certified_data = self.get_certified_data()
         updated_plugin = dict(certified_data.plugin)
         updated_plugin[plugin_name] = data
 
         updated_data = certified_data.model_copy(update={"plugin": updated_plugin})
-        data_path = self.host_dir / "data.json"
-        self.write_text_file(data_path, json.dumps(updated_data.model_dump(by_alias=True), indent=2))
+        self.set_certified_data(updated_data)
 
     # =========================================================================
     # Reported Plugin Data
@@ -607,12 +595,24 @@ class Host(HostInterface):
     # Provider-Derived Information
     # =========================================================================
 
+    def get_seconds_since_stopped(self) -> float | None:
+        """Return the number of seconds since this host was stopped (or None if it is running)."""
+        return None
+
+    def get_stop_time(self) -> datetime | None:
+        """Return the host last stop time as a datetime, or None if unknown."""
+        return None
+
+    # FIXME: both this and the below method will be broken if we ever have remote hosts that are OSX
+    #  instead of this, we should, for each of them, make a single command that does the platform check before dispatching to the resulting platform-dependent logic
     def get_uptime_seconds(self) -> float:
         """Get host uptime in seconds."""
-        if _is_macos():
-            # macOS: use sysctl kern.boottime
+        if is_macos() and self.is_local:
+            # macOS: use sysctl kern.boottime to get boot time, then compute uptime
+            # Output format: { sec = 1234567890, usec = 123456 } ...
+            # Use awk to reliably extract the sec value (not usec)
             result = self.execute_command(
-                "sysctl -n kern.boottime 2>/dev/null | sed 's/.*sec = \\([0-9]*\\).*/\\1/' && date +%s"
+                "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}' && date +%s"
             )
             if result.success:
                 output_lines = result.stdout.strip().split("\n")
@@ -629,22 +629,40 @@ class Host(HostInterface):
 
         return 0.0
 
+    def get_boot_time(self) -> datetime | None:
+        """Get the host boot time as a datetime.
+
+        Returns the actual boot time from the OS, not computed from uptime,
+        to avoid timing inconsistencies.
+        """
+        if is_macos() and self.is_local:
+            # macOS: use sysctl kern.boottime which gives boot time directly
+            # Output format: { sec = 1234567890, usec = 123456 } ...
+            # Use awk to reliably extract the sec value (not usec)
+            result = self.execute_command(
+                "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}'"
+            )
+            if result.success:
+                try:
+                    boot_timestamp = int(result.stdout.strip())
+                    return datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
+                except (ValueError, OSError):
+                    pass
+        else:
+            # Linux: use /proc/stat which has btime (boot time as Unix timestamp)
+            result = self.execute_command("grep '^btime ' /proc/stat 2>/dev/null | awk '{print $2}'")
+            if result.success:
+                try:
+                    boot_timestamp = int(result.stdout.strip())
+                    return datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
+                except (ValueError, OSError):
+                    pass
+
+        return None
+
     def get_provider_resources(self) -> HostResources:
         """Get resources from the provider."""
         return self.provider_instance.get_host_resources(self)
-
-    def get_snapshots(self) -> list[SnapshotInfo]:
-        """Get list of snapshots from the provider."""
-        return self.provider_instance.list_snapshots(self)
-
-    def get_image(self) -> str | None:
-        """Get the image used for this host."""
-        all_data = self.get_all_certified_data()
-        return all_data.image
-
-    def get_tags(self) -> dict[str, str]:
-        """Get tags from the provider."""
-        return self.provider_instance.get_host_tags(self)
 
     def set_tags(self, tags: Mapping[str, str]) -> None:
         """Set tags via the provider."""
@@ -663,6 +681,10 @@ class Host(HostInterface):
     # Agent Information
     # =========================================================================
 
+    def save_agent_data(self, agent_id: AgentId, agent_data: Mapping[str, object]) -> None:
+        """Persist agent data to external storage via the provider."""
+        self.provider_instance.persist_agent_data(self.id, agent_data)
+
     def get_agents(self) -> list[AgentInterface]:
         """Get all agents on this host."""
         logger.trace("Loading agents from host {}", self.id)
@@ -680,6 +702,44 @@ class Host(HostInterface):
                     agents.append(agent)
         logger.trace("Loaded {} agent(s) from host {}", len(agents), self.id)
         return agents
+
+    def get_agent_references(self) -> list[AgentReference]:
+        """Get lightweight references to all agents on this host.
+
+        This method reads only the data.json files for each agent, avoiding the
+        overhead of fully loading agent objects. The certified_data field contains
+        the full data.json contents.
+
+        Note that we override the base method in order to read more directly from the host,
+        since that data is more likely to be up-to-date.
+        """
+        logger.trace("Loading agent references from host {}", self.id)
+        agents_dir = self.host_dir / "agents"
+        if not self._is_directory(agents_dir):
+            logger.trace("No agents directory found for host {}", self.id)
+            return []
+
+        agent_refs: list[AgentReference] = []
+        for dir_name in self._list_directory(agents_dir):
+            agent_dir = agents_dir / dir_name
+            if self._is_directory(agent_dir):
+                data_path = agent_dir / "data.json"
+                try:
+                    content = self.read_text_file(data_path)
+                except FileNotFoundError:
+                    logger.warning("Could not load agent reference from {}", data_path)
+                    continue
+                try:
+                    data = json.loads(content)
+                except json.JSONDecodeError as e:
+                    logger.warning("Could not load agent reference from {} because json was invalid: {}", data_path, e)
+                    continue
+                ref = self._validate_and_create_agent_reference(data)
+                if ref is not None:
+                    agent_refs.append(ref)
+
+        logger.trace("Loaded {} agent reference(s) from host {}", len(agent_refs), self.id)
+        return agent_refs
 
     def _load_agent_from_dir(self, agent_dir: Path) -> AgentInterface | None:
         """Load an agent from its state directory."""
@@ -715,7 +775,7 @@ class Host(HostInterface):
 
     def create_agent_work_dir(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         path: Path,
         options: CreateAgentOptions,
     ) -> Path:
@@ -731,7 +791,7 @@ class Host(HostInterface):
 
     def _create_work_dir_as_copy(
         self,
-        source_host: HostInterface,
+        source_host: OnlineHostInterface,
         source_path: Path,
         options: CreateAgentOptions,
     ) -> Path:
@@ -799,7 +859,7 @@ class Host(HostInterface):
 
     def _transfer_git_repo(
         self,
-        source_host: HostInterface,
+        source_host: OnlineHostInterface,
         source_path: Path,
         target_path: Path,
         options: CreateAgentOptions,
@@ -854,7 +914,7 @@ class Host(HostInterface):
 
     def _git_push_to_target(
         self,
-        source_host: HostInterface,
+        source_host: OnlineHostInterface,
         source_path: Path,
         target_path: Path,
     ) -> None:
@@ -886,6 +946,8 @@ class Host(HostInterface):
             user, hostname, port, key_path = target_ssh_info
             git_url = f"ssh://{user}@{hostname}:{port}{target_path}/.git"
 
+        # FIXME: this whole block is a bit duplicated. Refactor to do the same thing, but assemble the args a bit more coherently
+        #  For example, the reason we need --no-verify is to skip any hooks, since they can sometimes fail
         if source_host.is_local:
             logger.debug("Pushing git repo to target: {}", git_url)
             env: dict[str, str] = {}
@@ -898,7 +960,7 @@ class Host(HostInterface):
             # and without this, it can take a ridiculously long time.
             env["GIT_LFS_SKIP_PUSH"] = "1"
 
-            command_args = ["git", "-C", str(source_path), "push", "--mirror", git_url]
+            command_args = ["git", "-C", str(source_path), "push", "--no-verify", "--mirror", git_url]
             logger.trace(" ".join(command_args))
             logger.trace("Running git push --mirror from local source to target with env: {}", env)
             result = subprocess.run(
@@ -914,12 +976,12 @@ class Host(HostInterface):
                 user, hostname, port, key_path = target_ssh_info
                 git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
                 result = source_host.execute_command(
-                    f"GIT_SSH_COMMAND={shlex.quote(git_ssh_cmd)} git push --mirror {shlex.quote(git_url)}",
+                    f"GIT_SSH_COMMAND={shlex.quote(git_ssh_cmd)} git push --no-verify --mirror {shlex.quote(git_url)}",
                     cwd=source_path,
                 )
             else:
                 result = source_host.execute_command(
-                    f"git push --mirror {shlex.quote(git_url)}",
+                    f"git push --no-verify --mirror {shlex.quote(git_url)}",
                     cwd=source_path,
                 )
             if not result.success:
@@ -927,7 +989,7 @@ class Host(HostInterface):
 
     def _transfer_extra_files(
         self,
-        source_host: HostInterface,
+        source_host: OnlineHostInterface,
         source_path: Path,
         target_path: Path,
         options: CreateAgentOptions,
@@ -1005,7 +1067,7 @@ class Host(HostInterface):
 
     def _rsync_files(
         self,
-        source_host: HostInterface,
+        source_host: OnlineHostInterface,
         source_path: Path,
         target_path: Path,
         extra_args: str | None = None,
@@ -1065,7 +1127,7 @@ class Host(HostInterface):
 
     def _create_work_dir_as_git_worktree(
         self,
-        host: HostInterface,
+        host: OnlineHostInterface,
         source_path: Path,
         options: CreateAgentOptions,
     ) -> Path:
@@ -1166,12 +1228,17 @@ class Host(HostInterface):
                 {"command": str(cmd.command), "window_name": cmd.window_name} for cmd in options.additional_commands
             ],
             "initial_message": options.initial_message,
+            "resume_message": options.resume_message,
+            "message_delay_seconds": options.message_delay_seconds,
             "permissions": [],
             "start_on_boot": False,
         }
 
         data_path = state_dir / "data.json"
         self.write_text_file(data_path, json.dumps(data, indent=2))
+
+        # Persist agent data to external storage (e.g., Modal volume)
+        self.provider_instance.persist_agent_data(self.id, data)
 
         # Record CREATE activity for idle detection
         agent.record_activity(ActivitySource.CREATE)
@@ -1431,6 +1498,9 @@ class Host(HostInterface):
         state_dir = self.host_dir / "agents" / str(agent.id)
         self._remove_directory(state_dir)
 
+        # Remove persisted agent data from external storage (e.g., Modal volume)
+        self.provider_instance.remove_persisted_agent_data(self.id, agent.id)
+
     def _build_env_shell_command(self, agent: AgentInterface) -> str:
         """Build a shell command that sources env files and then execs bash.
 
@@ -1451,13 +1521,14 @@ class Host(HostInterface):
         return self.host_dir / "tmux.conf"
 
     def _create_host_tmux_config(self) -> Path:
-        """Create a tmux config file for the host with a Ctrl-q exit hotkey.
+        """Create a tmux config file for the host with hotkeys for agent management.
 
         The config:
         1. Sources the user's default tmux config if it exists (~/.tmux.conf)
         2. Adds a Ctrl-q binding that detaches and destroys the current agent
+        3. Adds a Ctrl-s binding that detaches and stops the current agent
 
-        This uses the tmux session_name format variable in the destroy command,
+        This uses the tmux session_name format variable in the commands,
         which expands to the current session name at runtime. This approach
         works correctly even when multiple agents share a tmux server, because
         each session's binding correctly references its own session name.
@@ -1477,7 +1548,14 @@ class Host(HostInterface):
             "if-shell 'test -f ~/.tmux.conf' 'source-file ~/.tmux.conf'",
             "",
             "# Ctrl-q: Detach and destroy the agent whose session this is",
-            """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'"""
+            """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'""",
+            "",
+            "# Ctrl-h: Detach and stop the agent whose session this is",
+            """bind -n C-h run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
+            "",
+            # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
+            "# Automatically signal claude to tell it to resize on client attach",
+            """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'""",
             "",
         ]
         config_content = "\n".join(lines)
@@ -1503,6 +1581,7 @@ class Host(HostInterface):
         A custom tmux config is used that:
         - Sources the user's default ~/.tmux.conf if it exists
         - Adds a Ctrl-q binding to detach and destroy the current agent
+        - Adds a Ctrl-h binding to detach and halt (stop) the current agent
         """
         logger.debug("Starting {} agent(s)", len(agent_ids))
 
@@ -1623,7 +1702,7 @@ class Host(HostInterface):
 
         Note: The authoritative activity time is the file's mtime, not the JSON content.
         """
-        activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value
+        activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value.lower()
         agent_id = str(agent.id)
 
         # Build a bash script that monitors the process and writes activity
@@ -1819,14 +1898,6 @@ done
         now = datetime.now(timezone.utc)
         return (now - latest_activity).total_seconds()
 
-    def get_permissions(self) -> list[str]:
-        """Get the union of all agent permissions on this host."""
-        permissions: set[str] = set()
-        for agent in self.get_agents():
-            agent_permissions = agent.get_permissions()
-            permissions.update(str(p) for p in agent_permissions)
-        return list(permissions)
-
     def get_state(self) -> HostState:
         """Get the current state of the host."""
         logger.trace("Getting state for host {}", self.id)
@@ -1842,11 +1913,11 @@ done
         except (OSError, HostConnectionError):
             pass
 
-        logger.trace("Host {} state=STOPPED", self.id)
-        return HostState.STOPPED
+        # otherwise use the offline logic
+        return super().get_state()
 
 
-@deal.has()
+@pure
 def _format_env_file(env: Mapping[str, str]) -> str:
     """Format a dict as an environment file."""
     lines: list[str] = []

@@ -2,8 +2,7 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
-import deal
-
+from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import MngrError
 
 
@@ -80,7 +79,7 @@ def _get_project_name_from_git_remote(path: Path) -> str | None:
         return None
 
 
-@deal.has()
+@pure
 def _parse_project_name_from_url(url: str) -> str | None:
     """Parse the project name from a git remote URL.
 

@@ -24,13 +24,12 @@ from imbue.concurrency_group.errors import ProcessError
 from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.concurrency_group.event_utils import ReadOnlyEvent
 from imbue.concurrency_group.event_utils import ShutdownEvent
-from imbue.concurrency_group.local_process import run_background
 from imbue.concurrency_group.local_process import RunningProcess
+from imbue.concurrency_group.local_process import run_background
 from imbue.concurrency_group.subprocess_utils import FinishedProcess
 from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.mutable_model import MutableModel
-
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -582,20 +581,16 @@ def _deduplicate_exceptions(exceptions: tuple[Exception, ...]) -> tuple[Exceptio
     return tuple(other_exceptions + deduplicated_process_errors)
 
 
-class StrandTimedOutError(ConcurrencyGroupError):
-    ...
+class StrandTimedOutError(ConcurrencyGroupError): ...
 
 
-class InvalidConcurrencyGroupStateError(ConcurrencyGroupError):
-    ...
+class InvalidConcurrencyGroupStateError(ConcurrencyGroupError): ...
 
 
-class ChildConcurrencyGroupDidNotExitError(ConcurrencyGroupError):
-    ...
+class ChildConcurrencyGroupDidNotExitError(ConcurrencyGroupError): ...
 
 
-class ConcurrentShutdownError(ConcurrencyGroupError):
-    ...
+class ConcurrentShutdownError(ConcurrencyGroupError): ...
 
 
 class AncestorConcurrentFailure(ConcurrencyGroupError):
@@ -631,3 +626,10 @@ class ConcurrencyExceptionGroup(ExceptionGroup):
     def only_exception_is_instance_of(self, exception_class: type[Exception]) -> bool:
         """Check if the exception group is just a wrapper around a single exception of the given class."""
         return len(self.exceptions) == 1 and isinstance(self.exceptions[0], exception_class)
+
+    def get_only_exception(
+        self,
+    ) -> Exception:
+        if len(self.exceptions) != 1:
+            raise ValueError("The exception group does not contain exactly one exception.")
+        return self.exceptions[0]

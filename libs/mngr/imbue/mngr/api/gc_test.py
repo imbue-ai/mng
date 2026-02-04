@@ -5,16 +5,20 @@ from datetime import timedelta
 from datetime import timezone
 from pathlib import Path
 
+from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.api.gc import _apply_cel_filters
 from imbue.mngr.api.gc import _resource_to_cel_context
+from imbue.mngr.api.gc import gc_machines
 from imbue.mngr.interfaces.data_types import LogFileInfo
 from imbue.mngr.interfaces.data_types import SizeBytes
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
+from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
+from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.cel_utils import compile_cel_filters
 
 
@@ -39,7 +43,7 @@ def test_resource_to_cel_context_for_snapshot() -> None:
     """Test converting SnapshotInfo to CEL context."""
     created_time = datetime.now(timezone.utc) - timedelta(days=7)
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("test-snapshot"),
         created_at=created_time,
         size_bytes=1000000,
@@ -79,7 +83,7 @@ def test_resource_to_cel_context_for_volume() -> None:
 def test_compile_and_apply_cel_filters_include() -> None:
     """Test CEL filter compilation and application with include filters."""
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("large-snapshot"),
         created_at=datetime.now(timezone.utc) - timedelta(days=10),
         size_bytes=2000000000,
@@ -96,7 +100,7 @@ def test_compile_and_apply_cel_filters_include() -> None:
 def test_compile_and_apply_cel_filters_exclude() -> None:
     """Test CEL filter compilation and application with exclude filters."""
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("old-snapshot"),
         created_at=datetime.now(timezone.utc) - timedelta(days=30),
         size_bytes=500000,
@@ -113,7 +117,7 @@ def test_compile_and_apply_cel_filters_exclude() -> None:
 def test_compile_and_apply_cel_filters_name_matching() -> None:
     """Test CEL filter with name pattern matching."""
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("temp-snapshot-123"),
         created_at=datetime.now(timezone.utc),
         size_bytes=100000,
@@ -130,7 +134,7 @@ def test_compile_and_apply_cel_filters_name_matching() -> None:
 def test_compile_and_apply_cel_filters_multiple() -> None:
     """Test CEL filter with multiple conditions."""
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("prod-snapshot"),
         created_at=datetime.now(timezone.utc) - timedelta(days=15),
         size_bytes=3000000000,
@@ -147,7 +151,7 @@ def test_compile_and_apply_cel_filters_multiple() -> None:
 def test_compile_and_apply_cel_filters_empty_filters() -> None:
     """Test CEL filter with no filters returns True."""
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("any-snapshot"),
         created_at=datetime.now(timezone.utc),
         size_bytes=1000,
@@ -164,7 +168,7 @@ def test_compile_and_apply_cel_filters_empty_filters() -> None:
 def test_compile_and_apply_cel_filters_include_not_matching() -> None:
     """Test CEL filter with include that doesn't match returns False."""
     snapshot = SnapshotInfo(
-        id=SnapshotId.generate(),
+        id=SnapshotId("snap-test"),
         name=SnapshotName("small-snapshot"),
         created_at=datetime.now(timezone.utc),
         size_bytes=100,
@@ -176,3 +180,21 @@ def test_compile_and_apply_cel_filters_include_not_matching() -> None:
     )
 
     assert not _apply_cel_filters(snapshot, include_filters, exclude_filters)
+
+
+def test_gc_machines_skips_local_hosts(local_provider: LocalProviderInstance) -> None:
+    """Test that gc_machines skips local hosts even when they have no agents."""
+    result = GcResult()
+
+    gc_machines(
+        providers=[local_provider],
+        include_filters=(),
+        exclude_filters=(),
+        dry_run=False,
+        error_behavior=ErrorBehavior.ABORT,
+        result=result,
+    )
+
+    # Local host should be skipped, not destroyed
+    assert len(result.machines_destroyed) == 0
+    assert len(result.errors) == 0

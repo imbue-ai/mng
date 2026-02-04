@@ -1,6 +1,8 @@
 from typing import Mapping
 from typing import Sequence
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
@@ -17,6 +19,11 @@ class BaseProviderInstance(ProviderInstanceInterface):
     Useful because it communicates that the concrete Host class (not HostInterface) is returned from these methods.
     """
 
+    @property
+    def is_authorized(self) -> bool:
+        """Default implementation returns True - providers that need auth should override."""
+        return True
+
     def create_host(
         self,
         name: HostName,
@@ -24,6 +31,8 @@ class BaseProviderInstance(ProviderInstanceInterface):
         tags: Mapping[str, str] | None = None,
         build_args: Sequence[str] | None = None,
         start_args: Sequence[str] | None = None,
+        lifecycle: HostLifecycleOptions | None = None,
+        known_hosts: Sequence[str] | None = None,
     ) -> Host:
         raise NotImplementedError()
 
@@ -37,12 +46,13 @@ class BaseProviderInstance(ProviderInstanceInterface):
     def get_host(
         self,
         host: HostId | HostName,
-    ) -> Host:
+    ) -> HostInterface:
         raise NotImplementedError()
 
     def list_hosts(
         self,
         include_destroyed: bool = False,
+        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         raise NotImplementedError()
 
@@ -50,5 +60,5 @@ class BaseProviderInstance(ProviderInstanceInterface):
         self,
         host: HostInterface | HostId,
         name: HostName,
-    ) -> Host:
+    ) -> HostInterface:
         raise NotImplementedError()

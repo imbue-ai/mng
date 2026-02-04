@@ -4,6 +4,12 @@
 
 set -euo pipefail
 
+# Remove the active session marker file on exit (regardless of success/failure)
+cleanup_active_file() {
+    rm -f .claude/active
+}
+trap cleanup_active_file EXIT
+
 # Check if git repo is clean
 untracked=$(git ls-files --others --exclude-standard)
 staged=$(git diff --cached --name-only)
@@ -137,6 +143,7 @@ if [[ -f "$HTML_TRANSCRIPT" ]]; then
         fi
     else
         log_error "Failed to store HTML transcript: $HTML_OUTPUT"
+        exit 1
     fi
 else
     log_warn "HTML transcript not found at $HTML_TRANSCRIPT"
@@ -152,6 +159,7 @@ if [[ -n "$JSON_TRANSCRIPT" && -f "$JSON_TRANSCRIPT" ]]; then
         log_info "JSON transcript stored successfully"
     else
         log_error "Failed to store JSON transcript: $JSON_OUTPUT"
+        exit 1
     fi
 fi
 
@@ -172,6 +180,7 @@ fi
 log_info "Pushing commits to origin..."
 if ! retry_command 3 git push origin HEAD; then
     log_error "Failed to push commits after retries"
+    exit 1
 fi
 
 # Push notes with force (notes can be force-pushed safely)
@@ -183,6 +192,13 @@ fi
 # Ensure a PR exists for this branch
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 BASE_BRANCH="${GIT_BASE_BRANCH:-main}"
+
+# Ensure the base branch is pushed as well (otherwise cannot make the PR)
+log_info "Ensuring base branch is on origin..."
+if ! retry_command 3 git push origin $BASE_BRANCH; then
+    log_error "Failed to push base branch after retries"
+    exit 1
+fi
 
 # Check if there are any commits ahead of base branch (skip PR if purely informational)
 IS_INFORMATIONAL_ONLY=false
@@ -242,6 +258,7 @@ if [[ "$IS_INFORMATIONAL_ONLY" == "false" ]]; then
             log_info "Created PR #$EXISTING_PR"
         else
             log_error "Failed to create PR"
+            exit 1
         fi
     elif [[ "$PR_STATE" == "MERGED" ]]; then
         # PR was merged - need to create a new one (can't reopen merged PRs on GitHub)
@@ -254,6 +271,7 @@ if [[ "$IS_INFORMATIONAL_ONLY" == "false" ]]; then
             log_info "Created new PR #$EXISTING_PR (previous PR was merged)"
         else
             log_error "Failed to create new PR after merge"
+            exit 1
         fi
     elif [[ "$PR_STATE" == "CLOSED" ]]; then
         # PR was closed but not merged - reopen it
@@ -262,6 +280,7 @@ if [[ "$IS_INFORMATIONAL_ONLY" == "false" ]]; then
             log_info "Reopened PR #$EXISTING_PR"
         else
             log_error "Failed to reopen PR #$EXISTING_PR"
+            exit 1
         fi
     fi
 
@@ -283,6 +302,7 @@ if [[ "$IS_INFORMATIONAL_ONLY" == "false" ]]; then
         # Get current PR body
         if ! CURRENT_BODY=$(gh pr view "$EXISTING_PR" --json body --jq '.body'); then
             log_error "Failed to get current PR body"
+            exit 1
         else
             # Build new transcript section
             TRANSCRIPT_SECTION="## Transcript
@@ -310,6 +330,7 @@ $TRANSCRIPT_SECTION"
                 log_info "PR description updated successfully"
             else
                 log_error "Failed to update PR description"
+                exit 1
             fi
         fi
     fi
@@ -423,6 +444,7 @@ if [[ ${#REVIEWER_WINDOWS[@]} -gt 0 && -n "$EXISTING_PR" ]]; then
     # Update PR description with issues section
     if ! CURRENT_BODY=$(gh pr view "$EXISTING_PR" --json body --jq '.body'); then
         log_error "Failed to get current PR body for issues update"
+        exit 1
     else
         # Remove existing issues section if present and append new one
         if echo "$CURRENT_BODY" | grep -q "## Code Review Issues"; then
@@ -443,6 +465,7 @@ $ISSUES_SECTION"
             log_info "PR description updated with reviewer issue links"
         else
             log_error "Failed to update PR description with reviewer issue links"
+            exit 1
         fi
     fi
 fi

@@ -67,9 +67,7 @@ def test_base_agent_get_command(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_command returns the command from data.json."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-cmd-agent", temp_work_dir, command="echo hello"
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-cmd-agent", temp_work_dir, command="echo hello")
 
     command = agent.get_command()
 
@@ -82,9 +80,7 @@ def test_base_agent_get_command_default_bash(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_command returns 'bash' when no command is set."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-cmd", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-cmd", temp_work_dir)
 
     # Write data.json without command
     data_path = agent._get_data_path()
@@ -101,9 +97,7 @@ def test_base_agent_get_permissions(
     temp_work_dir: Path,
 ) -> None:
     """Test getting permissions from agent."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-perms", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-perms", temp_work_dir)
 
     perms = agent.get_permissions()
 
@@ -117,9 +111,7 @@ def test_base_agent_set_permissions(
     temp_work_dir: Path,
 ) -> None:
     """Test setting permissions on agent."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-set-perms", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-set-perms", temp_work_dir)
 
     permissions = [Permission("read"), Permission("write")]
     agent.set_permissions(permissions)
@@ -136,9 +128,7 @@ def test_base_agent_get_is_start_on_boot(
     temp_work_dir: Path,
 ) -> None:
     """Test getting start_on_boot setting."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-boot", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-boot", temp_work_dir)
 
     result = agent.get_is_start_on_boot()
 
@@ -151,9 +141,7 @@ def test_base_agent_set_is_start_on_boot(
     temp_work_dir: Path,
 ) -> None:
     """Test setting start_on_boot setting."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-set-boot", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-set-boot", temp_work_dir)
 
     agent.set_is_start_on_boot(True)
 
@@ -166,9 +154,7 @@ def test_base_agent_is_running_false_no_pid(
     temp_work_dir: Path,
 ) -> None:
     """Test is_running returns False when no PID file exists."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-not-running", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-not-running", temp_work_dir)
 
     result = agent.is_running()
 
@@ -182,9 +168,7 @@ def test_base_agent_get_lifecycle_state_stopped(
     mngr_test_prefix: str,
 ) -> None:
     """Test get_lifecycle_state returns STOPPED when no tmux session."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-stopped", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-stopped", temp_work_dir)
 
     state = agent.get_lifecycle_state()
 
@@ -197,9 +181,7 @@ def test_base_agent_get_reported_url_none(
     temp_work_dir: Path,
 ) -> None:
     """Test get_reported_url returns None when no URL file exists."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-url", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-url", temp_work_dir)
 
     url = agent.get_reported_url()
 
@@ -212,9 +194,7 @@ def test_base_agent_get_reported_start_time_none(
     temp_work_dir: Path,
 ) -> None:
     """Test get_reported_start_time returns None when no start time file exists."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-start", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-start", temp_work_dir)
 
     start_time = agent.get_reported_start_time()
 
@@ -227,9 +207,7 @@ def test_base_agent_get_reported_status_markdown_none(
     temp_work_dir: Path,
 ) -> None:
     """Test get_reported_status_markdown returns None when no status file exists."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-status", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-status", temp_work_dir)
 
     status = agent.get_reported_status_markdown()
 
@@ -242,9 +220,7 @@ def test_base_agent_get_reported_status_html_none(
     temp_work_dir: Path,
 ) -> None:
     """Test get_reported_status_html returns None when no HTML status file exists."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-html", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-html", temp_work_dir)
 
     html = agent.get_reported_status_html()
 
@@ -257,9 +233,7 @@ def test_base_agent_get_reported_status_none(
     temp_work_dir: Path,
 ) -> None:
     """Test get_reported_status returns None when no status files exist."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-status-obj", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-status-obj", temp_work_dir)
 
     status = agent.get_reported_status()
 
@@ -272,9 +246,7 @@ def test_base_agent_get_reported_activity_time_none(
     temp_work_dir: Path,
 ) -> None:
     """Test get_reported_activity_time returns None when no activity file exists."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-activity", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-activity", temp_work_dir)
 
     activity = agent.get_reported_activity_time(ActivitySource.USER)
 
@@ -287,9 +259,7 @@ def test_base_agent_record_activity(
     temp_work_dir: Path,
 ) -> None:
     """Test record_activity creates activity file."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-record-activity", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-record-activity", temp_work_dir)
 
     agent.record_activity(ActivitySource.USER)
 
@@ -304,9 +274,7 @@ def test_base_agent_get_reported_activity_record_none(
     temp_work_dir: Path,
 ) -> None:
     """Test get_reported_activity_record returns None when no activity file exists."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-activity-record", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-activity-record", temp_work_dir)
 
     record = agent.get_reported_activity_record(ActivitySource.AGENT)
 
@@ -319,9 +287,7 @@ def test_base_agent_get_plugin_data_empty(
     temp_work_dir: Path,
 ) -> None:
     """Test get_plugin_data returns empty dict when no plugin data exists."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-plugin", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-plugin", temp_work_dir)
 
     plugin_data = agent.get_plugin_data("test-plugin")
 
@@ -334,9 +300,7 @@ def test_base_agent_set_plugin_data(
     temp_work_dir: Path,
 ) -> None:
     """Test set_plugin_data stores plugin data."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-set-plugin", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-set-plugin", temp_work_dir)
 
     agent.set_plugin_data("test-plugin", {"key": "value"})
 
@@ -350,9 +314,7 @@ def test_base_agent_get_env_vars_empty(
     temp_work_dir: Path,
 ) -> None:
     """Test get_env_vars returns empty dict when no env file exists."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-env", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-env", temp_work_dir)
 
     env = agent.get_env_vars()
 
@@ -365,9 +327,7 @@ def test_base_agent_set_env_vars(
     temp_work_dir: Path,
 ) -> None:
     """Test set_env_vars stores environment variables."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-set-env", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-set-env", temp_work_dir)
 
     agent.set_env_vars({"MY_VAR": "my_value", "OTHER_VAR": "other_value"})
 
@@ -382,9 +342,7 @@ def test_base_agent_get_env_var(
     temp_work_dir: Path,
 ) -> None:
     """Test get_env_var retrieves a single environment variable."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-get-env-var", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-get-env-var", temp_work_dir)
 
     agent.set_env_vars({"TEST_VAR": "test_value"})
 
@@ -401,9 +359,7 @@ def test_base_agent_set_env_var(
     temp_work_dir: Path,
 ) -> None:
     """Test set_env_var sets a single environment variable."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-set-env-var", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-set-env-var", temp_work_dir)
 
     agent.set_env_var("SINGLE_VAR", "single_value")
 
@@ -417,9 +373,7 @@ def test_base_agent_runtime_seconds_none(
     temp_work_dir: Path,
 ) -> None:
     """Test runtime_seconds is None when no start time reported."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-runtime", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-runtime", temp_work_dir)
 
     runtime = agent.runtime_seconds
 
@@ -432,9 +386,7 @@ def test_base_agent_get_initial_message_none(
     temp_work_dir: Path,
 ) -> None:
     """Test get_initial_message returns None when not set."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-initial-msg", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-initial-msg", temp_work_dir)
 
     msg = agent.get_initial_message()
 
@@ -447,9 +399,7 @@ def test_base_agent_get_initial_message_from_data(
     temp_work_dir: Path,
 ) -> None:
     """Test get_initial_message returns value from data.json."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-with-initial-msg", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-with-initial-msg", temp_work_dir)
 
     # Write initial message to data.json
     data_path = agent._get_data_path()
@@ -468,9 +418,7 @@ def test_base_agent_assemble_command_from_override(
     temp_work_dir: Path,
 ) -> None:
     """Test assemble_command uses command_override when provided."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-cmd-override", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-cmd-override", temp_work_dir)
     host = local_provider.get_host(HostName("local"))
 
     command = agent.assemble_command(
@@ -508,9 +456,7 @@ def test_base_agent_assemble_command_with_args(
     temp_work_dir: Path,
 ) -> None:
     """Test assemble_command appends agent_args."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-cmd-args", temp_work_dir, command="base"
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-cmd-args", temp_work_dir, command="base")
     host = local_provider.get_host(HostName("local"))
 
     command = agent.assemble_command(
@@ -568,9 +514,7 @@ def test_base_agent_list_reported_plugin_files_empty(
     temp_work_dir: Path,
 ) -> None:
     """Test list_reported_plugin_files returns empty list when no files."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-no-plugin-files", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-plugin-files", temp_work_dir)
 
     files = agent.list_reported_plugin_files("test-plugin")
 
@@ -583,9 +527,7 @@ def test_base_agent_get_host(
     temp_work_dir: Path,
 ) -> None:
     """Test get_host returns the agent's host."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-get-host", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-get-host", temp_work_dir)
 
     host = agent.get_host()
 
@@ -599,9 +541,7 @@ def test_base_agent_get_command_basename(
     temp_work_dir: Path,
 ) -> None:
     """Test _get_command_basename extracts basename correctly."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-basename", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-basename", temp_work_dir)
 
     # Test simple command
     assert agent._get_command_basename(CommandString("sleep 1000")) == "sleep"
@@ -619,9 +559,7 @@ def test_base_agent_is_shell_command(
     temp_work_dir: Path,
 ) -> None:
     """Test _is_shell_command identifies shells correctly."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-shell", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-shell", temp_work_dir)
 
     # Common shells
     assert agent._is_shell_command("bash") is True
@@ -641,9 +579,7 @@ def test_base_agent_command_basename_matches(
     temp_work_dir: Path,
 ) -> None:
     """Test _command_basename_matches compares basenames correctly."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-match", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-match", temp_work_dir)
 
     # Match cases
     assert agent._command_basename_matches("sleep", "sleep 1000") is True
@@ -660,9 +596,7 @@ def test_base_agent_lifecycle_hooks_are_noop(
     temp_work_dir: Path,
 ) -> None:
     """Test that default lifecycle hooks are no-ops."""
-    agent = _create_test_agent(
-        local_provider, temp_mngr_ctx, "test-lifecycle", temp_work_dir
-    )
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-lifecycle", temp_work_dir)
     host = local_provider.get_host(HostName("local"))
 
     options = CreateAgentOptions(

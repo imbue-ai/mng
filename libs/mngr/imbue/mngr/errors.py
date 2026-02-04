@@ -55,6 +55,10 @@ class HostConnectionError(HostError):
     """Raised when unable to connect to a host."""
 
 
+class HostOfflineError(HostConnectionError):
+    """Raised when unable to connect to a host because it is offline."""
+
+
 class CommandTimeoutError(HostError):
     """Raised when a command execution times out."""
 
@@ -125,6 +129,22 @@ class ProviderInstanceNotFoundError(ProviderError):
     def __init__(self, provider_name: ProviderInstanceName) -> None:
         self.provider_name = provider_name
         super().__init__(f"Provider {provider_name} not found")
+
+
+class ProviderNotAuthorizedError(ProviderError):
+    """Provider instance is not authorized/authenticated."""
+
+    def __init__(self, provider_name: ProviderInstanceName, auth_help: str | None = None) -> None:
+        self.provider_name = provider_name
+        message = f"Provider '{provider_name}' is not authorized."
+        if auth_help:
+            message = f"{message} {auth_help}"
+        super().__init__(message)
+        self.user_help_text = (
+            f"To disable this provider, run:\n"
+            f"  mngr config set --scope user providers.{provider_name}.is_enabled false\n"
+            f"Or disable the provider backend entirely by removing it from enabled_backends in your config."
+        )
 
 
 class HostNotFoundError(ProviderError):

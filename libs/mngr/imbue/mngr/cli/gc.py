@@ -1,12 +1,11 @@
-import time
 from typing import Any
 from typing import assert_never
 
 import click
-import deal
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.data_types import GcResourceTypes
 from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.api.gc import gc as api_gc
@@ -15,13 +14,16 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
+from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
-from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
@@ -47,6 +49,7 @@ class GcCliOptions(CommonCliOptions):
     work_dirs: bool
     logs: bool
     build_cache: bool
+    machine_cache: bool
     include: tuple[str, ...]
     exclude: tuple[str, ...]
     dry_run: bool
@@ -94,6 +97,14 @@ class GcCliOptions(CommonCliOptions):
     is_flag=True,
     help="Remove build cache entries",
 )
+@optgroup.option(
+    "--machine-cache",
+    is_flag=True,
+    help="Remove machine cache entries (per-provider) [future]",
+)
+# FIXME: When "mngr cleanup" is implemented, add a cross-reference in the gc command's
+# help text pointing users to it for interactive cleanup. See the spec at:
+# docs/commands/secondary/cleanup.md
 @optgroup.group("Filtering")
 @optgroup.option(
     "--include",
@@ -170,6 +181,11 @@ def _gc_impl(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("Running gc command")
 
+    # Remove machine cache entries (per-provider)
+    # Wire this through to the API when implemented
+    if opts.machine_cache:
+        raise NotImplementedError("--machine-cache is not implemented yet")
+
     has_any_resource_type = (
         opts.all_agent_resources
         or opts.machines
@@ -195,21 +211,12 @@ def _gc_impl(ctx: click.Context, **kwargs) -> None:
 
     # Watch mode: run gc repeatedly at the specified interval
     if opts.watch:
-        logger.info("Starting watch mode: running gc every {} seconds", opts.watch)
-        logger.info("Press Ctrl+C to stop")
-        is_running = True
         try:
-            while is_running:
-                # Note: AbortError (BaseException) will propagate out and stop watch mode
-                # Regular exceptions are logged but watch continues
-                try:
-                    _run_gc_iteration(mngr_ctx=mngr_ctx, opts=opts, output_opts=output_opts)
-                except MngrError as e:
-                    # Regular exceptions in CONTINUE mode are already logged by on_error
-                    # Just log here for watch mode context
-                    logger.error("Error in gc iteration (continuing): {}", e)
-                logger.info("\nWaiting {} seconds until next run...", opts.watch)
-                time.sleep(opts.watch)
+            run_watch_loop(
+                iteration_fn=lambda: _run_gc_iteration(mngr_ctx=mngr_ctx, opts=opts, output_opts=output_opts),
+                interval_seconds=opts.watch,
+                on_error_continue=True,
+            )
         except KeyboardInterrupt:
             logger.info("\nWatch mode stopped")
             return
@@ -282,7 +289,7 @@ def _run_gc_iteration(mngr_ctx: MngrContext, opts: GcCliOptions, output_opts: Ou
     _emit_final_summary(result=result, output_format=output_opts.output_format, dry_run=opts.dry_run)
 
 
-@deal.has()
+@pure
 def _format_destroyed_message(resource_type: str, resource: Any, dry_run: bool) -> str:
     """Format a human-readable message for a destroyed resource."""
     action = "Would destroy" if dry_run else "Destroyed"
@@ -439,7 +446,7 @@ def _emit_jsonl_summary(result: GcResult, dry_run: bool) -> None:
     emit_event("summary", event, OutputFormat.JSONL)
 
 
-@deal.has()
+@pure
 def _format_size(size_bytes: int) -> str:
     """Format bytes into human-readable size string."""
     if size_bytes < 1024:
@@ -465,3 +472,51 @@ def _get_selected_providers(mngr_ctx: MngrContext, opts: GcCliOptions) -> list[P
         return providers
 
     return list(get_all_provider_instances(mngr_ctx))
+
+
+# Register help metadata for git-style help formatting
+_GC_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-gc",
+    one_line_description="Garbage collect unused resources",
+    synopsis="mngr gc [OPTIONS]",
+    description="""Garbage collect unused resources.
+
+Automatically removes containers, old snapshots, unused hosts, cached images,
+and any resources that are associated with destroyed hosts and agents.
+
+`mngr destroy` automatically cleans up resources when an agent is deleted.
+`mngr gc` can be used to manually trigger garbage collection of unused
+resources at any time.""",
+    examples=(
+        ("Preview what would be cleaned (dry run)", "mngr gc --work-dirs --dry-run"),
+        ("Clean all agent resources", "mngr gc --all-agent-resources"),
+        ("Clean machines and snapshots for Docker", "mngr gc --machines --snapshots --provider docker"),
+        ("Clean logs and build cache", "mngr gc --logs --build-cache"),
+        ("Keep only the 5 most recent snapshots", 'mngr gc --snapshots --exclude "recency_idx < 5"'),
+    ),
+    additional_sections=(
+        (
+            "CEL Filter Examples",
+            """CEL filters let you control which resources are cleaned.
+
+**For snapshots, use `recency_idx` to filter by age:**
+- `recency_idx == 0` - the most recent snapshot
+- `recency_idx < 5` - the 5 most recent snapshots
+- To keep only the 5 most recent: `--exclude "recency_idx < 5"`
+
+**Filter by resource properties:**
+- `name.contains("test")` - resources with "test" in the name
+- `provider_name == "docker"` - Docker resources only
+""",
+        ),
+    ),
+    see_also=(
+        ("destroy", "Destroy agents (includes automatic GC)"),
+        ("list", "List agents to find unused resources"),
+    ),
+)
+
+register_help_metadata("gc", _GC_HELP_METADATA)
+
+# Add pager-enabled help option to the gc command
+add_pager_help_option(gc)
