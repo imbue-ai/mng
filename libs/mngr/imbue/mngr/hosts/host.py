@@ -181,10 +181,12 @@ class Host(BaseHost, OnlineHostInterface):
             )
         except OSError as e:
             if "Socket is closed" in str(e):
+                self.provider_instance.on_connection_error(self.id)
                 raise HostConnectionError("Connection was closed while running command") from e
             else:
                 raise
-        except SSHException as e:
+        except (EOFError, SSHException) as e:
+            self.provider_instance.on_connection_error(self.id)
             raise HostConnectionError("Could not execute command due to connection error") from e
 
     def _get_file(
@@ -215,10 +217,12 @@ class Host(BaseHost, OnlineHostInterface):
                 if "No such file or directory" in error_msg or "cannot stat" in error_msg:
                     raise FileNotFoundError(f"File not found: {remote_filename}") from e
                 elif "Socket is closed" in str(e):
+                    self.provider_instance.on_connection_error(self.id)
                     raise HostConnectionError("Connection was closed while reading file") from e
                 else:
                     raise
-        except SSHException as e:
+        except (EOFError, SSHException) as e:
+            self.provider_instance.on_connection_error(self.id)
             raise HostConnectionError("Could not read file due to connection error") from e
 
     def _put_file(
@@ -242,10 +246,12 @@ class Host(BaseHost, OnlineHostInterface):
             )
         except OSError as e:
             if "Socket is closed" in str(e):
+                self.provider_instance.on_connection_error(self.id)
                 raise HostConnectionError("Connection was closed while writing file") from e
             else:
                 raise
-        except SSHException as e:
+        except (EOFError, SSHException) as e:
+            self.provider_instance.on_connection_error(self.id)
             raise HostConnectionError("Could not write file due to connection error") from e
 
     # =========================================================================
