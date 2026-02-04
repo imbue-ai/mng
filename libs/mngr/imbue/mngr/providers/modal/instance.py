@@ -1654,8 +1654,6 @@ log "=== Shutdown script completed ==="
                 auth_help="Run 'modal token set' to authenticate with Modal.",
             )
 
-        host_obj: HostInterface | None = None
-
         if isinstance(host, HostId) and host in self._host_by_id_cache:
             return self._host_by_id_cache[host]
 
@@ -1687,7 +1685,7 @@ log "=== Shutdown script completed ==="
             if host_obj is None:
                 for host_record in self._list_all_host_records():
                     if host_record.host_name == str(host):
-                        return self._create_host_from_host_record(host_record)
+                        host_obj = self._create_host_from_host_record(host_record)
 
         # finally save to the cache and return
         if host_obj is not None:
