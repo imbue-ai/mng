@@ -868,6 +868,7 @@ class ModalProviderInstance(BaseProviderInstance):
         # The stop_reason parameter indicates why the host stopped:
         # - PAUSED: Host became idle (called by activity_watcher.sh)
         # - STOPPED: User explicitly stopped the host
+        # FIXME: update this script so that it has set -euo pipefail (and will still work properly)
         script_content = f'''#!/bin/bash
 # Auto-generated shutdown script for mngr Modal host
 # This script snapshots and shuts down the host by calling the deployed Modal function

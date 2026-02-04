@@ -181,6 +181,10 @@ class SnapshotRecord(FrozenModel):
 class CertifiedHostData(FrozenModel):
     """Certified data stored in the host's data.json file."""
 
+    # FIXME: make this field a derived property--it's fully derivable from activity_sources
+    #  Once that is done, remove the idle_mode field from ActivytConfig as well (again, derivable)
+    #  The only place this mode was supposed to exist was at the interface layer, as a way of conveniently
+    #  allowing a user to specify common sets of activity types from the CLI. Nothing else should know about IdleMode
     idle_mode: IdleMode = Field(
         default=IdleMode.IO,
         description="Mode for determining when host is considered idle",

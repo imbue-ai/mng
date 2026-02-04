@@ -75,6 +75,13 @@ class AgentInfo(FrozenModel):
 
     plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-specific fields")
 
+    @property
+    def combined_state(self) -> str:
+        if self.lifecycle_state == AgentLifecycleState.STOPPED:
+            return self.host.state
+        else:
+            return self.lifecycle_state.value.lower()
+
 
 class ErrorInfo(FrozenModel):
     """Information about an error encountered during listing.

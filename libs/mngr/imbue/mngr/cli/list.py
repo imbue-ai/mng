@@ -392,7 +392,7 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
 
     # Default fields if none specified
     if fields is None:
-        fields = ["name", "host", "provider", "state", "status"]
+        fields = ["name", "host", "provider", "combined_state", "status"]
 
     # Build table data dynamically based on requested fields
     headers = []
@@ -477,9 +477,9 @@ def _get_sortable_value(agent: AgentInfo, field: str) -> Any:
     Returns the raw value (not string-formatted) for proper sorting behavior.
     Supports nested fields like "host.name" and field aliases.
     """
+    # FIXME: remove these aliases here and below. If anything must remain, make it a proper on AgentInfo
     # Handle special field aliases for backward compatibility and convenience
     field_aliases = {
-        "state": "lifecycle_state",
         "host": "host.name",
         "provider": "host.provider_name",
         "host.provider": "host.provider_name",
@@ -536,7 +536,6 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
     # Handle special field aliases for backward compatibility and convenience
     # Note: host.provider maps to host.provider_name for consistency with CEL filters
     field_aliases = {
-        "state": "lifecycle_state",
         "host": "host.name",
         "provider": "host.provider_name",
         "host.provider": "host.provider_name",

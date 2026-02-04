@@ -181,6 +181,9 @@ class Host(BaseHost, OnlineHostInterface):
             )
         except OSError as e:
             if "Socket is closed" in str(e):
+                # FIXME: these two lines are duplicated everywhere (on_connection_error and raise HostConnectionError)
+                #  Please instead refactor this so that we simply raise, and each of these 3 methods that are raising have
+                #  a decorator that handles the calling of on_connection_error automatically
                 self.provider_instance.on_connection_error(self.id)
                 raise HostConnectionError("Connection was closed while running command") from e
             else:
