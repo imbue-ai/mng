@@ -726,6 +726,7 @@ def _collect_pane_pids(host: Host, session_name: str) -> list[str]:
     return host._collect_session_pids(session_name)
 
 
+@pytest.mark.nomodal
 def test_stop_agent_kills_single_pane_processes(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -777,9 +778,10 @@ def test_stop_agent_kills_single_pane_processes(
                 return False
         return session_killed
 
-    wait_for(check_cleanup, timeout=30, error_message="Agent session and processes not cleaned up after stop")
+    wait_for(check_cleanup, timeout=10, error_message="Agent session and processes not cleaned up after stop")
 
 
+@pytest.mark.nomodal
 def test_stop_agent_kills_multi_pane_processes(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -837,7 +839,9 @@ def test_stop_agent_kills_multi_pane_processes(
                 return False
         return session_killed
 
-    wait_for(check_cleanup, error_message="Multi-pane agent session and processes not cleaned up after stop")
+    wait_for(
+        check_cleanup, timeout=10, error_message="Multi-pane agent session and processes not cleaned up after stop"
+    )
 
 
 def test_start_agent_creates_process_group(

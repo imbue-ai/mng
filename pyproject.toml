@@ -66,6 +66,12 @@ addopts = [
   "--coverage-to-file",
 ]
 
+markers = [
+  "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
+  "release: marks tests as being required for release (but not for merging PRs)",
+  "nomodal: marks tests that need to be fixed before running on modal",
+]
+
 [tool.ruff]
 line-length = 119
 exclude = [
