@@ -288,12 +288,24 @@ def determine_git_sync_actions(
 
     # Fetch from target directly (without adding a remote) to get the objects
     # This makes the target commit available locally for ancestry checks
-    subprocess.run(
+    fetch_result = subprocess.run(
         ["git", "fetch", str(target_path), target_branch],
         cwd=source_path,
         capture_output=True,
         text=True,
     )
+    if fetch_result.returncode != 0:
+        logger.warning(
+            "Failed to fetch from target for git sync comparison: {}",
+            fetch_result.stderr.strip(),
+        )
+        # Return no-action since we can't reliably determine sync state
+        return GitSyncAction(
+            source_is_ahead=False,
+            target_is_ahead=False,
+            source_branch=source_branch,
+            target_branch=target_branch,
+        )
 
     # Check if source is ahead of target (target commit is ancestor of source)
     source_ahead = _is_ancestor(source_path, target_commit, source_commit)
@@ -428,9 +440,6 @@ def pair_files(
         )
 
     # Determine and perform git sync
-    git_push_performed = False
-    git_pull_performed = False
-
     if source_is_git and target_is_git:
         git_action = determine_git_sync_actions(source_path, actual_target)
         if git_action is not None and (git_action.source_is_ahead or git_action.target_is_ahead):
@@ -439,7 +448,7 @@ def pair_files(
                 git_action.source_is_ahead,
                 git_action.target_is_ahead,
             )
-            git_pull_performed, git_push_performed = sync_git_state(
+            sync_git_state(
                 agent=agent,
                 host=host,
                 agent_path=source_path,

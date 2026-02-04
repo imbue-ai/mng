@@ -21,7 +21,7 @@ from imbue.mngr.main import BUILTIN_COMMANDS
 from imbue.mngr.main import cli
 
 # Commands categorized by their documentation location
-PRIMARY_COMMANDS = {"connect", "create", "destroy", "list", "pair", "pull"}
+PRIMARY_COMMANDS = {"connect", "create", "destroy", "list", "pair", "pull", "push"}
 SECONDARY_COMMANDS = {"config", "gc", "message"}
 
 

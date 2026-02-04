@@ -337,6 +337,8 @@ def sync_files(
         logger.debug("Pulling files from {} to {}", source_path, destination_path)
 
     # Handle uncommitted changes in the destination
+    # Note: CLOBBER mode skips this check - it means "proceed with sync regardless of
+    # uncommitted changes" rather than "reset git state before sync"
     did_stash = False
     if uncommitted_changes != UncommittedChangesMode.CLOBBER:
         did_stash = handle_uncommitted_changes(git_ctx, destination_path, uncommitted_changes)

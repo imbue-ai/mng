@@ -139,7 +139,7 @@ See [multi_target](../generic/multi_target.md) for options controlling behavior 
 - [mngr create](./create.md) - Create a new agent
 - [mngr list](./list.md) - List agents to find one to pull from
 - [mngr connect](./connect.md) - Connect to an agent interactively
-- [mngr push](mngr push) - Push files or git commits to an agent
+- [mngr push](./push.md) - Push files or git commits to an agent
 
 ## Examples
 
