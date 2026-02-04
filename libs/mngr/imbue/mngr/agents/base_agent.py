@@ -385,7 +385,9 @@ class BaseAgent(AgentInterface):
         # The terminal display can update before Claude Code's input handler has fully
         # processed the backspaces. Without this delay, Enter can be misinterpreted as
         # a literal newline instead of a submit action.
-        time.sleep(self.get_enter_delay_seconds())
+        enter_delay = self.get_enter_delay_seconds()
+        logger.debug("Waiting {}s before sending Enter", enter_delay)
+        time.sleep(enter_delay)
 
         # Now send Enter to submit the message
         send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
