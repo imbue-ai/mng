@@ -37,7 +37,7 @@ _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 
 # Constants for Enter retry mechanism
 _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 0.5
-_BACKSPACE_SETTLE_SECONDS: Final[float] = 0.3
+_BACKSPACE_SETTLE_SECONDS: Final[float] = 0.0
 
 
 class BaseAgent(AgentInterface):
