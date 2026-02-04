@@ -519,7 +519,12 @@ def _process_provider_for_host_listing(
             host_name=host.get_name(),
             provider_name=provider.name,
         )
-        agent_refs = host.get_agent_references()
+        try:
+            agent_refs = host.get_agent_references()
+        # retry once when there is a host connection error (the second time we'll probably end up
+        except HostConnectionError:
+            offline_host = provider.get_host(host.id)
+            agent_refs = offline_host.get_agent_references()
         provider_results[host_ref] = agent_refs
 
     # Merge results into the main dict under lock
