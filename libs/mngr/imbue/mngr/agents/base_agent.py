@@ -376,6 +376,13 @@ class BaseAgent(AgentInterface):
         if not result.success:
             raise SendMessageError(str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}")
 
+        # Give Claude Code's input handler time to process the backspaces
+        # before checking the display. The terminal can update faster than
+        # Claude Code's internal state machine processes the input.
+        backspace_settle_delay = self.get_enter_delay_seconds()
+        logger.debug("Waiting {}s for backspaces to settle", backspace_settle_delay)
+        time.sleep(backspace_settle_delay)
+
         # Verify the marker is gone and the message ends correctly
         # Use the last 20 chars of the message as the expected ending (or full message if shorter)
         expected_ending = message[-20:] if len(message) > 20 else message
