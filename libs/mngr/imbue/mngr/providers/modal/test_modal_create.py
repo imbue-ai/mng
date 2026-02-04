@@ -477,6 +477,7 @@ def test_mngr_create_with_default_dockerfile_on_modal(
             ],
             capture_output=True,
             text=True,
+            check=True,
             timeout=600,
             env=modal_subprocess_env.env,
         )
