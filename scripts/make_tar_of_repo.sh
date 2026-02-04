@@ -17,7 +17,7 @@ mkdir -p "$DEST";
   git clone . "$tmp"; \
   git -C "$tmp" checkout "$HASH"; \
   mv "$tmp" "$DEST/$HASH"; \
-  tar czf "$DEST/current.tar.gz" -C "$DEST/$HASH" .; \
+  COPYFILE_DISABLE=1 tar czf "$DEST/current.tar.gz" -C "$DEST/$HASH" .; \
   rm -rf "$DEST/$HASH"; \
   touch "$DEST/$HASH.checkpoint"; \
 )
