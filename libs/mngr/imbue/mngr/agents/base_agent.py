@@ -523,35 +523,38 @@ class BaseAgent(AgentInterface):
     def _check_message_submitted(self, session_name: str, expected_ending: str) -> bool:
         """Check if the message was submitted to Claude.
 
-        Returns True if:
-        - The message text is no longer in the input area (submitted), OR
-        - Claude shows processing indicators like "Thinking"
+        Uses the waiting file as the primary signal - when the UserPromptSubmit hook
+        fires, it removes the waiting file. This is the most reliable indicator that
+        Claude actually started processing the message.
 
-        Returns False if the message text is still visible in the input area,
+        Returns True if:
+        - The waiting file is gone (UserPromptSubmit hook fired), OR
+        - Claude shows processing indicators like "Thinking" in the terminal
+
+        Returns False if the waiting file exists and no processing indicators,
         suggesting Enter was interpreted as a literal newline.
         """
-        content = self._capture_pane_content(session_name)
-        if content is None:
-            return False
-
-        # Check for processing indicators (Claude is working on the message)
-        processing_indicators = ["Thinking", "Claude is thinking", "Working"]
-        for indicator in processing_indicators:
-            if indicator in content:
-                return True
-
-        # Check if the message ending is still in the pane.
-        # If it is, the message might still be in the input area (not submitted).
-        # If it's not, the input area was cleared (message submitted).
-        #
-        # Note: This is a heuristic. The message could also appear in chat history,
-        # but that's fine - if Claude is showing our message in history, it was submitted.
-        if expected_ending not in content:
+        # Primary signal: check if waiting file is gone (UserPromptSubmit hook fired)
+        # This is the most reliable indicator that the message was submitted.
+        waiting_path = self._get_agent_dir() / "waiting"
+        try:
+            self.host.read_text_file(waiting_path)
+            # Waiting file exists - Claude is still waiting for input, message not submitted
+        except FileNotFoundError:
+            # Waiting file gone - UserPromptSubmit hook fired, message was submitted!
+            logger.debug("Message submitted (waiting file removed by UserPromptSubmit hook)")
             return True
 
-        # Message text is still visible - could be in input area (not submitted)
-        # or in chat history (submitted). We conservatively assume not submitted
-        # and let the retry logic handle it.
+        # Secondary signal: check terminal content for processing indicators
+        content = self._capture_pane_content(session_name)
+        if content is not None:
+            processing_indicators = ["Thinking", "Claude is thinking", "Working"]
+            for indicator in processing_indicators:
+                if indicator in content:
+                    logger.debug("Message submitted (found '{}' in terminal)", indicator)
+                    return True
+
+        # Neither signal detected - message likely not submitted
         return False
 
     # =========================================================================
