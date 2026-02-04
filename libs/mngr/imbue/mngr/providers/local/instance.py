@@ -10,6 +10,7 @@ from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State
 from pyinfra.api.inventory import Inventory
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
@@ -223,6 +224,9 @@ class LocalProviderInstance(BaseProviderInstance):
         """
         raise LocalHostNotDestroyableError()
 
+    def on_connection_error(self, host_id: HostId) -> None:
+        pass
+
     # =========================================================================
     # Discovery Methods
     # =========================================================================
@@ -250,6 +254,7 @@ class LocalProviderInstance(BaseProviderInstance):
     def list_hosts(
         self,
         include_destroyed: bool = False,
+        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         """List all hosts managed by this provider.
 

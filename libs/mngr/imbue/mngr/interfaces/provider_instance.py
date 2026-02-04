@@ -7,6 +7,7 @@ from typing import Sequence
 from pydantic import Field
 from pyinfra.api.host import Host as PyinfraHost
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.config.data_types import MngrContext
@@ -123,6 +124,11 @@ class ProviderInstanceInterface(MutableModel, ABC):
         """Permanently destroy a host and optionally delete its snapshots."""
         ...
 
+    @abstractmethod
+    def on_connection_error(self, host_id: HostId) -> None:
+        """Handle actions to take when a connection error occurs with a host."""
+        ...
+
     # =========================================================================
     # Discovery Methods
     # =========================================================================
@@ -139,6 +145,7 @@ class ProviderInstanceInterface(MutableModel, ABC):
     def list_hosts(
         self,
         include_destroyed: bool = False,
+        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         """List all hosts managed by this provider instance."""
         ...

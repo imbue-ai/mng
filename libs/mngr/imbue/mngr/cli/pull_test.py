@@ -11,6 +11,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.pull import PullResult
@@ -224,7 +225,7 @@ class _TestProviderInstance(ProviderInstanceInterface):
     def supports_mutable_tags(self) -> bool:
         return True
 
-    def list_hosts(self, include_destroyed: bool = False) -> list[HostInterface]:
+    def list_hosts(self, include_destroyed: bool = False, cg: ConcurrencyGroup | None = None) -> list[HostInterface]:
         return []
 
     def get_host(self, host: HostId | HostName) -> HostInterface:
@@ -262,6 +263,9 @@ class _TestProviderInstance(ProviderInstanceInterface):
         host: HostInterface | HostId,
         delete_snapshots: bool = True,
     ) -> None:
+        pass
+
+    def on_connection_error(self, host_id: HostId) -> None:
         pass
 
     def list_snapshots(self, host: HostInterface | HostId) -> list[SnapshotInfo]:

@@ -626,3 +626,10 @@ class ConcurrencyExceptionGroup(ExceptionGroup):
     def only_exception_is_instance_of(self, exception_class: type[Exception]) -> bool:
         """Check if the exception group is just a wrapper around a single exception of the given class."""
         return len(self.exceptions) == 1 and isinstance(self.exceptions[0], exception_class)
+
+    def get_only_exception(
+        self,
+    ) -> Exception:
+        if len(self.exceptions) != 1:
+            raise ValueError("The exception group does not contain exactly one exception.")
+        return self.exceptions[0]

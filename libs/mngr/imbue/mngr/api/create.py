@@ -79,44 +79,46 @@ def create(
     host = resolve_target_host(target_host, mngr_ctx)
     logger.trace("Resolved to host id={} name={}", host.id, host.connector.name)
 
-    if create_work_dir:
+    # while we are deploying an agent, lock the host:
+    with host.lock_cooperatively():
         # Create the agent's work_dir on the host
-        logger.debug("Creating agent work directory from source {}", source_location.path)
-        work_dir_path = host.create_agent_work_dir(source_location.host, source_location.path, agent_options)
-        logger.trace("Created work directory at {}", work_dir_path)
-    else:
-        work_dir_path = source_location.path
+        if create_work_dir:
+            logger.debug("Creating agent work directory from source {}", source_location.path)
+            work_dir_path = host.create_agent_work_dir(source_location.host, source_location.path, agent_options)
+            logger.trace("Created work directory at {}", work_dir_path)
+        else:
+            work_dir_path = source_location.path
 
-    # Create the agent state (registers the agent with the host)
-    logger.debug("Creating agent state in work directory {}", work_dir_path)
-    agent = host.create_agent_state(work_dir_path, agent_options)
-    logger.trace("Created agent id={} name={} type={}", agent.id, agent.name, agent.agent_type)
+        # Create the agent state (registers the agent with the host)
+        logger.debug("Creating agent state in work directory {}", work_dir_path)
+        agent = host.create_agent_state(work_dir_path, agent_options)
+        logger.trace("Created agent id={} name={} type={}", agent.id, agent.name, agent.agent_type)
 
-    # Run provisioning for the agent (hooks, dependency installation, etc.)
-    logger.debug("Provisioning agent {}", agent.name)
-    host.provision_agent(agent, agent_options, mngr_ctx)
+        # Run provisioning for the agent (hooks, dependency installation, etc.)
+        logger.debug("Provisioning agent {}", agent.name)
+        host.provision_agent(agent, agent_options, mngr_ctx)
 
-    # Start the agent
-    logger.info("Starting agent {} ...", agent.name)
-    host.start_agents([agent.id])
+        # Start the agent
+        logger.info("Starting agent {} ...", agent.name)
+        host.start_agents([agent.id])
 
-    # Send initial message if one is configured
-    initial_message = agent.get_initial_message()
-    if initial_message is not None:
-        logger.info("Sending initial message...")
-        # Note: ideally agents would have their own mechanism for signaling readiness
-        # (e.g., claude has hooks we could use). For now, use configurable delay.
-        # Give the agent a moment to start up before sending the message
-        logger.debug("Waiting for agent to become ready before sending initial message")
-        time.sleep(agent_options.message_delay_seconds)
-        agent.send_message(initial_message)
+        # Send initial message if one is configured
+        initial_message = agent.get_initial_message()
+        if initial_message is not None:
+            logger.info("Sending initial message...")
+            # Note: ideally agents would have their own mechanism for signaling readiness
+            # (e.g., claude has hooks we could use). For now, use configurable delay.
+            # Give the agent a moment to start up before sending the message
+            logger.debug("Waiting for agent to become ready before sending initial message")
+            time.sleep(agent_options.message_delay_seconds)
+            agent.send_message(initial_message)
 
-    # Build and return the result
-    result = CreateAgentResult(agent=agent, host=host)
+        # Build and return the result
+        result = CreateAgentResult(agent=agent, host=host)
 
-    # Call on_agent_created hooks to notify plugins about the new agent
-    logger.debug("Calling on_agent_created hooks")
-    mngr_ctx.pm.hook.on_agent_created(agent=result.agent, host=result.host)
+        # Call on_agent_created hooks to notify plugins about the new agent
+        logger.debug("Calling on_agent_created hooks")
+        mngr_ctx.pm.hook.on_agent_created(agent=result.agent, host=result.host)
 
     return result
 

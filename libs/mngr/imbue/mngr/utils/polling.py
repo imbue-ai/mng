@@ -14,10 +14,8 @@ def wait_for(
     Raises TimeoutError if the condition is not met within the timeout period.
     """
     start_time = time.time()
-    elapsed_time = 0.0
-    while elapsed_time < timeout:
-        if condition():
-            return
-        time.sleep(poll_interval)
+    while not condition():
         elapsed_time = time.time() - start_time
-    raise TimeoutError(error_message)
+        if elapsed_time > timeout:
+            raise TimeoutError(error_message)
+        time.sleep(poll_interval)

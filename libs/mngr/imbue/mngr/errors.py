@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from click import ClickException
 
 from imbue.mngr.cli.output_helpers import format_mngr_error_for_cli
@@ -10,8 +12,12 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 
 
-class MngrError(ClickException):
-    """Base exception for all mngr errors.
+class BaseMngrError(Exception):
+    """Base exception for all mngr errors."""
+
+
+class MngrError(ClickException, BaseMngrError):
+    """Base exception for all user-facing mngr errors.
 
     All MngrError subclasses can provide a user_help_text attribute that contains
     additional context to help the user understand and resolve the error.
@@ -43,7 +49,7 @@ class InvalidRelativePathError(MngrError, ValueError):
         super().__init__(f"Path must be relative, got absolute path: {path}")
 
 
-class HostError(MngrError):
+class HostError(BaseMngrError):
     """Base class for host-related errors."""
 
 
@@ -59,6 +65,28 @@ class HostOfflineError(HostConnectionError):
     """Raised when unable to connect to a host because it is offline."""
 
 
+class HostDataSchemaError(HostError):
+    """Raised when host data.json has an incompatible schema.
+
+    This typically happens after mngr is upgraded and the data format changed.
+    """
+
+    def __init__(self, data_path: str, validation_error: str) -> None:
+        self.data_path = data_path
+        self.validation_error = validation_error
+        data_dir = str(Path(data_path).parent)
+        message = (
+            f"Host data file has incompatible schema: {data_path}\n"
+            f"This usually means mngr was upgraded and the data format changed.\n"
+            f"To fix, either delete the file:\n"
+            f"  rm {data_path}\n"
+            f"Or run:\n"
+            f'  claude --add-dir {data_dir} -p "migrate {data_path} to the new schema"'
+        )
+        super().__init__(message)
+        self.user_help_text = f"Validation error details: {validation_error}"
+
+
 class CommandTimeoutError(HostError):
     """Raised when a command execution times out."""
 
@@ -67,7 +95,7 @@ class LockNotHeldError(HostError):
     """Raised when attempting to use a lock that is not held."""
 
 
-class AgentError(MngrError):
+class AgentError(BaseMngrError):
     """Base class for agent-related errors."""
 
 
@@ -75,7 +103,7 @@ class NoCommandDefinedError(AgentError, ValueError):
     """Raised when no command is defined for an agent type."""
 
 
-class AgentNotFoundError(AgentError):
+class AgentNotFoundError(AgentError, MngrError):
     """No agent with this ID exists."""
 
     user_help_text = "Use 'mngr list' to see available agents."

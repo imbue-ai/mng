@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
+mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
@@ -42,6 +42,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
+| `-t`, `--template` | text | Use a named template from create_templates config | None |
 | `-n`, `--name` | text | Agent name (alternative to positional argument) [default: auto-generated] | None |
 | `--name-style` | choice (`english` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `animals` &#x7C; `scientists` &#x7C; `demons`) | Auto-generated name style | `english` |
 | `--agent-type` | text | Which type of agent to run [default: claude] | None |
@@ -155,7 +156,7 @@ See [Provision Options](../secondary/provision.md) for full details.
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--idle-timeout` | integer | Shutdown after idle for N seconds [default: none] | None |
-| `--idle-mode` | choice (`io` &#x7C; `user` &#x7C; `agent` &#x7C; `ssh` &#x7C; `create` &#x7C; `boot` &#x7C; `start` &#x7C; `run` &#x7C; `disabled`) | When to consider host idle [default: io if remote, disabled if local] | None |
+| `--idle-mode` | choice (`io` &#x7C; `user` &#x7C; `agent` &#x7C; `ssh` &#x7C; `create` &#x7C; `boot` &#x7C; `start` &#x7C; `run` &#x7C; `custom` &#x7C; `disabled`) | When to consider host idle [default: io if remote, disabled if local] | None |
 | `--activity-sources` | text | Activity sources for idle detection (comma-separated) | None |
 | `--start-on-boot`, `--no-start-on-boot` | boolean | Restart on host boot [default: no] | None |
 
@@ -226,6 +227,12 @@ $ mngr create my-agent --in docker
 
 ```bash
 $ mngr create my-agent --in modal
+```
+
+**Create using a named template**
+
+```bash
+$ mngr create my-agent --template modal
 ```
 
 **Create a codex agent instead of claude**

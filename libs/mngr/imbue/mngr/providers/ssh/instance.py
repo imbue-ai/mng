@@ -15,6 +15,7 @@ from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import SnapshotsNotSupportedError
@@ -148,6 +149,9 @@ class SSHProviderInstance(BaseProviderInstance):
     ) -> None:
         raise NotImplementedError("SSH provider does not support destroying hosts")
 
+    def on_connection_error(self, host_id: HostId) -> None:
+        pass
+
     # =========================================================================
     # Discovery Methods
     # =========================================================================
@@ -174,6 +178,7 @@ class SSHProviderInstance(BaseProviderInstance):
     def list_hosts(
         self,
         include_destroyed: bool = False,
+        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         """List all configured hosts."""
         hosts: list[HostInterface] = []
