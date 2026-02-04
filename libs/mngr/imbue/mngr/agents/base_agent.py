@@ -417,9 +417,13 @@ class BaseAgent(AgentInterface):
         return None
 
     def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:
-        """Wait until the marker is visible at the end of the tmux pane."""
+        """Wait until the marker is visible in the tmux pane.
+
+        Note: We check if marker is IN the pane, not at the end, because
+        Claude Code has a status line at the bottom that appears after the input area.
+        """
         if not poll_until(
-            lambda: self._check_pane_ends_with(session_name, marker),
+            lambda: self._check_pane_contains(session_name, marker),
             timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
             poll_interval=_SEND_MESSAGE_POLL_INTERVAL_SECONDS,
         ):
@@ -427,17 +431,21 @@ class BaseAgent(AgentInterface):
                 str(self.name),
                 f"Timeout waiting for message marker to appear (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
             )
-        logger.trace("Marker {} found at end of pane", marker)
+        logger.trace("Marker {} found in pane", marker)
 
-    def _check_pane_ends_with(self, session_name: str, expected_ending: str) -> bool:
-        """Check if the pane content ends with the expected string."""
+    def _check_pane_contains(self, session_name: str, text: str) -> bool:
+        """Check if the pane content contains the given text."""
         content = self._capture_pane_content(session_name)
-        return content is not None and content.endswith(expected_ending)
+        return content is not None and text in content
 
     def _wait_for_message_ending(self, session_name: str, marker: str, expected_ending: str) -> None:
-        """Wait until the marker is removed and the pane ends with the expected message ending."""
+        """Wait until the marker is removed and the expected message ending is visible.
+
+        Note: We check if expected_ending is IN the pane, not at the end, because
+        Claude Code has a status line at the bottom that appears after the input area.
+        """
         if not poll_until(
-            lambda: self._check_marker_removed_and_ends_with(session_name, marker, expected_ending),
+            lambda: self._check_marker_removed_and_contains(session_name, marker, expected_ending),
             timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
             poll_interval=_SEND_MESSAGE_POLL_INTERVAL_SECONDS,
         ):
@@ -445,16 +453,16 @@ class BaseAgent(AgentInterface):
                 str(self.name),
                 f"Timeout waiting for message to be ready for submission (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
             )
-        logger.trace("Marker removed and pane ends with expected content")
+        logger.trace("Marker removed and expected content visible in pane")
 
-    def _check_marker_removed_and_ends_with(self, session_name: str, marker: str, expected_ending: str) -> bool:
-        """Check if the marker is gone and pane ends with expected content."""
+    def _check_marker_removed_and_contains(self, session_name: str, marker: str, expected_ending: str) -> bool:
+        """Check if the marker is gone and pane contains expected content."""
         content = self._capture_pane_content(session_name)
         if content is None:
             return False
         marker_gone = marker not in content
-        ends_correctly = content.endswith(expected_ending)
-        return marker_gone and ends_correctly
+        contains_expected = expected_ending in content
+        return marker_gone and contains_expected
 
     # =========================================================================
     # Status (Reported)
