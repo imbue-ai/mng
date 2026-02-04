@@ -1,19 +1,26 @@
-import subprocess
-from pathlib import Path
-from typing import assert_never
+"""Pull API for syncing from agent to local - thin wrappers around sync module."""
 
-from loguru import logger
+from pathlib import Path
+
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
-from imbue.mngr.errors import MngrError
+from imbue.mngr.api.sync import GitSyncError
+from imbue.mngr.api.sync import LocalGitContext
+from imbue.mngr.api.sync import NotAGitRepositoryError
+from imbue.mngr.api.sync import SyncFilesResult
+from imbue.mngr.api.sync import SyncGitResult
+from imbue.mngr.api.sync import SyncMode
+from imbue.mngr.api.sync import UncommittedChangesError
+from imbue.mngr.api.sync import handle_uncommitted_changes
+from imbue.mngr.api.sync import sync_files
+from imbue.mngr.api.sync import sync_git
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
-from imbue.mngr.utils.git_utils import get_current_branch
-from imbue.mngr.utils.git_utils import is_git_repository
-from imbue.mngr.utils.rsync_utils import parse_rsync_output
+
+# === Backward-compatible Result Classes ===
+# These classes provide the same interface as before for backward compatibility
 
 
 class PullResult(FrozenModel):
@@ -64,420 +71,141 @@ class PullGitResult(FrozenModel):
     )
 
 
-class UncommittedChangesError(MngrError):
-    """Raised when there are uncommitted changes and mode is FAIL."""
-
-    user_help_text = (
-        "Use --uncommitted-changes=stash to stash changes before pulling, "
-        "--uncommitted-changes=clobber to overwrite changes, "
-        "or --uncommitted-changes=merge to stash, pull, then unstash."
-    )
-
-    def __init__(self, destination: Path) -> None:
-        self.destination = destination
-        super().__init__(f"Uncommitted changes in destination: {destination}")
+# === Backward-compatible Error Class ===
 
 
-class NotAGitRepositoryError(MngrError):
-    """Raised when a git operation is attempted on a non-git directory."""
-
-    user_help_text = (
-        "Use --sync-mode=files to sync files without git, "
-        "or ensure both source and destination are git repositories."
-    )
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        super().__init__(f"Not a git repository: {path}")
-
-
-class GitMergeError(MngrError):
+class GitMergeError(GitSyncError):
     """Raised when a git merge operation fails."""
 
     user_help_text = (
-        "Resolve the merge conflict manually, or use --uncommitted-changes=clobber "
-        "to discard local changes."
+        "Resolve the merge conflict manually, or use --uncommitted-changes=clobber to discard local changes."
     )
 
-    def __init__(self, message: str) -> None:
-        super().__init__(f"Git merge failed: {message}")
+
+# === Helper Functions for Backward Compatibility ===
 
 
 def _has_uncommitted_changes(destination: Path) -> bool:
-    """Check if the destination directory has uncommitted git changes.
-
-    Works correctly even when destination is a subdirectory within a git repository.
-    """
-    # Run git status to check for uncommitted changes
-    # This works from any subdirectory within a git worktree
-    result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=destination,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        # If git status fails, assume no changes (not inside a git repo)
-        return False
-
-    # If output is non-empty, there are changes
-    return len(result.stdout.strip()) > 0
+    """Check if the destination directory has uncommitted git changes."""
+    git_ctx = LocalGitContext()
+    return git_ctx.has_uncommitted_changes(destination)
 
 
 def _git_stash(destination: Path) -> bool:
     """Stash uncommitted changes including untracked files. Returns True if something was stashed."""
-    # Use -u to include untracked files, matching what _has_uncommitted_changes detects
-    result = subprocess.run(
-        ["git", "stash", "push", "-u", "-m", "mngr-pull-stash"],
-        cwd=destination,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise MngrError(f"git stash failed: {result.stderr}")
-
-    # Check if something was actually stashed by looking at the output
-    # "No local changes to save" means nothing was stashed
-    return "No local changes to save" not in result.stdout
+    git_ctx = LocalGitContext()
+    return git_ctx.git_stash(destination)
 
 
 def _git_stash_pop(destination: Path) -> None:
     """Pop the most recent stash."""
-    result = subprocess.run(
-        ["git", "stash", "pop"],
-        cwd=destination,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise MngrError(f"git stash pop failed: {result.stderr}")
+    git_ctx = LocalGitContext()
+    git_ctx.git_stash_pop(destination)
 
 
 def _git_reset_hard(destination: Path) -> None:
     """Hard reset the destination to discard all uncommitted changes."""
-    result = subprocess.run(
-        ["git", "reset", "--hard", "HEAD"],
-        cwd=destination,
-        capture_output=True,
-        text=True,
+    git_ctx = LocalGitContext()
+    git_ctx.git_reset_hard(destination)
+
+
+# === Conversion Functions ===
+
+
+def _sync_files_result_to_pull_result(result: SyncFilesResult) -> PullResult:
+    """Convert SyncFilesResult to PullResult for backward compatibility."""
+    return PullResult(
+        files_transferred=result.files_transferred,
+        bytes_transferred=result.bytes_transferred,
+        source_path=result.source_path,
+        destination_path=result.destination_path,
+        is_dry_run=result.is_dry_run,
     )
-    if result.returncode != 0:
-        raise MngrError(f"git reset --hard failed: {result.stderr}")
 
-    # Also clean untracked files
-    result = subprocess.run(
-        ["git", "clean", "-fd"],
-        cwd=destination,
-        capture_output=True,
-        text=True,
+
+def _sync_git_result_to_pull_git_result(result: SyncGitResult) -> PullGitResult:
+    """Convert SyncGitResult to PullGitResult for backward compatibility."""
+    return PullGitResult(
+        source_branch=result.source_branch,
+        target_branch=result.target_branch,
+        source_path=result.source_path,
+        destination_path=result.destination_path,
+        is_dry_run=result.is_dry_run,
+        commits_merged=result.commits_transferred,
     )
-    if result.returncode != 0:
-        raise MngrError(f"git clean failed: {result.stderr}")
 
 
-def handle_uncommitted_changes(
-    destination: Path,
-    uncommitted_changes: UncommittedChangesMode,
-) -> bool:
-    """Handle uncommitted changes according to the specified mode.
-
-    Returns True if changes were stashed (and may need to be restored).
-    """
-    is_uncommitted = _has_uncommitted_changes(destination)
-
-    if not is_uncommitted:
-        return False
-
-    match uncommitted_changes:
-        case UncommittedChangesMode.FAIL:
-            raise UncommittedChangesError(destination)
-        case UncommittedChangesMode.STASH:
-            logger.debug("Stashing uncommitted changes")
-            return _git_stash(destination)
-        case UncommittedChangesMode.MERGE:
-            logger.debug("Stashing uncommitted changes for merge")
-            return _git_stash(destination)
-        case UncommittedChangesMode.CLOBBER:
-            logger.debug("Clobbering uncommitted changes")
-            _git_reset_hard(destination)
-            return False
-        case _ as unreachable:
-            assert_never(unreachable)
+# === Main API Functions ===
 
 
 def pull_files(
     agent: AgentInterface,
     host: HostInterface,
     destination: Path,
-    # Source path within agent's work_dir (defaults to work_dir itself)
     source_path: Path | None = None,
-    # If True, only show what would be transferred
     dry_run: bool = False,
-    # If True, delete files in destination that don't exist in source
     delete: bool = False,
-    # How to handle uncommitted changes in the destination
     uncommitted_changes: UncommittedChangesMode = UncommittedChangesMode.FAIL,
 ) -> PullResult:
     """Pull files from an agent's work directory to a local directory using rsync."""
-    # Determine source path
-    actual_source_path = source_path if source_path is not None else agent.work_dir
-    logger.debug("Pulling files from {} to {}", actual_source_path, destination)
-
-    # Handle uncommitted changes in the destination
-    # Note: For files mode, CLOBBER just lets rsync overwrite (no git reset needed)
-    did_stash = False
-    if uncommitted_changes != UncommittedChangesMode.CLOBBER:
-        did_stash = handle_uncommitted_changes(destination, uncommitted_changes)
-
-    # Build rsync command
-    # -a: archive mode (recursive, preserves permissions, etc.)
-    # -v: verbose
-    # -z: compress during transfer
-    # --progress: show progress
-    # --exclude=.git: exclude git directory to avoid conflicts
-    rsync_cmd = ["rsync", "-avz", "--progress", "--exclude=.git"]
-
-    if dry_run:
-        rsync_cmd.append("--dry-run")
-
-    if delete:
-        rsync_cmd.append("--delete")
-
-    # Add trailing slash to source to copy contents, not the directory itself
-    source_str = str(actual_source_path)
-    if not source_str.endswith("/"):
-        source_str += "/"
-
-    rsync_cmd.append(source_str)
-    rsync_cmd.append(str(destination))
-
-    # Execute rsync on the host
-    cmd_str = " ".join(rsync_cmd)
-    logger.debug("Running rsync command: {}", cmd_str)
-
-    result: CommandResult = host.execute_command(cmd_str)
-
-    if not result.success:
-        # If we stashed and rsync failed, try to restore the stash for merge mode
-        if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
-            try:
-                _git_stash_pop(destination)
-            except MngrError:
-                logger.warning("Failed to restore stashed changes after rsync failure")
-        raise MngrError(f"rsync failed: {result.stderr}")
-
-    # Parse rsync output to extract statistics
-    files_transferred, bytes_transferred = parse_rsync_output(result.stdout)
-
-    # For merge mode, restore the stashed changes
-    if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
-        logger.debug("Restoring stashed changes")
-        _git_stash_pop(destination)
-
-    logger.info(
-        "Pull complete: {} files, {} bytes transferred{}",
-        files_transferred,
-        bytes_transferred,
-        " (dry run)" if dry_run else "",
+    result = sync_files(
+        agent=agent,
+        host=host,
+        mode=SyncMode.PULL,
+        local_path=destination,
+        remote_path=source_path,
+        dry_run=dry_run,
+        delete=delete,
+        uncommitted_changes=uncommitted_changes,
     )
-
-    return PullResult(
-        files_transferred=files_transferred,
-        bytes_transferred=bytes_transferred,
-        source_path=actual_source_path,
-        destination_path=destination,
-        is_dry_run=dry_run,
-    )
-
-
-def _count_commits_between(destination: Path, base_ref: str, head_ref: str) -> int:
-    """Count the number of commits between two refs."""
-    result = subprocess.run(
-        ["git", "rev-list", "--count", f"{base_ref}..{head_ref}"],
-        cwd=destination,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return 0
-    try:
-        return int(result.stdout.strip())
-    except ValueError:
-        return 0
-
-
-def _get_head_commit(path: Path) -> str:
-    """Get the current HEAD commit hash."""
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise MngrError(f"Failed to get HEAD commit: {result.stderr}")
-    return result.stdout.strip()
+    return _sync_files_result_to_pull_result(result)
 
 
 def pull_git(
     agent: AgentInterface,
     host: HostInterface,
     destination: Path,
-    # Branch to merge from the agent's repository (defaults to agent's current branch)
     source_branch: str | None = None,
-    # Branch to merge into in the destination (defaults to destination's current branch)
     target_branch: str | None = None,
-    # If True, only show what would be merged without actually merging
     dry_run: bool = False,
-    # How to handle uncommitted changes in the destination
     uncommitted_changes: UncommittedChangesMode = UncommittedChangesMode.FAIL,
 ) -> PullGitResult:
-    """Pull git commits from an agent's repository by merging branches.
-
-    This function fetches the agent's branch and merges it into the destination's branch.
-    The agent's repository is added as a temporary remote, fetched from, and then the
-    remote is removed after the merge.
-    """
-    source_path = agent.work_dir
-    logger.debug("Pulling git from {} to {}", source_path, destination)
-
-    # Verify both source and destination are git repositories
-    if not is_git_repository(destination):
-        raise NotAGitRepositoryError(destination)
-
-    if not is_git_repository(source_path):
-        raise NotAGitRepositoryError(source_path)
-
-    # Get the source branch (agent's current branch if not specified)
-    actual_source_branch = source_branch if source_branch is not None else get_current_branch(source_path)
-    logger.debug("Source branch: {}", actual_source_branch)
-
-    # Get the target branch (destination's current branch if not specified)
-    actual_target_branch = target_branch if target_branch is not None else get_current_branch(destination)
-    logger.debug("Target branch: {}", actual_target_branch)
-
-    # Handle uncommitted changes in the destination
-    did_stash = handle_uncommitted_changes(destination, uncommitted_changes)
-
-    # Record the HEAD commit before the merge for counting commits
-    pre_merge_head = _get_head_commit(destination)
-
-    # Add agent's repository as a temporary remote
-    remote_name = "mngr-agent-temp"
+    """Pull git commits from an agent's repository by merging branches."""
     try:
-        # Remove remote if it already exists (from a previous failed run)
-        subprocess.run(
-            ["git", "remote", "remove", remote_name],
-            cwd=destination,
-            capture_output=True,
-            text=True,
+        result = sync_git(
+            agent=agent,
+            host=host,
+            mode=SyncMode.PULL,
+            local_path=destination,
+            source_branch=source_branch,
+            target_branch=target_branch,
+            dry_run=dry_run,
+            uncommitted_changes=uncommitted_changes,
         )
+    except GitSyncError as e:
+        # Re-raise as GitMergeError for backward compatibility
+        raise GitMergeError(str(e).replace("Git sync failed: ", "")) from e
+    return _sync_git_result_to_pull_git_result(result)
 
-        # Add the agent's repository as a remote
-        logger.debug("Adding agent repository as remote: {}", source_path)
-        result = subprocess.run(
-            ["git", "remote", "add", remote_name, str(source_path)],
-            cwd=destination,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise MngrError(f"Failed to add remote: {result.stderr}")
 
-        # Fetch from the agent's repository
-        logger.debug("Fetching from agent repository")
-        result = subprocess.run(
-            ["git", "fetch", remote_name, actual_source_branch],
-            cwd=destination,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise MngrError(f"Failed to fetch from agent: {result.stderr}")
+# === Re-exports for Backward Compatibility ===
 
-        # Checkout the target branch if it's different from the current branch
-        current_branch = get_current_branch(destination)
-        if current_branch != actual_target_branch:
-            logger.debug("Checking out target branch: {}", actual_target_branch)
-            result = subprocess.run(
-                ["git", "checkout", actual_target_branch],
-                cwd=destination,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                raise MngrError(f"Failed to checkout target branch: {result.stderr}")
 
-        # Count commits that will be merged
-        commits_to_merge = _count_commits_between(
-            destination,
-            "HEAD",
-            f"{remote_name}/{actual_source_branch}",
-        )
-
-        if dry_run:
-            logger.info(
-                "Dry run: would merge {} commits from {} into {}",
-                commits_to_merge,
-                actual_source_branch,
-                actual_target_branch,
-            )
-        else:
-            # Merge the fetched branch
-            logger.debug("Merging {}/{} into {}", remote_name, actual_source_branch, actual_target_branch)
-            result = subprocess.run(
-                ["git", "merge", f"{remote_name}/{actual_source_branch}", "--no-edit"],
-                cwd=destination,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                # Abort the merge on failure
-                subprocess.run(
-                    ["git", "merge", "--abort"],
-                    cwd=destination,
-                    capture_output=True,
-                    text=True,
-                )
-                raise GitMergeError(result.stderr)
-
-            # Count actual commits merged
-            post_merge_head = _get_head_commit(destination)
-            if pre_merge_head != post_merge_head:
-                commits_merged = _count_commits_between(destination, pre_merge_head, post_merge_head)
-            else:
-                commits_merged = 0
-
-            logger.info(
-                "Git pull complete: merged {} commits from {} into {}",
-                commits_merged,
-                actual_source_branch,
-                actual_target_branch,
-            )
-    finally:
-        # Always remove the temporary remote
-        subprocess.run(
-            ["git", "remote", "remove", remote_name],
-            cwd=destination,
-            capture_output=True,
-            text=True,
-        )
-
-        # For merge mode, restore the stashed changes
-        if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
-            logger.debug("Restoring stashed changes")
-            try:
-                _git_stash_pop(destination)
-            except MngrError:
-                logger.warning("Failed to restore stashed changes after git pull")
-
-    commits_merged_result = commits_to_merge if dry_run else commits_merged
-
-    return PullGitResult(
-        source_branch=actual_source_branch,
-        target_branch=actual_target_branch,
-        source_path=source_path,
-        destination_path=destination,
-        is_dry_run=dry_run,
-        commits_merged=commits_merged_result,
-    )
+__all__ = [
+    # Result classes
+    "PullResult",
+    "PullGitResult",
+    # Error classes
+    "UncommittedChangesError",
+    "NotAGitRepositoryError",
+    "GitMergeError",
+    # Functions
+    "pull_files",
+    "pull_git",
+    "handle_uncommitted_changes",
+    # Helper functions for tests
+    "_has_uncommitted_changes",
+    "_git_stash",
+    "_git_stash_pop",
+    "_git_reset_hard",
+]
