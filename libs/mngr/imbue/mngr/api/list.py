@@ -360,23 +360,7 @@ def _assemble_host_info(
                 )
             # if this host is offline, or if we failed to get the online host (ex: because it went offline)
             if agents is None or agent_info is None:
-                # then use persisted agent data for stopped hosts
-                # FIXME: there's not need for this method at all:  _get_persisted_agent_data
-                #  Instead, we should just call host.get_agent_references() and then update the rest of this logic to use those
-                agent_data = _get_persisted_agent_data(provider, host.id, agent_ref.agent_id)
-                if agent_data is None:
-                    exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
-                    if error_behavior == ErrorBehavior.ABORT:
-                        raise exception
-                    error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
-                    with results_lock:
-                        result.errors.append(error_info)
-                    if on_error:
-                        on_error(error_info)
-                    continue
-
-                # Create minimal AgentInfo from persisted data
-                # Use the certified_data from the agent_ref directly
+                # Use certified_data from the agent_ref directly
                 # agent_ref already has all the data we need from host.get_agent_references()
                 create_time = agent_ref.create_time or datetime(1970, 1, 1, tzinfo=timezone.utc)
                 agent_info = AgentInfo(
