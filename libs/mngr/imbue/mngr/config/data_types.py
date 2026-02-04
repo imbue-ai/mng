@@ -545,7 +545,9 @@ def get_or_create_user_id(profile_dir: Path) -> str:
     if user_id_file.exists():
         user_id = user_id_file.read_text().strip()
         if os.environ.get("MNGR_USER_ID", ""):
-            assert user_id == os.environ.get("MNGR_USER_ID", ""), "MNGR_USER_ID environment variable does not match existing user ID file"
+            assert user_id == os.environ.get("MNGR_USER_ID", ""), (
+                "MNGR_USER_ID environment variable does not match existing user ID file"
+            )
     else:
         if os.environ.get("MNGR_USER_ID", ""):
             user_id = os.environ.get("MNGR_USER_ID", "")
