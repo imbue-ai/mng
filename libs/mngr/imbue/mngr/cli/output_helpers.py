@@ -113,6 +113,6 @@ def format_mngr_error_for_cli(error: Exception, user_help_text: str | None) -> s
     If the error has user_help_text, it is appended on a new line after the error message.
     """
     if user_help_text:
-        return str(error) + "\n\n" + user_help_text
+        return str(error) + "  [" + user_help_text + "]"
     else:
         return str(error)
