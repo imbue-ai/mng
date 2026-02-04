@@ -243,3 +243,6 @@ scripts/notify_user.local.sh
 
 # we stick the image build artifacts here
 .mngr/dev/build/
+
+# mngr worktrees for agents (placed in repo root so they inherit Claude trust)
+.mngr-worktrees/
