@@ -383,6 +383,20 @@ class BaseAgent(AgentInterface):
         logger.debug("Waiting {}s for backspaces to settle", backspace_settle_delay)
         time.sleep(backspace_settle_delay)
 
+        # Send a no-op key sequence (Right then Left) to reset Claude Code's input
+        # handler state after backspaces. Without this, Enter may be interpreted
+        # as a literal newline instead of submit.
+        #
+        # We don't fully understand why sleeping alone doesn't fix this - even with
+        # multi-second delays, Enter still gets interpreted as a newline after
+        # backspaces. But sending any key (even a no-op like Right/Left) before
+        # Enter fixes the issue. This may be related to how Claude Code's input
+        # handler processes batched key events or terminal state.
+        noop_cmd = f"tmux send-keys -t '{session_name}' Right Left"
+        result = self.host.execute_command(noop_cmd)
+        if not result.success:
+            logger.warning("Failed to send noop keys: {}", result.stderr or result.stdout)
+
         # Verify the marker is gone and the message ends correctly
         # Use the last 20 chars of the message as the expected ending (or full message if shorter)
         expected_ending = message[-20:] if len(message) > 20 else message
