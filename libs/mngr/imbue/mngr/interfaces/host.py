@@ -506,7 +506,7 @@ class AgentEnvironmentOptions(FrozenModel):
 class AgentLifecycleOptions(FrozenModel):
     """Lifecycle options for the agent.
 
-    Note: Host-level idle detection options (idle_timeout_seconds, idle_mode,
+    Note: Host-level idle detection options (max_idle_seconds, idle_mode,
     activity_sources) are configured via HostLifecycleOptions in api/data_types.py,
     not here. This class only contains agent-level lifecycle options.
     """

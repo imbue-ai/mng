@@ -159,7 +159,7 @@ class ActivityConfig(FrozenModel):
     """Configuration for host activity detection and idle timeout."""
 
     idle_mode: IdleMode = Field(description="Mode for determining when host is considered idle")
-    idle_timeout_seconds: int = Field(description="Maximum idle time before stopping")
+    max_idle_seconds: int = Field(description="Maximum idle time before stopping")
     activity_sources: tuple[ActivitySource, ...] = Field(
         default_factory=lambda: tuple(ActivitySource),
         description="Activity sources that count toward keeping host active",
@@ -185,7 +185,7 @@ class CertifiedHostData(FrozenModel):
         default=IdleMode.IO,
         description="Mode for determining when host is considered idle",
     )
-    idle_timeout_seconds: int = Field(
+    max_idle_seconds: int = Field(
         default=3600,
         description="Maximum idle time before stopping",
     )

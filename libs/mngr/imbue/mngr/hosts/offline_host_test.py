@@ -49,7 +49,7 @@ def offline_host(mock_provider, mock_mngr_ctx):
         host_id=str(host_id),
         host_name="test-host",
         idle_mode=IdleMode.SSH,
-        idle_timeout_seconds=3600,
+        max_idle_seconds=3600,
         activity_sources=(ActivitySource.SSH, ActivitySource.AGENT),
         image="test-image:latest",
         plugin={"my_plugin": {"key": "value"}},
@@ -68,7 +68,7 @@ def test_get_activity_config_returns_config_from_certified_data(offline_host: Of
 
     assert isinstance(config, ActivityConfig)
     assert config.idle_mode == IdleMode.SSH
-    assert config.idle_timeout_seconds == 3600
+    assert config.max_idle_seconds == 3600
     assert config.activity_sources == (ActivitySource.SSH, ActivitySource.AGENT)
 
 

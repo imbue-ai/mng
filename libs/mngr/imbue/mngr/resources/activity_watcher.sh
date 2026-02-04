@@ -6,7 +6,7 @@
 #
 # The script reads from <host_data_dir>/data.json:
 #   - activity_sources: array of activity source names (e.g., ["BOOT", "USER", "AGENT"])
-#   - idle_timeout_seconds: the idle timeout in seconds
+#   - max_idle_seconds: the idle timeout in seconds
 #   - max_host_age: (optional) maximum host age in seconds from boot
 #
 # Activity sources are converted to file patterns:
@@ -69,13 +69,13 @@ get_activity_sources() {
     jq -r '.activity_sources // [] | .[] | ascii_downcase' "$DATA_JSON_PATH" 2>/dev/null | tr '\n' ' '
 }
 
-# Read idle_timeout_seconds from data.json
-get_idle_timeout_seconds() {
+# Read max_idle_seconds from data.json
+get_max_idle_seconds() {
     if [ ! -f "$DATA_JSON_PATH" ]; then
         echo ""
         return
     fi
-    jq -r '.idle_timeout_seconds // empty' "$DATA_JSON_PATH" 2>/dev/null
+    jq -r '.max_idle_seconds // empty' "$DATA_JSON_PATH" 2>/dev/null
 }
 
 # Read max_host_age from data.json (optional field)
@@ -187,9 +187,9 @@ main() {
         fi
 
         # Read idle timeout from data.json
-        local idle_timeout_seconds
-        idle_timeout_seconds=$(get_idle_timeout_seconds)
-        if [ -z "$idle_timeout_seconds" ]; then
+        local max_idle_seconds
+        max_idle_seconds=$(get_max_idle_seconds)
+        if [ -z "$max_idle_seconds" ]; then
             sleep "$CHECK_INTERVAL"
             continue
         fi
@@ -215,7 +215,7 @@ main() {
         # Calculate idle deadline
         local current_time
         current_time=$(date +%s)
-        local idle_deadline=$((max_mtime + idle_timeout_seconds))
+        local idle_deadline=$((max_mtime + max_idle_seconds))
 
         # Check if we're past the idle deadline
         if [ "$current_time" -ge "$idle_deadline" ]; then
