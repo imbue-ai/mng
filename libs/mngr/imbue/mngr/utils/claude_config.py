@@ -35,8 +35,8 @@ def check_source_directory_trusted(source_path: Path) -> None:
             raise ClaudeDirectoryNotTrustedError(str(source_path))
 
         config = json.loads(content)
-    except (json.JSONDecodeError, OSError):
-        raise ClaudeDirectoryNotTrustedError(str(source_path)) from None
+    except (json.JSONDecodeError, OSError) as e:
+        raise ClaudeDirectoryNotTrustedError(str(source_path)) from e
 
     # Find the source project config
     projects = config.get("projects", {})
