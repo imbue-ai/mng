@@ -7,7 +7,8 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from imbue.mngr.api.pull import PullResult
+from imbue.mngr.api.sync import SyncFilesResult
+from imbue.mngr.api.sync import SyncMode
 from imbue.mngr.cli.agent_utils import find_agent_by_name_or_id
 from imbue.mngr.cli.pull import PullCliOptions
 from imbue.mngr.cli.pull import _output_files_result
@@ -76,12 +77,13 @@ def test_pull_command_sync_mode_choices() -> None:
 
 def test_output_files_result_human_format() -> None:
     """Test output formatting for human-readable format."""
-    result = PullResult(
+    result = SyncFilesResult(
         files_transferred=5,
         bytes_transferred=1024,
         source_path=Path("/src"),
         destination_path=Path("/dst"),
         is_dry_run=False,
+        mode=SyncMode.PULL,
     )
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
 
@@ -91,12 +93,13 @@ def test_output_files_result_human_format() -> None:
 
 def test_output_files_result_human_format_dry_run() -> None:
     """Test output formatting for human-readable format with dry run."""
-    result = PullResult(
+    result = SyncFilesResult(
         files_transferred=5,
         bytes_transferred=0,
         source_path=Path("/src"),
         destination_path=Path("/dst"),
         is_dry_run=True,
+        mode=SyncMode.PULL,
     )
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
 
@@ -106,12 +109,13 @@ def test_output_files_result_human_format_dry_run() -> None:
 
 def test_output_files_result_json_format(capsys) -> None:
     """Test output formatting for JSON format."""
-    result = PullResult(
+    result = SyncFilesResult(
         files_transferred=5,
         bytes_transferred=1024,
         source_path=Path("/src"),
         destination_path=Path("/dst"),
         is_dry_run=False,
+        mode=SyncMode.PULL,
     )
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
 
@@ -123,11 +127,12 @@ def test_output_files_result_json_format(capsys) -> None:
 
 def test_output_files_result_jsonl_format(capsys) -> None:
     """Test output formatting for JSONL format."""
-    result = PullResult(
+    result = SyncFilesResult(
         files_transferred=3,
         bytes_transferred=512,
         source_path=Path("/src"),
         destination_path=Path("/dst"),
+        mode=SyncMode.PULL,
         is_dry_run=False,
     )
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)

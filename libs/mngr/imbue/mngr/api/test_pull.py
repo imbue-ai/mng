@@ -4,18 +4,23 @@ from typing import Any
 from typing import cast
 
 import pytest
+from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
-from imbue.mngr.api.pull import _has_uncommitted_changes
 from imbue.mngr.api.pull import pull_files
-from imbue.mngr.api.pull import UncommittedChangesError
+from imbue.mngr.api.sync import LocalGitContext
+from imbue.mngr.api.sync import UncommittedChangesError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
-from pydantic import Field
+
+
+def _has_uncommitted_changes(path: Path) -> bool:
+    """Helper to check for uncommitted changes using LocalGitContext."""
+    return LocalGitContext().has_uncommitted_changes(path)
 
 
 class _FakeAgent(FrozenModel):

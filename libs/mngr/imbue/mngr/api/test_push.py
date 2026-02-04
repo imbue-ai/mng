@@ -8,15 +8,20 @@ from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
-from imbue.mngr.api.push import UncommittedChangesOnTargetError
-from imbue.mngr.api.push import _has_uncommitted_changes_on_host
 from imbue.mngr.api.push import push_files
 from imbue.mngr.api.push import push_git
+from imbue.mngr.api.sync import RemoteGitContext
+from imbue.mngr.api.sync import UncommittedChangesError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
+
+
+def _has_uncommitted_changes_on_host(host: HostInterface, path: Path) -> bool:
+    """Helper to check for uncommitted changes on a remote host using RemoteGitContext."""
+    return RemoteGitContext(host=host).has_uncommitted_changes(path)
 
 
 class _FakeAgent(FrozenModel):
@@ -149,12 +154,12 @@ def test_push_files_fail_mode_with_no_uncommitted_changes_succeeds(
 def test_push_files_fail_mode_with_uncommitted_changes_raises_error(
     push_ctx: PushTestContext,
 ) -> None:
-    """Test that FAIL mode raises UncommittedChangesOnTargetError when changes exist on target."""
+    """Test that FAIL mode raises UncommittedChangesError when changes exist on target."""
     (push_ctx.host_dir / "file.txt").write_text("host content")
     (push_ctx.agent_dir / "uncommitted.txt").write_text("uncommitted content")
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
-    with pytest.raises(UncommittedChangesOnTargetError) as exc_info:
+    with pytest.raises(UncommittedChangesError) as exc_info:
         push_files(
             agent=push_ctx.agent,
             host=push_ctx.host,
@@ -517,9 +522,7 @@ def test_push_files_does_not_modify_host_directory(
 
     # Record the state of the host directory
     host_files_before = set(push_ctx.host_dir.iterdir())
-    host_contents_before = {
-        f.name: f.read_text() for f in push_ctx.host_dir.iterdir() if f.is_file()
-    }
+    host_contents_before = {f.name: f.read_text() for f in push_ctx.host_dir.iterdir() if f.is_file()}
 
     # Set up agent with uncommitted changes
     if modify_tracked_file:
@@ -538,9 +541,7 @@ def test_push_files_does_not_modify_host_directory(
 
     # Verify host directory is unchanged
     host_files_after = set(push_ctx.host_dir.iterdir())
-    host_contents_after = {
-        f.name: f.read_text() for f in push_ctx.host_dir.iterdir() if f.is_file()
-    }
+    host_contents_after = {f.name: f.read_text() for f in push_ctx.host_dir.iterdir() if f.is_file()}
 
     assert host_files_before == host_files_after
     assert host_contents_before == host_contents_after
@@ -601,7 +602,7 @@ def test_push_git_basic_push(git_push_ctx: PushTestContext) -> None:
     # The new file should exist on the agent
     assert (git_push_ctx.agent_dir / "new_file.txt").exists()
     assert (git_push_ctx.agent_dir / "new_file.txt").read_text() == "new content"
-    # Note: commits_pushed count may be inaccurate because the counting logic
+    # Note: commits_transferred count may be inaccurate because the counting logic
     # only looks at the source repo. The important thing is the files were pushed.
     assert result.is_dry_run is False
 
@@ -685,9 +686,7 @@ def test_push_git_does_not_modify_host_directory(git_push_ctx: PushTestContext) 
 
     # Record the state of the host directory
     host_files_before = set(git_push_ctx.host_dir.iterdir())
-    host_contents_before = {
-        f.name: f.read_text() for f in git_push_ctx.host_dir.iterdir() if f.is_file()
-    }
+    host_contents_before = {f.name: f.read_text() for f in git_push_ctx.host_dir.iterdir() if f.is_file()}
     host_commit_before = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=git_push_ctx.host_dir,
@@ -704,9 +703,7 @@ def test_push_git_does_not_modify_host_directory(git_push_ctx: PushTestContext) 
 
     # Verify host directory is unchanged
     host_files_after = set(git_push_ctx.host_dir.iterdir())
-    host_contents_after = {
-        f.name: f.read_text() for f in git_push_ctx.host_dir.iterdir() if f.is_file()
-    }
+    host_contents_after = {f.name: f.read_text() for f in git_push_ctx.host_dir.iterdir() if f.is_file()}
     host_commit_after = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=git_push_ctx.host_dir,
@@ -743,8 +740,8 @@ def test_push_git_mirror_mode_dry_run(git_push_ctx: PushTestContext) -> None:
     # The new file should NOT exist on the agent (dry run)
     assert not (git_push_ctx.agent_dir / "new_file.txt").exists()
     assert result.is_dry_run is True
-    # commits_pushed should show what would be pushed
-    assert result.commits_pushed >= 0
+    # commits_transferred should show what would be pushed
+    assert result.commits_transferred >= 0
 
 
 def test_push_git_mirror_mode(git_push_ctx: PushTestContext) -> None:

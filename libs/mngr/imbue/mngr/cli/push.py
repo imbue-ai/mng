@@ -7,10 +7,10 @@ from click_option_group import optgroup
 from loguru import logger
 
 from imbue.mngr.api.find import load_all_agents_grouped_by_host
-from imbue.mngr.api.push import PushGitResult
-from imbue.mngr.api.push import PushResult
 from imbue.mngr.api.push import push_files
 from imbue.mngr.api.push import push_git
+from imbue.mngr.api.sync import SyncFilesResult
+from imbue.mngr.api.sync import SyncGitResult
 from imbue.mngr.cli.agent_utils import find_agent_by_name_or_id
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
 from imbue.mngr.cli.common_opts import CommonCliOptions
@@ -49,7 +49,7 @@ class PushCliOptions(CommonCliOptions):
     rsync_only: bool
 
 
-def _output_files_result(result: PushResult, output_opts: OutputOptions) -> None:
+def _output_files_result(result: SyncFilesResult, output_opts: OutputOptions) -> None:
     """Output the push files result in the appropriate format."""
     result_data = {
         "files_transferred": result.files_transferred,
@@ -76,7 +76,7 @@ def _output_files_result(result: PushResult, output_opts: OutputOptions) -> None
             assert_never(unreachable)
 
 
-def _output_git_result(result: PushGitResult, output_opts: OutputOptions) -> None:
+def _output_git_result(result: SyncGitResult, output_opts: OutputOptions) -> None:
     """Output the push git result in the appropriate format."""
     result_data = {
         "source_branch": result.source_branch,
@@ -84,7 +84,7 @@ def _output_git_result(result: PushGitResult, output_opts: OutputOptions) -> Non
         "source_path": str(result.source_path),
         "destination_path": str(result.destination_path),
         "is_dry_run": result.is_dry_run,
-        "commits_pushed": result.commits_pushed,
+        "commits_transferred": result.commits_transferred,
     }
     match output_opts.output_format:
         case OutputFormat.JSON:
@@ -95,14 +95,14 @@ def _output_git_result(result: PushGitResult, output_opts: OutputOptions) -> Non
             if result.is_dry_run:
                 logger.info(
                     "Dry run complete: would push {} commits from {} to {}",
-                    result.commits_pushed,
+                    result.commits_transferred,
                     result.source_branch,
                     result.target_branch,
                 )
             else:
                 logger.info(
                     "Git push complete: pushed {} commits from {} to {}",
-                    result.commits_pushed,
+                    result.commits_transferred,
                     result.source_branch,
                     result.target_branch,
                 )

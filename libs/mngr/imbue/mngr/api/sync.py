@@ -24,10 +24,14 @@ from imbue.mngr.utils.rsync_utils import parse_rsync_output
 
 
 class SyncMode(UpperCaseStrEnum):
-    """Direction of sync operation."""
+    """Direction of sync operation.
 
-    PUSH = auto()  # local -> agent
-    PULL = auto()  # agent -> local
+    PUSH: local -> agent
+    PULL: agent -> local
+    """
+
+    PUSH = auto()
+    PULL = auto()
 
 
 # === Error Classes ===
@@ -221,6 +225,8 @@ class LocalGitContext:
 
 class RemoteGitContext:
     """Execute git commands on a remote host via host.execute_command."""
+
+    __slots__ = ("_host",)
 
     def __init__(self, host: HostInterface) -> None:
         self._host = host

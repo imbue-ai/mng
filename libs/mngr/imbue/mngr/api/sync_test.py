@@ -209,7 +209,7 @@ class TestLocalGitContext:
     def test_git_stash_pop_success(self, mock_run: MagicMock) -> None:
         mock_run.return_value = MagicMock(returncode=0)
         ctx = LocalGitContext()
-        ctx.git_stash_pop(Path("/test"))  # Should not raise
+        ctx.git_stash_pop(Path("/test"))
 
     @patch("subprocess.run")
     def test_git_stash_pop_failure(self, mock_run: MagicMock) -> None:
@@ -222,7 +222,7 @@ class TestLocalGitContext:
     def test_git_reset_hard_success(self, mock_run: MagicMock) -> None:
         mock_run.return_value = MagicMock(returncode=0)
         ctx = LocalGitContext()
-        ctx.git_reset_hard(Path("/test"))  # Should not raise
+        ctx.git_reset_hard(Path("/test"))
 
     @patch("subprocess.run")
     def test_git_reset_hard_failure(self, mock_run: MagicMock) -> None:
@@ -293,7 +293,7 @@ class TestRemoteGitContext:
         mock_host = MagicMock()
         mock_host.execute_command.return_value = MagicMock(success=True)
         ctx = RemoteGitContext(host=mock_host)
-        ctx.git_stash_pop(Path("/test"))  # Should not raise
+        ctx.git_stash_pop(Path("/test"))
 
     def test_git_stash_pop_failure(self) -> None:
         mock_host = MagicMock()
@@ -306,7 +306,7 @@ class TestRemoteGitContext:
         mock_host = MagicMock()
         mock_host.execute_command.return_value = MagicMock(success=True)
         ctx = RemoteGitContext(host=mock_host)
-        ctx.git_reset_hard(Path("/test"))  # Should not raise
+        ctx.git_reset_hard(Path("/test"))
 
     def test_git_reset_hard_failure(self) -> None:
         mock_host = MagicMock()

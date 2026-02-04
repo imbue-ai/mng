@@ -7,14 +7,15 @@ from unittest.mock import patch
 
 import pytest
 
-from imbue.mngr.api.pull import GitMergeError
-from imbue.mngr.api.pull import NotAGitRepositoryError
-from imbue.mngr.api.pull import PullGitResult
-from imbue.mngr.api.pull import PullResult
-from imbue.mngr.api.pull import UncommittedChangesError
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.api.pull import pull_git
+from imbue.mngr.api.sync import GitSyncError
 from imbue.mngr.api.sync import LocalGitContext
+from imbue.mngr.api.sync import NotAGitRepositoryError
+from imbue.mngr.api.sync import SyncFilesResult
+from imbue.mngr.api.sync import SyncGitResult
+from imbue.mngr.api.sync import SyncMode
+from imbue.mngr.api.sync import UncommittedChangesError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.rsync_utils import parse_rsync_output
@@ -148,13 +149,14 @@ total size is 15,000  speedup is 2.88
 
 
 def test_pull_result_model() -> None:
-    """Test PullResult model creation and serialization."""
-    result = PullResult(
+    """Test SyncFilesResult model creation and serialization."""
+    result = SyncFilesResult(
         files_transferred=10,
         bytes_transferred=1024,
         source_path=Path("/source/dir"),
         destination_path=Path("/dest/dir"),
         is_dry_run=False,
+        mode=SyncMode.PULL,
     )
 
     assert result.files_transferred == 10
@@ -162,29 +164,32 @@ def test_pull_result_model() -> None:
     assert result.source_path == Path("/source/dir")
     assert result.destination_path == Path("/dest/dir")
     assert result.is_dry_run is False
+    assert result.mode == SyncMode.PULL
 
 
 def test_pull_result_model_dry_run() -> None:
-    """Test PullResult model with dry run flag."""
-    result = PullResult(
+    """Test SyncFilesResult model with dry run flag."""
+    result = SyncFilesResult(
         files_transferred=5,
         bytes_transferred=0,
         source_path=Path("/source"),
         destination_path=Path("/dest"),
         is_dry_run=True,
+        mode=SyncMode.PULL,
     )
 
     assert result.is_dry_run is True
 
 
 def test_pull_result_model_serialization() -> None:
-    """Test PullResult model can be serialized to dict."""
-    result = PullResult(
+    """Test SyncFilesResult model can be serialized to dict."""
+    result = SyncFilesResult(
         files_transferred=3,
         bytes_transferred=500,
         source_path=Path("/src"),
         destination_path=Path("/dst"),
         is_dry_run=False,
+        mode=SyncMode.PULL,
     )
 
     data = result.model_dump()
@@ -592,14 +597,15 @@ def test_pull_files_stash_mode_does_not_restore_on_rsync_failure(
 
 
 def test_pull_git_result_model() -> None:
-    """Test PullGitResult model creation and serialization."""
-    result = PullGitResult(
+    """Test SyncGitResult model creation and serialization."""
+    result = SyncGitResult(
         source_branch="feature-branch",
         target_branch="main",
         source_path=Path("/agent/work"),
         destination_path=Path("/local/repo"),
         is_dry_run=False,
-        commits_merged=3,
+        commits_transferred=3,
+        mode=SyncMode.PULL,
     )
 
     assert result.source_branch == "feature-branch"
@@ -607,18 +613,19 @@ def test_pull_git_result_model() -> None:
     assert result.source_path == Path("/agent/work")
     assert result.destination_path == Path("/local/repo")
     assert result.is_dry_run is False
-    assert result.commits_merged == 3
+    assert result.commits_transferred == 3
 
 
 def test_pull_git_result_model_serialization() -> None:
-    """Test PullGitResult model can be serialized to dict."""
-    result = PullGitResult(
+    """Test SyncGitResult model can be serialized to dict."""
+    result = SyncGitResult(
         source_branch="dev",
         target_branch="main",
         source_path=Path("/src"),
         destination_path=Path("/dst"),
         is_dry_run=True,
-        commits_merged=0,
+        commits_transferred=0,
+        mode=SyncMode.PULL,
     )
 
     data = result.model_dump()
@@ -627,7 +634,7 @@ def test_pull_git_result_model_serialization() -> None:
     assert data["source_path"] == Path("/src")
     assert data["destination_path"] == Path("/dst")
     assert data["is_dry_run"] is True
-    assert data["commits_merged"] == 0
+    assert data["commits_transferred"] == 0
 
 
 def test_not_a_git_repository_error_has_user_help_text() -> None:
@@ -637,10 +644,10 @@ def test_not_a_git_repository_error_has_user_help_text() -> None:
     assert error.path == Path("/some/path")
 
 
-def test_git_merge_error_has_user_help_text() -> None:
-    """Test that GitMergeError has helpful user text."""
-    error = GitMergeError("conflict in file.txt")
-    assert "merge conflict" in error.user_help_text.lower() or "clobber" in error.user_help_text
+def test_git_sync_error_has_user_help_text() -> None:
+    """Test that GitSyncError has helpful user text."""
+    error = GitSyncError("conflict in file.txt")
+    assert "clobber" in error.user_help_text.lower()
 
 
 def test_pull_git_raises_when_destination_not_git_repo(
@@ -761,8 +768,8 @@ def test_pull_git_dry_run_does_not_merge(
     )
 
     assert result.is_dry_run is True
-    # commits_merged shows what would be merged in dry run mode
-    assert result.commits_merged == 3
+    # commits_transferred shows what would be merged in dry run mode
+    assert result.commits_transferred == 3
 
     # Check that git merge was NOT called
     merge_calls = [call for call in mock_subprocess.call_args_list if "merge" in str(call)]
@@ -891,7 +898,7 @@ def test_pull_git_raises_on_merge_failure(
     mock_agent: MagicMock,
     mock_host_success: MagicMock,
 ) -> None:
-    """Test that pull_git raises GitMergeError when merge fails."""
+    """Test that pull_git raises GitSyncError when merge fails."""
     mock_host_success.execute_command.return_value = MagicMock(success=True, stdout="main\n")
 
     def subprocess_side_effect(*args, **kwargs) -> MagicMock:
@@ -902,7 +909,7 @@ def test_pull_git_raises_on_merge_failure(
 
     mock_subprocess.side_effect = subprocess_side_effect
 
-    with pytest.raises(GitMergeError):
+    with pytest.raises(GitSyncError):
         pull_git(
             agent=mock_agent,
             host=mock_host_success,
