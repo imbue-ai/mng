@@ -86,7 +86,6 @@ from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
 from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
-from imbue.mngr.utils.polling import wait_for
 
 # Constants
 CONTAINER_SSH_PORT = 22
@@ -422,6 +421,9 @@ class ModalProviderInstance(BaseProviderInstance):
         Returns None if the host record doesn't exist.
         Uses a cache to avoid repeated reads of the same host record.
         """
+        # TODO: remove this!!!
+        use_cache = False
+
         # Check cache first
         if use_cache and host_id in self._host_record_cache_by_id:
             logger.trace("Using cached host record for host_id={}", host_id)
@@ -875,6 +877,20 @@ class ModalProviderInstance(BaseProviderInstance):
 # Usage: shutdown.sh [stop_reason]
 #   stop_reason: 'PAUSED' (idle shutdown, default) or 'STOPPED' (user requested)
 
+LOG_FILE="{host_dir_str}/logs/shutdown.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+
+log() {{
+    echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG_FILE"
+    echo "$*"
+}}
+
+log "=== Shutdown script started ==="
+log "SNAPSHOT_URL: {snapshot_url}"
+log "SANDBOX_ID: {sandbox_id}"
+log "HOST_ID: {host_id}"
+log "STOP_REASON: ${{1:-PAUSED}}"
+
 SNAPSHOT_URL="{snapshot_url}"
 SANDBOX_ID="{sandbox_id}"
 HOST_ID="{host_id}"
@@ -903,12 +919,22 @@ gather_agents() {{
 }}
 
 # Build the JSON payload with agent data
+log "Gathering agents..."
 AGENTS=$(gather_agents)
+log "Agents: $AGENTS"
 
 # Send the shutdown request with agent data and stop reason
-curl -s -X POST "$SNAPSHOT_URL" \\
+# Use --max-time to prevent hanging if the endpoint is slow
+log "Sending shutdown request to $SNAPSHOT_URL"
+RESPONSE=$(curl -s --max-time 30 -w "\\n%{{http_code}}" -X POST "$SNAPSHOT_URL" \\
     -H "Content-Type: application/json" \\
-    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}'
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}')
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+log "HTTP status: $HTTP_CODE"
+log "Response: $BODY"
+log "=== Shutdown script completed ==="
 '''
 
         # Write the script to the host
@@ -1019,7 +1045,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         """
         return self.modal_app.get_captured_output()
 
-    def _lookup_sandbox_by_host_id_once(self, host_id: HostId, result_container: list[modal.Sandbox]) -> bool:
+    def _lookup_sandbox_by_host_id_once(self, host_id: HostId) -> modal.Sandbox | None:
         """Perform a single lookup of a sandbox by host_id tag.
 
         This is a helper for _find_sandbox_by_host_id that does not retry.
@@ -1034,9 +1060,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # return False
         for sandbox in modal.Sandbox.list(app_id=app.app_id):
             if sandbox.get_tags().get(TAG_HOST_ID) == str(host_id):
-                result_container.append(sandbox)
-                return True
-        return False
+                return sandbox
+        return None
 
     def _cache_sandbox(self, host_id: HostId, name: HostName, sandbox: modal.Sandbox) -> None:
         """Cache a sandbox by host_id and name for fast lookup."""
@@ -1070,19 +1095,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
     def _find_sandbox_by_host_id(
         self, host_id: HostId, timeout: float = 5.0, poll_interval: float = 1.0
     ) -> modal.Sandbox | None:
-        """Find a Modal sandbox by its mngr host_id tag.
-
-        First checks the local cache (populated when sandboxes are created), then
-        falls back to querying Modal's API. The cache avoids Modal's eventual
-        consistency issues for recently created sandboxes.
-
-        The app_id identifies the app within its environment, so sandboxes created
-        in that app's environment will be found via app_id alone.
-
-        Due to Modal's eventual consistency, tags may not be immediately visible
-        after a sandbox is created. This method polls for the sandbox with delays
-        to handle this race condition when the sandbox isn't in the cache.
-        """
+        """Find a Modal sandbox by its mngr host_id tag."""
         logger.trace("Looking up sandbox with host_id={} in env={}", host_id, self.environment_name)
 
         # Check cache first - this avoids eventual consistency issues for recently created sandboxes
@@ -1091,32 +1104,20 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             logger.trace("Found sandbox in cache for host_id={}", host_id)
             return sandbox
 
-        # Fall back to querying Modal's API with retries
-        result: list[modal.Sandbox] = []
+        # Fall back to querying Modal's API
+        return self._lookup_sandbox_by_host_id_once(host_id)
 
-        try:
-            wait_for(
-                lambda: self._lookup_sandbox_by_host_id_once(host_id, result),
-                timeout=timeout,
-                poll_interval=poll_interval,
-            )
-            return result[0]
-        except TimeoutError:
-            logger.trace("Sandbox with host_id={} not found after {}s", host_id, timeout)
-            return None
-
-    def _lookup_sandbox_by_name_once(self, name: HostName, result_container: list[modal.Sandbox]) -> bool:
-        """Perform a single lookup of a sandbox by host_name tag.
-
-        This is a helper for _find_sandbox_by_name that does not retry.
-        If the sandbox is found, it is appended to result_container and True is returned.
-        Otherwise, returns False.
-        """
+    def _lookup_sandbox_by_name_once(self, name: HostName) -> modal.Sandbox | None:
+        """Perform a single lookup of a sandbox by host_name tag."""
         app = self._get_modal_app()
-        for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_NAME: str(name)}):
-            result_container.append(sandbox)
-            return True
-        return False
+        # FIXME: this has the same error as the lookup by ID, waiting on modal to fix
+        # for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_NAME: str(name)}):
+        #     return sandbox
+        # return None
+        for sandbox in modal.Sandbox.list(app_id=app.app_id):
+            if sandbox.get_tags().get(TAG_HOST_NAME) == str(name):
+                return sandbox
+        return None
 
     def _find_sandbox_by_name(
         self, name: HostName, timeout: float = 5.0, poll_interval: float = 1.0
@@ -1142,19 +1143,8 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             logger.trace("Found sandbox in cache for name={}", name)
             return sandbox
 
-        # Fall back to querying Modal's API with retries
-        result: list[modal.Sandbox] = []
-
-        try:
-            wait_for(
-                lambda: self._lookup_sandbox_by_name_once(name, result),
-                timeout=timeout,
-                poll_interval=poll_interval,
-            )
-            return result[0]
-        except TimeoutError:
-            logger.trace("Sandbox with name={} not found after {}s", name, timeout)
-            return None
+        # Fall back to querying Modal's API
+        return self._lookup_sandbox_by_name_once(name)
 
     def _list_sandboxes(self) -> list[modal.Sandbox]:
         """List all Modal sandboxes managed by this mngr provider instance.
@@ -1384,8 +1374,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         # For persistent apps, deploy the snapshot function and create shutdown script
         if self.config.is_persistent:
             snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
-            if snapshot_url:
-                self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
+            self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
 
         return host
 
@@ -1603,6 +1592,11 @@ curl -s -X POST "$SNAPSHOT_URL" \\
             config=config,
             host_data=host_record.certified_host_data,
         )
+
+        # For persistent apps, deploy the snapshot function and create shutdown script
+        if self.config.is_persistent:
+            snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
+            self._create_shutdown_script(restored_host, sandbox, host_id, snapshot_url)
 
         # Cache the new online host
         self._host_by_id_cache[host_id] = restored_host

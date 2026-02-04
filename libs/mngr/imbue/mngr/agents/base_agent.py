@@ -139,70 +139,74 @@ class BaseAgent(AgentInterface):
         This method checks both the foreground process and descendant processes to handle
         complex command constructs (like shell wrappers or fallback commands using ||).
         """
-        logger.trace("Getting lifecycle state for agent {}", self.name)
-        session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
+        try:
+            logger.trace("Getting lifecycle state for agent {}", self.name)
+            session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
 
-        # Get pane state and pid in one command using tmux format variables
-        # pane_dead: 0 if alive, 1 if dead
-        # pane_current_command: basename of the foreground process
-        # pane_pid: PID of the pane's shell process
-        result = self.host.execute_command(
-            f"tmux list-panes -t '{session_name}' "
-            f"-F '#{{pane_dead}}|#{{pane_current_command}}|#{{pane_pid}}' 2>/dev/null | head -n 1",
-            timeout_seconds=5.0,
-        )
+            # Get pane state and pid in one command using tmux format variables
+            # pane_dead: 0 if alive, 1 if dead
+            # pane_current_command: basename of the foreground process
+            # pane_pid: PID of the pane's shell process
+            result = self.host.execute_command(
+                f"tmux list-panes -t '{session_name}' "
+                f"-F '#{{pane_dead}}|#{{pane_current_command}}|#{{pane_pid}}' 2>/dev/null | head -n 1",
+                timeout_seconds=5.0,
+            )
 
-        if not result.success or not result.stdout.strip():
-            logger.trace("Agent {} lifecycle state: STOPPED (no tmux session)", self.name)
-            return AgentLifecycleState.STOPPED
+            if not result.success or not result.stdout.strip():
+                logger.trace("Agent {} lifecycle state: STOPPED (no tmux session)", self.name)
+                return AgentLifecycleState.STOPPED
 
-        parts = result.stdout.strip().split("|")
-        if len(parts) != 3:
-            logger.trace("Agent {} lifecycle state: STOPPED (malformed tmux output)", self.name)
-            return AgentLifecycleState.STOPPED
+            parts = result.stdout.strip().split("|")
+            if len(parts) != 3:
+                logger.trace("Agent {} lifecycle state: STOPPED (malformed tmux output)", self.name)
+                return AgentLifecycleState.STOPPED
 
-        pane_dead, current_command, pane_pid = parts
+            pane_dead, current_command, pane_pid = parts
 
-        # If pane's main process died, the agent is done
-        if pane_dead == "1":
-            logger.trace("Agent {} lifecycle state: DONE (pane process died)", self.name)
-            return AgentLifecycleState.DONE
+            # If pane's main process died, the agent is done
+            if pane_dead == "1":
+                logger.trace("Agent {} lifecycle state: DONE (pane process died)", self.name)
+                return AgentLifecycleState.DONE
 
-        # Check if current command matches expected command (by basename)
-        expected_command = self.get_command()
-        expected_basename = self._get_command_basename(expected_command)
-        if self._command_basename_matches(current_command, expected_command):
-            return self._check_waiting_state()
-
-        # Current command doesn't match expected - check descendant processes
-        # This handles complex shell constructs like "cmd1 || cmd2"
-        ps_result = self.host.execute_command(
-            "ps -e -o pid=,ppid=,comm= 2>/dev/null",
-            timeout_seconds=5.0,
-        )
-
-        if ps_result.success:
-            descendant_names = self._get_descendant_process_names(pane_pid, ps_result.stdout)
-
-            # Check if any descendant process matches the expected command
-            if expected_basename in descendant_names:
+            # Check if current command matches expected command (by basename)
+            expected_command = self.get_command()
+            expected_basename = self._get_command_basename(expected_command)
+            if self._command_basename_matches(current_command, expected_command):
                 return self._check_waiting_state()
 
-            # Check for non-shell descendant processes
-            non_shell_processes = [p for p in descendant_names if not self._is_shell_command(p)]
-            if non_shell_processes:
-                logger.trace("Agent {} lifecycle state: REPLACED (non-shell descendant processes)", self.name)
-                return AgentLifecycleState.REPLACED
+            # Current command doesn't match expected - check descendant processes
+            # This handles complex shell constructs like "cmd1 || cmd2"
+            ps_result = self.host.execute_command(
+                "ps -e -o pid=,ppid=,comm= 2>/dev/null",
+                timeout_seconds=5.0,
+            )
 
-        # No matching descendant found
-        # If current command is a shell, the agent probably finished or never started (DONE)
-        # If it's not a shell, the agent was replaced by something else (REPLACED)
-        if self._is_shell_command(current_command):
-            logger.trace("Agent {} lifecycle state: DONE (shell command, no agent process)", self.name)
-            return AgentLifecycleState.DONE
+            if ps_result.success:
+                descendant_names = self._get_descendant_process_names(pane_pid, ps_result.stdout)
 
-        logger.trace("Agent {} lifecycle state: REPLACED (unknown process)", self.name)
-        return AgentLifecycleState.REPLACED
+                # Check if any descendant process matches the expected command
+                if expected_basename in descendant_names:
+                    return self._check_waiting_state()
+
+                # Check for non-shell descendant processes
+                non_shell_processes = [p for p in descendant_names if not self._is_shell_command(p)]
+                if non_shell_processes:
+                    logger.trace("Agent {} lifecycle state: REPLACED (non-shell descendant processes)", self.name)
+                    return AgentLifecycleState.REPLACED
+
+            # No matching descendant found
+            # If current command is a shell, the agent probably finished or never started (DONE)
+            # If it's not a shell, the agent was replaced by something else (REPLACED)
+            if self._is_shell_command(current_command):
+                logger.trace("Agent {} lifecycle state: DONE (shell command, no agent process)", self.name)
+                return AgentLifecycleState.DONE
+
+            logger.trace("Agent {} lifecycle state: REPLACED (unknown process)", self.name)
+            return AgentLifecycleState.REPLACED
+        except HostConnectionError:
+            logger.trace("Agent {} lifecycle state: STOPPED (host connection error)", self.name)
+            return AgentLifecycleState.STOPPED
 
     def _get_command_basename(self, command: CommandString) -> str:
         """Extract the basename from a command string."""

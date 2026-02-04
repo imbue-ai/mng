@@ -20,6 +20,7 @@ from typing import Sequence
 from typing import cast
 
 from loguru import logger
+from paramiko import SSHException
 from pydantic import Field
 from pyinfra.api.command import StringCommand
 from pyinfra.connectors.util import CommandOutput
@@ -153,30 +154,33 @@ class Host(BaseHost, OnlineHostInterface):
 
         Prefer using execute_command() instead whenever possible.
         """
-        self._ensure_connected()
-        return self.connector.host.run_shell_command(
-            command,
-            _timeout=_timeout,
-            _success_exit_codes=_success_exit_codes,
-            _env=_env,
-            _chdir=_chdir,
-            _shell_executable=_shell_executable,
-            _su_user=_su_user,
-            _use_su_login=_use_su_login,
-            _su_shell=_su_shell,
-            _preserve_su_env=_preserve_su_env,
-            _sudo=_sudo,
-            _sudo_user=_sudo_user,
-            _use_sudo_login=_use_sudo_login,
-            _sudo_password=_sudo_password,
-            _sudo_askpass_path=_sudo_askpass_path,
-            _preserve_sudo_env=_preserve_sudo_env,
-            _doas=_doas,
-            _doas_user=_doas_user,
-            _retries=_retries,
-            _retry_delay=_retry_delay,
-            _retry_until=_retry_until,
-        )
+        try:
+            self._ensure_connected()
+            return self.connector.host.run_shell_command(
+                command,
+                _timeout=_timeout,
+                _success_exit_codes=_success_exit_codes,
+                _env=_env,
+                _chdir=_chdir,
+                _shell_executable=_shell_executable,
+                _su_user=_su_user,
+                _use_su_login=_use_su_login,
+                _su_shell=_su_shell,
+                _preserve_su_env=_preserve_su_env,
+                _sudo=_sudo,
+                _sudo_user=_sudo_user,
+                _use_sudo_login=_use_sudo_login,
+                _sudo_password=_sudo_password,
+                _sudo_askpass_path=_sudo_askpass_path,
+                _preserve_sudo_env=_preserve_sudo_env,
+                _doas=_doas,
+                _doas_user=_doas_user,
+                _retries=_retries,
+                _retry_delay=_retry_delay,
+                _retry_until=_retry_until,
+            )
+        except SSHException as e:
+            raise HostConnectionError("Could not execute command due to connection error") from e
 
     def _get_file(
         self,
@@ -192,19 +196,22 @@ class Host(BaseHost, OnlineHostInterface):
 
         Raises FileNotFoundError if the remote file does not exist.
         """
-        self._ensure_connected()
         try:
-            return self.connector.host.get_file(
-                remote_filename,
-                filename_or_io,
-                remote_temp_filename=remote_temp_filename,
-            )
-        except OSError as e:
-            # pyinfra raises OSError for missing files - convert to FileNotFoundError
-            error_msg = str(e)
-            if "No such file or directory" in error_msg or "cannot stat" in error_msg:
-                raise FileNotFoundError(f"File not found: {remote_filename}") from e
-            raise
+            self._ensure_connected()
+            try:
+                return self.connector.host.get_file(
+                    remote_filename,
+                    filename_or_io,
+                    remote_temp_filename=remote_temp_filename,
+                )
+            except OSError as e:
+                # pyinfra raises OSError for missing files - convert to FileNotFoundError
+                error_msg = str(e)
+                if "No such file or directory" in error_msg or "cannot stat" in error_msg:
+                    raise FileNotFoundError(f"File not found: {remote_filename}") from e
+                raise
+        except SSHException as e:
+            raise HostConnectionError("Could not read file due to connection error") from e
 
     def _put_file(
         self,
@@ -218,12 +225,15 @@ class Host(BaseHost, OnlineHostInterface):
 
         Prefer using write_file() or write_text_file() instead whenever possible.
         """
-        self._ensure_connected()
-        return self.connector.host.put_file(
-            filename_or_io,
-            remote_filename,
-            remote_temp_filename=remote_temp_filename,
-        )
+        try:
+            self._ensure_connected()
+            return self.connector.host.put_file(
+                filename_or_io,
+                remote_filename,
+                remote_temp_filename=remote_temp_filename,
+            )
+        except SSHException as e:
+            raise HostConnectionError("Could not execute command due to connection error") from e
 
     # =========================================================================
     # Convenience methods (built on core primitives)
@@ -437,16 +447,20 @@ class Host(BaseHost, OnlineHostInterface):
     # =========================================================================
 
     @contextmanager
-    def lock_cooperatively(self, timeout_seconds: float = 30.0) -> Iterator[None]:
+    def lock_cooperatively(self, timeout_seconds: float = 300.0) -> Iterator[None]:
         """Context manager for acquiring and releasing the host lock.
 
         TODO: Implement remote locking mechanism (e.g., via lock files with PIDs).
         Currently only works for local hosts.
         """
-        if not self.is_local:
-            raise NotImplementedError("Cooperative locking is not yet implemented for remote hosts")
-
         lock_file_path = self.host_dir / "host_lock"
+
+        if not self.is_local:
+            # this is obviously not yet right--we're just making the host lock so that the shutdown script doesnt trigger while creating a host
+            self.write_text_file(lock_file_path, str(time.time()))
+            yield
+            self.execute_command("rm -f '{}'".format(str(lock_file_path)))
+            return
 
         lock_file_path.parent.mkdir(parents=True, exist_ok=True)
 
