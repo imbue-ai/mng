@@ -204,6 +204,15 @@ class ClaudeAgent(BaseAgent):
         """
         return True
 
+    def get_tui_ready_indicator(self) -> str | None:
+        """Return Claude Code's banner text as the TUI ready indicator.
+
+        Claude Code displays "Claude Code" in its banner when the TUI is ready.
+        Waiting for this ensures we don't send input before the UI is fully rendered,
+        which would cause the input to be lost or appear as raw text.
+        """
+        return "Claude Code"
+
     def assemble_command(
         self,
         host: OnlineHostInterface,

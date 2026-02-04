@@ -33,6 +33,7 @@ from imbue.mngr.utils.polling import poll_until
 # Constants for send_message marker-based synchronization
 _SEND_MESSAGE_POLL_INTERVAL_SECONDS: Final[float] = 0.05
 _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
+_TUI_READY_TIMEOUT_SECONDS: Final[float] = 30.0
 
 # Constants for Enter retry mechanism
 _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 0.5
@@ -334,6 +335,17 @@ class BaseAgent(AgentInterface):
         """
         return False
 
+    def get_tui_ready_indicator(self) -> str | None:
+        """Return a string that indicates the TUI is ready to accept input.
+
+        This string will be looked for in the terminal pane content before sending
+        messages. This is useful for TUIs that take time to initialize after the
+        process starts.
+
+        Returns None by default (no TUI readiness check). Subclasses can override.
+        """
+        return None
+
     def _send_message_simple(self, session_name: str, message: str) -> None:
         """Send a message without marker-based synchronization."""
         send_msg_cmd = f"tmux send-keys -t '{session_name}' -l {shlex.quote(message)}"
@@ -357,6 +369,11 @@ class BaseAgent(AgentInterface):
         in the terminal, removes it with backspaces, and then sends Enter. This ensures
         the input handler has fully processed the message text before submitting.
         """
+        # Wait for TUI to be ready if an indicator is configured
+        tui_indicator = self.get_tui_ready_indicator()
+        if tui_indicator is not None:
+            self._wait_for_tui_ready(session_name, tui_indicator)
+
         # Generate a unique marker to detect when the message has been fully received
         # Using just the UUID without newlines - newlines are harder to reliably delete
         # with backspace in some input areas
@@ -439,6 +456,25 @@ class BaseAgent(AgentInterface):
         if result.success:
             return result.stdout.rstrip()
         return None
+
+    def _wait_for_tui_ready(self, session_name: str, indicator: str) -> None:
+        """Wait until the TUI is ready by looking for the indicator string in the pane.
+
+        This ensures the application's UI is fully rendered before we send input.
+        Without this check, input sent too early may be lost or appear as raw text
+        instead of being processed by the application's input handler.
+        """
+        logger.debug("Waiting for TUI to be ready (looking for: {})", indicator)
+        if not poll_until(
+            lambda: self._check_pane_contains(session_name, indicator),
+            timeout=_TUI_READY_TIMEOUT_SECONDS,
+            poll_interval=_SEND_MESSAGE_POLL_INTERVAL_SECONDS,
+        ):
+            raise SendMessageError(
+                str(self.name),
+                f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)",
+            )
+        logger.debug("TUI ready indicator found: {}", indicator)
 
     def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:
         """Wait until the marker is visible in the tmux pane.
