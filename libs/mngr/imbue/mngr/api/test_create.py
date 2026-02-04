@@ -68,7 +68,12 @@ def _get_agent_from_create_result(result: CreateAgentResult, temp_mngr_ctx: Mngr
 
 
 def _setup_claude_trust_config(work_dir: Path):
-    """Create a fake Claude trust config for testing worktree creation."""
+    """Create a fake Claude trust config for testing worktree creation.
+
+    Worktree creation checks that the source directory is trusted by Claude
+    (has hasTrustDialogAccepted=true in ~/.claude.json). This helper creates
+    a mock config file that marks the work_dir as trusted.
+    """
     claude_config_file = work_dir.parent / ".claude.json"
     claude_config = {
         "projects": {

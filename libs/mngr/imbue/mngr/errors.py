@@ -12,8 +12,12 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 
 
-class MngrError(ClickException):
-    """Base exception for all mngr errors.
+class BaseMngrError(Exception):
+    """Base exception for all mngr errors."""
+
+
+class MngrError(ClickException, BaseMngrError):
+    """Base exception for all user-facing mngr errors.
 
     All MngrError subclasses can provide a user_help_text attribute that contains
     additional context to help the user understand and resolve the error.
@@ -45,7 +49,7 @@ class InvalidRelativePathError(MngrError, ValueError):
         super().__init__(f"Path must be relative, got absolute path: {path}")
 
 
-class HostError(MngrError):
+class HostError(BaseMngrError):
     """Base class for host-related errors."""
 
 
@@ -91,7 +95,7 @@ class LockNotHeldError(HostError):
     """Raised when attempting to use a lock that is not held."""
 
 
-class AgentError(MngrError):
+class AgentError(BaseMngrError):
     """Base class for agent-related errors."""
 
 
@@ -99,7 +103,7 @@ class NoCommandDefinedError(AgentError, ValueError):
     """Raised when no command is defined for an agent type."""
 
 
-class AgentNotFoundError(AgentError):
+class AgentNotFoundError(AgentError, MngrError):
     """No agent with this ID exists."""
 
     user_help_text = "Use 'mngr list' to see available agents."
@@ -329,30 +333,17 @@ class UnknownBackendError(ConfigError):
 
 
 class ClaudeDirectoryNotTrustedError(ConfigError):
-    """Source directory lacks hasTrustDialogAccepted=true in Claude config.
+    """The source directory is not trusted in Claude's config.
 
-    Without this, the new agent would see a trust dialog and tmux send-keys
-    would be consumed by it instead of being passed to the agent.
+    When creating worktrees, we place them inside the source repo's .git directory
+    so they inherit Claude's trust. But this only works if the source directory
+    itself is trusted (has hasTrustDialogAccepted=true in ~/.claude.json).
     """
 
     def __init__(self, source_path: str) -> None:
         self.source_path = source_path
         super().__init__(
-            f"Cannot extend Claude trust: source path {source_path} does not have "
-            "hasTrustDialogAccepted=true, so the new agent would not trust its workspace"
-        )
-
-
-class ClaudeTrustNotFoundError(ConfigError):
-    """The ~/.claude.json config file does not exist.
-
-    Without this, the new agent would see a trust dialog and tmux send-keys
-    would be consumed by it instead of being passed to the agent.
-    """
-
-    def __init__(self, source_path: str) -> None:
-        self.source_path = source_path
-        super().__init__(
-            f"Cannot extend Claude trust: ~/.claude.json does not exist, so the new agent would not trust its workspace. "
-            f"Run Claude Code manually in {source_path} first to create the trust config."
+            f"Source directory {source_path} is not trusted by Claude Code. "
+            f"Run Claude Code manually in {source_path} first and accept the trust dialog, "
+            "then try again."
         )

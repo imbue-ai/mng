@@ -156,7 +156,7 @@ See [Provision Options](../secondary/provision.md) for full details.
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--idle-timeout` | integer | Shutdown after idle for N seconds [default: none] | None |
-| `--idle-mode` | choice (`io` &#x7C; `user` &#x7C; `agent` &#x7C; `ssh` &#x7C; `create` &#x7C; `boot` &#x7C; `start` &#x7C; `run` &#x7C; `disabled`) | When to consider host idle [default: io if remote, disabled if local] | None |
+| `--idle-mode` | choice (`io` &#x7C; `user` &#x7C; `agent` &#x7C; `ssh` &#x7C; `create` &#x7C; `boot` &#x7C; `start` &#x7C; `run` &#x7C; `custom` &#x7C; `disabled`) | When to consider host idle [default: io if remote, disabled if local] | None |
 | `--activity-sources` | text | Activity sources for idle detection (comma-separated) | None |
 | `--start-on-boot`, `--no-start-on-boot` | boolean | Restart on host boot [default: no] | None |
 

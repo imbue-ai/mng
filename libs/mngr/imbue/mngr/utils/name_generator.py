@@ -87,7 +87,7 @@ def generate_agent_name(style: AgentNameStyle) -> AgentName:
     generator = _get_agent_generator(style)
     if style in _STYLES_WITH_LAST_NAMES:
         # Use underscore separator for firstname_lastname format
-        name = "_".join(generator.generate())
+        name = "-".join(generator.generate())
     else:
         name = generator.generate_slug()
     return AgentName(name)

@@ -181,6 +181,10 @@ class SnapshotRecord(FrozenModel):
 class CertifiedHostData(FrozenModel):
     """Certified data stored in the host's data.json file."""
 
+    # FIXME: make this field a derived property--it's fully derivable from activity_sources
+    #  Once that is done, remove the idle_mode field from ActivytConfig as well (again, derivable)
+    #  The only place this mode was supposed to exist was at the interface layer, as a way of conveniently
+    #  allowing a user to specify common sets of activity types from the CLI. Nothing else should know about IdleMode
     idle_mode: IdleMode = Field(
         default=IdleMode.IO,
         description="Mode for determining when host is considered idle",
@@ -307,10 +311,7 @@ class HostInfo(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
 
     # Extended fields (all optional)
-    host: str | None = Field(
-        default=None,
-        description="Hostname where the host is running (ssh.host for remote, localhost for local)",
-    )
+    # FIXME: this should be of this type: HostState
     state: str | None = Field(default=None, description="Current host state (running, stopped, etc.)")
     image: str | None = Field(default=None, description="Host image (Docker image name, Modal image ID, etc.)")
     tags: dict[str, str] = Field(default_factory=dict, description="Metadata tags for the host")

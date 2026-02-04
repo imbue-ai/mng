@@ -4,7 +4,6 @@ import time
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pluggy
 from click.testing import CliRunner
@@ -17,7 +16,6 @@ from imbue.mngr.api.list import ListResult
 from imbue.mngr.api.list import ProviderErrorInfo
 from imbue.mngr.api.list import _agent_to_cel_context
 from imbue.mngr.api.list import _apply_cel_filters
-from imbue.mngr.api.list import _get_persisted_agent_data
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.cli.create import create
 from imbue.mngr.config.data_types import MngrContext
@@ -35,71 +33,6 @@ from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.utils.cel_utils import compile_cel_filters
 from imbue.mngr.utils.testing import tmux_session_cleanup
-
-# =============================================================================
-# Tests for _get_persisted_agent_data helper function
-# =============================================================================
-
-
-def test_get_persisted_agent_data_returns_matching_agent() -> None:
-    """_get_persisted_agent_data should return the agent data when found."""
-    host_id = HostId.generate()
-    agent_id = AgentId.generate()
-
-    mock_provider = MagicMock()
-    mock_provider.list_persisted_agent_data_for_host.return_value = [
-        {"id": str(agent_id), "name": "test-agent", "type": "claude"},
-        {"id": str(AgentId.generate()), "name": "other-agent", "type": "codex"},
-    ]
-
-    result = _get_persisted_agent_data(mock_provider, host_id, agent_id)
-
-    assert result is not None
-    assert result["id"] == str(agent_id)
-    assert result["name"] == "test-agent"
-    mock_provider.list_persisted_agent_data_for_host.assert_called_once_with(host_id)
-
-
-def test_get_persisted_agent_data_returns_none_when_not_found() -> None:
-    """_get_persisted_agent_data should return None when agent not found."""
-    host_id = HostId.generate()
-    agent_id = AgentId.generate()
-
-    mock_provider = MagicMock()
-    mock_provider.list_persisted_agent_data_for_host.return_value = [
-        {"id": str(AgentId.generate()), "name": "other-agent"},
-    ]
-
-    result = _get_persisted_agent_data(mock_provider, host_id, agent_id)
-
-    assert result is None
-
-
-def test_get_persisted_agent_data_returns_none_when_provider_returns_empty() -> None:
-    """_get_persisted_agent_data should return None when provider returns empty list."""
-    host_id = HostId.generate()
-    agent_id = AgentId.generate()
-
-    mock_provider = MagicMock()
-    mock_provider.list_persisted_agent_data_for_host.return_value = []
-
-    result = _get_persisted_agent_data(mock_provider, host_id, agent_id)
-
-    assert result is None
-
-
-def test_get_persisted_agent_data_handles_exception() -> None:
-    """_get_persisted_agent_data should handle exceptions gracefully."""
-    host_id = HostId.generate()
-    agent_id = AgentId.generate()
-
-    mock_provider = MagicMock()
-    mock_provider.list_persisted_agent_data_for_host.side_effect = OSError("Network error")
-
-    result = _get_persisted_agent_data(mock_provider, host_id, agent_id)
-
-    assert result is None
-
 
 # =============================================================================
 # Error Info Tests

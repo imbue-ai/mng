@@ -265,6 +265,9 @@ class _TestProviderInstance(ProviderInstanceInterface):
     ) -> None:
         pass
 
+    def on_connection_error(self, host_id: HostId) -> None:
+        pass
+
     def list_snapshots(self, host: HostInterface | HostId) -> list[SnapshotInfo]:
         return []
 
