@@ -217,49 +217,21 @@ def _get_commit_hash(path: Path) -> str | None:
 
 
 def _get_remote_commit_hash(local_path: Path, remote_path: Path, branch: str) -> str | None:
-    """Get the commit hash of a branch from a remote repository."""
-    # Add the remote temporarily to fetch the ref
-    remote_name = "mngr-pair-temp"
+    """Get the commit hash of a branch from a remote repository.
 
-    # Remove remote if it exists
-    subprocess.run(
-        ["git", "remote", "remove", remote_name],
-        cwd=local_path,
-        capture_output=True,
-        text=True,
-    )
-
-    # Add the remote
+    Uses git ls-remote directly with the path, avoiding the need to add a temporary remote.
+    """
     result = subprocess.run(
-        ["git", "remote", "add", remote_name, str(remote_path)],
+        ["git", "ls-remote", str(remote_path), branch],
         cwd=local_path,
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0:
+    if result.returncode != 0 or not result.stdout.strip():
         return None
 
-    try:
-        # Fetch just the refs (without objects) to get commit hash
-        result = subprocess.run(
-            ["git", "ls-remote", remote_name, branch],
-            cwd=local_path,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
-
-        # Output format: "<hash>\t<ref>"
-        return result.stdout.strip().split()[0]
-    finally:
-        # Always remove the remote
-        subprocess.run(
-            ["git", "remote", "remove", remote_name],
-            cwd=local_path,
-            capture_output=True,
-            text=True,
-        )
+    # Output format: "<hash>\t<ref>"
+    return result.stdout.strip().split()[0]
 
 
 def _is_ancestor(path: Path, ancestor_commit: str, descendant_commit: str) -> bool:
@@ -314,74 +286,44 @@ def determine_git_sync_actions(
     # 2. Target is ahead of source (needs pull)
     # 3. Both have diverged (needs both or conflict resolution)
 
-    # Add target as temporary remote to source to check relationships
-    remote_name = "mngr-pair-check"
+    # Fetch from target directly (without adding a remote) to get the objects
+    # This makes the target commit available locally for ancestry checks
     subprocess.run(
-        ["git", "remote", "remove", remote_name],
+        ["git", "fetch", str(target_path), target_branch],
         cwd=source_path,
         capture_output=True,
         text=True,
     )
 
-    result = subprocess.run(
-        ["git", "remote", "add", remote_name, str(target_path)],
-        cwd=source_path,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
+    # Check if source is ahead of target (target commit is ancestor of source)
+    source_ahead = _is_ancestor(source_path, target_commit, source_commit)
+
+    # Check if target is ahead of source (source commit is ancestor of target)
+    target_ahead = _is_ancestor(source_path, source_commit, target_commit)
+
+    if source_ahead and not target_ahead:
+        # Source has commits that target doesn't - need push
+        return GitSyncAction(
+            source_is_ahead=True,
+            target_is_ahead=False,
+            source_branch=source_branch,
+            target_branch=target_branch,
+        )
+    elif target_ahead and not source_ahead:
+        # Target has commits that source doesn't - need pull
+        return GitSyncAction(
+            source_is_ahead=False,
+            target_is_ahead=True,
+            source_branch=source_branch,
+            target_branch=target_branch,
+        )
+    else:
+        # Both have diverged - need both operations
         return GitSyncAction(
             source_is_ahead=True,
             target_is_ahead=True,
             source_branch=source_branch,
             target_branch=target_branch,
-        )
-
-    try:
-        # Fetch from target
-        subprocess.run(
-            ["git", "fetch", remote_name, target_branch],
-            cwd=source_path,
-            capture_output=True,
-            text=True,
-        )
-
-        # Check if source is ahead of target (target commit is ancestor of source)
-        source_ahead = _is_ancestor(source_path, target_commit, source_commit)
-
-        # Check if target is ahead of source (source commit is ancestor of target)
-        target_ahead = _is_ancestor(source_path, source_commit, target_commit)
-
-        if source_ahead and not target_ahead:
-            # Source has commits that target doesn't - need push
-            return GitSyncAction(
-                source_is_ahead=True,
-                target_is_ahead=False,
-                source_branch=source_branch,
-                target_branch=target_branch,
-            )
-        elif target_ahead and not source_ahead:
-            # Target has commits that source doesn't - need pull
-            return GitSyncAction(
-                source_is_ahead=False,
-                target_is_ahead=True,
-                source_branch=source_branch,
-                target_branch=target_branch,
-            )
-        else:
-            # Both have diverged - need both operations
-            return GitSyncAction(
-                source_is_ahead=True,
-                target_is_ahead=True,
-                source_branch=source_branch,
-                target_branch=target_branch,
-            )
-    finally:
-        subprocess.run(
-            ["git", "remote", "remove", remote_name],
-            cwd=source_path,
-            capture_output=True,
-            text=True,
         )
 
 

@@ -492,64 +492,38 @@ def _sync_git_push(
                     )
                     commits_transferred = commits_to_push
                 else:
-                    remote_name = "mngr-push-temp"
-
-                    # Remove remote if it already exists
-                    subprocess.run(
-                        ["git", "-C", str(local_path), "remote", "remove", remote_name],
-                        capture_output=True,
-                        text=True,
-                    )
-
-                    # Add the agent's repository as a remote
+                    # Push directly to the agent's repository path (no temporary remote needed)
                     result = subprocess.run(
-                        ["git", "-C", str(local_path), "remote", "add", remote_name, target_git_dir],
+                        [
+                            "git",
+                            "-C",
+                            str(local_path),
+                            "push",
+                            target_git_dir,
+                            f"{source_branch}:{target_branch}",
+                        ],
                         capture_output=True,
                         text=True,
                     )
                     if result.returncode != 0:
-                        raise GitSyncError(f"Failed to add remote: {result.stderr}")
+                        raise GitSyncError(result.stderr)
 
-                    try:
-                        # Push to the agent's repository
-                        result = subprocess.run(
-                            [
-                                "git",
-                                "-C",
-                                str(local_path),
-                                "push",
-                                remote_name,
-                                f"{source_branch}:{target_branch}",
-                            ],
-                            capture_output=True,
-                            text=True,
-                        )
-                        if result.returncode != 0:
-                            raise GitSyncError(result.stderr)
+                    # Update the working tree on the target
+                    reset_result = host.execute_command(
+                        f"git reset --hard {target_branch}",
+                        cwd=destination_path,
+                    )
+                    if not reset_result.success:
+                        raise GitSyncError(f"Failed to update working tree: {reset_result.stderr}")
 
-                        # Update the working tree on the target
-                        reset_result = host.execute_command(
-                            f"git reset --hard {target_branch}",
-                            cwd=destination_path,
-                        )
-                        if not reset_result.success:
-                            raise GitSyncError(f"Failed to update working tree: {reset_result.stderr}")
+                    commits_transferred = commits_to_push
 
-                        commits_transferred = commits_to_push
-
-                        logger.info(
-                            "Git push complete: pushed {} commits from {} to {}",
-                            commits_transferred,
-                            source_branch,
-                            target_branch,
-                        )
-                    finally:
-                        # Always remove the temporary remote
-                        subprocess.run(
-                            ["git", "-C", str(local_path), "remote", "remove", remote_name],
-                            capture_output=True,
-                            text=True,
-                        )
+                    logger.info(
+                        "Git push complete: pushed {} commits from {} to {}",
+                        commits_transferred,
+                        source_branch,
+                        target_branch,
+                    )
         else:
             raise NotImplementedError("Pushing to remote hosts is not implemented yet")
 
@@ -594,31 +568,12 @@ def _sync_git_pull(
 
     commits_transferred = 0
 
-    remote_name = "mngr-agent-temp"
     try:
-        # Remove remote if it already exists
-        subprocess.run(
-            ["git", "remote", "remove", remote_name],
-            cwd=local_path,
-            capture_output=True,
-            text=True,
-        )
-
-        # Add the agent's repository as a remote
-        logger.debug("Adding agent repository as remote: {}", source_path)
+        # Fetch from the agent's repository directly (no temporary remote needed)
+        # This sets FETCH_HEAD to the fetched commit
+        logger.debug("Fetching from agent repository: {}", source_path)
         result = subprocess.run(
-            ["git", "remote", "add", remote_name, str(source_path)],
-            cwd=local_path,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise MngrError(f"Failed to add remote: {result.stderr}")
-
-        # Fetch from the agent's repository
-        logger.debug("Fetching from agent repository")
-        result = subprocess.run(
-            ["git", "fetch", remote_name, source_branch],
+            ["git", "fetch", str(source_path), source_branch],
             cwd=local_path,
             capture_output=True,
             text=True,
@@ -639,11 +594,11 @@ def _sync_git_pull(
             if result.returncode != 0:
                 raise MngrError(f"Failed to checkout target branch: {result.stderr}")
 
-        # Count commits that will be merged
+        # Count commits that will be merged (using FETCH_HEAD from the fetch)
         commits_to_merge = _count_commits_between(
             local_path,
             "HEAD",
-            f"{remote_name}/{source_branch}",
+            "FETCH_HEAD",
         )
 
         if dry_run:
@@ -655,10 +610,10 @@ def _sync_git_pull(
             )
             commits_transferred = commits_to_merge
         else:
-            # Merge the fetched branch
-            logger.debug("Merging {}/{} into {}", remote_name, source_branch, target_branch)
+            # Merge the fetched branch using FETCH_HEAD
+            logger.debug("Merging FETCH_HEAD into {}", target_branch)
             result = subprocess.run(
-                ["git", "merge", f"{remote_name}/{source_branch}", "--no-edit"],
+                ["git", "merge", "FETCH_HEAD", "--no-edit"],
                 cwd=local_path,
                 capture_output=True,
                 text=True,
@@ -687,14 +642,6 @@ def _sync_git_pull(
                 target_branch,
             )
     finally:
-        # Always remove the temporary remote
-        subprocess.run(
-            ["git", "remote", "remove", remote_name],
-            cwd=local_path,
-            capture_output=True,
-            text=True,
-        )
-
         # For merge mode, restore the stashed changes
         if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
             logger.debug("Restoring stashed changes")

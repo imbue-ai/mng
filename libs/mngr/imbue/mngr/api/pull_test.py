@@ -852,40 +852,6 @@ def test_pull_git_stash_mode_does_not_restore(
 @patch.object(LocalGitContext, "get_current_branch", return_value="main")
 @patch.object(LocalGitContext, "has_uncommitted_changes", return_value=False)
 @patch("imbue.mngr.api.sync._get_head_commit", return_value="abc123")
-@patch("imbue.mngr.api.sync._count_commits_between", return_value=0)
-@patch("subprocess.run")
-def test_pull_git_removes_temporary_remote(
-    mock_subprocess: MagicMock,
-    mock_count: MagicMock,
-    mock_head: MagicMock,
-    mock_uncommitted: MagicMock,
-    mock_branch: MagicMock,
-    mock_is_git: MagicMock,
-    mock_agent: MagicMock,
-    mock_host_success: MagicMock,
-) -> None:
-    """Test that pull_git removes the temporary remote even on success."""
-    mock_subprocess.return_value = MagicMock(returncode=0, stdout="", stderr="")
-    mock_host_success.execute_command.return_value = MagicMock(success=True, stdout="main\n")
-
-    pull_git(
-        agent=mock_agent,
-        host=mock_host_success,
-        destination=Path("/dest"),
-    )
-
-    # Check that remote remove was called in the finally block
-    remote_remove_calls = [
-        call for call in mock_subprocess.call_args_list if "remote" in str(call) and "remove" in str(call)
-    ]
-    # Should be called at least twice: once at the beginning (cleanup) and once in finally
-    assert len(remote_remove_calls) >= 1
-
-
-@patch.object(LocalGitContext, "is_git_repository", return_value=True)
-@patch.object(LocalGitContext, "get_current_branch", return_value="main")
-@patch.object(LocalGitContext, "has_uncommitted_changes", return_value=False)
-@patch("imbue.mngr.api.sync._get_head_commit", return_value="abc123")
 @patch("imbue.mngr.api.sync._count_commits_between", return_value=5)
 @patch("subprocess.run")
 def test_pull_git_raises_on_merge_failure(
