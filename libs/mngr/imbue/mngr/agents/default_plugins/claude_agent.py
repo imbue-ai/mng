@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import fcntl
 import json
+import os
+import shutil
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import click
 from loguru import logger
@@ -126,6 +130,40 @@ def _build_readiness_hooks_config() -> dict:
             ],
         }
     }
+
+
+def _hook_already_exists(existing_hooks: list[dict[str, Any]], new_hook: dict[str, Any]) -> bool:
+    """Check if a hook with the same command already exists in the list.
+
+    Compares the inner hooks' commands to detect duplicates.
+    """
+    new_commands = {h.get("command") for h in new_hook.get("hooks", [])}
+    for existing in existing_hooks:
+        existing_commands = {h.get("command") for h in existing.get("hooks", [])}
+        if new_commands == existing_commands:
+            return True
+    return False
+
+
+def _merge_hooks_config(existing_settings: dict[str, Any], hooks_config: dict[str, Any]) -> bool:
+    """Merge new hooks into existing settings, skipping duplicates.
+
+    Returns True if any hooks were added, False if all already existed.
+    """
+    if "hooks" not in existing_settings:
+        existing_settings["hooks"] = {}
+
+    any_added = False
+    for event_name, event_hooks in hooks_config["hooks"].items():
+        if event_name not in existing_settings["hooks"]:
+            existing_settings["hooks"][event_name] = []
+
+        for new_hook in event_hooks:
+            if not _hook_already_exists(existing_settings["hooks"][event_name], new_hook):
+                existing_settings["hooks"][event_name].append(new_hook)
+                any_added = True
+
+    return any_added
 
 
 class ClaudeAgent(BaseAgent):
@@ -278,30 +316,79 @@ class ClaudeAgent(BaseAgent):
         This writes hooks to .claude/settings.local.json in the agent's work_dir.
         The hooks signal when Claude is ready for input by creating/removing a
         'waiting' file in the agent's state directory.
+
+        Uses file locking on local hosts to prevent race conditions.
+        Creates a backup before modifying and skips if hooks already exist.
         """
         hooks_config = _build_readiness_hooks_config()
         settings_path = self.work_dir / ".claude" / "settings.local.json"
 
+        if host.is_local:
+            self._configure_readiness_hooks_local(settings_path, hooks_config)
+        else:
+            self._configure_readiness_hooks_remote(host, settings_path, hooks_config)
+
+    def _configure_readiness_hooks_local(self, settings_path: Path, hooks_config: dict[str, Any]) -> None:
+        """Configure readiness hooks on a local host with file locking."""
+        # Ensure parent directory exists
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Create the file if it doesn't exist
+        if not settings_path.exists():
+            settings_path.write_text("{}")
+
+        with open(settings_path, "r+") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                # Read existing content
+                f.seek(0)
+                content = f.read()
+                existing_settings = json.loads(content) if content.strip() else {}
+
+                # Merge hooks, checking for duplicates
+                if not _merge_hooks_config(existing_settings, hooks_config):
+                    logger.debug("Readiness hooks already configured in {}", settings_path)
+                    return
+
+                # Create backup before modifying
+                backup_path = settings_path.with_suffix(".json.bak")
+                shutil.copy2(settings_path, backup_path)
+                logger.debug("Created backup of Claude settings at {}", backup_path)
+
+                # Write the merged settings
+                f.seek(0)
+                f.truncate()
+                json.dump(existing_settings, f, indent=2)
+                f.write("\n")
+
+                # Ensure the file is flushed to disk
+                f.flush()
+                os.fsync(f.fileno())
+
+                logger.debug("Configured readiness hooks in {}", settings_path)
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+    def _configure_readiness_hooks_remote(
+        self, host: OnlineHostInterface, settings_path: Path, hooks_config: dict[str, Any]
+    ) -> None:
+        """Configure readiness hooks on a remote host."""
         # Read existing settings if present
-        existing_settings: dict = {}
+        existing_settings: dict[str, Any] = {}
         try:
             content = host.read_text_file(settings_path)
             existing_settings = json.loads(content)
         except FileNotFoundError:
             pass
 
-        # Merge hooks into existing settings
-        if "hooks" not in existing_settings:
-            existing_settings["hooks"] = {}
-
-        for event_name, event_hooks in hooks_config["hooks"].items():
-            if event_name not in existing_settings["hooks"]:
-                existing_settings["hooks"][event_name] = []
-            existing_settings["hooks"][event_name].extend(event_hooks)
+        # Merge hooks, checking for duplicates
+        if not _merge_hooks_config(existing_settings, hooks_config):
+            logger.debug("Readiness hooks already configured in {}", settings_path)
+            return
 
         # Write the merged settings
         logger.debug("Configuring readiness hooks in {}", settings_path)
-        host.write_text_file(settings_path, json.dumps(existing_settings, indent=2))
+        host.write_text_file(settings_path, json.dumps(existing_settings, indent=2) + "\n")
 
     def provision(
         self,
