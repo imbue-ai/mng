@@ -34,6 +34,13 @@ from imbue.mngr.utils.polling import poll_until
 _SEND_MESSAGE_POLL_INTERVAL_SECONDS: Final[float] = 0.05
 _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
 
+# Constants for Enter retry mechanism
+_ENTER_SUBMISSION_POLL_INTERVAL_SECONDS: Final[float] = 0.1
+_ENTER_SUBMISSION_POLL_TIMEOUT_SECONDS: Final[float] = 0.5
+_INITIAL_BACKSPACE_SETTLE_SECONDS: Final[float] = 0.5
+_RETRY_BACKSPACE_SETTLE_SECONDS: Final[float] = 0.2
+_PRE_ENTER_DELAY_SECONDS: Final[float] = 0.3
+
 
 class BaseAgent(AgentInterface):
     """Concrete agent implementation that stores data on the host filesystem."""
@@ -368,7 +375,7 @@ class BaseAgent(AgentInterface):
 
         # Remove the marker by sending backspaces (32 hex chars for UUID)
         # Send backspaces and noop keys to clean up the marker
-        self._send_backspace_with_noop(session_name, count=len(marker))
+        self._send_backspace_with_noop(session_name, count=len(marker), settle_delay=_INITIAL_BACKSPACE_SETTLE_SECONDS)
 
         # Verify the marker is gone and the message ends correctly
         # Use the last 20 chars of the message as the expected ending (or full message if shorter)
@@ -377,18 +384,17 @@ class BaseAgent(AgentInterface):
 
         # Add a small delay after the display looks correct, before sending Enter.
         # The terminal display can update before Claude Code's input handler has fully
-        # processed the backspaces. Without this delay, Enter can be misinterpreted as
-        # a literal newline instead of a submit action.
-        enter_delay = self.get_enter_delay_seconds()
-        logger.debug("Waiting {}s before sending Enter", enter_delay)
-        time.sleep(enter_delay)
+        # processed the backspaces. We use a short delay here since the retry mechanism
+        # will handle any failures.
+        logger.debug("Waiting {}s before sending Enter", _PRE_ENTER_DELAY_SECONDS)
+        time.sleep(_PRE_ENTER_DELAY_SECONDS)
 
         # Send Enter with retry logic. Sometimes Enter is interpreted as a literal newline
         # instead of a submit action. We detect this by checking if the message is still
         # in the input area after sending Enter, and retry if so.
         self._send_enter_with_retry(session_name, expected_ending)
 
-    def _send_backspace_with_noop(self, session_name: str, count: int = 1) -> None:
+    def _send_backspace_with_noop(self, session_name: str, count: int = 1, settle_delay: float | None = None) -> None:
         """Send backspace(s) followed by noop keys to reset input handler state.
 
         This helper:
@@ -399,6 +405,11 @@ class BaseAgent(AgentInterface):
         The noop keys are necessary because Claude Code's input handler can get into
         a state after backspaces where Enter is interpreted as a literal newline.
         Sending any key (even a no-op) before Enter fixes this.
+
+        Args:
+            session_name: The tmux session name
+            count: Number of backspaces to send
+            settle_delay: How long to wait after backspaces. If None, uses get_enter_delay_seconds()
         """
         if count > 0:
             backspace_keys = " ".join(["BSpace"] * count)
@@ -410,9 +421,9 @@ class BaseAgent(AgentInterface):
                 )
 
         # Give Claude Code's input handler time to process the backspaces
-        backspace_settle_delay = self.get_enter_delay_seconds()
-        logger.debug("Waiting {}s for backspaces to settle", backspace_settle_delay)
-        time.sleep(backspace_settle_delay)
+        delay = settle_delay if settle_delay is not None else self.get_enter_delay_seconds()
+        logger.debug("Waiting {}s for backspaces to settle", delay)
+        time.sleep(delay)
 
         # Send a no-op key sequence (Right then Left) to reset input handler state
         noop_cmd = f"tmux send-keys -t '{session_name}' Right Left"
@@ -504,8 +515,8 @@ class BaseAgent(AgentInterface):
             # Give the hook a reasonable time to fire before concluding Enter was a newline
             if poll_until(
                 lambda: self._check_message_submitted(session_name, expected_ending),
-                timeout=0.5,
-                poll_interval=0.05,
+                timeout=_ENTER_SUBMISSION_POLL_TIMEOUT_SECONDS,
+                poll_interval=_ENTER_SUBMISSION_POLL_INTERVAL_SECONDS,
             ):
                 logger.debug("Message submitted successfully on attempt {}", attempt + 1)
                 return
@@ -517,7 +528,8 @@ class BaseAgent(AgentInterface):
             )
 
             # Clean up the accidental newline with backspace, then send noop keys to reset state
-            self._send_backspace_with_noop(session_name, count=1)
+            # Use shorter settle delay for retries since we only deleted one character
+            self._send_backspace_with_noop(session_name, count=1, settle_delay=_RETRY_BACKSPACE_SETTLE_SECONDS)
 
         # All retries exhausted - raise an error
         raise SendMessageError(
