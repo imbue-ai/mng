@@ -367,34 +367,8 @@ class BaseAgent(AgentInterface):
         self._wait_for_marker_visible(session_name, marker)
 
         # Remove the marker by sending backspaces (32 hex chars for UUID)
-        # Send all backspaces in a single tmux command for efficiency
-        backspace_count = len(marker)
-        backspace_keys = " ".join(["BSpace"] * backspace_count)
-        backspace_cmd = f"tmux send-keys -t '{session_name}' {backspace_keys}"
-        result = self.host.execute_command(backspace_cmd)
-        if not result.success:
-            raise SendMessageError(str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}")
-
-        # Give Claude Code's input handler time to process the backspaces
-        # before checking the display. The terminal can update faster than
-        # Claude Code's internal state machine processes the input.
-        backspace_settle_delay = self.get_enter_delay_seconds()
-        logger.debug("Waiting {}s for backspaces to settle", backspace_settle_delay)
-        time.sleep(backspace_settle_delay)
-
-        # Send a no-op key sequence (Right then Left) to reset Claude Code's input
-        # handler state after backspaces. Without this, Enter may be interpreted
-        # as a literal newline instead of submit.
-        #
-        # We don't fully understand why sleeping alone doesn't fix this - even with
-        # multi-second delays, Enter still gets interpreted as a newline after
-        # backspaces. But sending any key (even a no-op like Right/Left) before
-        # Enter fixes the issue. This may be related to how Claude Code's input
-        # handler processes batched key events or terminal state.
-        noop_cmd = f"tmux send-keys -t '{session_name}' Right Left"
-        result = self.host.execute_command(noop_cmd)
-        if not result.success:
-            logger.warning("Failed to send noop keys: {}", result.stderr or result.stdout)
+        # Send backspaces and noop keys to clean up the marker
+        self._send_backspace_with_noop(session_name, count=len(marker))
 
         # Verify the marker is gone and the message ends correctly
         # Use the last 20 chars of the message as the expected ending (or full message if shorter)
@@ -413,6 +387,38 @@ class BaseAgent(AgentInterface):
         # instead of a submit action. We detect this by checking if the message is still
         # in the input area after sending Enter, and retry if so.
         self._send_enter_with_retry(session_name, expected_ending)
+
+    def _send_backspace_with_noop(self, session_name: str, count: int = 1) -> None:
+        """Send backspace(s) followed by noop keys to reset input handler state.
+
+        This helper:
+        1. Sends the specified number of backspaces
+        2. Waits for the input handler to settle
+        3. Sends a no-op key sequence (Right then Left) to reset state
+
+        The noop keys are necessary because Claude Code's input handler can get into
+        a state after backspaces where Enter is interpreted as a literal newline.
+        Sending any key (even a no-op) before Enter fixes this.
+        """
+        if count > 0:
+            backspace_keys = " ".join(["BSpace"] * count)
+            backspace_cmd = f"tmux send-keys -t '{session_name}' {backspace_keys}"
+            result = self.host.execute_command(backspace_cmd)
+            if not result.success:
+                raise SendMessageError(
+                    str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}"
+                )
+
+        # Give Claude Code's input handler time to process the backspaces
+        backspace_settle_delay = self.get_enter_delay_seconds()
+        logger.debug("Waiting {}s for backspaces to settle", backspace_settle_delay)
+        time.sleep(backspace_settle_delay)
+
+        # Send a no-op key sequence (Right then Left) to reset input handler state
+        noop_cmd = f"tmux send-keys -t '{session_name}' Right Left"
+        result = self.host.execute_command(noop_cmd)
+        if not result.success:
+            logger.warning("Failed to send noop keys: {}", result.stderr or result.stdout)
 
     def _capture_pane_content(self, session_name: str) -> str | None:
         """Capture the current pane content, returning None on failure."""
@@ -474,16 +480,15 @@ class BaseAgent(AgentInterface):
         contains_expected = expected_ending in content
         return marker_gone and contains_expected
 
-    def _send_enter_with_retry(self, session_name: str, expected_ending: str, max_retries: int = 3) -> None:
+    def _send_enter_with_retry(self, session_name: str, expected_ending: str, max_retries: int = 10) -> None:
         """Send Enter to submit the message, with retry logic for reliability.
 
         After sending Enter, we check if Claude started processing the message by
-        looking for processing indicators (like "Thinking") or the absence of the
-        message in the input area. If the message is still visible in the input area
-        (suggesting Enter was interpreted as a literal newline), we retry.
+        checking if the waiting file was removed (primary signal) or if processing
+        indicators like "Thinking" appear in the terminal (secondary signal).
 
-        With ~3% individual failure rate and 3 retries, this achieves:
-        (0.03)^3 = 0.003% failure rate = 99.997% success rate
+        If Enter was interpreted as a literal newline instead of submit, we clean up
+        the newline with backspace + noop keys and retry.
         """
         send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
 
@@ -495,23 +500,22 @@ class BaseAgent(AgentInterface):
                     f"tmux send-keys Enter failed: {result.stderr or result.stdout}",
                 )
 
-            # Brief delay to let Claude Code process the Enter key
-            time.sleep(0.3)
+            # Brief delay to let Claude Code process the Enter key and fire the hook
+            time.sleep(0.1)
 
-            # Check if message was submitted (input area should no longer contain our message)
-            # or if Claude is processing (shows "Thinking" or similar)
+            # Check if message was submitted (waiting file removed or processing indicators visible)
             if self._check_message_submitted(session_name, expected_ending):
                 logger.debug("Message submitted successfully on attempt {}", attempt + 1)
                 return
 
             # Message still in input area - Enter was likely interpreted as newline
             logger.debug(
-                "Enter may have been interpreted as newline (attempt {}), retrying...",
+                "Enter may have been interpreted as newline (attempt {}), cleaning up and retrying...",
                 attempt + 1,
             )
 
-            # Small delay before retry
-            time.sleep(0.2)
+            # Clean up the accidental newline with backspace, then send noop keys to reset state
+            self._send_backspace_with_noop(session_name, count=1)
 
         # All retries exhausted - raise an error
         raise SendMessageError(
@@ -533,16 +537,17 @@ class BaseAgent(AgentInterface):
         Returns False if the waiting file exists and no processing indicators,
         suggesting Enter was interpreted as a literal newline.
         """
+        # Check both signals to log which fires first
+        waiting_file_gone = False
+        terminal_indicator = None
+
         # Primary signal: check if waiting file is gone (UserPromptSubmit hook fired)
-        # This is the most reliable indicator that the message was submitted.
         waiting_path = self._get_agent_dir() / "waiting"
         try:
             self.host.read_text_file(waiting_path)
-            # Waiting file exists - Claude is still waiting for input, message not submitted
+            # Waiting file exists - Claude is still waiting for input
         except FileNotFoundError:
-            # Waiting file gone - UserPromptSubmit hook fired, message was submitted!
-            logger.debug("Message submitted (waiting file removed by UserPromptSubmit hook)")
-            return True
+            waiting_file_gone = True
 
         # Secondary signal: check terminal content for processing indicators
         content = self._capture_pane_content(session_name)
@@ -550,8 +555,20 @@ class BaseAgent(AgentInterface):
             processing_indicators = ["Thinking", "Claude is thinking", "Working"]
             for indicator in processing_indicators:
                 if indicator in content:
-                    logger.debug("Message submitted (found '{}' in terminal)", indicator)
-                    return True
+                    terminal_indicator = indicator
+                    break
+
+        # Log which signal(s) fired
+        if waiting_file_gone or terminal_indicator:
+            if waiting_file_gone and terminal_indicator:
+                logger.debug("Message submitted (both signals: waiting file gone + '{}')", terminal_indicator)
+            elif waiting_file_gone:
+                logger.debug("Message submitted (waiting file gone, no terminal indicator yet)")
+            else:
+                logger.debug(
+                    "Message submitted (terminal indicator '{}', waiting file still exists)", terminal_indicator
+                )
+            return True
 
         # Neither signal detected - message likely not submitted
         return False
