@@ -355,8 +355,7 @@ class BaseAgent(AgentInterface):
         # Using just the UUID without newlines - newlines are harder to reliably delete
         # with backspace in some input areas
         marker = uuid4().hex
-        marker_suffix = marker
-        message_with_marker = message + marker_suffix
+        message_with_marker = message + marker
 
         # Send the message with marker
         send_msg_cmd = f"tmux send-keys -t '{session_name}' -l {shlex.quote(message_with_marker)}"
@@ -367,9 +366,9 @@ class BaseAgent(AgentInterface):
         # Wait for the marker to appear in the pane (confirms message was fully received)
         self._wait_for_marker_visible(session_name, marker)
 
-        # Remove the marker by sending backspaces (32 hex chars)
+        # Remove the marker by sending backspaces (32 hex chars for UUID)
         # Send all backspaces in a single tmux command for efficiency
-        backspace_count = len(marker_suffix)
+        backspace_count = len(marker)
         backspace_keys = " ".join(["BSpace"] * backspace_count)
         backspace_cmd = f"tmux send-keys -t '{session_name}' {backspace_keys}"
         result = self.host.execute_command(backspace_cmd)
