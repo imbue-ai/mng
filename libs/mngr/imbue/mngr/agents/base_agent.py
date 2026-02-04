@@ -352,8 +352,10 @@ class BaseAgent(AgentInterface):
         the input handler has fully processed the message text before submitting.
         """
         # Generate a unique marker to detect when the message has been fully received
+        # Using just the UUID without newlines - newlines are harder to reliably delete
+        # with backspace in some input areas
         marker = uuid4().hex
-        marker_suffix = f"\n\n{marker}"
+        marker_suffix = marker
         message_with_marker = message + marker_suffix
 
         # Send the message with marker
@@ -365,7 +367,7 @@ class BaseAgent(AgentInterface):
         # Wait for the marker to appear in the pane (confirms message was fully received)
         self._wait_for_marker_visible(session_name, marker)
 
-        # Remove the marker by sending backspaces (2 newlines + 32 hex chars = 34 chars)
+        # Remove the marker by sending backspaces (32 hex chars)
         # Send all backspaces in a single tmux command for efficiency
         backspace_count = len(marker_suffix)
         backspace_keys = " ".join(["BSpace"] * backspace_count)
