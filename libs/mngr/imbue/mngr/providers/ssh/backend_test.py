@@ -6,8 +6,8 @@ from pathlib import Path
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
-from imbue.mngr.providers.ssh.backend import SSH_BACKEND_NAME
 from imbue.mngr.providers.ssh.backend import SSHProviderBackend
+from imbue.mngr.providers.ssh.backend import SSH_BACKEND_NAME
 from imbue.mngr.providers.ssh.config import SSHHostConfig
 from imbue.mngr.providers.ssh.config import SSHProviderConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
