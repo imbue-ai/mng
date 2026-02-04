@@ -1,6 +1,7 @@
 """Unit tests for Host implementation."""
 
 import json
+import shlex
 from pathlib import Path
 
 import pytest
@@ -233,10 +234,11 @@ def test_get_agent_references_skips_bad_records_but_loads_good_ones(
 def _setup_git_repo(host: Host, git_dir: Path) -> None:
     """Set up a minimal git repository using the host abstraction."""
     git_dir.mkdir()
-    host.execute_command(f"git -C {git_dir} init")
-    host.execute_command(f"git -C {git_dir} config user.email test@example.com")
-    host.execute_command(f"git -C {git_dir} config user.name 'Test User'")
-    host.execute_command(f"git -C {git_dir} commit --allow-empty -m initial")
+    quoted_dir = shlex.quote(str(git_dir))
+    host.execute_command(f"git -C {quoted_dir} init")
+    host.execute_command(f"git -C {quoted_dir} config user.email test@example.com")
+    host.execute_command(f"git -C {quoted_dir} config user.name 'Test User'")
+    host.execute_command(f"git -C {quoted_dir} commit --allow-empty -m initial")
 
 
 def test_git_branch_exists_returns_true_when_branch_exists(
@@ -249,7 +251,7 @@ def test_git_branch_exists_returns_true_when_branch_exists(
 
     git_dir = tmp_path / "repo"
     _setup_git_repo(host, git_dir)
-    host.execute_command(f"git -C {git_dir} branch test-branch")
+    host.execute_command(f"git -C {shlex.quote(str(git_dir))} branch test-branch")
 
     assert host._git_branch_exists(git_dir, "test-branch") is True
     assert host._git_branch_exists(git_dir, "nonexistent-branch") is False
