@@ -131,6 +131,7 @@ class CreateCliOptions(CommonCliOptions):
     positional_name: str | None
     positional_agent_type: str | None
     agent_args: tuple[str, ...]
+    template: str | None
     agent_type: str | None
     connect: bool
     await_ready: bool | None
@@ -210,6 +211,7 @@ class CreateCliOptions(CommonCliOptions):
 @click.argument("positional_agent_type", default=None, required=False)
 @click.argument("agent_args", nargs=-1, type=click.UNPROCESSED)
 @optgroup.group("Agent Options")
+@optgroup.option("-t", "--template", help="Use a named template from create_templates config")
 @optgroup.option("-n", "--name", help="Agent name (alternative to positional argument) [default: auto-generated]")
 @optgroup.option(
     "--name-style",
@@ -1317,7 +1319,7 @@ def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
 _CREATE_HELP_METADATA = CommandHelpMetadata(
     name="mngr-create",
     one_line_description="Create and run an agent",
-    synopsis="""mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
+    synopsis="""mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
@@ -1349,6 +1351,7 @@ the working directory is copied to the remote host.""",
         ("Create an agent locally in a new git worktree (default)", "mngr create my-agent"),
         ("Create an agent in a Docker container", "mngr create my-agent --in docker"),
         ("Create an agent in a Modal sandbox", "mngr create my-agent --in modal"),
+        ("Create using a named template", "mngr create my-agent --template modal"),
         ("Create a codex agent instead of claude", "mngr create my-agent codex"),
         ("Pass arguments to the agent", "mngr create my-agent -- --model opus"),
         ("Create on an existing host", "mngr create my-agent --host my-dev-box"),

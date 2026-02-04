@@ -11,6 +11,8 @@ import pluggy
 from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import CommandDefaults
+from imbue.mngr.config.data_types import CreateTemplate
+from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import LoggingConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -142,11 +144,12 @@ def load_config(
         # Neither env var nor config has default_host_dir - will use pydantic default
         pass
 
-    # Always include agent_types, providers, plugins, and commands (they default to empty dicts)
+    # Always include agent_types, providers, plugins, commands, and create_templates (they default to empty dicts)
     config_dict["agent_types"] = config.agent_types
     config_dict["providers"] = config.providers
     config_dict["plugins"] = config.plugins
     config_dict["commands"] = config.commands
+    config_dict["create_templates"] = config.create_templates
 
     # Apply environment variable overrides for commands
     # Format: MNGR_COMMANDS_<COMMANDNAME>_<PARAMNAME>=<value>
@@ -414,6 +417,24 @@ def _parse_commands(raw_commands: dict[str, dict[str, Any]]) -> dict[str, Comman
     return commands
 
 
+def _parse_create_templates(raw_templates: dict[str, dict[str, Any]]) -> dict[CreateTemplateName, CreateTemplate]:
+    """Parse create templates from config.
+
+    Format: create_templates.{template_name}.{param_name} = value
+    Example: [create_templates.modal-dev]
+             new_host = "modal"
+             target_path = "/root/workspace"
+
+    Uses model_construct to bypass validation and explicitly set None for unset fields.
+    """
+    templates: dict[CreateTemplateName, CreateTemplate] = {}
+
+    for template_name, raw_options in raw_templates.items():
+        templates[CreateTemplateName(template_name)] = CreateTemplate.model_construct(options=raw_options)
+
+    return templates
+
+
 def _parse_config(raw: dict[str, Any]) -> MngrConfig:
     """Parse a raw config dict into MngrConfig.
 
@@ -427,6 +448,9 @@ def _parse_config(raw: dict[str, Any]) -> MngrConfig:
     kwargs["providers"] = _parse_providers(raw.pop("providers", {})) if "providers" in raw else {}
     kwargs["plugins"] = _parse_plugins(raw.pop("plugins", {})) if "plugins" in raw else {}
     kwargs["commands"] = _parse_commands(raw.pop("commands", {})) if "commands" in raw else {}
+    kwargs["create_templates"] = (
+        _parse_create_templates(raw.pop("create_templates", {})) if "create_templates" in raw else {}
+    )
     kwargs["logging"] = _parse_logging_config(raw.pop("logging", {})) if "logging" in raw else None
     kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", {}) if "is_allowed_in_pytest" in raw else None
     kwargs["pre_command_scripts"] = raw.pop("pre_command_scripts", {}) if "pre_command_scripts" in raw else None

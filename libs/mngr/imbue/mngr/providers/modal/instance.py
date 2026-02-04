@@ -9,7 +9,6 @@ Only host_id and host_name are stored as sandbox tags for discovery purposes.
 """
 
 import argparse
-import concurrent.futures
 import io
 import json
 import os
@@ -44,6 +43,8 @@ from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 from pyinfra.connectors.sshuserclient.client import get_host_keys
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
@@ -252,6 +253,18 @@ class ModalProviderApp(FrozenModel):
 
     def close(self) -> None:
         self.close_callback()
+
+
+def _store_result_from_callable(
+    result_dict: dict[str, Any],
+    key: str,
+    callable_fn: Callable[[], Any],
+) -> None:
+    """Helper function for storing callable results in a thread-safe manner.
+
+    Used by list_hosts to run parallel fetches with ConcurrencyGroup.
+    """
+    result_dict[key] = callable_fn()
 
 
 class ModalProviderInstance(BaseProviderInstance):
@@ -1678,6 +1691,7 @@ curl -s -X POST "$SNAPSHOT_URL" \\
     def list_hosts(
         self,
         include_destroyed: bool = False,
+        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         """List all Modal sandbox hosts, including stopped ones.
 
@@ -1687,6 +1701,9 @@ curl -s -X POST "$SNAPSHOT_URL" \\
         - DESTROYED: no sandbox and no snapshots (only if include_destroyed=True)
 
         If the provider is not authorized, logs a warning and returns an empty list.
+
+        If a ConcurrencyGroup is provided, it will be used for parallel fetching of
+        sandboxes and host records, which is safer for concurrent operations.
         """
         if not self.is_authorized:
             logger.warning(
@@ -1703,12 +1720,32 @@ curl -s -X POST "$SNAPSHOT_URL" \\
 
         # Fetch sandboxes and host records in parallel since they are independent.
         # This reduces list_hosts latency by ~1.5s by overlapping the network calls.
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            sandboxes_future = executor.submit(self._list_sandboxes)
-            host_records_future = executor.submit(self._list_all_host_records)
+        # Use ConcurrencyGroup for thread-safe parallel fetching
+        cg_result: dict[str, Any] = {}
+        try:
+            with (
+                cg.make_concurrency_group(f"modal_list_hosts_{self.name}")
+                if cg is not None
+                else ConcurrencyGroup(name="modal::list_hosts")
+            ) as list_cg:
+                thread_1 = list_cg.start_new_thread(
+                    target=_store_result_from_callable,
+                    args=(cg_result, "sandboxes", self._list_sandboxes),
+                    name="fetch_sandboxes",
+                )
+                thread_2 = list_cg.start_new_thread(
+                    target=_store_result_from_callable,
+                    args=(cg_result, "host_records", self._list_all_host_records),
+                    name="fetch_host_records",
+                )
+                thread_1.join()
+                thread_2.join()
 
-            sandboxes = sandboxes_future.result()
-            all_host_records = host_records_future.result()
+                sandboxes = cg_result.get("sandboxes", [])
+                all_host_records = cg_result.get("host_records", [])
+        except ConcurrencyExceptionGroup as e:
+            if e.only_exception_is_instance_of(modal.exception.AuthError):
+                raise ModalAuthError() from e
 
         # Map running sandboxes by host_id
         running_sandbox_by_host_id: dict[HostId, modal.Sandbox] = {}

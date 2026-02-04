@@ -10,6 +10,7 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
@@ -466,6 +467,7 @@ def _process_provider_for_host_listing(
     agents_by_host: dict[HostReference, list[AgentReference]],
     include_destroyed: bool,
     results_lock: Lock,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Process a single provider and collect its hosts and agents.
 
@@ -473,7 +475,7 @@ def _process_provider_for_host_listing(
     Results are merged into the shared agents_by_host dict under the results_lock.
     """
     logger.trace("Loading hosts from provider {}", provider.name)
-    hosts = provider.list_hosts(include_destroyed=include_destroyed)
+    hosts = provider.list_hosts(include_destroyed=include_destroyed, cg=cg)
 
     # Collect results for this provider
     provider_results: dict[HostReference, list[AgentReference]] = {}
@@ -509,11 +511,16 @@ def load_all_agents_grouped_by_host(
 
     # Process all providers in parallel using ConcurrencyGroup
     with ConcurrencyGroup(name="load_all_agents_grouped_by_host") as cg:
+        threads: list[ObservableThread] = []
         for provider in providers:
-            cg.start_new_thread(
-                target=_process_provider_for_host_listing,
-                args=(provider, agents_by_host, include_destroyed, results_lock),
-                name=f"load_hosts_{provider.name}",
+            threads.append(
+                cg.start_new_thread(
+                    target=_process_provider_for_host_listing,
+                    args=(provider, agents_by_host, include_destroyed, results_lock, cg),
+                    name=f"load_hosts_{provider.name}",
+                )
             )
+        for thread in threads:
+            thread.join()
 
     return (agents_by_host, providers)

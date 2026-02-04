@@ -1,6 +1,7 @@
 from typing import Mapping
 from typing import Sequence
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.host import HostInterface
@@ -51,6 +52,7 @@ class BaseProviderInstance(ProviderInstanceInterface):
     def list_hosts(
         self,
         include_destroyed: bool = False,
+        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         raise NotImplementedError()
 
