@@ -33,13 +33,11 @@ from imbue.mngr.utils.polling import poll_until
 # Constants for send_message marker-based synchronization
 _SEND_MESSAGE_POLL_INTERVAL_SECONDS: Final[float] = 0.05
 _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
-_TUI_READY_TIMEOUT_SECONDS: Final[float] = 30.0
+_TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 
 # Constants for Enter retry mechanism
 _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 0.5
-_INITIAL_BACKSPACE_SETTLE_SECONDS: Final[float] = 0.5
-_RETRY_BACKSPACE_SETTLE_SECONDS: Final[float] = 0.2
-_PRE_ENTER_DELAY_SECONDS: Final[float] = 0.3
+_BACKSPACE_SETTLE_SECONDS: Final[float] = 0.3
 
 
 class BaseAgent(AgentInterface):
@@ -391,7 +389,7 @@ class BaseAgent(AgentInterface):
 
         # Remove the marker by sending backspaces (32 hex chars for UUID)
         # Send backspaces and noop keys to clean up the marker
-        self._send_backspace_with_noop(session_name, count=len(marker), settle_delay=_INITIAL_BACKSPACE_SETTLE_SECONDS)
+        self._send_backspace_with_noop(session_name, count=len(marker), settle_delay=_BACKSPACE_SETTLE_SECONDS)
 
         # Verify the marker is gone and the message ends correctly
         # Use the last 20 chars of the message as the expected ending (or full message if shorter)
@@ -402,8 +400,8 @@ class BaseAgent(AgentInterface):
         # The terminal display can update before Claude Code's input handler has fully
         # processed the backspaces. We use a short delay here since the retry mechanism
         # will handle any failures.
-        logger.debug("Waiting {}s before sending Enter", _PRE_ENTER_DELAY_SECONDS)
-        time.sleep(_PRE_ENTER_DELAY_SECONDS)
+        logger.debug("Waiting {}s before sending Enter", _BACKSPACE_SETTLE_SECONDS)
+        time.sleep(_BACKSPACE_SETTLE_SECONDS)
 
         # Send Enter with retry logic. Sometimes Enter is interpreted as a literal newline
         # instead of a submit action. We detect this by checking if the message is still
@@ -548,7 +546,17 @@ class BaseAgent(AgentInterface):
             )
 
             # Clean up the accidental newline with backspace, then send noop keys to reset state
-            self._send_backspace_with_noop(session_name, count=1, settle_delay=_RETRY_BACKSPACE_SETTLE_SECONDS)
+            self._send_backspace_with_noop(session_name, count=1, settle_delay=_BACKSPACE_SETTLE_SECONDS)
+
+            # Safety check: verify we haven't deleted too much of the message.
+            # If backspaces accumulated (e.g., due to timing issues), we could be
+            # sending a truncated prompt to Claude, which would be bad.
+            if not self._check_pane_contains(session_name, expected_ending):
+                raise SendMessageError(
+                    str(self.name),
+                    f"Message ending '{expected_ending}' no longer visible after retry cleanup - "
+                    "message may have been truncated",
+                )
 
         # All retries exhausted - raise an error
         raise SendMessageError(
