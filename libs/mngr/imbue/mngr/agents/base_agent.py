@@ -35,8 +35,6 @@ _SEND_MESSAGE_POLL_INTERVAL_SECONDS: Final[float] = 0.05
 _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
 
 # Constants for Enter retry mechanism
-_ENTER_SUBMISSION_POLL_INTERVAL_SECONDS: Final[float] = 0.1
-_ENTER_SUBMISSION_POLL_TIMEOUT_SECONDS: Final[float] = 0.5
 _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 0.5
 _INITIAL_BACKSPACE_SETTLE_SECONDS: Final[float] = 0.5
 _RETRY_BACKSPACE_SETTLE_SECONDS: Final[float] = 0.2
@@ -495,36 +493,16 @@ class BaseAgent(AgentInterface):
     def _send_enter_with_retry(self, session_name: str, expected_ending: str, max_retries: int = 10) -> None:
         """Send Enter to submit the message, with retry logic for reliability.
 
-        After sending Enter, we check if Claude started processing the message by
-        checking if the waiting file was removed (primary signal) or if processing
-        indicators like "Thinking" appear in the terminal (secondary signal).
-
-        If Enter was interpreted as a literal newline instead of submit, we clean up
-        the newline with backspace + noop keys and retry.
+        Uses tmux wait-for to detect when the UserPromptSubmit hook fires, indicating
+        Claude started processing the message. If Enter was interpreted as a literal
+        newline instead of submit, we clean up with backspace + noop keys and retry.
         """
-        send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
         wait_channel = f"mngr-submit-{session_name}"
 
         for attempt in range(max_retries):
-            result = self.host.execute_command(send_enter_cmd)
-            if not result.success:
-                raise SendMessageError(
-                    str(self.name),
-                    f"tmux send-keys Enter failed: {result.stderr or result.stdout}",
-                )
-
-            # Try tmux wait-for first - this unblocks instantly when the hook signals
-            if self._wait_for_submission_signal(wait_channel):
-                logger.debug("Message submitted successfully on attempt {} (via tmux wait-for)", attempt + 1)
-                return
-
-            # Fall back to polling (for backwards compatibility or if wait-for fails)
-            if poll_until(
-                lambda: self._check_message_submitted(session_name, expected_ending),
-                timeout=_ENTER_SUBMISSION_POLL_TIMEOUT_SECONDS,
-                poll_interval=_ENTER_SUBMISSION_POLL_INTERVAL_SECONDS,
-            ):
-                logger.debug("Message submitted successfully on attempt {} (via polling)", attempt + 1)
+            # Send Enter and wait for signal (starts waiting BEFORE sending to avoid race)
+            if self._send_enter_and_wait_for_signal(session_name, wait_channel):
+                logger.debug("Message submitted successfully on attempt {}", attempt + 1)
                 return
 
             # Timed out waiting for signal - Enter was likely interpreted as newline
@@ -534,7 +512,6 @@ class BaseAgent(AgentInterface):
             )
 
             # Clean up the accidental newline with backspace, then send noop keys to reset state
-            # Use shorter settle delay for retries since we only deleted one character
             self._send_backspace_with_noop(session_name, count=1, settle_delay=_RETRY_BACKSPACE_SETTLE_SECONDS)
 
         # All retries exhausted - raise an error
@@ -543,71 +520,36 @@ class BaseAgent(AgentInterface):
             f"Failed to submit message after {max_retries} attempts - Enter keeps being interpreted as newline",
         )
 
-    def _wait_for_submission_signal(self, wait_channel: str) -> bool:
-        """Wait for the tmux wait-for signal from the UserPromptSubmit hook.
+    def _send_enter_and_wait_for_signal(self, session_name: str, wait_channel: str) -> bool:
+        """Send Enter and wait for the tmux wait-for signal from the hook.
 
-        The hook signals the channel when Claude starts processing the message.
-        This is faster than polling since it unblocks instantly.
+        This starts waiting BEFORE sending Enter to avoid a race condition where
+        the hook might fire before we start listening for the signal.
+
+        The sequence is:
+        1. Start tmux wait-for in background
+        2. Send Enter
+        3. Wait for the background wait-for to complete (with timeout)
 
         Returns True if signal received, False if timeout.
         """
-        timeout_ms = int(_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS * 1000)
-        wait_cmd = f"timeout {timeout_ms / 1000:.1f} tmux wait-for '{wait_channel}' 2>/dev/null"
-        result = self.host.execute_command(wait_cmd, timeout_seconds=_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS + 1)
+        timeout_iterations = int(_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS * 100)
+        cmd = (
+            f"bash -c '"
+            f'tmux wait-for "$0" & W=$!; '
+            f'tmux send-keys -t "$1" Enter; '
+            f"for i in $(seq 1 {timeout_iterations}); do "
+            f"kill -0 $W 2>/dev/null || exit 0; "
+            f"sleep 0.01; "
+            f"done; "
+            f"kill $W 2>/dev/null; exit 1"
+            f"' {shlex.quote(wait_channel)} {shlex.quote(session_name)}"
+        )
+        result = self.host.execute_command(cmd, timeout_seconds=_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS + 1)
         if result.success:
             logger.debug("Received submission signal on channel {}", wait_channel)
             return True
         logger.debug("Timeout waiting for submission signal on channel {}", wait_channel)
-        return False
-
-    def _check_message_submitted(self, session_name: str, expected_ending: str) -> bool:
-        """Check if the message was submitted to Claude.
-
-        Uses the waiting file as the primary signal - when the UserPromptSubmit hook
-        fires, it removes the waiting file. This is the most reliable indicator that
-        Claude actually started processing the message.
-
-        Returns True if:
-        - The waiting file is gone (UserPromptSubmit hook fired), OR
-        - Claude shows processing indicators like "Thinking" in the terminal
-
-        Returns False if the waiting file exists and no processing indicators,
-        suggesting Enter was interpreted as a literal newline.
-        """
-        # Check both signals to log which fires first
-        waiting_file_gone = False
-        terminal_indicator = None
-
-        # Primary signal: check if waiting file is gone (UserPromptSubmit hook fired)
-        waiting_path = self._get_agent_dir() / "waiting"
-        try:
-            self.host.read_text_file(waiting_path)
-            # Waiting file exists - Claude is still waiting for input
-        except FileNotFoundError:
-            waiting_file_gone = True
-
-        # Secondary signal: check terminal content for processing indicators
-        content = self._capture_pane_content(session_name)
-        if content is not None:
-            processing_indicators = ["Thinking", "Claude is thinking", "Working"]
-            for indicator in processing_indicators:
-                if indicator in content:
-                    terminal_indicator = indicator
-                    break
-
-        # Log which signal(s) fired
-        if waiting_file_gone or terminal_indicator:
-            if waiting_file_gone and terminal_indicator:
-                logger.debug("Message submitted (both signals: waiting file gone + '{}')", terminal_indicator)
-            elif waiting_file_gone:
-                logger.debug("Message submitted (waiting file gone, no terminal indicator yet)")
-            else:
-                logger.debug(
-                    "Message submitted (terminal indicator '{}', waiting file still exists)", terminal_indicator
-                )
-            return True
-
-        # Neither signal detected - message likely not submitted
         return False
 
     # =========================================================================
