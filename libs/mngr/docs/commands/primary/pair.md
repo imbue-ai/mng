@@ -1,49 +1,85 @@
-# mngr pair - CLI Options Reference
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
 
-Continuously syncs files between a source (some agent or host) and a target (another agent or host)
+# mngr pair
 
-By default, syncs between an agent and your local directory.
+Continuously sync files between an agent and local directory.
 
-This is the equivalent of "pairing mode"--changes are watched and synced in real-time as they occur.
+This command establishes a bidirectional file sync between an agent's working
+directory and a local directory. Changes are watched and synced in real-time.
 
-This command is "git-aware", but git is not required (if you just have two directories, it will sync files between them).
+If git repositories exist on both sides, the command first synchronizes git
+state (branches and commits) before starting the continuous file sync.
 
-## Usage
+Press Ctrl+C to stop the sync.
 
+Examples:
+  mngr pair my-agent
+  mngr pair my-agent ./local-dir
+  mngr pair --source-agent my-agent --target ./local-copy
+  mngr pair my-agent --sync-direction=forward
+  mngr pair my-agent --conflict=source
+
+**Usage:**
+
+```text
+mngr pair [OPTIONS] [SOURCE]
 ```
-mngr pair [(--agent) agent [--target-agent other-agent]]
-```
 
-## General
+## Arguments
 
-- `--source SOURCE`: Directory to use as work_dir root. Accepts a unified syntax: `[AGENT | AGENT.HOST | AGENT.HOST:PATH | HOST:PATH]` [default: if a pty and this arg is omitted, presents a TUI for selecting the agent, otherwise errors unless defined]
-- `--source-agent AGENT`: Source agent
-- `--source-host HOST`: Source host
-- `--source-path PATH`: Source path
-- `--target TARGET`: Target. Accepts a unified syntax: `[HOST]:PATH` [default: nearest parent directory with a .git folder, starting from the current directory]
-- `--target-agent TARGET`: Target agent.
-- `--target-host HOST`: Target host.
-- `--target-path PATH`: Directory to mount source inside agent host.
-- `--list`: List active pairs and exit
+- `SOURCE`: The source (optional)
 
-## File Filtering
+**Options:**
 
-- `--include-gitignored`: Include files that match `.gitignore` patterns
-- `--include PATTERN`: Include files matching glob pattern [repeatable]
-- `--exclude PATTERN`: Exclude files matching glob pattern [repeatable]
-- `--include-file FILE`: Read include patterns from file (one per line)
-- `--exclude-file FILE`: Read exclude patterns from file (one per line)
+## Source Selection
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--source` | text | Source specification: AGENT, AGENT:PATH, or PATH | None |
+| `--source-agent` | text | Source agent name or ID | None |
+| `--source-host` | text | Source host name or ID | None |
+| `--source-path` | text | Path within the agent's work directory | None |
+
+## Target
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--target` | path | Local target directory [default: nearest git root or current directory] | None |
+| `--target-path` | text | Target path (if different from --target) | None |
 
 ## Git Handling
 
-- `--[no-]require-git`: Require that both source and target are git repositories [default: require git]
-- `--abort-on-branch-change / --follow-branch-change`: Either abort syncing if a git change is detected, or switch to that branch [default: follow]
-- `--[no-]auto-stash`: Automatically stash local git state before starting, and re-apply it after [default: auto-stash]
-- `--merge / --rebase`: Whether to merge remote changes with local changes, or attempt to rebase them on top [default: use default configured for git repo, otherwise merge]
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--require-git`, `--no-require-git` | boolean | Require that both source and target are git repositories [default: require git] | `True` |
+| `--uncommitted-changes` | choice (`stash` &#x7C; `clobber` &#x7C; `merge` &#x7C; `fail`) | How to handle uncommitted changes during initial git sync | `fail` |
 
 ## Sync Behavior
 
-- `--initial-direction DIRECTION`: Initial sync direction (forward = source -> target, reverse = target -> reverse) [default: `forward`, choices: `forward`, `reverse`]
-- `--sync-direction DIRECTION`: Sync direction after initialization (forward = source -> target, reverse = target -> reverse) [default: `both`, choices: `both`, `forward`, `reverse`]
-- `--conflict MODE`: Conflict resolution mode (only matters for "--sync-direction=both" mode [default: `newer`, choices: `newer`, `source`, `target`, `ask`]
-- `--atomic` / `--in-place`: Use atomic file operations to prevent partial writes [default: atomic]
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--sync-direction` | choice (`both` &#x7C; `forward` &#x7C; `reverse`) | Sync direction: both (bidirectional), forward (source->target), reverse (target->source) | `both` |
+| `--conflict` | choice (`newer` &#x7C; `source` &#x7C; `target` &#x7C; `ask`) | Conflict resolution mode (only matters for bidirectional sync) | `newer` |
+
+## File Filtering
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--include` | text | Include files matching glob pattern [repeatable] | None |
+| `--exclude` | text | Exclude files matching glob pattern [repeatable] | None |
+
+## Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
