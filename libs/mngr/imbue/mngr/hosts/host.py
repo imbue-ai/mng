@@ -1264,10 +1264,12 @@ class Host(BaseHost, OnlineHostInterface):
         1. MNGR-specific agent variables (id, name, state_dir, work_dir)
         2. programmatic defaults
         3. env_files (loaded in order)
-        4. pass_env_vars (forwarded from current shell)
-        5. env_vars (explicit KEY=VALUE pairs, highest priority)
+        4. env_vars (explicit KEY=VALUE pairs)
 
         Later sources override earlier ones.
+
+        Note: pass_env_vars is resolved at the CLI level before this is called,
+        and merged into env_vars with explicit env_vars taking precedence.
         """
         env_vars: dict[str, str] = {}
 
@@ -1288,13 +1290,7 @@ class Host(BaseHost, OnlineHostInterface):
             file_vars = parse_env_file(content)
             env_vars.update(file_vars)
 
-        # 4. Add pass-through env vars from current shell
-        for var_name in options.environment.pass_env_vars:
-            value = os.environ.get(var_name)
-            if value is not None:
-                env_vars[var_name] = value
-
-        # 5. Add explicit env_vars (highest priority)
+        # 4. Add explicit env_vars
         for env_var in options.environment.env_vars:
             env_vars[env_var.key] = env_var.value
 

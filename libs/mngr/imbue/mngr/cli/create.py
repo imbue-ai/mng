@@ -1006,13 +1006,18 @@ def _parse_agent_opts(
     )
 
     # Parse environment options
-    env_vars = tuple(EnvVar.from_string(e) for e in opts.agent_env)
+    # First, resolve pass_env_vars from the current shell environment
+    pass_env_vars_resolved = tuple(
+        EnvVar(key=var_name, value=os.environ[var_name]) for var_name in opts.pass_agent_env if var_name in os.environ
+    )
+    # Explicit env_vars take precedence over pass_env_vars
+    explicit_env_vars = tuple(EnvVar.from_string(e) for e in opts.agent_env)
+    env_vars = pass_env_vars_resolved + explicit_env_vars
     env_files = tuple(Path(f) for f in opts.agent_env_file)
 
     environment = AgentEnvironmentOptions(
         env_vars=env_vars,
         env_files=env_files,
-        pass_env_vars=opts.pass_agent_env,
     )
 
     # Parse agent lifecycle options
@@ -1162,7 +1167,15 @@ def _parse_target_host(
         tags = tags_dict
 
         # Parse host environment
-        host_env_vars = tuple(EnvVar.from_string(e) for e in opts.host_env)
+        # First, resolve pass_env_vars from the current shell environment
+        host_pass_env_vars_resolved = tuple(
+            EnvVar(key=var_name, value=os.environ[var_name])
+            for var_name in opts.pass_host_env
+            if var_name in os.environ
+        )
+        # Explicit env_vars take precedence over pass_env_vars
+        explicit_host_env_vars = tuple(EnvVar.from_string(e) for e in opts.host_env)
+        host_env_vars = host_pass_env_vars_resolved + explicit_host_env_vars
         host_env_files = tuple(Path(f) for f in opts.host_env_file)
 
         # Combine build args from both individual (-b) and bulk (--build-args) options
@@ -1192,7 +1205,6 @@ def _parse_target_host(
             environment=HostEnvironmentOptions(
                 env_vars=host_env_vars,
                 env_files=host_env_files,
-                pass_env_vars=opts.pass_host_env,
                 known_hosts=opts.known_host,
             ),
             lifecycle=lifecycle,
