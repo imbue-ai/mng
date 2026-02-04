@@ -95,8 +95,11 @@ def _build_readiness_hooks_config() -> dict[str, Any]:
     a 'waiting' file that signals when Claude is ready for input vs actively working.
 
     - SessionStart: creates the waiting file (Claude is ready for input)
-    - UserPromptSubmit: removes the waiting file (Claude is processing a prompt)
+    - UserPromptSubmit: removes the waiting file AND signals tmux wait-for channel
     - Stop: creates the waiting file (Claude finished and is ready again)
+
+    The tmux wait-for signal allows send_message to detect submission instantly
+    without polling the filesystem.
     """
     return {
         "hooks": {
@@ -116,7 +119,11 @@ def _build_readiness_hooks_config() -> dict[str, Any]:
                         {
                             "type": "command",
                             "command": 'rm -f "$MNGR_AGENT_STATE_DIR/waiting"',
-                        }
+                        },
+                        {
+                            "type": "command",
+                            "command": "tmux wait-for -S \"mngr-submit-$(tmux display-message -p '#S')\" 2>/dev/null || true",
+                        },
                     ]
                 }
             ],

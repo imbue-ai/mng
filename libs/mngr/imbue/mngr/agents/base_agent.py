@@ -37,6 +37,7 @@ _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
 # Constants for Enter retry mechanism
 _ENTER_SUBMISSION_POLL_INTERVAL_SECONDS: Final[float] = 0.1
 _ENTER_SUBMISSION_POLL_TIMEOUT_SECONDS: Final[float] = 0.5
+_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 0.5
 _INITIAL_BACKSPACE_SETTLE_SECONDS: Final[float] = 0.5
 _RETRY_BACKSPACE_SETTLE_SECONDS: Final[float] = 0.2
 _PRE_ENTER_DELAY_SECONDS: Final[float] = 0.3
@@ -502,6 +503,7 @@ class BaseAgent(AgentInterface):
         the newline with backspace + noop keys and retry.
         """
         send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
+        wait_channel = f"mngr-submit-{session_name}"
 
         for attempt in range(max_retries):
             result = self.host.execute_command(send_enter_cmd)
@@ -511,14 +513,18 @@ class BaseAgent(AgentInterface):
                     f"tmux send-keys Enter failed: {result.stderr or result.stdout}",
                 )
 
-            # Poll for message submission signal (waiting file removed or processing indicators)
-            # Give the hook a reasonable time to fire before concluding Enter was a newline
+            # Try tmux wait-for first - this unblocks instantly when the hook signals
+            if self._wait_for_submission_signal(wait_channel):
+                logger.debug("Message submitted successfully on attempt {} (via tmux wait-for)", attempt + 1)
+                return
+
+            # Fall back to polling (for backwards compatibility or if wait-for fails)
             if poll_until(
                 lambda: self._check_message_submitted(session_name, expected_ending),
                 timeout=_ENTER_SUBMISSION_POLL_TIMEOUT_SECONDS,
                 poll_interval=_ENTER_SUBMISSION_POLL_INTERVAL_SECONDS,
             ):
-                logger.debug("Message submitted successfully on attempt {}", attempt + 1)
+                logger.debug("Message submitted successfully on attempt {} (via polling)", attempt + 1)
                 return
 
             # Timed out waiting for signal - Enter was likely interpreted as newline
@@ -536,6 +542,23 @@ class BaseAgent(AgentInterface):
             str(self.name),
             f"Failed to submit message after {max_retries} attempts - Enter keeps being interpreted as newline",
         )
+
+    def _wait_for_submission_signal(self, wait_channel: str) -> bool:
+        """Wait for the tmux wait-for signal from the UserPromptSubmit hook.
+
+        The hook signals the channel when Claude starts processing the message.
+        This is faster than polling since it unblocks instantly.
+
+        Returns True if signal received, False if timeout.
+        """
+        timeout_ms = int(_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS * 1000)
+        wait_cmd = f"timeout {timeout_ms / 1000:.1f} tmux wait-for '{wait_channel}' 2>/dev/null"
+        result = self.host.execute_command(wait_cmd, timeout_seconds=_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS + 1)
+        if result.success:
+            logger.debug("Received submission signal on channel {}", wait_channel)
+            return True
+        logger.debug("Timeout waiting for submission signal on channel {}", wait_channel)
+        return False
 
     def _check_message_submitted(self, session_name: str, expected_ending: str) -> bool:
         """Check if the message was submitted to Claude.
