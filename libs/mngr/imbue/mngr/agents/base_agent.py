@@ -377,6 +377,8 @@ class BaseAgent(AgentInterface):
             raise SendMessageError(str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}")
 
         # Give Claude Code's input handler time to process the backspaces
+        # before checking the display. The terminal can update faster than
+        # Claude Code's internal state machine processes the input.
         backspace_settle_delay = self.get_enter_delay_seconds()
         logger.debug("Waiting {}s for backspaces to settle", backspace_settle_delay)
         time.sleep(backspace_settle_delay)
@@ -399,6 +401,14 @@ class BaseAgent(AgentInterface):
         # Use the last 20 chars of the message as the expected ending (or full message if shorter)
         expected_ending = message[-20:] if len(message) > 20 else message
         self._wait_for_message_ending(session_name, marker, expected_ending)
+
+        # Add a small delay after the display looks correct, before sending Enter.
+        # The terminal display can update before Claude Code's input handler has fully
+        # processed the backspaces. Without this delay, Enter can be misinterpreted as
+        # a literal newline instead of a submit action.
+        enter_delay = self.get_enter_delay_seconds()
+        logger.debug("Waiting {}s before sending Enter", enter_delay)
+        time.sleep(enter_delay)
 
         # Now send Enter to submit the message
         send_enter_cmd = f"tmux send-keys -t '{session_name}' Enter"
