@@ -626,6 +626,7 @@ def test_unset_vars_applied_during_agent_start(
 # =============================================================================
 
 
+@pytest.mark.nomodal
 def test_stop_agent_kills_single_pane_processes(
     temp_host_dir: Path,
     temp_work_dir: Path,
@@ -669,9 +670,10 @@ def test_stop_agent_kills_single_pane_processes(
         processes_killed = "sleep 1001" not in output_ps.stdout or not success_ps
         return session_killed and processes_killed
 
-    wait_for(check_cleanup, timeout=30, error_message="Agent session and processes not cleaned up after stop")
+    wait_for(check_cleanup, timeout=10, error_message="Agent session and processes not cleaned up after stop")
 
 
+@pytest.mark.nomodal
 def test_stop_agent_kills_multi_pane_processes(
     temp_host_dir: Path,
     temp_work_dir: Path,
@@ -723,7 +725,9 @@ def test_stop_agent_kills_multi_pane_processes(
         processes_killed = "sleep" not in output_ps.stdout or not success_ps
         return session_killed and processes_killed
 
-    wait_for(check_cleanup, error_message="Multi-pane agent session and processes not cleaned up after stop")
+    wait_for(
+        check_cleanup, timeout=10, error_message="Multi-pane agent session and processes not cleaned up after stop"
+    )
 
 
 def test_start_agent_creates_process_group(
