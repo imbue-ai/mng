@@ -179,6 +179,11 @@ class Host(BaseHost, OnlineHostInterface):
                 _retry_delay=_retry_delay,
                 _retry_until=_retry_until,
             )
+        except OSError as e:
+            if "Socket is closed" in str(e):
+                raise HostConnectionError("Connection was closed while running command") from e
+            else:
+                raise
         except SSHException as e:
             raise HostConnectionError("Could not execute command due to connection error") from e
 
@@ -209,7 +214,10 @@ class Host(BaseHost, OnlineHostInterface):
                 error_msg = str(e)
                 if "No such file or directory" in error_msg or "cannot stat" in error_msg:
                     raise FileNotFoundError(f"File not found: {remote_filename}") from e
-                raise
+                elif "Socket is closed" in str(e):
+                    raise HostConnectionError("Connection was closed while reading file") from e
+                else:
+                    raise
         except SSHException as e:
             raise HostConnectionError("Could not read file due to connection error") from e
 
@@ -232,8 +240,13 @@ class Host(BaseHost, OnlineHostInterface):
                 remote_filename,
                 remote_temp_filename=remote_temp_filename,
             )
+        except OSError as e:
+            if "Socket is closed" in str(e):
+                raise HostConnectionError("Connection was closed while writing file") from e
+            else:
+                raise
         except SSHException as e:
-            raise HostConnectionError("Could not execute command due to connection error") from e
+            raise HostConnectionError("Could not write file due to connection error") from e
 
     # =========================================================================
     # Convenience methods (built on core primitives)

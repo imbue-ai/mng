@@ -17,6 +17,7 @@ from imbue.imbue_common.pure import pure
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
+from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.hosts.host import Host
@@ -268,9 +269,53 @@ def list_agents(
 
                 for agent_ref in agent_refs:
                     try:
-                        # FIXME: consolidate the below code--it's pretty duplicated between the if and the else
-                        if agents is None:
-                            # Use persisted agent data for stopped hosts
+                        agent_info: AgentInfo | None = None
+                        if agents is not None:
+                            try:
+                                # Find the agent in the list for running hosts
+                                agent = next((a for a in (agents or []) if a.id == agent_ref.agent_id), None)
+
+                                if agent is None:
+                                    exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
+                                    if error_behavior == ErrorBehavior.ABORT:
+                                        raise exception
+                                    error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
+                                    result.errors.append(error_info)
+                                    if on_error:
+                                        on_error(error_info)
+                                    continue
+
+                                agent_status = agent.get_reported_status()
+
+                                # Get idle_mode from host's activity config
+                                activity_config = host.get_activity_config()
+
+                                agent_info = AgentInfo(
+                                    id=agent.id,
+                                    name=agent.name,
+                                    type=str(agent.agent_type),
+                                    command=agent.get_command(),
+                                    work_dir=agent.work_dir,
+                                    create_time=agent.create_time,
+                                    start_on_boot=agent.get_is_start_on_boot(),
+                                    lifecycle_state=agent.get_lifecycle_state(),
+                                    status=agent_status,
+                                    url=agent.get_reported_url(),
+                                    start_time=agent.get_reported_start_time(),
+                                    runtime_seconds=agent.runtime_seconds,
+                                    user_activity_time=agent.get_reported_activity_time(ActivitySource.USER),
+                                    agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
+                                    ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
+                                    idle_seconds=None,
+                                    idle_mode=activity_config.idle_mode.value.lower(),
+                                    host=host_info,
+                                    plugin={},
+                                )
+                            except HostConnectionError:
+                                pass
+                        # if this host is offline, or if we failed to get the online host (ex: because it went offline)
+                        if agents is None or agent_info is None:
+                            # then use persisted agent data for stopped hosts
                             agent_data = _get_persisted_agent_data(provider, host.id, agent_ref.agent_id)
                             if agent_data is None:
                                 exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
@@ -308,46 +353,6 @@ def list_agents(
                                 ssh_activity_time=None,
                                 idle_seconds=None,
                                 idle_mode=None,
-                                host=host_info,
-                                plugin={},
-                            )
-                        else:
-                            # Find the agent in the list for running hosts
-                            agent = next((a for a in (agents or []) if a.id == agent_ref.agent_id), None)
-
-                            if agent is None:
-                                exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
-                                if error_behavior == ErrorBehavior.ABORT:
-                                    raise exception
-                                error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
-                                result.errors.append(error_info)
-                                if on_error:
-                                    on_error(error_info)
-                                continue
-
-                            agent_status = agent.get_reported_status()
-
-                            # Get idle_mode from host's activity config
-                            activity_config = host.get_activity_config()
-
-                            agent_info = AgentInfo(
-                                id=agent.id,
-                                name=agent.name,
-                                type=str(agent.agent_type),
-                                command=agent.get_command(),
-                                work_dir=agent.work_dir,
-                                create_time=agent.create_time,
-                                start_on_boot=agent.get_is_start_on_boot(),
-                                lifecycle_state=agent.get_lifecycle_state(),
-                                status=agent_status,
-                                url=agent.get_reported_url(),
-                                start_time=agent.get_reported_start_time(),
-                                runtime_seconds=agent.runtime_seconds,
-                                user_activity_time=agent.get_reported_activity_time(ActivitySource.USER),
-                                agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
-                                ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
-                                idle_seconds=None,
-                                idle_mode=activity_config.idle_mode.value.lower(),
                                 host=host_info,
                                 plugin={},
                             )
