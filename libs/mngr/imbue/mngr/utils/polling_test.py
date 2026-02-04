@@ -1,4 +1,4 @@
-"""Unit tests for the create API."""
+"""Unit tests for the polling module."""
 
 import time
 
