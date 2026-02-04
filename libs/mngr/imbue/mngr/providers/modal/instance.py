@@ -1595,7 +1595,7 @@ log "=== Shutdown script completed ==="
         # For persistent apps, deploy the snapshot function and create shutdown script
         if self.config.is_persistent:
             snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
-            self._create_shutdown_script(restored_host, sandbox, host_id, snapshot_url)
+            self._create_shutdown_script(restored_host, new_sandbox, host_id, snapshot_url)
 
         # Cache the new online host
         self._host_by_id_cache[host_id] = restored_host

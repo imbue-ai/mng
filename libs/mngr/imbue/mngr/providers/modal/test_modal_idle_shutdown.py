@@ -187,7 +187,7 @@ def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
                 "-b",
                 "context-dir=.mngr/dev/build/",
                 "--",
-                f"echo hi && sleep 300",
+                "echo hi && sleep 300",
             ],
             capture_output=True,
             text=True,

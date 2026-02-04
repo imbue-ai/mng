@@ -79,7 +79,7 @@ class NoCommandDefinedError(AgentError, ValueError):
     """Raised when no command is defined for an agent type."""
 
 
-class AgentNotFoundError(AgentError):
+class AgentNotFoundError(AgentError, MngrError):
     """No agent with this ID exists."""
 
     user_help_text = "Use 'mngr list' to see available agents."
