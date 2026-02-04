@@ -669,7 +669,7 @@ def test_stop_agent_kills_single_pane_processes(
         processes_killed = "sleep 1001" not in output_ps.stdout or not success_ps
         return session_killed and processes_killed
 
-    wait_for(check_cleanup, error_message="Agent session and processes not cleaned up after stop")
+    wait_for(check_cleanup, timeout=30, error_message="Agent session and processes not cleaned up after stop")
 
 
 def test_stop_agent_kills_multi_pane_processes(
