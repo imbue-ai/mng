@@ -8,6 +8,10 @@ from typing import Any
 
 from loguru import logger
 from pydantic import Field
+from tenacity import retry
+from tenacity import retry_if_exception_type
+from tenacity import stop_after_attempt
+from tenacity import wait_exponential
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.thread_utils import ObservableThread
@@ -215,164 +219,17 @@ def list_agents(
                         on_error(error_info)
                     continue
 
-                host = provider.get_host(host_ref.host_id)
-
-                # Build SSH info if this is a remote host (only available for online hosts)
-                ssh_info: SSHInfo | None = None
-
-                # Host is the implementation of OnlineHostInterface, ie, this host is online
-                if isinstance(host, Host):
-                    ssh_connection = host._get_ssh_connection_info()
-                    if ssh_connection is None:
-                        # Default for local hosts
-                        host_hostname: str | None = "localhost"
-                    else:
-                        user, hostname, port, key_path = ssh_connection
-                        host_hostname = hostname
-                        ssh_info = SSHInfo(
-                            user=user,
-                            host=hostname,
-                            port=port,
-                            key_path=key_path,
-                            command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
-                        )
-                    boot_time = host.get_boot_time()
-                    uptime_seconds = host.get_uptime_seconds()
-                    resource = host.get_provider_resources()
-                else:
-                    boot_time = None
-                    uptime_seconds = None
-                    resource = None
-                    host_hostname = None
-
-                host_info = HostInfo(
-                    id=host.id,
-                    name=str(host.get_name()),
-                    provider_name=host_ref.provider_name,
-                    host=host_hostname,
-                    state=host.get_state().value.lower(),
-                    image=host.get_image(),
-                    tags=host.get_tags(),
-                    boot_time=boot_time,
-                    uptime_seconds=uptime_seconds,
-                    resource=resource,
-                    ssh=ssh_info,
-                    snapshots=host.get_snapshots(),
-                    failure_reason=host.get_failure_reason(),
-                    build_log=host.get_build_log(),
+                _assemble_host_info(
+                    host_ref,
+                    agent_refs,
+                    provider,
+                    compiled_exclude_filters,
+                    compiled_include_filters,
+                    error_behavior,
+                    on_agent,
+                    on_error,
+                    result,
                 )
-
-                # Get all agents on this host
-                agents = None
-                if isinstance(host, OnlineHostInterface):
-                    agents = host.get_agents()
-
-                for agent_ref in agent_refs:
-                    try:
-                        agent_info: AgentInfo | None = None
-                        if agents is not None:
-                            try:
-                                # Find the agent in the list for running hosts
-                                agent = next((a for a in (agents or []) if a.id == agent_ref.agent_id), None)
-
-                                if agent is None:
-                                    exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
-                                    if error_behavior == ErrorBehavior.ABORT:
-                                        raise exception
-                                    error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
-                                    result.errors.append(error_info)
-                                    if on_error:
-                                        on_error(error_info)
-                                    continue
-
-                                agent_status = agent.get_reported_status()
-
-                                # Get idle_mode from host's activity config
-                                activity_config = host.get_activity_config()
-
-                                agent_info = AgentInfo(
-                                    id=agent.id,
-                                    name=agent.name,
-                                    type=str(agent.agent_type),
-                                    command=agent.get_command(),
-                                    work_dir=agent.work_dir,
-                                    create_time=agent.create_time,
-                                    start_on_boot=agent.get_is_start_on_boot(),
-                                    lifecycle_state=agent.get_lifecycle_state(),
-                                    status=agent_status,
-                                    url=agent.get_reported_url(),
-                                    start_time=agent.get_reported_start_time(),
-                                    runtime_seconds=agent.runtime_seconds,
-                                    user_activity_time=agent.get_reported_activity_time(ActivitySource.USER),
-                                    agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
-                                    ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
-                                    idle_seconds=None,
-                                    idle_mode=activity_config.idle_mode.value.lower(),
-                                    host=host_info,
-                                    plugin={},
-                                )
-                            except HostConnectionError:
-                                pass
-                        # if this host is offline, or if we failed to get the online host (ex: because it went offline)
-                        if agents is None or agent_info is None:
-                            # then use persisted agent data for stopped hosts
-                            agent_data = _get_persisted_agent_data(provider, host.id, agent_ref.agent_id)
-                            if agent_data is None:
-                                exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
-                                if error_behavior == ErrorBehavior.ABORT:
-                                    raise exception
-                                error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
-                                result.errors.append(error_info)
-                                if on_error:
-                                    on_error(error_info)
-                                continue
-
-                            # Create minimal AgentInfo from persisted data
-                            # Use epoch as fallback for create_time (should always be present)
-                            create_time_str = agent_data.get("create_time")
-                            create_time = (
-                                datetime.fromisoformat(create_time_str)
-                                if create_time_str
-                                else datetime(1970, 1, 1, tzinfo=timezone.utc)
-                            )
-                            agent_info = AgentInfo(
-                                id=AgentId(agent_data["id"]),
-                                name=AgentName(agent_data["name"]),
-                                type=agent_data.get("type", "unknown"),
-                                command=CommandString(agent_data.get("command", "")),
-                                work_dir=Path(agent_data.get("work_dir", "/")),
-                                create_time=create_time,
-                                start_on_boot=agent_data.get("start_on_boot", False),
-                                lifecycle_state=AgentLifecycleState.STOPPED,
-                                status=None,
-                                url=None,
-                                start_time=None,
-                                runtime_seconds=None,
-                                user_activity_time=None,
-                                agent_activity_time=None,
-                                ssh_activity_time=None,
-                                idle_seconds=None,
-                                idle_mode=None,
-                                host=host_info,
-                                plugin={},
-                            )
-
-                        # Apply CEL filters if provided
-                        if compiled_include_filters or compiled_exclude_filters:
-                            if not _apply_cel_filters(agent_info, compiled_include_filters, compiled_exclude_filters):
-                                continue
-
-                        result.agents.append(agent_info)
-                        if on_agent:
-                            on_agent(agent_info)
-
-                    except MngrError as e:
-                        if error_behavior == ErrorBehavior.ABORT:
-                            raise
-                        error_info = AgentErrorInfo.build_for_agent(e, agent_ref.agent_id)
-                        result.errors.append(error_info)
-                        if on_error:
-                            on_error(error_info)
 
             except MngrError as e:
                 if error_behavior == ErrorBehavior.ABORT:
@@ -391,6 +248,178 @@ def list_agents(
             on_error(error_info)
 
     return result
+
+
+# retry exactly once if there is a HostConnectionError (hopefully we then simply load the offline version of the host)
+@retry(
+    retry=retry_if_exception_type(HostConnectionError),
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    reraise=True,
+)
+def _assemble_host_info(
+    host_ref,
+    agent_refs,
+    provider,
+    compiled_exclude_filters,
+    compiled_include_filters,
+    error_behavior,
+    on_agent,
+    on_error,
+    result,
+):
+    # get the host
+    host = provider.get_host(host_ref.host_id)
+
+    # Build SSH info if this is a remote host (only available for online hosts)
+    ssh_info: SSHInfo | None = None
+
+    # Host is the implementation of OnlineHostInterface, ie, this host is online
+    if isinstance(host, Host):
+        ssh_connection = host._get_ssh_connection_info()
+        if ssh_connection is not None:
+            user, hostname, port, key_path = ssh_connection
+            ssh_info = SSHInfo(
+                user=user,
+                host=hostname,
+                port=port,
+                key_path=key_path,
+                command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
+            )
+        boot_time = host.get_boot_time()
+        uptime_seconds = host.get_uptime_seconds()
+        resource = host.get_provider_resources()
+    else:
+        boot_time = None
+        uptime_seconds = None
+        resource = None
+
+    # make the host data
+    host_info = HostInfo(
+        id=host.id,
+        name=str(host.get_name()),
+        provider_name=host_ref.provider_name,
+        state=host.get_state().value.lower(),
+        image=host.get_image(),
+        tags=host.get_tags(),
+        boot_time=boot_time,
+        uptime_seconds=uptime_seconds,
+        resource=resource,
+        ssh=ssh_info,
+        snapshots=host.get_snapshots(),
+        failure_reason=host.get_failure_reason(),
+        build_log=host.get_build_log(),
+    )
+
+    # Get all agents on this host
+    agents = None
+    if isinstance(host, OnlineHostInterface):
+        agents = host.get_agents()
+
+    # make an AgentInfo for each agent on this host
+    for agent_ref in agent_refs:
+        try:
+            agent_info: AgentInfo | None = None
+            if agents is not None:
+                # Find the agent in the list for running hosts
+                agent = next((a for a in (agents or []) if a.id == agent_ref.agent_id), None)
+
+                if agent is None:
+                    exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
+                    if error_behavior == ErrorBehavior.ABORT:
+                        raise exception
+                    error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
+                    result.errors.append(error_info)
+                    if on_error:
+                        on_error(error_info)
+                    continue
+
+                agent_status = agent.get_reported_status()
+
+                # Get idle_mode from host's activity config
+                activity_config = host.get_activity_config()
+
+                agent_info = AgentInfo(
+                    id=agent.id,
+                    name=agent.name,
+                    type=str(agent.agent_type),
+                    command=agent.get_command(),
+                    work_dir=agent.work_dir,
+                    create_time=agent.create_time,
+                    start_on_boot=agent.get_is_start_on_boot(),
+                    lifecycle_state=agent.get_lifecycle_state(),
+                    status=agent_status,
+                    url=agent.get_reported_url(),
+                    start_time=agent.get_reported_start_time(),
+                    runtime_seconds=agent.runtime_seconds,
+                    user_activity_time=agent.get_reported_activity_time(ActivitySource.USER),
+                    agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
+                    ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
+                    idle_seconds=None,
+                    idle_mode=activity_config.idle_mode.value.lower(),
+                    host=host_info,
+                    plugin={},
+                )
+            # if this host is offline, or if we failed to get the online host (ex: because it went offline)
+            if agents is None or agent_info is None:
+                # then use persisted agent data for stopped hosts
+                agent_data = _get_persisted_agent_data(provider, host.id, agent_ref.agent_id)
+                if agent_data is None:
+                    exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
+                    if error_behavior == ErrorBehavior.ABORT:
+                        raise exception
+                    error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
+                    result.errors.append(error_info)
+                    if on_error:
+                        on_error(error_info)
+                    continue
+
+                # Create minimal AgentInfo from persisted data
+                # Use epoch as fallback for create_time (should always be present)
+                create_time_str = agent_data.get("create_time")
+                create_time = (
+                    datetime.fromisoformat(create_time_str)
+                    if create_time_str
+                    else datetime(1970, 1, 1, tzinfo=timezone.utc)
+                )
+                agent_info = AgentInfo(
+                    id=AgentId(agent_data["id"]),
+                    name=AgentName(agent_data["name"]),
+                    type=agent_data.get("type", "unknown"),
+                    command=CommandString(agent_data.get("command", "")),
+                    work_dir=Path(agent_data.get("work_dir", "/")),
+                    create_time=create_time,
+                    start_on_boot=agent_data.get("start_on_boot", False),
+                    lifecycle_state=AgentLifecycleState.STOPPED,
+                    status=None,
+                    url=None,
+                    start_time=None,
+                    runtime_seconds=None,
+                    user_activity_time=None,
+                    agent_activity_time=None,
+                    ssh_activity_time=None,
+                    idle_seconds=None,
+                    idle_mode=None,
+                    host=host_info,
+                    plugin={},
+                )
+
+            # Apply CEL filters if provided
+            if compiled_include_filters or compiled_exclude_filters:
+                if not _apply_cel_filters(agent_info, compiled_include_filters, compiled_exclude_filters):
+                    continue
+
+            result.agents.append(agent_info)
+            if on_agent:
+                on_agent(agent_info)
+
+        except MngrError as e:
+            if error_behavior == ErrorBehavior.ABORT:
+                raise
+            error_info = AgentErrorInfo.build_for_agent(e, agent_ref.agent_id)
+            result.errors.append(error_info)
+            if on_error:
+                on_error(error_info)
 
 
 @pure

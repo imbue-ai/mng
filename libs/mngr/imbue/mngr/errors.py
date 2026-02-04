@@ -10,8 +10,12 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 
 
-class MngrError(ClickException):
-    """Base exception for all mngr errors.
+class BaseMngrError(Exception):
+    """Base exception for all mngr errors."""
+
+
+class MngrError(ClickException, BaseMngrError):
+    """Base exception for all user-facing mngr errors.
 
     All MngrError subclasses can provide a user_help_text attribute that contains
     additional context to help the user understand and resolve the error.
@@ -43,7 +47,7 @@ class InvalidRelativePathError(MngrError, ValueError):
         super().__init__(f"Path must be relative, got absolute path: {path}")
 
 
-class HostError(MngrError):
+class HostError(BaseMngrError):
     """Base class for host-related errors."""
 
 
@@ -67,7 +71,7 @@ class LockNotHeldError(HostError):
     """Raised when attempting to use a lock that is not held."""
 
 
-class AgentError(MngrError):
+class AgentError(BaseMngrError):
     """Base class for agent-related errors."""
 
 

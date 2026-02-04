@@ -1625,6 +1625,16 @@ log "=== Shutdown script completed ==="
         if delete_snapshots:
             self._delete_host_record(host_id)
 
+    def on_connection_error(self, host_id: HostId) -> None:
+        """Remove all caches if we notice a connection to the host fail"""
+        host_record = self._host_record_cache_by_id.get(host_id)
+        if host_record is not None:
+            host_name = HostName(host_record.host_name)
+            self._sandbox_cache_by_name.pop(host_name, None)
+        self._sandbox_cache_by_id.pop(host_id, None)
+        self._host_by_id_cache.pop(host_id, None)
+        self._host_record_cache_by_id.pop(host_id, None)
+
     # =========================================================================
     # Discovery Methods
     # =========================================================================

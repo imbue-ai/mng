@@ -124,6 +124,11 @@ class ProviderInstanceInterface(MutableModel, ABC):
         """Permanently destroy a host and optionally delete its snapshots."""
         ...
 
+    @abstractmethod
+    def on_connection_error(self, host_id: HostId) -> None:
+        """Handle actions to take when a connection error occurs with a host."""
+        ...
+
     # =========================================================================
     # Discovery Methods
     # =========================================================================
