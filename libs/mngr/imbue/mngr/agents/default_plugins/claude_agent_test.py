@@ -448,8 +448,6 @@ def test_provision_extends_trust_for_worktree(mngr_test_prefix: str, tmp_path: P
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
     mock_host = Mock()
-    mock_host.is_local = True
-    mock_host.execute_command.return_value = Mock(success=True)
     mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
 
     work_dir = tmp_path / "worktree"
@@ -495,8 +493,6 @@ def test_provision_does_not_extend_trust_for_non_worktree(
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
     mock_host = Mock()
-    mock_host.is_local = True
-    mock_host.execute_command.return_value = Mock(success=True)
     mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
 
     agent = ClaudeAgent.model_construct(
@@ -531,8 +527,6 @@ def test_provision_does_not_extend_trust_when_no_git_options(
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
     mock_host = Mock()
-    mock_host.is_local = True
-    mock_host.execute_command.return_value = Mock(success=True)
     mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
 
     agent = ClaudeAgent.model_construct(
