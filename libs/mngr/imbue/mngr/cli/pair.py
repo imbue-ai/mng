@@ -153,6 +153,7 @@ def pair(ctx: click.Context, **kwargs) -> None:
       mngr pair --source-agent my-agent --target ./local-copy
       mngr pair my-agent --sync-direction=forward
       mngr pair my-agent --conflict=source
+      mngr pair my-agent --source-host @local
     """
     mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
@@ -162,9 +163,6 @@ def pair(ctx: click.Context, **kwargs) -> None:
     logger.debug("Running pair command")
 
     # Check for unsupported options
-    if opts.source_host is not None:
-        raise NotImplementedError("--source-host is not implemented yet (only local agents are supported)")
-
     if opts.conflict == "ask":
         raise NotImplementedError("--conflict=ask is not implemented yet")
 
@@ -206,7 +204,9 @@ def pair(ctx: click.Context, **kwargs) -> None:
 
     if agent_identifier is not None:
         agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
-        agent, host = find_agent_by_name_or_id(agent_identifier, agents_by_host, mngr_ctx)
+        agent, host = find_agent_by_name_or_id(
+            agent_identifier, agents_by_host, mngr_ctx, host_filter=opts.source_host
+        )
     elif not sys.stdin.isatty():
         raise UserInputError("No agent specified and not running in interactive mode")
     else:

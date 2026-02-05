@@ -19,6 +19,7 @@ Examples:
   mngr pair --source-agent my-agent --target ./local-copy
   mngr pair my-agent --sync-direction=forward
   mngr pair my-agent --conflict=source
+  mngr pair my-agent --source-host @local
 
 **Usage:**
 

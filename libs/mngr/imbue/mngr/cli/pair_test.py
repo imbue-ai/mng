@@ -12,6 +12,7 @@ def test_pair_cli_options_has_all_fields() -> None:
     annotations = PairCliOptions.__annotations__
     assert "source" in annotations
     assert "source_agent" in annotations
+    assert "source_host" in annotations
     assert "sync_direction" in annotations
     assert "conflict" in annotations
     assert "exclude" in annotations
@@ -32,6 +33,7 @@ def test_pair_command_help_shows_options() -> None:
     assert result.exit_code == 0
     assert "--source" in result.output or "-s" in result.output
     assert "--source-agent" in result.output
+    assert "--source-host" in result.output
     assert "--sync-direction" in result.output
     assert "--conflict" in result.output
     assert "--exclude" in result.output
