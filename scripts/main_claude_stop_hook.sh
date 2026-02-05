@@ -193,15 +193,55 @@ if ! retry_command 3 git push origin $BASE_BRANCH; then
     exit 1
 fi
 
-# Check if there are any commits ahead of base branch (skip PR if purely informational)
+# Fetch all remotes and merge base branch to stay up-to-date
+log_info "Fetching all remotes..."
+git fetch --all
+
+# Merge the base branch from origin (if it exists)
+if git rev-parse --verify "origin/$BASE_BRANCH" >/dev/null 2>&1; then
+    log_info "Merging origin/$BASE_BRANCH..."
+    if ! git merge "origin/$BASE_BRANCH" --no-edit; then
+        log_error "Merge conflict detected while merging origin/$BASE_BRANCH."
+        log_error "Please resolve the merge conflicts before continuing."
+        exit 2
+    fi
+fi
+
+# Merge the local base branch (if it exists)
+if git rev-parse --verify "$BASE_BRANCH" >/dev/null 2>&1; then
+    log_info "Merging $BASE_BRANCH..."
+    if ! git merge "$BASE_BRANCH" --no-edit; then
+        log_error "Merge conflict detected while merging $BASE_BRANCH."
+        log_error "Please resolve the merge conflicts before continuing."
+        exit 2
+    fi
+fi
+
+# Push merge commits (if any were created)
+log_info "Pushing any merge commits..."
+if ! retry_command 3 git push origin HEAD; then
+    log_error "Failed to push merge commits after retries"
+    exit 1
+fi
+
+# Check if there are any non-markdown file changes compared to the base branch
 IS_INFORMATIONAL_ONLY=false
 if [[ "$CURRENT_BRANCH" == "$BASE_BRANCH" ]]; then
     log_info "Currently on base branch ($BASE_BRANCH) - no PR needed"
     IS_INFORMATIONAL_ONLY=true
-elif COMMITS_AHEAD=$(git rev-list --count "origin/$BASE_BRANCH..HEAD" 2>/dev/null); then
-    if [[ "$COMMITS_AHEAD" == "0" ]]; then
-        log_info "No commits ahead of $BASE_BRANCH - this was an informational session, skipping PR creation"
+else
+    # Get files that have changed since the (now updated) base branch
+    CHANGED_FILES=$(git diff --name-only "$BASE_BRANCH"...HEAD 2>/dev/null || echo "")
+    if [[ -z "$CHANGED_FILES" ]]; then
+        log_info "No files changed compared to $BASE_BRANCH - this was an informational session, skipping PR creation"
         IS_INFORMATIONAL_ONLY=true
+    else
+        # If all changed files are .md files, consider this an informational session
+        NON_MD_FILES=$(echo "$CHANGED_FILES" | grep -v '\.md$' || true)
+        if [[ -z "$NON_MD_FILES" ]]; then
+            log_info "Only .md files changed compared to $BASE_BRANCH - this was an informational session, skipping PR creation"
+            IS_INFORMATIONAL_ONLY=true
+        fi
     fi
 fi
 
