@@ -1,7 +1,7 @@
-import deal
+from imbue.imbue_common.pure import pure
 
 
-@deal.has()
+@pure
 def parse_rsync_output(
     # stdout from rsync command
     output: str,
