@@ -488,7 +488,7 @@ def test_send_backspace_with_noop_sends_keys_to_tmux(
         )
 
         # Now send backspaces with noop - should remove some characters
-        test_agent._send_backspace_with_noop(session_name, count=2, settle_delay=0.1)
+        test_agent._send_backspace_with_noop(session_name, count=2)
 
         # Verify backspaces were processed (last 2 chars should be removed)
         content = test_agent._capture_pane_content(session_name)

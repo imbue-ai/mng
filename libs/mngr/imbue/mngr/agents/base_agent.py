@@ -392,34 +392,25 @@ class BaseAgent(AgentInterface):
 
         # Remove the marker by sending backspaces (32 hex chars for UUID)
         # Send backspaces and noop keys to clean up the marker
-        self._send_backspace_with_noop(session_name, count=len(marker), settle_delay=0.0)
+        self._send_backspace_with_noop(session_name, count=len(marker))
 
         # Verify the marker is gone and the message ends correctly
         # Use the last 20 chars of the message as the expected ending (or full message if shorter)
         expected_ending = message[-20:] if len(message) > 20 else message
         self._wait_for_message_ending(session_name, marker, expected_ending)
 
-        # Send Enter with retry logic. Sometimes Enter is interpreted as a literal newline
-        # instead of a submit action. We detect this by checking if the message is still
-        # in the input area after sending Enter, and retry if so.
-        self._send_enter_with_retry(session_name, expected_ending)
+        # Send Enter and wait for submission signal
+        self._send_enter_and_wait(session_name)
 
-    def _send_backspace_with_noop(self, session_name: str, count: int = 1, settle_delay: float | None = None) -> None:
+    def _send_backspace_with_noop(self, session_name: str, count: int = 1) -> None:
         """Send backspace(s) followed by noop keys to reset input handler state.
 
-        This helper:
-        1. Sends the specified number of backspaces
-        2. Waits for the input handler to settle
-        3. Sends a no-op key sequence (Right then Left) to reset state
+        This helper sends the specified number of backspaces, then sends a no-op
+        key sequence (Right then Left) to reset state.
 
         The noop keys are necessary because Claude Code's input handler can get into
         a state after backspaces where Enter is interpreted as a literal newline.
         Sending any key (even a no-op) before Enter fixes this.
-
-        Args:
-            session_name: The tmux session name
-            count: Number of backspaces to send
-            settle_delay: How long to wait after backspaces. If None, uses get_enter_delay_seconds()
         """
         if count > 0:
             backspace_keys = " ".join(["BSpace"] * count)
@@ -429,11 +420,6 @@ class BaseAgent(AgentInterface):
                 raise SendMessageError(
                     str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}"
                 )
-
-        # Give Claude Code's input handler time to process the backspaces
-        delay = settle_delay if settle_delay is not None else self.get_enter_delay_seconds()
-        logger.debug("Waiting {}s for backspaces to settle", delay)
-        time.sleep(delay)
 
         # Send a no-op key sequence (Right then Left) to reset input handler state
         noop_cmd = f"tmux send-keys -t '{session_name}' Right Left"
@@ -520,6 +506,22 @@ class BaseAgent(AgentInterface):
         contains_expected = expected_ending in content
         return marker_gone and contains_expected
 
+    def _send_enter_and_wait(self, session_name: str) -> None:
+        """Send Enter to submit the message and wait for the submission signal.
+
+        Uses tmux wait-for to detect when the UserPromptSubmit hook fires.
+        Raises SendMessageError if the signal is not received within the timeout.
+        """
+        wait_channel = f"mngr-submit-{session_name}"
+        if self._send_enter_and_wait_for_signal(session_name, wait_channel):
+            logger.debug("Message submitted successfully")
+            return
+
+        raise SendMessageError(
+            str(self.name),
+            f"Timeout waiting for message submission signal (waited {_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS}s)",
+        )
+
     def _send_enter_with_retry(self, session_name: str, expected_ending: str, max_retries: int = 10) -> None:
         """Send Enter to submit the message, with retry logic for reliability.
 
@@ -542,7 +544,7 @@ class BaseAgent(AgentInterface):
             )
 
             # Clean up the accidental newline with backspace, then send noop keys to reset state
-            self._send_backspace_with_noop(session_name, count=1, settle_delay=0.0)
+            self._send_backspace_with_noop(session_name, count=1)
 
             # Safety check: verify we haven't deleted too much of the message.
             # If backspaces accumulated (e.g., due to timing issues), we could be
