@@ -153,6 +153,30 @@ def get_short_random_string() -> str:
     return uuid4().hex[:8]
 
 
+def setup_claude_trust_config_for_subprocess(
+    config_file: Path,
+    trusted_paths: list[Path],
+) -> dict[str, str]:
+    """Create a Claude trust config file and return env vars for subprocess tests.
+
+    This creates a fake ~/.claude.json equivalent that marks the specified paths
+    as trusted. The returned env dict should be passed to subprocess.run() to
+    make the subprocess use this config instead of ~/.claude.json.
+
+    The config_file should be in a temporary directory that will be cleaned up
+    after the test.
+    """
+    claude_config = {
+        "projects": {str(path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True} for path in trusted_paths}
+    }
+    config_file.write_text(json.dumps(claude_config))
+
+    # Return env vars that point to this config file
+    env = os.environ.copy()
+    env["MNGR_CLAUDE_CONFIG_PATH"] = str(config_file)
+    return env
+
+
 # =============================================================================
 # Modal test environment cleanup utilities
 # =============================================================================

@@ -11,24 +11,42 @@ Run with:
 import subprocess
 import time
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 
 from imbue.mngr.utils.testing import get_short_random_string
+from imbue.mngr.utils.testing import setup_claude_trust_config_for_subprocess
 
 
-def run_mngr(*args: str, timeout: float = 120) -> subprocess.CompletedProcess[str]:
+@pytest.fixture(scope="module")
+def claude_trust_env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
+    """Create a Claude trust config for subprocess tests.
+
+    This fixture creates a fake ~/.claude.json that marks the current working
+    directory as trusted, allowing worktree creation without the real Claude config.
+    """
+    config_dir = tmp_path_factory.mktemp("claude_config")
+    config_file = config_dir / ".claude.json"
+
+    # Trust the current working directory (where the git repo is)
+    cwd = Path.cwd().resolve()
+    return setup_claude_trust_config_for_subprocess(config_file, [cwd])
+
+
+def run_mngr(*args: str, timeout: float = 120, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     """Run mngr command and return the result."""
     return subprocess.run(
         ["uv", "run", "mngr", *args],
         capture_output=True,
         text=True,
         timeout=timeout,
+        env=env,
     )
 
 
 @pytest.fixture
-def claude_agent() -> Generator[str, None, None]:
+def claude_agent(claude_trust_env: dict[str, str]) -> Generator[str, None, None]:
     """Create a Claude agent for testing and clean it up after."""
     agent_name = f"test-msg-{get_short_random_string()}"
 
@@ -41,6 +59,7 @@ def claude_agent() -> Generator[str, None, None]:
         "--no-connect",
         "--no-ensure-clean",
         "--await-ready",
+        env=claude_trust_env,
     )
     if result.returncode != 0:
         pytest.fail(f"Failed to create agent: {result.stderr}")
@@ -51,12 +70,12 @@ def claude_agent() -> Generator[str, None, None]:
     yield agent_name
 
     # Cleanup
-    run_mngr("destroy", agent_name, "--force")
+    run_mngr("destroy", agent_name, "--force", env=claude_trust_env)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-def test_mngr_create_with_message_succeeds() -> None:
+def test_mngr_create_with_message_succeeds(claude_trust_env: dict[str, str]) -> None:
     """Test that `mngr create --message` successfully sends a message to Claude.
 
     This tests the integrated flow where the message is sent as part of agent creation.
@@ -75,6 +94,7 @@ def test_mngr_create_with_message_succeeds() -> None:
             "--no-connect",
             "--no-ensure-clean",
             "-v",
+            env=claude_trust_env,
         )
 
         # Check that the command succeeded
@@ -86,12 +106,12 @@ def test_mngr_create_with_message_succeeds() -> None:
         ), f"Message submission not confirmed in output:\nstdout: {result.stdout}\nstderr: {result.stderr}"
     finally:
         # Cleanup
-        run_mngr("destroy", agent_name, "--force")
+        run_mngr("destroy", agent_name, "--force", env=claude_trust_env)
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-def test_mngr_message_to_existing_agent_succeeds(claude_agent: str) -> None:
+def test_mngr_message_to_existing_agent_succeeds(claude_agent: str, claude_trust_env: dict[str, str]) -> None:
     """Test that `mngr message` successfully sends a message to an existing agent.
 
     This tests the separate flow where an agent is created first, then messaged separately.
@@ -104,6 +124,7 @@ def test_mngr_message_to_existing_agent_succeeds(claude_agent: str) -> None:
         "-m",
         message,
         "-v",
+        env=claude_trust_env,
     )
 
     # Check that the command succeeded
@@ -117,7 +138,7 @@ def test_mngr_message_to_existing_agent_succeeds(claude_agent: str) -> None:
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-def test_mngr_create_with_message_multiple_times() -> None:
+def test_mngr_create_with_message_multiple_times(claude_trust_env: dict[str, str]) -> None:
     """Test that `mngr create --message` works reliably across multiple trials.
 
     This is a reliability test that creates multiple agents with messages to verify
@@ -142,6 +163,7 @@ def test_mngr_create_with_message_multiple_times() -> None:
                 "--no-connect",
                 "--no-ensure-clean",
                 "-v",
+                env=claude_trust_env,
             )
 
             if result.returncode == 0 and "Message submitted successfully" in (result.stderr + result.stdout):
@@ -151,7 +173,7 @@ def test_mngr_create_with_message_multiple_times() -> None:
         except subprocess.TimeoutExpired:
             failures.append(f"Trial {i}: timeout")
         finally:
-            run_mngr("destroy", agent_name, "--force")
+            run_mngr("destroy", agent_name, "--force", env=claude_trust_env)
 
     # Require 100% success rate
     assert successes == trial_count, (
@@ -161,7 +183,7 @@ def test_mngr_create_with_message_multiple_times() -> None:
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
-def test_mngr_message_multiple_times(claude_agent: str) -> None:
+def test_mngr_message_multiple_times(claude_agent: str, claude_trust_env: dict[str, str]) -> None:
     """Test that `mngr message` works reliably across multiple sends to the same agent.
 
     This is a reliability test that sends multiple messages to verify the message
@@ -181,6 +203,7 @@ def test_mngr_message_multiple_times(claude_agent: str) -> None:
                 "-m",
                 message,
                 "-v",
+                env=claude_trust_env,
             )
 
             if result.returncode == 0 and "Message submitted successfully" in (result.stderr + result.stdout):
