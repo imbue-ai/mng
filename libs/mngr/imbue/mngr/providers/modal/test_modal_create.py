@@ -313,26 +313,34 @@ RUN echo "About to fail with marker: {unique_failure_marker}" && exit 1
 
 
 @pytest.fixture
-def temp_git_source_dir(tmp_path: Path) -> Path:
-    """Create a temporary source directory with a git repository."""
+def temp_git_source_dir(tmp_path: Path, modal_subprocess_env: ModalSubprocessTestEnv) -> Path:
+    """Create a temporary source directory with a git repository.
+
+    Uses modal_subprocess_env.env for git operations to ensure HOME is the real
+    home directory (not the monkeypatched tmp_path from the autouse fixture).
+    This ensures git config and credentials are accessible, and that the repo
+    is created in a consistent environment with how mngr will access it.
+    """
     source_dir = tmp_path / "git_source"
     source_dir.mkdir()
     # Create a file and initialize git
     (source_dir / "tracked.txt").write_text("tracked content")
-    subprocess.run(["git", "init"], cwd=source_dir, capture_output=True, check=True)
-    subprocess.run(["git", "add", "."], cwd=source_dir, capture_output=True, check=True)
+    # Use modal_subprocess_env.env to get the real HOME, not the monkeypatched one
+    git_env = {
+        **modal_subprocess_env.env,
+        "GIT_AUTHOR_NAME": "Test",
+        "GIT_AUTHOR_EMAIL": "test@test.com",
+        "GIT_COMMITTER_NAME": "Test",
+        "GIT_COMMITTER_EMAIL": "test@test.com",
+    }
+    subprocess.run(["git", "init"], cwd=source_dir, capture_output=True, check=True, env=git_env)
+    subprocess.run(["git", "add", "."], cwd=source_dir, capture_output=True, check=True, env=git_env)
     subprocess.run(
         ["git", "commit", "-m", "Initial commit"],
         cwd=source_dir,
         capture_output=True,
         check=True,
-        env={
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Test",
-            "GIT_AUTHOR_EMAIL": "test@test.com",
-            "GIT_COMMITTER_NAME": "Test",
-            "GIT_COMMITTER_EMAIL": "test@test.com",
-        },
+        env=git_env,
     )
     # Add an untracked file
     (source_dir / "untracked.txt").write_text("untracked content")
