@@ -34,6 +34,7 @@ import modal.exception
 from dockerfile_parse import DockerfileParser
 from loguru import logger
 from modal.config import Config as ModalConfig
+from modal.exception import NotFoundError
 from modal.stream_type import StreamType
 from pydantic import ConfigDict
 from pydantic import Field
@@ -447,7 +448,7 @@ class ModalProviderInstance(BaseProviderInstance):
             # Cache the result
             self._host_record_cache_by_id[host_id] = host_record
             return host_record
-        except FileNotFoundError:
+        except (NotFoundError, FileNotFoundError):
             return None
 
     def _delete_host_record(self, host_id: HostId) -> None:
@@ -458,7 +459,7 @@ class ModalProviderInstance(BaseProviderInstance):
         host_dir = f"/{host_id}"
         try:
             entries = list(volume.listdir(host_dir))
-        except FileNotFoundError:
+        except (NotFoundError, FileNotFoundError):
             pass
         else:
             for entry in entries:
@@ -474,7 +475,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.trace("Deleting host record from volume: {}", path)
         try:
             volume.remove_file(path)
-        except FileNotFoundError:
+        except (NotFoundError, FileNotFoundError):
             pass
 
         # Clear cache entries for this host
@@ -722,11 +723,6 @@ class ModalProviderInstance(BaseProviderInstance):
             if add_known_hosts_cmd is not None:
                 sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
 
-        # Start the activity watcher
-        logger.debug("Starting activity watcher in sandbox")
-        start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
-        sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
-
         logger.debug("Starting sshd in sandbox")
 
         # Start sshd (-D: don't detach)
@@ -871,6 +867,20 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Write the host data.json (will also update volume via callback since host record already exists)
         host.set_certified_data(host_data)
+
+        # For persistent apps, deploy the snapshot function and create shutdown script
+        if self.config.is_persistent:
+            # it's a little sad that we're constantly re-deploying this, but it's a bit too easy to make mistakes otherwise
+            #  (eg, we might end up with outdated code at that endpoint, which would be hard to debug)
+            snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
+            self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
+
+        # Start the activity watcher. We have to start it here because we only created the shutdown script (with the hardcoded sandbox id)
+        # in the above block, thus this cannot be started any earlier.
+        # Plus we really want the boot time to be written, etc, as otherwise it can be a bit racey
+        logger.debug("Starting activity watcher in sandbox")
+        start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
+        sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
 
         return host, ssh_host, ssh_port, host_public_key
 
@@ -1398,11 +1408,6 @@ log "=== Shutdown script completed ==="
             known_hosts=known_hosts,
         )
 
-        # For persistent apps, deploy the snapshot function and create shutdown script
-        if self.config.is_persistent:
-            snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
-            self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
-
         return host
 
     def on_agent_created(self, agent: AgentInterface, host: OnlineHostInterface) -> None:
@@ -1619,11 +1624,6 @@ log "=== Shutdown script completed ==="
             config=config,
             host_data=host_record.certified_host_data,
         )
-
-        # For persistent apps, deploy the snapshot function and create shutdown script
-        if self.config.is_persistent:
-            snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
-            self._create_shutdown_script(restored_host, new_sandbox, host_id, snapshot_url)
 
         # Cache the new online host
         self._host_by_id_cache[host_id] = restored_host

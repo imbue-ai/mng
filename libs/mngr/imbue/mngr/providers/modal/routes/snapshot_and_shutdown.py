@@ -12,6 +12,7 @@ Required environment variable (must be set when deploying):
 """
 
 import json
+import logging
 import os
 from datetime import datetime
 from datetime import timezone
@@ -106,69 +107,76 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     (list of agent data to persist to the volume), and stop_reason
     ('PAUSED' for idle shutdown, 'STOPPED' for user-requested stop).
     """
-    sandbox_id = request_body.get("sandbox_id")
-    host_id = request_body.get("host_id")
-    snapshot_name = request_body.get("snapshot_name")
-    agents = request_body.get("agents", [])
-    stop_reason = request_body.get("stop_reason", "PAUSED")
-
-    if not sandbox_id:
-        raise HTTPException(status_code=400, detail="sandbox_id is required")
-    if not host_id:
-        raise HTTPException(status_code=400, detail="host_id is required")
+    logger = logging.getLogger("snapshot_and_shutdown")
 
     try:
-        # Verify host record exists BEFORE creating snapshot to avoid orphaned images
-        host_record = _read_host_record(host_id)
-        if host_record is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Host record not found for host_id: {host_id}",
-            )
+        try:
+            sandbox_id = request_body.get("sandbox_id")
+            host_id = request_body.get("host_id")
+            snapshot_name = request_body.get("snapshot_name")
+            agents = request_body.get("agents", [])
+            stop_reason = request_body.get("stop_reason", "PAUSED")
 
-        # Get the sandbox by ID
-        sandbox = modal.Sandbox.from_id(sandbox_id)
+            if not sandbox_id:
+                raise HTTPException(status_code=400, detail="sandbox_id is required")
+            if not host_id:
+                raise HTTPException(status_code=400, detail="host_id is required")
 
-        # Create the filesystem snapshot
-        modal_image = sandbox.snapshot_filesystem()
-        # Use the Modal image ID directly as the snapshot ID
-        snapshot_id = modal_image.object_id
-        created_at = datetime.now(timezone.utc).isoformat()
+            # Verify host record exists BEFORE creating snapshot to avoid orphaned images
+            host_record = _read_host_record(host_id)
+            if host_record is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Host record not found for host_id: {host_id}",
+                )
 
-        if snapshot_name is None:
-            short_id = snapshot_id[-8:]
-            snapshot_name = f"snapshot-{short_id}"
+            # Get the sandbox by ID
+            sandbox = modal.Sandbox.from_id(sandbox_id)
 
-        # Add the new snapshot to the certified_host_data (id is the Modal image ID)
-        new_snapshot = {
-            "id": snapshot_id,
-            "name": snapshot_name,
-            "created_at": created_at,
-        }
+            # Create the filesystem snapshot
+            modal_image = sandbox.snapshot_filesystem()
+            # Use the Modal image ID directly as the snapshot ID
+            snapshot_id = modal_image.object_id
+            created_at = datetime.now(timezone.utc).isoformat()
 
-        certified_data = host_record.get("certified_host_data", {})
-        if "snapshots" not in certified_data:
-            certified_data["snapshots"] = []
-        certified_data["snapshots"].append(new_snapshot)
+            if snapshot_name is None:
+                short_id = snapshot_id[-8:]
+                snapshot_name = f"snapshot-{short_id}"
 
-        # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
-        certified_data["stop_reason"] = stop_reason
-        host_record["certified_host_data"] = certified_data
+            # Add the new snapshot to the certified_host_data (id is the Modal image ID)
+            new_snapshot = {
+                "id": snapshot_id,
+                "name": snapshot_name,
+                "created_at": created_at,
+            }
 
-        # Write updated host record
-        _write_host_record(host_record)
+            certified_data = host_record.get("certified_host_data", {})
+            if "snapshots" not in certified_data:
+                certified_data["snapshots"] = []
+            certified_data["snapshots"].append(new_snapshot)
 
-        # Write agent records so they appear in mngr list for stopped hosts
-        _write_agent_records(host_id, agents)
+            # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
+            certified_data["stop_reason"] = stop_reason
+            host_record["certified_host_data"] = certified_data
 
-        # Terminate the sandbox
-        sandbox.terminate()
+            # Write updated host record
+            _write_host_record(host_record)
 
-        return {
-            "success": True,
-            "snapshot_id": snapshot_id,
-            "snapshot_name": snapshot_name,
-        }
+            # Write agent records so they appear in mngr list for stopped hosts
+            _write_agent_records(host_id, agents)
+
+            # Terminate the sandbox
+            sandbox.terminate()
+
+            return {
+                "success": True,
+                "snapshot_id": snapshot_id,
+                "snapshot_name": snapshot_name,
+            }
+
+        except BaseException as e:
+            logger.error("Error in snapshot_and_shutdown: " + str(e), exc_info=True)
+            raise
 
     except HTTPException:
         raise
