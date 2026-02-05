@@ -64,8 +64,9 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.claude_config import check_source_directory_trusted
+from imbue.mngr.utils.claude_config import extend_claude_trust_to_worktree
+from imbue.mngr.utils.claude_config import remove_claude_trust_for_path
 from imbue.mngr.utils.env_utils import parse_env_file
-from imbue.mngr.utils.git_utils import find_git_common_dir
 from imbue.mngr.utils.git_utils import get_current_git_branch
 
 
@@ -1175,16 +1176,9 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> Path:
         """Create a work_dir using git worktree.
 
-        Worktrees are placed inside .git/mngr-worktrees/<agent-id>/repo/ with the
-        agent's working directory being .git/mngr-worktrees/<agent-id>/. This
-        structure allows the agent to inherit Claude's trust (since the work_dir
-        itself doesn't contain a .git file), while still having access to the
-        git worktree in the repo/ subdirectory.
-
-        Claude treats directories containing .git specially and requires separate
-        trust for them. By putting the .git-containing worktree one level down,
-        the agent's work_dir inherits trust from .git/ (which inherits from the
-        main repo), and the agent can still access the worktree contents.
+        Worktrees are placed at ~/.mngr/hosts/<host>/worktrees/<agent-id>/.
+        Claude's trust settings are extended from the source path to the worktree
+        by copying the project configuration in ~/.claude.json.
         """
         if host.id != self.id:
             raise UserInputError("Worktree mode only works when source is on the same host")
@@ -1192,28 +1186,19 @@ class Host(BaseHost, OnlineHostInterface):
         # Check that the source directory is trusted by Claude before creating worktree
         check_source_directory_trusted(source_path)
 
-        # Find the common .git directory (handles both regular repos and worktrees)
-        git_common_dir = find_git_common_dir(source_path)
-        if git_common_dir is None:
-            raise MngrError(f"Could not find .git directory for {source_path}")
-
         agent_id = AgentId.generate()
 
         if options.target_path is not None:
-            # Custom target path - use it directly as the worktree
-            worktree_path = options.target_path
             work_dir_path = options.target_path
         else:
-            # Default: work_dir is the agent directory, worktree is in repo/ subdirectory
-            work_dir_path = git_common_dir / "mngr-worktrees" / str(agent_id)
-            worktree_path = work_dir_path / "repo"
+            work_dir_path = self.host_dir / "worktrees" / str(agent_id)
 
-        self._mkdir(worktree_path.parent)
+        self._mkdir(work_dir_path.parent)
 
         branch_name = self._determine_branch_name(options)
 
-        logger.debug("Creating git worktree", path=str(worktree_path), branch=branch_name)
-        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(worktree_path))} -b {shlex.quote(branch_name)}"
+        logger.debug("Creating git worktree", path=str(work_dir_path), branch=branch_name)
+        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
 
         if options.git and options.git.base_branch:
             cmd += f" {shlex.quote(options.git.base_branch)}"
@@ -1221,6 +1206,9 @@ class Host(BaseHost, OnlineHostInterface):
         result = self.execute_command(cmd)
         if not result.success:
             raise MngrError(f"Failed to create git worktree: {result.stderr}")
+
+        # Extend Claude's trust settings to the new worktree
+        extend_claude_trust_to_worktree(source_path, work_dir_path)
 
         # Track generated work directories at the host level
         self._add_generated_work_dir(work_dir_path)
@@ -1566,6 +1554,13 @@ class Host(BaseHost, OnlineHostInterface):
         self.stop_agents([agent.id])
         state_dir = self.host_dir / "agents" / str(agent.id)
         self._remove_directory(state_dir)
+
+        # Remove Claude trust entry for worktree work directories
+        # This cleans up entries created by extend_claude_trust_to_worktree
+        if self._is_generated_work_dir(agent.work_dir):
+            removed = remove_claude_trust_for_path(agent.work_dir)
+            if removed:
+                logger.debug("Removed Claude trust entry for {}", agent.work_dir)
 
         # Remove persisted agent data from external storage (e.g., Modal volume)
         self.provider_instance.remove_persisted_agent_data(self.id, agent.id)

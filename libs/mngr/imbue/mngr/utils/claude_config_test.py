@@ -9,13 +9,22 @@ import pytest
 from imbue.mngr.errors import ClaudeDirectoryNotTrustedError
 from imbue.mngr.utils.claude_config import _find_project_config
 from imbue.mngr.utils.claude_config import check_source_directory_trusted
+from imbue.mngr.utils.claude_config import extend_claude_trust_to_worktree
+from imbue.mngr.utils.claude_config import get_claude_config_backup_path
 from imbue.mngr.utils.claude_config import get_claude_config_path
+from imbue.mngr.utils.claude_config import remove_claude_trust_for_path
 
 
 def test_get_claude_config_path_returns_home_dot_claude_json() -> None:
     """Test that get_claude_config_path returns ~/.claude.json."""
     result = get_claude_config_path()
     assert result == Path.home() / ".claude.json"
+
+
+def test_get_claude_config_backup_path_returns_home_dot_claude_json_bak() -> None:
+    """Test that get_claude_config_backup_path returns ~/.claude.json.bak."""
+    result = get_claude_config_backup_path()
+    assert result == Path.home() / ".claude.json.bak"
 
 
 def test_find_project_config_exact_match() -> None:
@@ -187,3 +196,214 @@ def test_check_source_directory_trusted_raises_json_error_for_invalid_json(tmp_p
     with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
         with pytest.raises(json.JSONDecodeError):
             check_source_directory_trusted(source_path)
+
+
+# Tests for extend_claude_trust_to_worktree
+
+
+def test_extend_claude_trust_creates_entry_for_worktree(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree creates an entry for the worktree."""
+    config_file = tmp_path / ".claude.json"
+    source_path = tmp_path / "source"
+    worktree_path = tmp_path / "worktree"
+    source_path.mkdir()
+    worktree_path.mkdir()
+
+    # Create config with trusted source
+    source_config = {
+        "allowedTools": ["bash", "read"],
+        "hasTrustDialogAccepted": True,
+        "mcpServers": {"example": {"command": "test"}},
+    }
+    config = {"projects": {str(source_path): source_config}}
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with (
+        patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file),
+        patch(
+            "imbue.mngr.utils.claude_config.get_claude_config_backup_path", return_value=tmp_path / ".claude.json.bak"
+        ),
+    ):
+        extend_claude_trust_to_worktree(source_path, worktree_path)
+
+    # Verify the worktree entry was created
+    updated_config = json.loads(config_file.read_text())
+    assert str(worktree_path) in updated_config["projects"]
+    worktree_config = updated_config["projects"][str(worktree_path)]
+    assert worktree_config == source_config
+
+
+def test_extend_claude_trust_creates_backup(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree creates a backup."""
+    config_file = tmp_path / ".claude.json"
+    backup_file = tmp_path / ".claude.json.bak"
+    source_path = tmp_path / "source"
+    worktree_path = tmp_path / "worktree"
+    source_path.mkdir()
+    worktree_path.mkdir()
+
+    # Create config with trusted source
+    config = {
+        "projects": {
+            str(source_path): {"allowedTools": [], "hasTrustDialogAccepted": True},
+        }
+    }
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with (
+        patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file),
+        patch("imbue.mngr.utils.claude_config.get_claude_config_backup_path", return_value=backup_file),
+    ):
+        extend_claude_trust_to_worktree(source_path, worktree_path)
+
+    # Verify backup was created
+    assert backup_file.exists()
+    backup_config = json.loads(backup_file.read_text())
+    # Backup should have the original config (without worktree)
+    assert str(worktree_path) not in backup_config["projects"]
+
+
+def test_extend_claude_trust_skips_if_entry_exists(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree skips if entry already exists."""
+    config_file = tmp_path / ".claude.json"
+    backup_file = tmp_path / ".claude.json.bak"
+    source_path = tmp_path / "source"
+    worktree_path = tmp_path / "worktree"
+    source_path.mkdir()
+    worktree_path.mkdir()
+
+    # Create config with both source and worktree already present
+    existing_worktree_config = {"allowedTools": ["existing"], "hasTrustDialogAccepted": True}
+    config = {
+        "projects": {
+            str(source_path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True},
+            str(worktree_path): existing_worktree_config,
+        }
+    }
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with (
+        patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file),
+        patch("imbue.mngr.utils.claude_config.get_claude_config_backup_path", return_value=backup_file),
+    ):
+        extend_claude_trust_to_worktree(source_path, worktree_path)
+
+    # Verify the existing worktree config was not modified
+    updated_config = json.loads(config_file.read_text())
+    assert updated_config["projects"][str(worktree_path)] == existing_worktree_config
+    # No backup should be created when skipping
+    assert not backup_file.exists()
+
+
+def test_extend_claude_trust_raises_when_source_not_trusted(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree raises when source not trusted."""
+    config_file = tmp_path / ".claude.json"
+    source_path = tmp_path / "source"
+    worktree_path = tmp_path / "worktree"
+    source_path.mkdir()
+    worktree_path.mkdir()
+
+    # Create config with untrusted source
+    config = {
+        "projects": {
+            str(source_path): {"allowedTools": [], "hasTrustDialogAccepted": False},
+        }
+    }
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+        with pytest.raises(ClaudeDirectoryNotTrustedError):
+            extend_claude_trust_to_worktree(source_path, worktree_path)
+
+
+def test_extend_claude_trust_raises_when_no_config(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree raises when config doesn't exist."""
+    config_file = tmp_path / ".claude.json"
+    source_path = tmp_path / "source"
+    worktree_path = tmp_path / "worktree"
+    source_path.mkdir()
+    worktree_path.mkdir()
+
+    # Don't create the config file
+
+    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+        with pytest.raises(ClaudeDirectoryNotTrustedError):
+            extend_claude_trust_to_worktree(source_path, worktree_path)
+
+
+# Tests for remove_claude_trust_for_path
+
+
+def test_remove_claude_trust_removes_entry(tmp_path: Path) -> None:
+    """Test that remove_claude_trust_for_path removes the entry."""
+    config_file = tmp_path / ".claude.json"
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+
+    # Create config with worktree entry
+    config = {
+        "projects": {
+            str(worktree_path): {"allowedTools": [], "hasTrustDialogAccepted": True},
+            "/other/project": {"allowedTools": [], "hasTrustDialogAccepted": True},
+        }
+    }
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+        result = remove_claude_trust_for_path(worktree_path)
+
+    assert result is True
+    updated_config = json.loads(config_file.read_text())
+    assert str(worktree_path) not in updated_config["projects"]
+    # Other entries should remain
+    assert "/other/project" in updated_config["projects"]
+
+
+def test_remove_claude_trust_returns_false_when_not_found(tmp_path: Path) -> None:
+    """Test that remove_claude_trust_for_path returns False when entry doesn't exist."""
+    config_file = tmp_path / ".claude.json"
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+
+    # Create config without the worktree entry
+    config = {
+        "projects": {
+            "/other/project": {"allowedTools": [], "hasTrustDialogAccepted": True},
+        }
+    }
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+        result = remove_claude_trust_for_path(worktree_path)
+
+    assert result is False
+
+
+def test_remove_claude_trust_returns_false_when_no_config(tmp_path: Path) -> None:
+    """Test that remove_claude_trust_for_path returns False when config doesn't exist."""
+    config_file = tmp_path / ".claude.json"
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+
+    # Don't create the config file
+
+    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+        result = remove_claude_trust_for_path(worktree_path)
+
+    assert result is False
+
+
+def test_remove_claude_trust_returns_false_on_error(tmp_path: Path) -> None:
+    """Test that remove_claude_trust_for_path returns False on errors."""
+    config_file = tmp_path / ".claude.json"
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+
+    # Create invalid JSON
+    config_file.write_text("{ invalid json }")
+
+    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+        # Should not raise, but return False
+        result = remove_claude_trust_for_path(worktree_path)
+
+    assert result is False

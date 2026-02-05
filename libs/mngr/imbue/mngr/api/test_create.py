@@ -3,6 +3,7 @@
 Note: Unit tests for provider registry and configuration are in api/providers_test.py
 """
 
+import contextlib
 import json
 import subprocess
 import time
@@ -73,18 +74,33 @@ def _setup_claude_trust_config(work_dir: Path):
     Worktree creation checks that the source directory is trusted by Claude
     (has hasTrustDialogAccepted=true in ~/.claude.json). This helper creates
     a mock config file that marks the work_dir as trusted.
+
+    Returns a context manager that patches both the config path and backup path.
     """
     claude_config_file = work_dir.parent / ".claude.json"
+    claude_backup_file = work_dir.parent / ".claude.json.bak"
     claude_config = {
         "projects": {
             str(work_dir): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True},
         }
     }
     claude_config_file.write_text(json.dumps(claude_config))
-    return patch(
-        "imbue.mngr.utils.claude_config.get_claude_config_path",
-        return_value=claude_config_file,
-    )
+
+    @contextlib.contextmanager
+    def combined_patches():
+        with (
+            patch(
+                "imbue.mngr.utils.claude_config.get_claude_config_path",
+                return_value=claude_config_file,
+            ),
+            patch(
+                "imbue.mngr.utils.claude_config.get_claude_config_backup_path",
+                return_value=claude_backup_file,
+            ),
+        ):
+            yield
+
+    return combined_patches()
 
 
 def test_create_simple_echo_agent(
@@ -332,13 +348,12 @@ def test_create_agent_with_worktree(
 
             worktree_path = Path(agent.work_dir)
             assert worktree_path.exists()
-            # The actual worktree with files is in the repo/ subdirectory
-            repo_path = worktree_path / "repo"
-            assert (repo_path / "test.txt").exists()
+            # Worktree is created directly at work_dir, no subdirectory
+            assert (worktree_path / "test.txt").exists()
 
             result = subprocess.run(
                 ["git", "branch", "--show-current"],
-                cwd=repo_path,
+                cwd=worktree_path,
                 capture_output=True,
                 text=True,
                 check=True,
@@ -349,7 +364,7 @@ def test_create_agent_with_worktree(
         finally:
             if worktree_path is not None:
                 subprocess.run(
-                    ["git", "worktree", "remove", "--force", str(worktree_path / "repo")],
+                    ["git", "worktree", "remove", "--force", str(worktree_path)],
                     cwd=temp_work_dir,
                     capture_output=True,
                 )
@@ -428,11 +443,10 @@ def test_worktree_with_custom_branch_name(
             agent = _get_agent_from_create_result(result, temp_mngr_ctx)
 
             worktree_path = Path(agent.work_dir)
-            # The actual worktree with files is in the repo/ subdirectory
-            repo_path = worktree_path / "repo"
+            # Worktree is created directly at work_dir, no subdirectory
             result = subprocess.run(
                 ["git", "branch", "--show-current"],
-                cwd=repo_path,
+                cwd=worktree_path,
                 capture_output=True,
                 text=True,
                 check=True,
@@ -442,7 +456,7 @@ def test_worktree_with_custom_branch_name(
         finally:
             if worktree_path is not None:
                 subprocess.run(
-                    ["git", "worktree", "remove", "--force", str(worktree_path / "repo")],
+                    ["git", "worktree", "remove", "--force", str(worktree_path)],
                     cwd=temp_work_dir,
                     capture_output=True,
                 )
@@ -569,7 +583,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
         finally:
             if worktree_path is not None:
                 subprocess.run(
-                    ["git", "worktree", "remove", "--force", str(worktree_path / "repo")],
+                    ["git", "worktree", "remove", "--force", str(worktree_path)],
                     cwd=temp_work_dir,
                     capture_output=True,
                 )
