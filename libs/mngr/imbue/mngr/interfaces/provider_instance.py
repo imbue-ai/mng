@@ -63,6 +63,12 @@ class ProviderInstanceInterface(MutableModel, ABC):
 
     @property
     @abstractmethod
+    def supports_shutdown_hosts(self) -> bool:
+        """Whether this provider supports directly resuming hosts (*not* from a snapshot)."""
+        ...
+
+    @property
+    @abstractmethod
     def supports_volumes(self) -> bool:
         """Whether this provider supports volume management."""
         ...

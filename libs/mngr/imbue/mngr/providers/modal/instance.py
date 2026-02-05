@@ -317,6 +317,10 @@ class ModalProviderInstance(BaseProviderInstance):
         return True
 
     @property
+    def supports_shutdown_hosts(self) -> bool:
+        return False
+
+    @property
     def supports_volumes(self) -> bool:
         return False
 
@@ -471,7 +475,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.trace("Listing all host records from volume")
 
         with (
-            cg.make_concurrency_group(f"modal_list_all_host_records")
+            cg.make_concurrency_group("modal_list_all_host_records")
             if cg is not None
             else ConcurrencyGroup(name="modal_list_all_host_records")
         ) as list_cg:

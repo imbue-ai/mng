@@ -179,21 +179,25 @@ class BaseHost(HostInterface):
         if certified_data.state == HostState.FAILED.value:
             return HostState.FAILED
 
-        if self.provider_instance.supports_snapshots:
-            try:
-                snapshots = self.get_snapshots()
-                if not snapshots:
-                    return HostState.DESTROYED
-            except (OSError, IOError, ConnectionError):
-                # If we can't check snapshots, use stop_reason to determine state
-                pass
-
         # Determine state based on stop_reason
         stop_reason = certified_data.stop_reason
         if stop_reason is None:
             return HostState.CRASHED
         else:
-            return HostState(stop_reason)
+            if self.provider_instance.supports_shutdown_hosts:
+                # if the provider normally allows hosts to be shutdown, the reason is fine
+                return HostState(stop_reason)
+            else:
+                # if we cannot resume, and we don't support snapshots, this must be destroyed
+                if not self.provider_instance.supports_snapshots:
+                    return HostState.DESTROYED
+                # otherwise, check if we have any snapshots
+                snapshots = self.get_snapshots()
+                # if we don't, I guess this is destroyed
+                if not snapshots:
+                    return HostState.DESTROYED
+                # ok, the stored state is fine!
+                return HostState(stop_reason)
 
     def get_failure_reason(self) -> str | None:
         """Get the failure reason if this host failed during creation."""
