@@ -13,7 +13,6 @@ import threading
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from uuid import uuid4
 
 import pluggy
 import pytest
@@ -22,7 +21,6 @@ from pyinfra.api.command import StringCommand
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
@@ -60,14 +58,6 @@ def host_with_temp_dir(local_provider: LocalProviderInstance, temp_host_dir: Pat
     host = local_provider.create_host(HostName("test"))
     assert isinstance(host, Host)
     return host, temp_host_dir
-
-
-@pytest.fixture
-def temp_profile_dir(temp_host_dir: Path) -> Path:
-    """Create a temporary profile directory for tests that create their own MngrContext."""
-    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return profile_dir
 
 
 # =============================================================================

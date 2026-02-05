@@ -176,6 +176,17 @@ def temp_work_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def temp_profile_dir(temp_host_dir: Path) -> Path:
+    """Create a temporary profile directory.
+
+    Use this fixture when tests need to create their own MngrContext with custom config.
+    """
+    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return profile_dir
+
+
+@pytest.fixture
 def temp_config(temp_host_dir: Path, mngr_test_prefix: str) -> MngrConfig:
     """Create a MngrConfig with a temporary host directory.
 
@@ -185,15 +196,14 @@ def temp_config(temp_host_dir: Path, mngr_test_prefix: str) -> MngrConfig:
 
 
 @pytest.fixture
-def temp_mngr_ctx(temp_config: MngrConfig, temp_host_dir: Path, plugin_manager: pluggy.PluginManager) -> MngrContext:
+def temp_mngr_ctx(
+    temp_config: MngrConfig, temp_profile_dir: Path, plugin_manager: pluggy.PluginManager
+) -> MngrContext:
     """Create a MngrContext with a temporary host directory.
 
     Use this fixture when calling API functions that need a context.
     """
-    # Create a profile directory in the temp host dir
-    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return MngrContext(config=temp_config, pm=plugin_manager, profile_dir=profile_dir)
+    return MngrContext(config=temp_config, pm=plugin_manager, profile_dir=temp_profile_dir)
 
 
 @pytest.fixture

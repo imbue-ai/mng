@@ -164,6 +164,7 @@ def ssh_keypair() -> Generator[tuple[Path, Path], None, None]:
 
 @pytest.fixture
 def ssh_provider(
+    temp_host_dir: Path,
     temp_mngr_ctx: MngrContext,
 ) -> Generator[SSHProviderInstance, None, None]:
     """Fixture that provides an SSHProviderInstance connected to a local sshd."""
@@ -174,7 +175,7 @@ def ssh_provider(
             current_user = os.environ.get("USER", "root")
             provider = SSHProviderInstance(
                 name=ProviderInstanceName("ssh-test"),
-                host_dir=Path("/tmp/mngr-test"),
+                host_dir=temp_host_dir,
                 mngr_ctx=temp_mngr_ctx,
                 hosts={
                     "localhost": SSHHostConfig(
