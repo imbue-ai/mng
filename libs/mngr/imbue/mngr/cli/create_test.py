@@ -16,7 +16,7 @@ def test_parse_host_lifecycle_options_all_none() -> None:
 
     result = _parse_host_lifecycle_options(opts)
 
-    assert result.max_idle_seconds is None
+    assert result.idle_timeout_seconds is None
     assert result.idle_mode is None
     assert result.activity_sources is None
 
@@ -30,7 +30,7 @@ def test_parse_host_lifecycle_options_with_idle_timeout() -> None:
 
     result = _parse_host_lifecycle_options(opts)
 
-    assert result.max_idle_seconds == 600
+    assert result.idle_timeout_seconds == 600
     assert result.idle_mode is None
     assert result.activity_sources is None
 
@@ -44,7 +44,7 @@ def test_parse_host_lifecycle_options_with_idle_mode_lowercase() -> None:
 
     result = _parse_host_lifecycle_options(opts)
 
-    assert result.max_idle_seconds is None
+    assert result.idle_timeout_seconds is None
     assert result.idle_mode == IdleMode.AGENT
     assert result.activity_sources is None
 
@@ -106,6 +106,6 @@ def test_parse_host_lifecycle_options_all_provided() -> None:
 
     result = _parse_host_lifecycle_options(opts)
 
-    assert result.max_idle_seconds == 1800
+    assert result.idle_timeout_seconds == 1800
     assert result.idle_mode == IdleMode.DISABLED
     assert result.activity_sources == (ActivitySource.CREATE, ActivitySource.PROCESS)

@@ -217,7 +217,7 @@ def build_start_activity_watcher_command(
     """Build a shell command that installs and starts the activity watcher.
 
     The activity watcher monitors activity files and calls the shutdown script
-    when the host becomes idle (based on idle_mode and max_idle_seconds
+    when the host becomes idle (based on idle_mode and idle_timeout_seconds
     from data.json).
 
     This command:

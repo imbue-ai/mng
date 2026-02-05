@@ -1368,7 +1368,7 @@ log "=== Shutdown script completed ==="
 
         lifecycle_options = lifecycle if lifecycle is not None else HostLifecycleOptions()
         activity_config = lifecycle_options.to_activity_config(
-            default_max_idle_seconds=self.config.default_idle_timeout,
+            default_idle_timeout_seconds=self.config.default_idle_timeout,
             default_idle_mode=self.config.default_idle_mode,
             default_activity_sources=self.config.default_activity_sources,
         )
@@ -1378,7 +1378,7 @@ log "=== Shutdown script completed ==="
         # so the activity watcher can trigger a clean shutdown before Modal's hard kill
         host_data = CertifiedHostData(
             idle_mode=activity_config.idle_mode,
-            max_idle_seconds=activity_config.max_idle_seconds,
+            idle_timeout_seconds=activity_config.idle_timeout_seconds,
             activity_sources=activity_config.activity_sources,
             max_host_age=config.timeout,
             host_id=str(host_id),

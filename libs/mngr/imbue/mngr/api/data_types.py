@@ -116,7 +116,7 @@ class HostLifecycleOptions(FrozenModel):
     All fields are optional; when None, provider defaults are used.
     """
 
-    max_idle_seconds: int | None = Field(
+    idle_timeout_seconds: int | None = Field(
         default=None,
         description="Shutdown after idle for N seconds (None for provider default)",
     )
@@ -131,7 +131,7 @@ class HostLifecycleOptions(FrozenModel):
 
     def to_activity_config(
         self,
-        default_max_idle_seconds: int,
+        default_idle_timeout_seconds: int,
         default_idle_mode: IdleMode,
         default_activity_sources: tuple[ActivitySource, ...],
     ) -> ActivityConfig:
@@ -150,7 +150,9 @@ class HostLifecycleOptions(FrozenModel):
             resolved_activity_sources = get_activity_sources_for_idle_mode(resolved_idle_mode)
 
         return ActivityConfig(
-            max_idle_seconds=self.max_idle_seconds if self.max_idle_seconds is not None else default_max_idle_seconds,
+            idle_timeout_seconds=self.idle_timeout_seconds
+            if self.idle_timeout_seconds is not None
+            else default_idle_timeout_seconds,
             idle_mode=resolved_idle_mode,
             activity_sources=resolved_activity_sources,
         )

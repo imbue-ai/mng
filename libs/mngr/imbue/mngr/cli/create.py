@@ -1138,7 +1138,7 @@ def _parse_host_lifecycle_options(opts: CreateCliOptions) -> HostLifecycleOption
         else None
     )
     return HostLifecycleOptions(
-        max_idle_seconds=opts.idle_timeout,
+        idle_timeout_seconds=opts.idle_timeout,
         idle_mode=parsed_idle_mode,
         activity_sources=parsed_activity_sources,
     )

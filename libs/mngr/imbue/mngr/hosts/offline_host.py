@@ -49,7 +49,7 @@ class BaseHost(HostInterface):
         certified_data = self.get_certified_data()
         return ActivityConfig(
             idle_mode=certified_data.idle_mode,
-            max_idle_seconds=certified_data.max_idle_seconds,
+            idle_timeout_seconds=certified_data.idle_timeout_seconds,
             activity_sources=certified_data.activity_sources,
         )
 
@@ -63,13 +63,13 @@ class BaseHost(HostInterface):
             "Setting activity config for host {}: idle_mode={}, idle_timeout={}s",
             self.id,
             config.idle_mode,
-            config.max_idle_seconds,
+            config.idle_timeout_seconds,
         )
         certified_data = self.get_certified_data()
         updated_data = certified_data.model_copy(
             update={
                 "idle_mode": config.idle_mode,
-                "max_idle_seconds": config.max_idle_seconds,
+                "idle_timeout_seconds": config.idle_timeout_seconds,
                 "activity_sources": config.activity_sources,
             }
         )

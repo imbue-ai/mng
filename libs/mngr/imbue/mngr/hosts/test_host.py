@@ -235,7 +235,7 @@ def test_get_default_activity_config(host_with_temp_dir: tuple[Host, Path]) -> N
     host, _ = host_with_temp_dir
     config = host.get_activity_config()
     assert config.idle_mode == IdleMode.IO
-    assert config.max_idle_seconds == 3600
+    assert config.idle_timeout_seconds == 3600
     assert len(config.activity_sources) > 0
 
 
@@ -244,14 +244,14 @@ def test_set_and_get_activity_config(host_with_temp_dir: tuple[Host, Path]) -> N
     host, _ = host_with_temp_dir
     config = ActivityConfig(
         idle_mode=IdleMode.USER,
-        max_idle_seconds=7200,
+        idle_timeout_seconds=7200,
         activity_sources=(ActivitySource.USER, ActivitySource.AGENT),
     )
     host.set_activity_config(config)
 
     retrieved = host.get_activity_config()
     assert retrieved.idle_mode == IdleMode.USER
-    assert retrieved.max_idle_seconds == 7200
+    assert retrieved.idle_timeout_seconds == 7200
 
 
 # =============================================================================
@@ -361,7 +361,7 @@ def test_get_empty_certified_data(host_with_temp_dir: tuple[Host, Path]) -> None
     host, _ = host_with_temp_dir
     data = host.get_certified_data()
     assert data.idle_mode == IdleMode.IO
-    assert data.max_idle_seconds == 3600
+    assert data.idle_timeout_seconds == 3600
     assert data.plugin == {}
 
 
