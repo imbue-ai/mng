@@ -156,12 +156,16 @@ def get_short_random_string() -> str:
 def setup_claude_trust_config_for_subprocess(
     config_file: Path,
     trusted_paths: list[Path],
+    root_name: str = "mngr-acceptance-test",
 ) -> dict[str, str]:
     """Create a Claude trust config file and return env vars for subprocess tests.
 
     This creates a fake ~/.claude.json equivalent that marks the specified paths
     as trusted. The returned env dict should be passed to subprocess.run() to
     make the subprocess use this config instead of ~/.claude.json.
+
+    Uses get_subprocess_test_env() as the base to ensure MNGR_ROOT_NAME is set,
+    which prevents loading the project's .mngr/settings.toml.
 
     The config_file should be in a temporary directory that will be cleaned up
     after the test.
@@ -171,8 +175,8 @@ def setup_claude_trust_config_for_subprocess(
     }
     config_file.write_text(json.dumps(claude_config))
 
-    # Return env vars that point to this config file
-    env = os.environ.copy()
+    # Start with get_subprocess_test_env() to get MNGR_ROOT_NAME set
+    env = get_subprocess_test_env(root_name=root_name)
     env["MNGR_CLAUDE_CONFIG_PATH"] = str(config_file)
     return env
 
