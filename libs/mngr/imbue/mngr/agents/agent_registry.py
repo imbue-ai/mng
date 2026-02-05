@@ -10,7 +10,6 @@ from imbue.mngr.agents.default_plugins import codex_agent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import merge_cli_args
-from imbue.mngr.config.data_types import merge_list_fields
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.primitives import AgentTypeName
 
@@ -137,9 +136,10 @@ def _apply_custom_overrides_to_parent_config(
     if merged_cli_args != parent_config.cli_args:
         updates["cli_args"] = merged_cli_args
 
-    merged_permissions = merge_list_fields(parent_config.permissions, custom_config.permissions)
-    if merged_permissions != parent_config.permissions:
-        updates["permissions"] = merged_permissions
+    # Permissions override (replace) the parent's permissions per documentation,
+    # rather than being merged/concatenated.
+    if custom_config.permissions:
+        updates["permissions"] = custom_config.permissions
 
     if not updates:
         return parent_config

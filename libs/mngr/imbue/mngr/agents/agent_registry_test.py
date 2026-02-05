@@ -215,8 +215,8 @@ def test_resolve_agent_type_with_custom_type_preserves_parent_specific_fields() 
     assert resolved.agent_config.sync_home_settings is True
 
 
-def test_resolve_agent_type_with_custom_type_merges_permissions() -> None:
-    """Custom type permissions should be merged onto parent permissions."""
+def test_resolve_agent_type_with_custom_type_overrides_permissions() -> None:
+    """Custom type permissions should override (replace) parent permissions, not merge."""
     custom_config = AgentTypeConfig(
         parent_type=AgentTypeName("claude"),
         permissions=[Permission("github"), Permission("docker")],
@@ -227,8 +227,24 @@ def test_resolve_agent_type_with_custom_type_merges_permissions() -> None:
 
     resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
 
-    assert Permission("github") in resolved.agent_config.permissions
-    assert Permission("docker") in resolved.agent_config.permissions
+    # Custom permissions should completely replace the parent's permissions
+    assert resolved.agent_config.permissions == [Permission("github"), Permission("docker")]
+
+
+def test_resolve_agent_type_with_custom_type_empty_permissions_keeps_parent() -> None:
+    """Custom type with no permissions should keep the parent's default permissions."""
+    custom_config = AgentTypeConfig(
+        parent_type=AgentTypeName("claude"),
+        cli_args="--model opus",
+    )
+    config = MngrConfig(
+        agent_types={AgentTypeName("my_claude"): custom_config},
+    )
+
+    resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
+
+    # Parent's default permissions (empty list) should be preserved
+    assert resolved.agent_config.permissions == []
 
 
 def test_resolve_agent_type_with_override_for_registered_type() -> None:
