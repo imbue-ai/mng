@@ -145,18 +145,11 @@ def setup_test_mngr_env(
 
     By setting HOME to tmp_path, tests cannot accidentally read or modify
     files in the real home directory. This protects files like ~/.claude.json.
-
-    A minimal .gitconfig is created in the fake HOME so git commands work
-    without needing to set GIT_AUTHOR_NAME etc. environment variables.
     """
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
     monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
-
-    # Create a minimal .gitconfig so git commands work in the fake HOME
-    gitconfig = tmp_path / ".gitconfig"
-    gitconfig.write_text("[user]\n\tname = Test User\n\temail = test@test.com\n")
 
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.
@@ -172,6 +165,46 @@ def setup_test_mngr_env(
             f"Failed to set fake HOME! Path.home() returned {actual_home}, "
             f"which is not in a temp directory. Tests may be operating on real home directory!"
         )
+
+
+@pytest.fixture
+def setup_git_config(tmp_path: Path) -> None:
+    """Create a .gitconfig in the fake HOME so git commands work.
+
+    Use this fixture for any test that runs git commands.
+    The temp_git_repo fixture depends on this, so you don't need both.
+    """
+    gitconfig = tmp_path / ".gitconfig"
+    if not gitconfig.exists():
+        gitconfig.write_text("[user]\n\tname = Test User\n\temail = test@test.com\n")
+
+
+@pytest.fixture
+def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
+    """Create a temporary git repository with an initial commit.
+
+    This fixture:
+    1. Ensures .gitconfig exists in the fake HOME (via setup_git_config)
+    2. Creates a git repo with one tracked file and an initial commit
+
+    Use this fixture for any test that needs a git repository.
+    """
+    # Create the repo directory
+    repo_dir = tmp_path / "git_repo"
+    repo_dir.mkdir()
+
+    # Initialize git and create initial commit
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    (repo_dir / "README.md").write_text("Test repository")
+    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    return repo_dir
 
 
 @pytest.fixture

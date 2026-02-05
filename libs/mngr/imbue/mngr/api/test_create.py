@@ -289,42 +289,19 @@ def test_create_agent_with_unknown_type_uses_type_as_command(
 
 def test_create_agent_with_worktree(
     temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
+    temp_git_repo: Path,
 ) -> None:
     """Test creating an agent using git worktree."""
     agent_name = AgentName(f"test-worktree-{int(time.time())}")
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
-    subprocess.run(["git", "init"], cwd=temp_work_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-    test_file = temp_work_dir / "test.txt"
-    test_file.write_text("test content")
-    subprocess.run(["git", "add", "."], cwd=temp_work_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-
     worktree_path: Path | None = None
     with (
-        _setup_claude_trust_config(temp_work_dir),
+        _setup_claude_trust_config(temp_git_repo),
         tmux_session_cleanup(session_name),
     ):
         try:
-            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
+            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_git_repo)
 
             agent_options = CreateAgentOptions(
                 agent_type=AgentTypeName("worktree-test"),
@@ -349,7 +326,7 @@ def test_create_agent_with_worktree(
             worktree_path = Path(agent.work_dir)
             assert worktree_path.exists()
             # Worktree is created directly at work_dir, no subdirectory
-            assert (worktree_path / "test.txt").exists()
+            assert (worktree_path / "README.md").exists()
 
             result = subprocess.run(
                 ["git", "branch", "--show-current"],
@@ -365,46 +342,23 @@ def test_create_agent_with_worktree(
             if worktree_path is not None:
                 subprocess.run(
                     ["git", "worktree", "remove", "--force", str(worktree_path)],
-                    cwd=temp_work_dir,
+                    cwd=temp_git_repo,
                     capture_output=True,
                 )
 
 
 def test_worktree_with_custom_branch_name(
     temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
+    temp_git_repo: Path,
 ) -> None:
     """Test creating a worktree with a custom branch name."""
     agent_name = AgentName(f"test-worktree-custom-{int(time.time())}")
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
     custom_branch = "feature/custom-branch"
 
-    subprocess.run(["git", "init"], cwd=temp_work_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-    test_file = temp_work_dir / "test.txt"
-    test_file.write_text("test content")
-    subprocess.run(["git", "add", "."], cwd=temp_work_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-
     branch_result = subprocess.run(
         ["git", "branch", "--show-current"],
-        cwd=temp_work_dir,
+        cwd=temp_git_repo,
         capture_output=True,
         text=True,
         check=True,
@@ -413,11 +367,11 @@ def test_worktree_with_custom_branch_name(
 
     worktree_path: Path | None = None
     with (
-        _setup_claude_trust_config(temp_work_dir),
+        _setup_claude_trust_config(temp_git_repo),
         tmux_session_cleanup(session_name),
     ):
         try:
-            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
+            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_git_repo)
 
             agent_options = CreateAgentOptions(
                 agent_type=AgentTypeName("worktree-test"),
@@ -457,7 +411,7 @@ def test_worktree_with_custom_branch_name(
             if worktree_path is not None:
                 subprocess.run(
                     ["git", "worktree", "remove", "--force", str(worktree_path)],
-                    cwd=temp_work_dir,
+                    cwd=temp_git_repo,
                     capture_output=True,
                 )
 
@@ -510,43 +464,20 @@ def test_in_place_mode_sets_is_generated_work_dir_false(
 
 def test_worktree_mode_sets_is_generated_work_dir_true(
     temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
+    temp_git_repo: Path,
     temp_host_dir: Path,
 ) -> None:
     """Test that worktree mode tracks work_dir as generated."""
     agent_name = AgentName(f"test-worktree-gen-{int(time.time())}")
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
-    subprocess.run(["git", "init"], cwd=temp_work_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-    test_file = temp_work_dir / "test.txt"
-    test_file.write_text("test content")
-    subprocess.run(["git", "add", "."], cwd=temp_work_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-
     worktree_path: Path | None = None
     with (
-        _setup_claude_trust_config(temp_work_dir),
+        _setup_claude_trust_config(temp_git_repo),
         tmux_session_cleanup(session_name),
     ):
         try:
-            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
+            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_git_repo)
 
             agent_options = CreateAgentOptions(
                 agent_type=AgentTypeName("worktree-gen-test"),
@@ -568,7 +499,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
             assert data_file.exists(), "agent data.json should exist"
 
             data = json.loads(data_file.read_text())
-            assert data["work_dir"] != str(temp_work_dir), "work_dir should be different from source in worktree mode"
+            assert data["work_dir"] != str(temp_git_repo), "work_dir should be different from source in worktree mode"
 
             agent = _get_agent_from_create_result(result, temp_mngr_ctx)
             worktree_path = Path(agent.work_dir)
@@ -584,7 +515,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
             if worktree_path is not None:
                 subprocess.run(
                     ["git", "worktree", "remove", "--force", str(worktree_path)],
-                    cwd=temp_work_dir,
+                    cwd=temp_git_repo,
                     capture_output=True,
                 )
 

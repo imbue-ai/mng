@@ -312,37 +312,10 @@ RUN echo "About to fail with marker: {unique_failure_marker}" && exit 1
     )
 
 
-@pytest.fixture
-def temp_git_source_dir(tmp_path: Path) -> Path:
-    """Create a temporary source directory with a git repository."""
-    source_dir = tmp_path / "git_source"
-    source_dir.mkdir()
-    # Create a file and initialize git
-    (source_dir / "tracked.txt").write_text("tracked content")
-    subprocess.run(["git", "init"], cwd=source_dir, capture_output=True, check=True)
-    subprocess.run(["git", "add", "."], cwd=source_dir, capture_output=True, check=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=source_dir,
-        capture_output=True,
-        check=True,
-        env={
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Test",
-            "GIT_AUTHOR_EMAIL": "test@test.com",
-            "GIT_COMMITTER_NAME": "Test",
-            "GIT_COMMITTER_EMAIL": "test@test.com",
-        },
-    )
-    # Add an untracked file
-    (source_dir / "untracked.txt").write_text("untracked content")
-    return source_dir
-
-
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_mngr_create_transfers_git_repo_with_untracked_files(
-    temp_git_source_dir: Path,
+    temp_git_repo: Path,
     modal_subprocess_env: ModalSubprocessTestEnv,
 ) -> None:
     """Test that agent creation with git repo source succeeds on Modal.
@@ -359,7 +332,7 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(
     unique_marker = f"git-transfer-test-{get_short_random_string()}"
 
     # Write a unique marker file (will be transferred via rsync as untracked)
-    (temp_git_source_dir / "marker.txt").write_text(unique_marker)
+    (temp_git_repo / "marker.txt").write_text(unique_marker)
 
     # Create agent - if file transfer fails, this will fail
     result = subprocess.run(
@@ -376,7 +349,7 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(
             "--await-ready",
             "--no-ensure-clean",
             "--source",
-            str(temp_git_source_dir),
+            str(temp_git_repo),
             "--",
             "sleep 3600",
         ],
@@ -393,7 +366,7 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_mngr_create_transfers_git_repo_with_new_branch(
-    temp_git_source_dir: Path,
+    temp_git_repo: Path,
     modal_subprocess_env: ModalSubprocessTestEnv,
 ) -> None:
     """Test that git transfer creates a new branch on the remote.
@@ -418,7 +391,7 @@ def test_mngr_create_transfers_git_repo_with_new_branch(
             "--await-ready",
             "--no-ensure-clean",
             "--source",
-            str(temp_git_source_dir),
+            str(temp_git_repo),
             "--new-branch=",
             "--",
             "git rev-parse --abbrev-ref HEAD && sleep 3600",
