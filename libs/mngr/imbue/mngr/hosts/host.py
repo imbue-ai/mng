@@ -29,8 +29,7 @@ from pyinfra.connectors.util import CommandOutput
 from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
-from imbue.mngr.agents.agent_registry import get_agent_class
-from imbue.mngr.agents.agent_registry import get_agent_config_class
+from imbue.mngr.agents.agent_registry import resolve_agent_type
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
@@ -794,14 +793,9 @@ class Host(BaseHost, OnlineHostInterface):
         logger.trace("Loaded agent {} from {}", data.get("name"), agent_dir)
 
         agent_type = AgentTypeName(data["type"])
-        agent_class = get_agent_class(str(agent_type))
-        config_class = get_agent_config_class(str(agent_type))
+        resolved = resolve_agent_type(agent_type, self.mngr_ctx.config)
 
-        agent_config = self.mngr_ctx.config.agent_types.get(agent_type)
-        if agent_config is None:
-            agent_config = config_class()
-
-        return cast(type[BaseAgent], agent_class)(
+        return cast(type[BaseAgent], resolved.agent_class)(
             id=AgentId(data["id"]),
             name=AgentName(data["name"]),
             agent_type=agent_type,
@@ -810,7 +804,7 @@ class Host(BaseHost, OnlineHostInterface):
             host_id=self.id,
             host=self,
             mngr_ctx=self.mngr_ctx,
-            agent_config=agent_config,
+            agent_config=resolved.agent_config,
         )
 
     def create_agent_work_dir(
@@ -1226,19 +1220,14 @@ class Host(BaseHost, OnlineHostInterface):
             agent_type=str(agent_type),
         )
 
-        agent_class = get_agent_class(str(agent_type))
-        config_class = get_agent_config_class(str(agent_type))
-
-        agent_config = self.mngr_ctx.config.agent_types.get(agent_type)
-        if agent_config is None:
-            agent_config = config_class()
+        resolved = resolve_agent_type(agent_type, self.mngr_ctx.config)
 
         state_dir = self.host_dir / "agents" / str(agent_id)
         self._mkdirs([state_dir, state_dir / "logs", state_dir / "events"])
 
         create_time = datetime.now(timezone.utc)
 
-        agent = cast(type[BaseAgent], agent_class)(
+        agent = cast(type[BaseAgent], resolved.agent_class)(
             id=agent_id,
             name=agent_name,
             agent_type=agent_type,
@@ -1247,7 +1236,7 @@ class Host(BaseHost, OnlineHostInterface):
             host_id=self.id,
             host=self,
             mngr_ctx=self.mngr_ctx,
-            agent_config=agent_config,
+            agent_config=resolved.agent_config,
         )
 
         command = agent.assemble_command(

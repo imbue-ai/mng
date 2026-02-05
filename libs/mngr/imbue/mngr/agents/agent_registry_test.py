@@ -7,12 +7,17 @@ from imbue.mngr.agents.agent_registry import get_agent_class
 from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.agents.agent_registry import list_registered_agent_types
 from imbue.mngr.agents.agent_registry import register_agent_config
+from imbue.mngr.agents.agent_registry import resolve_agent_type
+from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mngr.agents.default_plugins.codex_agent import CodexAgentConfig
 from imbue.mngr.config.data_types import AgentTypeConfig
+from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.errors import ConfigParseError
+from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
+from imbue.mngr.primitives import Permission
 
 
 def test_get_agent_config_class_returns_base_for_unregistered_type() -> None:
@@ -126,3 +131,132 @@ def test_claude_agent_config_merge_with_wrong_type_raises_error() -> None:
 
     with pytest.raises(ConfigParseError, match="Cannot merge ClaudeAgentConfig"):
         base.merge_with(override)
+
+
+def test_resolve_agent_type_returns_claude_for_registered_type() -> None:
+    """Resolving a registered type should return its class and default config."""
+    config = MngrConfig()
+    resolved = resolve_agent_type(AgentTypeName("claude"), config)
+
+    assert resolved.agent_class == ClaudeAgent
+    assert isinstance(resolved.agent_config, ClaudeAgentConfig)
+    assert resolved.agent_config.command == CommandString("claude")
+
+
+def test_resolve_agent_type_returns_base_agent_for_unknown_type() -> None:
+    """Resolving an unknown type should return BaseAgent with base config."""
+    config = MngrConfig()
+    resolved = resolve_agent_type(AgentTypeName("unknown-command"), config)
+
+    assert resolved.agent_class == BaseAgent
+    assert type(resolved.agent_config) is AgentTypeConfig
+
+
+def test_resolve_agent_type_with_custom_type_uses_parent_class() -> None:
+    """A custom type with parent_type should use the parent's agent class."""
+    custom_config = AgentTypeConfig(
+        parent_type=AgentTypeName("claude"),
+        cli_args="--model opus",
+    )
+    config = MngrConfig(
+        agent_types={AgentTypeName("my_claude"): custom_config},
+    )
+
+    resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
+
+    assert resolved.agent_class == ClaudeAgent
+    assert isinstance(resolved.agent_config, ClaudeAgentConfig)
+
+
+def test_resolve_agent_type_with_custom_type_merges_cli_args() -> None:
+    """A custom type should merge its cli_args onto the parent config."""
+    custom_config = AgentTypeConfig(
+        parent_type=AgentTypeName("claude"),
+        cli_args="--model opus",
+    )
+    config = MngrConfig(
+        agent_types={AgentTypeName("my_claude"): custom_config},
+    )
+
+    resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
+
+    assert resolved.agent_config.cli_args == "--model opus"
+
+
+def test_resolve_agent_type_with_custom_type_overrides_command() -> None:
+    """A custom type with a command override should apply it to the parent config."""
+    custom_config = AgentTypeConfig(
+        parent_type=AgentTypeName("claude"),
+        command=CommandString("my-custom-claude-wrapper"),
+    )
+    config = MngrConfig(
+        agent_types={AgentTypeName("my_claude"): custom_config},
+    )
+
+    resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
+
+    assert resolved.agent_config.command == CommandString("my-custom-claude-wrapper")
+
+
+def test_resolve_agent_type_with_custom_type_preserves_parent_specific_fields() -> None:
+    """Custom type config should retain parent-specific fields like sync_home_settings."""
+    custom_config = AgentTypeConfig(
+        parent_type=AgentTypeName("claude"),
+        cli_args="--model opus",
+    )
+    config = MngrConfig(
+        agent_types={AgentTypeName("my_claude"): custom_config},
+    )
+
+    resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
+
+    # ClaudeAgentConfig has sync_home_settings=True by default
+    assert isinstance(resolved.agent_config, ClaudeAgentConfig)
+    assert resolved.agent_config.sync_home_settings is True
+
+
+def test_resolve_agent_type_with_custom_type_merges_permissions() -> None:
+    """Custom type permissions should be merged onto parent permissions."""
+    custom_config = AgentTypeConfig(
+        parent_type=AgentTypeName("claude"),
+        permissions=[Permission("github"), Permission("docker")],
+    )
+    config = MngrConfig(
+        agent_types={AgentTypeName("my_claude"): custom_config},
+    )
+
+    resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
+
+    assert Permission("github") in resolved.agent_config.permissions
+    assert Permission("docker") in resolved.agent_config.permissions
+
+
+def test_resolve_agent_type_with_override_for_registered_type() -> None:
+    """A config override for a registered type (no parent_type) uses registered class."""
+    custom_config = AgentTypeConfig(
+        cli_args="--extra-flag",
+    )
+    config = MngrConfig(
+        agent_types={AgentTypeName("claude"): custom_config},
+    )
+
+    resolved = resolve_agent_type(AgentTypeName("claude"), config)
+
+    assert resolved.agent_class == ClaudeAgent
+    # Since there's no parent_type, the custom_config is used directly
+    assert resolved.agent_config.cli_args == "--extra-flag"
+
+
+def test_resolve_agent_type_custom_type_without_parent_uses_base_agent() -> None:
+    """A custom type without parent_type should use BaseAgent."""
+    custom_config = AgentTypeConfig(
+        command=CommandString("my-agent-binary"),
+    )
+    config = MngrConfig(
+        agent_types={AgentTypeName("my_custom"): custom_config},
+    )
+
+    resolved = resolve_agent_type(AgentTypeName("my_custom"), config)
+
+    assert resolved.agent_class == BaseAgent
+    assert resolved.agent_config.command == CommandString("my-agent-binary")
