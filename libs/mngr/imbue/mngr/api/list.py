@@ -536,6 +536,7 @@ def _process_provider_for_host_listing(
     hosts = provider.list_hosts(include_destroyed=include_destroyed, cg=cg)
 
     # Collect results for this provider
+    threads: list[ObservableThread] = []
     provider_results: dict[HostReference, list[AgentReference]] = {}
     for host in hosts:
         host_ref = HostReference(
@@ -543,17 +544,41 @@ def _process_provider_for_host_listing(
             host_name=host.get_name(),
             provider_name=provider.name,
         )
-        try:
-            agent_refs = host.get_agent_references()
-        # retry once when there is a host connection error (the second time we'll probably end up
-        except HostConnectionError:
-            offline_host = provider.get_host(host.id)
-            agent_refs = offline_host.get_agent_references()
-        provider_results[host_ref] = agent_refs
+        thread = cg.start_new_thread(
+            target=_store_result_from_callable,
+            args=(provider_results, host_ref, lambda: _get_agent_refs_robustly(host, provider)),
+            name="fetch_host_records",
+        )
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()
 
     # Merge results into the main dict under lock
     with results_lock:
         agents_by_host.update(provider_results)
+
+
+def _store_result_from_callable(
+    result_dict: dict[str, Any],
+    key: str,
+    callable_fn: Callable[[], Any],
+) -> None:
+    """Helper function for storing callable results in a thread-safe manner.
+
+    Used by list_hosts to run parallel fetches with ConcurrencyGroup.
+    """
+    result_dict[key] = callable_fn()
+
+
+# retries via offline info if the host connection errors out
+def _get_agent_refs_robustly(host, provider):
+    try:
+        return host.get_agent_references()
+    # retry once when there is a host connection error (the second time we'll probably end up
+    except HostConnectionError:
+        offline_host = provider.get_host(host.id)
+        return offline_host.get_agent_references()
 
 
 @log_call
