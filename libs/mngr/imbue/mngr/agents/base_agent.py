@@ -285,43 +285,88 @@ class BaseAgent(AgentInterface):
 
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
         wait_channel = f"mngr-ready-{session_name}"
+        overall_start = time.time()
 
-        logger.debug("Waiting for ready signal on channel {} (timeout={}s)", wait_channel, timeout)
+        logger.info("Waiting for ready signal on channel {} (timeout={}s)", wait_channel, timeout)
 
-        # Use a marker file to track signal receipt
-        # This is more reliable than trying to detect if tmux wait-for is still running
-        marker_path = self._get_agent_dir() / "ready_signal_received"
+        # Use marker files to track listener state and signal receipt
+        agent_dir = self._get_agent_dir()
+        listener_started_path = agent_dir / "ready_listener_started"
+        signal_received_path = agent_dir / "ready_signal_received"
 
-        # Remove any stale marker file
-        rm_cmd = f"rm -f {shlex.quote(str(marker_path))}"
-        self.host.execute_command(rm_cmd, timeout_seconds=1.0)
+        # Remove any stale marker files
+        rm_started_cmd = f"rm -f {shlex.quote(str(listener_started_path))}"
+        rm_received_cmd = f"rm -f {shlex.quote(str(signal_received_path))}"
+        self.host.execute_command(f"{rm_started_cmd} && {rm_received_cmd}", timeout_seconds=1.0)
 
-        # Start a background listener that creates the marker when the signal is received
-        # Use nohup and redirect output to prevent blocking
+        # Start a background listener that:
+        # 1. Creates "listener_started" marker (so we know it's running)
+        # 2. Waits for the tmux signal
+        # 3. Creates "signal_received" marker when signal arrives
         listener_cmd = (
-            f"nohup bash -c 'tmux wait-for {shlex.quote(wait_channel)} && "
-            f"touch {shlex.quote(str(marker_path))}' >/dev/null 2>&1 &"
+            f"nohup bash -c '"
+            f"touch {shlex.quote(str(listener_started_path))} && "
+            f"tmux wait-for {shlex.quote(wait_channel)} && "
+            f"touch {shlex.quote(str(signal_received_path))}"
+            f"' >/dev/null 2>&1 &"
         )
+        logger.debug("Starting tmux wait-for listener...")
         self.host.execute_command(listener_cmd, timeout_seconds=1.0)
 
-        # Now run the start action (e.g., start the agent)
-        start_action()
-
-        # Wait for the marker file to appear (signal was received)
-        start_time = time.time()
-        while time.time() - start_time < timeout:
+        # Wait for listener to be started (deterministic, no arbitrary sleep)
+        listener_wait_start = time.time()
+        while time.time() - listener_wait_start < 2.0:
             try:
-                self.host.read_text_file(marker_path)
+                self.host.read_text_file(listener_started_path)
+                logger.debug("Listener confirmed started after {:.3f}s", time.time() - listener_wait_start)
+                break
+            except FileNotFoundError:
+                time.sleep(0.01)
+        else:
+            logger.warning("Listener did not confirm start within 2s, proceeding anyway")
+
+        # Now run the start action (e.g., start the agent)
+        logger.debug("Calling start_action...")
+        action_start = time.time()
+        start_action()
+        action_elapsed = time.time() - action_start
+        logger.debug("start_action completed in {:.2f}s, now polling for signal...", action_elapsed)
+
+        # Wait for the signal_received marker file to appear
+        poll_start = time.time()
+        poll_count = 0
+        while time.time() - overall_start < timeout:
+            poll_count += 1
+            try:
+                self.host.read_text_file(signal_received_path)
                 # Marker exists = signal was received
-                logger.debug("Received ready signal on channel {}", wait_channel)
-                # Clean up marker file
-                self.host.execute_command(rm_cmd, timeout_seconds=1.0)
+                total_elapsed = time.time() - overall_start
+                poll_elapsed = time.time() - poll_start
+                logger.info(
+                    "Received ready signal on channel {} after {:.2f}s (action={:.2f}s, poll={:.2f}s, polls={})",
+                    wait_channel,
+                    total_elapsed,
+                    action_elapsed,
+                    poll_elapsed,
+                    poll_count,
+                )
+                # Clean up marker files
+                self.host.execute_command(f"{rm_started_cmd} && {rm_received_cmd}", timeout_seconds=1.0)
                 return True
             except FileNotFoundError:
                 pass
             time.sleep(0.05)
 
-        logger.debug("Timeout waiting for ready signal on channel {}", wait_channel)
+        total_elapsed = time.time() - overall_start
+        logger.warning(
+            "Timeout waiting for ready signal on channel {} after {:.2f}s (action={:.2f}s, polls={})",
+            wait_channel,
+            total_elapsed,
+            action_elapsed,
+            poll_count,
+        )
+        # Clean up marker files on timeout too
+        self.host.execute_command(f"{rm_started_cmd} && {rm_received_cmd}", timeout_seconds=1.0)
         return False
 
     def _command_basename_matches(self, current: str, expected: str) -> bool:
