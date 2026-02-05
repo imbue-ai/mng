@@ -63,7 +63,6 @@ from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
-from imbue.mngr.utils.claude_config import check_source_directory_trusted
 from imbue.mngr.utils.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.utils.claude_config import remove_claude_trust_for_path
 from imbue.mngr.utils.env_utils import parse_env_file
@@ -1183,15 +1182,16 @@ class Host(BaseHost, OnlineHostInterface):
         if host.id != self.id:
             raise UserInputError("Worktree mode only works when source is on the same host")
 
-        # Check that the source directory is trusted by Claude before creating worktree
-        check_source_directory_trusted(source_path)
-
         agent_id = AgentId.generate()
 
         if options.target_path is not None:
             work_dir_path = options.target_path
         else:
             work_dir_path = self.host_dir / "worktrees" / str(agent_id)
+
+        # Extend Claude's trust settings before creating the worktree.
+        # This validates the source is trusted and fails fast if not.
+        extend_claude_trust_to_worktree(source_path, work_dir_path)
 
         self._mkdir(work_dir_path.parent)
 
@@ -1206,9 +1206,6 @@ class Host(BaseHost, OnlineHostInterface):
         result = self.execute_command(cmd)
         if not result.success:
             raise MngrError(f"Failed to create git worktree: {result.stderr}")
-
-        # Extend Claude's trust settings to the new worktree
-        extend_claude_trust_to_worktree(source_path, work_dir_path)
 
         # Track generated work directories at the host level
         self._add_generated_work_dir(work_dir_path)
