@@ -149,6 +149,9 @@ class ClaudeAgent(BaseAgent):
     ) -> None:
         """Validate that claude is available or can be installed.
 
+        This method performs read-only validation only. Actual installation
+        happens in provision().
+
         For remote hosts: warn and proceed (installation happens in provision)
         For local hosts: warn and prompt user for consent (installation happens in provision)
         """
