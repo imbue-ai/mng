@@ -34,6 +34,7 @@ import modal.exception
 from dockerfile_parse import DockerfileParser
 from loguru import logger
 from modal.config import Config as ModalConfig
+from modal.exception import NotFoundError
 from modal.stream_type import StreamType
 from pydantic import ConfigDict
 from pydantic import Field
@@ -447,7 +448,7 @@ class ModalProviderInstance(BaseProviderInstance):
             # Cache the result
             self._host_record_cache_by_id[host_id] = host_record
             return host_record
-        except FileNotFoundError:
+        except NotFoundError:
             return None
 
     def _delete_host_record(self, host_id: HostId) -> None:
@@ -458,7 +459,7 @@ class ModalProviderInstance(BaseProviderInstance):
         host_dir = f"/{host_id}"
         try:
             entries = list(volume.listdir(host_dir))
-        except FileNotFoundError:
+        except NotFoundError:
             pass
         else:
             for entry in entries:
@@ -474,7 +475,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.trace("Deleting host record from volume: {}", path)
         try:
             volume.remove_file(path)
-        except FileNotFoundError:
+        except NotFoundError:
             pass
 
         # Clear cache entries for this host
