@@ -623,10 +623,15 @@ def test_provision_skips_readiness_hooks_when_disabled(
 # =============================================================================
 
 
-def _make_claude_agent(
+def make_mock_claude_agent(
     work_dir: Path, mngr_test_prefix: str, temp_profile_dir: Path
 ) -> tuple[ClaudeAgent, Mock, MngrContext]:
-    """Create a ClaudeAgent with a mock host for testing trust logic."""
+    """Create a ClaudeAgent with a mock host for verifying method calls.
+
+    Use this when you only need to verify that methods are called with the right
+    arguments (via patch/Mock). Use make_claude_agent instead if you need real
+    filesystem operations.
+    """
     pm = pluggy.PluginManager("mngr")
     mock_host = Mock()
     mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
@@ -650,7 +655,7 @@ def test_provision_extends_trust_for_worktree(mngr_test_prefix: str, tmp_path: P
     work_dir.mkdir()
     source_git_dir = tmp_path / "source" / ".git"
 
-    agent, mock_host, mngr_ctx = _make_claude_agent(work_dir, mngr_test_prefix, temp_profile_dir)
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(work_dir, mngr_test_prefix, temp_profile_dir)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
@@ -676,7 +681,7 @@ def test_provision_does_not_extend_trust_for_non_worktree(
     mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
 ) -> None:
     """provision should not extend trust when not using worktree mode."""
-    agent, mock_host, mngr_ctx = _make_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
@@ -695,7 +700,7 @@ def test_provision_does_not_extend_trust_when_no_git_options(
     mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
 ) -> None:
     """provision should not extend trust when git options are None."""
-    agent, mock_host, mngr_ctx = _make_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
@@ -714,7 +719,7 @@ def test_on_destroy_removes_trust(mngr_test_prefix: str, tmp_path: Path, temp_pr
     work_dir = tmp_path / "worktree"
     work_dir.mkdir()
 
-    agent, mock_host, _ = _make_claude_agent(work_dir, mngr_test_prefix, temp_profile_dir)
+    agent, mock_host, _ = make_mock_claude_agent(work_dir, mngr_test_prefix, temp_profile_dir)
 
     with patch(
         "imbue.mngr.agents.default_plugins.claude_agent.remove_claude_trust_for_path",
