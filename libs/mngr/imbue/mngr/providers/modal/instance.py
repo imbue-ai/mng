@@ -453,9 +453,25 @@ class ModalProviderInstance(BaseProviderInstance):
     def _delete_host_record(self, host_id: HostId) -> None:
         """Delete a host record from the volume and clear caches."""
         volume = self._get_volume()
+
+        # first delete all agent records for this host
+        host_dir = f"/{host_id}"
+        try:
+            entries = list(volume.listdir(host_dir))
+        except FileNotFoundError:
+            pass
+        else:
+            for entry in entries:
+                filename = entry.path
+                agent_path = filename.lstrip("/")
+                volume.remove_file(agent_path)
+            # then finally remove the empty host directory
+            volume.reload()
+            volume.remove_file(host_dir)
+
+        # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
         logger.trace("Deleting host record from volume: {}", path)
-
         try:
             volume.remove_file(path)
         except FileNotFoundError:
@@ -1766,6 +1782,7 @@ log "=== Shutdown script completed ==="
         except ConcurrencyExceptionGroup as e:
             if e.only_exception_is_instance_of(modal.exception.AuthError):
                 raise ModalAuthError() from e
+            raise
 
         # Map running sandboxes by host_id
         running_sandbox_by_host_id: dict[HostId, modal.Sandbox] = {}
