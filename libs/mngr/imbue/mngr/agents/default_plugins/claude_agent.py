@@ -4,7 +4,6 @@ import fcntl
 import json
 import os
 import shlex
-import shutil
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -437,20 +436,14 @@ class ClaudeAgent(BaseAgent):
                     logger.debug("Readiness hooks already configured in {}", settings_path)
                     return
 
-                # Create backup before modifying
-                backup_path = settings_path.with_suffix(".json.bak")
-                shutil.copy2(settings_path, backup_path)
-                logger.debug("Created backup of Claude settings at {}", backup_path)
-
-                # Write the merged settings
-                f.seek(0)
-                f.truncate()
-                json.dump(existing_settings, f, indent=2)
-                f.write("\n")
-
-                # Ensure the file is flushed to disk
-                f.flush()
-                os.fsync(f.fileno())
+                # Write atomically: write to temp file in same directory, then rename
+                temp_path = settings_path.with_suffix(".json.tmp")
+                with open(temp_path, "w") as tmp:
+                    json.dump(existing_settings, tmp, indent=2)
+                    tmp.write("\n")
+                    tmp.flush()
+                    os.fsync(tmp.fileno())
+                temp_path.rename(settings_path)
 
                 logger.debug("Configured readiness hooks in {}", settings_path)
             finally:
