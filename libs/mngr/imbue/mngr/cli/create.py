@@ -22,6 +22,7 @@ from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.data_types import NewHostBuildOptions
 from imbue.mngr.api.data_types import NewHostOptions
 from imbue.mngr.api.data_types import SourceLocation
+from imbue.mngr.api.find import ensure_agent_started
 from imbue.mngr.api.find import ensure_host_started
 from imbue.mngr.api.find import get_host_from_list_by_id
 from imbue.mngr.api.find import get_unique_host_from_list_by_name
@@ -58,7 +59,6 @@ from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.host import UploadFileSpec
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
-from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentNameStyle
 from imbue.mngr.primitives import AgentReference
@@ -611,6 +611,25 @@ def create(ctx: click.Context, **kwargs) -> None:
             agent, host = reuse_result
             logger.info("Reusing existing agent: {}", agent.name)
 
+            # Handle --edit-message if editor session was started
+            try:
+                if editor_session is not None:
+                    _handle_editor_message(
+                        editor_session=editor_session,
+                        agent=agent,
+                    )
+            finally:
+                # Clean up editor session on success or failure
+                if editor_session is not None and not editor_session.is_finished():
+                    editor_session.cleanup()
+                # Ensure logging suppression is disabled on any exit path
+                if LoggingSuppressor.is_suppressed():
+                    LoggingSuppressor.disable_and_replay(clear_screen=True)
+
+            # If --await-agent-stopped is set, wait for the agent to finish running
+            if opts.await_agent_stopped:
+                _await_agent_stopped(agent)
+
             # If --connect is set, connect to the agent
             if opts.connect:
                 connect_to_agent(agent, host, mngr_ctx, connection_opts)
@@ -891,11 +910,8 @@ def _try_reuse_existing_agent(
         logger.warning("Agent {} not found on host after starting, will create new agent", agent_name)
         return None
 
-    # Ensure the agent is started
-    lifecycle_state = agent.get_lifecycle_state()
-    if lifecycle_state not in (AgentLifecycleState.RUNNING, AgentLifecycleState.REPLACED, AgentLifecycleState.WAITING):
-        logger.info("Starting stopped agent: {}", agent.name)
-        online_host.start_agents([agent.id])
+    # Ensure the agent is started (reusing shared logic from find.py)
+    ensure_agent_started(agent, online_host, is_start_desired=True)
 
     return agent, online_host
 

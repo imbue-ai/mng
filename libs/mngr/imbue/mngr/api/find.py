@@ -295,7 +295,12 @@ def ensure_host_started(
             assert_never(unreachable)
 
 
-def _ensure_agent_started(agent: AgentInterface, host: OnlineHostInterface, is_start_desired: bool) -> None:
+def ensure_agent_started(agent: AgentInterface, host: OnlineHostInterface, is_start_desired: bool) -> None:
+    """Ensure an agent is started, starting it if needed and desired.
+
+    If the agent is stopped and is_start_desired is True, starts the agent.
+    If the agent is stopped and is_start_desired is False, raises UserInputError.
+    """
     # Check if the agent's tmux session exists and start it if needed
     lifecycle_state = agent.get_lifecycle_state()
     if lifecycle_state not in (AgentLifecycleState.RUNNING, AgentLifecycleState.REPLACED, AgentLifecycleState.WAITING):
@@ -340,7 +345,7 @@ def find_and_maybe_start_agent_by_name_or_id(
                     online_host, _was_started = ensure_host_started(host, is_start_desired, provider)
                     for agent in online_host.get_agents():
                         if agent.id == agent_id:
-                            _ensure_agent_started(agent, online_host, is_start_desired)
+                            ensure_agent_started(agent, online_host, is_start_desired)
                             return agent, online_host
         raise AgentNotFoundError(agent_id)
 
@@ -376,7 +381,7 @@ def find_and_maybe_start_agent_by_name_or_id(
 
     # make sure the agent is started
     agent, host = matching[0]
-    _ensure_agent_started(agent, host, is_start_desired)
+    ensure_agent_started(agent, host, is_start_desired)
 
     return agent, host
 
