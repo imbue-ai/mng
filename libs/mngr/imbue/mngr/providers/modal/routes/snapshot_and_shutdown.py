@@ -175,8 +175,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
             }
 
         except BaseException as e:
-            logger.error(f"Error in snapshot_and_shutdown: {e}", exc_info=True)
-            print(f"There was an error: {e}")
+            logger.error("Error in snapshot_and_shutdown: " + str(e), exc_info=True)
             raise
 
     except HTTPException:
