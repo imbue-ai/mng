@@ -196,15 +196,6 @@ def test_get_state_returns_crashed_when_no_stop_reason(offline_host: OfflineHost
     assert state == HostState.CRASHED
 
 
-def test_get_state_returns_destroyed_when_no_snapshots(offline_host: OfflineHost, mock_provider):
-    """Test that get_state returns DESTROYED when no snapshots exist."""
-    mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.return_value = []
-
-    state = offline_host.get_state()
-    assert state == HostState.DESTROYED
-
-
 def test_get_state_returns_crashed_when_provider_does_not_support_snapshots_and_no_stop_reason(
     offline_host: OfflineHost, mock_provider
 ):

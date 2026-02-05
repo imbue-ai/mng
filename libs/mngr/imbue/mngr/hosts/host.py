@@ -13,7 +13,6 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
-from typing import Final
 from typing import IO
 from typing import Iterator
 from typing import Mapping
@@ -65,13 +64,10 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.claude_config import check_source_directory_trusted
+from imbue.mngr.utils.claude_config import extend_claude_trust_to_worktree
+from imbue.mngr.utils.claude_config import remove_claude_trust_for_path
 from imbue.mngr.utils.env_utils import parse_env_file
-from imbue.mngr.utils.git_utils import find_git_common_dir
 from imbue.mngr.utils.git_utils import get_current_git_branch
-
-# Maximum number of branch name suffix attempts when auto-deriving branch names.
-# Kept small (20) to ensure the branch name fits in a typical tmux pane (~80 chars).
-_MAX_BRANCH_SUFFIX_ATTEMPTS: Final[int] = 20
 
 
 class HostLocation(FrozenModel):
@@ -1172,13 +1168,6 @@ class Host(BaseHost, OnlineHostInterface):
         if result.returncode != 0:
             raise MngrError(f"rsync failed: {result.stderr}")
 
-    def _git_branch_exists(self, source_path: Path, branch_name: str) -> bool:
-        """Check if a git branch exists in the repository."""
-        result = self.execute_command(
-            f"git -C {shlex.quote(str(source_path))} show-ref --verify --quiet refs/heads/{shlex.quote(branch_name)}"
-        )
-        return result.success
-
     def _create_work_dir_as_git_worktree(
         self,
         host: OnlineHostInterface,
@@ -1187,16 +1176,9 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> Path:
         """Create a work_dir using git worktree.
 
-        Worktrees are placed inside .git/mngr-worktrees/<agent-id>/repo/ with the
-        agent's working directory being .git/mngr-worktrees/<agent-id>/. This
-        structure allows the agent to inherit Claude's trust (since the work_dir
-        itself doesn't contain a .git file), while still having access to the
-        git worktree in the repo/ subdirectory.
-
-        Claude treats directories containing .git specially and requires separate
-        trust for them. By putting the .git-containing worktree one level down,
-        the agent's work_dir inherits trust from .git/ (which inherits from the
-        main repo), and the agent can still access the worktree contents.
+        Worktrees are placed at ~/.mngr/hosts/<host>/worktrees/<agent-id>/.
+        Claude's trust settings are extended from the source path to the worktree
+        by copying the project configuration in ~/.claude.json.
         """
         if host.id != self.id:
             raise UserInputError("Worktree mode only works when source is on the same host")
@@ -1204,35 +1186,19 @@ class Host(BaseHost, OnlineHostInterface):
         # Check that the source directory is trusted by Claude before creating worktree
         check_source_directory_trusted(source_path)
 
-        # Find the common .git directory (handles both regular repos and worktrees)
-        git_common_dir = find_git_common_dir(source_path)
-        if git_common_dir is None:
-            raise MngrError(f"Could not find .git directory for {source_path}")
-
         agent_id = AgentId.generate()
 
         if options.target_path is not None:
-            # Custom target path - use it directly as the worktree
-            worktree_path = options.target_path
             work_dir_path = options.target_path
         else:
-            # Default: work_dir is the agent directory, worktree is in repo/ subdirectory
-            work_dir_path = git_common_dir / "mngr-worktrees" / str(agent_id)
-            worktree_path = work_dir_path / "repo"
+            work_dir_path = self.host_dir / "worktrees" / str(agent_id)
 
-        self._mkdir(worktree_path.parent)
+        self._mkdir(work_dir_path.parent)
 
-        base_branch_name = self._determine_branch_name(options)
+        branch_name = self._determine_branch_name(options)
 
-        # If the branch name was auto-derived (not explicitly set by user),
-        # check if it exists and append a suffix if needed
-        is_branch_name_auto_derived = not (options.git and options.git.new_branch_name)
-        final_branch_name = self._resolve_available_branch_name(
-            source_path, base_branch_name, is_branch_name_auto_derived
-        )
-
-        logger.debug("Creating git worktree", path=str(worktree_path), branch=final_branch_name)
-        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(worktree_path))} -b {shlex.quote(final_branch_name)}"
+        logger.debug("Creating git worktree", path=str(work_dir_path), branch=branch_name)
+        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
 
         if options.git and options.git.base_branch:
             cmd += f" {shlex.quote(options.git.base_branch)}"
@@ -1241,35 +1207,13 @@ class Host(BaseHost, OnlineHostInterface):
         if not result.success:
             raise MngrError(f"Failed to create git worktree: {result.stderr}")
 
+        # Extend Claude's trust settings to the new worktree
+        extend_claude_trust_to_worktree(source_path, work_dir_path)
+
         # Track generated work directories at the host level
         self._add_generated_work_dir(work_dir_path)
 
         return work_dir_path
-
-    def _resolve_available_branch_name(self, source_path: Path, base_branch_name: str, is_auto_derived: bool) -> str:
-        """Find an available branch name, appending suffixes if needed.
-
-        If is_auto_derived is True and the base name exists, tries appending
-        numeric suffixes (-2, -3, etc.) up to _MAX_BRANCH_SUFFIX_ATTEMPTS.
-        """
-        if not is_auto_derived or not self._git_branch_exists(source_path, base_branch_name):
-            return base_branch_name
-
-        # Try appending numeric suffixes until we find an available name
-        for suffix in range(2, 2 + _MAX_BRANCH_SUFFIX_ATTEMPTS):
-            candidate_branch_name = f"{base_branch_name}-{suffix}"
-            if not self._git_branch_exists(source_path, candidate_branch_name):
-                logger.debug(
-                    "Branch {} already exists, using {} instead",
-                    base_branch_name,
-                    candidate_branch_name,
-                )
-                return candidate_branch_name
-
-        max_suffix = 1 + _MAX_BRANCH_SUFFIX_ATTEMPTS
-        raise MngrError(
-            f"Could not find available branch name (tried {base_branch_name} through {base_branch_name}-{max_suffix})"
-        )
 
     def _determine_branch_name(self, options: CreateAgentOptions) -> str:
         """Determine the branch name for a new work_dir."""
@@ -1610,6 +1554,13 @@ class Host(BaseHost, OnlineHostInterface):
         self.stop_agents([agent.id])
         state_dir = self.host_dir / "agents" / str(agent.id)
         self._remove_directory(state_dir)
+
+        # Remove Claude trust entry for worktree work directories
+        # This cleans up entries created by extend_claude_trust_to_worktree
+        if self._is_generated_work_dir(agent.work_dir):
+            removed = remove_claude_trust_for_path(agent.work_dir)
+            if removed:
+                logger.debug("Removed Claude trust entry for {}", agent.work_dir)
 
         # Remove persisted agent data from external storage (e.g., Modal volume)
         self.provider_instance.remove_persisted_agent_data(self.id, agent.id)

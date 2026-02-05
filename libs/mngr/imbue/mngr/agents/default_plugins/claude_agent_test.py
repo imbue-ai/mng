@@ -3,7 +3,6 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from unittest.mock import Mock
-from uuid import uuid4
 
 import pluggy
 import pytest
@@ -14,7 +13,6 @@ from imbue.mngr.agents.default_plugins.claude_agent import _build_readiness_hook
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.primitives import AgentId
@@ -26,13 +24,6 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
 
-@pytest.fixture
-def temp_profile_dir(tmp_path: Path) -> Path:
-    profile_dir = tmp_path / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return profile_dir
-
-
 def make_claude_agent(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
@@ -41,9 +32,9 @@ def make_claude_agent(
     agent_type: AgentTypeName | None = None,
 ) -> tuple[ClaudeAgent, Host]:
     """Create a ClaudeAgent with a real local host for testing."""
-    host = local_provider.create_host(HostName(f"test-host-{uuid4().hex[:8]}"))
+    host = local_provider.create_host(HostName(f"test-host-{str(AgentId.generate().get_uuid())[:8]}"))
     assert isinstance(host, Host)
-    work_dir = tmp_path / f"work-{uuid4().hex[:8]}"
+    work_dir = tmp_path / f"work-{str(AgentId.generate().get_uuid())[:8]}"
     work_dir.mkdir()
 
     if agent_config is None:

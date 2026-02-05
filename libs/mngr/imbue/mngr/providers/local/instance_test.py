@@ -1,7 +1,6 @@
 """Tests for the LocalProviderInstance."""
 
 import json
-import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -45,18 +44,21 @@ def test_create_host_returns_host_with_persistent_id(temp_host_dir: Path, temp_c
     assert host1.id == host2.id
 
 
-def test_create_host_generates_new_id_for_different_dirs(mngr_test_prefix: str) -> None:
-    with tempfile.TemporaryDirectory() as tmpdir1:
-        with tempfile.TemporaryDirectory() as tmpdir2:
-            config1 = MngrConfig(default_host_dir=Path(tmpdir1), prefix=mngr_test_prefix)
-            config2 = MngrConfig(default_host_dir=Path(tmpdir2), prefix=mngr_test_prefix)
-            provider1 = make_local_provider(Path(tmpdir1), config1)
-            provider2 = make_local_provider(Path(tmpdir2), config2)
+def test_create_host_generates_new_id_for_different_dirs(tmp_path: Path, mngr_test_prefix: str) -> None:
+    tmpdir1 = tmp_path / "host1"
+    tmpdir2 = tmp_path / "host2"
+    tmpdir1.mkdir()
+    tmpdir2.mkdir()
 
-            host1 = provider1.create_host(HostName("test"))
-            host2 = provider2.create_host(HostName("test"))
+    config1 = MngrConfig(default_host_dir=tmpdir1, prefix=mngr_test_prefix)
+    config2 = MngrConfig(default_host_dir=tmpdir2, prefix=mngr_test_prefix)
+    provider1 = make_local_provider(tmpdir1, config1)
+    provider2 = make_local_provider(tmpdir2, config2)
 
-            assert host1.id != host2.id
+    host1 = provider1.create_host(HostName("test"))
+    host2 = provider2.create_host(HostName("test"))
+
+    assert host1.id != host2.id
 
 
 def test_host_id_persists_across_provider_instances(temp_host_dir: Path, temp_config: MngrConfig) -> None:

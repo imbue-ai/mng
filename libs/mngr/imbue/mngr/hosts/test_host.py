@@ -13,7 +13,6 @@ import threading
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from uuid import uuid4
 
 import pluggy
 import pytest
@@ -22,7 +21,6 @@ from pyinfra.api.command import StringCommand
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
@@ -49,9 +47,9 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.ssh.instance import SSHHostConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
-from imbue.mngr.providers.ssh.test_ssh_provider import local_sshd
-from imbue.mngr.providers.ssh.test_ssh_provider import ssh_keypair
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.testing import generate_ssh_keypair
+from imbue.mngr.utils.testing import local_sshd
 
 
 @pytest.fixture
@@ -60,14 +58,6 @@ def host_with_temp_dir(local_provider: LocalProviderInstance, temp_host_dir: Pat
     host = local_provider.create_host(HostName("test"))
     assert isinstance(host, Host)
     return host, temp_host_dir
-
-
-@pytest.fixture
-def temp_profile_dir(temp_host_dir: Path) -> Path:
-    """Create a temporary profile directory for tests that create their own MngrContext."""
-    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return profile_dir
 
 
 # =============================================================================
@@ -1378,7 +1368,10 @@ def _create_minimal_agent(host: Host, temp_dir: Path, work_dir: Path | None = No
 
 
 def _init_git_repo(path: Path, commit_message: str = "Initial commit") -> None:
-    """Helper to initialize a git repo with consistent env vars."""
+    """Helper to initialize a git repo.
+
+    Requires the setup_git_config fixture to have created .gitconfig in the fake HOME.
+    """
     subprocess.run(["git", "init"], cwd=path, capture_output=True, check=True)
     subprocess.run(["git", "add", "."], cwd=path, capture_output=True, check=True)
     subprocess.run(
@@ -1386,13 +1379,6 @@ def _init_git_repo(path: Path, commit_message: str = "Initial commit") -> None:
         cwd=path,
         capture_output=True,
         check=True,
-        env={
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Test",
-            "GIT_AUTHOR_EMAIL": "test@test.com",
-            "GIT_COMMITTER_NAME": "Test",
-            "GIT_COMMITTER_EMAIL": "test@test.com",
-        },
     )
 
 
@@ -1450,7 +1436,10 @@ def test_create_work_dir_copy_without_git(host_with_temp_dir: tuple[Host, Path])
     assert (work_dir / "subdir" / "file2.txt").read_text() == "content2"
 
 
-def test_create_work_dir_copy_with_git(host_with_temp_dir: tuple[Host, Path]) -> None:
+def test_create_work_dir_copy_with_git(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
     """Test copying a directory with git repository."""
     host, temp_dir = host_with_temp_dir
 
@@ -1514,7 +1503,10 @@ def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tup
     assert not (work_dir / ".git").exists()
 
 
-def test_create_work_dir_copy_with_untracked_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+def test_create_work_dir_copy_with_untracked_files(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
     """Test copying includes untracked files when is_include_unclean is True."""
     host, temp_dir = host_with_temp_dir
 
@@ -1530,13 +1522,6 @@ def test_create_work_dir_copy_with_untracked_files(host_with_temp_dir: tuple[Hos
         cwd=source_path,
         capture_output=True,
         check=True,
-        env={
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Test",
-            "GIT_AUTHOR_EMAIL": "test@test.com",
-            "GIT_COMMITTER_NAME": "Test",
-            "GIT_COMMITTER_EMAIL": "test@test.com",
-        },
     )
 
     # Add untracked file after commit
@@ -1559,7 +1544,10 @@ def test_create_work_dir_copy_with_untracked_files(host_with_temp_dir: tuple[Hos
     assert (work_dir / "untracked.txt").read_text() == "untracked"
 
 
-def test_create_work_dir_copy_with_gitignored_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+def test_create_work_dir_copy_with_gitignored_files(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
     """Test copying includes gitignored files when is_include_gitignored is True."""
     host, temp_dir = host_with_temp_dir
 
@@ -1590,7 +1578,10 @@ def test_create_work_dir_copy_with_gitignored_files(host_with_temp_dir: tuple[Ho
     assert (work_dir / "debug.log").read_text() == "log content"
 
 
-def test_create_work_dir_copy_with_renamed_file(host_with_temp_dir: tuple[Host, Path]) -> None:
+def test_create_work_dir_copy_with_renamed_file(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
     """Test copying handles renamed files in git status output."""
     host, temp_dir = host_with_temp_dir
 
@@ -1620,7 +1611,10 @@ def test_create_work_dir_copy_with_renamed_file(host_with_temp_dir: tuple[Host, 
     assert (work_dir / "new_name.txt").read_text() == "content"
 
 
-def test_create_work_dir_generates_new_branch(host_with_temp_dir: tuple[Host, Path]) -> None:
+def test_create_work_dir_generates_new_branch(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
     """Test that git transfer creates a new branch when is_new_branch is True."""
     host, temp_dir = host_with_temp_dir
 
@@ -2039,7 +2033,10 @@ def test_rsync_extra_args_with_spaces(host_with_temp_dir: tuple[Host, Path]) -> 
     assert not (work_dir / "file with spaces.txt").exists()
 
 
-def test_transfer_extra_files_with_many_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+def test_transfer_extra_files_with_many_files(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
     """Test that transferring many extra files works (uses temp file for --files-from)."""
     host, temp_dir = host_with_temp_dir
 
@@ -2101,51 +2098,51 @@ def test_rsync_files_remote_files_from_handling(
     files_from_path = tmp_path / "files_from.txt"
     files_from_path.write_text("file1.txt\nfile2.txt\n")
 
-    with ssh_keypair() as (private_key, public_key):
-        public_key_content = public_key.read_text()
+    private_key, public_key = generate_ssh_keypair(tmp_path)
+    public_key_content = public_key.read_text()
 
-        with local_sshd(public_key_content) as (port, _host_key):
-            current_user = os.environ.get("USER", "root")
-            ssh_provider = SSHProviderInstance(
-                name=ProviderInstanceName("ssh-test"),
-                host_dir=temp_dir,
-                mngr_ctx=temp_mngr_ctx,
-                hosts={
-                    "localhost": SSHHostConfig(
-                        address="127.0.0.1",
-                        port=port,
-                        user=current_user,
-                        key_file=private_key,
-                    ),
-                },
-            )
+    with local_sshd(public_key_content, tmp_path) as (port, _host_key):
+        current_user = os.environ.get("USER", "root")
+        ssh_provider = SSHProviderInstance(
+            name=ProviderInstanceName("ssh-test"),
+            host_dir=temp_dir,
+            mngr_ctx=temp_mngr_ctx,
+            hosts={
+                "localhost": SSHHostConfig(
+                    address="127.0.0.1",
+                    port=port,
+                    user=current_user,
+                    key_file=private_key,
+                ),
+            },
+        )
 
-            # Get the SSH host
-            ssh_host = ssh_provider.get_host(HostName("localhost"))
+        # Get the SSH host
+        ssh_host = ssh_provider.get_host(HostName("localhost"))
 
-            # Verify the SSH host is not local (is_local should be False)
-            assert not ssh_host.is_local
+        # Verify the SSH host is not local (is_local should be False)
+        assert not ssh_host.is_local
 
-            # Call _rsync_files with the SSH host as source
-            # Since source and target are local paths but source_host is remote,
-            # this tests the code path where the files_from file is copied to the remote
-            local_host._rsync_files(
-                source_host=ssh_host,
-                source_path=source_path,
-                target_path=target_path,
-                files_from=files_from_path,
-            )
+        # Call _rsync_files with the SSH host as source
+        # Since source and target are local paths but source_host is remote,
+        # this tests the code path where the files_from file is copied to the remote
+        local_host._rsync_files(
+            source_host=ssh_host,
+            source_path=source_path,
+            target_path=target_path,
+            files_from=files_from_path,
+        )
 
-            # Verify only the files listed in files_from were transferred
-            assert (target_path / "file1.txt").read_text() == "content1"
-            assert (target_path / "file2.txt").read_text() == "content2"
-            # file3.txt should NOT have been transferred since it wasn't in files_from
-            assert not (target_path / "file3.txt").exists()
+        # Verify only the files listed in files_from were transferred
+        assert (target_path / "file1.txt").read_text() == "content1"
+        assert (target_path / "file2.txt").read_text() == "content2"
+        # file3.txt should NOT have been transferred since it wasn't in files_from
+        assert not (target_path / "file3.txt").exists()
 
-            # Verify the temporary files_from file was cleaned up from the remote
-            # by checking that no files matching the pattern exist
-            result = ssh_host.execute_command("ls /tmp/rsync_files_from_*.txt 2>/dev/null || true")
-            assert "rsync_files_from_" not in result.stdout
+        # Verify the temporary files_from file was cleaned up from the remote
+        # by checking that no files matching the pattern exist
+        result = ssh_host.execute_command("ls /tmp/rsync_files_from_*.txt 2>/dev/null || true")
+        assert "rsync_files_from_" not in result.stdout
 
 
 def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tuple[Host, Path]) -> None:
