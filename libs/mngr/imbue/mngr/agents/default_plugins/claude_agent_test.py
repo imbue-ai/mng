@@ -2,7 +2,6 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from unittest.mock import Mock
-from uuid import uuid4
 
 import pluggy
 import pytest
@@ -12,20 +11,12 @@ from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
-
-
-@pytest.fixture
-def temp_profile_dir(tmp_path: Path) -> Path:
-    profile_dir = tmp_path / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return profile_dir
 
 
 def test_claude_agent_config_has_default_command() -> None:
@@ -110,7 +101,9 @@ def test_claude_agent_assemble_command_with_agent_args(mngr_test_prefix: str, te
     )
 
 
-def test_claude_agent_assemble_command_with_cli_args_and_agent_args(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
+def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
+    mngr_test_prefix: str, temp_profile_dir: Path
+) -> None:
     """ClaudeAgent should append both cli_args and agent_args to both command variants."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
@@ -192,7 +185,9 @@ def test_claude_agent_assemble_command_raises_when_no_command(mngr_test_prefix: 
         agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
 
 
-def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
+def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
+    mngr_test_prefix: str, temp_profile_dir: Path
+) -> None:
     """ClaudeAgent should set IS_SANDBOX=1 only for remote (non-local) hosts."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
@@ -230,7 +225,9 @@ def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> N
     assert merged.cli_args == "--verbose"
 
 
-def test_get_claude_config_returns_config_when_claude_agent_config(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
+def test_get_claude_config_returns_config_when_claude_agent_config(
+    mngr_test_prefix: str, temp_profile_dir: Path
+) -> None:
     """_get_claude_config should return the config when it is a ClaudeAgentConfig."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
@@ -254,7 +251,9 @@ def test_get_claude_config_returns_config_when_claude_agent_config(mngr_test_pre
     assert result.cli_args == "--verbose"
 
 
-def test_get_claude_config_returns_default_when_not_claude_agent_config(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
+def test_get_claude_config_returns_default_when_not_claude_agent_config(
+    mngr_test_prefix: str, temp_profile_dir: Path
+) -> None:
     """_get_claude_config should return default ClaudeAgentConfig when config is not ClaudeAgentConfig."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()

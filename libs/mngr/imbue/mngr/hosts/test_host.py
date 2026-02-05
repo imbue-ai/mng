@@ -13,7 +13,6 @@ import threading
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from uuid import uuid4
 
 import pluggy
 import pytest
@@ -22,7 +21,6 @@ from pyinfra.api.command import StringCommand
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
@@ -49,8 +47,8 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.ssh.instance import SSHHostConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
+from imbue.mngr.providers.ssh.test_ssh_provider import generate_ssh_keypair
 from imbue.mngr.providers.ssh.test_ssh_provider import local_sshd
-from imbue.mngr.providers.ssh.test_ssh_provider import ssh_keypair
 from imbue.mngr.utils.polling import wait_for
 
 
@@ -60,14 +58,6 @@ def host_with_temp_dir(local_provider: LocalProviderInstance, temp_host_dir: Pat
     host = local_provider.create_host(HostName("test"))
     assert isinstance(host, Host)
     return host, temp_host_dir
-
-
-@pytest.fixture
-def temp_profile_dir(temp_host_dir: Path) -> Path:
-    """Create a temporary profile directory for tests that create their own MngrContext."""
-    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return profile_dir
 
 
 # =============================================================================
@@ -2101,51 +2091,51 @@ def test_rsync_files_remote_files_from_handling(
     files_from_path = tmp_path / "files_from.txt"
     files_from_path.write_text("file1.txt\nfile2.txt\n")
 
-    with ssh_keypair() as (private_key, public_key):
-        public_key_content = public_key.read_text()
+    private_key, public_key = generate_ssh_keypair(tmp_path)
+    public_key_content = public_key.read_text()
 
-        with local_sshd(public_key_content) as (port, _host_key):
-            current_user = os.environ.get("USER", "root")
-            ssh_provider = SSHProviderInstance(
-                name=ProviderInstanceName("ssh-test"),
-                host_dir=temp_dir,
-                mngr_ctx=temp_mngr_ctx,
-                hosts={
-                    "localhost": SSHHostConfig(
-                        address="127.0.0.1",
-                        port=port,
-                        user=current_user,
-                        key_file=private_key,
-                    ),
-                },
-            )
+    with local_sshd(public_key_content, tmp_path) as (port, _host_key):
+        current_user = os.environ.get("USER", "root")
+        ssh_provider = SSHProviderInstance(
+            name=ProviderInstanceName("ssh-test"),
+            host_dir=temp_dir,
+            mngr_ctx=temp_mngr_ctx,
+            hosts={
+                "localhost": SSHHostConfig(
+                    address="127.0.0.1",
+                    port=port,
+                    user=current_user,
+                    key_file=private_key,
+                ),
+            },
+        )
 
-            # Get the SSH host
-            ssh_host = ssh_provider.get_host(HostName("localhost"))
+        # Get the SSH host
+        ssh_host = ssh_provider.get_host(HostName("localhost"))
 
-            # Verify the SSH host is not local (is_local should be False)
-            assert not ssh_host.is_local
+        # Verify the SSH host is not local (is_local should be False)
+        assert not ssh_host.is_local
 
-            # Call _rsync_files with the SSH host as source
-            # Since source and target are local paths but source_host is remote,
-            # this tests the code path where the files_from file is copied to the remote
-            local_host._rsync_files(
-                source_host=ssh_host,
-                source_path=source_path,
-                target_path=target_path,
-                files_from=files_from_path,
-            )
+        # Call _rsync_files with the SSH host as source
+        # Since source and target are local paths but source_host is remote,
+        # this tests the code path where the files_from file is copied to the remote
+        local_host._rsync_files(
+            source_host=ssh_host,
+            source_path=source_path,
+            target_path=target_path,
+            files_from=files_from_path,
+        )
 
-            # Verify only the files listed in files_from were transferred
-            assert (target_path / "file1.txt").read_text() == "content1"
-            assert (target_path / "file2.txt").read_text() == "content2"
-            # file3.txt should NOT have been transferred since it wasn't in files_from
-            assert not (target_path / "file3.txt").exists()
+        # Verify only the files listed in files_from were transferred
+        assert (target_path / "file1.txt").read_text() == "content1"
+        assert (target_path / "file2.txt").read_text() == "content2"
+        # file3.txt should NOT have been transferred since it wasn't in files_from
+        assert not (target_path / "file3.txt").exists()
 
-            # Verify the temporary files_from file was cleaned up from the remote
-            # by checking that no files matching the pattern exist
-            result = ssh_host.execute_command("ls /tmp/rsync_files_from_*.txt 2>/dev/null || true")
-            assert "rsync_files_from_" not in result.stdout
+        # Verify the temporary files_from file was cleaned up from the remote
+        # by checking that no files matching the pattern exist
+        result = ssh_host.execute_command("ls /tmp/rsync_files_from_*.txt 2>/dev/null || true")
+        assert "rsync_files_from_" not in result.stdout
 
 
 def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tuple[Host, Path]) -> None:

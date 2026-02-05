@@ -45,6 +45,7 @@ from pyinfra.connectors.sshuserclient.client import get_host_keys
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostConnectionError
@@ -316,6 +317,10 @@ class ModalProviderInstance(BaseProviderInstance):
         return True
 
     @property
+    def supports_shutdown_hosts(self) -> bool:
+        return False
+
+    @property
     def supports_volumes(self) -> bool:
         return False
 
@@ -448,9 +453,25 @@ class ModalProviderInstance(BaseProviderInstance):
     def _delete_host_record(self, host_id: HostId) -> None:
         """Delete a host record from the volume and clear caches."""
         volume = self._get_volume()
+
+        # first delete all agent records for this host
+        host_dir = f"/{host_id}"
+        try:
+            entries = list(volume.listdir(host_dir))
+        except FileNotFoundError:
+            pass
+        else:
+            for entry in entries:
+                filename = entry.path
+                agent_path = filename.lstrip("/")
+                volume.remove_file(agent_path)
+            # then finally remove the empty host directory
+            volume.reload()
+            volume.remove_file(host_dir)
+
+        # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
         logger.trace("Deleting host record from volume: {}", path)
-
         try:
             volume.remove_file(path)
         except FileNotFoundError:
@@ -460,7 +481,7 @@ class ModalProviderInstance(BaseProviderInstance):
         self._host_by_id_cache.pop(host_id, None)
         self._host_record_cache_by_id.pop(host_id, None)
 
-    def _list_all_host_records(self) -> list[HostRecord]:
+    def _list_all_host_records(self, cg: ConcurrencyGroup | None = None) -> list[HostRecord]:
         """List all host records stored on the volume.
 
         Returns a list of all HostRecord objects found on the volume.
@@ -469,8 +490,14 @@ class ModalProviderInstance(BaseProviderInstance):
         volume = self._get_volume()
         logger.trace("Listing all host records from volume")
 
-        host_records: list[HostRecord] = []
-        try:
+        with (
+            cg.make_concurrency_group("modal_list_all_host_records")
+            if cg is not None
+            else ConcurrencyGroup(name="modal_list_all_host_records")
+        ) as list_cg:
+            host_records_by_id: dict[HostId, HostRecord] = {}
+            threads: list[ObservableThread] = []
+
             # List files at the root of the volume
             for entry in volume.listdir("/"):
                 filename = entry.path
@@ -478,18 +505,18 @@ class ModalProviderInstance(BaseProviderInstance):
                 if filename.endswith(".json"):
                     # Remove .json suffix (and any leading / if present)
                     host_id_str = filename.lstrip("/")[:-5]
-                    try:
-                        host_id = HostId(host_id_str)
-                        host_record = self._read_host_record(host_id)
-                        if host_record is not None:
-                            host_records.append(host_record)
-                    except (ValueError, KeyError) as e:
-                        logger.trace("Skipping invalid host record file {}: {}", filename, e)
-                        continue
-        except (OSError, IOError, modal.exception.Error) as e:
-            logger.warning("Failed to list host records from volume: {}", e)
+                    host_id = HostId(host_id_str)
+                    thread = list_cg.start_new_thread(
+                        target=_store_result_from_callable,
+                        args=(host_records_by_id, host_id, lambda x=host_id: self._read_host_record(x)),
+                        name="fetch_host_records",
+                    )
+                    threads.append(thread)
 
-        return host_records
+            for thread in threads:
+                thread.join()
+
+        return list(host_records_by_id.values())
 
     def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
         """List persisted agent data for a stopped host.
@@ -1744,7 +1771,7 @@ log "=== Shutdown script completed ==="
                 )
                 thread_2 = list_cg.start_new_thread(
                     target=_store_result_from_callable,
-                    args=(cg_result, "host_records", self._list_all_host_records),
+                    args=(cg_result, "host_records", lambda: self._list_all_host_records(cg)),
                     name="fetch_host_records",
                 )
                 thread_1.join()
@@ -1755,6 +1782,7 @@ log "=== Shutdown script completed ==="
         except ConcurrencyExceptionGroup as e:
             if e.only_exception_is_instance_of(modal.exception.AuthError):
                 raise ModalAuthError() from e
+            raise
 
         # Map running sandboxes by host_id
         running_sandbox_by_host_id: dict[HostId, modal.Sandbox] = {}
