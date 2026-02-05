@@ -5,7 +5,6 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
-from typing import Callable
 from typing import Final
 from typing import Mapping
 from typing import Sequence
@@ -38,7 +37,6 @@ _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 
 # Constants for signal-based synchronization
 _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 0.5
-_READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
 
 
 class BaseAgent(AgentInterface):
@@ -272,61 +270,6 @@ class BaseAgent(AgentInterface):
         except FileNotFoundError:
             logger.trace("Agent {} lifecycle state: RUNNING (no waiting file)", self.name)
             return AgentLifecycleState.RUNNING
-
-    def wait_for_ready_signal(self, start_action: Callable[[], None], timeout: float | None = None) -> bool:
-        """Wait for the agent to become ready, executing start_action then polling.
-
-        Polls for the 'session_started' file that the SessionStart hook creates.
-        This indicates Claude Code has started and is ready for input.
-        """
-        if timeout is None:
-            timeout = _READY_SIGNAL_TIMEOUT_SECONDS
-
-        overall_start = time.time()
-        session_started_path = self._get_agent_dir() / "session_started"
-
-        logger.debug("Waiting for session_started file (timeout={}s)", timeout)
-
-        # Remove any stale marker file
-        rm_cmd = f"rm -f {shlex.quote(str(session_started_path))}"
-        self.host.execute_command(rm_cmd, timeout_seconds=1.0)
-
-        # Run the start action (e.g., start the agent)
-        logger.debug("Calling start_action...")
-        action_start = time.time()
-        start_action()
-        action_elapsed = time.time() - action_start
-        logger.debug("start_action completed in {:.2f}s, now polling for session_started...", action_elapsed)
-
-        # Poll for the session_started file (created by SessionStart hook)
-        poll_start = time.time()
-        poll_count = 0
-        while time.time() - overall_start < timeout:
-            poll_count += 1
-            try:
-                self.host.read_text_file(session_started_path)
-                total_elapsed = time.time() - overall_start
-                poll_elapsed = time.time() - poll_start
-                logger.info(
-                    "Session started after {:.2f}s (action={:.2f}s, poll={:.2f}s, polls={})",
-                    total_elapsed,
-                    action_elapsed,
-                    poll_elapsed,
-                    poll_count,
-                )
-                return True
-            except FileNotFoundError:
-                pass
-            time.sleep(0.05)
-
-        total_elapsed = time.time() - overall_start
-        logger.warning(
-            "Timeout waiting for session_started after {:.2f}s (action={:.2f}s, polls={})",
-            total_elapsed,
-            action_elapsed,
-            poll_count,
-        )
-        return False
 
     def _command_basename_matches(self, current: str, expected: str) -> bool:
         """Check if current command basename matches expected command."""

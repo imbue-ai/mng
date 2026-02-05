@@ -3,10 +3,14 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import shlex
 import shutil
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+from typing import Callable
+from typing import Final
 
 import click
 from loguru import logger
@@ -20,6 +24,7 @@ from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_
 from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import PluginMngrError
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -30,6 +35,8 @@ from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.git_utils import find_git_common_dir
+
+_READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
 
 
 class ClaudeAgentConfig(AgentTypeConfig):
@@ -221,6 +228,61 @@ class ClaudeAgent(BaseAgent):
         which would cause the input to be lost or appear as raw text.
         """
         return "Claude Code"
+
+    def wait_for_ready_signal(self, start_action: Callable[[], None], timeout: float | None = None) -> None:
+        """Wait for the agent to become ready, executing start_action then polling.
+
+        Polls for the 'session_started' file that the SessionStart hook creates.
+        This indicates Claude Code has started and is ready for input.
+
+        Raises AgentStartError if the agent doesn't signal readiness within the timeout.
+        """
+        if timeout is None:
+            timeout = _READY_SIGNAL_TIMEOUT_SECONDS
+
+        overall_start = time.time()
+        session_started_path = self._get_agent_dir() / "session_started"
+
+        logger.debug("Waiting for session_started file (timeout={}s)", timeout)
+
+        # Remove any stale marker file
+        rm_cmd = f"rm -f {shlex.quote(str(session_started_path))}"
+        self.host.execute_command(rm_cmd, timeout_seconds=1.0)
+
+        # Run the start action (e.g., start the agent)
+        logger.debug("Calling start_action...")
+        action_start = time.time()
+        start_action()
+        action_elapsed = time.time() - action_start
+        logger.debug("start_action completed in {:.2f}s, now polling for session_started...", action_elapsed)
+
+        # Poll for the session_started file (created by SessionStart hook)
+        poll_start = time.time()
+        poll_count = 0
+        while time.time() - overall_start < timeout:
+            poll_count += 1
+            try:
+                self.host.read_text_file(session_started_path)
+                total_elapsed = time.time() - overall_start
+                poll_elapsed = time.time() - poll_start
+                logger.info(
+                    "Session started after {:.2f}s (action={:.2f}s, poll={:.2f}s, polls={})",
+                    total_elapsed,
+                    action_elapsed,
+                    poll_elapsed,
+                    poll_count,
+                )
+                return
+            except FileNotFoundError:
+                pass
+            time.sleep(0.05)
+
+        total_elapsed = time.time() - overall_start
+        raise AgentStartError(
+            str(self.name),
+            f"Agent did not signal readiness within {timeout}s (waited {total_elapsed:.2f}s). "
+            "This may indicate a trust dialog appeared or Claude Code failed to start.",
+        )
 
     def assemble_command(
         self,

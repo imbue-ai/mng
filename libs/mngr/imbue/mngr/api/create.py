@@ -105,20 +105,13 @@ def create(
         initial_message = agent.get_initial_message()
         if initial_message is not None:
             # Start agent with signal-based readiness detection
-            # The listener is started BEFORE the agent so we catch the SessionStart signal
+            # Raises AgentStartError if the agent doesn't signal readiness in time
             logger.info("Starting agent {} ...", agent.name)
             timeout = agent_options.message_delay_seconds
-            is_ready = agent.wait_for_ready_signal(
+            agent.wait_for_ready_signal(
                 start_action=lambda: host.start_agents([agent.id]),
                 timeout=timeout,
             )
-            if is_ready:
-                logger.debug("Agent signaled readiness via tmux wait-for")
-            else:
-                logger.debug(
-                    "Agent did not signal readiness within {}s, proceeding anyway",
-                    timeout,
-                )
             logger.info("Sending initial message...")
             agent.send_message(initial_message)
         else:

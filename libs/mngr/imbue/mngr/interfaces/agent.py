@@ -133,14 +133,17 @@ class AgentInterface(MutableModel, ABC):
         """Send a message to the running agent via its stdin."""
         ...
 
-    def wait_for_ready_signal(self, start_action: Callable[[], None], timeout: float | None = None) -> bool:
+    def wait_for_ready_signal(self, start_action: Callable[[], None], timeout: float | None = None) -> None:
         """Wait for the agent to become ready, executing start_action while listening.
 
         Can be overridden by agent implementations that support signal-based readiness
-        detection (e.g., via tmux wait-for). Default just runs start_action and returns False.
+        detection (e.g., polling for a marker file). Default just runs start_action
+        without waiting for readiness confirmation.
+
+        Implementations that override this should raise AgentStartError if the agent
+        doesn't signal readiness within the timeout.
         """
         start_action()
-        return False
 
     # =========================================================================
     # Status (Reported)
