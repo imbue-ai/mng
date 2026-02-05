@@ -572,7 +572,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
         finally:
             if worktree_path is not None:
                 subprocess.run(
-                    ["git", "worktree", "remove", "--force", str(worktree_path)],
+                    ["git", "worktree", "remove", "--force", str(worktree_path / "repo")],
                     cwd=temp_work_dir,
                     capture_output=True,
                 )
