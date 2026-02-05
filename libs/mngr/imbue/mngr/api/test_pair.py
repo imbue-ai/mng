@@ -1,3 +1,5 @@
+import os
+import signal
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -432,9 +434,6 @@ def test_unison_syncer_syncs_directory_symlinks(tmp_path: Path) -> None:
 @pytest.mark.skipif(not check_unison_installed(), reason="unison not installed")
 def test_unison_syncer_handles_process_crash(tmp_path: Path) -> None:
     """Test that UnisonSyncer handles unison process crash gracefully."""
-    import os
-    import signal
-
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()
@@ -487,8 +486,10 @@ def test_unison_syncer_handles_large_files(tmp_path: Path) -> None:
 
     # Create a 50MB file with random-ish content
     large_file = source / "large_file.bin"
-    chunk_size = 1024 * 1024  # 1MB chunks
-    total_size = 50 * chunk_size  # 50MB
+    # 1MB chunks
+    chunk_size = 1024 * 1024
+    # 50MB
+    total_size = 50 * chunk_size
 
     with open(large_file, "wb") as f:
         for i in range(50):
@@ -523,7 +524,8 @@ def test_unison_syncer_handles_large_files(tmp_path: Path) -> None:
             first_chunk = f.read(chunk_size)
             assert first_chunk == bytes([0] * chunk_size)
 
-            f.seek(-chunk_size, 2)  # Seek to last chunk
+            # Seek to last chunk
+            f.seek(-chunk_size, 2)
             last_chunk = f.read(chunk_size)
             assert last_chunk == bytes([49 % 256] * chunk_size)
     finally:
