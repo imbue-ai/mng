@@ -332,11 +332,13 @@ def test_create_agent_with_worktree(
 
             worktree_path = Path(agent.work_dir)
             assert worktree_path.exists()
-            assert (worktree_path / "test.txt").exists()
+            # The actual worktree with files is in the repo/ subdirectory
+            repo_path = worktree_path / "repo"
+            assert (repo_path / "test.txt").exists()
 
             result = subprocess.run(
                 ["git", "branch", "--show-current"],
-                cwd=worktree_path,
+                cwd=repo_path,
                 capture_output=True,
                 text=True,
                 check=True,
@@ -347,7 +349,7 @@ def test_create_agent_with_worktree(
         finally:
             if worktree_path is not None:
                 subprocess.run(
-                    ["git", "worktree", "remove", "--force", str(worktree_path)],
+                    ["git", "worktree", "remove", "--force", str(worktree_path / "repo")],
                     cwd=temp_work_dir,
                     capture_output=True,
                 )
@@ -426,9 +428,11 @@ def test_worktree_with_custom_branch_name(
             agent = _get_agent_from_create_result(result, temp_mngr_ctx)
 
             worktree_path = Path(agent.work_dir)
+            # The actual worktree with files is in the repo/ subdirectory
+            repo_path = worktree_path / "repo"
             result = subprocess.run(
                 ["git", "branch", "--show-current"],
-                cwd=worktree_path,
+                cwd=repo_path,
                 capture_output=True,
                 text=True,
                 check=True,
@@ -438,7 +442,7 @@ def test_worktree_with_custom_branch_name(
         finally:
             if worktree_path is not None:
                 subprocess.run(
-                    ["git", "worktree", "remove", "--force", str(worktree_path)],
+                    ["git", "worktree", "remove", "--force", str(worktree_path / "repo")],
                     cwd=temp_work_dir,
                     capture_output=True,
                 )
@@ -565,7 +569,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
         finally:
             if worktree_path is not None:
                 subprocess.run(
-                    ["git", "worktree", "remove", "--force", str(worktree_path)],
+                    ["git", "worktree", "remove", "--force", str(worktree_path / "repo")],
                     cwd=temp_work_dir,
                     capture_output=True,
                 )
