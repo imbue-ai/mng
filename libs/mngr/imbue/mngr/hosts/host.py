@@ -20,7 +20,9 @@ from typing import Sequence
 from typing import cast
 
 from loguru import logger
+from paramiko import SSHException
 from pydantic import Field
+from pydantic import ValidationError
 from pyinfra.api.command import StringCommand
 from pyinfra.connectors.util import CommandOutput
 
@@ -34,6 +36,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import HostConnectionError
+from imbue.mngr.errors import HostDataSchemaError
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
@@ -153,30 +156,43 @@ class Host(BaseHost, OnlineHostInterface):
 
         Prefer using execute_command() instead whenever possible.
         """
-        self._ensure_connected()
-        return self.connector.host.run_shell_command(
-            command,
-            _timeout=_timeout,
-            _success_exit_codes=_success_exit_codes,
-            _env=_env,
-            _chdir=_chdir,
-            _shell_executable=_shell_executable,
-            _su_user=_su_user,
-            _use_su_login=_use_su_login,
-            _su_shell=_su_shell,
-            _preserve_su_env=_preserve_su_env,
-            _sudo=_sudo,
-            _sudo_user=_sudo_user,
-            _use_sudo_login=_use_sudo_login,
-            _sudo_password=_sudo_password,
-            _sudo_askpass_path=_sudo_askpass_path,
-            _preserve_sudo_env=_preserve_sudo_env,
-            _doas=_doas,
-            _doas_user=_doas_user,
-            _retries=_retries,
-            _retry_delay=_retry_delay,
-            _retry_until=_retry_until,
-        )
+        try:
+            self._ensure_connected()
+            return self.connector.host.run_shell_command(
+                command,
+                _timeout=_timeout,
+                _success_exit_codes=_success_exit_codes,
+                _env=_env,
+                _chdir=_chdir,
+                _shell_executable=_shell_executable,
+                _su_user=_su_user,
+                _use_su_login=_use_su_login,
+                _su_shell=_su_shell,
+                _preserve_su_env=_preserve_su_env,
+                _sudo=_sudo,
+                _sudo_user=_sudo_user,
+                _use_sudo_login=_use_sudo_login,
+                _sudo_password=_sudo_password,
+                _sudo_askpass_path=_sudo_askpass_path,
+                _preserve_sudo_env=_preserve_sudo_env,
+                _doas=_doas,
+                _doas_user=_doas_user,
+                _retries=_retries,
+                _retry_delay=_retry_delay,
+                _retry_until=_retry_until,
+            )
+        except OSError as e:
+            if "Socket is closed" in str(e):
+                # FIXME: these two lines are duplicated everywhere (on_connection_error and raise HostConnectionError)
+                #  Please instead refactor this so that we simply raise, and each of these 3 methods that are raising have
+                #  a decorator that handles the calling of on_connection_error automatically
+                self.provider_instance.on_connection_error(self.id)
+                raise HostConnectionError("Connection was closed while running command") from e
+            else:
+                raise
+        except (EOFError, SSHException) as e:
+            self.provider_instance.on_connection_error(self.id)
+            raise HostConnectionError("Could not execute command due to connection error") from e
 
     def _get_file(
         self,
@@ -192,19 +208,27 @@ class Host(BaseHost, OnlineHostInterface):
 
         Raises FileNotFoundError if the remote file does not exist.
         """
-        self._ensure_connected()
         try:
-            return self.connector.host.get_file(
-                remote_filename,
-                filename_or_io,
-                remote_temp_filename=remote_temp_filename,
-            )
-        except OSError as e:
-            # pyinfra raises OSError for missing files - convert to FileNotFoundError
-            error_msg = str(e)
-            if "No such file or directory" in error_msg or "cannot stat" in error_msg:
-                raise FileNotFoundError(f"File not found: {remote_filename}") from e
-            raise
+            self._ensure_connected()
+            try:
+                return self.connector.host.get_file(
+                    remote_filename,
+                    filename_or_io,
+                    remote_temp_filename=remote_temp_filename,
+                )
+            except OSError as e:
+                # pyinfra raises OSError for missing files - convert to FileNotFoundError
+                error_msg = str(e)
+                if "No such file or directory" in error_msg or "cannot stat" in error_msg:
+                    raise FileNotFoundError(f"File not found: {remote_filename}") from e
+                elif "Socket is closed" in str(e):
+                    self.provider_instance.on_connection_error(self.id)
+                    raise HostConnectionError("Connection was closed while reading file") from e
+                else:
+                    raise
+        except (EOFError, SSHException) as e:
+            self.provider_instance.on_connection_error(self.id)
+            raise HostConnectionError("Could not read file due to connection error") from e
 
     def _put_file(
         self,
@@ -218,12 +242,22 @@ class Host(BaseHost, OnlineHostInterface):
 
         Prefer using write_file() or write_text_file() instead whenever possible.
         """
-        self._ensure_connected()
-        return self.connector.host.put_file(
-            filename_or_io,
-            remote_filename,
-            remote_temp_filename=remote_temp_filename,
-        )
+        try:
+            self._ensure_connected()
+            return self.connector.host.put_file(
+                filename_or_io,
+                remote_filename,
+                remote_temp_filename=remote_temp_filename,
+            )
+        except OSError as e:
+            if "Socket is closed" in str(e):
+                self.provider_instance.on_connection_error(self.id)
+                raise HostConnectionError("Connection was closed while writing file") from e
+            else:
+                raise
+        except (EOFError, SSHException) as e:
+            self.provider_instance.on_connection_error(self.id)
+            raise HostConnectionError("Could not write file due to connection error") from e
 
     # =========================================================================
     # Convenience methods (built on core primitives)
@@ -437,16 +471,20 @@ class Host(BaseHost, OnlineHostInterface):
     # =========================================================================
 
     @contextmanager
-    def lock_cooperatively(self, timeout_seconds: float = 30.0) -> Iterator[None]:
+    def lock_cooperatively(self, timeout_seconds: float = 300.0) -> Iterator[None]:
         """Context manager for acquiring and releasing the host lock.
 
         TODO: Implement remote locking mechanism (e.g., via lock files with PIDs).
         Currently only works for local hosts.
         """
-        if not self.is_local:
-            raise NotImplementedError("Cooperative locking is not yet implemented for remote hosts")
-
         lock_file_path = self.host_dir / "host_lock"
+
+        if not self.is_local:
+            # this is obviously not yet right--we're just making the host lock so that the shutdown script doesnt trigger while creating a host
+            self.write_text_file(lock_file_path, str(time.time()))
+            yield
+            self.execute_command("rm -f '{}'".format(str(lock_file_path)))
+            return
 
         lock_file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -496,6 +534,8 @@ class Host(BaseHost, OnlineHostInterface):
                 host_id=str(self.id),
                 host_name=str(self.get_name()),
             )
+        except ValidationError as e:
+            raise HostDataSchemaError(str(data_path), str(e)) from e
 
     def set_certified_data(self, data: CertifiedHostData) -> None:
         """Save certified data to data.json and notify the provider."""
@@ -1550,8 +1590,8 @@ class Host(BaseHost, OnlineHostInterface):
             "# Ctrl-q: Detach and destroy the agent whose session this is",
             """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'""",
             "",
-            "# Ctrl-h: Detach and stop the agent whose session this is",
-            """bind -n C-h run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
+            "# Ctrl-@: Detach and stop the agent whose session this is",
+            """bind -n C-@ run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
             "",
             # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
             "# Automatically signal claude to tell it to resize on client attach",
@@ -1581,7 +1621,7 @@ class Host(BaseHost, OnlineHostInterface):
         A custom tmux config is used that:
         - Sources the user's default ~/.tmux.conf if it exists
         - Adds a Ctrl-q binding to detach and destroy the current agent
-        - Adds a Ctrl-h binding to detach and halt (stop) the current agent
+        - Adds a Ctrl-@ binding to detach and halt (stop) the current agent
         """
         logger.debug("Starting {} agent(s)", len(agent_ids))
 

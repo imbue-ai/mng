@@ -100,13 +100,13 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--branch` | text | Pull a specific branch [repeatable] [future] | None |
-| `--target-branch` | text | Branch to merge into (git mode only) [default: current branch] | None |
 | `--all-branches`, `--all` | boolean | Pull all remote branches [future] | `False` |
 | `--tags` | boolean | Include git tags in sync [future] | `False` |
 | `--force-git` | boolean | Force overwrite local git state (use with caution) [future] | `False` |
 | `--merge` | boolean | Merge remote changes with local changes [future] | `False` |
 | `--rebase` | boolean | Rebase local changes onto remote changes [future] | `False` |
 | `--uncommitted-source` | choice (`warn` &#x7C; `error`) | Warn or error if source has uncommitted changes [future] | None |
+| `--target-branch` | text | Branch to merge into (git mode only) [default: current branch] | None |
 | `--uncommitted-changes` | choice (`stash` &#x7C; `clobber` &#x7C; `merge` &#x7C; `fail`) | How to handle uncommitted changes in the destination: stash (stash and leave stashed), clobber (overwrite), merge (stash, pull, unstash), fail (error if changes exist) | `fail` |
 
 ## Common
@@ -139,7 +139,6 @@ See [multi_target](../generic/multi_target.md) for options controlling behavior 
 - [mngr create](./create.md) - Create a new agent
 - [mngr list](./list.md) - List agents to find one to pull from
 - [mngr connect](./connect.md) - Connect to an agent interactively
-- [mngr push](mngr push) - Push files or git commits to an agent
 
 ## Examples
 
@@ -167,7 +166,7 @@ $ mngr pull my-agent:src ./local-src
 $ mngr pull my-agent --dry-run
 ```
 
-**Pull git commits**
+**Pull using git merge**
 
 ```bash
 $ mngr pull my-agent --sync-mode=git

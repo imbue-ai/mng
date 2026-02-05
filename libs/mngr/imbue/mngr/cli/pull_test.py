@@ -267,6 +267,9 @@ class _TestProviderInstance(ProviderInstanceInterface):
     ) -> None:
         pass
 
+    def on_connection_error(self, host_id: HostId) -> None:
+        pass
+
     def list_snapshots(self, host: HostInterface | HostId) -> list[SnapshotInfo]:
         return []
 
@@ -503,7 +506,7 @@ def test_find_agent_by_name_or_id_raises_for_multiple_matches() -> None:
 
     # Mock get_provider_instance to return mock providers
     mock_provider = MagicMock()
-    mock_host = MagicMock()
+    mock_host = MagicMock(spec=OnlineHostInterface)
     mock_agent1 = MagicMock()
     mock_agent1.id = agent_id1
     mock_agent1.name = agent_name
@@ -545,7 +548,7 @@ def test_find_agent_by_name_or_id_finds_agent_by_valid_id() -> None:
 
     # Mock get_provider_instance to return mock providers
     mock_provider = MagicMock()
-    mock_host = MagicMock()
+    mock_host = MagicMock(spec=OnlineHostInterface)
     mock_agent = MagicMock()
     mock_agent.id = agent_id
     mock_agent.name = agent_name
@@ -584,7 +587,7 @@ def test_find_agent_by_name_or_id_finds_agent_by_name() -> None:
 
     # Mock get_provider_instance to return mock providers
     mock_provider = MagicMock()
-    mock_host = MagicMock()
+    mock_host = MagicMock(spec=OnlineHostInterface)
     mock_agent = MagicMock()
     mock_agent.id = agent_id
     mock_agent.name = agent_name

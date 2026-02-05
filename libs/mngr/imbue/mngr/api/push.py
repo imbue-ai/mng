@@ -8,12 +8,12 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.pull import NotAGitRepositoryError
 from imbue.mngr.errors import MngrError
-from imbue.mngr.utils.git_utils import get_current_branch
-from imbue.mngr.utils.git_utils import is_git_repository
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.utils.git_utils import get_current_branch
+from imbue.mngr.utils.git_utils import is_git_repository
 from imbue.mngr.utils.rsync_utils import parse_rsync_output
 
 
@@ -91,7 +91,7 @@ class GitPushError(MngrError):
         super().__init__(f"Git push failed: {message}")
 
 
-def _git_reset_hard_on_host(host: HostInterface, destination: Path) -> None:
+def _git_reset_hard_on_host(host: OnlineHostInterface, destination: Path) -> None:
     """Hard reset the destination to discard all uncommitted changes on the remote host."""
     result = host.execute_command("git reset --hard HEAD", cwd=destination)
     if not result.success:
@@ -103,7 +103,7 @@ def _git_reset_hard_on_host(host: HostInterface, destination: Path) -> None:
         raise MngrError(f"git clean failed: {result.stderr}")
 
 
-def _git_stash_on_host(host: HostInterface, destination: Path) -> bool:
+def _git_stash_on_host(host: OnlineHostInterface, destination: Path) -> bool:
     """Stash uncommitted changes on the remote host. Returns True if something was stashed."""
     result = host.execute_command(
         'git stash push -u -m "mngr-push-stash"',
@@ -116,14 +116,14 @@ def _git_stash_on_host(host: HostInterface, destination: Path) -> bool:
     return "No local changes to save" not in result.stdout
 
 
-def _git_stash_pop_on_host(host: HostInterface, destination: Path) -> None:
+def _git_stash_pop_on_host(host: OnlineHostInterface, destination: Path) -> None:
     """Pop the most recent stash on the remote host."""
     result = host.execute_command("git stash pop", cwd=destination)
     if not result.success:
         raise MngrError(f"git stash pop failed: {result.stderr}")
 
 
-def _has_uncommitted_changes_on_host(host: HostInterface, destination: Path) -> bool:
+def _has_uncommitted_changes_on_host(host: OnlineHostInterface, destination: Path) -> bool:
     """Check if the destination directory on the host has uncommitted git changes."""
     result = host.execute_command("git status --porcelain", cwd=destination)
     if not result.success:
@@ -134,13 +134,13 @@ def _has_uncommitted_changes_on_host(host: HostInterface, destination: Path) -> 
     return len(result.stdout.strip()) > 0
 
 
-def _is_git_repository_on_host(host: HostInterface, path: Path) -> bool:
+def _is_git_repository_on_host(host: OnlineHostInterface, path: Path) -> bool:
     """Check if the given path on the host is inside a git repository."""
     result = host.execute_command("git rev-parse --git-dir", cwd=path)
     return result.success
 
 
-def _get_current_branch_on_host(host: HostInterface, path: Path) -> str:
+def _get_current_branch_on_host(host: OnlineHostInterface, path: Path) -> str:
     """Get the current branch name for a git repository on the host."""
     result = host.execute_command("git rev-parse --abbrev-ref HEAD", cwd=path)
     if not result.success:
@@ -149,7 +149,7 @@ def _get_current_branch_on_host(host: HostInterface, path: Path) -> str:
 
 
 def handle_uncommitted_changes_on_target(
-    host: HostInterface,
+    host: OnlineHostInterface,
     destination: Path,
     uncommitted_changes: UncommittedChangesMode,
 ) -> bool:
@@ -181,7 +181,7 @@ def handle_uncommitted_changes_on_target(
 
 def push_files(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     source: Path,
     # Destination path within agent's work_dir (defaults to work_dir itself)
     destination_path: Path | None = None,
@@ -282,7 +282,7 @@ def _count_commits_between_local(source: Path, base_ref: str, head_ref: str) -> 
 
 def push_git(
     agent: AgentInterface,
-    host: HostInterface,
+    host: OnlineHostInterface,
     source: Path,
     # Branch to push from the source repository (defaults to source's current branch)
     source_branch: str | None = None,
@@ -316,8 +316,8 @@ def push_git(
     logger.debug("Source branch: {}", actual_source_branch)
 
     # Get the target branch (destination's current branch if not specified)
-    actual_target_branch = target_branch if target_branch is not None else _get_current_branch_on_host(
-        host, destination_path
+    actual_target_branch = (
+        target_branch if target_branch is not None else _get_current_branch_on_host(host, destination_path)
     )
     logger.debug("Target branch: {}", actual_target_branch)
 
@@ -419,9 +419,7 @@ def push_git(
                             cwd=destination_path,
                         )
                         if not reset_result.success:
-                            raise GitPushError(
-                                f"Failed to update working tree: {reset_result.stderr}"
-                            )
+                            raise GitPushError(f"Failed to update working tree: {reset_result.stderr}")
                     finally:
                         # Always remove the temporary remote
                         subprocess.run(

@@ -224,6 +224,9 @@ class LocalProviderInstance(BaseProviderInstance):
         """
         raise LocalHostNotDestroyableError()
 
+    def on_connection_error(self, host_id: HostId) -> None:
+        pass
+
     # =========================================================================
     # Discovery Methods
     # =========================================================================

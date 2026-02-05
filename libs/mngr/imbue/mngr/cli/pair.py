@@ -6,7 +6,7 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
-from imbue.mngr.api.find import load_all_agents_grouped_by_host
+from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.pair import pair_files
 from imbue.mngr.cli.agent_utils import find_agent_by_name_or_id
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
@@ -18,7 +18,7 @@ from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import SyncDirection
@@ -202,10 +202,10 @@ def pair(ctx: click.Context, **kwargs) -> None:
 
     # Find the agent
     agent: AgentInterface
-    host: HostInterface
+    host: OnlineHostInterface
 
     if agent_identifier is not None:
-        agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
+        agents_by_host, _providers = load_all_agents_grouped_by_host(mngr_ctx)
         agent, host = find_agent_by_name_or_id(agent_identifier, agents_by_host, mngr_ctx)
     elif not sys.stdin.isatty():
         raise UserInputError("No agent specified and not running in interactive mode")

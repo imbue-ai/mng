@@ -6,7 +6,7 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
-from imbue.mngr.api.find import load_all_agents_grouped_by_host
+from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.pull import PullGitResult
 from imbue.mngr.api.pull import PullResult
 from imbue.mngr.api.pull import pull_files
@@ -359,7 +359,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
     host: OnlineHostInterface
 
     if agent_identifier is not None:
-        agents_by_host = load_all_agents_grouped_by_host(mngr_ctx)
+        agents_by_host, _providers = load_all_agents_grouped_by_host(mngr_ctx)
         agent, host = find_agent_by_name_or_id(agent_identifier, agents_by_host, mngr_ctx)
     elif not sys.stdin.isatty():
         raise UserInputError("No agent specified and not running in interactive mode")

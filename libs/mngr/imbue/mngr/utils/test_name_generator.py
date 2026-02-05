@@ -27,12 +27,9 @@ def test_load_wordlist_for_agent_english() -> None:
     words = _load_wordlist("agent", "english")
 
     assert len(words) > 0
-    # Each word should be a list with a single string (coolname format)
     for word in words:
-        assert isinstance(word, list)
-        assert len(word) == 1
-        assert isinstance(word[0], str)
-        assert len(word[0]) > 0
+        assert isinstance(word, str)
+        assert len(word) > 0
 
 
 def test_load_wordlist_for_agent_fantasy() -> None:
@@ -41,8 +38,8 @@ def test_load_wordlist_for_agent_fantasy() -> None:
 
     assert len(words) > 0
     for word in words:
-        assert isinstance(word, list)
-        assert len(word) == 1
+        assert isinstance(word, str)
+        assert len(word) > 0
 
 
 def test_get_agent_generator_returns_generator() -> None:
