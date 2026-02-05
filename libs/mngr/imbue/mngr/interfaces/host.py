@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from typing import Final
 from typing import Iterator
 from typing import Mapping
 from typing import Sequence
@@ -39,11 +40,11 @@ from imbue.mngr.primitives import WorkDirCopyMode
 # Default timeout for waiting for agent readiness before sending messages.
 # With hook-based polling, we return early when the agent signals readiness,
 # so this is a max wait time, not an unconditional delay.
-DEFAULT_AGENT_READY_TIMEOUT_SECONDS = 10.0
+DEFAULT_AGENT_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 
 # Default delay between sending message text and Enter key.
 # Without this delay, Enter can be interpreted as a literal newline instead of submit.
-DEFAULT_ENTER_DELAY_SECONDS = 1.0
+DEFAULT_ENTER_DELAY_SECONDS: Final[float] = 1.0
 
 
 class HostInterface(MutableModel, ABC):

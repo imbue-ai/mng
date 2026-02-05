@@ -94,12 +94,17 @@ def _build_readiness_hooks_config() -> dict[str, Any]:
     These hooks use the MNGR_AGENT_STATE_DIR environment variable to create/remove
     a 'waiting' file that signals when Claude is ready for input vs actively working.
 
-    - SessionStart: creates the waiting file (Claude is ready for input)
+    - SessionStart: signals tmux wait-for channel (for instant startup detection)
     - UserPromptSubmit: removes the waiting file AND signals tmux wait-for channel
-    - Stop: creates the waiting file (Claude finished and is ready again)
+    - Stop: creates the waiting file (Claude finished processing, waiting for input)
 
-    The tmux wait-for signal allows send_message to detect submission instantly
-    without polling the filesystem.
+    The WAITING state represents "agent is waiting for user input" - it's set when
+    Claude finishes processing (Stop) and cleared when the user submits (UserPromptSubmit).
+    SessionStart does NOT create the waiting file since the agent is still spinning up.
+
+    The tmux wait-for signals allow instant detection without polling:
+    - mngr-ready-<session>: signals when agent session starts
+    - mngr-submit-<session>: signals when a message was submitted
     """
     return {
         "hooks": {
@@ -108,8 +113,8 @@ def _build_readiness_hooks_config() -> dict[str, Any]:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": 'touch "$MNGR_AGENT_STATE_DIR/waiting"',
-                        }
+                            "command": "tmux wait-for -S \"mngr-ready-$(tmux display-message -p '#S')\" 2>/dev/null || true",
+                        },
                     ]
                 }
             ],

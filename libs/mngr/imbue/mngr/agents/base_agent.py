@@ -5,6 +5,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from typing import Callable
 from typing import Final
 from typing import Mapping
 from typing import Sequence
@@ -35,8 +36,9 @@ _SEND_MESSAGE_POLL_INTERVAL_SECONDS: Final[float] = 0.05
 _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
 _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 
-# Constants for Enter retry mechanism
+# Constants for signal-based synchronization
 _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 0.5
+_READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
 
 
 class BaseAgent(AgentInterface):
@@ -270,6 +272,57 @@ class BaseAgent(AgentInterface):
         except FileNotFoundError:
             logger.trace("Agent {} lifecycle state: RUNNING (no waiting file)", self.name)
             return AgentLifecycleState.RUNNING
+
+    def wait_for_ready_signal(self, start_action: Callable[[], None], timeout: float | None = None) -> bool:
+        """Wait for the agent to become ready, executing start_action while listening.
+
+        Uses tmux wait-for to detect when the SessionStart hook fires, indicating the
+        agent session has started. Creates a marker file, starts a background listener,
+        executes start_action, then polls for the marker file.
+        """
+        if timeout is None:
+            timeout = _READY_SIGNAL_TIMEOUT_SECONDS
+
+        session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
+        wait_channel = f"mngr-ready-{session_name}"
+
+        logger.debug("Waiting for ready signal on channel {} (timeout={}s)", wait_channel, timeout)
+
+        # Use a marker file to track signal receipt
+        # This is more reliable than trying to detect if tmux wait-for is still running
+        marker_path = self._get_agent_dir() / "ready_signal_received"
+
+        # Remove any stale marker file
+        rm_cmd = f"rm -f {shlex.quote(str(marker_path))}"
+        self.host.execute_command(rm_cmd, timeout_seconds=1.0)
+
+        # Start a background listener that creates the marker when the signal is received
+        # Use nohup and redirect output to prevent blocking
+        listener_cmd = (
+            f"nohup bash -c 'tmux wait-for {shlex.quote(wait_channel)} && "
+            f"touch {shlex.quote(str(marker_path))}' >/dev/null 2>&1 &"
+        )
+        self.host.execute_command(listener_cmd, timeout_seconds=1.0)
+
+        # Now run the start action (e.g., start the agent)
+        start_action()
+
+        # Wait for the marker file to appear (signal was received)
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                self.host.read_text_file(marker_path)
+                # Marker exists = signal was received
+                logger.debug("Received ready signal on channel {}", wait_channel)
+                # Clean up marker file
+                self.host.execute_command(rm_cmd, timeout_seconds=1.0)
+                return True
+            except FileNotFoundError:
+                pass
+            time.sleep(0.05)
+
+        logger.debug("Timeout waiting for ready signal on channel {}", wait_channel)
+        return False
 
     def _command_basename_matches(self, current: str, expected: str) -> bool:
         """Check if current command basename matches expected command."""
@@ -520,46 +573,6 @@ class BaseAgent(AgentInterface):
         raise SendMessageError(
             str(self.name),
             f"Timeout waiting for message submission signal (waited {_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS}s)",
-        )
-
-    def _send_enter_with_retry(self, session_name: str, expected_ending: str, max_retries: int = 10) -> None:
-        """Send Enter to submit the message, with retry logic for reliability.
-
-        Uses tmux wait-for to detect when the UserPromptSubmit hook fires, indicating
-        Claude started processing the message. If Enter was interpreted as a literal
-        newline instead of submit, we clean up with backspace + noop keys and retry.
-        """
-        wait_channel = f"mngr-submit-{session_name}"
-
-        for attempt in range(max_retries):
-            # Send Enter and wait for signal (starts waiting BEFORE sending to avoid race)
-            if self._send_enter_and_wait_for_signal(session_name, wait_channel):
-                logger.debug("Message submitted successfully on attempt {}", attempt + 1)
-                return
-
-            # Timed out waiting for signal - Enter was likely interpreted as newline
-            logger.debug(
-                "Enter may have been interpreted as newline (attempt {}), cleaning up and retrying...",
-                attempt + 1,
-            )
-
-            # Clean up the accidental newline with backspace, then send noop keys to reset state
-            self._send_backspace_with_noop(session_name, count=1)
-
-            # Safety check: verify we haven't deleted too much of the message.
-            # If backspaces accumulated (e.g., due to timing issues), we could be
-            # sending a truncated prompt to Claude, which would be bad.
-            if not self._check_pane_contains(session_name, expected_ending):
-                raise SendMessageError(
-                    str(self.name),
-                    f"Message ending '{expected_ending}' no longer visible after retry cleanup - "
-                    "message may have been truncated",
-                )
-
-        # All retries exhausted - raise an error
-        raise SendMessageError(
-            str(self.name),
-            f"Failed to submit message after {max_retries} attempts - Enter keeps being interpreted as newline",
         )
 
     def _send_enter_and_wait_for_signal(self, session_name: str, wait_channel: str) -> bool:

@@ -5,6 +5,7 @@ from abc import abstractmethod
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from typing import Callable
 from typing import Mapping
 from typing import Sequence
 from typing import TYPE_CHECKING
@@ -131,6 +132,15 @@ class AgentInterface(MutableModel, ABC):
     def send_message(self, message: str) -> None:
         """Send a message to the running agent via its stdin."""
         ...
+
+    def wait_for_ready_signal(self, start_action: Callable[[], None], timeout: float | None = None) -> bool:
+        """Wait for the agent to become ready, executing start_action while listening.
+
+        Can be overridden by agent implementations that support signal-based readiness
+        detection (e.g., via tmux wait-for). Default just runs start_action and returns False.
+        """
+        start_action()
+        return False
 
     # =========================================================================
     # Status (Reported)

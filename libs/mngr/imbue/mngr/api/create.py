@@ -10,9 +10,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
-from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.utils.logging import log_call
-from imbue.mngr.utils.polling import poll_until
 
 
 def _call_on_before_create_hooks(
@@ -103,32 +101,30 @@ def create(
         logger.debug("Provisioning agent {}", agent.name)
         host.provision_agent(agent, agent_options, mngr_ctx)
 
-        # Start the agent
-        logger.info("Starting agent {} ...", agent.name)
-        host.start_agents([agent.id])
-
         # Send initial message if one is configured
         initial_message = agent.get_initial_message()
         if initial_message is not None:
-            logger.info("Sending initial message...")
-            # Wait for the agent to signal readiness via the WAITING lifecycle state.
-            # Agents like Claude configure hooks that create a 'waiting' file when ready.
-            # If the timeout expires (agent doesn't support hooks or is slow), proceed anyway.
-            logger.debug("Waiting for agent to become ready before sending initial message")
+            # Start agent with signal-based readiness detection
+            # The listener is started BEFORE the agent so we catch the SessionStart signal
+            logger.info("Starting agent {} ...", agent.name)
             timeout = agent_options.message_delay_seconds
-            is_ready = poll_until(
-                lambda: agent.get_lifecycle_state() == AgentLifecycleState.WAITING,
+            is_ready = agent.wait_for_ready_signal(
+                start_action=lambda: host.start_agents([agent.id]),
                 timeout=timeout,
-                poll_interval=0.2,
             )
             if is_ready:
-                logger.debug("Agent signaled readiness via WAITING state")
+                logger.debug("Agent signaled readiness via tmux wait-for")
             else:
                 logger.debug(
-                    "Agent did not reach WAITING state within {}s, proceeding anyway",
+                    "Agent did not signal readiness within {}s, proceeding anyway",
                     timeout,
                 )
+            logger.info("Sending initial message...")
             agent.send_message(initial_message)
+        else:
+            # No initial message - just start the agent
+            logger.info("Starting agent {} ...", agent.name)
+            host.start_agents([agent.id])
 
         # Build and return the result
         result = CreateAgentResult(agent=agent, host=host)
