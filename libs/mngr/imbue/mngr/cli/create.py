@@ -633,17 +633,8 @@ def create(ctx: click.Context, **kwargs) -> None:
                 if LoggingSuppressor.is_suppressed():
                     LoggingSuppressor.disable_and_replay(clear_screen=True)
 
-            # If --await-agent-stopped is set, wait for the agent to finish running
-            if opts.await_agent_stopped:
-                _await_agent_stopped(agent)
-
-            # If --connect is set, connect to the agent
-            if opts.connect:
-                connect_to_agent(agent, host, mngr_ctx, connection_opts)
-
-            # Output result using the same format as a new create
             create_result = CreateAgentResult(agent=agent, host=host)
-            _output_result(create_result, output_opts)
+            _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
             return
 
     # If ensure-clean is set, verify the source work_dir is clean
@@ -730,6 +721,10 @@ def create(ctx: click.Context, **kwargs) -> None:
         if LoggingSuppressor.is_suppressed():
             LoggingSuppressor.disable_and_replay(clear_screen=True)
 
+    _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
+
+
+def _post_create(create_result: CreateAgentResult, connection_opts, output_opts, opts, mngr_ctx):
     # If --await-agent-stopped is set, wait for the agent to finish running
     if opts.await_agent_stopped:
         _await_agent_stopped(create_result.agent)
@@ -738,7 +733,7 @@ def create(ctx: click.Context, **kwargs) -> None:
     if opts.connect:
         connect_to_agent(create_result.agent, create_result.host, mngr_ctx, connection_opts)
 
-    # Output result
+    # output the result
     _output_result(create_result, output_opts)
 
 
@@ -887,11 +882,8 @@ def _try_reuse_existing_agent(
         return None
 
     if len(matching_agents) > 1:
-        # Multiple agents found - if a target host was specified, this shouldn't happen
-        # Log a warning and use the first one
-        logger.warning(
-            "Multiple agents found with name '{}', using the first one. Specify --host to target a specific host.",
-            agent_name,
+        raise UserInputError(
+            f"Multiple agents found with name '{agent_name}', using the first one. Specify --host to target a specific host."
         )
 
     host_ref, agent_ref = matching_agents[0]
