@@ -277,20 +277,14 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
-        """Validate that claude is available or can be installed, and extend trust to worktrees.
+        """Validate that claude is available or can be installed.
 
-        For worktree-based agents, extends Claude's trust settings from the source
-        repository to the worktree work_dir.
+        This method performs read-only validation only. Actual installation
+        happens in provision().
 
         For remote hosts: warn and proceed (installation happens in provision)
         For local hosts: warn and prompt user for consent (installation happens in provision)
         """
-        if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
-            git_common_dir = find_git_common_dir(self.work_dir)
-            if git_common_dir is not None:
-                source_path = git_common_dir.parent
-                extend_claude_trust_to_worktree(source_path, self.work_dir)
-
         config = self._get_claude_config()
         if not config.check_installation:
             logger.debug("Skipping claude installation check (check_installation=False)")
@@ -421,11 +415,13 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
-        """Install claude if needed.
+        """Extend trust for worktrees and install Claude if needed."""
+        if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
+            git_common_dir = find_git_common_dir(self.work_dir)
+            if git_common_dir is not None:
+                source_path = git_common_dir.parent
+                extend_claude_trust_to_worktree(source_path, self.work_dir)
 
-        For local hosts: user consent was already obtained in on_before_provisioning
-        For remote hosts: installation is automatic
-        """
         config = self._get_claude_config()
 
         # ensure that claude is installed

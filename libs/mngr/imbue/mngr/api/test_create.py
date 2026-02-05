@@ -3,13 +3,11 @@
 Note: Unit tests for provider registry and configuration are in api/providers_test.py
 """
 
-import contextlib
 import json
 import subprocess
 import time
 from pathlib import Path
 from typing import cast
-from unittest.mock import patch
 
 import pluggy
 
@@ -68,39 +66,18 @@ def _get_agent_from_create_result(result: CreateAgentResult, temp_mngr_ctx: Mngr
     return agent
 
 
-def _setup_claude_trust_config(work_dir: Path):
-    """Create a fake Claude trust config for testing worktree creation.
+def _setup_claude_trust_config(work_dir: Path) -> None:
+    """Create a Claude trust config marking work_dir as trusted.
 
-    Worktree creation checks that the source directory is trusted by Claude
-    (has hasTrustDialogAccepted=true in ~/.claude.json). This helper creates
-    a mock config file that marks the work_dir as trusted.
-
-    Returns a context manager that patches both the config path and backup path.
+    Since the autouse setup_test_mngr_env fixture sets HOME to a temp directory,
+    this writes directly to ~/.claude.json without any patching.
     """
-    claude_config_file = work_dir.parent / ".claude.json"
-    claude_backup_file = work_dir.parent / ".claude.json.bak"
     claude_config = {
         "projects": {
             str(work_dir): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True},
         }
     }
-    claude_config_file.write_text(json.dumps(claude_config))
-
-    @contextlib.contextmanager
-    def combined_patches():
-        with (
-            patch(
-                "imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path",
-                return_value=claude_config_file,
-            ),
-            patch(
-                "imbue.mngr.agents.default_plugins.claude_config.get_claude_config_backup_path",
-                return_value=claude_backup_file,
-            ),
-        ):
-            yield
-
-    return combined_patches()
+    (Path.home() / ".claude.json").write_text(json.dumps(claude_config))
 
 
 def test_create_simple_echo_agent(
@@ -295,11 +272,9 @@ def test_create_agent_with_worktree(
     agent_name = AgentName(f"test-worktree-{int(time.time())}")
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
+    _setup_claude_trust_config(temp_git_repo)
     worktree_path: Path | None = None
-    with (
-        _setup_claude_trust_config(temp_git_repo),
-        tmux_session_cleanup(session_name),
-    ):
+    with tmux_session_cleanup(session_name):
         try:
             local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_git_repo)
 
@@ -364,11 +339,9 @@ def test_worktree_with_custom_branch_name(
     )
     current_branch = branch_result.stdout.strip()
 
+    _setup_claude_trust_config(temp_git_repo)
     worktree_path: Path | None = None
-    with (
-        _setup_claude_trust_config(temp_git_repo),
-        tmux_session_cleanup(session_name),
-    ):
+    with tmux_session_cleanup(session_name):
         try:
             local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_git_repo)
 
@@ -469,11 +442,9 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
     agent_name = AgentName(f"test-worktree-gen-{int(time.time())}")
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
+    _setup_claude_trust_config(temp_git_repo)
     worktree_path: Path | None = None
-    with (
-        _setup_claude_trust_config(temp_git_repo),
-        tmux_session_cleanup(session_name),
-    ):
+    with tmux_session_cleanup(session_name):
         try:
             local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_git_repo)
 

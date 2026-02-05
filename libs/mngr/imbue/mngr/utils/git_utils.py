@@ -150,7 +150,6 @@ def find_git_common_dir(path: Path) -> Path | None:
             check=True,
         )
         git_common_dir = Path(result.stdout.strip())
-        # The result might be relative, so resolve it
         if not git_common_dir.is_absolute():
             git_common_dir = (path / git_common_dir).resolve()
         return git_common_dir
