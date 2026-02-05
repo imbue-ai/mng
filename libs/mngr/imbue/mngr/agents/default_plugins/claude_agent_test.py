@@ -443,13 +443,13 @@ def test_provision_skips_installation_check_when_disabled(mngr_test_prefix: str,
 # =============================================================================
 
 
-def test_on_before_provisioning_extends_trust_for_worktree(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
-) -> None:
-    """on_before_provisioning should extend Claude trust when using worktree mode."""
+def test_provision_extends_trust_for_worktree(mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path) -> None:
+    """provision should extend Claude trust when using worktree mode."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
     mock_host = Mock()
+    mock_host.is_local = True
+    mock_host.execute_command.return_value = Mock(success=True)
     mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
 
     work_dir = tmp_path / "worktree"
@@ -482,19 +482,21 @@ def test_on_before_provisioning_extends_trust_for_worktree(
             "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
         ) as mock_extend,
     ):
-        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
 
     mock_find.assert_called_once_with(work_dir)
     mock_extend.assert_called_once_with(source_git_dir.parent, work_dir)
 
 
-def test_on_before_provisioning_does_not_extend_trust_for_non_worktree(
+def test_provision_does_not_extend_trust_for_non_worktree(
     mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
 ) -> None:
-    """on_before_provisioning should not extend trust when not using worktree mode."""
+    """provision should not extend trust when not using worktree mode."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
     mock_host = Mock()
+    mock_host.is_local = True
+    mock_host.execute_command.return_value = Mock(success=True)
     mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
 
     agent = ClaudeAgent.model_construct(
@@ -517,18 +519,20 @@ def test_on_before_provisioning_does_not_extend_trust_for_non_worktree(
     with patch(
         "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
     ) as mock_extend:
-        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
 
     mock_extend.assert_not_called()
 
 
-def test_on_before_provisioning_does_not_extend_trust_when_no_git_options(
+def test_provision_does_not_extend_trust_when_no_git_options(
     mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
 ) -> None:
-    """on_before_provisioning should not extend trust when git options are None."""
+    """provision should not extend trust when git options are None."""
     pm = pluggy.PluginManager("mngr")
     agent_id = AgentId.generate()
     mock_host = Mock()
+    mock_host.is_local = True
+    mock_host.execute_command.return_value = Mock(success=True)
     mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
 
     agent = ClaudeAgent.model_construct(
@@ -550,7 +554,7 @@ def test_on_before_provisioning_does_not_extend_trust_when_no_git_options(
     with patch(
         "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
     ) as mock_extend:
-        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
 
     mock_extend.assert_not_called()
 
