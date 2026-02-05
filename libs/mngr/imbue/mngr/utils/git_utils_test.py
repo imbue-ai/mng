@@ -160,31 +160,19 @@ def test_find_git_common_dir_returns_git_dir_for_regular_repo(tmp_path: Path) ->
     assert result == git_dir / ".git"
 
 
-def test_find_git_common_dir_returns_main_git_from_worktree(tmp_path: Path, setup_git_config: None) -> None:
+def test_find_git_common_dir_returns_main_git_from_worktree(tmp_path: Path, temp_git_repo: Path) -> None:
     """Test that find_git_common_dir returns main repo's .git from a worktree."""
-    main_repo = tmp_path / "main-repo"
-    main_repo.mkdir()
-    subprocess.run(["git", "init"], cwd=main_repo, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "--allow-empty", "-m", "initial"],
-        cwd=main_repo,
-        check=True,
-        capture_output=True,
-    )
-
-    # Create worktree
     worktree_path = tmp_path / "worktree"
     subprocess.run(
         ["git", "worktree", "add", str(worktree_path), "-b", "test-branch"],
-        cwd=main_repo,
+        cwd=temp_git_repo,
         check=True,
         capture_output=True,
     )
 
-    # find_git_common_dir from worktree should return main repo's .git
     result = find_git_common_dir(worktree_path)
     assert result is not None
-    assert result == main_repo / ".git"
+    assert result == temp_git_repo / ".git"
 
 
 def test_find_git_common_dir_from_subdirectory(tmp_path: Path) -> None:

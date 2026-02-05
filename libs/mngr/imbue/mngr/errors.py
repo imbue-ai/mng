@@ -335,9 +335,13 @@ class UnknownBackendError(ConfigError):
 class ClaudeDirectoryNotTrustedError(ConfigError):
     """The source directory is not trusted in Claude's config.
 
-    When creating worktrees, we place them inside the source repo's .git directory
-    so they inherit Claude's trust. But this only works if the source directory
-    itself is trusted (has hasTrustDialogAccepted=true in ~/.claude.json).
+    When creating worktrees, we copy trust settings from the source directory
+    to the worktree in ~/.claude.json. If the source directory itself is not
+    trusted, the worktree won't be either, so Claude Code will show a trust
+    dialog on startup. When mngr then uses tmux send-keys to deliver the
+    initial prompt, the keystrokes will instead accept the trust dialog and
+    be consumed, and the intended message will be lost. Worse, this silently
+    grants trust to a directory the user never explicitly approved.
     """
 
     def __init__(self, source_path: str) -> None:
