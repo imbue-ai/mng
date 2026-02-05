@@ -529,6 +529,82 @@ def test_provision_does_not_extend_trust_when_no_git_options(
     mock_extend.assert_not_called()
 
 
+def test_provision_skips_trust_when_git_common_dir_is_none(
+    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+) -> None:
+    """provision should skip trust extension when find_git_common_dir returns None."""
+    agent, mock_host, mngr_ctx = _make_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    )
+
+    with (
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
+            return_value=None,
+        ),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
+        ) as mock_extend,
+    ):
+        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    mock_extend.assert_not_called()
+
+
+def test_on_before_provisioning_validates_trust_for_worktree(
+    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+) -> None:
+    """on_before_provisioning should validate source directory is trusted for worktree mode."""
+    source_git_dir = tmp_path / "source" / ".git"
+    agent, mock_host, mngr_ctx = _make_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    )
+
+    with (
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
+            return_value=source_git_dir,
+        ),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.check_source_directory_trusted",
+        ) as mock_check,
+    ):
+        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    mock_check.assert_called_once_with(source_git_dir.parent)
+
+
+def test_on_before_provisioning_skips_trust_check_when_git_common_dir_is_none(
+    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+) -> None:
+    """on_before_provisioning should skip trust check when find_git_common_dir returns None."""
+    agent, mock_host, mngr_ctx = _make_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    )
+
+    with (
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
+            return_value=None,
+        ),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.check_source_directory_trusted",
+        ) as mock_check,
+    ):
+        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    mock_check.assert_not_called()
+
+
 def test_on_destroy_removes_trust(mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path) -> None:
     """on_destroy should call remove_claude_trust_for_path with the work_dir."""
     work_dir = tmp_path / "worktree"

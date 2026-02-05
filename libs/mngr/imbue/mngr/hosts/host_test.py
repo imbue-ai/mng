@@ -2,10 +2,12 @@
 
 import json
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import HostName
@@ -228,3 +230,23 @@ def test_get_agent_references_skips_bad_records_but_loads_good_ones(
     assert good_id in ref_ids
     assert good_id_2 in ref_ids
     assert bad_id not in ref_ids
+
+
+def test_destroy_agent_calls_on_destroy(
+    host_with_agents_dir: tuple[Host, Path],
+) -> None:
+    """Test that destroy_agent calls agent.on_destroy() before cleanup."""
+    host, agents_dir = host_with_agents_dir
+
+    agent_id = AgentId.generate()
+    mock_agent = Mock(spec=AgentInterface)
+    mock_agent.id = agent_id
+    mock_agent.name = AgentName("test-agent")
+
+    # Create agent state directory so _remove_directory has something to clean up
+    agent_dir = agents_dir / str(agent_id)
+    agent_dir.mkdir()
+
+    host.destroy_agent(mock_agent)
+
+    mock_agent.on_destroy.assert_called_once_with(host)
