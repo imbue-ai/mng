@@ -202,7 +202,7 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
-        """Provision Claude: extend trust for worktrees and install if needed."""
+        """Extend trust for worktrees and install Claude if needed."""
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             git_common_dir = find_git_common_dir(self.work_dir)
             if git_common_dir is not None:
