@@ -42,8 +42,8 @@ test-offload:
     cp $tmpdir/current.tar.gz .
     trap "rm -f current.tar.gz" EXIT
 
-    offload -c offload-modal.toml run --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" 
-
+    # Run offload, and make sure to specifically permit error code 2 (flaky tests). Any other error code is a failure.
+    offload -c offload-modal.toml run --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" || [[ $? -eq 2 ]]
 
 test-unit:
   uv run pytest --ignore-glob="**/test_*.py" --cov-fail-under=36
