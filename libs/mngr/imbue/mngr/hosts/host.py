@@ -65,7 +65,7 @@ from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.claude_config import check_source_directory_trusted
 from imbue.mngr.utils.env_utils import parse_env_file
-from imbue.mngr.utils.git_utils import find_git_worktree_root
+from imbue.mngr.utils.git_utils import find_git_common_dir
 from imbue.mngr.utils.git_utils import get_current_git_branch
 
 
@@ -1175,12 +1175,16 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> Path:
         """Create a work_dir using git worktree.
 
-        Worktrees are created inside the source repo's .mngr-worktrees/ directory.
-        This ensures they automatically inherit Claude's trust settings for the source
-        directory, since Claude trusts subdirectories of trusted paths.
+        Worktrees are placed inside .git/mngr-worktrees/<agent-id>/repo/ with the
+        agent's working directory being .git/mngr-worktrees/<agent-id>/. This
+        structure allows the agent to inherit Claude's trust (since the work_dir
+        itself doesn't contain a .git file), while still having access to the
+        git worktree in the repo/ subdirectory.
 
-        Note: We use .mngr-worktrees/ instead of .git/mngr-worktrees/ because Claude
-        treats paths inside .git/ specially and doesn't inherit trust for them.
+        Claude treats directories containing .git specially and requires separate
+        trust for them. By putting the .git-containing worktree one level down,
+        the agent's work_dir inherits trust from .git/ (which inherits from the
+        main repo), and the agent can still access the worktree contents.
         """
         if host.id != self.id:
             raise UserInputError("Worktree mode only works when source is on the same host")
@@ -1188,23 +1192,28 @@ class Host(BaseHost, OnlineHostInterface):
         # Check that the source directory is trusted by Claude before creating worktree
         check_source_directory_trusted(source_path)
 
-        # Find the git repo root (handles both regular repos and worktrees)
-        git_root = find_git_worktree_root(source_path)
-        if git_root is None:
-            raise MngrError(f"Could not find git repository for {source_path}")
+        # Find the common .git directory (handles both regular repos and worktrees)
+        git_common_dir = find_git_common_dir(source_path)
+        if git_common_dir is None:
+            raise MngrError(f"Could not find .git directory for {source_path}")
 
         agent_id = AgentId.generate()
-        work_dir_path = options.target_path
-        if work_dir_path is None:
-            # Place worktree inside .mngr-worktrees/ so it inherits Claude's trust
-            work_dir_path = git_root / ".mngr-worktrees" / str(agent_id)
 
-        self._mkdir(work_dir_path.parent)
+        if options.target_path is not None:
+            # Custom target path - use it directly as the worktree
+            worktree_path = options.target_path
+            work_dir_path = options.target_path
+        else:
+            # Default: work_dir is the agent directory, worktree is in repo/ subdirectory
+            work_dir_path = git_common_dir / "mngr-worktrees" / str(agent_id)
+            worktree_path = work_dir_path / "repo"
+
+        self._mkdir(worktree_path.parent)
 
         branch_name = self._determine_branch_name(options)
 
-        logger.debug("Creating git worktree", path=str(work_dir_path), branch=branch_name)
-        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
+        logger.debug("Creating git worktree", path=str(worktree_path), branch=branch_name)
+        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(worktree_path))} -b {shlex.quote(branch_name)}"
 
         if options.git and options.git.base_branch:
             cmd += f" {shlex.quote(options.git.base_branch)}"

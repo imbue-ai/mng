@@ -132,3 +132,27 @@ def find_git_worktree_root(start: Path | None = None) -> Path | None:
         return Path(result.stdout.strip())
     except subprocess.CalledProcessError:
         return None
+
+
+def find_git_common_dir(path: Path) -> Path | None:
+    """Find the common .git directory for a repository or worktree.
+
+    For a regular repository, this returns the .git directory.
+    For a worktree, this returns the main repository's .git directory,
+    not the worktree's .git file.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        git_common_dir = Path(result.stdout.strip())
+        # The result might be relative, so resolve it
+        if not git_common_dir.is_absolute():
+            git_common_dir = (path / git_common_dir).resolve()
+        return git_common_dir
+    except subprocess.CalledProcessError:
+        return None
