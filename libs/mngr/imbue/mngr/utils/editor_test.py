@@ -1,9 +1,6 @@
 """Unit tests for the editor module."""
 
 import os
-import tempfile
-from collections.abc import Generator
-from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -14,8 +11,16 @@ from imbue.mngr.utils.editor import get_editor_command
 from imbue.mngr.utils.testing import restore_env_var
 
 
-@contextmanager
-def long_running_editor() -> Generator[str, None, None]:
+def _create_executable_script(tmp_path: Path, name: str, content: str) -> Path:
+    """Create an executable script in the given directory."""
+    script_path = tmp_path / name
+    script_path.write_text(content)
+    script_path.chmod(0o755)
+    return script_path
+
+
+@pytest.fixture
+def long_running_editor(tmp_path: Path) -> Path:
     """Create a temporary script that acts as a long-running editor.
 
     The script ignores its file argument and just sleeps, which is useful
@@ -25,16 +30,7 @@ def long_running_editor() -> Generator[str, None, None]:
 # Accept file argument but ignore it, just sleep
 sleep 10
 """
-    script_path: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-            f.write(script_content)
-            script_path = f.name
-        Path(script_path).chmod(0o755)
-        yield script_path
-    finally:
-        if script_path is not None:
-            Path(script_path).unlink(missing_ok=True)
+    return _create_executable_script(tmp_path, "long_editor.sh", script_content)
 
 
 def test_get_editor_command_uses_visual_env_var_first() -> None:
@@ -98,20 +94,19 @@ def test_editor_session_create_with_initial_content() -> None:
         session.cleanup()
 
 
-def test_editor_session_start_raises_if_already_started() -> None:
+def test_editor_session_start_raises_if_already_started(long_running_editor: Path) -> None:
     """Test that start() raises if session was already started."""
     original_editor = os.environ.get("EDITOR")
     try:
         # Use a long-running script so the process doesn't exit immediately
-        with long_running_editor() as editor_path:
-            os.environ["EDITOR"] = editor_path
-            session = EditorSession.create()
-            try:
+        os.environ["EDITOR"] = str(long_running_editor)
+        session = EditorSession.create()
+        try:
+            session.start()
+            with pytest.raises(UserInputError, match="already started"):
                 session.start()
-                with pytest.raises(UserInputError, match="already started"):
-                    session.start()
-            finally:
-                session.cleanup()
+        finally:
+            session.cleanup()
     finally:
         restore_env_var("EDITOR", original_editor)
 
@@ -125,19 +120,20 @@ def test_editor_session_is_running_returns_false_before_start() -> None:
         session.cleanup()
 
 
-def test_editor_session_is_running_returns_true_when_process_running() -> None:
+def test_editor_session_is_running_returns_true_when_process_running(
+    long_running_editor: Path,
+) -> None:
     """Test that is_running() returns True when process is running."""
     original_editor = os.environ.get("EDITOR")
     try:
         # Use a long-running script so the process stays running
-        with long_running_editor() as editor_path:
-            os.environ["EDITOR"] = editor_path
-            session = EditorSession.create()
-            try:
-                session.start()
-                assert session.is_running() is True
-            finally:
-                session.cleanup()
+        os.environ["EDITOR"] = str(long_running_editor)
+        session = EditorSession.create()
+        try:
+            session.start()
+            assert session.is_running() is True
+        finally:
+            session.cleanup()
     finally:
         restore_env_var("EDITOR", original_editor)
 
@@ -237,47 +233,43 @@ def test_editor_session_cleanup_removes_temp_file() -> None:
     assert not temp_path.exists()
 
 
-def test_editor_session_cleanup_terminates_running_process() -> None:
+def test_editor_session_cleanup_terminates_running_process(
+    long_running_editor: Path,
+) -> None:
     """Test that cleanup() terminates a running editor process."""
     original_editor = os.environ.get("EDITOR")
     try:
         # Use a long-running script so the process stays running
-        with long_running_editor() as editor_path:
-            os.environ["EDITOR"] = editor_path
-            session = EditorSession.create()
-            try:
-                session.start()
-                # Verify process is running
-                assert session.is_running() is True
-                # Cleanup should terminate it
-                session.cleanup()
-                # Process should no longer be running
-                assert session.is_running() is False
-            finally:
-                # Cleanup already done, but make sure temp file is gone
-                if session.temp_file_path.exists():
-                    session.temp_file_path.unlink()
+        os.environ["EDITOR"] = str(long_running_editor)
+        session = EditorSession.create()
+        try:
+            session.start()
+            # Verify process is running
+            assert session.is_running() is True
+            # Cleanup should terminate it
+            session.cleanup()
+            # Process should no longer be running
+            assert session.is_running() is False
+        finally:
+            # Cleanup already done, but make sure temp file is gone
+            if session.temp_file_path.exists():
+                session.temp_file_path.unlink()
     finally:
         restore_env_var("EDITOR", original_editor)
 
 
-def test_editor_session_cleanup_handles_stubborn_process() -> None:
+def test_editor_session_cleanup_handles_stubborn_process(tmp_path: Path) -> None:
     """Test that cleanup() can handle a process that requires killing."""
     # Create a script that ignores SIGTERM
     script_content = """#!/bin/bash
 trap "" SIGTERM
 sleep 100
 """
-    original_editor = os.environ.get("EDITOR")
-    script_path: str | None = None
-    try:
-        # Create temp script file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-            f.write(script_content)
-            script_path = f.name
-        Path(script_path).chmod(0o755)
+    script_path = _create_executable_script(tmp_path, "stubborn_editor.sh", script_content)
 
-        os.environ["EDITOR"] = script_path
+    original_editor = os.environ.get("EDITOR")
+    try:
+        os.environ["EDITOR"] = str(script_path)
         session = EditorSession.create()
         try:
             session.start()
@@ -292,8 +284,6 @@ sleep 100
                 session.temp_file_path.unlink()
     finally:
         restore_env_var("EDITOR", original_editor)
-        if script_path is not None:
-            Path(script_path).unlink(missing_ok=True)
 
 
 def test_editor_session_is_finished_returns_false_before_wait() -> None:

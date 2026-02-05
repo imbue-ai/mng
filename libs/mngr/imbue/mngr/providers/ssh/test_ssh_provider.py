@@ -9,7 +9,6 @@ import shutil
 import signal
 import socket
 import subprocess
-import tempfile
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -45,6 +44,7 @@ def is_port_open(port: int) -> bool:
 @contextmanager
 def local_sshd(
     authorized_keys_content: str,
+    base_path: Path,
 ) -> Generator[tuple[int, Path], None, None]:
     """Start a local sshd instance for testing.
 
@@ -63,39 +63,39 @@ def local_sshd(
 
     port = find_free_port()
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
+    sshd_dir = base_path / "sshd"
+    sshd_dir.mkdir()
 
-        # Create directories
-        etc_dir = tmpdir_path / "etc"
-        run_dir = tmpdir_path / "run"
-        etc_dir.mkdir()
-        run_dir.mkdir()
+    # Create directories
+    etc_dir = sshd_dir / "etc"
+    run_dir = sshd_dir / "run"
+    etc_dir.mkdir()
+    run_dir.mkdir()
 
-        # Generate host key
-        host_key_path = etc_dir / "ssh_host_ed25519_key"
-        subprocess.run(
-            [
-                "ssh-keygen",
-                "-t",
-                "ed25519",
-                "-f",
-                str(host_key_path),
-                "-N",
-                "",
-                "-q",
-            ],
-            check=True,
-        )
+    # Generate host key
+    host_key_path = etc_dir / "ssh_host_ed25519_key"
+    subprocess.run(
+        [
+            "ssh-keygen",
+            "-t",
+            "ed25519",
+            "-f",
+            str(host_key_path),
+            "-N",
+            "",
+            "-q",
+        ],
+        check=True,
+    )
 
-        # Create authorized_keys
-        authorized_keys_path = tmpdir_path / "authorized_keys"
-        authorized_keys_path.write_text(authorized_keys_content)
+    # Create authorized_keys
+    authorized_keys_path = sshd_dir / "authorized_keys"
+    authorized_keys_path.write_text(authorized_keys_content)
 
-        # Create sshd_config
-        sshd_config_path = etc_dir / "sshd_config"
-        current_user = os.environ.get("USER", "root")
-        sshd_config = f"""
+    # Create sshd_config
+    sshd_config_path = etc_dir / "sshd_config"
+    current_user = os.environ.get("USER", "root")
+    sshd_config = f"""
 Port {port}
 ListenAddress 127.0.0.1
 HostKey {host_key_path}
@@ -109,85 +109,86 @@ StrictModes no
 Subsystem sftp /usr/lib/openssh/sftp-server
 AllowUsers {current_user}
 """
-        sshd_config_path.write_text(sshd_config)
+    sshd_config_path.write_text(sshd_config)
 
-        # Start sshd
-        proc = subprocess.Popen(
-            [sshd_path, "-D", "-f", str(sshd_config_path), "-e"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+    # Start sshd
+    proc = subprocess.Popen(
+        [sshd_path, "-D", "-f", str(sshd_config_path), "-e"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    try:
+        # Wait for sshd to start
+        wait_for(
+            lambda: is_port_open(port),
+            timeout=10.0,
+            error_message="sshd failed to start within timeout",
         )
 
+        yield port, host_key_path
+
+    finally:
+        # Stop sshd
+        proc.send_signal(signal.SIGTERM)
         try:
-            # Wait for sshd to start
-            wait_for(
-                lambda: is_port_open(port),
-                timeout=10.0,
-                error_message="sshd failed to start within timeout",
-            )
-
-            yield port, host_key_path
-
-        finally:
-            # Stop sshd
-            proc.send_signal(signal.SIGTERM)
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
 
-@contextmanager
-def ssh_keypair() -> Generator[tuple[Path, Path], None, None]:
-    """Generate a temporary SSH keypair for testing.
+def generate_ssh_keypair(base_path: Path) -> tuple[Path, Path]:
+    """Generate an SSH keypair for testing.
 
-    Yields (private_key_path, public_key_path) tuple.
+    Returns (private_key_path, public_key_path) tuple.
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        key_path = Path(tmpdir) / "id_ed25519"
-        subprocess.run(
-            [
-                "ssh-keygen",
-                "-t",
-                "ed25519",
-                "-f",
-                str(key_path),
-                "-N",
-                "",
-                "-q",
-            ],
-            check=True,
-        )
-        yield key_path, Path(f"{key_path}.pub")
+    key_dir = base_path / "ssh_keys"
+    key_dir.mkdir()
+    key_path = key_dir / "id_ed25519"
+    subprocess.run(
+        [
+            "ssh-keygen",
+            "-t",
+            "ed25519",
+            "-f",
+            str(key_path),
+            "-N",
+            "",
+            "-q",
+        ],
+        check=True,
+    )
+    return key_path, Path(f"{key_path}.pub")
 
 
 @pytest.fixture
 def ssh_provider(
+    tmp_path: Path,
     temp_host_dir: Path,
     temp_mngr_ctx: MngrContext,
 ) -> Generator[SSHProviderInstance, None, None]:
     """Fixture that provides an SSHProviderInstance connected to a local sshd."""
-    with ssh_keypair() as (private_key, public_key):
-        public_key_content = public_key.read_text()
+    private_key, public_key = generate_ssh_keypair(tmp_path)
+    public_key_content = public_key.read_text()
 
-        with local_sshd(public_key_content) as (port, _host_key):
-            current_user = os.environ.get("USER", "root")
-            provider = SSHProviderInstance(
-                name=ProviderInstanceName("ssh-test"),
-                host_dir=temp_host_dir,
-                mngr_ctx=temp_mngr_ctx,
-                hosts={
-                    "localhost": SSHHostConfig(
-                        address="127.0.0.1",
-                        port=port,
-                        user=current_user,
-                        key_file=private_key,
-                    ),
-                },
-            )
+    with local_sshd(public_key_content, tmp_path) as (port, _host_key):
+        current_user = os.environ.get("USER", "root")
+        provider = SSHProviderInstance(
+            name=ProviderInstanceName("ssh-test"),
+            host_dir=temp_host_dir,
+            mngr_ctx=temp_mngr_ctx,
+            hosts={
+                "localhost": SSHHostConfig(
+                    address="127.0.0.1",
+                    port=port,
+                    user=current_user,
+                    key_file=private_key,
+                ),
+            },
+        )
 
-            yield provider
+        yield provider
 
 
 @pytest.mark.acceptance

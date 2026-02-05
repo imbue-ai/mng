@@ -17,7 +17,6 @@ with @pytest.mark.acceptance and are skipped by default. To run them:
 import json
 import os
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -115,6 +114,7 @@ def _get_host_state(
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
+    tmp_path: Path,
     modal_subprocess_env: ModalSubprocessTestEnv,
 ) -> None:
     """Test that idle shutdown creates both initial and idle snapshots.
@@ -130,143 +130,143 @@ def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
     # Use a unique agent name for this test
     agent_name = f"test-idle-snap-{get_short_random_string()}"
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        source_dir = Path(tmpdir)
-        # Create a simple file so the directory isn't empty
-        (source_dir / "test.txt").write_text("test content for idle shutdown test")
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    # Create a simple file so the directory isn't empty
+    (source_dir / "test.txt").write_text("test content for idle shutdown test")
 
-        temp_dir_with_tar = str(Path(tmpdir)).rstrip("/")
-        commit_hash = os.environ.get("GITHUB_SHA", "") or Path(".mngr/dev/modal_image_commit_hash").read_text().strip()
+    tar_dir = tmp_path / "tar_output"
+    tar_dir.mkdir()
+    temp_dir_with_tar = str(tar_dir)
+    commit_hash = os.environ.get("GITHUB_SHA", "") or Path(".mngr/dev/modal_image_commit_hash").read_text().strip()
 
-        # go make the tar
-        result = subprocess.run(
-            [
-                "bash",
-                "-c",
-                f"./scripts/make_tar_of_repo.sh {commit_hash} {temp_dir_with_tar}",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=600,
-            env=modal_subprocess_env.env,
-        )
+    # go make the tar
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"./scripts/make_tar_of_repo.sh {commit_hash} {temp_dir_with_tar}",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=600,
+        env=modal_subprocess_env.env,
+    )
 
-        # Create an agent with:
-        # - Very short idle timeout (15 seconds) so it shuts down quickly
-        # - Short sandbox timeout (120 seconds) with buffer time for clean shutdown
-        # - Echo command that exits immediately so the host becomes idle
-        # - idle-mode=boot so only BOOT activity is checked (not PROCESS which
-        #   keeps getting updated while the tmux bash shell is running)
-        result = subprocess.run(
-            [
-                "uv",
-                "run",
-                "mngr",
-                "create",
-                agent_name,
-                "generic",
-                "--in",
-                "modal",
-                "--no-connect",
-                "--await-ready",
-                "--no-ensure-clean",
-                "--source",
-                str(source_dir),
-                # Set idle timeout to 15 seconds
-                "--idle-timeout",
-                "15",
-                # Use boot idle mode so only BOOT activity is checked
-                # (the default IO mode includes PROCESS which keeps getting
-                # updated while the tmux bash shell is alive after echo exits)
-                "--idle-mode",
-                "boot",
-                # Set sandbox timeout to 120 seconds via build args
-                "-b",
-                "--timeout=120",
-                # use our dockerfile since it should end up being cached and faster
-                "-b",
-                "--dockerfile=libs/mngr/imbue/mngr/resources/Dockerfile",
-                "-b",
-                "context-dir=.mngr/dev/build/",
-                "--",
-                "echo hi && sleep 300",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=300,
-            env=modal_subprocess_env.env,
-        )
+    # Create an agent with:
+    # - Very short idle timeout (15 seconds) so it shuts down quickly
+    # - Short sandbox timeout (120 seconds) with buffer time for clean shutdown
+    # - Echo command that exits immediately so the host becomes idle
+    # - idle-mode=boot so only BOOT activity is checked (not PROCESS which
+    #   keeps getting updated while the tmux bash shell is running)
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "mngr",
+            "create",
+            agent_name,
+            "generic",
+            "--in",
+            "modal",
+            "--no-connect",
+            "--await-ready",
+            "--no-ensure-clean",
+            "--source",
+            str(source_dir),
+            # Set idle timeout to 15 seconds
+            "--idle-timeout",
+            "15",
+            # Use boot idle mode so only BOOT activity is checked
+            # (the default IO mode includes PROCESS which keeps getting
+            # updated while the tmux bash shell is alive after echo exits)
+            "--idle-mode",
+            "boot",
+            # Set sandbox timeout to 120 seconds via build args
+            "-b",
+            "--timeout=120",
+            # use our dockerfile since it should end up being cached and faster
+            "-b",
+            "--dockerfile=libs/mngr/imbue/mngr/resources/Dockerfile",
+            "-b",
+            "context-dir=.mngr/dev/build/",
+            "--",
+            "echo hi && sleep 300",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=modal_subprocess_env.env,
+    )
 
-        assert result.returncode == 0, f"Agent creation failed: {result.stderr}\n{result.stdout}"
+    assert result.returncode == 0, f"Agent creation failed: {result.stderr}\n{result.stdout}"
 
-        # Get the host name from the agent (should match agent name for Modal)
-        list_result = _run_mngr_list_json(modal_subprocess_env.env, "modal")
-        host_name = None
-        for agent in list_result.get("agents", []):
-            if agent.get("name") == agent_name:
-                host_name = agent.get("host", {}).get("name")
-                break
+    # Get the host name from the agent (should match agent name for Modal)
+    list_result = _run_mngr_list_json(modal_subprocess_env.env, "modal")
+    host_name = None
+    for agent in list_result.get("agents", []):
+        if agent.get("name") == agent_name:
+            host_name = agent.get("host", {}).get("name")
+            break
 
-        assert host_name is not None, f"Could not find host for agent {agent_name}"
+    assert host_name is not None, f"Could not find host for agent {agent_name}"
 
-        # Verify initial snapshot was created (should happen during agent creation)
-        initial_snapshots = _get_host_snapshots(modal_subprocess_env.env, "modal", host_name)
-        assert len(initial_snapshots) >= 1, (
-            f"Expected at least 1 snapshot (initial) after agent creation, "
-            f"but found {len(initial_snapshots)}: {initial_snapshots}"
-        )
-        initial_snapshot_names = [s.get("name") for s in initial_snapshots]
-        assert "initial" in initial_snapshot_names, (
-            f"Expected 'initial' snapshot after agent creation, but found snapshots: {initial_snapshot_names}"
-        )
+    # Verify initial snapshot was created (should happen during agent creation)
+    initial_snapshots = _get_host_snapshots(modal_subprocess_env.env, "modal", host_name)
+    assert len(initial_snapshots) >= 1, (
+        f"Expected at least 1 snapshot (initial) after agent creation, "
+        f"but found {len(initial_snapshots)}: {initial_snapshots}"
+    )
+    initial_snapshot_names = [s.get("name") for s in initial_snapshots]
+    assert "initial" in initial_snapshot_names, (
+        f"Expected 'initial' snapshot after agent creation, but found snapshots: {initial_snapshot_names}"
+    )
 
-        # Wait for the host to become idle and shut down
-        # The echo command exits immediately, so the host should become idle
-        # after the 15-second idle timeout, then the activity_watcher will
-        # call shutdown.sh which calls snapshot_and_shutdown
-        #
-        # Total wait time budget:
-        # - ~15 seconds for idle timeout
-        # - ~60 seconds for activity_watcher check interval
-        # - ~30 seconds for snapshot and shutdown
-        # = ~105 seconds total, use 150 for safety margin
-        def host_is_offline() -> bool:
-            # Use tolerate_errors=True during polling because SSH/SFTP errors
-            # can occur during the transition period when the sandbox is terminating.
-            # We keep polling until we can successfully query the host state.
-            state = _get_host_state(modal_subprocess_env.env, "modal", host_name, tolerate_errors=True)
-            # Host should be in a non-running state (stopped, paused, destroyed, etc.)
-            # If state is None, we couldn't query it (transient error), so keep polling.
-            return state is not None and state not in ("running", "starting", "building")
+    # Wait for the host to become idle and shut down
+    # The echo command exits immediately, so the host should become idle
+    # after the 15-second idle timeout, then the activity_watcher will
+    # call shutdown.sh which calls snapshot_and_shutdown
+    #
+    # Total wait time budget:
+    # - ~15 seconds for idle timeout
+    # - ~60 seconds for activity_watcher check interval
+    # - ~30 seconds for snapshot and shutdown
+    # = ~105 seconds total, use 150 for safety margin
+    def host_is_offline() -> bool:
+        # Use tolerate_errors=True during polling because SSH/SFTP errors
+        # can occur during the transition period when the sandbox is terminating.
+        # We keep polling until we can successfully query the host state.
+        state = _get_host_state(modal_subprocess_env.env, "modal", host_name, tolerate_errors=True)
+        # Host should be in a non-running state (stopped, paused, destroyed, etc.)
+        # If state is None, we couldn't query it (transient error), so keep polling.
+        return state is not None and state not in ("running", "starting", "building")
 
-        wait_for(
-            host_is_offline,
-            timeout=150.0,
-            poll_interval=10.0,
-            error_message=f"Host {host_name} did not shut down within 150 seconds",
-        )
+    wait_for(
+        host_is_offline,
+        timeout=150.0,
+        poll_interval=10.0,
+        error_message=f"Host {host_name} did not shut down within 150 seconds",
+    )
 
-        # Verify the offline host has both snapshots
-        final_snapshots = _get_host_snapshots(modal_subprocess_env.env, "modal", host_name)
-        assert len(final_snapshots) >= 2, (
-            f"Expected at least 2 snapshots (initial + idle), but found {len(final_snapshots)}: {final_snapshots}"
-        )
+    # Verify the offline host has both snapshots
+    final_snapshots = _get_host_snapshots(modal_subprocess_env.env, "modal", host_name)
+    assert len(final_snapshots) >= 2, (
+        f"Expected at least 2 snapshots (initial + idle), but found {len(final_snapshots)}: {final_snapshots}"
+    )
 
-        # Verify we have both the initial and idle snapshot
-        final_snapshot_names = [s.get("name") for s in final_snapshots]
-        assert "initial" in final_snapshot_names, (
-            f"Expected 'initial' snapshot in final snapshots, but found: {final_snapshot_names}"
-        )
+    # Verify we have both the initial and idle snapshot
+    final_snapshot_names = [s.get("name") for s in final_snapshots]
+    assert "initial" in final_snapshot_names, (
+        f"Expected 'initial' snapshot in final snapshots, but found: {final_snapshot_names}"
+    )
 
-        # The idle snapshot should have a name like "snapshot-XXXXXXXX"
-        idle_snapshot_names = [n for n in final_snapshot_names if n != "initial"]
-        assert len(idle_snapshot_names) >= 1, (
-            f"Expected at least one non-initial snapshot (idle snapshot), but found only: {final_snapshot_names}"
-        )
+    # The idle snapshot should have a name like "snapshot-XXXXXXXX"
+    idle_snapshot_names = [n for n in final_snapshot_names if n != "initial"]
+    assert len(idle_snapshot_names) >= 1, (
+        f"Expected at least one non-initial snapshot (idle snapshot), but found only: {final_snapshot_names}"
+    )
 
-        # Verify the host state is 'paused' (idle shutdown sets stop_reason=PAUSED)
-        final_state = _get_host_state(modal_subprocess_env.env, "modal", host_name)
-        assert final_state == "paused", (
-            f"Expected host state to be 'paused' after idle shutdown, but got: {final_state}"
-        )
+    # Verify the host state is 'paused' (idle shutdown sets stop_reason=PAUSED)
+    final_state = _get_host_state(modal_subprocess_env.env, "modal", host_name)
+    assert final_state == "paused", f"Expected host state to be 'paused' after idle shutdown, but got: {final_state}"

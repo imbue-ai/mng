@@ -1,6 +1,5 @@
 """Tests for the SSHProviderBackend."""
 
-import tempfile
 from pathlib import Path
 
 from imbue.mngr.config.data_types import MngrContext
@@ -132,16 +131,15 @@ def test_build_provider_instance_parses_hosts(temp_mngr_ctx: MngrContext) -> Non
     assert instance.hosts["server2"].user == "root"
 
 
-def test_build_provider_instance_with_key_file(temp_mngr_ctx: MngrContext) -> None:
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".key", delete=False) as f:
-        f.write("fake-key")
-        key_path = f.name
+def test_build_provider_instance_with_key_file(tmp_path: Path, temp_mngr_ctx: MngrContext) -> None:
+    key_path = tmp_path / "test.key"
+    key_path.write_text("fake-key")
 
     config = SSHProviderConfig(
         hosts={
             "server1": SSHHostConfig(
                 address="localhost",
-                key_file=Path(key_path),
+                key_file=key_path,
             ),
         },
     )
@@ -151,7 +149,7 @@ def test_build_provider_instance_with_key_file(temp_mngr_ctx: MngrContext) -> No
         mngr_ctx=temp_mngr_ctx,
     )
     assert isinstance(instance, SSHProviderInstance)
-    assert instance.hosts["server1"].key_file == Path(key_path)
+    assert instance.hosts["server1"].key_file == key_path
 
 
 def test_ssh_host_config_defaults() -> None:
