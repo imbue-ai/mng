@@ -13,7 +13,6 @@ from imbue.mngr.api.sync import RemoteGitContext
 from imbue.mngr.api.sync import UncommittedChangesError
 from imbue.mngr.api.test_fixtures import FakeAgent
 from imbue.mngr.api.test_fixtures import FakeHost
-from imbue.mngr.api.test_fixtures import FakeRemoteHost
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
@@ -722,7 +721,7 @@ def remote_push_ctx(tmp_path: Path) -> PushTestContext:
         host_dir=host_dir,
         agent_dir=agent_dir,
         agent=cast(AgentInterface, FakeAgent(work_dir=agent_dir)),
-        host=cast(OnlineHostInterface, FakeRemoteHost()),
+        host=cast(OnlineHostInterface, FakeHost(is_local=False)),
     )
 
 
@@ -748,7 +747,7 @@ def remote_git_push_ctx(tmp_path: Path) -> PushTestContext:
         host_dir=host_dir,
         agent_dir=agent_dir,
         agent=cast(AgentInterface, FakeAgent(work_dir=agent_dir)),
-        host=cast(OnlineHostInterface, FakeRemoteHost()),
+        host=cast(OnlineHostInterface, FakeHost(is_local=False)),
     )
 
 

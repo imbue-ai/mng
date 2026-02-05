@@ -475,7 +475,7 @@ def test_unison_syncer_handles_process_crash(tmp_path: Path) -> None:
         syncer.stop()
 
 
-@pytest.mark.acceptance
+@pytest.mark.release
 @pytest.mark.skipif(not check_unison_installed(), reason="unison not installed")
 def test_unison_syncer_handles_large_files(tmp_path: Path) -> None:
     """Test that UnisonSyncer correctly syncs large files (50MB)."""

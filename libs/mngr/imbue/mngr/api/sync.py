@@ -1,16 +1,19 @@
 """Unified sync API for push and pull operations between local and agent repositories."""
 
 import subprocess
+from abc import ABC
+from abc import abstractmethod
 from enum import auto
 from pathlib import Path
-from typing import Protocol
 from typing import assert_never
 
 from loguru import logger
 from pydantic import Field
+from pydantic import PrivateAttr
 
 from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
@@ -132,38 +135,38 @@ class SyncGitResult(FrozenModel):
     )
 
 
-# === Git Context Protocol and Implementations ===
+# === Git Context Interface and Implementations ===
 
 
-class GitContext(Protocol):
-    """Protocol for executing git commands either locally or on a remote host."""
+class GitContextInterface(MutableModel, ABC):
+    """Interface for executing git commands either locally or on a remote host."""
 
+    @abstractmethod
     def has_uncommitted_changes(self, path: Path) -> bool:
         """Check if the path has uncommitted git changes."""
-        ...
 
+    @abstractmethod
     def git_stash(self, path: Path) -> bool:
         """Stash uncommitted changes. Returns True if something was stashed."""
-        ...
 
+    @abstractmethod
     def git_stash_pop(self, path: Path) -> None:
         """Pop the most recent stash."""
-        ...
 
+    @abstractmethod
     def git_reset_hard(self, path: Path) -> None:
         """Hard reset to discard all uncommitted changes."""
-        ...
 
+    @abstractmethod
     def get_current_branch(self, path: Path) -> str:
         """Get the current branch name."""
-        ...
 
+    @abstractmethod
     def is_git_repository(self, path: Path) -> bool:
         """Check if the path is inside a git repository."""
-        ...
 
 
-class LocalGitContext:
+class LocalGitContext(GitContextInterface):
     """Execute git commands locally via subprocess."""
 
     def has_uncommitted_changes(self, path: Path) -> bool:
@@ -223,26 +226,28 @@ class LocalGitContext:
         return is_git_repository(path)
 
 
-class RemoteGitContext:
+class RemoteGitContext(GitContextInterface):
     """Execute git commands on a remote host via host.execute_command."""
 
-    __slots__ = ("_host",)
+    _host: OnlineHostInterface = PrivateAttr()
 
-    def __init__(self, host: OnlineHostInterface) -> None:
+    def __init__(self, *, host: OnlineHostInterface) -> None:
+        super().__init__()
         self._host = host
 
     @property
     def host(self) -> OnlineHostInterface:
+        """The host to execute commands on."""
         return self._host
 
     def has_uncommitted_changes(self, path: Path) -> bool:
-        result = self.host.execute_command("git status --porcelain", cwd=path)
+        result = self._host.execute_command("git status --porcelain", cwd=path)
         if not result.success:
             return False
         return len(result.stdout.strip()) > 0
 
     def git_stash(self, path: Path) -> bool:
-        result = self.host.execute_command(
+        result = self._host.execute_command(
             'git stash push -u -m "mngr-sync-stash"',
             cwd=path,
         )
@@ -251,26 +256,26 @@ class RemoteGitContext:
         return "No local changes to save" not in result.stdout
 
     def git_stash_pop(self, path: Path) -> None:
-        result = self.host.execute_command("git stash pop", cwd=path)
+        result = self._host.execute_command("git stash pop", cwd=path)
         if not result.success:
             raise MngrError(f"git stash pop failed: {result.stderr}")
 
     def git_reset_hard(self, path: Path) -> None:
-        result = self.host.execute_command("git reset --hard HEAD", cwd=path)
+        result = self._host.execute_command("git reset --hard HEAD", cwd=path)
         if not result.success:
             raise MngrError(f"git reset --hard failed: {result.stderr}")
-        result = self.host.execute_command("git clean -fd", cwd=path)
+        result = self._host.execute_command("git clean -fd", cwd=path)
         if not result.success:
             raise MngrError(f"git clean failed: {result.stderr}")
 
     def get_current_branch(self, path: Path) -> str:
-        result = self.host.execute_command("git rev-parse --abbrev-ref HEAD", cwd=path)
+        result = self._host.execute_command("git rev-parse --abbrev-ref HEAD", cwd=path)
         if not result.success:
             raise MngrError(f"Failed to get current branch: {result.stderr}")
         return result.stdout.strip()
 
     def is_git_repository(self, path: Path) -> bool:
-        result = self.host.execute_command("git rev-parse --git-dir", cwd=path)
+        result = self._host.execute_command("git rev-parse --git-dir", cwd=path)
         return result.success
 
 
@@ -278,7 +283,7 @@ class RemoteGitContext:
 
 
 def handle_uncommitted_changes(
-    git_ctx: GitContext,
+    git_ctx: GitContextInterface,
     path: Path,
     uncommitted_changes: UncommittedChangesMode,
 ) -> bool:
@@ -328,7 +333,7 @@ def sync_files(
     if mode == SyncMode.PUSH:
         source_path = local_path
         destination_path = actual_remote_path
-        git_ctx: GitContext = RemoteGitContext(host=host)
+        git_ctx: GitContextInterface = RemoteGitContext(host=host)
         logger.debug("Pushing files from {} to {}", source_path, destination_path)
     else:
         source_path = actual_remote_path
