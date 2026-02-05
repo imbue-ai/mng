@@ -7,8 +7,11 @@ create = ["""bash -c './scripts/make_tar_of_repo.sh `cat .mngr/dev/modal_image_c
 build_args = "dockerfile=libs/mngr/imbue/mngr/resources/Dockerfile context-dir=.mngr/dev/build/"
 
 [create_templates.coder]
-agent_type = "coder"
+agent_type = "claude"
 add_command = ["reviewer_0=claude --dangerously-skip-permissions"]
+# put back and remove the below
+#agent_type = "coder"
+cli_args = "--agent-type code-task"
 
 [agent_types.coder]
 parent_type = "claude"
