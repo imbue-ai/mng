@@ -166,27 +166,18 @@ class BaseHost(HostInterface):
     def get_state(self) -> HostState:
         """Get the current state of the host.
 
-        For offline hosts, we determine state based on certified data, stop_reason, and snapshots:
+        For offline hosts, we determine state based on certified data and stop_reason:
         - If certified data has state=FAILED, the host failed during creation
-        - If snapshots exist:
-          - stop_reason=PAUSED -> host became idle and was paused
-          - stop_reason=STOPPED -> user explicitly stopped all agents on the host
-          - stop_reason=None -> host crashed (no controlled shutdown recorded)
-        - If no snapshots exist for a provider that supports them, the host is DESTROYED
-        - If provider doesn't support snapshots, assume STOPPED
+        - stop_reason=PAUSED -> host became idle and was paused
+        - stop_reason=STOPPED -> user explicitly stopped all agents on the host
+        - stop_reason=None -> host crashed (no controlled shutdown recorded)
+
+        Note: The presence or absence of snapshots does not affect the host state.
+        Snapshots determine whether a host can be restarted, not its current state.
         """
         certified_data = self.get_certified_data()
         if certified_data.state == HostState.FAILED.value:
             return HostState.FAILED
-
-        if self.provider_instance.supports_snapshots:
-            try:
-                snapshots = self.get_snapshots()
-                if not snapshots:
-                    return HostState.DESTROYED
-            except (OSError, IOError, ConnectionError):
-                # If we can't check snapshots, use stop_reason to determine state
-                pass
 
         # Determine state based on stop_reason
         stop_reason = certified_data.stop_reason

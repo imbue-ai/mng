@@ -471,7 +471,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.trace("Listing all host records from volume")
 
         with (
-            cg.make_concurrency_group(f"modal_list_all_host_records")
+            cg.make_concurrency_group("modal_list_all_host_records")
             if cg is not None
             else ConcurrencyGroup(name="modal_list_all_host_records")
         ) as list_cg:
@@ -488,7 +488,7 @@ class ModalProviderInstance(BaseProviderInstance):
                     host_id = HostId(host_id_str)
                     thread = list_cg.start_new_thread(
                         target=_store_result_from_callable,
-                        args=(host_records_by_id, host_id, lambda: self._read_host_record(host_id)),
+                        args=(host_records_by_id, host_id, lambda hid=host_id: self._read_host_record(hid)),
                         name="fetch_host_records",
                     )
                     threads.append(thread)

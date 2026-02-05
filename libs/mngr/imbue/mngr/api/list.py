@@ -78,15 +78,22 @@ class AgentInfo(FrozenModel):
 
     @property
     def combined_state(self) -> str:
-        lifecycle_state = self.lifecycle_state
-        if lifecycle_state is None or lifecycle_state == AgentLifecycleState.STOPPED:
-            host_state = self.host.state
-            if host_state is not None:
-                return host_state
-            else:
-                return HostState.DESTROYED.value.lower()
-        else:
-            return lifecycle_state.value.lower()
+        """Return the combined state for display purposes.
+
+        Per docs/concepts/agents.md: If the host's state is not "running",
+        then the agent inherits its state from the host. Otherwise, the
+        agent shows its own lifecycle state.
+        """
+        host_state = self.host.state
+
+        # If host is not running, agent inherits the host state
+        if host_state is None:
+            return HostState.DESTROYED.value.lower()
+        if host_state != HostState.RUNNING.value.lower():
+            return host_state
+
+        # Host is running, so show the agent's lifecycle state
+        return self.lifecycle_state.value.lower()
 
 
 class ErrorInfo(FrozenModel):
@@ -546,7 +553,7 @@ def _process_provider_for_host_listing(
         )
         thread = cg.start_new_thread(
             target=_store_result_from_callable,
-            args=(provider_results, host_ref, lambda: _get_agent_refs_robustly(host, provider)),
+            args=(provider_results, host_ref, lambda h=host: _get_agent_refs_robustly(h, provider)),
             name="fetch_host_records",
         )
         threads.append(thread)
