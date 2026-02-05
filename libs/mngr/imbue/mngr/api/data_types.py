@@ -103,10 +103,6 @@ class HostEnvironmentOptions(FrozenModel):
         default=(),
         description="Files to load environment variables from",
     )
-    pass_env_vars: tuple[str, ...] = Field(
-        default=(),
-        description="Environment variable names to forward from current shell",
-    )
     known_hosts: tuple[str, ...] = Field(
         default=(),
         description="SSH known_hosts entries to add to the host (for outbound SSH connections)",

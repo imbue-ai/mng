@@ -1187,9 +1187,16 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> Path:
         """Create a work_dir using git worktree.
 
-        Worktrees are created inside the source repo's .git/mngr-worktrees/ directory.
-        This ensures they automatically inherit Claude's trust settings for the source
-        directory, since Claude trusts subdirectories of trusted paths.
+        Worktrees are placed inside .git/mngr-worktrees/<agent-id>/repo/ with the
+        agent's working directory being .git/mngr-worktrees/<agent-id>/. This
+        structure allows the agent to inherit Claude's trust (since the work_dir
+        itself doesn't contain a .git file), while still having access to the
+        git worktree in the repo/ subdirectory.
+
+        Claude treats directories containing .git specially and requires separate
+        trust for them. By putting the .git-containing worktree one level down,
+        the agent's work_dir inherits trust from .git/ (which inherits from the
+        main repo), and the agent can still access the worktree contents.
         """
         if host.id != self.id:
             raise UserInputError("Worktree mode only works when source is on the same host")
@@ -1203,12 +1210,17 @@ class Host(BaseHost, OnlineHostInterface):
             raise MngrError(f"Could not find .git directory for {source_path}")
 
         agent_id = AgentId.generate()
-        work_dir_path = options.target_path
-        if work_dir_path is None:
-            # Place worktree inside .git/mngr-worktrees/ so it inherits Claude's trust
-            work_dir_path = git_common_dir / "mngr-worktrees" / str(agent_id)
 
-        self._mkdir(work_dir_path.parent)
+        if options.target_path is not None:
+            # Custom target path - use it directly as the worktree
+            worktree_path = options.target_path
+            work_dir_path = options.target_path
+        else:
+            # Default: work_dir is the agent directory, worktree is in repo/ subdirectory
+            work_dir_path = git_common_dir / "mngr-worktrees" / str(agent_id)
+            worktree_path = work_dir_path / "repo"
+
+        self._mkdir(worktree_path.parent)
 
         base_branch_name = self._determine_branch_name(options)
 
@@ -1219,8 +1231,8 @@ class Host(BaseHost, OnlineHostInterface):
             source_path, base_branch_name, is_branch_name_auto_derived
         )
 
-        logger.debug("Creating git worktree", path=str(work_dir_path), branch=final_branch_name)
-        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(final_branch_name)}"
+        logger.debug("Creating git worktree", path=str(worktree_path), branch=final_branch_name)
+        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(worktree_path))} -b {shlex.quote(final_branch_name)}"
 
         if options.git and options.git.base_branch:
             cmd += f" {shlex.quote(options.git.base_branch)}"
@@ -1364,10 +1376,12 @@ class Host(BaseHost, OnlineHostInterface):
         1. MNGR-specific agent variables (id, name, state_dir, work_dir)
         2. programmatic defaults
         3. env_files (loaded in order)
-        4. pass_env_vars (forwarded from current shell)
-        5. env_vars (explicit KEY=VALUE pairs, highest priority)
+        4. env_vars (explicit KEY=VALUE pairs)
 
         Later sources override earlier ones.
+
+        Note: pass_env_vars is resolved at the CLI level before this is called,
+        and merged into env_vars with explicit env_vars taking precedence.
         """
         env_vars: dict[str, str] = {}
 
@@ -1388,13 +1402,7 @@ class Host(BaseHost, OnlineHostInterface):
             file_vars = parse_env_file(content)
             env_vars.update(file_vars)
 
-        # 4. Add pass-through env vars from current shell
-        for var_name in options.environment.pass_env_vars:
-            value = os.environ.get(var_name)
-            if value is not None:
-                env_vars[var_name] = value
-
-        # 5. Add explicit env_vars (highest priority)
+        # 4. Add explicit env_vars
         for env_var in options.environment.env_vars:
             env_vars[env_var.key] = env_var.value
 

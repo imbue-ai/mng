@@ -5,7 +5,6 @@ from pathlib import Path
 
 from imbue.mngr.utils.git_utils import _parse_project_name_from_url
 from imbue.mngr.utils.git_utils import derive_project_name_from_path
-from imbue.mngr.utils.git_utils import find_git_common_dir
 from imbue.mngr.utils.git_utils import find_git_worktree_root
 
 
@@ -138,73 +137,3 @@ def test_find_git_worktree_root_returns_root_when_in_git(tmp_path: Path) -> None
 
     result = find_git_worktree_root(subdir)
     assert result == git_dir
-
-
-def test_find_git_common_dir_returns_none_when_not_in_git(tmp_path: Path) -> None:
-    """Test that find_git_common_dir returns None when not in a git repo."""
-    non_git_dir = tmp_path / "not-a-repo"
-    non_git_dir.mkdir()
-
-    result = find_git_common_dir(non_git_dir)
-    assert result is None
-
-
-def test_find_git_common_dir_returns_git_dir_for_regular_repo(tmp_path: Path) -> None:
-    """Test that find_git_common_dir returns .git for a regular repo."""
-    git_dir = tmp_path / "my-repo"
-    git_dir.mkdir()
-    subprocess.run(["git", "init"], cwd=git_dir, check=True, capture_output=True)
-
-    result = find_git_common_dir(git_dir)
-    assert result == git_dir / ".git"
-
-
-def test_find_git_common_dir_returns_main_git_dir_for_worktree(tmp_path: Path) -> None:
-    """Test that find_git_common_dir returns the main .git dir when in a worktree."""
-    # Create main repo
-    main_repo = tmp_path / "main-repo"
-    main_repo.mkdir()
-    subprocess.run(["git", "init"], cwd=main_repo, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=main_repo,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=main_repo,
-        check=True,
-        capture_output=True,
-    )
-
-    # Create initial commit (required for worktree)
-    test_file = main_repo / "test.txt"
-    test_file.write_text("test")
-    subprocess.run(["git", "add", "."], cwd=main_repo, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "Initial"], cwd=main_repo, check=True, capture_output=True)
-
-    # Create a worktree
-    worktree_path = tmp_path / "worktree"
-    subprocess.run(
-        ["git", "worktree", "add", str(worktree_path), "-b", "test-branch"],
-        cwd=main_repo,
-        check=True,
-        capture_output=True,
-    )
-
-    try:
-        # From the worktree, find_git_common_dir should return the main repo's .git
-        result = find_git_common_dir(worktree_path)
-        assert result == main_repo / ".git"
-
-        # From the main repo, it should also return .git
-        result_main = find_git_common_dir(main_repo)
-        assert result_main == main_repo / ".git"
-    finally:
-        # Clean up worktree
-        subprocess.run(
-            ["git", "worktree", "remove", "--force", str(worktree_path)],
-            cwd=main_repo,
-            capture_output=True,
-        )

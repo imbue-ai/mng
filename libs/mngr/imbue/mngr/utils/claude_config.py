@@ -29,14 +29,11 @@ def check_source_directory_trusted(source_path: Path) -> None:
     # Resolve path to absolute for consistent comparison
     source_path = source_path.resolve()
 
-    try:
-        content = config_path.read_text()
-        if not content.strip():
-            raise ClaudeDirectoryNotTrustedError(str(source_path))
+    content = config_path.read_text()
+    if not content.strip():
+        raise ClaudeDirectoryNotTrustedError(str(source_path))
 
-        config = json.loads(content)
-    except (json.JSONDecodeError, OSError) as e:
-        raise ClaudeDirectoryNotTrustedError(str(source_path)) from e
+    config = json.loads(content)
 
     # Find the source project config
     projects = config.get("projects", {})

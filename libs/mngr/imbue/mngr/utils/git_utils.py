@@ -140,9 +140,6 @@ def find_git_common_dir(path: Path) -> Path | None:
     For a regular repository, this returns the .git directory.
     For a worktree, this returns the main repository's .git directory,
     not the worktree's .git file.
-
-    This is useful when you need to create files inside .git that should
-    be shared across all worktrees (like .git/mngr-worktrees/).
     """
     try:
         result = subprocess.run(
