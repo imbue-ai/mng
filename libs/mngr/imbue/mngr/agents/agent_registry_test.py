@@ -1,8 +1,11 @@
 """Tests for agent registry."""
 
+from typing import Any
+
 import pytest
 from pydantic import Field
 
+from imbue.mngr.agents.agent_registry import ResolvedAgentType
 from imbue.mngr.agents.agent_registry import get_agent_class
 from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.agents.agent_registry import list_registered_agent_types
@@ -152,17 +155,21 @@ def test_resolve_agent_type_returns_base_agent_for_unknown_type() -> None:
     assert type(resolved.agent_config) is AgentTypeConfig
 
 
-def test_resolve_agent_type_with_custom_type_uses_parent_class() -> None:
-    """A custom type with parent_type should use the parent's agent class."""
+def _resolve_custom_claude_type(**config_overrides: Any) -> ResolvedAgentType:
+    """Helper to resolve a custom type with parent_type=claude and given overrides."""
     custom_config = AgentTypeConfig(
         parent_type=AgentTypeName("claude"),
-        cli_args="--model opus",
+        **config_overrides,
     )
     config = MngrConfig(
         agent_types={AgentTypeName("my_claude"): custom_config},
     )
+    return resolve_agent_type(AgentTypeName("my_claude"), config)
 
-    resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
+
+def test_resolve_agent_type_with_custom_type_uses_parent_class() -> None:
+    """A custom type with parent_type should use the parent's agent class."""
+    resolved = _resolve_custom_claude_type(cli_args="--model opus")
 
     assert resolved.agent_class == ClaudeAgent
     assert isinstance(resolved.agent_config, ClaudeAgentConfig)
@@ -170,45 +177,21 @@ def test_resolve_agent_type_with_custom_type_uses_parent_class() -> None:
 
 def test_resolve_agent_type_with_custom_type_merges_cli_args() -> None:
     """A custom type should merge its cli_args onto the parent config."""
-    custom_config = AgentTypeConfig(
-        parent_type=AgentTypeName("claude"),
-        cli_args="--model opus",
-    )
-    config = MngrConfig(
-        agent_types={AgentTypeName("my_claude"): custom_config},
-    )
-
-    resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
+    resolved = _resolve_custom_claude_type(cli_args="--model opus")
 
     assert resolved.agent_config.cli_args == "--model opus"
 
 
 def test_resolve_agent_type_with_custom_type_overrides_command() -> None:
     """A custom type with a command override should apply it to the parent config."""
-    custom_config = AgentTypeConfig(
-        parent_type=AgentTypeName("claude"),
-        command=CommandString("my-custom-claude-wrapper"),
-    )
-    config = MngrConfig(
-        agent_types={AgentTypeName("my_claude"): custom_config},
-    )
-
-    resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
+    resolved = _resolve_custom_claude_type(command=CommandString("my-custom-claude-wrapper"))
 
     assert resolved.agent_config.command == CommandString("my-custom-claude-wrapper")
 
 
 def test_resolve_agent_type_with_custom_type_preserves_parent_specific_fields() -> None:
     """Custom type config should retain parent-specific fields like sync_home_settings."""
-    custom_config = AgentTypeConfig(
-        parent_type=AgentTypeName("claude"),
-        cli_args="--model opus",
-    )
-    config = MngrConfig(
-        agent_types={AgentTypeName("my_claude"): custom_config},
-    )
-
-    resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
+    resolved = _resolve_custom_claude_type(cli_args="--model opus")
 
     # ClaudeAgentConfig has sync_home_settings=True by default
     assert isinstance(resolved.agent_config, ClaudeAgentConfig)
@@ -216,34 +199,18 @@ def test_resolve_agent_type_with_custom_type_preserves_parent_specific_fields() 
 
 
 def test_resolve_agent_type_with_custom_type_overrides_permissions() -> None:
-    """Custom type permissions should override (replace) parent permissions, not merge."""
-    custom_config = AgentTypeConfig(
-        parent_type=AgentTypeName("claude"),
+    """Custom type permissions should override (replace) parent permissions."""
+    resolved = _resolve_custom_claude_type(
         permissions=[Permission("github"), Permission("docker")],
     )
-    config = MngrConfig(
-        agent_types={AgentTypeName("my_claude"): custom_config},
-    )
 
-    resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
-
-    # Custom permissions should completely replace the parent's permissions
     assert resolved.agent_config.permissions == [Permission("github"), Permission("docker")]
 
 
 def test_resolve_agent_type_with_custom_type_empty_permissions_keeps_parent() -> None:
     """Custom type with no permissions should keep the parent's default permissions."""
-    custom_config = AgentTypeConfig(
-        parent_type=AgentTypeName("claude"),
-        cli_args="--model opus",
-    )
-    config = MngrConfig(
-        agent_types={AgentTypeName("my_claude"): custom_config},
-    )
+    resolved = _resolve_custom_claude_type(cli_args="--model opus")
 
-    resolved = resolve_agent_type(AgentTypeName("my_claude"), config)
-
-    # Parent's default permissions (empty list) should be preserved
     assert resolved.agent_config.permissions == []
 
 

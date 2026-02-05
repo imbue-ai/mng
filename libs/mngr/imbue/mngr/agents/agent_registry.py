@@ -136,8 +136,7 @@ def _apply_custom_overrides_to_parent_config(
     if merged_cli_args != parent_config.cli_args:
         updates["cli_args"] = merged_cli_args
 
-    # Permissions override (replace) the parent's permissions per documentation,
-    # rather than being merged/concatenated.
+    # Permissions override (replace) the parent's permissions per documentation.
     if custom_config.permissions:
         updates["permissions"] = custom_config.permissions
 
