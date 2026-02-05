@@ -1189,8 +1189,6 @@ class Host(BaseHost, OnlineHostInterface):
         else:
             work_dir_path = self.host_dir / "worktrees" / str(agent_id)
 
-        # Extend Claude's trust settings before creating the worktree.
-        # This validates the source is trusted and fails fast if not.
         extend_claude_trust_to_worktree(source_path, work_dir_path)
 
         self._mkdir(work_dir_path.parent)
@@ -1552,8 +1550,6 @@ class Host(BaseHost, OnlineHostInterface):
         state_dir = self.host_dir / "agents" / str(agent.id)
         self._remove_directory(state_dir)
 
-        # Remove Claude trust entry for worktree work directories
-        # This cleans up entries created by extend_claude_trust_to_worktree
         if self._is_generated_work_dir(agent.work_dir):
             removed = remove_claude_trust_for_path(agent.work_dir)
             if removed:
