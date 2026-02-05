@@ -243,3 +243,7 @@ scripts/notify_user.local.sh
 
 # we stick the image build artifacts here
 .mngr/dev/build/
+
+# Offload caches and local files
+.offload-image-cache
+.offload/**
