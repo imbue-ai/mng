@@ -1850,10 +1850,10 @@ done
             time_left = deadline - time.monotonic()
             if time_left > 0:
                 self.execute_command(
-                    f"kill -TERM -- -{pid} 2>/dev/null && timeout {time_left} tail --pid={pid} -f /dev/null || kill -KILL -- -{pid} 2>/dev/null || true"
+                    f"kill -TERM {pid} 2>/dev/null && timeout {time_left} tail --pid={pid} -f /dev/null || kill -KILL {pid} 2>/dev/null || true"
                 )
             else:
-                self.execute_command(f"kill -KILL -- -{pid} 2>/dev/null || true")
+                self.execute_command(f"kill -KILL {pid} 2>/dev/null || true")
 
         # Finally kill the tmux sessions themselves
         for agent in current_agents:
