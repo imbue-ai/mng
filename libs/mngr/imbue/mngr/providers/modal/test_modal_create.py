@@ -13,8 +13,6 @@ Or to run all tests including Modal tests:
 import importlib.resources
 import os
 import subprocess
-import tempfile
-from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -25,13 +23,13 @@ from imbue.mngr.utils.testing import get_short_random_string
 
 
 @pytest.fixture
-def temp_source_dir() -> Generator[Path, None, None]:
+def temp_source_dir(tmp_path: Path) -> Path:
     """Create a temporary source directory for tests."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        source_dir = Path(tmpdir)
-        # Create a simple file so the directory isn't empty
-        (source_dir / "test.txt").write_text("test content")
-        yield source_dir
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    # Create a simple file so the directory isn't empty
+    (source_dir / "test.txt").write_text("test content")
+    return source_dir
 
 
 @pytest.mark.acceptance
@@ -314,37 +312,10 @@ RUN echo "About to fail with marker: {unique_failure_marker}" && exit 1
     )
 
 
-@pytest.fixture
-def temp_git_source_dir() -> Generator[Path, None, None]:
-    """Create a temporary source directory with a git repository."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        source_dir = Path(tmpdir)
-        # Create a file and initialize git
-        (source_dir / "tracked.txt").write_text("tracked content")
-        subprocess.run(["git", "init"], cwd=source_dir, capture_output=True, check=True)
-        subprocess.run(["git", "add", "."], cwd=source_dir, capture_output=True, check=True)
-        subprocess.run(
-            ["git", "commit", "-m", "Initial commit"],
-            cwd=source_dir,
-            capture_output=True,
-            check=True,
-            env={
-                **os.environ,
-                "GIT_AUTHOR_NAME": "Test",
-                "GIT_AUTHOR_EMAIL": "test@test.com",
-                "GIT_COMMITTER_NAME": "Test",
-                "GIT_COMMITTER_EMAIL": "test@test.com",
-            },
-        )
-        # Add an untracked file
-        (source_dir / "untracked.txt").write_text("untracked content")
-        yield source_dir
-
-
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_mngr_create_transfers_git_repo_with_untracked_files(
-    temp_git_source_dir: Path,
+    temp_git_repo: Path,
     modal_subprocess_env: ModalSubprocessTestEnv,
 ) -> None:
     """Test that agent creation with git repo source succeeds on Modal.
@@ -361,7 +332,7 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(
     unique_marker = f"git-transfer-test-{get_short_random_string()}"
 
     # Write a unique marker file (will be transferred via rsync as untracked)
-    (temp_git_source_dir / "marker.txt").write_text(unique_marker)
+    (temp_git_repo / "marker.txt").write_text(unique_marker)
 
     # Create agent - if file transfer fails, this will fail
     result = subprocess.run(
@@ -378,7 +349,7 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(
             "--await-ready",
             "--no-ensure-clean",
             "--source",
-            str(temp_git_source_dir),
+            str(temp_git_repo),
             "--",
             "sleep 3600",
         ],
@@ -395,7 +366,7 @@ def test_mngr_create_transfers_git_repo_with_untracked_files(
 @pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_mngr_create_transfers_git_repo_with_new_branch(
-    temp_git_source_dir: Path,
+    temp_git_repo: Path,
     modal_subprocess_env: ModalSubprocessTestEnv,
 ) -> None:
     """Test that git transfer creates a new branch on the remote.
@@ -420,7 +391,7 @@ def test_mngr_create_transfers_git_repo_with_new_branch(
             "--await-ready",
             "--no-ensure-clean",
             "--source",
-            str(temp_git_source_dir),
+            str(temp_git_repo),
             "--new-branch=",
             "--",
             "git rev-parse --abbrev-ref HEAD && sleep 3600",
@@ -446,6 +417,7 @@ def _get_mngr_default_dockerfile_path() -> Path:
 @pytest.mark.release
 @pytest.mark.timeout(600)
 def test_mngr_create_with_default_dockerfile_on_modal(
+    tmp_path: Path,
     temp_source_dir: Path,
     modal_subprocess_env: ModalSubprocessTestEnv,
 ) -> None:
@@ -464,53 +436,54 @@ def test_mngr_create_with_default_dockerfile_on_modal(
     dockerfile_path = _get_mngr_default_dockerfile_path()
     assert dockerfile_path.exists(), f"Default Dockerfile not found at {dockerfile_path}"
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        temp_dir_with_tar = str(Path(tmpdir)).rstrip("/")
-        commit_hash = os.environ.get("GITHUB_SHA", "") or Path(".mngr/dev/modal_image_commit_hash").read_text().strip()
+    tar_dir = tmp_path / "tar_output"
+    tar_dir.mkdir()
+    temp_dir_with_tar = str(tar_dir)
+    commit_hash = os.environ.get("GITHUB_SHA", "") or Path(".mngr/dev/modal_image_commit_hash").read_text().strip()
 
-        # go make the tar
-        result = subprocess.run(
-            [
-                "bash",
-                "-c",
-                f"./scripts/make_tar_of_repo.sh {commit_hash} {temp_dir_with_tar}",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=600,
-            env=modal_subprocess_env.env,
-        )
-        # now we can try making the agent
-        result = subprocess.run(
-            [
-                "uv",
-                "run",
-                "mngr",
-                "create",
-                agent_name,
-                "generic",
-                "--in",
-                "modal",
-                "--no-connect",
-                "--await-ready",
-                "--no-ensure-clean",
-                "--source",
-                str(temp_source_dir),
-                "-b",
-                f"--dockerfile={dockerfile_path}",
-                "-b",
-                f"context-dir={temp_dir_with_tar}",
-                "--target-path",
-                "/code/mngr",
-                "--",
-                f"echo {unique_marker} && which uv && which claude && sleep 30",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=600,
-            env=modal_subprocess_env.env,
-        )
+    # go make the tar
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f"./scripts/make_tar_of_repo.sh {commit_hash} {temp_dir_with_tar}",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=600,
+        env=modal_subprocess_env.env,
+    )
+    # now we can try making the agent
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "mngr",
+            "create",
+            agent_name,
+            "generic",
+            "--in",
+            "modal",
+            "--no-connect",
+            "--await-ready",
+            "--no-ensure-clean",
+            "--source",
+            str(temp_source_dir),
+            "-b",
+            f"--dockerfile={dockerfile_path}",
+            "-b",
+            f"context-dir={temp_dir_with_tar}",
+            "--target-path",
+            "/code/mngr",
+            "--",
+            f"echo {unique_marker} && which uv && which claude && sleep 30",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env=modal_subprocess_env.env,
+    )
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
     assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
