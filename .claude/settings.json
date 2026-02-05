@@ -38,23 +38,6 @@
             "command": "[ -e .git ] || { echo \"You should never changed directories! Return to the repo root\" >&2; exit 2; }"
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "./scripts/check_commit_status.sh"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "timeout": 600,
-            "command": "./scripts/main_claude_stop_hook.sh"
-          }
-        ]
       }
     ]
   },
