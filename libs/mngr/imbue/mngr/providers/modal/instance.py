@@ -448,7 +448,7 @@ class ModalProviderInstance(BaseProviderInstance):
             # Cache the result
             self._host_record_cache_by_id[host_id] = host_record
             return host_record
-        except NotFoundError:
+        except (NotFoundError, FileNotFoundError):
             return None
 
     def _delete_host_record(self, host_id: HostId) -> None:
@@ -459,7 +459,7 @@ class ModalProviderInstance(BaseProviderInstance):
         host_dir = f"/{host_id}"
         try:
             entries = list(volume.listdir(host_dir))
-        except NotFoundError:
+        except (NotFoundError, FileNotFoundError):
             pass
         else:
             for entry in entries:
@@ -475,7 +475,7 @@ class ModalProviderInstance(BaseProviderInstance):
         logger.trace("Deleting host record from volume: {}", path)
         try:
             volume.remove_file(path)
-        except NotFoundError:
+        except (NotFoundError, FileNotFoundError):
             pass
 
         # Clear cache entries for this host
