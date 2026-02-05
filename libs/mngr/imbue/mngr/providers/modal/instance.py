@@ -723,11 +723,6 @@ class ModalProviderInstance(BaseProviderInstance):
             if add_known_hosts_cmd is not None:
                 sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
 
-        # Start the activity watcher
-        logger.debug("Starting activity watcher in sandbox")
-        start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
-        sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
-
         logger.debug("Starting sshd in sandbox")
 
         # Start sshd (-D: don't detach)
@@ -872,6 +867,20 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Write the host data.json (will also update volume via callback since host record already exists)
         host.set_certified_data(host_data)
+
+        # For persistent apps, deploy the snapshot function and create shutdown script
+        if self.config.is_persistent:
+            # it's a little sad that we're constantly re-deploying this, but it's a bit too easy to make mistakes otherwise
+            #  (eg, we might end up with outdated code at that endpoint, which would be hard to debug)
+            snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
+            self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
+
+        # Start the activity watcher. We have to start it here because we only created the shutdown script (with the hardcoded sandbox id)
+        # in the above block, thus this cannot be started any earlier.
+        # Plus we really want the boot time to be written, etc, as otherwise it can be a bit racey
+        logger.debug("Starting activity watcher in sandbox")
+        start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
+        sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
 
         return host, ssh_host, ssh_port, host_public_key
 
@@ -1399,11 +1408,6 @@ log "=== Shutdown script completed ==="
             known_hosts=known_hosts,
         )
 
-        # For persistent apps, deploy the snapshot function and create shutdown script
-        if self.config.is_persistent:
-            snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
-            self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
-
         return host
 
     def on_agent_created(self, agent: AgentInterface, host: OnlineHostInterface) -> None:
@@ -1620,11 +1624,6 @@ log "=== Shutdown script completed ==="
             config=config,
             host_data=host_record.certified_host_data,
         )
-
-        # For persistent apps, deploy the snapshot function and create shutdown script
-        if self.config.is_persistent:
-            snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
-            self._create_shutdown_script(restored_host, new_sandbox, host_id, snapshot_url)
 
         # Cache the new online host
         self._host_by_id_cache[host_id] = restored_host
