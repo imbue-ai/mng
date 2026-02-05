@@ -11,7 +11,7 @@ agent_type = "claude"
 add_command = ["reviewer_0=claude --dangerously-skip-permissions"]
 # put back and remove the below
 #agent_type = "coder"
-agent_args = "--agent-type code-task"
+agent_args = ["--agent-type code-task"]
 
 [agent_types.coder]
 parent_type = "claude"
