@@ -152,6 +152,15 @@ def setup_test_mngr_env(
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
     monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
 
+    # Safety check: verify Path.home() returns the fake home.
+    # If this fails, tests could accidentally modify the real home directory.
+    actual_home = Path.home()
+    if actual_home != fake_home:
+        raise AssertionError(
+            f"Failed to set fake HOME! Path.home() returned {actual_home}, "
+            f"expected {fake_home}. Tests may be operating on real home directory!"
+        )
+
 
 @pytest.fixture
 def temp_host_dir(fake_home: Path) -> Path:
