@@ -22,6 +22,7 @@ from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.data_types import NewHostBuildOptions
 from imbue.mngr.api.data_types import NewHostOptions
 from imbue.mngr.api.data_types import SourceLocation
+from imbue.mngr.api.find import ensure_host_started
 from imbue.mngr.api.find import get_host_from_list_by_id
 from imbue.mngr.api.find import get_unique_host_from_list_by_name
 from imbue.mngr.api.find import resolve_source_location
@@ -57,6 +58,7 @@ from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.host import UploadFileSpec
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentNameStyle
 from imbue.mngr.primitives import AgentReference
@@ -132,6 +134,7 @@ class CreateCliOptions(CommonCliOptions):
     agent_args: tuple[str, ...]
     template: str | None
     agent_type: str | None
+    reuse: bool
     connect: bool
     await_ready: bool | None
     await_agent_stopped: bool | None
@@ -259,6 +262,12 @@ class CreateCliOptions(CommonCliOptions):
     help="Auto-generated host name style",
 )
 @optgroup.group("Behavior")
+@optgroup.option(
+    "--reuse/--no-reuse",
+    default=False,
+    show_default=True,
+    help="Reuse existing agent with the same name if it exists (idempotent create)",
+)
 @optgroup.option("--connect/--no-connect", default=True, help="Connect to the agent after creation [default: connect]")
 @optgroup.option(
     "--await-ready/--no-await-ready",
@@ -589,6 +598,28 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     # at this point, all options are parsed, and we can actually start the executing the command
 
+    # If --reuse is set, try to find and reuse an existing agent with the same name
+    if opts.reuse and agent_opts.name is not None:
+        reuse_result = _try_reuse_existing_agent(
+            agent_name=agent_opts.name,
+            provider_name=ProviderInstanceName(opts.new_host) if opts.new_host else None,
+            target_host_ref=target_host if isinstance(target_host, HostReference) else None,
+            mngr_ctx=mngr_ctx,
+            agent_and_host_loader=agent_and_host_loader,
+        )
+        if reuse_result is not None:
+            agent, host = reuse_result
+            logger.info("Reusing existing agent: {}", agent.name)
+
+            # If --connect is set, connect to the agent
+            if opts.connect:
+                connect_to_agent(agent, host, mngr_ctx, connection_opts)
+
+            # Output result using the same format as a new create
+            create_result = CreateAgentResult(agent=agent, host=host)
+            _output_result(create_result, output_opts)
+            return
+
     # If ensure-clean is set, verify the source work_dir is clean
     if opts.ensure_clean:
         _ensure_clean_work_dir(source_location)
@@ -793,6 +824,80 @@ def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions) -
         )
 
     return derive_project_name_from_path(source_location.path)
+
+
+def _try_reuse_existing_agent(
+    agent_name: AgentName,
+    provider_name: ProviderInstanceName | None,
+    target_host_ref: HostReference | None,
+    mngr_ctx: MngrContext,
+    agent_and_host_loader: Callable[[], dict[HostReference, list[AgentReference]]],
+) -> tuple[AgentInterface, OnlineHostInterface] | None:
+    """Try to find and start an existing agent with the given name.
+
+    Searches for an agent matching the name, scoped by provider and host if specified.
+    If found, ensures the agent is started and returns it along with its host.
+    If not found, returns None so the caller can proceed with creating a new agent.
+    """
+    agents_by_host = agent_and_host_loader()
+
+    matching_agents: list[tuple[HostReference, AgentReference]] = []
+
+    for host_ref, agent_refs in agents_by_host.items():
+        # Skip hosts that don't match the provider filter (if specified)
+        if provider_name is not None and host_ref.provider_name != provider_name:
+            continue
+
+        # Skip hosts that don't match the target host filter (if specified)
+        if target_host_ref is not None and host_ref.host_id != target_host_ref.host_id:
+            continue
+
+        for agent_ref in agent_refs:
+            if agent_ref.agent_name == agent_name:
+                matching_agents.append((host_ref, agent_ref))
+
+    if len(matching_agents) == 0:
+        logger.debug("No existing agent found with name: {}", agent_name)
+        return None
+
+    if len(matching_agents) > 1:
+        # Multiple agents found - if a target host was specified, this shouldn't happen
+        # Log a warning and use the first one
+        logger.warning(
+            "Multiple agents found with name '{}', using the first one. Specify --host to target a specific host.",
+            agent_name,
+        )
+
+    host_ref, agent_ref = matching_agents[0]
+    logger.debug("Found existing agent {} on host {}", agent_ref.agent_id, host_ref.host_name)
+
+    # Get the provider and host
+    provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
+    host = provider.get_host(host_ref.host_id)
+
+    # Ensure the host is started
+    online_host, _was_started = ensure_host_started(host, is_start_desired=True, provider=provider)
+
+    # Find the agent interface on the online host
+    agent: AgentInterface | None = None
+    for a in online_host.get_agents():
+        if a.id == agent_ref.agent_id:
+            agent = a
+            break
+
+    if agent is None:
+        # Agent not found on online host - this could happen if the host came online
+        # but the agent data is stale. Return None to create a new agent.
+        logger.warning("Agent {} not found on host after starting, will create new agent", agent_name)
+        return None
+
+    # Ensure the agent is started
+    lifecycle_state = agent.get_lifecycle_state()
+    if lifecycle_state not in (AgentLifecycleState.RUNNING, AgentLifecycleState.REPLACED, AgentLifecycleState.WAITING):
+        logger.info("Starting stopped agent: {}", agent.name)
+        online_host.start_agents([agent.id])
+
+    return agent, online_host
 
 
 def _resolve_source_location(
@@ -1323,7 +1428,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
-    [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot]
+    [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot] [--reuse|--no-reuse]
     [--] [<AGENT_ARGS>...]""",
     aliases=("c",),
     arguments_description="""- `NAME`: Name for the agent (auto-generated if not provided)
@@ -1358,6 +1463,7 @@ the working directory is copied to the remote host.""",
         ("Run directly in-place (no worktree)", "mngr create my-agent --in-place"),
         ("Create without connecting", "mngr create my-agent --no-connect"),
         ("Add extra tmux windows", 'mngr create my-agent -c server="npm run dev"'),
+        ("Reuse existing agent or create if not found", "mngr create my-agent --reuse"),
     ),
     see_also=(
         ("connect", "Connect to an existing agent"),
