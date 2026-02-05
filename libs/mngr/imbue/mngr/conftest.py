@@ -145,11 +145,18 @@ def setup_test_mngr_env(
 
     By setting HOME to tmp_path, tests cannot accidentally read or modify
     files in the real home directory. This protects files like ~/.claude.json.
+
+    A minimal .gitconfig is created in the fake HOME so git commands work
+    without needing to set GIT_AUTHOR_NAME etc. environment variables.
     """
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
     monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
+
+    # Create a minimal .gitconfig so git commands work in the fake HOME
+    gitconfig = tmp_path / ".gitconfig"
+    gitconfig.write_text("[user]\n\tname = Test User\n\temail = test@test.com\n")
 
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.
