@@ -905,6 +905,29 @@ def _get_current_git_branch(source_location: HostLocation) -> str | None:
     return get_current_git_branch(source_location.path)
 
 
+def _resolve_env_vars(
+    pass_env_var_names: tuple[str, ...],
+    explicit_env_var_strings: tuple[str, ...],
+) -> tuple[EnvVar, ...]:
+    """Resolve and merge environment variables.
+
+    Resolves pass_env_var_names from os.environ and merges with explicit_env_var_strings.
+    Explicit env vars take precedence over pass-through values.
+    """
+    # Start with pass-through env vars from current shell
+    merged: dict[str, str] = {}
+    for var_name in pass_env_var_names:
+        if var_name in os.environ:
+            merged[var_name] = os.environ[var_name]
+
+    # Explicit env vars override pass-through values
+    for env_str in explicit_env_var_strings:
+        env_var = EnvVar.from_string(env_str)
+        merged[env_var.key] = env_var.value
+
+    return tuple(EnvVar(key=k, value=v) for k, v in merged.items())
+
+
 @pure
 def _is_git_repo(path: Path) -> bool:
     """Check if the given path is inside a git repository."""
@@ -1008,13 +1031,12 @@ def _parse_agent_opts(
     )
 
     # Parse environment options
-    env_vars = tuple(EnvVar.from_string(e) for e in opts.agent_env)
+    env_vars = _resolve_env_vars(opts.pass_agent_env, opts.agent_env)
     env_files = tuple(Path(f) for f in opts.agent_env_file)
 
     environment = AgentEnvironmentOptions(
         env_vars=env_vars,
         env_files=env_files,
-        pass_env_vars=opts.pass_agent_env,
     )
 
     # Parse agent lifecycle options
@@ -1164,7 +1186,7 @@ def _parse_target_host(
         tags = tags_dict
 
         # Parse host environment
-        host_env_vars = tuple(EnvVar.from_string(e) for e in opts.host_env)
+        host_env_vars = _resolve_env_vars(opts.pass_host_env, opts.host_env)
         host_env_files = tuple(Path(f) for f in opts.host_env_file)
 
         # Combine build args from both individual (-b) and bulk (--build-args) options
@@ -1194,7 +1216,6 @@ def _parse_target_host(
             environment=HostEnvironmentOptions(
                 env_vars=host_env_vars,
                 env_files=host_env_files,
-                pass_env_vars=opts.pass_host_env,
                 known_hosts=opts.known_host,
             ),
             lifecycle=lifecycle,

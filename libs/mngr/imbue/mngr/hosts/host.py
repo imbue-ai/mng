@@ -1336,7 +1336,8 @@ class Host(BaseHost, OnlineHostInterface):
 
         Later sources override earlier ones.
 
-        Note: pass_env_vars is handled at the CLI level before this is called.
+        Note: pass_env_vars is resolved at the CLI level before this is called,
+        and merged into env_vars with explicit env_vars taking precedence.
         """
         env_vars: dict[str, str] = {}
 
