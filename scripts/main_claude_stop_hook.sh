@@ -65,13 +65,6 @@ fi
 # Get the directory of this script (needed for launching reviewer scripts)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Find all windows named reviewer_* and start review processes as background jobs
-REVIEWER_PIDS=()
-for window in $(tmux list-windows -t "$session" -F '#W' 2>/dev/null | grep '^reviewer_' || true); do
-    "$SCRIPT_DIR/run_reviewer.sh" "$session" "$window" &
-    REVIEWER_PIDS+=($!)
-done
-
 # convert jsonl conversation transcript to html
 uv run --project contrib/claude-code-transcripts/ claude-code-transcripts json -o /tmp/transcript/$MAIN_CLAUDE_SESSION_ID `find ~/.claude/projects/ -name "$MAIN_CLAUDE_SESSION_ID.jsonl"`
 
@@ -211,6 +204,13 @@ elif COMMITS_AHEAD=$(git rev-list --count "origin/$BASE_BRANCH..HEAD" 2>/dev/nul
         IS_INFORMATIONAL_ONLY=true
     fi
 fi
+
+# Find all windows named reviewer_* and start review processes as background jobs
+REVIEWER_PIDS=()
+for window in $(tmux list-windows -t "$session" -F '#W' 2>/dev/null | grep '^reviewer_' || true); do
+    "$SCRIPT_DIR/run_reviewer.sh" "$session" "$window" &
+    REVIEWER_PIDS+=($!)
+done
 
 # Helper function to create a new PR
 # Returns the PR number on success, exits with error on failure
