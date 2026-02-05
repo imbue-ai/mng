@@ -117,15 +117,13 @@ def mngr_test_root_name(mngr_test_id: str) -> str:
 
 @pytest.fixture
 def fake_home(tmp_path: Path) -> Path:
-    """Create a fake home directory for test isolation.
+    """Return tmp_path as the fake home directory for test isolation.
 
-    This fixture creates a temporary directory that will be used as $HOME
-    during tests. This ensures tests cannot accidentally read or modify
-    files in the real home directory (e.g., ~/.claude.json, ~/.mngr/).
+    This fixture returns tmp_path to be used as $HOME during tests.
+    This ensures tests cannot accidentally read or modify files in
+    the real home directory (e.g., ~/.claude.json, ~/.mngr/).
     """
-    home = tmp_path / "fake_home"
-    home.mkdir()
-    return home
+    return tmp_path
 
 
 @pytest.fixture(autouse=True)
