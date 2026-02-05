@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
+from imbue.mngr.agents.default_plugins.claude_config import _find_project_config
+from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
+from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
+from imbue.mngr.agents.default_plugins.claude_config import get_claude_config_backup_path
+from imbue.mngr.agents.default_plugins.claude_config import get_claude_config_path
+from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
 from imbue.mngr.errors import ClaudeDirectoryNotTrustedError
-from imbue.mngr.utils.claude_config import _find_project_config
-from imbue.mngr.utils.claude_config import check_source_directory_trusted
-from imbue.mngr.utils.claude_config import extend_claude_trust_to_worktree
-from imbue.mngr.utils.claude_config import get_claude_config_backup_path
-from imbue.mngr.utils.claude_config import get_claude_config_path
-from imbue.mngr.utils.claude_config import remove_claude_trust_for_path
 
 
 def test_get_claude_config_path_returns_home_dot_claude_json() -> None:
@@ -76,7 +76,7 @@ def test_check_source_directory_trusted_succeeds_when_trusted(tmp_path: Path) ->
     }
     config_file.write_text(json.dumps(config, indent=2))
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         # Should not raise
         check_source_directory_trusted(source_path)
 
@@ -97,7 +97,7 @@ def test_check_source_directory_trusted_succeeds_for_subdirectory(tmp_path: Path
     }
     config_file.write_text(json.dumps(config, indent=2))
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         # Should not raise - subdirectory inherits trust from ancestor
         check_source_directory_trusted(source_path)
 
@@ -116,7 +116,7 @@ def test_check_source_directory_trusted_raises_when_not_trusted(tmp_path: Path) 
     }
     config_file.write_text(json.dumps(config, indent=2))
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         with pytest.raises(ClaudeDirectoryNotTrustedError) as exc_info:
             check_source_directory_trusted(source_path)
 
@@ -131,7 +131,7 @@ def test_check_source_directory_trusted_raises_when_no_config_file(tmp_path: Pat
 
     # Don't create the config file
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
             check_source_directory_trusted(source_path)
 
@@ -145,7 +145,7 @@ def test_check_source_directory_trusted_raises_when_empty_config(tmp_path: Path)
     # Create empty config file
     config_file.write_text("")
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
             check_source_directory_trusted(source_path)
 
@@ -160,7 +160,7 @@ def test_check_source_directory_trusted_raises_when_not_in_projects(tmp_path: Pa
     config = {"projects": {"/other/project": {"allowedTools": [], "hasTrustDialogAccepted": True}}}
     config_file.write_text(json.dumps(config, indent=2))
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
             check_source_directory_trusted(source_path)
 
@@ -179,7 +179,7 @@ def test_check_source_directory_trusted_raises_when_trust_field_missing(tmp_path
     }
     config_file.write_text(json.dumps(config, indent=2))
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
             check_source_directory_trusted(source_path)
 
@@ -193,7 +193,7 @@ def test_check_source_directory_trusted_raises_json_error_for_invalid_json(tmp_p
     # Create invalid JSON
     config_file.write_text("{ invalid json }")
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         with pytest.raises(json.JSONDecodeError):
             check_source_directory_trusted(source_path)
 
@@ -219,9 +219,10 @@ def test_extend_claude_trust_creates_entry_for_worktree(tmp_path: Path) -> None:
     config_file.write_text(json.dumps(config, indent=2))
 
     with (
-        patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file),
+        patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file),
         patch(
-            "imbue.mngr.utils.claude_config.get_claude_config_backup_path", return_value=tmp_path / ".claude.json.bak"
+            "imbue.mngr.agents.default_plugins.claude_config.get_claude_config_backup_path",
+            return_value=tmp_path / ".claude.json.bak",
         ),
     ):
         extend_claude_trust_to_worktree(source_path, worktree_path)
@@ -257,8 +258,10 @@ def test_extend_claude_trust_creates_backup(tmp_path: Path) -> None:
     config_file.write_text(json.dumps(config, indent=2))
 
     with (
-        patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file),
-        patch("imbue.mngr.utils.claude_config.get_claude_config_backup_path", return_value=backup_file),
+        patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_config.get_claude_config_backup_path", return_value=backup_file
+        ),
     ):
         extend_claude_trust_to_worktree(source_path, worktree_path)
 
@@ -289,8 +292,10 @@ def test_extend_claude_trust_skips_if_entry_exists(tmp_path: Path) -> None:
     config_file.write_text(json.dumps(config, indent=2))
 
     with (
-        patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file),
-        patch("imbue.mngr.utils.claude_config.get_claude_config_backup_path", return_value=backup_file),
+        patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_config.get_claude_config_backup_path", return_value=backup_file
+        ),
     ):
         extend_claude_trust_to_worktree(source_path, worktree_path)
 
@@ -317,7 +322,7 @@ def test_extend_claude_trust_raises_when_source_not_trusted(tmp_path: Path) -> N
     }
     config_file.write_text(json.dumps(config, indent=2))
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
             extend_claude_trust_to_worktree(source_path, worktree_path)
 
@@ -332,7 +337,7 @@ def test_extend_claude_trust_raises_when_no_config(tmp_path: Path) -> None:
 
     # Don't create the config file
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
             extend_claude_trust_to_worktree(source_path, worktree_path)
 
@@ -360,7 +365,7 @@ def test_remove_claude_trust_removes_mngr_created_entry(tmp_path: Path) -> None:
     }
     config_file.write_text(json.dumps(config, indent=2))
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         result = remove_claude_trust_for_path(worktree_path)
 
     assert result is True
@@ -384,7 +389,7 @@ def test_remove_claude_trust_skips_non_mngr_entry(tmp_path: Path) -> None:
     }
     config_file.write_text(json.dumps(config, indent=2))
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         result = remove_claude_trust_for_path(worktree_path)
 
     # Should return False since it's not an mngr-created entry
@@ -408,7 +413,7 @@ def test_remove_claude_trust_returns_false_when_not_found(tmp_path: Path) -> Non
     }
     config_file.write_text(json.dumps(config, indent=2))
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         result = remove_claude_trust_for_path(worktree_path)
 
     assert result is False
@@ -422,7 +427,7 @@ def test_remove_claude_trust_returns_false_when_no_config(tmp_path: Path) -> Non
 
     # Don't create the config file
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         result = remove_claude_trust_for_path(worktree_path)
 
     assert result is False
@@ -437,7 +442,7 @@ def test_remove_claude_trust_returns_false_on_error(tmp_path: Path) -> None:
     # Create invalid JSON
     config_file.write_text("{ invalid json }")
 
-    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         # Should not raise, but return False
         result = remove_claude_trust_for_path(worktree_path)
 

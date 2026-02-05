@@ -90,11 +90,11 @@ def _setup_claude_trust_config(work_dir: Path):
     def combined_patches():
         with (
             patch(
-                "imbue.mngr.utils.claude_config.get_claude_config_path",
+                "imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path",
                 return_value=claude_config_file,
             ),
             patch(
-                "imbue.mngr.utils.claude_config.get_claude_config_backup_path",
+                "imbue.mngr.agents.default_plugins.claude_config.get_claude_config_backup_path",
                 return_value=claude_backup_file,
             ),
         ):

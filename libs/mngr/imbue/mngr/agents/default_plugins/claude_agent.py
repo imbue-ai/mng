@@ -9,6 +9,8 @@ from pydantic import Field
 
 from imbue.mngr import hookimpl
 from imbue.mngr.agents.base_agent import BaseAgent
+from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
+from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import NoCommandDefinedError
@@ -19,6 +21,8 @@ from imbue.mngr.interfaces.data_types import RelativePath
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import CommandString
+from imbue.mngr.primitives import WorkDirCopyMode
+from imbue.mngr.utils.git_utils import find_git_common_dir
 
 
 class ClaudeAgentConfig(AgentTypeConfig):
@@ -143,14 +147,20 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
-        """Validate that claude is available or can be installed.
+        """Validate that claude is available or can be installed, and extend trust to worktrees.
 
-        This method performs read-only validation only. Actual installation
-        happens in provision().
+        For worktree-based agents, extends Claude's trust settings from the source
+        repository to the worktree work_dir.
 
         For remote hosts: warn and proceed (installation happens in provision)
         For local hosts: warn and prompt user for consent (installation happens in provision)
         """
+        if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
+            git_common_dir = find_git_common_dir(self.work_dir)
+            if git_common_dir is not None:
+                source_path = git_common_dir.parent
+                extend_claude_trust_to_worktree(source_path, self.work_dir)
+
         config = self._get_claude_config()
         if not config.check_installation:
             logger.debug("Skipping claude installation check (check_installation=False)")
@@ -282,6 +292,12 @@ class ClaudeAgent(BaseAgent):
                     host.write_text_file(Path(".claude/.credentials.json"), credentials_path.read_text())
                 else:
                     logger.debug("Skipping ~/.claude/.credentials.json (file does not exist)")
+
+    def on_destroy(self, host: OnlineHostInterface) -> None:
+        """Clean up Claude trust entries for this agent's work directory."""
+        removed = remove_claude_trust_for_path(self.work_dir)
+        if removed:
+            logger.debug("Removed Claude trust entry for {}", self.work_dir)
 
 
 @hookimpl

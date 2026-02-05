@@ -63,8 +63,6 @@ from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
-from imbue.mngr.utils.claude_config import extend_claude_trust_to_worktree
-from imbue.mngr.utils.claude_config import remove_claude_trust_for_path
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.git_utils import get_current_git_branch
 
@@ -1189,8 +1187,6 @@ class Host(BaseHost, OnlineHostInterface):
         else:
             work_dir_path = self.host_dir / "worktrees" / str(agent_id)
 
-        extend_claude_trust_to_worktree(source_path, work_dir_path)
-
         self._mkdir(work_dir_path.parent)
 
         branch_name = self._determine_branch_name(options)
@@ -1546,14 +1542,10 @@ class Host(BaseHost, OnlineHostInterface):
     def destroy_agent(self, agent: AgentInterface) -> None:
         """Destroy an agent and clean up its resources."""
         logger.debug("Destroying agent", agent_id=str(agent.id), agent_name=str(agent.name))
+        agent.on_destroy(self)
         self.stop_agents([agent.id])
         state_dir = self.host_dir / "agents" / str(agent.id)
         self._remove_directory(state_dir)
-
-        if self._is_generated_work_dir(agent.work_dir):
-            removed = remove_claude_trust_for_path(agent.work_dir)
-            if removed:
-                logger.debug("Removed Claude trust entry for {}", agent.work_dir)
 
         # Remove persisted agent data from external storage (e.g., Modal volume)
         self.provider_instance.remove_persisted_agent_data(self.id, agent.id)
