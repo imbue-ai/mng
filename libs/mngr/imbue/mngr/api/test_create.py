@@ -74,7 +74,7 @@ def _setup_claude_trust_config(work_dir: Path) -> None:
     """
     claude_config = {
         "projects": {
-            str(work_dir): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True},
+            str(work_dir): {"allowedTools": [], "hasTrustDialogAccepted": True},
         }
     }
     (Path.home() / ".claude.json").write_text(json.dumps(claude_config))
