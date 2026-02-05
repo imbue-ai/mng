@@ -553,7 +553,7 @@ def _process_provider_for_host_listing(
         )
         thread = cg.start_new_thread(
             target=_store_result_from_callable,
-            args=(provider_results, host_ref, lambda: _get_agent_refs_robustly(host, provider)),
+            args=(provider_results, host_ref, lambda x=host: _get_agent_refs_robustly(x, provider)),
             name="fetch_host_records",
         )
         threads.append(thread)
