@@ -436,7 +436,7 @@ def test_provision_skips_installation_check_when_disabled(mngr_test_prefix: str,
 
 
 def test_build_readiness_hooks_config_has_session_start_hook() -> None:
-    """_build_readiness_hooks_config should include SessionStart hook with tmux signal."""
+    """_build_readiness_hooks_config should include SessionStart hook that creates session_started file."""
     config = _build_readiness_hooks_config()
 
     assert "hooks" in config
@@ -444,9 +444,9 @@ def test_build_readiness_hooks_config_has_session_start_hook() -> None:
     assert len(config["hooks"]["SessionStart"]) == 1
     hook = config["hooks"]["SessionStart"][0]["hooks"][0]
     assert hook["type"] == "command"
-    # SessionStart sends tmux signal for instant detection (not waiting file)
-    assert "tmux wait-for" in hook["command"]
-    assert "mngr-ready" in hook["command"]
+    # SessionStart creates session_started file for polling-based detection
+    assert "touch" in hook["command"]
+    assert "session_started" in hook["command"]
 
 
 def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:
