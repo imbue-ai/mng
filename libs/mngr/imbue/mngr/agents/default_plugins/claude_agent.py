@@ -15,6 +15,7 @@ from pydantic import Field
 from imbue.imbue_common.pure import pure
 from imbue.mngr import hookimpl
 from imbue.mngr.agents.base_agent import BaseAgent
+from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
 from imbue.mngr.config.data_types import AgentTypeConfig
@@ -277,14 +278,19 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
-        """Validate that claude is available or can be installed.
+        """Validate preconditions before provisioning.
 
-        This method performs read-only validation only. Actual installation
+        This method performs read-only validation only. Actual setup
         happens in provision().
 
-        For remote hosts: warn and proceed (installation happens in provision)
-        For local hosts: warn and prompt user for consent (installation happens in provision)
+        For worktree mode: validates that the source directory is trusted
+        in Claude's config (~/.claude.json).
         """
+        if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
+            git_common_dir = find_git_common_dir(self.work_dir)
+            if git_common_dir is not None:
+                check_source_directory_trusted(git_common_dir.parent)
+
         config = self._get_claude_config()
         if not config.check_installation:
             logger.debug("Skipping claude installation check (check_installation=False)")

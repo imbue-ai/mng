@@ -359,6 +359,21 @@ def test_extend_claude_trust_raises_when_no_config(tmp_path: Path) -> None:
             extend_claude_trust_to_worktree(source_path, worktree_path)
 
 
+def test_extend_claude_trust_raises_when_empty_config(tmp_path: Path) -> None:
+    """Test that extend_claude_trust_to_worktree raises when config file is empty."""
+    config_file = tmp_path / ".claude.json"
+    source_path = tmp_path / "source"
+    worktree_path = tmp_path / "worktree"
+    source_path.mkdir()
+    worktree_path.mkdir()
+
+    config_file.write_text("")
+
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
+        with pytest.raises(ClaudeDirectoryNotTrustedError):
+            extend_claude_trust_to_worktree(source_path, worktree_path)
+
+
 # Tests for remove_claude_trust_for_path
 
 
@@ -461,6 +476,20 @@ def test_remove_claude_trust_returns_false_on_error(tmp_path: Path) -> None:
 
     with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         # Should not raise, but return False
+        result = remove_claude_trust_for_path(worktree_path)
+
+    assert result is False
+
+
+def test_remove_claude_trust_returns_false_when_empty_config(tmp_path: Path) -> None:
+    """Test that remove_claude_trust_for_path returns False when config file is empty."""
+    config_file = tmp_path / ".claude.json"
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+
+    config_file.write_text("")
+
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         result = remove_claude_trust_for_path(worktree_path)
 
     assert result is False
