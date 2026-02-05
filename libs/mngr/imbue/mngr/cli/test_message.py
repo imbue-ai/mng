@@ -25,13 +25,19 @@ def claude_trust_env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]
 
     This fixture creates a fake ~/.claude.json that marks the current working
     directory as trusted, allowing worktree creation without the real Claude config.
+    It also sets MNGR_ROOT_NAME to prevent loading the project's .mngr/settings.toml.
     """
     config_dir = tmp_path_factory.mktemp("claude_config")
     config_file = config_dir / ".claude.json"
 
     # Trust the current working directory (where the git repo is)
     cwd = Path.cwd().resolve()
-    return setup_claude_trust_config_for_subprocess(config_file, [cwd])
+    env = setup_claude_trust_config_for_subprocess(config_file, [cwd])
+
+    # Prevent loading project config (.mngr/settings.toml) which blocks running mngr in pytest
+    env["MNGR_ROOT_NAME"] = "mngr-acceptance-test"
+
+    return env
 
 
 def run_mngr(*args: str, timeout: float = 120, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
