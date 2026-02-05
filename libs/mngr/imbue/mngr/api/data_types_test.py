@@ -4,6 +4,7 @@ from pathlib import Path
 
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.data_types import SourceLocation
+from imbue.mngr.hosts.common import get_activity_sources_for_idle_mode
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
@@ -41,7 +42,10 @@ def test_source_location_is_from_agent_true_with_both() -> None:
 
 
 def test_host_lifecycle_options_to_activity_config_uses_defaults_when_all_none() -> None:
-    """When all options are None, to_activity_config should use all defaults."""
+    """When all options are None, to_activity_config should use defaults.
+
+    Note: activity_sources is derived from idle_mode, not from default_activity_sources.
+    """
     options = HostLifecycleOptions()
     default_idle_timeout_seconds = 900
     default_idle_mode = IdleMode.AGENT
@@ -55,7 +59,7 @@ def test_host_lifecycle_options_to_activity_config_uses_defaults_when_all_none()
 
     assert config.idle_timeout_seconds == default_idle_timeout_seconds
     assert config.idle_mode == default_idle_mode
-    assert config.activity_sources == default_activity_sources
+    assert config.activity_sources == get_activity_sources_for_idle_mode(default_idle_mode)
 
 
 def test_host_lifecycle_options_to_activity_config_uses_cli_values_when_provided() -> None:
@@ -81,32 +85,36 @@ def test_host_lifecycle_options_to_activity_config_partial_override() -> None:
     """When only some CLI options are provided, others should use defaults.
 
     In this test: idle_timeout_seconds is provided (600), but idle_mode and
-    activity_sources are None, so they should use the defaults.
+    activity_sources are None. idle_mode uses default, and activity_sources
+    is derived from the resolved idle_mode.
     """
     options = HostLifecycleOptions(
         idle_timeout_seconds=600,
         idle_mode=None,
         activity_sources=None,
     )
+    default_idle_mode = IdleMode.AGENT
 
     config = options.to_activity_config(
         default_idle_timeout_seconds=900,
-        default_idle_mode=IdleMode.AGENT,
+        default_idle_mode=default_idle_mode,
         default_activity_sources=(ActivitySource.BOOT,),
     )
 
     # CLI value should be used
     assert config.idle_timeout_seconds == 600
-    # Defaults should be used for None values
-    assert config.idle_mode == IdleMode.AGENT
-    assert config.activity_sources == (ActivitySource.BOOT,)
+    # Default idle_mode should be used
+    assert config.idle_mode == default_idle_mode
+    # activity_sources should be derived from the resolved idle_mode
+    assert config.activity_sources == get_activity_sources_for_idle_mode(default_idle_mode)
 
 
 def test_host_lifecycle_options_to_activity_config_different_partial_override() -> None:
     """Test partial override with different combinations.
 
     In this test: idle_mode is provided (DISABLED), but idle_timeout_seconds and
-    activity_sources are None, so they should use the defaults.
+    activity_sources are None. activity_sources should be derived from the provided
+    idle_mode (DISABLED), not from default_activity_sources.
     """
     options = HostLifecycleOptions(
         idle_timeout_seconds=None,
@@ -120,9 +128,9 @@ def test_host_lifecycle_options_to_activity_config_different_partial_override() 
         default_activity_sources=(ActivitySource.CREATE,),
     )
 
-    # Defaults should be used for None values
+    # Default should be used for None values
     assert config.idle_timeout_seconds == 3600
     # CLI value should be used
     assert config.idle_mode == IdleMode.DISABLED
-    # Defaults should be used for None values
-    assert config.activity_sources == (ActivitySource.CREATE,)
+    # activity_sources should be derived from the provided idle_mode (DISABLED = no sources)
+    assert config.activity_sources == get_activity_sources_for_idle_mode(IdleMode.DISABLED)

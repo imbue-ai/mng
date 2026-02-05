@@ -463,6 +463,7 @@ def test_list_volumes_returns_empty_list(modal_provider: ModalProviderInstance) 
     assert volumes == []
 
 
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
 def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_error(
     expired_credentials_modal_provider: ExpiredCredentialsModalProviderInstance,
 ) -> None:
@@ -471,6 +472,12 @@ def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_err
     This tests the case where credentials are configured but invalid (e.g., expired token).
     When is_authorized returns True but the actual API call fails with AuthError,
     the decorator should convert it to ModalAuthError.
+
+    Note: We suppress PytestUnhandledThreadExceptionWarning because this test intentionally
+    causes an exception in the fetch_sandboxes background thread. The ConcurrencyGroup
+    catches and converts this to a ConcurrencyExceptionGroup, which we then convert to
+    ModalAuthError. pytest still detects the thread exception as "unhandled" even though
+    we properly handle it at the concurrency group level.
     """
     # The expired_credentials_modal_provider returns is_authorized=True but raises
     # AuthError when _get_modal_app is called, simulating expired/invalid credentials.

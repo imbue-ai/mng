@@ -71,6 +71,7 @@ class IdleMode(UpperCaseStrEnum):
     BOOT = auto()
     START = auto()
     RUN = auto()
+    CUSTOM = auto()
     DISABLED = auto()
 
 

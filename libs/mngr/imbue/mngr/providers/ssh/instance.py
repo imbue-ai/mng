@@ -149,6 +149,9 @@ class SSHProviderInstance(BaseProviderInstance):
     ) -> None:
         raise NotImplementedError("SSH provider does not support destroying hosts")
 
+    def on_connection_error(self, host_id: HostId) -> None:
+        pass
+
     # =========================================================================
     # Discovery Methods
     # =========================================================================

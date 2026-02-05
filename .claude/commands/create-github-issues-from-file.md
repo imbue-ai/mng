@@ -1,5 +1,4 @@
 ---
-name: create-github-issues
 description: Convert a file containing identified issues into GitHub issues. Use after running identify-* commands to create corresponding GitHub issues.
 ---
 
@@ -52,8 +51,10 @@ For each issue in the file that does not already exist in GitHub:
 3. If no matching issue exists, create a new one:
 
 ```bash
-gh issue create --title "<Short description>" --body "<Full issue content>" --label "<label>"
+gh issue create --title "<Short description>" --body "<Full issue content>" --label "<label>" --label "autoclaude"
 ```
+
+**Important:** Always include the `autoclaude` label when creating new issues. This label identifies issues that were automatically created by Claude and helps with downstream processing (e.g., converting triaged issues to FIXMEs).
 
 The body should include all data from the issue file, including:
 - The full description of the issue

@@ -8,6 +8,7 @@ from pydantic import computed_field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.config.data_types import EnvVar
+from imbue.mngr.hosts.common import get_activity_sources_for_idle_mode
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import BuildCacheInfo
@@ -138,13 +139,26 @@ class HostLifecycleOptions(FrozenModel):
         default_idle_mode: IdleMode,
         default_activity_sources: tuple[ActivitySource, ...],
     ) -> ActivityConfig:
-        """Convert to ActivityConfig, using provided defaults for None values."""
+        """Convert to ActivityConfig, using provided defaults for None values.
+
+        When activity_sources is not explicitly provided, it is derived from the
+        resolved idle_mode using get_activity_sources_for_idle_mode. This ensures
+        that specifying --idle-mode boot results in only BOOT activity being monitored,
+        without needing to also explicitly specify --activity-sources boot.
+        """
+        resolved_idle_mode = self.idle_mode if self.idle_mode is not None else default_idle_mode
+
+        if self.activity_sources is not None:
+            resolved_activity_sources = self.activity_sources
+        else:
+            resolved_activity_sources = get_activity_sources_for_idle_mode(resolved_idle_mode)
+
         return ActivityConfig(
             idle_timeout_seconds=self.idle_timeout_seconds
             if self.idle_timeout_seconds is not None
             else default_idle_timeout_seconds,
-            idle_mode=self.idle_mode if self.idle_mode is not None else default_idle_mode,
-            activity_sources=self.activity_sources if self.activity_sources is not None else default_activity_sources,
+            idle_mode=resolved_idle_mode,
+            activity_sources=resolved_activity_sources,
         )
 
 
