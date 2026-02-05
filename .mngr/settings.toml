@@ -11,7 +11,7 @@ agent_type = "claude"
 add_command = ["reviewer_0=claude --dangerously-skip-permissions"]
 # put back and remove the below
 #agent_type = "coder"
-agent_args = ["--agent code-task"]
+agent_args = ["""--settings '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "./scripts/check_commit_status.sh"}]}, {"hooks": [{"type": "command", "timeout": 600, "command": "./scripts/main_claude_stop_hook.sh"}]}]}}'"""]
 
 [agent_types.coder]
 parent_type = "claude"
