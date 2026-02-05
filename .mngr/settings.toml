@@ -11,11 +11,11 @@ agent_type = "claude"
 add_command = ["reviewer_0=claude --dangerously-skip-permissions"]
 # put back and remove the below
 #agent_type = "coder"
-agent_args = ["--agent-type code-task"]
+agent_args = ["--agent code-task"]
 
 [agent_types.coder]
 parent_type = "claude"
-cli_args = "--agent-type code-task"
+cli_args = "--agent code-task"
 
 [providers.modal]
 is_enabled = true
