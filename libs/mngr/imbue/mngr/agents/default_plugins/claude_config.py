@@ -10,7 +10,6 @@ from typing import Any
 
 from loguru import logger
 
-from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import ClaudeDirectoryNotTrustedError
 
 
@@ -232,7 +231,6 @@ def _remove_trust_locked(config_path: Path, path: Path) -> bool:
     return True
 
 
-@pure
 def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, Any] | None:
     """Find the project configuration for a path or its closest ancestor.
 
