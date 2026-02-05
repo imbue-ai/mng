@@ -611,13 +611,20 @@ def create(ctx: click.Context, **kwargs) -> None:
             agent, host = reuse_result
             logger.info("Reusing existing agent: {}", agent.name)
 
-            # Handle --edit-message if editor session was started
+            # Handle --edit-message if editor session was started,
+            # or send initial message directly if --message/--message-file was provided
             try:
                 if editor_session is not None:
                     _handle_editor_message(
                         editor_session=editor_session,
                         agent=agent,
                     )
+                elif initial_message is not None:
+                    # Send initial message directly (from --message or --message-file)
+                    logger.info("Sending message to agent")
+                    agent.send_message(initial_message)
+                else:
+                    pass
             finally:
                 # Clean up editor session on success or failure
                 if editor_session is not None and not editor_session.is_finished():
