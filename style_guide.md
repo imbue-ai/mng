@@ -1589,6 +1589,10 @@ def test_add_todo_to_list_appends_todo_to_end_of_list() -> None:
 
 Be sure to put tests in the right place (see below for the different types of tests and where they each go)
 
+## Test isolation
+
+The `conftest.py` in `libs/mngr/imbue/mngr/` provides an autouse fixture (`setup_test_mngr_env`) that sets `HOME` to a temp directory for all tests. This prevents tests from accidentally reading or modifying the real home directory (e.g., `~/.claude.json`, `~/.mngr/`). Use the shared fixtures (`temp_host_dir`, `temp_mngr_ctx`, `local_provider`, etc.) instead of creating your own.
+
 ## Types of tests
 
 There are 4 types of tests: unit tests, integration tests, acceptance tests, and release tests. Each type of test has its own purpose and its own location within the project structure:
