@@ -47,9 +47,9 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.ssh.instance import SSHHostConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
-from imbue.mngr.providers.ssh.test_ssh_provider import generate_ssh_keypair
-from imbue.mngr.providers.ssh.test_ssh_provider import local_sshd
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.testing import generate_ssh_keypair
+from imbue.mngr.utils.testing import local_sshd
 
 
 @pytest.fixture
