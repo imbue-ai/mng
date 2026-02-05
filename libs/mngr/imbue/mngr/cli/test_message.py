@@ -93,6 +93,7 @@ def test_mngr_create_with_message_succeeds(claude_trust_env: dict[str, str]) -> 
             message,
             "--no-connect",
             "--no-ensure-clean",
+            "--await-ready",
             "-v",
             env=claude_trust_env,
         )
@@ -162,6 +163,7 @@ def test_mngr_create_with_message_multiple_times(claude_trust_env: dict[str, str
                 message,
                 "--no-connect",
                 "--no-ensure-clean",
+                "--await-ready",
                 "-v",
                 env=claude_trust_env,
             )
