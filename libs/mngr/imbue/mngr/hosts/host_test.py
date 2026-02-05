@@ -250,3 +250,26 @@ def test_destroy_agent_calls_on_destroy(
     host.destroy_agent(mock_agent)
 
     mock_agent.on_destroy.assert_called_once_with(host)
+
+
+def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
+    host_with_agents_dir: tuple[Host, Path],
+) -> None:
+    """Test that destroy_agent still cleans up if agent.on_destroy() raises."""
+    host, agents_dir = host_with_agents_dir
+
+    agent_id = AgentId.generate()
+    mock_agent = Mock(spec=AgentInterface)
+    mock_agent.id = agent_id
+    mock_agent.name = AgentName("test-agent")
+    mock_agent.on_destroy.side_effect = RuntimeError("cleanup failed")
+
+    agent_dir = agents_dir / str(agent_id)
+    agent_dir.mkdir()
+
+    # Exception propagates, but cleanup still runs
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        host.destroy_agent(mock_agent)
+
+    # State directory should still be cleaned up
+    assert not agent_dir.exists()

@@ -1174,8 +1174,6 @@ class Host(BaseHost, OnlineHostInterface):
         """Create a work_dir using git worktree.
 
         Worktrees are placed at ~/.mngr/hosts/<host>/worktrees/<agent-id>/.
-        Claude's trust settings are extended from the source path to the worktree
-        by copying the project configuration in ~/.claude.json.
         """
         if host.id != self.id:
             raise UserInputError("Worktree mode only works when source is on the same host")
@@ -1542,13 +1540,15 @@ class Host(BaseHost, OnlineHostInterface):
     def destroy_agent(self, agent: AgentInterface) -> None:
         """Destroy an agent and clean up its resources."""
         logger.debug("Destroying agent", agent_id=str(agent.id), agent_name=str(agent.name))
-        agent.on_destroy(self)
-        self.stop_agents([agent.id])
-        state_dir = self.host_dir / "agents" / str(agent.id)
-        self._remove_directory(state_dir)
+        try:
+            agent.on_destroy(self)
+        finally:
+            self.stop_agents([agent.id])
+            state_dir = self.host_dir / "agents" / str(agent.id)
+            self._remove_directory(state_dir)
 
-        # Remove persisted agent data from external storage (e.g., Modal volume)
-        self.provider_instance.remove_persisted_agent_data(self.id, agent.id)
+            # Remove persisted agent data from external storage (e.g., Modal volume)
+            self.provider_instance.remove_persisted_agent_data(self.id, agent.id)
 
     def _build_env_shell_command(self, agent: AgentInterface) -> str:
         """Build a shell command that sources env files and then execs bash.
