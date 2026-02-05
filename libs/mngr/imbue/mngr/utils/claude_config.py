@@ -127,8 +127,11 @@ def _extend_trust_locked(config_path: Path, source_path: Path, worktree_path: Pa
     shutil.copy2(config_path, backup_path)
     logger.debug("Created backup of Claude config at {}", backup_path)
 
-    # Extend trust to the worktree
-    projects[worktree_path_str] = copy.deepcopy(source_config)
+    # Extend trust to the worktree with mngr metadata
+    worktree_config = copy.deepcopy(source_config)
+    worktree_config["_mngrCreated"] = True
+    worktree_config["_mngrSourcePath"] = str(source_path)
+    projects[worktree_path_str] = worktree_config
     config["projects"] = projects
 
     # Write to a temp file and atomically move it
@@ -207,6 +210,12 @@ def _remove_trust_locked(config_path: Path, path: Path) -> bool:
     path_str = str(path)
     if path_str not in projects:
         logger.debug("No Claude trust entry found for {}", path)
+        return False
+
+    # Only remove entries created by mngr to avoid removing user-created trust
+    project_config = projects[path_str]
+    if not project_config.get("_mngrCreated", False):
+        logger.debug("Skipping removal of non-mngr trust entry for {}", path)
         return False
 
     # Remove the entry

@@ -226,11 +226,17 @@ def test_extend_claude_trust_creates_entry_for_worktree(tmp_path: Path) -> None:
     ):
         extend_claude_trust_to_worktree(source_path, worktree_path)
 
-    # Verify the worktree entry was created
+    # Verify the worktree entry was created with mngr metadata
     updated_config = json.loads(config_file.read_text())
     assert str(worktree_path) in updated_config["projects"]
     worktree_config = updated_config["projects"][str(worktree_path)]
-    assert worktree_config == source_config
+    # Check source config fields are copied
+    assert worktree_config["allowedTools"] == source_config["allowedTools"]
+    assert worktree_config["hasTrustDialogAccepted"] == source_config["hasTrustDialogAccepted"]
+    assert worktree_config["mcpServers"] == source_config["mcpServers"]
+    # Check mngr metadata is added
+    assert worktree_config["_mngrCreated"] is True
+    assert worktree_config["_mngrSourcePath"] == str(source_path)
 
 
 def test_extend_claude_trust_creates_backup(tmp_path: Path) -> None:
@@ -334,16 +340,21 @@ def test_extend_claude_trust_raises_when_no_config(tmp_path: Path) -> None:
 # Tests for remove_claude_trust_for_path
 
 
-def test_remove_claude_trust_removes_entry(tmp_path: Path) -> None:
-    """Test that remove_claude_trust_for_path removes the entry."""
+def test_remove_claude_trust_removes_mngr_created_entry(tmp_path: Path) -> None:
+    """Test that remove_claude_trust_for_path removes mngr-created entries."""
     config_file = tmp_path / ".claude.json"
     worktree_path = tmp_path / "worktree"
     worktree_path.mkdir()
 
-    # Create config with worktree entry
+    # Create config with mngr-created worktree entry
     config = {
         "projects": {
-            str(worktree_path): {"allowedTools": [], "hasTrustDialogAccepted": True},
+            str(worktree_path): {
+                "allowedTools": [],
+                "hasTrustDialogAccepted": True,
+                "_mngrCreated": True,
+                "_mngrSourcePath": "/some/source",
+            },
             "/other/project": {"allowedTools": [], "hasTrustDialogAccepted": True},
         }
     }
@@ -357,6 +368,30 @@ def test_remove_claude_trust_removes_entry(tmp_path: Path) -> None:
     assert str(worktree_path) not in updated_config["projects"]
     # Other entries should remain
     assert "/other/project" in updated_config["projects"]
+
+
+def test_remove_claude_trust_skips_non_mngr_entry(tmp_path: Path) -> None:
+    """Test that remove_claude_trust_for_path skips entries not created by mngr."""
+    config_file = tmp_path / ".claude.json"
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+
+    # Create config with user-created entry (no _mngrCreated)
+    config = {
+        "projects": {
+            str(worktree_path): {"allowedTools": [], "hasTrustDialogAccepted": True},
+        }
+    }
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with patch("imbue.mngr.utils.claude_config.get_claude_config_path", return_value=config_file):
+        result = remove_claude_trust_for_path(worktree_path)
+
+    # Should return False since it's not an mngr-created entry
+    assert result is False
+    # Entry should still exist
+    updated_config = json.loads(config_file.read_text())
+    assert str(worktree_path) in updated_config["projects"]
 
 
 def test_remove_claude_trust_returns_false_when_not_found(tmp_path: Path) -> None:
