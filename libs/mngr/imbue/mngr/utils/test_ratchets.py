@@ -379,7 +379,7 @@ def test_prevent_time_sleep() -> None:
     pattern = RegexPattern(r"\btime\.sleep\s*\(|\bfrom\s+time\s+import\s+sleep\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
-    assert len(chunks) <= snapshot(8), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(6), format_ratchet_failure_message(
         rule_name="time.sleep usage",
         rule_description="time.sleep is an antipattern. Instead, poll for the condition that you expect to be true. See wait_for",
         chunks=chunks,
