@@ -45,7 +45,6 @@ def check_source_directory_trusted(source_path: Path) -> None:
     if not config_path.exists():
         raise ClaudeDirectoryNotTrustedError(str(source_path))
 
-    # Resolve path to absolute for consistent comparison
     source_path = source_path.resolve()
 
     content = config_path.read_text()
@@ -85,12 +84,10 @@ def extend_claude_trust_to_worktree(source_path: Path, worktree_path: Path) -> N
     if not config_path.exists():
         raise ClaudeDirectoryNotTrustedError(str(source_path))
 
-    # Resolve paths to absolute paths for consistent comparison
     source_path = source_path.resolve()
     worktree_path = worktree_path.resolve()
 
-    # Use file locking to prevent race conditions
-    # We create a separate lock file to avoid issues with atomic replacement
+    # Use file locking; separate lock file avoids issues with atomic replacement
     lock_path = config_path.parent / ".claude.json.lock"
     lock_path.touch(exist_ok=True)
 
@@ -121,7 +118,6 @@ def _extend_trust_locked(config_path: Path, source_path: Path, worktree_path: Pa
     if not source_config.get("hasTrustDialogAccepted", False):
         raise ClaudeDirectoryNotTrustedError(str(source_path))
 
-    # Check if worktree already has config
     worktree_path_str = str(worktree_path)
     if worktree_path_str in projects:
         logger.debug(
@@ -135,15 +131,12 @@ def _extend_trust_locked(config_path: Path, source_path: Path, worktree_path: Pa
     shutil.copy2(config_path, backup_path)
     logger.debug("Created backup of Claude config at {}", backup_path)
 
-    # Extend trust to the worktree with mngr metadata
     worktree_config = copy.deepcopy(source_config)
     worktree_config["_mngrCreated"] = True
     worktree_config["_mngrSourcePath"] = str(source_path)
     projects[worktree_path_str] = worktree_config
     config["projects"] = projects
 
-    # Write to a temp file and atomically move it
-    # This prevents readers from seeing partial writes
     config_dir = config_path.parent
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -158,7 +151,6 @@ def _extend_trust_locked(config_path: Path, source_path: Path, worktree_path: Pa
         os.fsync(tmp_file.fileno())
         tmp_path = Path(tmp_file.name)
 
-    # Atomic move
     tmp_path.rename(config_path)
 
     logger.debug(
@@ -186,7 +178,6 @@ def remove_claude_trust_for_path(path: Path) -> bool:
 
     path = path.resolve()
 
-    # Use file locking to prevent race conditions
     lock_path = config_path.parent / ".claude.json.lock"
     lock_path.touch(exist_ok=True)
 
@@ -226,11 +217,9 @@ def _remove_trust_locked(config_path: Path, path: Path) -> bool:
         logger.debug("Skipping removal of non-mngr trust entry for {}", path)
         return False
 
-    # Remove the entry
     del projects[path_str]
     config["projects"] = projects
 
-    # Write to a temp file and atomically move it
     config_dir = config_path.parent
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -245,7 +234,6 @@ def _remove_trust_locked(config_path: Path, path: Path) -> bool:
         os.fsync(tmp_file.fileno())
         tmp_path = Path(tmp_file.name)
 
-    # Atomic move
     tmp_path.rename(config_path)
 
     logger.debug("Removed Claude trust entry for {}", path)
@@ -260,12 +248,10 @@ def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, A
     to find the closest ancestor with a configuration entry. Returns the
     project configuration dict if found, None otherwise.
     """
-    # Try exact match first
     path_str = str(path)
     if path_str in projects:
         return projects[path_str]
 
-    # Walk up the directory tree to find closest ancestor
     current = path.parent
     root = Path(path.anchor)
 

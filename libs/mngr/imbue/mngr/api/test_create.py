@@ -325,7 +325,6 @@ def test_create_agent_with_worktree(
 
             worktree_path = Path(agent.work_dir)
             assert worktree_path.exists()
-            # Worktree is created directly at work_dir, no subdirectory
             assert (worktree_path / "README.md").exists()
 
             result = subprocess.run(
@@ -397,7 +396,6 @@ def test_worktree_with_custom_branch_name(
             agent = _get_agent_from_create_result(result, temp_mngr_ctx)
 
             worktree_path = Path(agent.work_dir)
-            # Worktree is created directly at work_dir, no subdirectory
             result = subprocess.run(
                 ["git", "branch", "--show-current"],
                 cwd=worktree_path,
