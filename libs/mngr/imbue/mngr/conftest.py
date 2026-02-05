@@ -2,7 +2,6 @@
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -105,54 +104,63 @@ def mngr_test_prefix(mngr_test_id: str) -> str:
 
 
 @pytest.fixture
-def mngr_test_root_name(mngr_test_id: str) -> Generator[str, None, None]:
+def mngr_test_root_name(mngr_test_id: str) -> str:
     """Get the test root name for config isolation.
 
     Format: mngr-test-{test_id}
 
     This ensures tests don't load the project's .mngr/settings.toml config,
     which might have settings like add_command that would interfere with tests.
-
-    After the test completes, this fixture cleans up any directories that may
-    have been created at ~/.{root_name}/ if load_config was called without
-    MNGR_HOST_DIR being set (which shouldn't happen, but can occur in edge cases).
     """
-    root_name = f"mngr-test-{mngr_test_id}"
-    yield root_name
+    return f"mngr-test-{mngr_test_id}"
 
-    # Clean up any directories created at ~/.{root_name}/ in the real home directory.
-    # This handles edge cases where load_config is called without MNGR_HOST_DIR set.
-    home_test_dir = Path.home() / f".{root_name}"
-    if home_test_dir.exists():
-        shutil.rmtree(home_test_dir)
+
+@pytest.fixture
+def fake_home(tmp_path: Path) -> Path:
+    """Create a fake home directory for test isolation.
+
+    This fixture creates a temporary directory that will be used as $HOME
+    during tests. This ensures tests cannot accidentally read or modify
+    files in the real home directory (e.g., ~/.claude.json, ~/.mngr/).
+    """
+    home = tmp_path / "fake_home"
+    home.mkdir()
+    return home
 
 
 @pytest.fixture(autouse=True)
 def setup_test_mngr_env(
+    fake_home: Path,
     temp_host_dir: Path,
     mngr_test_prefix: str,
     mngr_test_root_name: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Set up mngr environment variables for all tests.
+    """Set up environment variables for all tests.
 
     This autouse fixture ensures:
+    - HOME points to a fake home directory (not the real ~/)
     - MNGR_HOST_DIR points to a temporary directory (not ~/.mngr)
     - MNGR_PREFIX uses a unique test ID for isolation
     - MNGR_ROOT_NAME prevents loading project config (.mngr/settings.toml)
+
+    By setting HOME, tests cannot accidentally read or modify files in the
+    real home directory. This protects files like ~/.claude.json.
     """
+    monkeypatch.setenv("HOME", str(fake_home))
     monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
     monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
 
 
 @pytest.fixture
-def temp_host_dir(tmp_path: Path) -> Path:
+def temp_host_dir(fake_home: Path) -> Path:
     """Create a temporary directory for host/mngr data.
 
-    This fixture ensures tests don't write to ~/.mngr.
+    This fixture creates .mngr inside the fake home directory,
+    ensuring tests don't write to the real ~/.mngr.
     """
-    host_dir = tmp_path / "mngr"
+    host_dir = fake_home / ".mngr"
     host_dir.mkdir()
     return host_dir
 
