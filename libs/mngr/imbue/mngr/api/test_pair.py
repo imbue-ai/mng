@@ -349,3 +349,182 @@ def test_unison_syncer_syncs_file_changes(tmp_path: Path) -> None:
         assert (target / "initial.txt").read_text() == "initial content"
     finally:
         syncer.stop()
+
+
+@pytest.mark.skipif(not check_unison_installed(), reason="unison not installed")
+def test_unison_syncer_syncs_symlinks(tmp_path: Path) -> None:
+    """Test that UnisonSyncer correctly syncs symlinks."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+
+    # Create a regular file and a symlink to it in source
+    (source / "real_file.txt").write_text("real content")
+    (source / "link_to_file.txt").symlink_to(source / "real_file.txt")
+
+    syncer = UnisonSyncer(
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
+
+    try:
+        syncer.start()
+
+        # Wait for sync to complete
+        wait_for(
+            lambda: (target / "link_to_file.txt").exists(),
+            timeout=5.0,
+            error_message="Symlink was not synced within timeout",
+        )
+
+        # Both files should exist in target
+        assert (target / "real_file.txt").exists()
+        assert (target / "link_to_file.txt").exists()
+
+        # The symlink should still be a symlink (not dereferenced)
+        assert (target / "link_to_file.txt").is_symlink()
+    finally:
+        syncer.stop()
+
+
+@pytest.mark.skipif(not check_unison_installed(), reason="unison not installed")
+def test_unison_syncer_syncs_directory_symlinks(tmp_path: Path) -> None:
+    """Test that UnisonSyncer correctly syncs directory symlinks."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+
+    # Create a directory and a symlink to it in source
+    (source / "real_dir").mkdir()
+    (source / "real_dir" / "file.txt").write_text("content in dir")
+    (source / "link_to_dir").symlink_to(source / "real_dir")
+
+    syncer = UnisonSyncer(
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
+
+    try:
+        syncer.start()
+
+        # Wait for sync to complete
+        wait_for(
+            lambda: (target / "link_to_dir").exists(),
+            timeout=5.0,
+            error_message="Directory symlink was not synced within timeout",
+        )
+
+        # Both the directory and symlink should exist
+        assert (target / "real_dir").exists()
+        assert (target / "real_dir").is_dir()
+        assert (target / "link_to_dir").exists()
+        assert (target / "link_to_dir").is_symlink()
+    finally:
+        syncer.stop()
+
+
+@pytest.mark.skipif(not check_unison_installed(), reason="unison not installed")
+def test_unison_syncer_handles_process_crash(tmp_path: Path) -> None:
+    """Test that UnisonSyncer handles unison process crash gracefully."""
+    import os
+    import signal
+
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+
+    syncer = UnisonSyncer(
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
+
+    try:
+        syncer.start()
+
+        # Wait for unison to start
+        wait_for(
+            lambda: syncer.is_running,
+            timeout=5.0,
+            error_message="Syncer did not start within timeout",
+        )
+
+        assert syncer.is_running is True
+        assert syncer._process is not None
+
+        # Kill the unison process forcefully (simulating a crash)
+        os.kill(syncer._process.pid, signal.SIGKILL)
+
+        # is_running should eventually become False
+        wait_for(
+            lambda: not syncer.is_running,
+            timeout=5.0,
+            error_message="Syncer did not detect process crash",
+        )
+
+        assert syncer.is_running is False
+    finally:
+        # stop() should be safe to call even after process crash
+        syncer.stop()
+
+
+@pytest.mark.acceptance
+@pytest.mark.skipif(not check_unison_installed(), reason="unison not installed")
+def test_unison_syncer_handles_large_files(tmp_path: Path) -> None:
+    """Test that UnisonSyncer correctly syncs large files (50MB)."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    target.mkdir()
+
+    # Create a 50MB file with random-ish content
+    large_file = source / "large_file.bin"
+    chunk_size = 1024 * 1024  # 1MB chunks
+    total_size = 50 * chunk_size  # 50MB
+
+    with open(large_file, "wb") as f:
+        for i in range(50):
+            # Use a repeating pattern based on chunk number for verification
+            chunk = bytes([i % 256] * chunk_size)
+            f.write(chunk)
+
+    assert large_file.stat().st_size == total_size
+
+    syncer = UnisonSyncer(
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
+
+    try:
+        syncer.start()
+
+        # Wait for sync to complete (longer timeout for large file)
+        wait_for(
+            lambda: (target / "large_file.bin").exists() and (target / "large_file.bin").stat().st_size == total_size,
+            timeout=60.0,
+            error_message="Large file was not synced within timeout",
+        )
+
+        # Verify file size matches
+        assert (target / "large_file.bin").stat().st_size == total_size
+
+        # Verify content integrity by checking first and last chunks
+        with open(target / "large_file.bin", "rb") as f:
+            first_chunk = f.read(chunk_size)
+            assert first_chunk == bytes([0] * chunk_size)
+
+            f.seek(-chunk_size, 2)  # Seek to last chunk
+            last_chunk = f.read(chunk_size)
+            assert last_chunk == bytes([49 % 256] * chunk_size)
+    finally:
+        syncer.stop()
