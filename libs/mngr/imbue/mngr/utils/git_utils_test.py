@@ -160,27 +160,11 @@ def test_find_git_common_dir_returns_git_dir_for_regular_repo(tmp_path: Path) ->
     assert result == git_dir / ".git"
 
 
-def test_find_git_common_dir_returns_main_git_from_worktree(tmp_path: Path) -> None:
+def test_find_git_common_dir_returns_main_git_from_worktree(tmp_path: Path, setup_git_config: None) -> None:
     """Test that find_git_common_dir returns main repo's .git from a worktree."""
-    # Create main repo
     main_repo = tmp_path / "main-repo"
     main_repo.mkdir()
     subprocess.run(["git", "init"], cwd=main_repo, check=True, capture_output=True)
-    # Configure git user for CI environments where it may not be set globally.
-    # Using --local ensures this only affects the temp repo's .git/config,
-    # which is deleted when pytest cleans up tmp_path.
-    subprocess.run(
-        ["git", "config", "--local", "user.email", "test@test.com"],
-        cwd=main_repo,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "--local", "user.name", "Test User"],
-        cwd=main_repo,
-        check=True,
-        capture_output=True,
-    )
     subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "initial"],
         cwd=main_repo,
