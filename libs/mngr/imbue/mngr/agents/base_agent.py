@@ -826,3 +826,13 @@ class BaseAgent(AgentInterface):
 
         Subclasses can override to perform finalization after provisioning.
         """
+
+    # =========================================================================
+    # Destruction Lifecycle
+    # =========================================================================
+
+    def on_destroy(self, host: OnlineHostInterface) -> None:
+        """Default implementation: no-op.
+
+        Subclasses can override to perform cleanup when the agent is destroyed.
+        """

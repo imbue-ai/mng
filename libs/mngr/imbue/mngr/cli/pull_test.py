@@ -162,6 +162,9 @@ class _TestAgent(AgentInterface):
     def on_after_provisioning(self, host: Any, options: Any, mngr_ctx: Any) -> None:
         pass
 
+    def on_destroy(self, host: Any) -> None:
+        pass
+
 
 def _create_test_agent(agent_id: AgentId, agent_name: AgentName, host_id: HostId, mngr_ctx: MngrContext) -> _TestAgent:
     """Create a test agent with the given parameters."""

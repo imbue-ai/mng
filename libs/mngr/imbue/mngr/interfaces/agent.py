@@ -349,3 +349,19 @@ class AgentInterface(MutableModel, ABC):
         - Log or report provisioning status
         """
         ...
+
+    # =========================================================================
+    # Destruction Lifecycle
+    # =========================================================================
+
+    @abstractmethod
+    def on_destroy(self, host: OnlineHostInterface) -> None:
+        """Called when the agent is being destroyed, before cleanup.
+
+        This method is called at the beginning of destroy_agent(), before
+        the agent's state directory and work directory are removed.
+
+        Use this method to perform agent-type-specific cleanup, such as
+        removing external configuration entries or releasing resources.
+        """
+        ...
