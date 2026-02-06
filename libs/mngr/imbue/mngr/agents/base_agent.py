@@ -30,7 +30,6 @@ from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.polling import poll_until
 
 # Constants for send_message marker-based synchronization
-_SEND_MESSAGE_POLL_INTERVAL_SECONDS: Final[float] = 0.05
 _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
 _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 
@@ -440,7 +439,6 @@ class BaseAgent(AgentInterface):
         if not poll_until(
             lambda: self._check_pane_contains(session_name, indicator),
             timeout=_TUI_READY_TIMEOUT_SECONDS,
-            poll_interval=_SEND_MESSAGE_POLL_INTERVAL_SECONDS,
         ):
             raise SendMessageError(
                 str(self.name),
@@ -458,7 +456,6 @@ class BaseAgent(AgentInterface):
         if not poll_until(
             lambda: self._check_pane_contains(session_name, marker),
             timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
-            poll_interval=_SEND_MESSAGE_POLL_INTERVAL_SECONDS,
         ):
             raise SendMessageError(
                 str(self.name),
@@ -481,7 +478,6 @@ class BaseAgent(AgentInterface):
         if not poll_until(
             lambda: self._check_marker_removed_and_contains(session_name, marker, expected_ending),
             timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
-            poll_interval=_SEND_MESSAGE_POLL_INTERVAL_SECONDS,
         ):
             raise SendMessageError(
                 str(self.name),
