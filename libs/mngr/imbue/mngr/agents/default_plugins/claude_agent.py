@@ -70,10 +70,6 @@ class ClaudeAgentConfig(AgentTypeConfig):
         default=True,
         description="Check if claude is installed (if False, assumes it is already present)",
     )
-    configure_readiness_hooks: bool = Field(
-        default=True,
-        description="Whether to configure Claude hooks for readiness signaling (waiting file)",
-    )
 
 
 def _check_claude_installed(host: OnlineHostInterface) -> bool:
@@ -541,8 +537,7 @@ class ClaudeAgent(BaseAgent):
                     logger.debug("Skipping ~/.claude/.credentials.json (file does not exist)")
 
         # Configure readiness hooks (for both local and remote hosts)
-        if config.configure_readiness_hooks:
-            self._configure_readiness_hooks(host)
+        self._configure_readiness_hooks(host)
 
     def on_destroy(self, host: OnlineHostInterface) -> None:
         """Clean up Claude trust entries for this agent's work directory."""

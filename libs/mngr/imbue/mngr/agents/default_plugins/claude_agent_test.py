@@ -412,6 +412,7 @@ def test_provision_skips_installation_check_when_disabled(mngr_test_prefix: str,
     agent_id = AgentId.generate()
     mock_host = Mock()
     mock_host.is_local = True
+    mock_host.execute_command.return_value = Mock(success=True)
     mock_host.read_text_file.side_effect = FileNotFoundError()
     mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
 
@@ -423,18 +424,20 @@ def test_provision_skips_installation_check_when_disabled(mngr_test_prefix: str,
         create_time=datetime.now(timezone.utc),
         host_id=HostId.generate(),
         mngr_ctx=mngr_ctx,
-        agent_config=ClaudeAgentConfig(check_installation=False, configure_readiness_hooks=False),
+        agent_config=ClaudeAgentConfig(check_installation=False),
         host=mock_host,
     )
 
     options = Mock()
 
-    # Should not call execute_command to check installation
+    # Should not call execute_command to check installation, but _configure_readiness_hooks
+    # will call it for git check-ignore
     agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
 
-    # execute_command should not be called since both check_installation and
-    # configure_readiness_hooks are disabled
-    mock_host.execute_command.assert_not_called()
+    # execute_command should only be called for git check-ignore (not installation check)
+    mock_host.execute_command.assert_called_once()
+    call_args = mock_host.execute_command.call_args
+    assert "git check-ignore" in call_args[0][0]
 
 
 # =============================================================================
@@ -607,19 +610,16 @@ def test_configure_readiness_hooks_merges_with_existing_settings(
     assert "Stop" in settings["hooks"]
 
 
-def test_provision_configures_readiness_hooks_when_enabled(
+def test_provision_configures_readiness_hooks(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
-    """provision should configure readiness hooks when configure_readiness_hooks=True."""
+    """provision should configure readiness hooks."""
     # check_installation=False avoids running `claude --version` which would fail in test env
     agent, host = make_claude_agent(
         local_provider,
         tmp_path,
         temp_mngr_ctx,
-        agent_config=ClaudeAgentConfig(
-            check_installation=False,
-            configure_readiness_hooks=True,
-        ),
+        agent_config=ClaudeAgentConfig(check_installation=False),
     )
     _init_git_with_gitignore(agent.work_dir)
 
@@ -632,29 +632,6 @@ def test_provision_configures_readiness_hooks_when_enabled(
     settings = json.loads(settings_path.read_text())
     assert "hooks" in settings
     assert "SessionStart" in settings["hooks"]
-
-
-def test_provision_skips_readiness_hooks_when_disabled(
-    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
-) -> None:
-    """provision should skip readiness hooks when configure_readiness_hooks=False."""
-    # check_installation=False avoids running `claude --version` which would fail in test env
-    agent, host = make_claude_agent(
-        local_provider,
-        tmp_path,
-        temp_mngr_ctx,
-        agent_config=ClaudeAgentConfig(
-            check_installation=False,
-            configure_readiness_hooks=False,
-        ),
-    )
-
-    options = Mock()
-    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
-
-    # Hooks file should not be created
-    settings_path = agent.work_dir / ".claude" / "settings.local.json"
-    assert not settings_path.exists()
 
 
 # =============================================================================
@@ -670,9 +647,15 @@ def make_mock_claude_agent(
     Use this when you only need to verify that methods are called with the right
     arguments (via patch/Mock). Use make_claude_agent instead if you need real
     filesystem operations.
+
+    The mock host is preconfigured so that _configure_readiness_hooks succeeds:
+    execute_command returns success (git check-ignore), read_text_file raises
+    FileNotFoundError (no existing settings), and write_text_file succeeds.
     """
     pm = pluggy.PluginManager("mngr")
     mock_host = Mock()
+    mock_host.execute_command.return_value = Mock(success=True)
+    mock_host.read_text_file.side_effect = FileNotFoundError()
     mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
     agent = ClaudeAgent.model_construct(
         id=AgentId.generate(),
@@ -682,7 +665,7 @@ def make_mock_claude_agent(
         create_time=datetime.now(timezone.utc),
         host_id=HostId.generate(),
         mngr_ctx=mngr_ctx,
-        agent_config=ClaudeAgentConfig(check_installation=False, configure_readiness_hooks=False),
+        agent_config=ClaudeAgentConfig(check_installation=False),
         host=mock_host,
     )
     return agent, mock_host, mngr_ctx
