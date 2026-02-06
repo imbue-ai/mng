@@ -266,7 +266,7 @@ class ClaudeAgent(BaseAgent):
 
         total_elapsed = action_elapsed + poll_elapsed
         if success:
-            logger.info(
+            logger.trace(
                 "Session started after {:.2f}s (action={:.2f}s, poll={:.2f}s, polls={})",
                 total_elapsed,
                 action_elapsed,

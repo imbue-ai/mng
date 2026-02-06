@@ -538,7 +538,7 @@ class BaseAgent(AgentInterface):
         result = self.host.execute_command(cmd, timeout_seconds=_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS + 1)
         elapsed_ms = (time.time() - start) * 1000
         if result.success:
-            logger.info("Received submission signal in {:.0f}ms", elapsed_ms)
+            logger.trace("Received submission signal in {:.0f}ms", elapsed_ms)
             return True
         logger.debug("Timeout waiting for submission signal on channel {}", wait_channel)
         return False
