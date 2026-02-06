@@ -29,19 +29,17 @@ def _is_claude_installed() -> bool:
 pytestmark = pytest.mark.skipif(not _is_claude_installed(), reason="Claude Code CLI is not installed")
 
 
-@pytest.fixture(scope="module")
-def claude_trust_env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
+@pytest.fixture
+def claude_trust_env() -> dict[str, str]:
     """Create a Claude trust config for subprocess tests.
 
-    This fixture creates a fake ~/.claude.json in a temp HOME directory that
-    marks the current working directory as trusted, allowing worktree creation
-    without the real Claude config.
+    This fixture creates ~/.claude.json in the temp HOME (set by the autouse
+    setup_test_mngr_env fixture) that marks the current working directory as
+    trusted, allowing worktree creation without the real Claude config.
     """
-    home_dir = tmp_path_factory.mktemp("home")
-
     # Trust the current working directory (where the git repo is)
     cwd = Path.cwd().resolve()
-    return setup_claude_trust_config_for_subprocess(home_dir, [cwd])
+    return setup_claude_trust_config_for_subprocess([cwd])
 
 
 def run_mngr(*args: str, timeout: float = 120, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
