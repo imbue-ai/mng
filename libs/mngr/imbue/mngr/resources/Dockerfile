@@ -11,7 +11,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     nano \
     openssh-server \
-    procps \
     ripgrep \
     rsync \
     tini \

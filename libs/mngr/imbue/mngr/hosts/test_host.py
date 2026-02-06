@@ -9,6 +9,7 @@ import json
 import os
 import stat
 import subprocess
+import sys
 import threading
 from datetime import datetime
 from datetime import timezone
@@ -624,6 +625,29 @@ def test_unset_vars_applied_during_agent_start(
 # Note: because of xdist, we must be very careful with our "grep"'s below--
 #  by using different sleeps for each command invocation, we can make this safe even when these tests are run concurrently.
 # =============================================================================
+
+
+@pytest.mark.nomodal
+def test_procps_ps_command_available() -> None:
+    """Verify that the `ps` command from procps is available.
+
+    The procps package provides essential process utilities (ps, pgrep, pkill).
+    Without it, process management in stop_agents() and process verification in tests fail.
+    This test exists to validate that the container environment includes procps.
+    """
+    result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.stderr.write(f"PROCPS TEST FAILED: 'ps aux' returned {result.returncode}\n")
+        sys.stderr.write(f"stderr: {result.stderr}\n")
+        sys.stderr.write("The procps package is likely not installed. Install with: apt-get install procps\n")
+        sys.stderr.flush()
+        assert False, f"ps aux failed: {result.stderr}"
+    # Verify we get reasonable output (should include at least our own process)
+    if "PID" not in result.stdout and len(result.stdout.strip().split("\n")) <= 1:
+        sys.stderr.write(f"PROCPS TEST FAILED: 'ps aux' output looks wrong\n")
+        sys.stderr.write(f"stdout: {result.stdout}\n")
+        sys.stderr.flush()
+        assert False, "ps aux output invalid"
 
 
 @pytest.mark.nomodal
