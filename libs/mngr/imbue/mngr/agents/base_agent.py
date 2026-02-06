@@ -406,7 +406,7 @@ class BaseAgent(AgentInterface):
         """Send backspace(s) followed by noop keys to reset input handler state.
 
         This helper sends the specified number of backspaces, then sends a no-op
-        key sequence (Right then Left) to reset state.
+        key sequence (Left then Right) to reset state.
 
         The noop keys are necessary because Claude Code's input handler can get into
         a state after backspaces where Enter is interpreted as a literal newline.
@@ -421,8 +421,8 @@ class BaseAgent(AgentInterface):
                     str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}"
                 )
 
-        # Send a no-op key sequence (Right then Left) to reset input handler state
-        noop_cmd = f"tmux send-keys -t '{session_name}' Right Left"
+        # Send a no-op key sequence (Left then Right) to reset input handler state
+        noop_cmd = f"tmux send-keys -t '{session_name}' Left Right"
         result = self.host.execute_command(noop_cmd)
         if not result.success:
             logger.warning("Failed to send noop keys: {}", result.stderr or result.stdout)
@@ -547,9 +547,11 @@ class BaseAgent(AgentInterface):
             f"kill $W 2>/dev/null; exit 1"
             f"' {shlex.quote(wait_channel)} {shlex.quote(session_name)}"
         )
+        start = time.time()
         result = self.host.execute_command(cmd, timeout_seconds=_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS + 1)
+        elapsed_ms = (time.time() - start) * 1000
         if result.success:
-            logger.debug("Received submission signal on channel {}", wait_channel)
+            logger.info("Received submission signal in {:.0f}ms", elapsed_ms)
             return True
         logger.debug("Timeout waiting for submission signal on channel {}", wait_channel)
         return False
