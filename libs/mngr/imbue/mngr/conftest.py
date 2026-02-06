@@ -29,6 +29,7 @@ from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
 from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
+from imbue.mngr.utils.testing import assert_home_is_temp_directory
 from imbue.mngr.utils.testing import delete_modal_apps_in_environment
 from imbue.mngr.utils.testing import delete_modal_environment
 from imbue.mngr.utils.testing import delete_modal_volumes_in_environment
@@ -153,18 +154,7 @@ def setup_test_mngr_env(
 
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.
-    actual_home = Path.home()
-    actual_home_str = str(actual_home)
-    # pytest's tmp_path uses /tmp on Linux, /var/folders or /private/var on macOS
-    if not (
-        actual_home_str.startswith("/tmp")
-        or actual_home_str.startswith("/var/folders")
-        or actual_home_str.startswith("/private/var")
-    ):
-        raise AssertionError(
-            f"Failed to set fake HOME! Path.home() returned {actual_home}, "
-            f"which is not in a temp directory. Tests may be operating on real home directory!"
-        )
+    assert_home_is_temp_directory()
 
 
 @pytest.fixture

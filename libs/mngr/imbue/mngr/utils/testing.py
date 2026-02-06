@@ -35,6 +35,29 @@ MODAL_TEST_ENV_PATTERN: Final[re.Pattern[str]] = re.compile(
 )
 
 
+def assert_home_is_temp_directory() -> None:
+    """Assert that Path.home() is in a temp directory.
+
+    This safety check prevents tests from accidentally modifying the real home
+    directory. Should be called before any operation that writes to ~/.
+
+    Raises AssertionError if HOME is not in a recognized temp directory.
+    """
+    actual_home = Path.home()
+    actual_home_str = str(actual_home)
+    # pytest's tmp_path uses /tmp on Linux, /var/folders or /private/var on macOS
+    if not (
+        actual_home_str.startswith("/tmp")
+        or actual_home_str.startswith("/var/folders")
+        or actual_home_str.startswith("/private/var")
+    ):
+        raise AssertionError(
+            f"Path.home() returned {actual_home}, which is not in a temp directory. "
+            "Tests may be operating on real home directory! "
+            "Ensure setup_test_mngr_env autouse fixture has run before this call."
+        )
+
+
 def get_subprocess_test_env(
     root_name: str = "mngr-test",
     prefix: str | None = None,
@@ -158,9 +181,12 @@ def setup_claude_trust_config_for_subprocess(
     which prevents loading the project's .mngr/settings.toml. The env dict includes
     HOME from os.environ, which was set by the setup_test_mngr_env autouse fixture.
 
-    IMPORTANT: This function must be called from within a test (after the autouse
-    fixture has run) so that Path.home() returns the temp directory.
+    Raises AssertionError if called before the autouse fixture has set HOME to a
+    temp directory.
     """
+    # Safety check: ensure we're writing to a temp directory, not the real home
+    assert_home_is_temp_directory()
+
     claude_config = {
         "projects": {str(path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True} for path in trusted_paths}
     }
