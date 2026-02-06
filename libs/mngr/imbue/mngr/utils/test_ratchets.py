@@ -237,7 +237,7 @@ def test_prevent_num_prefix() -> None:
     pattern = RegexPattern(r"\bnum_\w+|\bnumOf|\bnum[A-Z]")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
-    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
         rule_name="num prefix usage",
         rule_description="Avoid using 'num' prefix. Use 'count' or 'idx' instead (e.g., 'user_count' not 'num_users')",
         chunks=chunks,

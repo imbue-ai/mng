@@ -187,9 +187,24 @@ def setup_claude_trust_config_for_subprocess(
     # Safety check: ensure we're writing to a temp directory, not the real home
     assert_home_is_temp_directory()
 
-    claude_config = {
-        "projects": {str(path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True} for path in trusted_paths}
+    claude_config: dict[str, object] = {
+        "projects": {str(path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True} for path in trusted_paths},
+        # Skip first-run prompts that block the TUI:
+        # - hasCompletedOnboarding: skips theme picker
+        # - numStartups: signals this isn't a first run
+        # - bypassPermissionsModeAccepted: skips permissions mode prompt
+        "hasCompletedOnboarding": True,
+        "numStartups": 1,
+        "bypassPermissionsModeAccepted": True,
     }
+
+    # Pre-approve any ANTHROPIC_API_KEY so Claude doesn't prompt for confirmation.
+    # Claude uses the last 20 characters of the key as its identifier.
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if len(api_key) >= 20:
+        key_id = api_key[-20:]
+        claude_config["customApiKeyResponses"] = {"approved": [key_id]}
+
     config_file = Path.home() / ".claude.json"
     config_file.write_text(json.dumps(claude_config))
 
