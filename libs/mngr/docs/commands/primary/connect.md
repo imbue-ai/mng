@@ -47,7 +47,7 @@ mngr connect [OPTIONS] [AGENT]
 | `--reconnect`, `--no-reconnect` | boolean | Automatically reconnect if dropped [future] | `True` |
 | `--message` | text | Initial message to send after connecting [future] | None |
 | `--message-file` | path | File containing initial message to send [future] | None |
-| `--ready-timeout` | float | Timeout in seconds to wait for agent readiness [future] | `1.0` |
+| `--ready-timeout` | float | Timeout in seconds to wait for agent readiness [future] | `10.0` |
 | `--retry` | integer | Number of connection retries [future] | `3` |
 | `--retry-delay` | text | Delay between retries [future] | `5s` |
 | `--attach-command` | text | Command to run instead of attaching to main session [future] | None |

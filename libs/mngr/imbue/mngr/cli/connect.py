@@ -34,6 +34,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentLifecycleState
 
@@ -349,7 +350,7 @@ def select_agent_interactively(agents: list[AgentInfo]) -> AgentInfo | None:
 @optgroup.option(
     "--ready-timeout",
     type=float,
-    default=1.0,
+    default=DEFAULT_AGENT_READY_TIMEOUT_SECONDS,
     show_default=True,
     help="Timeout in seconds to wait for agent readiness [future]",
 )
@@ -395,7 +396,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
         raise NotImplementedError("--message-file is not implemented yet")
 
     # Timeout for waiting for agent readiness
-    if opts.ready_timeout != 1.0:
+    if opts.ready_timeout != DEFAULT_AGENT_READY_TIMEOUT_SECONDS:
         raise NotImplementedError("--ready-timeout with non-default value is not implemented yet")
 
     # Number of times to retry connection on failure before giving up
