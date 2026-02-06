@@ -124,8 +124,8 @@ class AgentInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
-    def get_message_delay_seconds(self) -> float:
-        """Return the delay in seconds to wait before sending messages to the agent."""
+    def get_ready_timeout_seconds(self) -> float:
+        """Return the timeout in seconds to wait for agent readiness."""
         ...
 
     @abstractmethod

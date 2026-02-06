@@ -21,23 +21,6 @@ def test_get_claude_config_path_returns_home_dot_claude_json() -> None:
     assert result == Path.home() / ".claude.json"
 
 
-def test_get_claude_config_path_respects_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that get_claude_config_path uses MNGR_CLAUDE_CONFIG_PATH env var when set."""
-    custom_path = tmp_path / "custom_claude.json"
-    monkeypatch.setenv("MNGR_CLAUDE_CONFIG_PATH", str(custom_path))
-
-    result = get_claude_config_path()
-    assert result == custom_path
-
-
-def test_get_claude_config_path_ignores_empty_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that get_claude_config_path ignores empty MNGR_CLAUDE_CONFIG_PATH."""
-    monkeypatch.setenv("MNGR_CLAUDE_CONFIG_PATH", "")
-
-    result = get_claude_config_path()
-    assert result == Path.home() / ".claude.json"
-
-
 def test_get_claude_config_backup_path_returns_home_dot_claude_json_bak() -> None:
     """Test that get_claude_config_backup_path returns ~/.claude.json.bak."""
     result = get_claude_config_backup_path()

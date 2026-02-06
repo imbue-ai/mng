@@ -14,15 +14,7 @@ from imbue.mngr.errors import ClaudeDirectoryNotTrustedError
 
 
 def get_claude_config_path() -> Path:
-    """Return the path to the Claude config file.
-
-    Can be overridden by setting the MNGR_CLAUDE_CONFIG_PATH environment variable.
-    This is primarily used for testing subprocess-based code that needs to verify
-    trust configuration without modifying ~/.claude.json.
-    """
-    env_path = os.environ.get("MNGR_CLAUDE_CONFIG_PATH")
-    if env_path:
-        return Path(env_path)
+    """Return the path to the Claude config file (~/.claude.json)."""
     return Path.home() / ".claude.json"
 
 

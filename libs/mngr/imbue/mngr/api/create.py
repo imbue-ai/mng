@@ -107,7 +107,7 @@ def create(
             # Start agent with signal-based readiness detection
             # Raises AgentStartError if the agent doesn't signal readiness in time
             logger.info("Starting agent {} ...", agent.name)
-            timeout = agent_options.message_delay_seconds
+            timeout = agent_options.ready_timeout_seconds
             agent.wait_for_ready_signal(
                 start_action=lambda: host.start_agents([agent.id]),
                 timeout=timeout,

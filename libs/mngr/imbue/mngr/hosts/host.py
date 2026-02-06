@@ -1274,7 +1274,7 @@ class Host(BaseHost, OnlineHostInterface):
             ],
             "initial_message": options.initial_message,
             "resume_message": options.resume_message,
-            "message_delay_seconds": options.message_delay_seconds,
+            "ready_timeout_seconds": options.ready_timeout_seconds,
             "permissions": [],
             "start_on_boot": False,
         }

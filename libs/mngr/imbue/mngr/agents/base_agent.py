@@ -293,9 +293,9 @@ class BaseAgent(AgentInterface):
         data = self._read_data()
         return data.get("resume_message")
 
-    def get_message_delay_seconds(self) -> float:
+    def get_ready_timeout_seconds(self) -> float:
         data = self._read_data()
-        return data.get("message_delay_seconds", DEFAULT_AGENT_READY_TIMEOUT_SECONDS)
+        return data.get("ready_timeout_seconds", DEFAULT_AGENT_READY_TIMEOUT_SECONDS)
 
     def get_enter_delay_seconds(self) -> float:
         """Get the delay between sending message text and Enter key.

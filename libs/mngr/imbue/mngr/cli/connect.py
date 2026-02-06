@@ -49,7 +49,7 @@ class ConnectCliOptions(CommonCliOptions):
     reconnect: bool
     message: str | None
     message_file: str | None
-    message_delay: float
+    ready_timeout: float
     retry: int
     retry_delay: str
     attach_command: str | None
@@ -347,11 +347,11 @@ def select_agent_interactively(agents: list[AgentInfo]) -> AgentInfo | None:
     "--message-file", type=click.Path(exists=True), help="File containing initial message to send [future]"
 )
 @optgroup.option(
-    "--message-delay",
+    "--ready-timeout",
     type=float,
     default=1.0,
     show_default=True,
-    help="Seconds to wait before sending initial message [future]",
+    help="Timeout in seconds to wait for agent readiness [future]",
 )
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries [future]")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries [future]")
@@ -386,7 +386,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     logger.debug("Running connect command")
 
     # Send the specified text as an initial message after the agent starts
-    # Should wait for message_delay seconds before sending
+    # Should wait for ready_timeout seconds for agent readiness before sending
     if opts.message is not None:
         raise NotImplementedError("--message is not implemented yet")
 
@@ -394,9 +394,9 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     if opts.message_file is not None:
         raise NotImplementedError("--message-file is not implemented yet")
 
-    # Wait this many seconds before sending the initial message
-    if opts.message_delay != 1.0:
-        raise NotImplementedError("--message-delay with non-default value is not implemented yet")
+    # Timeout for waiting for agent readiness
+    if opts.ready_timeout != 1.0:
+        raise NotImplementedError("--ready-timeout with non-default value is not implemented yet")
 
     # Number of times to retry connection on failure before giving up
     if opts.retry != 3:

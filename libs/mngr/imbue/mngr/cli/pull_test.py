@@ -89,7 +89,7 @@ class _TestAgent(AgentInterface):
     def get_resume_message(self) -> str | None:
         return None
 
-    def get_message_delay_seconds(self) -> float:
+    def get_ready_timeout_seconds(self) -> float:
         return 1.0
 
     def send_message(self, message: str) -> None:

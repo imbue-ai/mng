@@ -68,7 +68,7 @@ def _send_resume_message_if_configured(agent: AgentInterface, output_opts: Outpu
     # Wait for the agent to signal readiness via the WAITING lifecycle state.
     # Agents like Claude configure hooks that create a 'waiting' file when ready.
     # If the timeout expires (agent doesn't support hooks or is slow), proceed anyway.
-    timeout = agent.get_message_delay_seconds()
+    timeout = agent.get_ready_timeout_seconds()
     logger.debug("Waiting for agent to become ready before sending resume message")
     is_ready = poll_until(
         lambda: agent.get_lifecycle_state() == AgentLifecycleState.WAITING,

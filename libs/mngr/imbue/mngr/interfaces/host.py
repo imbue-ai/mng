@@ -694,7 +694,7 @@ class CreateAgentOptions(FrozenModel):
         default=None,
         description="Message to send when the agent is started (resumed) after being stopped",
     )
-    message_delay_seconds: float = Field(
+    ready_timeout_seconds: float = Field(
         default=DEFAULT_AGENT_READY_TIMEOUT_SECONDS,
         description="Timeout in seconds to wait for agent readiness before sending initial message",
     )
