@@ -34,6 +34,7 @@ from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.git_utils import find_git_common_dir
+from imbue.mngr.utils.polling import poll_until_counted
 
 _READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
 
@@ -239,7 +240,6 @@ class ClaudeAgent(BaseAgent):
         if timeout is None:
             timeout = _READY_SIGNAL_TIMEOUT_SECONDS
 
-        overall_start = time.time()
         session_started_path = self._get_agent_dir() / "session_started"
 
         logger.debug("Waiting for session_started file (timeout={}s)", timeout)
@@ -256,32 +256,38 @@ class ClaudeAgent(BaseAgent):
         logger.debug("start_action completed in {:.2f}s, now polling for session_started...", action_elapsed)
 
         # Poll for the session_started file (created by SessionStart hook)
-        poll_start = time.time()
-        poll_count = 0
-        while time.time() - overall_start < timeout:
-            poll_count += 1
-            try:
-                self.host.read_text_file(session_started_path)
-                total_elapsed = time.time() - overall_start
-                poll_elapsed = time.time() - poll_start
-                logger.info(
-                    "Session started after {:.2f}s (action={:.2f}s, poll={:.2f}s, polls={})",
-                    total_elapsed,
-                    action_elapsed,
-                    poll_elapsed,
-                    poll_count,
-                )
-                return
-            except FileNotFoundError:
-                pass
-            time.sleep(0.05)
+        # Remaining timeout after start_action completed
+        remaining_timeout = timeout - action_elapsed
+        success, poll_count, poll_elapsed = poll_until_counted(
+            lambda: self._check_file_exists(session_started_path),
+            timeout=remaining_timeout,
+            poll_interval=0.05,
+        )
 
-        total_elapsed = time.time() - overall_start
+        total_elapsed = action_elapsed + poll_elapsed
+        if success:
+            logger.info(
+                "Session started after {:.2f}s (action={:.2f}s, poll={:.2f}s, polls={})",
+                total_elapsed,
+                action_elapsed,
+                poll_elapsed,
+                poll_count,
+            )
+            return
+
         raise AgentStartError(
             str(self.name),
             f"Agent did not signal readiness within {timeout}s (waited {total_elapsed:.2f}s). "
             "This may indicate a trust dialog appeared or Claude Code failed to start.",
         )
+
+    def _check_file_exists(self, path: Path) -> bool:
+        """Check if a file exists on the host."""
+        try:
+            self.host.read_text_file(path)
+            return True
+        except FileNotFoundError:
+            return False
 
     def assemble_command(
         self,
