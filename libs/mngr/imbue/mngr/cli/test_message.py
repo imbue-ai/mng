@@ -14,7 +14,6 @@ Run with:
 
 import shutil
 import subprocess
-import time
 from collections.abc import Generator
 from pathlib import Path
 
@@ -39,7 +38,16 @@ def claude_test_env(temp_git_repo: Path) -> dict[str, str]:
 
     Trusts the temp_git_repo so that mngr's extend_claude_trust_to_worktree
     can propagate trust to any worktrees created from it.
+
+    Also adds .claude/settings.local.json to .gitignore so that mngr's
+    readiness hooks (written to that file) don't appear as unstaged changes
+    in worktrees.
     """
+    gitignore = temp_git_repo / ".gitignore"
+    gitignore.write_text(".claude/settings.local.json\n")
+    subprocess.run(["git", "add", ".gitignore"], cwd=temp_git_repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "Add gitignore"], cwd=temp_git_repo, check=True, capture_output=True)
+
     return setup_claude_trust_config_for_subprocess([temp_git_repo])
 
 
@@ -118,9 +126,6 @@ def claude_agent(claude_test_env: dict[str, str], temp_git_repo: Path) -> Genera
     result = _create_agent(agent_name, env=claude_test_env, cwd=temp_git_repo)
     if result.returncode != 0:
         pytest.fail(f"Failed to create agent: {result.stderr}")
-
-    # Wait a bit for Claude to fully initialize
-    time.sleep(2)
 
     yield agent_name
 

@@ -407,11 +407,10 @@ class ClaudeAgent(BaseAgent):
         'waiting' file in the agent's state directory.
 
         Skips if hooks already exist.
-
+        """
         # Future improvement: use `claude --settings <path>` to load hooks from
         # outside the worktree (e.g. the agent state dir), eliminating the need
         # to write to .claude/settings.local.json and check that it's gitignored.
-        """
         settings_relative = Path(".claude") / "settings.local.json"
         settings_path = self.work_dir / settings_relative
 
