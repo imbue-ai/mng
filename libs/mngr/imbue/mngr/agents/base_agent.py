@@ -516,26 +516,22 @@ class BaseAgent(AgentInterface):
         the hook might fire before we start listening for the signal.
 
         The sequence is:
-        1. Start tmux wait-for in background
+        1. Start tmux wait-for (with timeout) in background
         2. Send Enter
-        3. Wait for the background wait-for to complete (with timeout)
+        3. Wait for the background process to complete
 
         Returns True if signal received, False if timeout.
         """
-        timeout_iterations = int(_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS * 100)
+        timeout_secs = _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS
         cmd = (
             f"bash -c '"
-            f'tmux wait-for "$0" & W=$!; '
+            f'timeout {timeout_secs} tmux wait-for "$0" & W=$!; '
             f'tmux send-keys -t "$1" Enter; '
-            f"for i in $(seq 1 {timeout_iterations}); do "
-            f"kill -0 $W 2>/dev/null || exit 0; "
-            f"sleep 0.01; "
-            f"done; "
-            f"kill $W 2>/dev/null; exit 1"
+            f"wait $W"
             f"' {shlex.quote(wait_channel)} {shlex.quote(session_name)}"
         )
         start = time.time()
-        result = self.host.execute_command(cmd, timeout_seconds=_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS + 1)
+        result = self.host.execute_command(cmd, timeout_seconds=timeout_secs + 1)
         elapsed_ms = (time.time() - start) * 1000
         if result.success:
             logger.trace("Received submission signal in {:.0f}ms", elapsed_ms)

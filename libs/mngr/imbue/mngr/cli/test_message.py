@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from imbue.mngr.utils.git_utils import find_git_common_dir
 from imbue.mngr.utils.testing import get_short_random_string
 from imbue.mngr.utils.testing import setup_claude_trust_config_for_subprocess
 
@@ -34,12 +35,22 @@ def claude_trust_env() -> dict[str, str]:
     """Create a Claude trust config for subprocess tests.
 
     This fixture creates ~/.claude.json in the temp HOME (set by the autouse
-    setup_test_mngr_env fixture) that marks the current working directory as
-    trusted, allowing worktree creation without the real Claude config.
+    setup_test_mngr_env fixture) that marks the necessary directories as trusted.
+
+    When running from a worktree, we need to trust the original repo (git common dir)
+    because mngr checks if the source directory is trusted before creating worktrees.
     """
-    # Trust the current working directory (where the git repo is)
     cwd = Path.cwd().resolve()
-    return setup_claude_trust_config_for_subprocess([cwd])
+    paths_to_trust = [cwd]
+
+    # If running from a worktree, also trust the original repo
+    git_common_dir = find_git_common_dir(cwd)
+    if git_common_dir is not None:
+        original_repo = git_common_dir.parent
+        if original_repo != cwd:
+            paths_to_trust.append(original_repo)
+
+    return setup_claude_trust_config_for_subprocess(paths_to_trust)
 
 
 def run_mngr(*args: str, timeout: float = 120, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
