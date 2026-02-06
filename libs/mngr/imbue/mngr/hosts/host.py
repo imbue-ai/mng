@@ -1175,6 +1175,13 @@ class Host(BaseHost, OnlineHostInterface):
         if result.returncode != 0:
             raise MngrError(f"rsync failed: {result.stderr}")
 
+    def _git_branch_exists(self, source_path: Path, branch_name: str) -> bool:
+        """Check if a git branch exists in the repository."""
+        result = self.execute_command(
+            f"git -C {shlex.quote(str(source_path))} show-ref --verify --quiet refs/heads/{shlex.quote(branch_name)}"
+        )
+        return result.success
+
     def _create_work_dir_as_git_worktree(
         self,
         host: OnlineHostInterface,
@@ -1198,6 +1205,26 @@ class Host(BaseHost, OnlineHostInterface):
         self._mkdir(work_dir_path.parent)
 
         branch_name = self._determine_branch_name(options)
+
+        # If the branch name was auto-derived (not explicitly set by user),
+        # check if it exists and append a suffix if needed
+        is_branch_name_auto_derived = not (options.git and options.git.new_branch_name)
+        if is_branch_name_auto_derived and self._git_branch_exists(source_path, branch_name):
+            # Try appending numeric suffixes until we find an available name
+            base_branch_name = branch_name
+            for suffix in range(2, 100):
+                branch_name = f"{base_branch_name}-{suffix}"
+                if not self._git_branch_exists(source_path, branch_name):
+                    logger.debug(
+                        "Branch {} already exists, using {} instead",
+                        base_branch_name,
+                        branch_name,
+                    )
+                    break
+            else:
+                raise MngrError(
+                    f"Could not find available branch name (tried {base_branch_name} through {branch_name})"
+                )
 
         logger.debug("Creating git worktree", path=str(work_dir_path), branch=branch_name)
         cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
