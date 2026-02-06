@@ -53,7 +53,7 @@ def claude_trust_env() -> dict[str, str]:
     return setup_claude_trust_config_for_subprocess(paths_to_trust)
 
 
-def run_mngr(*args: str, timeout: float = 120, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def _run_mngr(*args: str, timeout: float = 120, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     """Run mngr command and return the result."""
     return subprocess.run(
         ["uv", "run", "mngr", *args],
@@ -64,22 +64,59 @@ def run_mngr(*args: str, timeout: float = 120, env: dict[str, str] | None = None
     )
 
 
-@pytest.fixture
-def claude_agent(claude_trust_env: dict[str, str]) -> Generator[str, None, None]:
-    """Create a Claude agent for testing and clean it up after."""
-    agent_name = f"test-msg-{get_short_random_string()}"
+def _create_agent(
+    name: str,
+    *,
+    message: str | None = None,
+    verbose: bool = False,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Create a Claude agent with standard test flags.
 
-    # Create agent without message, wait for it to be ready
-    result = run_mngr(
+    Uses --pass-env HOME so the tmux session inherits the test's fake HOME
+    (tmux sessions inherit the server's HOME, not the client's).
+    """
+    args = [
         "create",
-        agent_name,
+        name,
         "--agent-type",
         "claude",
         "--no-connect",
         "--no-ensure-clean",
         "--await-ready",
-        env=claude_trust_env,
-    )
+        "--pass-env",
+        "HOME",
+    ]
+    if message is not None:
+        args.extend(["--message", message])
+    if verbose:
+        args.append("-v")
+    return _run_mngr(*args, env=env)
+
+
+def _destroy_agent(name: str, *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    """Destroy a Claude agent."""
+    return _run_mngr("destroy", name, "--force", env=env)
+
+
+def _send_message(
+    agent_name: str, message: str, *, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Send a message to an existing Claude agent."""
+    return _run_mngr("message", agent_name, "-m", message, "-v", env=env)
+
+
+def _message_was_submitted(result: subprocess.CompletedProcess[str]) -> bool:
+    """Check if the message submission was confirmed in the command output."""
+    return "Message submitted successfully" in (result.stderr + result.stdout)
+
+
+@pytest.fixture
+def claude_agent(claude_trust_env: dict[str, str]) -> Generator[str, None, None]:
+    """Create a Claude agent for testing and clean it up after."""
+    agent_name = f"test-msg-{get_short_random_string()}"
+
+    result = _create_agent(agent_name, env=claude_trust_env)
     if result.returncode != 0:
         pytest.fail(f"Failed to create agent: {result.stderr}")
 
@@ -88,8 +125,7 @@ def claude_agent(claude_trust_env: dict[str, str]) -> Generator[str, None, None]
 
     yield agent_name
 
-    # Cleanup
-    run_mngr("destroy", agent_name, "--force", env=claude_trust_env)
+    _destroy_agent(agent_name, env=claude_trust_env)
 
 
 @pytest.mark.acceptance
@@ -103,30 +139,14 @@ def test_mngr_create_with_message_succeeds(claude_trust_env: dict[str, str]) -> 
     message = f"test message {get_short_random_string()}"
 
     try:
-        result = run_mngr(
-            "create",
-            agent_name,
-            "--agent-type",
-            "claude",
-            "--message",
-            message,
-            "--no-connect",
-            "--no-ensure-clean",
-            "--await-ready",
-            "-v",
-            env=claude_trust_env,
-        )
+        result = _create_agent(agent_name, message=message, verbose=True, env=claude_trust_env)
 
-        # Check that the command succeeded
         assert result.returncode == 0, f"mngr create failed: {result.stderr}"
-
-        # Check for successful submission in verbose output
-        assert (
-            "Message submitted successfully" in result.stderr or "Message submitted successfully" in result.stdout
-        ), f"Message submission not confirmed in output:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        assert _message_was_submitted(result), (
+            f"Message submission not confirmed in output:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
     finally:
-        # Cleanup
-        run_mngr("destroy", agent_name, "--force", env=claude_trust_env)
+        _destroy_agent(agent_name, env=claude_trust_env)
 
 
 @pytest.mark.acceptance
@@ -138,20 +158,10 @@ def test_mngr_message_to_existing_agent_succeeds(claude_agent: str, claude_trust
     """
     message = f"test message {get_short_random_string()}"
 
-    result = run_mngr(
-        "message",
-        claude_agent,
-        "-m",
-        message,
-        "-v",
-        env=claude_trust_env,
-    )
+    result = _send_message(claude_agent, message, env=claude_trust_env)
 
-    # Check that the command succeeded
     assert result.returncode == 0, f"mngr message failed: {result.stderr}"
-
-    # Check for successful submission in verbose output
-    assert "Message submitted successfully" in result.stderr or "Message submitted successfully" in result.stdout, (
+    assert _message_was_submitted(result), (
         f"Message submission not confirmed in output:\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
@@ -173,28 +183,16 @@ def test_mngr_create_with_message_multiple_times(claude_trust_env: dict[str, str
         message = f"test message {i}"
 
         try:
-            result = run_mngr(
-                "create",
-                agent_name,
-                "--agent-type",
-                "claude",
-                "--message",
-                message,
-                "--no-connect",
-                "--no-ensure-clean",
-                "--await-ready",
-                "-v",
-                env=claude_trust_env,
-            )
+            result = _create_agent(agent_name, message=message, verbose=True, env=claude_trust_env)
 
-            if result.returncode == 0 and "Message submitted successfully" in (result.stderr + result.stdout):
+            if result.returncode == 0 and _message_was_submitted(result):
                 successes += 1
             else:
                 failures.append(f"Trial {i}: returncode={result.returncode}, stderr={result.stderr[:200]}")
         except subprocess.TimeoutExpired:
             failures.append(f"Trial {i}: timeout")
         finally:
-            run_mngr("destroy", agent_name, "--force", env=claude_trust_env)
+            _destroy_agent(agent_name, env=claude_trust_env)
 
     # Require 100% success rate
     assert successes == trial_count, (
@@ -218,16 +216,9 @@ def test_mngr_message_multiple_times(claude_agent: str, claude_trust_env: dict[s
         message = f"test message {i}"
 
         try:
-            result = run_mngr(
-                "message",
-                claude_agent,
-                "-m",
-                message,
-                "-v",
-                env=claude_trust_env,
-            )
+            result = _send_message(claude_agent, message, env=claude_trust_env)
 
-            if result.returncode == 0 and "Message submitted successfully" in (result.stderr + result.stdout):
+            if result.returncode == 0 and _message_was_submitted(result):
                 successes += 1
             else:
                 failures.append(f"Trial {i}: returncode={result.returncode}, stderr={result.stderr[:200]}")
