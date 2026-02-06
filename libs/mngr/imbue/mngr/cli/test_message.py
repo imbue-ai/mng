@@ -187,7 +187,7 @@ def test_mngr_create_with_message_multiple_times(claude_test_env: dict[str, str]
             if result.returncode == 0 and _message_was_submitted(result):
                 successes += 1
             else:
-                failures.append(f"Trial {i}: returncode={result.returncode}, stderr={result.stderr[:200]}")
+                failures.append(f"Trial {i}: returncode={result.returncode}, stderr={result.stderr[:500]}")
         except subprocess.TimeoutExpired:
             failures.append(f"Trial {i}: timeout")
         finally:
@@ -220,7 +220,7 @@ def test_mngr_message_multiple_times(claude_agent: str, claude_test_env: dict[st
             if result.returncode == 0 and _message_was_submitted(result):
                 successes += 1
             else:
-                failures.append(f"Trial {i}: returncode={result.returncode}, stderr={result.stderr[:200]}")
+                failures.append(f"Trial {i}: returncode={result.returncode}, stderr={result.stderr[:500]}")
 
             # Small delay between messages to let Claude process
             time.sleep(1)
