@@ -42,10 +42,6 @@ from imbue.mngr.primitives import WorkDirCopyMode
 # so this is a max wait time, not an unconditional delay.
 DEFAULT_AGENT_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 
-# Default delay between sending message text and Enter key.
-# Without this delay, Enter can be interpreted as a literal newline instead of submit.
-DEFAULT_ENTER_DELAY_SECONDS: Final[float] = 1.0
-
 
 class HostInterface(MutableModel, ABC):
     """Interface for host implementations."""

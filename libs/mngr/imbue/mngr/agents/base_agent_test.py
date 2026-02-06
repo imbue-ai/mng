@@ -9,7 +9,6 @@ from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
-from imbue.mngr.interfaces.host import DEFAULT_ENTER_DELAY_SECONDS
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
@@ -390,34 +389,6 @@ def test_get_ready_timeout_seconds_returns_value_when_set(
     data_path.write_text(json.dumps(data, indent=2))
 
     assert test_agent.get_ready_timeout_seconds() == 2.5
-
-
-def test_get_enter_delay_seconds_returns_default_when_not_set(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> None:
-    """Test that get_enter_delay_seconds returns default when not set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert test_agent.get_enter_delay_seconds() == DEFAULT_ENTER_DELAY_SECONDS
-
-
-def test_get_enter_delay_seconds_returns_value_when_set(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> None:
-    """Test that get_enter_delay_seconds returns the value when set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
-    data_path = agent_dir / "data.json"
-
-    # Update data.json with enter_delay_seconds
-    data = json.loads(data_path.read_text())
-    data["enter_delay_seconds"] = 0.5
-    data_path.write_text(json.dumps(data, indent=2))
-
-    assert test_agent.get_enter_delay_seconds() == 0.5
 
 
 def test_get_expected_process_name_uses_command_basename(

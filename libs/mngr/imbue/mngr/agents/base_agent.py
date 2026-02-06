@@ -21,7 +21,6 @@ from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
-from imbue.mngr.interfaces.host import DEFAULT_ENTER_DELAY_SECONDS
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentLifecycleState
@@ -296,14 +295,6 @@ class BaseAgent(AgentInterface):
     def get_ready_timeout_seconds(self) -> float:
         data = self._read_data()
         return data.get("ready_timeout_seconds", DEFAULT_AGENT_READY_TIMEOUT_SECONDS)
-
-    def get_enter_delay_seconds(self) -> float:
-        """Get the delay between sending message text and Enter key.
-
-        This can be configured per-agent via `enter_delay_seconds` in data.json.
-        """
-        data = self._read_data()
-        return data.get("enter_delay_seconds", DEFAULT_ENTER_DELAY_SECONDS)
 
     def send_message(self, message: str) -> None:
         """Send a message to the running agent.
