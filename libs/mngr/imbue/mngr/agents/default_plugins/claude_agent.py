@@ -256,19 +256,18 @@ class ClaudeAgent(BaseAgent):
         logger.debug("start_action completed in {:.2f}s, now polling for session_started...", action_elapsed)
 
         # Poll for the session_started file (created by SessionStart hook)
-        # Remaining timeout after start_action completed
-        remaining_timeout = timeout - action_elapsed
+        # Use the full timeout for polling - start_action duration is separate and shouldn't
+        # eat into the readiness budget (it's infrastructure, not application readiness)
         success, poll_count, poll_elapsed = poll_until_counted(
             lambda: self._check_file_exists(session_started_path),
-            timeout=remaining_timeout,
+            timeout=timeout,
             poll_interval=0.05,
         )
 
-        total_elapsed = action_elapsed + poll_elapsed
         if success:
             logger.trace(
                 "Session started after {:.2f}s (action={:.2f}s, poll={:.2f}s, polls={})",
-                total_elapsed,
+                action_elapsed + poll_elapsed,
                 action_elapsed,
                 poll_elapsed,
                 poll_count,
@@ -277,7 +276,7 @@ class ClaudeAgent(BaseAgent):
 
         raise AgentStartError(
             str(self.name),
-            f"Agent did not signal readiness within {timeout}s (waited {total_elapsed:.2f}s). "
+            f"Agent did not signal readiness within {timeout}s. "
             "This may indicate a trust dialog appeared or Claude Code failed to start.",
         )
 
