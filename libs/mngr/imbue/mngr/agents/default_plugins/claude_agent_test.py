@@ -10,7 +10,7 @@ import pytest
 
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
-from imbue.mngr.agents.default_plugins.claude_agent import _build_readiness_hooks_config
+from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -446,8 +446,8 @@ def test_provision_skips_installation_check_when_disabled(mngr_test_prefix: str,
 
 
 def test_build_readiness_hooks_config_has_session_start_hook() -> None:
-    """_build_readiness_hooks_config should include SessionStart hook that creates session_started file."""
-    config = _build_readiness_hooks_config()
+    """build_readiness_hooks_config should include SessionStart hook that creates session_started file."""
+    config = build_readiness_hooks_config()
 
     assert "hooks" in config
     assert "SessionStart" in config["hooks"]
@@ -460,8 +460,8 @@ def test_build_readiness_hooks_config_has_session_start_hook() -> None:
 
 
 def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:
-    """_build_readiness_hooks_config should include UserPromptSubmit hook."""
-    config = _build_readiness_hooks_config()
+    """build_readiness_hooks_config should include UserPromptSubmit hook."""
+    config = build_readiness_hooks_config()
 
     assert "UserPromptSubmit" in config["hooks"]
     assert len(config["hooks"]["UserPromptSubmit"]) == 1
@@ -472,8 +472,8 @@ def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:
 
 
 def test_build_readiness_hooks_config_has_stop_hook() -> None:
-    """_build_readiness_hooks_config should include Stop hook."""
-    config = _build_readiness_hooks_config()
+    """build_readiness_hooks_config should include Stop hook."""
+    config = build_readiness_hooks_config()
 
     assert "Stop" in config["hooks"]
     assert len(config["hooks"]["Stop"]) == 1

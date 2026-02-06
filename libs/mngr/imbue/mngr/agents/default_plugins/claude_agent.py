@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import json
 import shlex
 import time
@@ -14,11 +13,12 @@ import click
 from loguru import logger
 from pydantic import Field
 
-from imbue.imbue_common.pure import pure
 from imbue.mngr import hookimpl
 from imbue.mngr.agents.base_agent import BaseAgent
+from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
+from imbue.mngr.agents.default_plugins.claude_config import merge_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -92,101 +92,6 @@ def _prompt_user_for_installation() -> bool:
         "\nClaude is not installed on this machine.\nYou can install it by running:\n  curl -fsSL https://claude.ai/install.sh | bash\n"
     )
     return click.confirm("Would you like to install it now?", default=True)
-
-
-@pure
-def _build_readiness_hooks_config() -> dict[str, Any]:
-    """Build the hooks configuration for readiness signaling.
-
-    These hooks use the MNGR_AGENT_STATE_DIR environment variable to create/remove
-    files that signal agent state.
-
-    - SessionStart: creates 'session_started' file (Claude Code has started)
-    - UserPromptSubmit: removes 'waiting' file AND signals tmux wait-for channel
-    - Stop: creates 'waiting' file (Claude finished processing, waiting for input)
-
-    File semantics:
-    - session_started: Claude Code session has started (for initial message timing)
-    - waiting: Claude is waiting for user input (WAITING lifecycle state)
-
-    The tmux wait-for signal on UserPromptSubmit allows instant detection of
-    message submission without polling.
-    """
-    return {
-        "hooks": {
-            "SessionStart": [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": 'touch "$MNGR_AGENT_STATE_DIR/session_started"',
-                        },
-                    ]
-                }
-            ],
-            "UserPromptSubmit": [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": 'rm -f "$MNGR_AGENT_STATE_DIR/waiting"',
-                        },
-                        {
-                            "type": "command",
-                            "command": "tmux wait-for -S \"mngr-submit-$(tmux display-message -p '#S')\" 2>/dev/null || true",
-                        },
-                    ]
-                }
-            ],
-            "Stop": [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": 'touch "$MNGR_AGENT_STATE_DIR/waiting"',
-                        }
-                    ]
-                }
-            ],
-        }
-    }
-
-
-@pure
-def _hook_already_exists(existing_hooks: list[dict[str, Any]], new_hook: dict[str, Any]) -> bool:
-    """Check if a hook with the same command already exists in the list.
-
-    Compares the inner hooks' commands to detect duplicates.
-    """
-    new_commands = {h.get("command") for h in new_hook.get("hooks", [])}
-    for existing in existing_hooks:
-        existing_commands = {h.get("command") for h in existing.get("hooks", [])}
-        if new_commands == existing_commands:
-            return True
-    return False
-
-
-def _merge_hooks_config(existing_settings: dict[str, Any], hooks_config: dict[str, Any]) -> dict[str, Any] | None:
-    """Merge new hooks into existing settings, skipping duplicates.
-
-    Returns the merged settings dict if any hooks were added, or None if all
-    hooks already existed. Does not mutate the input dict.
-    """
-    merged = copy.deepcopy(existing_settings)
-    if "hooks" not in merged:
-        merged["hooks"] = {}
-
-    any_added = False
-    for event_name, event_hooks in hooks_config["hooks"].items():
-        if event_name not in merged["hooks"]:
-            merged["hooks"][event_name] = []
-
-        for new_hook in event_hooks:
-            if not _hook_already_exists(merged["hooks"][event_name], new_hook):
-                merged["hooks"][event_name].append(new_hook)
-                any_added = True
-
-    return merged if any_added else None
 
 
 class ClaudeAgent(BaseAgent):
@@ -424,7 +329,7 @@ class ClaudeAgent(BaseAgent):
                 "Add '.claude/settings.local.json' to your .gitignore and try again."
             )
 
-        hooks_config = _build_readiness_hooks_config()
+        hooks_config = build_readiness_hooks_config()
 
         # Read existing settings if present
         existing_settings: dict[str, Any] = {}
@@ -435,7 +340,7 @@ class ClaudeAgent(BaseAgent):
             pass
 
         # Merge hooks, checking for duplicates
-        merged = _merge_hooks_config(existing_settings, hooks_config)
+        merged = merge_hooks_config(existing_settings, hooks_config)
         if merged is None:
             logger.debug("Readiness hooks already configured in {}", settings_path)
             return
