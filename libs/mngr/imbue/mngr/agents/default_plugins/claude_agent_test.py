@@ -761,6 +761,22 @@ def test_provision_skips_trust_when_git_common_dir_is_none(
     mock_extend.assert_not_called()
 
 
+def test_on_before_provisioning_raises_for_worktree_on_remote_host(
+    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+) -> None:
+    """on_before_provisioning should raise PluginMngrError for worktree mode on remote hosts."""
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+    mock_host.is_local = False
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    )
+
+    with pytest.raises(PluginMngrError, match="Worktree mode is not supported on remote hosts"):
+        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+
 def test_on_before_provisioning_validates_trust_for_worktree(
     mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
 ) -> None:
