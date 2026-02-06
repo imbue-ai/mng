@@ -34,6 +34,7 @@ from imbue.mngr.utils.testing import delete_modal_apps_in_environment
 from imbue.mngr.utils.testing import delete_modal_environment
 from imbue.mngr.utils.testing import delete_modal_volumes_in_environment
 from imbue.mngr.utils.testing import get_subprocess_test_env
+from imbue.mngr.utils.testing import init_git_repo
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
@@ -183,16 +184,7 @@ def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
     repo_dir = tmp_path / "git_repo"
     repo_dir.mkdir()
 
-    # Initialize git and create initial commit
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
-    (repo_dir / "README.md").write_text("Test repository")
-    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=repo_dir,
-        check=True,
-        capture_output=True,
-    )
+    init_git_repo(repo_dir)
 
     return repo_dir
 

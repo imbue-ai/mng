@@ -164,6 +164,25 @@ def make_mngr_ctx(default_host_dir: Path, prefix: str) -> MngrContext:
     return MngrContext(config=config, pm=pm, profile_dir=profile_dir)
 
 
+def init_git_repo(path: Path, initial_commit: bool = True) -> None:
+    """Initialize a git repo at the given path.
+
+    If initial_commit is True, creates a README.md and commits it.
+    Requires setup_git_config fixture to have created .gitconfig in the fake HOME
+    (or temp_git_repo fixture, which depends on it).
+    """
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+    if initial_commit:
+        (path / "README.md").write_text("Test repository")
+        subprocess.run(["git", "add", "."], cwd=path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Initial commit"],
+            cwd=path,
+            check=True,
+            capture_output=True,
+        )
+
+
 def get_short_random_string() -> str:
     return uuid4().hex[:8]
 

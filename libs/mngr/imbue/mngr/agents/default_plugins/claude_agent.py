@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import fcntl
 import json
-import os
 import shlex
 import time
 from collections.abc import Sequence
@@ -408,56 +406,30 @@ class ClaudeAgent(BaseAgent):
         The hooks signal when Claude is ready for input by creating/removing a
         'waiting' file in the agent's state directory.
 
-        Uses file locking on local hosts to prevent race conditions.
-        Creates a backup before modifying and skips if hooks already exist.
+        Skips if hooks already exist.
+
+        # Future improvement: use `claude --settings <path>` to load hooks from
+        # outside the worktree (e.g. the agent state dir), eliminating the need
+        # to write to .claude/settings.local.json and check that it's gitignored.
         """
+        settings_relative = Path(".claude") / "settings.local.json"
+        settings_path = self.work_dir / settings_relative
+
+        # Verify .claude/settings.local.json is gitignored to avoid unstaged changes
+        result = host.execute_command(
+            f"git check-ignore -q {shlex.quote(str(settings_relative))}",
+            cwd=self.work_dir,
+            timeout_seconds=5.0,
+        )
+        if not result.success:
+            raise PluginMngrError(
+                f".claude/settings.local.json is not gitignored in {self.work_dir}.\n"
+                "mngr needs to write Claude hooks to this file, but it would appear as an unstaged change.\n"
+                "Add '.claude/settings.local.json' to your .gitignore and try again."
+            )
+
         hooks_config = _build_readiness_hooks_config()
-        settings_path = self.work_dir / ".claude" / "settings.local.json"
 
-        if host.is_local:
-            self._configure_readiness_hooks_local(settings_path, hooks_config)
-        else:
-            self._configure_readiness_hooks_remote(host, settings_path, hooks_config)
-
-    def _configure_readiness_hooks_local(self, settings_path: Path, hooks_config: dict[str, Any]) -> None:
-        """Configure readiness hooks on a local host with file locking."""
-        # Ensure parent directory exists
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Create the file if it doesn't exist
-        if not settings_path.exists():
-            settings_path.write_text("{}")
-
-        with open(settings_path, "r+") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            try:
-                # Read existing content
-                f.seek(0)
-                content = f.read()
-                existing_settings = json.loads(content) if content.strip() else {}
-
-                # Merge hooks, checking for duplicates
-                if not _merge_hooks_config(existing_settings, hooks_config):
-                    logger.debug("Readiness hooks already configured in {}", settings_path)
-                    return
-
-                # Write atomically: write to temp file in same directory, then rename
-                temp_path = settings_path.with_suffix(".json.tmp")
-                with open(temp_path, "w") as tmp:
-                    json.dump(existing_settings, tmp, indent=2)
-                    tmp.write("\n")
-                    tmp.flush()
-                    os.fsync(tmp.fileno())
-                temp_path.rename(settings_path)
-
-                logger.debug("Configured readiness hooks in {}", settings_path)
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-
-    def _configure_readiness_hooks_remote(
-        self, host: OnlineHostInterface, settings_path: Path, hooks_config: dict[str, Any]
-    ) -> None:
-        """Configure readiness hooks on a remote host."""
         # Read existing settings if present
         existing_settings: dict[str, Any] = {}
         try:

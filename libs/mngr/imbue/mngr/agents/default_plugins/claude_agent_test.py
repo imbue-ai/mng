@@ -15,6 +15,7 @@ from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import NoCommandDefinedError
+from imbue.mngr.errors import PluginMngrError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
@@ -26,6 +27,7 @@ from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.utils.testing import init_git_repo
 
 
 def make_claude_agent(
@@ -421,7 +423,7 @@ def test_provision_skips_installation_check_when_disabled(mngr_test_prefix: str,
         create_time=datetime.now(timezone.utc),
         host_id=HostId.generate(),
         mngr_ctx=mngr_ctx,
-        agent_config=ClaudeAgentConfig(check_installation=False),
+        agent_config=ClaudeAgentConfig(check_installation=False, configure_readiness_hooks=False),
         host=mock_host,
     )
 
@@ -430,7 +432,8 @@ def test_provision_skips_installation_check_when_disabled(mngr_test_prefix: str,
     # Should not call execute_command to check installation
     agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
 
-    # execute_command should not be called since check_installation=False
+    # execute_command should not be called since both check_installation and
+    # configure_readiness_hooks are disabled
     mock_host.execute_command.assert_not_called()
 
 
@@ -493,6 +496,39 @@ def test_uses_marker_based_send_message_returns_true(
     assert agent.uses_marker_based_send_message() is True
 
 
+def _init_git_with_gitignore(work_dir: Path) -> None:
+    """Initialize a git repo in work_dir with .claude/settings.local.json gitignored."""
+    init_git_repo(work_dir, initial_commit=False)
+    (work_dir / ".gitignore").write_text(".claude/settings.local.json\n")
+
+
+def test_configure_readiness_hooks_raises_when_not_gitignored(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_configure_readiness_hooks should raise when .claude/settings.local.json is not gitignored."""
+    host = local_provider.create_host(HostName("test-hooks-gitignore"))
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+
+    # Init git but do NOT add .gitignore entry
+    init_git_repo(work_dir, initial_commit=False)
+
+    agent = ClaudeAgent.model_construct(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=work_dir,
+        create_time=datetime.now(timezone.utc),
+        host_id=host.id,
+        mngr_ctx=temp_mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False),
+        host=host,
+    )
+
+    with pytest.raises(PluginMngrError, match="not gitignored"):
+        agent._configure_readiness_hooks(host)
+
+
 def test_configure_readiness_hooks_creates_settings_file(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
@@ -500,6 +536,7 @@ def test_configure_readiness_hooks_creates_settings_file(
     host = local_provider.create_host(HostName("test-hooks"))
     work_dir = tmp_path / "work"
     work_dir.mkdir()
+    _init_git_with_gitignore(work_dir)
 
     agent = ClaudeAgent.model_construct(
         id=AgentId.generate(),
@@ -534,6 +571,7 @@ def test_configure_readiness_hooks_merges_with_existing_settings(
     host = local_provider.create_host(HostName("test-hooks-merge"))
     work_dir = tmp_path / "work"
     work_dir.mkdir()
+    _init_git_with_gitignore(work_dir)
 
     # Create existing settings file
     claude_dir = work_dir / ".claude"
@@ -583,6 +621,7 @@ def test_provision_configures_readiness_hooks_when_enabled(
             configure_readiness_hooks=True,
         ),
     )
+    _init_git_with_gitignore(agent.work_dir)
 
     options = Mock()
     agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
@@ -643,7 +682,7 @@ def make_mock_claude_agent(
         create_time=datetime.now(timezone.utc),
         host_id=HostId.generate(),
         mngr_ctx=mngr_ctx,
-        agent_config=ClaudeAgentConfig(check_installation=False),
+        agent_config=ClaudeAgentConfig(check_installation=False, configure_readiness_hooks=False),
         host=mock_host,
     )
     return agent, mock_host, mngr_ctx
