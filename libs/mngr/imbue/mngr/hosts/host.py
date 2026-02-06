@@ -65,6 +65,16 @@ from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.git_utils import get_current_git_branch
+from imbue.mngr.utils.polling import wait_for
+
+
+def _try_acquire_flock(lock_file: io.TextIOWrapper) -> bool:
+    """Try to acquire an exclusive flock without blocking. Returns True if acquired."""
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except BlockingIOError:
+        return False
 
 
 class HostLocation(FrozenModel):
@@ -489,21 +499,21 @@ class Host(BaseHost, OnlineHostInterface):
         lock_file_path.parent.mkdir(parents=True, exist_ok=True)
 
         start_time = time.time()
-        elapsed_time = 0.0
 
         logger.debug("Acquiring host lock at {}", lock_file_path)
         lock_file = open(str(lock_file_path), "w")
         try:
-            while elapsed_time <= timeout_seconds:
-                try:
-                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    logger.trace("Lock acquired after {:.2f}s", time.time() - start_time)
-                    break
-                except BlockingIOError:
-                    time.sleep(0.1)
-                    elapsed_time = time.time() - start_time
-            else:
-                raise LockNotHeldError(f"Failed to acquire lock within {timeout_seconds}s")
+            try:
+                wait_for(
+                    lambda: _try_acquire_flock(lock_file),
+                    timeout=timeout_seconds,
+                    poll_interval=0.1,
+                    error_message=f"Failed to acquire lock within {timeout_seconds}s",
+                )
+            except TimeoutError as e:
+                raise LockNotHeldError(str(e)) from e
+
+            logger.trace("Lock acquired after {:.2f}s", time.time() - start_time)
 
             yield
         finally:
