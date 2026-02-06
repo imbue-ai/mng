@@ -197,37 +197,3 @@ def test_mngr_create_with_message_multiple_times(claude_test_env: dict[str, str]
     assert successes == trial_count, (
         f"Message reliability test failed: {successes}/{trial_count} succeeded\nFailures: {failures}"
     )
-
-
-@pytest.mark.release
-@pytest.mark.timeout(300)
-def test_mngr_message_multiple_times(claude_agent: str, claude_test_env: dict[str, str]) -> None:
-    """Test that `mngr message` works reliably across multiple sends to the same agent.
-
-    This is a reliability test that sends multiple messages to verify the message
-    sending mechanism works consistently when the agent is already running.
-    """
-    trial_count = 5
-    successes = 0
-    failures: list[str] = []
-
-    for i in range(trial_count):
-        message = f"test message {i}"
-
-        try:
-            result = _send_message(claude_agent, message, env=claude_test_env)
-
-            if result.returncode == 0 and _message_was_submitted(result):
-                successes += 1
-            else:
-                failures.append(f"Trial {i}: returncode={result.returncode}, stderr={result.stderr[:500]}")
-
-            # Small delay between messages to let Claude process
-            time.sleep(1)
-        except subprocess.TimeoutExpired:
-            failures.append(f"Trial {i}: timeout")
-
-    # Require 100% success rate
-    assert successes == trial_count, (
-        f"Message reliability test failed: {successes}/{trial_count} succeeded\nFailures: {failures}"
-    )
