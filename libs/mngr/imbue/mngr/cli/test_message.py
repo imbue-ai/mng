@@ -1,11 +1,15 @@
-"""Acceptance tests for the message command and message sending functionality.
+"""Release tests for the message command and message sending functionality.
 
 These tests verify that `mngr create --message` and `mngr message` work correctly
-with real Claude Code agents. They are marked with @pytest.mark.acceptance and
-require network access to run.
+with real Claude Code agents. They are marked with @pytest.mark.release and
+require Claude credentials to run.
+
+Note: these tests currently require network access because Claude Code contacts
+the API on startup. Consider blocking network access in the future, since the
+tests only verify message *submission* (input into the TUI), not API responses.
 
 Run with:
-    pytest -m acceptance libs/mngr/imbue/mngr/cli/test_message.py --timeout=300
+    pytest -m release libs/mngr/imbue/mngr/cli/test_message.py --timeout=300
 """
 
 import shutil
@@ -16,7 +20,6 @@ from pathlib import Path
 
 import pytest
 
-from imbue.mngr.utils.git_utils import find_git_common_dir
 from imbue.mngr.utils.testing import get_short_random_string
 from imbue.mngr.utils.testing import setup_claude_trust_config_for_subprocess
 
@@ -31,29 +34,18 @@ pytestmark = pytest.mark.skipif(not _is_claude_installed(), reason="Claude Code 
 
 
 @pytest.fixture
-def claude_trust_env() -> dict[str, str]:
-    """Create a Claude trust config for subprocess tests.
+def claude_test_env(temp_git_repo: Path) -> dict[str, str]:
+    """Create a Claude trust config and env vars for subprocess tests.
 
-    This fixture creates ~/.claude.json in the temp HOME (set by the autouse
-    setup_test_mngr_env fixture) that marks the necessary directories as trusted.
-
-    When running from a worktree, we need to trust the original repo (git common dir)
-    because mngr checks if the source directory is trusted before creating worktrees.
+    Trusts the temp_git_repo so that mngr's extend_claude_trust_to_worktree
+    can propagate trust to any worktrees created from it.
     """
-    cwd = Path.cwd().resolve()
-    paths_to_trust = [cwd]
-
-    # If running from a worktree, also trust the original repo
-    git_common_dir = find_git_common_dir(cwd)
-    if git_common_dir is not None:
-        original_repo = git_common_dir.parent
-        if original_repo != cwd:
-            paths_to_trust.append(original_repo)
-
-    return setup_claude_trust_config_for_subprocess(paths_to_trust)
+    return setup_claude_trust_config_for_subprocess([temp_git_repo])
 
 
-def _run_mngr(*args: str, timeout: float = 120, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def _run_mngr(
+    *args: str, timeout: float = 120, env: dict[str, str] | None = None, cwd: Path | None = None
+) -> subprocess.CompletedProcess[str]:
     """Run mngr command and return the result."""
     return subprocess.run(
         ["uv", "run", "mngr", *args],
@@ -61,6 +53,7 @@ def _run_mngr(*args: str, timeout: float = 120, env: dict[str, str] | None = Non
         text=True,
         timeout=timeout,
         env=env,
+        cwd=cwd,
     )
 
 
@@ -70,11 +63,13 @@ def _create_agent(
     message: str | None = None,
     verbose: bool = False,
     env: dict[str, str] | None = None,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Create a Claude agent with standard test flags.
 
-    Uses --pass-env HOME so the tmux session inherits the test's fake HOME
-    (tmux sessions inherit the server's HOME, not the client's).
+    Uses --pass-env HOME and ANTHROPIC_API_KEY so the tmux session inherits the
+    test's fake HOME and API credentials (tmux sessions inherit the server's
+    environment, not the client's).
     """
     args = [
         "create",
@@ -86,24 +81,28 @@ def _create_agent(
         "--await-ready",
         "--pass-env",
         "HOME",
+        "--pass-env",
+        "ANTHROPIC_API_KEY",
+        "--disable-plugin",
+        "modal",
     ]
     if message is not None:
         args.extend(["--message", message])
     if verbose:
         args.append("-v")
-    return _run_mngr(*args, env=env)
+    return _run_mngr(*args, env=env, cwd=cwd)
 
 
 def _destroy_agent(name: str, *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     """Destroy a Claude agent."""
-    return _run_mngr("destroy", name, "--force", env=env)
+    return _run_mngr("destroy", name, "--force", "--disable-plugin", "modal", env=env)
 
 
 def _send_message(
     agent_name: str, message: str, *, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Send a message to an existing Claude agent."""
-    return _run_mngr("message", agent_name, "-m", message, "-v", env=env)
+    return _run_mngr("message", agent_name, "-m", message, "-v", "--disable-plugin", "modal", env=env)
 
 
 def _message_was_submitted(result: subprocess.CompletedProcess[str]) -> bool:
@@ -112,11 +111,11 @@ def _message_was_submitted(result: subprocess.CompletedProcess[str]) -> bool:
 
 
 @pytest.fixture
-def claude_agent(claude_trust_env: dict[str, str]) -> Generator[str, None, None]:
+def claude_agent(claude_test_env: dict[str, str], temp_git_repo: Path) -> Generator[str, None, None]:
     """Create a Claude agent for testing and clean it up after."""
     agent_name = f"test-msg-{get_short_random_string()}"
 
-    result = _create_agent(agent_name, env=claude_trust_env)
+    result = _create_agent(agent_name, env=claude_test_env, cwd=temp_git_repo)
     if result.returncode != 0:
         pytest.fail(f"Failed to create agent: {result.stderr}")
 
@@ -125,12 +124,12 @@ def claude_agent(claude_trust_env: dict[str, str]) -> Generator[str, None, None]
 
     yield agent_name
 
-    _destroy_agent(agent_name, env=claude_trust_env)
+    _destroy_agent(agent_name, env=claude_test_env)
 
 
-@pytest.mark.acceptance
+@pytest.mark.release
 @pytest.mark.timeout(300)
-def test_mngr_create_with_message_succeeds(claude_trust_env: dict[str, str]) -> None:
+def test_mngr_create_with_message_succeeds(claude_test_env: dict[str, str], temp_git_repo: Path) -> None:
     """Test that `mngr create --message` successfully sends a message to Claude.
 
     This tests the integrated flow where the message is sent as part of agent creation.
@@ -139,26 +138,26 @@ def test_mngr_create_with_message_succeeds(claude_trust_env: dict[str, str]) -> 
     message = f"test message {get_short_random_string()}"
 
     try:
-        result = _create_agent(agent_name, message=message, verbose=True, env=claude_trust_env)
+        result = _create_agent(agent_name, message=message, verbose=True, env=claude_test_env, cwd=temp_git_repo)
 
         assert result.returncode == 0, f"mngr create failed: {result.stderr}"
         assert _message_was_submitted(result), (
             f"Message submission not confirmed in output:\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
     finally:
-        _destroy_agent(agent_name, env=claude_trust_env)
+        _destroy_agent(agent_name, env=claude_test_env)
 
 
-@pytest.mark.acceptance
+@pytest.mark.release
 @pytest.mark.timeout(300)
-def test_mngr_message_to_existing_agent_succeeds(claude_agent: str, claude_trust_env: dict[str, str]) -> None:
+def test_mngr_message_to_existing_agent_succeeds(claude_agent: str, claude_test_env: dict[str, str]) -> None:
     """Test that `mngr message` successfully sends a message to an existing agent.
 
     This tests the separate flow where an agent is created first, then messaged separately.
     """
     message = f"test message {get_short_random_string()}"
 
-    result = _send_message(claude_agent, message, env=claude_trust_env)
+    result = _send_message(claude_agent, message, env=claude_test_env)
 
     assert result.returncode == 0, f"mngr message failed: {result.stderr}"
     assert _message_was_submitted(result), (
@@ -166,9 +165,9 @@ def test_mngr_message_to_existing_agent_succeeds(claude_agent: str, claude_trust
     )
 
 
-@pytest.mark.acceptance
+@pytest.mark.release
 @pytest.mark.timeout(300)
-def test_mngr_create_with_message_multiple_times(claude_trust_env: dict[str, str]) -> None:
+def test_mngr_create_with_message_multiple_times(claude_test_env: dict[str, str], temp_git_repo: Path) -> None:
     """Test that `mngr create --message` works reliably across multiple trials.
 
     This is a reliability test that creates multiple agents with messages to verify
@@ -183,7 +182,7 @@ def test_mngr_create_with_message_multiple_times(claude_trust_env: dict[str, str
         message = f"test message {i}"
 
         try:
-            result = _create_agent(agent_name, message=message, verbose=True, env=claude_trust_env)
+            result = _create_agent(agent_name, message=message, verbose=True, env=claude_test_env, cwd=temp_git_repo)
 
             if result.returncode == 0 and _message_was_submitted(result):
                 successes += 1
@@ -192,7 +191,7 @@ def test_mngr_create_with_message_multiple_times(claude_trust_env: dict[str, str
         except subprocess.TimeoutExpired:
             failures.append(f"Trial {i}: timeout")
         finally:
-            _destroy_agent(agent_name, env=claude_trust_env)
+            _destroy_agent(agent_name, env=claude_test_env)
 
     # Require 100% success rate
     assert successes == trial_count, (
@@ -200,9 +199,9 @@ def test_mngr_create_with_message_multiple_times(claude_trust_env: dict[str, str
     )
 
 
-@pytest.mark.acceptance
+@pytest.mark.release
 @pytest.mark.timeout(300)
-def test_mngr_message_multiple_times(claude_agent: str, claude_trust_env: dict[str, str]) -> None:
+def test_mngr_message_multiple_times(claude_agent: str, claude_test_env: dict[str, str]) -> None:
     """Test that `mngr message` works reliably across multiple sends to the same agent.
 
     This is a reliability test that sends multiple messages to verify the message
@@ -216,7 +215,7 @@ def test_mngr_message_multiple_times(claude_agent: str, claude_trust_env: dict[s
         message = f"test message {i}"
 
         try:
-            result = _send_message(claude_agent, message, env=claude_trust_env)
+            result = _send_message(claude_agent, message, env=claude_test_env)
 
             if result.returncode == 0 and _message_was_submitted(result):
                 successes += 1
