@@ -157,6 +157,12 @@ class ClaudeAgent(BaseAgent):
         in Claude's config (~/.claude.json).
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
+            if not host.is_local:
+                raise PluginMngrError(
+                    "Worktree mode is not supported on remote hosts.\n"
+                    "Claude trust extension requires local filesystem access. "
+                    "Use --copy or --clone instead."
+                )
             git_common_dir = find_git_common_dir(self.work_dir)
             if git_common_dir is not None:
                 check_source_directory_trusted(git_common_dir.parent)
