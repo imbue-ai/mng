@@ -180,14 +180,6 @@ class ClaudeAgent(BaseAgent):
             "This may indicate a trust dialog appeared or Claude Code failed to start.",
         )
 
-    def _check_file_exists(self, path: Path) -> bool:
-        """Check if a file exists on the host."""
-        try:
-            self.host.read_text_file(path)
-            return True
-        except FileNotFoundError:
-            return False
-
     def assemble_command(
         self,
         host: OnlineHostInterface,

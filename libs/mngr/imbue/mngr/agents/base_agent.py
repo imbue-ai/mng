@@ -32,6 +32,7 @@ from imbue.mngr.utils.polling import poll_until
 # Constants for send_message marker-based synchronization
 _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
 _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
+_CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
 
 # Constants for signal-based synchronization
 _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 2.0
@@ -258,16 +259,22 @@ class BaseAgent(AgentInterface):
 
         return descendant_names
 
+    def _check_file_exists(self, path: Path) -> bool:
+        """Check if a file exists on the host."""
+        try:
+            self.host.read_text_file(path)
+            return True
+        except FileNotFoundError:
+            return False
+
     def _check_waiting_state(self) -> AgentLifecycleState:
         """Check if the agent is waiting and return WAITING or RUNNING state."""
         waiting_path = self._get_agent_dir() / "waiting"
-        try:
-            self.host.read_text_file(waiting_path)
+        if self._check_file_exists(waiting_path):
             logger.trace("Agent {} lifecycle state: WAITING", self.name)
             return AgentLifecycleState.WAITING
-        except FileNotFoundError:
-            logger.trace("Agent {} lifecycle state: RUNNING (no waiting file)", self.name)
-            return AgentLifecycleState.RUNNING
+        logger.trace("Agent {} lifecycle state: RUNNING (no waiting file)", self.name)
+        return AgentLifecycleState.RUNNING
 
     def _command_basename_matches(self, current: str, expected: str) -> bool:
         """Check if current command basename matches expected command."""
@@ -386,8 +393,10 @@ class BaseAgent(AgentInterface):
         self._send_backspace_with_noop(session_name, count=len(marker))
 
         # Verify the marker is gone and the message ends correctly
-        # Use the last 20 chars of the message as the expected ending (or full message if shorter)
-        expected_ending = message[-20:] if len(message) > 20 else message
+        # Use the tail of the last line of the message as the expected ending, since
+        # only that portion is visible on the current input line in the tmux pane.
+        last_line = message.rsplit("\n", 1)[-1]
+        expected_ending = last_line[-32:] if len(last_line) > 32 else last_line
         self._wait_for_message_ending(session_name, marker, expected_ending)
 
         # Send Enter and wait for submission signal
@@ -422,7 +431,7 @@ class BaseAgent(AgentInterface):
         """Capture the current pane content, returning None on failure."""
         result = self.host.execute_command(
             f"tmux capture-pane -t '{session_name}' -p",
-            timeout_seconds=5.0,
+            timeout_seconds=_CAPTURE_PANE_TIMEOUT_SECONDS,
         )
         if result.success:
             return result.stdout.rstrip()
