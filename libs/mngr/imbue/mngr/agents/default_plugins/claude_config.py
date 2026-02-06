@@ -128,6 +128,10 @@ def _extend_trust_locked(config_path: Path, source_path: Path, worktree_path: Pa
     projects[worktree_path_str] = worktree_config
     config["projects"] = projects
 
+    # Note: NamedTemporaryFile creates files with 0600 permissions, and rename()
+    # preserves those, so ~/.claude.json may end up with different permissions than
+    # the original. 0600 is reasonable for a user config file, but could be an issue
+    # if something expects group/other-readable permissions.
     config_dir = config_path.parent
     with tempfile.NamedTemporaryFile(
         mode="w",
