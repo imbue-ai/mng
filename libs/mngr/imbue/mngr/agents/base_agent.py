@@ -35,7 +35,7 @@ _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
 _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 
 # Constants for signal-based synchronization
-_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 0.5
+_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 2.0
 
 
 class BaseAgent(AgentInterface):
@@ -356,6 +356,11 @@ class BaseAgent(AgentInterface):
         This approach appends a unique marker to the message, waits for it to appear
         in the terminal, removes it with backspaces, and then sends Enter. This ensures
         the input handler has fully processed the message text before submitting.
+
+        On failure (e.g. marker visibility or submission timeout), partial text
+        including the marker may remain in the input field. We intentionally do not
+        attempt cleanup because deleting text risks accidentally removing part of
+        the user's message -- leaving stale marker text is safer than data loss.
         """
         # Wait for TUI to be ready if an indicator is configured
         tui_indicator = self.get_tui_ready_indicator()

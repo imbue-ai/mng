@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import shlex
 import time
@@ -169,25 +170,27 @@ def _hook_already_exists(existing_hooks: list[dict[str, Any]], new_hook: dict[st
     return False
 
 
-def _merge_hooks_config(existing_settings: dict[str, Any], hooks_config: dict[str, Any]) -> bool:
+def _merge_hooks_config(existing_settings: dict[str, Any], hooks_config: dict[str, Any]) -> dict[str, Any] | None:
     """Merge new hooks into existing settings, skipping duplicates.
 
-    Returns True if any hooks were added, False if all already existed.
+    Returns the merged settings dict if any hooks were added, or None if all
+    hooks already existed. Does not mutate the input dict.
     """
-    if "hooks" not in existing_settings:
-        existing_settings["hooks"] = {}
+    merged = copy.deepcopy(existing_settings)
+    if "hooks" not in merged:
+        merged["hooks"] = {}
 
     any_added = False
     for event_name, event_hooks in hooks_config["hooks"].items():
-        if event_name not in existing_settings["hooks"]:
-            existing_settings["hooks"][event_name] = []
+        if event_name not in merged["hooks"]:
+            merged["hooks"][event_name] = []
 
         for new_hook in event_hooks:
-            if not _hook_already_exists(existing_settings["hooks"][event_name], new_hook):
-                existing_settings["hooks"][event_name].append(new_hook)
+            if not _hook_already_exists(merged["hooks"][event_name], new_hook):
+                merged["hooks"][event_name].append(new_hook)
                 any_added = True
 
-    return any_added
+    return merged if any_added else None
 
 
 class ClaudeAgent(BaseAgent):
@@ -438,13 +441,14 @@ class ClaudeAgent(BaseAgent):
             pass
 
         # Merge hooks, checking for duplicates
-        if not _merge_hooks_config(existing_settings, hooks_config):
+        merged = _merge_hooks_config(existing_settings, hooks_config)
+        if merged is None:
             logger.debug("Readiness hooks already configured in {}", settings_path)
             return
 
         # Write the merged settings
         logger.debug("Configuring readiness hooks in {}", settings_path)
-        host.write_text_file(settings_path, json.dumps(existing_settings, indent=2) + "\n")
+        host.write_text_file(settings_path, json.dumps(merged, indent=2) + "\n")
 
     def provision(
         self,
