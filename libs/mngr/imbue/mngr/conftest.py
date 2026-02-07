@@ -2,7 +2,6 @@
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -105,56 +104,107 @@ def mngr_test_prefix(mngr_test_id: str) -> str:
 
 
 @pytest.fixture
-def mngr_test_root_name(mngr_test_id: str) -> Generator[str, None, None]:
+def mngr_test_root_name(mngr_test_id: str) -> str:
     """Get the test root name for config isolation.
 
     Format: mngr-test-{test_id}
 
     This ensures tests don't load the project's .mngr/settings.toml config,
     which might have settings like add_command that would interfere with tests.
-
-    After the test completes, this fixture cleans up any directories that may
-    have been created at ~/.{root_name}/ if load_config was called without
-    MNGR_HOST_DIR being set (which shouldn't happen, but can occur in edge cases).
     """
-    root_name = f"mngr-test-{mngr_test_id}"
-    yield root_name
-
-    # Clean up any directories created at ~/.{root_name}/ in the real home directory.
-    # This handles edge cases where load_config is called without MNGR_HOST_DIR set.
-    home_test_dir = Path.home() / f".{root_name}"
-    if home_test_dir.exists():
-        shutil.rmtree(home_test_dir)
-
-
-@pytest.fixture(autouse=True)
-def setup_test_mngr_env(
-    temp_host_dir: Path,
-    mngr_test_prefix: str,
-    mngr_test_root_name: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Set up mngr environment variables for all tests.
-
-    This autouse fixture ensures:
-    - MNGR_HOST_DIR points to a temporary directory (not ~/.mngr)
-    - MNGR_PREFIX uses a unique test ID for isolation
-    - MNGR_ROOT_NAME prevents loading project config (.mngr/settings.toml)
-    """
-    monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
-    monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
-    monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
+    return f"mngr-test-{mngr_test_id}"
 
 
 @pytest.fixture
 def temp_host_dir(tmp_path: Path) -> Path:
     """Create a temporary directory for host/mngr data.
 
-    This fixture ensures tests don't write to ~/.mngr.
+    This fixture creates .mngr inside tmp_path (which becomes the fake HOME),
+    ensuring tests don't write to the real ~/.mngr.
     """
-    host_dir = tmp_path / "mngr"
+    host_dir = tmp_path / ".mngr"
     host_dir.mkdir()
     return host_dir
+
+
+@pytest.fixture(autouse=True)
+def setup_test_mngr_env(
+    tmp_path: Path,
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+    mngr_test_root_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Set up environment variables for all tests.
+
+    This autouse fixture ensures:
+    - HOME points to tmp_path (not the real ~/)
+    - MNGR_HOST_DIR points to tmp_path/.mngr (not ~/.mngr)
+    - MNGR_PREFIX uses a unique test ID for isolation
+    - MNGR_ROOT_NAME prevents loading project config (.mngr/settings.toml)
+
+    By setting HOME to tmp_path, tests cannot accidentally read or modify
+    files in the real home directory. This protects files like ~/.claude.json.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
+    monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
+    monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
+
+    # Safety check: verify Path.home() is in a temp directory.
+    # If this fails, tests could accidentally modify the real home directory.
+    actual_home = Path.home()
+    actual_home_str = str(actual_home)
+    # pytest's tmp_path uses /tmp on Linux, /var/folders or /private/var on macOS
+    if not (
+        actual_home_str.startswith("/tmp")
+        or actual_home_str.startswith("/var/folders")
+        or actual_home_str.startswith("/private/var")
+    ):
+        raise AssertionError(
+            f"Failed to set fake HOME! Path.home() returned {actual_home}, "
+            f"which is not in a temp directory. Tests may be operating on real home directory!"
+        )
+
+
+@pytest.fixture
+def setup_git_config(tmp_path: Path) -> None:
+    """Create a .gitconfig in the fake HOME so git commands work.
+
+    Use this fixture for any test that runs git commands.
+    The temp_git_repo fixture depends on this, so you don't need both.
+    """
+    gitconfig = tmp_path / ".gitconfig"
+    if not gitconfig.exists():
+        gitconfig.write_text("[user]\n\tname = Test User\n\temail = test@test.com\n")
+
+
+@pytest.fixture
+def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
+    """Create a temporary git repository with an initial commit.
+
+    This fixture:
+    1. Ensures .gitconfig exists in the fake HOME (via setup_git_config)
+    2. Creates a git repo with one tracked file and an initial commit
+
+    Use this fixture for any test that needs a git repository.
+    """
+    # Create the repo directory
+    repo_dir = tmp_path / "git_repo"
+    repo_dir.mkdir()
+
+    # Initialize git and create initial commit
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    (repo_dir / "README.md").write_text("Test repository")
+    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+
+    return repo_dir
 
 
 @pytest.fixture
@@ -163,6 +213,17 @@ def temp_work_dir(tmp_path: Path) -> Path:
     work_dir = tmp_path / "work_dir"
     work_dir.mkdir()
     return work_dir
+
+
+@pytest.fixture
+def temp_profile_dir(temp_host_dir: Path) -> Path:
+    """Create a temporary profile directory.
+
+    Use this fixture when tests need to create their own MngrContext with custom config.
+    """
+    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return profile_dir
 
 
 @pytest.fixture
@@ -175,15 +236,14 @@ def temp_config(temp_host_dir: Path, mngr_test_prefix: str) -> MngrConfig:
 
 
 @pytest.fixture
-def temp_mngr_ctx(temp_config: MngrConfig, temp_host_dir: Path, plugin_manager: pluggy.PluginManager) -> MngrContext:
+def temp_mngr_ctx(
+    temp_config: MngrConfig, temp_profile_dir: Path, plugin_manager: pluggy.PluginManager
+) -> MngrContext:
     """Create a MngrContext with a temporary host directory.
 
     Use this fixture when calling API functions that need a context.
     """
-    # Create a profile directory in the temp host dir
-    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return MngrContext(config=temp_config, pm=plugin_manager, profile_dir=profile_dir)
+    return MngrContext(config=temp_config, pm=plugin_manager, profile_dir=temp_profile_dir)
 
 
 @pytest.fixture
