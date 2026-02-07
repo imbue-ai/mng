@@ -7,12 +7,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pluggy
+import pytest
 from click.testing import CliRunner
 
 from imbue.mngr.cli.create import create
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import capture_tmux_pane_contents
-from imbue.mngr.utils.testing import restore_env_var
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
 
@@ -611,6 +611,7 @@ def test_edit_message_sends_edited_content(
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that --edit-message opens an editor and sends the edited message."""
     agent_name = f"test-edit-message-{int(time.time())}"
@@ -622,47 +623,40 @@ def test_edit_message_sends_edited_content(
     editor_script.write_text(f'#!/bin/bash\necho -n "{edited_message}" > "$1"\n')
     editor_script.chmod(0o755)
 
-    original_editor = os.environ.get("EDITOR")
-    original_visual = os.environ.get("VISUAL")
-    try:
-        os.environ["EDITOR"] = str(editor_script)
-        if "VISUAL" in os.environ:
-            del os.environ["VISUAL"]
+    monkeypatch.setenv("EDITOR", str(editor_script))
+    monkeypatch.delenv("VISUAL", raising=False)
 
-        with tmux_session_cleanup(session_name):
-            result = cli_runner.invoke(
-                create,
-                [
-                    "--name",
-                    agent_name,
-                    "--agent-cmd",
-                    "cat",
-                    "--edit-message",
-                    "--source",
-                    str(temp_work_dir),
-                    "--no-connect",
-                    "--await-ready",
-                    "--no-copy-work-dir",
-                    "--no-ensure-clean",
-                ],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
+    with tmux_session_cleanup(session_name):
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "cat",
+                "--edit-message",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
 
-            assert result.exit_code == 0, f"CLI failed with: {result.output}"
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
 
-            wait_for(
-                lambda: tmux_session_exists(session_name),
-                error_message=f"Expected tmux session {session_name} to exist",
-            )
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            error_message=f"Expected tmux session {session_name} to exist",
+        )
 
-            wait_for(
-                lambda: edited_message in capture_tmux_pane_contents(session_name),
-                error_message=f"Expected message '{edited_message}' to appear in tmux pane output",
-            )
-    finally:
-        restore_env_var("EDITOR", original_editor)
-        restore_env_var("VISUAL", original_visual)
+        wait_for(
+            lambda: edited_message in capture_tmux_pane_contents(session_name),
+            error_message=f"Expected message '{edited_message}' to appear in tmux pane output",
+        )
 
 
 def test_edit_message_with_initial_content(
@@ -671,6 +665,7 @@ def test_edit_message_with_initial_content(
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that --edit-message with --message uses the message as initial content."""
     agent_name = f"test-edit-initial-{int(time.time())}"
@@ -686,56 +681,49 @@ def test_edit_message_with_initial_content(
     editor_script.write_text(f'#!/bin/bash\ncp "$1" "{captured_file}"\necho -n "{edited_message}" > "$1"\n')
     editor_script.chmod(0o755)
 
-    original_editor = os.environ.get("EDITOR")
-    original_visual = os.environ.get("VISUAL")
-    try:
-        os.environ["EDITOR"] = str(editor_script)
-        if "VISUAL" in os.environ:
-            del os.environ["VISUAL"]
+    monkeypatch.setenv("EDITOR", str(editor_script))
+    monkeypatch.delenv("VISUAL", raising=False)
 
-        with tmux_session_cleanup(session_name):
-            result = cli_runner.invoke(
-                create,
-                [
-                    "--name",
-                    agent_name,
-                    "--agent-cmd",
-                    "cat",
-                    "--edit-message",
-                    "--message",
-                    initial_content,
-                    "--source",
-                    str(temp_work_dir),
-                    "--no-connect",
-                    "--await-ready",
-                    "--no-copy-work-dir",
-                    "--no-ensure-clean",
-                ],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
+    with tmux_session_cleanup(session_name):
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "cat",
+                "--edit-message",
+                "--message",
+                initial_content,
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
 
-            assert result.exit_code == 0, f"CLI failed with: {result.output}"
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
 
-            # Verify the captured initial content
-            assert captured_file.exists(), "Editor script should have captured the initial content"
-            captured_initial_content = captured_file.read_text()
-            assert captured_initial_content == initial_content, (
-                f"Expected initial content '{initial_content}' but got '{captured_initial_content}'"
-            )
+        # Verify the captured initial content
+        assert captured_file.exists(), "Editor script should have captured the initial content"
+        captured_initial_content = captured_file.read_text()
+        assert captured_initial_content == initial_content, (
+            f"Expected initial content '{initial_content}' but got '{captured_initial_content}'"
+        )
 
-            wait_for(
-                lambda: tmux_session_exists(session_name),
-                error_message=f"Expected tmux session {session_name} to exist",
-            )
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            error_message=f"Expected tmux session {session_name} to exist",
+        )
 
-            wait_for(
-                lambda: edited_message in capture_tmux_pane_contents(session_name),
-                error_message=f"Expected message '{edited_message}' to appear in tmux pane output",
-            )
-    finally:
-        restore_env_var("EDITOR", original_editor)
-        restore_env_var("VISUAL", original_visual)
+        wait_for(
+            lambda: edited_message in capture_tmux_pane_contents(session_name),
+            error_message=f"Expected message '{edited_message}' to appear in tmux pane output",
+        )
 
 
 def test_edit_message_incompatible_with_background_creation(
@@ -774,6 +762,7 @@ def test_edit_message_empty_content_does_not_send(
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that empty content from editor does not send a message."""
     agent_name = f"test-edit-empty-{int(time.time())}"
@@ -785,51 +774,44 @@ def test_edit_message_empty_content_does_not_send(
     editor_script.write_text('#!/bin/bash\necho -n "" > "$1"\n')
     editor_script.chmod(0o755)
 
-    original_editor = os.environ.get("EDITOR")
-    original_visual = os.environ.get("VISUAL")
-    try:
-        os.environ["EDITOR"] = str(editor_script)
-        if "VISUAL" in os.environ:
-            del os.environ["VISUAL"]
+    monkeypatch.setenv("EDITOR", str(editor_script))
+    monkeypatch.delenv("VISUAL", raising=False)
 
-        with tmux_session_cleanup(session_name):
-            result = cli_runner.invoke(
-                create,
-                [
-                    "--name",
-                    agent_name,
-                    "--agent-cmd",
-                    f"echo '{marker_text}' && cat",
-                    "--edit-message",
-                    "--source",
-                    str(temp_work_dir),
-                    "--no-connect",
-                    "--await-ready",
-                    "--no-copy-work-dir",
-                    "--no-ensure-clean",
-                ],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
+    with tmux_session_cleanup(session_name):
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                f"echo '{marker_text}' && cat",
+                "--edit-message",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
 
-            assert result.exit_code == 0, f"CLI failed with: {result.output}"
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
 
-            wait_for(
-                lambda: tmux_session_exists(session_name),
-                error_message=f"Expected tmux session {session_name} to exist",
-            )
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            error_message=f"Expected tmux session {session_name} to exist",
+        )
 
-            # Verify agent started (marker appears)
-            wait_for(
-                lambda: marker_text in capture_tmux_pane_contents(session_name),
-                error_message=f"Expected marker '{marker_text}' to appear in tmux pane output",
-            )
+        # Verify agent started (marker appears)
+        wait_for(
+            lambda: marker_text in capture_tmux_pane_contents(session_name),
+            error_message=f"Expected marker '{marker_text}' to appear in tmux pane output",
+        )
 
-            # Warning should be logged about no message being sent
-            assert "No message to send" in result.output or "empty" in result.output.lower()
-    finally:
-        restore_env_var("EDITOR", original_editor)
-        restore_env_var("VISUAL", original_visual)
+        # Warning should be logged about no message being sent
+        assert "No message to send" in result.output or "empty" in result.output.lower()
 
 
 def test_template_applies_values_from_config(

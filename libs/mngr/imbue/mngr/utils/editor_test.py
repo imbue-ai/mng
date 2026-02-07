@@ -1,9 +1,5 @@
 """Unit tests for the editor module."""
 
-import os
-import tempfile
-from collections.abc import Generator
-from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -11,11 +7,18 @@ import pytest
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.utils.editor import EditorSession
 from imbue.mngr.utils.editor import get_editor_command
-from imbue.mngr.utils.testing import restore_env_var
 
 
-@contextmanager
-def long_running_editor() -> Generator[str, None, None]:
+def _create_executable_script(tmp_path: Path, name: str, content: str) -> Path:
+    """Create an executable script in the given directory."""
+    script_path = tmp_path / name
+    script_path.write_text(content)
+    script_path.chmod(0o755)
+    return script_path
+
+
+@pytest.fixture
+def long_running_editor(tmp_path: Path) -> Path:
     """Create a temporary script that acts as a long-running editor.
 
     The script ignores its file argument and just sleeps, which is useful
@@ -25,57 +28,32 @@ def long_running_editor() -> Generator[str, None, None]:
 # Accept file argument but ignore it, just sleep
 sleep 10
 """
-    script_path: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-            f.write(script_content)
-            script_path = f.name
-        Path(script_path).chmod(0o755)
-        yield script_path
-    finally:
-        if script_path is not None:
-            Path(script_path).unlink(missing_ok=True)
+    return _create_executable_script(tmp_path, "long_editor.sh", script_content)
 
 
-def test_get_editor_command_uses_visual_env_var_first() -> None:
+def test_get_editor_command_uses_visual_env_var_first(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that $VISUAL is preferred over $EDITOR."""
-    original_visual = os.environ.get("VISUAL")
-    original_editor = os.environ.get("EDITOR")
-    try:
-        os.environ["VISUAL"] = "code"
-        os.environ["EDITOR"] = "vim"
-        assert get_editor_command() == "code"
-    finally:
-        restore_env_var("VISUAL", original_visual)
-        restore_env_var("EDITOR", original_editor)
+    monkeypatch.setenv("VISUAL", "code")
+    monkeypatch.setenv("EDITOR", "vim")
+    assert get_editor_command() == "code"
 
 
-def test_get_editor_command_uses_editor_when_visual_not_set() -> None:
+def test_get_editor_command_uses_editor_when_visual_not_set(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that $EDITOR is used when $VISUAL is not set."""
-    original_visual = os.environ.get("VISUAL")
-    original_editor = os.environ.get("EDITOR")
-    try:
-        os.environ.pop("VISUAL", None)
-        os.environ["EDITOR"] = "nano"
-        assert get_editor_command() == "nano"
-    finally:
-        restore_env_var("VISUAL", original_visual)
-        restore_env_var("EDITOR", original_editor)
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.setenv("EDITOR", "nano")
+    assert get_editor_command() == "nano"
 
 
-def test_get_editor_command_falls_back_to_default_when_no_env_vars() -> None:
+def test_get_editor_command_falls_back_to_default_when_no_env_vars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that a fallback editor is used when env vars are not set."""
-    original_visual = os.environ.get("VISUAL")
-    original_editor = os.environ.get("EDITOR")
-    try:
-        os.environ.pop("VISUAL", None)
-        os.environ.pop("EDITOR", None)
-        result = get_editor_command()
-        # Should find one of the fallback editors or return vim as last resort
-        assert result in ("vim", "vi", "nano", "notepad")
-    finally:
-        restore_env_var("VISUAL", original_visual)
-        restore_env_var("EDITOR", original_editor)
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.delenv("EDITOR", raising=False)
+    result = get_editor_command()
+    # Should find one of the fallback editors or return vim as last resort
+    assert result in ("vim", "vi", "nano", "notepad")
 
 
 def test_editor_session_create_with_no_initial_content() -> None:
@@ -98,22 +76,20 @@ def test_editor_session_create_with_initial_content() -> None:
         session.cleanup()
 
 
-def test_editor_session_start_raises_if_already_started() -> None:
+def test_editor_session_start_raises_if_already_started(
+    long_running_editor: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that start() raises if session was already started."""
-    original_editor = os.environ.get("EDITOR")
+    # Use a long-running script so the process doesn't exit immediately
+    monkeypatch.setenv("EDITOR", str(long_running_editor))
+    session = EditorSession.create()
     try:
-        # Use a long-running script so the process doesn't exit immediately
-        with long_running_editor() as editor_path:
-            os.environ["EDITOR"] = editor_path
-            session = EditorSession.create()
-            try:
-                session.start()
-                with pytest.raises(UserInputError, match="already started"):
-                    session.start()
-            finally:
-                session.cleanup()
+        session.start()
+        with pytest.raises(UserInputError, match="already started"):
+            session.start()
     finally:
-        restore_env_var("EDITOR", original_editor)
+        session.cleanup()
 
 
 def test_editor_session_is_running_returns_false_before_start() -> None:
@@ -125,21 +101,19 @@ def test_editor_session_is_running_returns_false_before_start() -> None:
         session.cleanup()
 
 
-def test_editor_session_is_running_returns_true_when_process_running() -> None:
+def test_editor_session_is_running_returns_true_when_process_running(
+    long_running_editor: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that is_running() returns True when process is running."""
-    original_editor = os.environ.get("EDITOR")
+    # Use a long-running script so the process stays running
+    monkeypatch.setenv("EDITOR", str(long_running_editor))
+    session = EditorSession.create()
     try:
-        # Use a long-running script so the process stays running
-        with long_running_editor() as editor_path:
-            os.environ["EDITOR"] = editor_path
-            session = EditorSession.create()
-            try:
-                session.start()
-                assert session.is_running() is True
-            finally:
-                session.cleanup()
+        session.start()
+        assert session.is_running() is True
     finally:
-        restore_env_var("EDITOR", original_editor)
+        session.cleanup()
 
 
 def test_editor_session_wait_for_result_raises_if_not_started() -> None:
@@ -152,78 +126,70 @@ def test_editor_session_wait_for_result_raises_if_not_started() -> None:
         session.cleanup()
 
 
-def test_editor_session_wait_for_result_returns_content_on_success() -> None:
+def test_editor_session_wait_for_result_returns_content_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that wait_for_result() returns content when editor exits successfully."""
-    original_editor = os.environ.get("EDITOR")
+    # Use 'true' which exits immediately with code 0
+    monkeypatch.setenv("EDITOR", "true")
+    session = EditorSession.create()
     try:
-        # Use 'true' which exits immediately with code 0
-        os.environ["EDITOR"] = "true"
-        session = EditorSession.create()
-        try:
-            # Write content to temp file before starting
-            # (simulates what the user would do in the editor)
-            session.temp_file_path.write_text("Edited content")
-            session.start()
-            result = session.wait_for_result()
-            assert result == "Edited content"
-        finally:
-            session.cleanup()
+        # Write content to temp file before starting
+        # (simulates what the user would do in the editor)
+        session.temp_file_path.write_text("Edited content")
+        session.start()
+        result = session.wait_for_result()
+        assert result == "Edited content"
     finally:
-        restore_env_var("EDITOR", original_editor)
+        session.cleanup()
 
 
-def test_editor_session_wait_for_result_returns_none_on_non_zero_exit() -> None:
+def test_editor_session_wait_for_result_returns_none_on_non_zero_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that wait_for_result() returns None when editor exits with error."""
-    original_editor = os.environ.get("EDITOR")
+    # Use 'false' which exits with code 1
+    monkeypatch.setenv("EDITOR", "false")
+    session = EditorSession.create()
     try:
-        # Use 'false' which exits with code 1
-        os.environ["EDITOR"] = "false"
-        session = EditorSession.create()
-        try:
-            session.start()
-            result = session.wait_for_result()
-            assert result is None
-        finally:
-            session.cleanup()
+        session.start()
+        result = session.wait_for_result()
+        assert result is None
     finally:
-        restore_env_var("EDITOR", original_editor)
+        session.cleanup()
 
 
-def test_editor_session_wait_for_result_returns_none_on_empty_content() -> None:
+def test_editor_session_wait_for_result_returns_none_on_empty_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that wait_for_result() returns None when content is empty."""
-    original_editor = os.environ.get("EDITOR")
+    # Use 'true' which exits with code 0 but doesn't modify the file
+    monkeypatch.setenv("EDITOR", "true")
+    session = EditorSession.create()
     try:
-        # Use 'true' which exits with code 0 but doesn't modify the file
-        os.environ["EDITOR"] = "true"
-        session = EditorSession.create()
-        try:
-            # File is empty by default after create
-            session.start()
-            result = session.wait_for_result()
-            assert result is None
-        finally:
-            session.cleanup()
+        # File is empty by default after create
+        session.start()
+        result = session.wait_for_result()
+        assert result is None
     finally:
-        restore_env_var("EDITOR", original_editor)
+        session.cleanup()
 
 
-def test_editor_session_wait_for_result_strips_trailing_whitespace() -> None:
+def test_editor_session_wait_for_result_strips_trailing_whitespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that wait_for_result() strips trailing whitespace."""
-    original_editor = os.environ.get("EDITOR")
+    # Use 'true' which exits with code 0 but doesn't modify the file
+    monkeypatch.setenv("EDITOR", "true")
+    session = EditorSession.create()
     try:
-        # Use 'true' which exits with code 0 but doesn't modify the file
-        os.environ["EDITOR"] = "true"
-        session = EditorSession.create()
-        try:
-            # Write content with trailing whitespace
-            session.temp_file_path.write_text("Content with whitespace  \n\n")
-            session.start()
-            result = session.wait_for_result()
-            assert result == "Content with whitespace"
-        finally:
-            session.cleanup()
+        # Write content with trailing whitespace
+        session.temp_file_path.write_text("Content with whitespace  \n\n")
+        session.start()
+        result = session.wait_for_result()
+        assert result == "Content with whitespace"
     finally:
-        restore_env_var("EDITOR", original_editor)
+        session.cleanup()
 
 
 def test_editor_session_cleanup_removes_temp_file() -> None:
@@ -237,92 +203,78 @@ def test_editor_session_cleanup_removes_temp_file() -> None:
     assert not temp_path.exists()
 
 
-def test_editor_session_cleanup_terminates_running_process() -> None:
+def test_editor_session_cleanup_terminates_running_process(
+    long_running_editor: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that cleanup() terminates a running editor process."""
-    original_editor = os.environ.get("EDITOR")
+    # Use a long-running script so the process stays running
+    monkeypatch.setenv("EDITOR", str(long_running_editor))
+    session = EditorSession.create()
     try:
-        # Use a long-running script so the process stays running
-        with long_running_editor() as editor_path:
-            os.environ["EDITOR"] = editor_path
-            session = EditorSession.create()
-            try:
-                session.start()
-                # Verify process is running
-                assert session.is_running() is True
-                # Cleanup should terminate it
-                session.cleanup()
-                # Process should no longer be running
-                assert session.is_running() is False
-            finally:
-                # Cleanup already done, but make sure temp file is gone
-                if session.temp_file_path.exists():
-                    session.temp_file_path.unlink()
+        session.start()
+        # Verify process is running
+        assert session.is_running() is True
+        # Cleanup should terminate it
+        session.cleanup()
+        # Process should no longer be running
+        assert session.is_running() is False
     finally:
-        restore_env_var("EDITOR", original_editor)
+        # Cleanup already done, but make sure temp file is gone
+        if session.temp_file_path.exists():
+            session.temp_file_path.unlink()
 
 
-def test_editor_session_cleanup_handles_stubborn_process() -> None:
+def test_editor_session_cleanup_handles_stubborn_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that cleanup() can handle a process that requires killing."""
     # Create a script that ignores SIGTERM
     script_content = """#!/bin/bash
 trap "" SIGTERM
 sleep 100
 """
-    original_editor = os.environ.get("EDITOR")
-    script_path: str | None = None
+    script_path = _create_executable_script(tmp_path, "stubborn_editor.sh", script_content)
+
+    monkeypatch.setenv("EDITOR", str(script_path))
+    session = EditorSession.create()
     try:
-        # Create temp script file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-            f.write(script_content)
-            script_path = f.name
-        Path(script_path).chmod(0o755)
-
-        os.environ["EDITOR"] = script_path
-        session = EditorSession.create()
-        try:
-            session.start()
-            # Verify process is running
-            assert session.is_running() is True
-            # Cleanup should kill it after terminate fails
-            session.cleanup()
-            # Process should no longer be running (was killed)
-            assert session.is_running() is False
-        finally:
-            if session.temp_file_path.exists():
-                session.temp_file_path.unlink()
+        session.start()
+        # Verify process is running
+        assert session.is_running() is True
+        # Cleanup should kill it after terminate fails
+        session.cleanup()
+        # Process should no longer be running (was killed)
+        assert session.is_running() is False
     finally:
-        restore_env_var("EDITOR", original_editor)
-        if script_path is not None:
-            Path(script_path).unlink(missing_ok=True)
+        if session.temp_file_path.exists():
+            session.temp_file_path.unlink()
 
 
-def test_editor_session_is_finished_returns_false_before_wait() -> None:
+def test_editor_session_is_finished_returns_false_before_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that is_finished() returns False before waiting for result."""
-    original_editor = os.environ.get("EDITOR")
+    monkeypatch.setenv("EDITOR", "true")
+    session = EditorSession.create()
     try:
-        os.environ["EDITOR"] = "true"
-        session = EditorSession.create()
-        try:
-            session.start()
-            # Process might have finished but we haven't called wait_for_result yet
-            assert session.is_finished() is False
-        finally:
-            session.cleanup()
+        session.start()
+        # Process might have finished but we haven't called wait_for_result yet
+        assert session.is_finished() is False
     finally:
-        restore_env_var("EDITOR", original_editor)
+        session.cleanup()
 
 
-def test_editor_session_is_finished_returns_true_after_wait() -> None:
+def test_editor_session_is_finished_returns_true_after_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that is_finished() returns True after waiting for result."""
-    original_editor = os.environ.get("EDITOR")
+    monkeypatch.setenv("EDITOR", "true")
+    session = EditorSession.create()
     try:
-        os.environ["EDITOR"] = "true"
-        session = EditorSession.create()
-        try:
-            session.start()
-            session.wait_for_result()
-            assert session.is_finished() is True
-        finally:
-            session.cleanup()
+        session.start()
+        session.wait_for_result()
+        assert session.is_finished() is True
     finally:
-        restore_env_var("EDITOR", original_editor)
+        session.cleanup()
