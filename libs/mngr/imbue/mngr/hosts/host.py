@@ -1432,10 +1432,6 @@ class Host(BaseHost, OnlineHostInterface):
             logger.trace("Prepending to file: {}", prepend_spec.remote_path)
             self._prepend_to_file(prepend_spec.remote_path, prepend_spec.text)
 
-        # FIXME: we need another step here, like the below, but that gets the host env vars over there as well
-        #  They're already defined in the options and they're already sourced below in _build_source_env_prefix,
-        #  it's just a matter of getting the host env vars into the right place in the first place
-
         # 9. Write environment variables to agent env file
         env_vars = self._collect_agent_env_vars(agent, options)
         self._write_agent_env_file(agent, env_vars)
