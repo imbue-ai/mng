@@ -9,8 +9,12 @@ from click.core import ParameterSource
 from imbue.mngr.cli.common_opts import _run_pre_command_scripts
 from imbue.mngr.cli.common_opts import _run_single_script
 from imbue.mngr.cli.common_opts import apply_config_defaults
+from imbue.mngr.cli.common_opts import apply_create_template
 from imbue.mngr.config.data_types import CommandDefaults
+from imbue.mngr.config.data_types import CreateTemplate
+from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import MngrConfig
+from imbue.mngr.errors import UserInputError
 
 
 def test_run_single_script_success() -> None:
@@ -167,3 +171,147 @@ def test_apply_config_defaults_empty_string_does_not_affect_non_tuple_params(mng
 
     # Empty string should be kept as-is for non-tuple params
     assert result["name"] == ""
+
+
+# Tests for apply_create_template
+
+
+def test_apply_create_template_no_templates(mngr_test_prefix: str) -> None:
+    """apply_create_template should return params unchanged when no templates specified."""
+    ctx = MagicMock(spec=click.Context)
+    ctx.params = {"template": (), "name": "default"}
+    params = ctx.params.copy()
+    config = MngrConfig(prefix=mngr_test_prefix)
+
+    result = apply_create_template(ctx, params, config)
+
+    assert result == params
+
+
+def test_apply_create_template_single_template(mngr_test_prefix: str) -> None:
+    """apply_create_template should apply a single template's values."""
+    ctx = MagicMock(spec=click.Context)
+    ctx.params = {"template": ("mytemplate",), "new_host": None, "name": "default"}
+    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
+
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={
+            CreateTemplateName("mytemplate"): CreateTemplate(options={"new_host": "modal"}),
+        },
+    )
+
+    result = apply_create_template(ctx, ctx.params.copy(), config)
+
+    assert result["new_host"] == "modal"
+
+
+def test_apply_create_template_multiple_templates_stack(mngr_test_prefix: str) -> None:
+    """apply_create_template should stack multiple templates in order."""
+    ctx = MagicMock(spec=click.Context)
+    ctx.params = {
+        "template": ("host-template", "agent-template"),
+        "new_host": None,
+        "agent_type": None,
+        "name": "default",
+    }
+    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
+
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={
+            CreateTemplateName("host-template"): CreateTemplate(options={"new_host": "modal"}),
+            CreateTemplateName("agent-template"): CreateTemplate(options={"agent_type": "codex"}),
+        },
+    )
+
+    result = apply_create_template(ctx, ctx.params.copy(), config)
+
+    assert result["new_host"] == "modal"
+    assert result["agent_type"] == "codex"
+
+
+def test_apply_create_template_later_template_overrides_earlier(mngr_test_prefix: str) -> None:
+    """apply_create_template should let later templates override earlier ones for the same key."""
+    ctx = MagicMock(spec=click.Context)
+    ctx.params = {
+        "template": ("first", "second"),
+        "new_host": None,
+    }
+    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
+
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={
+            CreateTemplateName("first"): CreateTemplate(options={"new_host": "docker"}),
+            CreateTemplateName("second"): CreateTemplate(options={"new_host": "modal"}),
+        },
+    )
+
+    result = apply_create_template(ctx, ctx.params.copy(), config)
+
+    assert result["new_host"] == "modal"
+
+
+def test_apply_create_template_cli_args_override_all_templates(mngr_test_prefix: str) -> None:
+    """apply_create_template should not override CLI-specified values even with multiple templates."""
+    ctx = MagicMock(spec=click.Context)
+    ctx.params = {
+        "template": ("first", "second"),
+        "new_host": "local",
+    }
+
+    def mock_get_parameter_source(param_name: str) -> ParameterSource:
+        if param_name == "new_host":
+            return ParameterSource.COMMANDLINE
+        return ParameterSource.DEFAULT
+
+    ctx.get_parameter_source.side_effect = mock_get_parameter_source
+
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={
+            CreateTemplateName("first"): CreateTemplate(options={"new_host": "docker"}),
+            CreateTemplateName("second"): CreateTemplate(options={"new_host": "modal"}),
+        },
+    )
+
+    result = apply_create_template(ctx, ctx.params.copy(), config)
+
+    assert result["new_host"] == "local"
+
+
+def test_apply_create_template_unknown_template_raises_error(mngr_test_prefix: str) -> None:
+    """apply_create_template should raise UserInputError for unknown template."""
+    ctx = MagicMock(spec=click.Context)
+    ctx.params = {"template": ("nonexistent",)}
+
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={
+            CreateTemplateName("existing"): CreateTemplate(options={"new_host": "modal"}),
+        },
+    )
+
+    with pytest.raises(UserInputError, match="Template 'nonexistent' not found"):
+        apply_create_template(ctx, ctx.params.copy(), config)
+
+
+def test_apply_create_template_second_template_unknown_raises_error(mngr_test_prefix: str) -> None:
+    """apply_create_template should raise UserInputError if any template in the list is unknown."""
+    ctx = MagicMock(spec=click.Context)
+    ctx.params = {
+        "template": ("existing", "nonexistent"),
+        "new_host": None,
+    }
+    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
+
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        create_templates={
+            CreateTemplateName("existing"): CreateTemplate(options={"new_host": "modal"}),
+        },
+    )
+
+    with pytest.raises(UserInputError, match="Template 'nonexistent' not found"):
+        apply_create_template(ctx, ctx.params.copy(), config)
