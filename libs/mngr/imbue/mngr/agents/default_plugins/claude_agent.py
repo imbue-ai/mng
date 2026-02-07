@@ -119,7 +119,7 @@ class ClaudeAgent(BaseAgent):
             args_str += self.agent_config.cli_args
 
         if agent_args:
-            args_str += " " + " ".join(agent_args)
+            args_str = (args_str + " ").lstrip() + " ".join(agent_args)
 
         # Build both command variants
         resume_cmd = f"( find ~/.claude/ -name '{agent_uuid}' | grep . ) && {base} --resume {agent_uuid}"

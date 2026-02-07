@@ -97,7 +97,7 @@ def test_claude_agent_assemble_command_with_agent_args(mngr_test_prefix: str, te
 
     uuid = agent_id.get_uuid()
     assert command == CommandString(
-        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid}  --model opus ) || claude --session-id {uuid}  --model opus"
+        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
     )
 
 
@@ -157,7 +157,7 @@ def test_claude_agent_assemble_command_with_command_override(mngr_test_prefix: s
 
     uuid = agent_id.get_uuid()
     assert command == CommandString(
-        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && custom-claude --resume {uuid}  --model opus ) || custom-claude --session-id {uuid}  --model opus"
+        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
     )
 
 
