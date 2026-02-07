@@ -219,6 +219,10 @@ class _TestProviderInstance(ProviderInstanceInterface):
         return False
 
     @property
+    def supports_shutdown_hosts(self) -> bool:
+        return True
+
+    @property
     def supports_volumes(self) -> bool:
         return False
 

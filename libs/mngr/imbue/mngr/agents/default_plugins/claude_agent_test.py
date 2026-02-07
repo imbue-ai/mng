@@ -2,7 +2,6 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from unittest.mock import Mock
-from uuid import uuid4
 
 import pluggy
 import pytest
@@ -12,20 +11,12 @@ from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
-
-
-@pytest.fixture
-def temp_profile_dir(tmp_path: Path) -> Path:
-    profile_dir = tmp_path / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return profile_dir
 
 
 def test_claude_agent_config_has_default_command() -> None:

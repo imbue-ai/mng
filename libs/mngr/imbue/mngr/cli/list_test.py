@@ -39,6 +39,7 @@ def _create_test_agent(snapshots: list[SnapshotInfo] | None = None) -> AgentInfo
         name="test-host",
         provider_name=ProviderInstanceName("local"),
         snapshots=snapshots or [],
+        state="running",
     )
     return AgentInfo(
         id=AgentId.generate(),
@@ -516,6 +517,7 @@ def _create_test_agent_with_name(name: str) -> AgentInfo:
         name="test-host",
         provider_name=ProviderInstanceName("local"),
         snapshots=[],
+        state="running",
     )
     return AgentInfo(
         id=AgentId.generate(),

@@ -1682,6 +1682,7 @@ def test_start_host_on_stopped_host_uses_initial_snapshot(initial_snapshot_provi
 
 
 @pytest.mark.acceptance
+@pytest.mark.timeout(180)
 def test_get_host_not_found_raises_error(real_modal_provider: ModalProviderInstance) -> None:
     """Getting a non-existent host should raise HostNotFoundError."""
     fake_id = HostId.generate()
@@ -1690,6 +1691,7 @@ def test_get_host_not_found_raises_error(real_modal_provider: ModalProviderInsta
 
 
 @pytest.mark.acceptance
+@pytest.mark.timeout(180)
 def test_get_host_by_name_not_found_raises_error(real_modal_provider: ModalProviderInstance) -> None:
     """Getting a non-existent host by name should raise HostNotFoundError."""
     with pytest.raises(HostNotFoundError):

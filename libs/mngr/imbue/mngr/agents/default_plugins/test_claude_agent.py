@@ -9,8 +9,6 @@ to main. To run them locally:
 """
 
 import subprocess
-import tempfile
-from collections.abc import Generator
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,13 +18,13 @@ from imbue.mngr.conftest import ModalSubprocessTestEnv
 
 
 @pytest.fixture
-def temp_source_dir() -> Generator[Path, None, None]:
+def temp_source_dir(tmp_path: Path) -> Path:
     """Create a temporary source directory for tests."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        source_dir = Path(tmpdir)
-        # Create a simple file so the directory isn't empty
-        (source_dir / "test.txt").write_text("test content")
-        yield source_dir
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    # Create a simple file so the directory isn't empty
+    (source_dir / "test.txt").write_text("test content")
+    return source_dir
 
 
 @pytest.mark.release

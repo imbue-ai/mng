@@ -1,6 +1,9 @@
 import json
 import os
 import re
+import shutil
+import signal
+import socket
 import subprocess
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -12,6 +15,7 @@ from typing import Final
 from uuid import uuid4
 
 import pluggy
+import pytest
 from loguru import logger
 
 from imbue.mngr.config.data_types import MngrConfig
@@ -20,6 +24,7 @@ from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.utils.polling import wait_for
 
 # Prefix used for test environments
 MODAL_TEST_ENV_PREFIX: Final[str] = "mngr_test-"
@@ -29,19 +34,6 @@ MODAL_TEST_ENV_PREFIX: Final[str] = "mngr_test-"
 MODAL_TEST_ENV_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"^mngr_test-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})"
 )
-
-
-# FIXME: this is stupid--replace with a context manager instead. Do we already have one? Is there a built-in pytest fixture for this?
-def restore_env_var(name: str, original_value: str | None) -> None:
-    """Restore an environment variable to its original value.
-
-    Use this in test cleanup to restore environment variables that were modified
-    during test execution. Pass the original value (or None if it was not set).
-    """
-    if original_value is None:
-        os.environ.pop(name, None)
-    else:
-        os.environ[name] = original_value
 
 
 def get_subprocess_test_env(
@@ -407,3 +399,147 @@ def cleanup_old_modal_test_environments(
         delete_modal_environment(env_name)
 
     return len(old_envs)
+
+
+# =============================================================================
+# SSH test utilities
+# =============================================================================
+
+
+def find_free_port() -> int:
+    """Find a free port on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def is_port_open(port: int) -> bool:
+    """Check if a port is open and accepting connections."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1.0)
+            s.connect(("127.0.0.1", port))
+            return True
+    except (OSError, socket.timeout):
+        return False
+
+
+def generate_ssh_keypair(base_path: Path) -> tuple[Path, Path]:
+    """Generate an SSH keypair for testing.
+
+    Returns (private_key_path, public_key_path) tuple.
+    """
+    key_dir = base_path / "ssh_keys"
+    key_dir.mkdir()
+    key_path = key_dir / "id_ed25519"
+    subprocess.run(
+        [
+            "ssh-keygen",
+            "-t",
+            "ed25519",
+            "-f",
+            str(key_path),
+            "-N",
+            "",
+            "-q",
+        ],
+        check=True,
+    )
+    return key_path, Path(f"{key_path}.pub")
+
+
+@contextmanager
+def local_sshd(
+    authorized_keys_content: str,
+    base_path: Path,
+) -> Generator[tuple[int, Path], None, None]:
+    """Start a local sshd instance for testing.
+
+    Yields (port, host_key_path) tuple.
+    """
+    # Check if sshd is available
+    sshd_path = shutil.which("sshd")
+    if sshd_path is None:
+        pytest.skip("sshd not found - install openssh-server")
+    # Assert needed for type narrowing since pytest.skip is typed as NoReturn
+    assert sshd_path is not None
+
+    # Ensure ~/.ssh directory exists for pyinfra's known_hosts handling
+    ssh_dir = Path.home() / ".ssh"
+    ssh_dir.mkdir(exist_ok=True)
+
+    port = find_free_port()
+
+    sshd_dir = base_path / "sshd"
+    sshd_dir.mkdir()
+
+    # Create directories
+    etc_dir = sshd_dir / "etc"
+    run_dir = sshd_dir / "run"
+    etc_dir.mkdir()
+    run_dir.mkdir()
+
+    # Generate host key
+    host_key_path = etc_dir / "ssh_host_ed25519_key"
+    subprocess.run(
+        [
+            "ssh-keygen",
+            "-t",
+            "ed25519",
+            "-f",
+            str(host_key_path),
+            "-N",
+            "",
+            "-q",
+        ],
+        check=True,
+    )
+
+    # Create authorized_keys
+    authorized_keys_path = sshd_dir / "authorized_keys"
+    authorized_keys_path.write_text(authorized_keys_content)
+
+    # Create sshd_config
+    sshd_config_path = etc_dir / "sshd_config"
+    current_user = os.environ.get("USER", "root")
+    sshd_config = f"""
+Port {port}
+ListenAddress 127.0.0.1
+HostKey {host_key_path}
+AuthorizedKeysFile {authorized_keys_path}
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+UsePAM no
+PermitRootLogin yes
+PidFile {run_dir}/sshd.pid
+StrictModes no
+Subsystem sftp /usr/lib/openssh/sftp-server
+AllowUsers {current_user}
+"""
+    sshd_config_path.write_text(sshd_config)
+
+    # Start sshd
+    proc = subprocess.Popen(
+        [sshd_path, "-D", "-f", str(sshd_config_path), "-e"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    try:
+        # Wait for sshd to start
+        wait_for(
+            lambda: is_port_open(port),
+            timeout=10.0,
+            error_message="sshd failed to start within timeout",
+        )
+
+        yield port, host_key_path
+
+    finally:
+        # Stop sshd
+        proc.send_signal(signal.SIGTERM)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()

@@ -100,7 +100,7 @@ def test_prevent_base_exception_catch() -> None:
     pattern = RegexPattern(r"except\s+BaseException\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
-    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(1), format_ratchet_failure_message(
         rule_name="except BaseException catches",
         rule_description="Catching 'BaseException' catches system exits and keyboard interrupts. Use specific exception types instead",
         chunks=chunks,

@@ -22,7 +22,6 @@ from imbue.concurrency_group.event_utils import MutableEvent
 from imbue.concurrency_group.event_utils import ReadOnlyEvent
 from imbue.imbue_common.frozen_model import FrozenModel
 
-
 # Received a shutdown signal
 SUBPROCESS_STOPPED_BY_REQUEST_EXIT_CODE: Final[int] = -9999
 
