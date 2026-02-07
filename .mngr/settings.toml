@@ -8,7 +8,8 @@ build_args = "dockerfile=libs/mngr/imbue/mngr/resources/Dockerfile context-dir=.
 
 [create_templates.coder]
 agent_type = "coder"
-add_command = ["reviewer_0=claude --dangerously-skip-permissions"]
+add_command = ["reviewer_0='export IS_SANDBOX=1 && claude --dangerously-skip-permissions'", "github_setup='ssh-keyscan github.com >> ~/.ssh/known_hosts && gh auth setup-git'"]
+agent_args = [" --dangerously-skip-permissions"]
 
 [agent_types.coder]
 parent_type = "claude"
@@ -16,8 +17,10 @@ cli_args = """--settings '{"hooks": {"Stop": [{"hooks": [{"type": "command", "co
 
 [providers.modal]
 is_enabled = true
+default_cpu = 4
+default_memory = 8
 default_idle_timeout = 600
-default_sandbox_timeout = 900
+default_sandbox_timeout = 7200
 
 [providers.modal_github]
 backend = "modal"
