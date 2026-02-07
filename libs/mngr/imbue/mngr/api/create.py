@@ -81,10 +81,6 @@ def create(
     host = resolve_target_host(target_host, mngr_ctx)
     logger.trace("Resolved to host id={} name={}", host.id, host.connector.name)
 
-    # Write host environment variables to the host env file (if creating a new host)
-    if isinstance(target_host, NewHostOptions):
-        _write_host_env_vars(host, target_host.environment)
-
     # while we are deploying an agent, lock the host:
     with host.lock_cooperatively():
         # Create the agent's work_dir on the host
@@ -166,7 +162,6 @@ def resolve_target_host(
         # Create a new host using the specified provider
         logger.debug("Creating new host '{}' using provider '{}'", target_host.name, target_host.provider)
         provider = get_provider_instance(target_host.provider, mngr_ctx)
-
         logger.trace(
             "Creating host with tags={} build_args={} start_args={} lifecycle={} known_hosts={}",
             target_host.tags,
@@ -175,7 +170,7 @@ def resolve_target_host(
             target_host.lifecycle,
             len(target_host.environment.known_hosts),
         )
-        return provider.create_host(
+        new_host = provider.create_host(
             name=target_host.name,
             tags=target_host.tags,
             build_args=target_host.build.build_args,
@@ -183,6 +178,13 @@ def resolve_target_host(
             lifecycle=target_host.lifecycle,
             known_hosts=target_host.environment.known_hosts,
         )
+
+        # Write host environment variables to the host env file (if creating a new host)
+        if isinstance(target_host, NewHostOptions):
+            _write_host_env_vars(new_host, target_host.environment)
+
+        # and return it
+        return new_host
     else:
         # already have the host
         logger.trace("Using existing host id={}", target_host.id)
