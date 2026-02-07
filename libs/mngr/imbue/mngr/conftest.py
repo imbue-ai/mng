@@ -151,6 +151,13 @@ def setup_test_mngr_env(
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
     monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
 
+    # On macOS, unison defaults to $HOME/Library/Application Support/Unison
+    # for its config directory. Since HOME points to tmp_path, that path
+    # doesn't exist and unison fails. Set UNISON to override the config dir.
+    unison_dir = tmp_path / ".unison"
+    unison_dir.mkdir(exist_ok=True)
+    monkeypatch.setenv("UNISON", str(unison_dir))
+
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.
     actual_home = Path.home()
