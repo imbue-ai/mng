@@ -4,13 +4,13 @@ All agent data is stored in the folder defined by the `MNGR_AGENT_STATE_DIR` env
 
 The agent ID is set at creation time and is immutable.
 
-A tmux session is associated with an agent if its name matches the expected name (`$MNGR_PREFIX-<name>`, where `<name>` is the contents of `$MNGR_AGENT_STATE_DIR/name`).
+The agent name can be determined by stripping the $MNGR_PREFIX env var from the name of the controlling tmux session.
 
 The state of the agent is based on whether the expected `command` is running inside the first pane for the tmux session.
 
 By convention, the agent directory also contains subdirectories for `logs/` and `events/`.
 
-The agent directory should also include a `env` file with any environment variable overrides for this agent (it will be sourced after the host-level `env` file).
+The agent directory should also include an `env` file with any environment variable overrides for this agent (it will be sourced after the host-level `env` file).
 
 ## State
 
@@ -21,25 +21,18 @@ Agent state is separated into two classes:
 
 ### Certified Fields
 
-| JSON Path (within agent `data.json`) | Notes                                             |
-|--------------------------------------|---------------------------------------------------|
-| `id`                                 | Unique identifier.                                |
-| `name`                               | Human-readable name                               |
-| `type`                               | Agent type (claude, codex, etc.)                  |
-| `command`                            | The command used to start the agent               |
-| `work_dir`                           | Working directory for this agent                  |
-| `permissions`                        | List of permissions assigned to this agent        |
-| `create_time`                        | When the agent was created                        |
-| `start_on_boot`                      | If present and true, the agent will start at boot |
-| `plugin.*`                           | Plugin-specific (certified) state                 |
-
-### Inlined certified fields
-
-When agents are reported from the CLI, certain other fields are inlined into the JSON to make it more convenient for users:
-
-| JSON Path (within CLI json objects) | Notes                                             |
-|-------------------------------------|---------------------------------------------------|
-| `host.*`                            | Host-specific state, see [host.md](./host.md)     |
+| JSON Path (within `data.json`) | Notes                                             |
+|--------------------------------|---------------------------------------------------|
+| `id`                           | Unique identifier.                                |
+| `name`                         | Human-readable name                               |
+| `type`                         | Agent type (claude, codex, etc.)                  |
+| `command`                      | The command used to start the agent               |
+| `work_dir`                     | Working directory for this agent                  |
+| `permissions`                  | List of permissions assigned to this agent        |
+| `create_time`                  | When the agent was created                        |
+| `start_on_boot`                | If present and true, the agent will start at boot |
+| `plugin.*`                     | Plugin-specific (certified) state                 |
+| `host.*`                       | Host-specific state, see [host.md](./host.md)     |
 
 ### Reported Fields
 

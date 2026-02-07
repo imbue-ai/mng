@@ -1,4 +1,4 @@
-# User Activity Tracking via Web Spec
+# User Activity Tracking via Web Spec [future]
 
 This plugin tracks user activity in web interfaces to prevent hosts from idling while the user is active.
 

@@ -1,4 +1,4 @@
-## Resource Cleanup
+## Resource Cleanup [future]
 
 - `--keep-nothing`: Do not preserve any resources when destroying agents (default behavior)
 - `--keep-containers`: Preserve Docker/Modal containers/sandboxes/local folders when destroying agents

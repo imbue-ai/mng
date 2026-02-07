@@ -27,10 +27,9 @@ If both files exist, they are merged with project scope taking precedence.
 ### Example TOML
 
 ```toml
-# Environment settings
-[env]
+# Common settings
 prefix = "mngr-"
-host_dir = "~/.mngr"
+default_host_dir = "~/.mngr"
 
 # Custom agent types
 [agent_types.my_claude]
@@ -77,4 +76,4 @@ Command defaults can also be set via environment variables using the pattern `MN
 
 ## Validation Rules
 
-The following validations are performed at load time:
+Type validation is performd when configs are loaded. Plugins will try to validate data at load time, but not everything is easy to validate at load time.

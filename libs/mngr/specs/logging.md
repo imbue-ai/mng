@@ -52,13 +52,13 @@ max_log_files = 1000
 # Maximum size of each log file before rotation
 max_log_size_mb = 10
 
-# Whether to log what commands were executed
+# Whether to log what commands were executed [future]
 is_logging_commands = true
 
-# Whether to log stdout/stderr from executed commands
+# Whether to log stdout/stderr from executed commands [future]
 is_logging_command_output = false
 
-# Whether to log environment variables (security risk)
+# Whether to log environment variables (security risk) [future]
 is_logging_env_vars = false
 ```
 
@@ -110,7 +110,7 @@ Logs are structured JSON (one JSON object per line) containing:
 
 ## Sensitive Data
 
-### Environment Variable Redaction
+### Environment Variable Redaction [future]
 
 Environment variables are **redacted from logs by default** for security. This prevents accidental leakage of:
 - API keys or tokens

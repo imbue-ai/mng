@@ -1,4 +1,4 @@
-# mngr clone - CLI Options Reference
+# mngr clone [future] - CLI Options Reference
 
 Create a new agent by cloning an existing one.
 

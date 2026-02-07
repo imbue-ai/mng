@@ -40,13 +40,13 @@ Except for the contents of `data.json` (which is signed), data in the host direc
 
 Note that this includes many of the underlying fields required for idle detection--there's no way to guarantee these, since, for example, an agent could always just slowly emit updates and keep updating the agent activity time.
 
-| Field                 | Notes                                                                                   | Storage Location (in `$MNGR_HOST_DIR/`) |
-|-----------------------|-----------------------------------------------------------------------------------------|-----------------------------------------|
-| `agent_activity_time` | When there was last activity from an agent                                              | `activity/agent`                        |
-| `user_activity_time`  | When there was last activity from the user                                              | `activity/user`                         |
-| `ssh_activity_time`   | When we last noticed an active ssh connection                                           | `activity/ssh`                          |
-| `is_locked`           | Cooperative locking to prevent multiple instances of mngr from operating simultaneously | `host_lock`                             |
-| `lock_time`           | mtime of the `host_lock` file                                                           | `host_lock`                             |
-| `plugin.*`            | Plugin-specific (reported) host state                                                   | `plugin/<plugin>/*`                     |
+| Field                 | Notes                                                                                                                                                         | Storage Location (in `$MNGR_HOST_DIR/`) |
+|-----------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------|
+| `agent_activity_time` | When there was last activity from an agent                                                                                                                    | `activity/agent`                        |
+| `user_activity_time`  | When there was last activity from the user                                                                                                                    | `activity/user`                         |
+| `ssh_activity_time`   | When we last noticed an active ssh connection                                                                                                                 | `activity/ssh`                          |
+| `is_locked`           | Cooperative locking to prevent multiple instances of mngr from operating simultaneously [future: remote implementation, only works for local hosts right now] | `host_lock`                             |
+| `lock_time`           | mtime of the `host_lock` file                                                                                                                                 | `host_lock`                             |
+| `plugin.*`            | Plugin-specific (reported) host state                                                                                                                         | `plugin/<plugin>/*`                     |
 
 **Important:** All access to host data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_provider` vs `get_reported_idle_mode`).

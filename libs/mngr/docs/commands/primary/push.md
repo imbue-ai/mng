@@ -1,4 +1,4 @@
-# mngr push - CLI Options Reference
+# mngr push [future] - CLI Options Reference
 
 Syncs git state and/or files to one agent (or host) from another agent (or host)
 

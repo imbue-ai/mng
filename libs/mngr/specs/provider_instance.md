@@ -50,7 +50,7 @@ When creating a host, all information necessary to connect to that host must be 
 
 This ensures that mngr can always reconstruct how to connect to a host by querying the provider, without needing to maintain a separate database of connection information.
 
-### Build State Tracking
+### Build State Tracking [future]
 
 In addition to tracking created hosts, providers need to track build state for hosts that failed during the build phase. This state should be stored on the local filesystem at `~/.mngr/providers/<provider_name>/`.
 
@@ -65,13 +65,13 @@ Like destroyed hosts, failed build records should persist for a configurable amo
 
 When collecting hosts from provider instances, the following behaviors are important:
 
-### Fail Quickly for Offline Providers
+### Fail Quickly for Offline Providers [future]
 
 When a provider is unreachable (e.g., no network connection, provider API is down), mngr should fail quickly rather than hanging or timing out slowly. This is especially important when working offline.
 
 Providers should implement short timeouts for connectivity checks and return early if the provider is clearly unavailable.
 
-### Host Listing Cache
+### Host Listing Cache [future]
 
 mngr should always cache the results of listing hosts from each provider. The cache should include:
 - The list of host IDs and their states
@@ -80,10 +80,10 @@ mngr should always cache the results of listing hosts from each provider. The ca
 
 This cache enables several important behaviors:
 
-1. **Destroyed Host Detection**: If a host appears in the cache but not in a fresh query (and the provider is reachable and the config is unchanged), the host should be shown as "destroyed"
+1. **Destroyed Host Detection** [future]: If a host appears in the cache but not in a fresh query (and the provider is reachable and the config is unchanged), the host should be shown as "destroyed"
 
-2. **Offline Operation**: When a provider is offline, cached results allow readonly operations like `mngr list` to continue working
+2. **Offline Operation** [future]: When a provider is offline, cached results allow readonly operations like `mngr list` to continue working
 
 3. **Performance**: Avoids repeatedly querying slow provider APIs
 
-The cache should persist for a configurable amount of time (e.g., 24-48 hours by default). After this time, missing hosts are removed from the cache to avoid showing stale destroyed hosts indefinitely.
+The cache should persist for a configurable amount of time [future] (e.g., 24-48 hours by default). After this time, missing hosts are removed from the cache to avoid showing stale destroyed hosts indefinitely.

@@ -9,8 +9,9 @@ How mngr handles git state during sync operations.
 
 ## Sync Modes
 
-- `--git-only`: Only sync git state (refs, objects, etc.), not working tree files
-- `--files-only`: Only sync working tree files, explicitly excluding `.git` directory contents
+- `--sync-mode state`: Only sync git state (refs, objects, etc.), not working tree files
+- `--sync-mode files`: Only sync working tree files, explicitly excluding `.git` directory contents (default, only mode currently implemented)
+- `--sync-mode full`: Sync both state and files
 
 Syncing files-only can cause git to see the working tree as "dirty" (this is expected behavior).
 
@@ -18,7 +19,7 @@ Syncing files-only can cause git to see the working tree as "dirty" (this is exp
 
 ### Push/Pull
 
-When local and remote have diverged:
+When local and remote have diverged [future]:
 - `--merge`: Attempts a merge; if it fails, the command fails and user resolves manually
 - `--rebase`: Attempts a rebase; if it fails, the command fails and user resolves manually
 
@@ -26,7 +27,7 @@ If uncommitted changes exist and the underlying git command fails, mngr fails to
 
 If remote has force-pushed and history diverged, the command fails. User must fix manually.
 
-### Pair Mode
+### Pair Mode [future]
 
 Conflicts are handled differently depending on when they occur:
 
@@ -46,4 +47,4 @@ Submodules are **not supported**. Recursive `.git` directories are ignored entir
 
 ## Partial Writes
 
-During rapid concurrent edits in pair mode, changes are debounced to avoid partial writes.
+During rapid concurrent edits in pair mode, changes are debounced to avoid partial writes. [future]

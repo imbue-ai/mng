@@ -47,7 +47,7 @@ mngr config edit
 [agent_types.my_claude]
 parent_type = "claude"
 cli_args = "--env CLAUDE_MODEL=opus"
-permissions = ["github"]
+permissions = ["github"]  # [future] not yet enforced
 ```
 
 For more details, see [Agent Types](./concepts/agent_types.md).

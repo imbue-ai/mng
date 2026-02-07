@@ -1,5 +1,3 @@
 sshd is started inside the agent host as soon as it is created, and all access to the host is done via SSH.
 
-Keys are deleted from `~/.ssh/mngr/` when the host is destroyed
-
-See [agent conventions](../docs/conventions.md) for more details about SSH key locations.
+Only a single key is made for any given provider right now (ex: Modal), but it may be worthwhile to change to per-host keys instead [future]
