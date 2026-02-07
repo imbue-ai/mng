@@ -110,16 +110,15 @@ class ClaudeAgent(BaseAgent):
         agent_uuid = str(self.id.get_uuid())
 
         # Build the additional arguments (cli_args from config + agent_args from CLI)
-        args_str = ""
-
         # FIXME: it's strange that cli_args is a str and agent_args is a tuple[str, ...].
         #  We should probably update both to be able to handle either style of argument (at the interface level)
         #  And convert them to tuple[str, ...] in these data types.
+        args_parts: list[str] = []
         if self.agent_config.cli_args:
-            args_str += self.agent_config.cli_args
-
+            args_parts.append(self.agent_config.cli_args)
         if agent_args:
-            args_str += " " + " ".join(agent_args)
+            args_parts.append(" ".join(agent_args))
+        args_str = " ".join(args_parts)
 
         # Build both command variants
         resume_cmd = f"( find ~/.claude/ -name '{agent_uuid}' | grep . ) && {base} --resume {agent_uuid}"
