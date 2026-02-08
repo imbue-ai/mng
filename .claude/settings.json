@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "touch .claude/active"
+            "command": "touch .claude/active && ./scripts/update_claude_activity_during_response.sh &"
           }
         ]
       }
@@ -26,6 +26,17 @@
           {
             "type": "command",
             "command": "./scripts/claude_prevent_commit_rewrite.sh"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -rf .claude/active"
           }
         ]
       }
