@@ -41,7 +41,7 @@
       }
     ]
   },
-  "model": "opus",
+  "model": "opus[1m]",
   "statusLine": {
     "type": "command",
     "command": "./scripts/claude_status_line.sh"
