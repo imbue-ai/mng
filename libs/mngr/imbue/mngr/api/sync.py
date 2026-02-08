@@ -342,8 +342,14 @@ def sync_files(
         git_ctx = LocalGitContext()
         logger.debug("Pulling files from {} to {}", source_path, destination_path)
 
-    # Handle uncommitted changes in the destination
-    did_stash = handle_uncommitted_changes(git_ctx, destination_path, uncommitted_changes)
+    # Handle uncommitted changes in the destination.
+    # CLOBBER mode skips this check for files sync: it means "proceed with sync
+    # regardless of uncommitted changes" rather than "reset git state before sync".
+    # This differs from git sync where CLOBBER does git_reset_hard, because rsync
+    # operates on files directly and doesn't need a clean git state.
+    did_stash = False
+    if uncommitted_changes != UncommittedChangesMode.CLOBBER:
+        did_stash = handle_uncommitted_changes(git_ctx, destination_path, uncommitted_changes)
 
     # Build rsync command
     rsync_cmd = ["rsync", "-avz", "--progress", "--exclude=.git"]
@@ -660,6 +666,7 @@ def _sync_git_pull(
     finally:
         # For merge mode, restore the stashed changes
         if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
+            should_pop_stash = True
             # If we changed branches, checkout back to original before restoring stash.
             # The stash was created on original_branch, so it should be popped there.
             if did_change_branch:
@@ -672,15 +679,20 @@ def _sync_git_pull(
                 )
                 if checkout_result.returncode != 0:
                     logger.error(
-                        "Failed to checkout original branch {} for stash restore: {}",
+                        "Failed to checkout original branch {} for stash restore. "
+                        "Your changes remain in the git stash and can be recovered with "
+                        "'git stash pop' on branch {}: {}",
+                        original_branch,
                         original_branch,
                         checkout_result.stderr,
                     )
-            logger.debug("Restoring stashed changes")
-            try:
-                git_ctx.git_stash_pop(local_path)
-            except MngrError as e:
-                logger.error("Failed to restore stashed changes after git pull: {}", e)
+                    should_pop_stash = False
+            if should_pop_stash:
+                logger.debug("Restoring stashed changes")
+                try:
+                    git_ctx.git_stash_pop(local_path)
+                except MngrError as e:
+                    logger.error("Failed to restore stashed changes after git pull: {}", e)
 
     return SyncGitResult(
         source_branch=source_branch,

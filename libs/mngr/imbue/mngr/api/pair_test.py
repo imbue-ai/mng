@@ -10,7 +10,6 @@ from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.utils.testing import init_git_repo
 from imbue.mngr.utils.testing import run_git_command
 
-
 # =============================================================================
 # Test: check_unison_installed
 # =============================================================================

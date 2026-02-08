@@ -201,7 +201,7 @@ def create_test_agent(
     host_id: HostId,
     mngr_ctx: MngrContext,
 ) -> StubAgent:
-    """Create a TestAgent with the given parameters."""
+    """Create a StubAgent with the given parameters."""
     return StubAgent(
         id=agent_id,
         name=agent_name,
@@ -366,7 +366,7 @@ def create_test_host(
     mngr_ctx: MngrContext,
     host_dir: Path,
 ) -> StubHost:
-    """Create a TestHost using model_construct to bypass validation."""
+    """Create a StubHost using model_construct to bypass validation."""
     provider = StubProviderInstance.model_construct(
         name=ProviderInstanceName("test"),
         host_dir=host_dir,

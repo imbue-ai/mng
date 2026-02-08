@@ -17,6 +17,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.utils.git_utils import get_current_branch
 from imbue.mngr.utils.testing import get_stash_count
 from imbue.mngr.utils.testing import init_git_repo
 from imbue.mngr.utils.testing import run_git_command
@@ -606,3 +607,48 @@ def test_pull_git_with_local_path_from_remote_host_works(
     assert (remote_git_pull_ctx.host_dir / "new_file.txt").exists()
     assert (remote_git_pull_ctx.host_dir / "new_file.txt").read_text() == "agent content"
     assert result.is_dry_run is False
+
+
+def test_pull_git_merge_mode_with_different_branch_restores_stash_on_original(
+    remote_git_pull_ctx: PullTestContext,
+) -> None:
+    """Test that pull_git with MERGE mode restores stash on original branch.
+
+    When pulling to a different target branch, uncommitted changes should be
+    stashed on the original branch, and after the merge, the stash should be
+    restored on the original branch (not the target branch).
+    """
+    host_dir = remote_git_pull_ctx.host_dir
+    agent_dir = remote_git_pull_ctx.agent_dir
+
+    # Create a target branch on the agent with a new commit
+    run_git_command(agent_dir, "checkout", "-b", "feature-branch")
+    (agent_dir / "feature.txt").write_text("feature content")
+    run_git_command(agent_dir, "add", "feature.txt")
+    run_git_command(agent_dir, "commit", "-m", "Add feature")
+
+    # Create the same branch name on the host (so checkout can succeed)
+    original_branch = get_current_branch(host_dir)
+    run_git_command(host_dir, "checkout", "-b", "feature-branch")
+    run_git_command(host_dir, "checkout", original_branch)
+
+    # Make uncommitted changes on the host's original branch
+    (host_dir / "README.md").write_text("uncommitted change")
+    assert _has_uncommitted_changes(host_dir)
+
+    result = pull_git(
+        agent=remote_git_pull_ctx.agent,
+        host=remote_git_pull_ctx.host,
+        destination=host_dir,
+        source_branch="feature-branch",
+        target_branch="feature-branch",
+        uncommitted_changes=UncommittedChangesMode.MERGE,
+    )
+
+    # Verify the merge happened
+    assert result.commits_transferred > 0
+
+    # Verify we're back on the original branch with uncommitted changes restored
+    current_branch = get_current_branch(host_dir)
+    assert current_branch == original_branch
+    assert (host_dir / "README.md").read_text() == "uncommitted change"
