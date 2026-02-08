@@ -118,84 +118,24 @@ retry_command() {
     return 1
 }
 
-# Store HTML transcript in git LFS
-HTML_TRANSCRIPT="/tmp/transcript/$MAIN_CLAUDE_SESSION_ID/page-001.html"
-HTML_RAW_URL=""
-HTML_WEB_URL=""
-if [[ -f "$HTML_TRANSCRIPT" ]]; then
-    log_info "Storing HTML transcript in git LFS..."
-    if HTML_OUTPUT=$("$SCRIPT_DIR/add_commit_metadata_file.sh" "$HTML_TRANSCRIPT" "transcripts/html" 2>&1); then
-        HTML_RAW_URL=$(echo "$HTML_OUTPUT" | grep "raw.githubusercontent.com" | sed 's/^[[:space:]]*//')
-        HTML_WEB_URL=$(echo "$HTML_OUTPUT" | grep "github.com/.*blob" | sed 's/^[[:space:]]*//')
-        log_info "HTML transcript stored successfully"
-        if [[ -z "$HTML_WEB_URL" ]]; then
-            log_warn "Could not extract HTML web URL from output"
-            log_warn "Output was: $HTML_OUTPUT"
-        else
-            log_info "HTML web URL: $HTML_WEB_URL"
-        fi
-    else
-        log_error "Failed to store HTML transcript: $HTML_OUTPUT"
-        exit 1
-    fi
-else
-    log_warn "HTML transcript not found at $HTML_TRANSCRIPT"
-fi
-
-# Store JSON transcript in git LFS
-JSON_TRANSCRIPT=$(find ~/.claude/projects/ -name "$MAIN_CLAUDE_SESSION_ID.jsonl" 2>/dev/null | head -1)
-JSON_RAW_URL=""
-if [[ -n "$JSON_TRANSCRIPT" && -f "$JSON_TRANSCRIPT" ]]; then
-    log_info "Storing JSON transcript in git LFS..."
-    if JSON_OUTPUT=$("$SCRIPT_DIR/add_commit_metadata_file.sh" "$JSON_TRANSCRIPT" "transcripts/json" 2>&1); then
-        JSON_RAW_URL=$(echo "$JSON_OUTPUT" | grep "raw.githubusercontent.com" | sed 's/^[[:space:]]*//')
-        log_info "JSON transcript stored successfully"
-    else
-        log_error "Failed to store JSON transcript: $JSON_OUTPUT"
-        exit 1
-    fi
-fi
-
 # Create git notes for the transcript URLs
 COMMIT_SHA=$(git rev-parse HEAD)
-
-if [[ -n "$HTML_RAW_URL" ]]; then
-    log_info "Creating git note for HTML transcript..."
-    git notes --ref=transcripts/html add -f -m "$HTML_RAW_URL" "$COMMIT_SHA"
-fi
-
-if [[ -n "$JSON_RAW_URL" ]]; then
-    log_info "Creating git note for JSON transcript..."
-    git notes --ref=transcripts/json add -f -m "$JSON_RAW_URL" "$COMMIT_SHA"
-fi
-
-# Push commits with retry logic
-log_info "Pushing commits to origin..."
-if ! retry_command 3 git push origin HEAD; then
-    log_error "Failed to push commits after retries"
-    exit 1
-fi
-
-# Push notes with force (notes can be force-pushed safely)
-log_info "Pushing git notes to origin..."
-if ! git push --force origin "refs/notes/*"; then
-    log_warn "Failed to push git notes"
-fi
 
 # Ensure a PR exists for this branch
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 BASE_BRANCH="${GIT_BASE_BRANCH:-main}"
 
+# Fetch all remotes and merge base branch to stay up-to-date
+log_info "Fetching all remotes..."
+git fetch --all
+
+# FIXME: only push the base branch if it doesn't already exist on the origin
 # Ensure the base branch is pushed as well (otherwise cannot make the PR)
 log_info "Ensuring base branch is on origin..."
 if ! retry_command 3 git push origin $BASE_BRANCH; then
     log_error "Failed to push base branch after retries"
     exit 1
 fi
-
-# Fetch all remotes and merge base branch to stay up-to-date
-log_info "Fetching all remotes..."
-git fetch --all
 
 # Merge the base branch from origin (if it exists)
 if git rev-parse --verify "origin/$BASE_BRANCH" >/dev/null 2>&1; then
@@ -256,6 +196,67 @@ for window in $(tmux list-windows -t "$session" -F '#W' 2>/dev/null | grep '^rev
     "$SCRIPT_DIR/run_reviewer.sh" "$session" "$window" &
     REVIEWER_PIDS+=($!)
 done
+
+# Store HTML transcript in git LFS
+HTML_TRANSCRIPT="/tmp/transcript/$MAIN_CLAUDE_SESSION_ID/page-001.html"
+HTML_RAW_URL=""
+HTML_WEB_URL=""
+if [[ -f "$HTML_TRANSCRIPT" ]]; then
+    log_info "Storing HTML transcript in git LFS..."
+    if HTML_OUTPUT=$("$SCRIPT_DIR/add_commit_metadata_file.sh" "$HTML_TRANSCRIPT" "transcripts/html" 2>&1); then
+        HTML_RAW_URL=$(echo "$HTML_OUTPUT" | grep "raw.githubusercontent.com" | sed 's/^[[:space:]]*//')
+        HTML_WEB_URL=$(echo "$HTML_OUTPUT" | grep "github.com/.*blob" | sed 's/^[[:space:]]*//')
+        log_info "HTML transcript stored successfully"
+        if [[ -z "$HTML_WEB_URL" ]]; then
+            log_warn "Could not extract HTML web URL from output"
+            log_warn "Output was: $HTML_OUTPUT"
+        else
+            log_info "HTML web URL: $HTML_WEB_URL"
+        fi
+    else
+        log_error "Failed to store HTML transcript: $HTML_OUTPUT"
+        exit 1
+    fi
+else
+    log_warn "HTML transcript not found at $HTML_TRANSCRIPT"
+fi
+
+# Store JSON transcript in git LFS
+JSON_TRANSCRIPT=$(find ~/.claude/projects/ -name "$MAIN_CLAUDE_SESSION_ID.jsonl" 2>/dev/null | head -1)
+JSON_RAW_URL=""
+if [[ -n "$JSON_TRANSCRIPT" && -f "$JSON_TRANSCRIPT" ]]; then
+    log_info "Storing JSON transcript in git LFS..."
+    if JSON_OUTPUT=$("$SCRIPT_DIR/add_commit_metadata_file.sh" "$JSON_TRANSCRIPT" "transcripts/json" 2>&1); then
+        JSON_RAW_URL=$(echo "$JSON_OUTPUT" | grep "raw.githubusercontent.com" | sed 's/^[[:space:]]*//')
+        log_info "JSON transcript stored successfully"
+    else
+        log_error "Failed to store JSON transcript: $JSON_OUTPUT"
+        exit 1
+    fi
+fi
+
+if [[ -n "$HTML_RAW_URL" ]]; then
+    log_info "Creating git note for HTML transcript..."
+    git notes --ref=transcripts/html add -f -m "$HTML_RAW_URL" "$COMMIT_SHA"
+fi
+
+if [[ -n "$JSON_RAW_URL" ]]; then
+    log_info "Creating git note for JSON transcript..."
+    git notes --ref=transcripts/json add -f -m "$JSON_RAW_URL" "$COMMIT_SHA"
+fi
+
+# Push commits with retry logic
+log_info "Pushing commits to origin..."
+if ! retry_command 3 git push origin HEAD; then
+    log_error "Failed to push commits after retries"
+    exit 1
+fi
+
+# Push notes with force (notes can be force-pushed safely)
+log_info "Pushing git notes to origin..."
+if ! git push --force origin "refs/notes/*"; then
+    log_warn "Failed to push git notes"
+fi
 
 # Helper function to create a new PR
 # Returns the PR number on success, exits with error on failure
@@ -336,9 +337,10 @@ if [[ -n "$EXISTING_PR" ]]; then
         echo "$PR_URL" > .claude/pr_url
         log_info "Wrote PR URL to .claude/pr_url: $PR_URL"
     fi
-    # Initialize PR status as pending before polling
-    echo "pending" > .claude/pr_status
 fi
+
+# Initialize PR status as pending before polling
+echo "pending" > .claude/pr_status
 
 # Update existing PR description with transcript link (only for pre-existing PRs, not newly created ones)
 if [[ -n "$EXISTING_PR" && "$PR_WAS_CREATED" == "false" && -n "$HTML_WEB_URL" ]]; then
