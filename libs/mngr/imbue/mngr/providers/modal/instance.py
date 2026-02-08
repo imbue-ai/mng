@@ -1393,6 +1393,7 @@ log "=== Shutdown script completed ==="
             host_name=str(name),
             user_tags=dict(tags) if tags else {},
             snapshots=[],
+            tmux_session_prefix=self.mngr_ctx.config.prefix,
         )
 
         # Set up SSH and create host object using shared helper

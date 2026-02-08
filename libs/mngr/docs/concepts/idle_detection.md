@@ -4,6 +4,8 @@ Hosts are automatically paused when idle to save resources (critical for cloud p
 
 A host is considered "idle" if there has been no "activity" for a configured timeout period. If multiple agents share a host, activity from any agent may keep the host running.
 
+In addition to idle timeout, hosts are automatically **stopped** (not just paused) when all agent tmux sessions have exited. This is detected by checking for tmux sessions matching the configured prefix (stored as `tmux_session_prefix` in `data.json`). When no matching sessions remain and a grace period has elapsed, the host shuts down with `stop_reason=STOPPED`. This ensures hosts are promptly cleaned up when all agents finish their work.
+
 What counts as "activity" is highly configurable. Run `mngr limit --help` [future] to see the available flags.
 
 Any of the following can be considered activity:

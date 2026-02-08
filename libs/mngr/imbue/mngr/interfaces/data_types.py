@@ -218,9 +218,13 @@ class CertifiedHostData(FrozenModel):
     host_name: str = Field(description="Human-readable name")
     user_tags: dict[str, str] = Field(default_factory=dict, description="User-defined tags")
     snapshots: list[SnapshotRecord] = Field(default_factory=list, description="List of snapshots")
+    tmux_session_prefix: str | None = Field(
+        default=None,
+        description="Prefix for tmux session names on this host (e.g., 'mngr-'). Used by the activity watcher to detect when no agents are running.",
+    )
     stop_reason: str | None = Field(
         default=None,
-        description="Reason for last shutdown: 'PAUSED' (idle), 'STOPPED' (user requested), or None (crashed)",
+        description="Reason for last shutdown: 'PAUSED' (idle), 'STOPPED' (user requested or all agents exited), or None (crashed)",
     )
     failure_reason: str | None = Field(
         default=None,
