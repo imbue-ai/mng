@@ -281,6 +281,25 @@ def _create_test_agent(
     )
 
 
+def _build_command_with_defaults(
+    agent: BaseAgent,
+    host_dir: Path,
+    additional_commands: list[NamedCommand] | None = None,
+    unset_vars: list[str] | None = None,
+) -> str:
+    """Call _build_start_agent_shell_command with standard test defaults."""
+    return _build_start_agent_shell_command(
+        agent=agent,
+        session_name=f"mngr-{agent.name}",
+        command="sleep 1000",
+        additional_commands=additional_commands if additional_commands is not None else [],
+        env_shell_cmd="bash -c 'exec bash'",
+        tmux_config_path=Path("/tmp/tmux.conf"),
+        unset_vars=unset_vars if unset_vars is not None else [],
+        host_dir=host_dir,
+    )
+
+
 def test_build_start_agent_shell_command_produces_single_command(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -288,19 +307,8 @@ def test_build_start_agent_shell_command_produces_single_command(
 ) -> None:
     """The function should produce a single &&-chained shell command."""
     agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_command_with_defaults(agent, temp_host_dir)
 
-    result = _build_start_agent_shell_command(
-        agent=agent,
-        session_name=f"mngr-{agent.name}",
-        command="sleep 1000",
-        additional_commands=[],
-        env_shell_cmd="bash -c 'exec bash'",
-        tmux_config_path=Path("/tmp/tmux.conf"),
-        unset_vars=[],
-        host_dir=temp_host_dir,
-    )
-
-    # Should be a single string (no newlines in the outer command)
     assert isinstance(result, str)
 
     # Should contain the core tmux commands chained with &&
@@ -325,17 +333,7 @@ def test_build_start_agent_shell_command_includes_unset_vars(
 ) -> None:
     """Unset vars should appear at the start of the command chain."""
     agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-
-    result = _build_start_agent_shell_command(
-        agent=agent,
-        session_name=f"mngr-{agent.name}",
-        command="sleep 1000",
-        additional_commands=[],
-        env_shell_cmd="bash -c 'exec bash'",
-        tmux_config_path=Path("/tmp/tmux.conf"),
-        unset_vars=["FOO_VAR", "BAR_VAR"],
-        host_dir=temp_host_dir,
-    )
+    result = _build_command_with_defaults(agent, temp_host_dir, unset_vars=["FOO_VAR", "BAR_VAR"])
 
     assert "unset FOO_VAR" in result
     assert "unset BAR_VAR" in result
@@ -353,22 +351,11 @@ def test_build_start_agent_shell_command_includes_additional_windows(
 ) -> None:
     """Additional commands should create new tmux windows."""
     agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-
     additional_commands = [
         NamedCommand(command=CommandString("tail -f /var/log/syslog"), window_name="logs"),
         NamedCommand(command=CommandString("htop"), window_name=None),
     ]
-
-    result = _build_start_agent_shell_command(
-        agent=agent,
-        session_name=f"mngr-{agent.name}",
-        command="sleep 1000",
-        additional_commands=additional_commands,
-        env_shell_cmd="bash -c 'exec bash'",
-        tmux_config_path=Path("/tmp/tmux.conf"),
-        unset_vars=[],
-        host_dir=temp_host_dir,
-    )
+    result = _build_command_with_defaults(agent, temp_host_dir, additional_commands=additional_commands)
 
     # Should create new windows
     assert "new-window" in result
@@ -390,17 +377,7 @@ def test_build_start_agent_shell_command_no_select_window_without_additional_com
 ) -> None:
     """select-window should not appear when there are no additional commands."""
     agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-
-    result = _build_start_agent_shell_command(
-        agent=agent,
-        session_name=f"mngr-{agent.name}",
-        command="sleep 1000",
-        additional_commands=[],
-        env_shell_cmd="bash -c 'exec bash'",
-        tmux_config_path=Path("/tmp/tmux.conf"),
-        unset_vars=[],
-        host_dir=temp_host_dir,
-    )
+    result = _build_command_with_defaults(agent, temp_host_dir)
 
     assert "select-window" not in result
 
@@ -412,17 +389,7 @@ def test_build_start_agent_shell_command_uses_and_chaining(
 ) -> None:
     """All steps should be chained with && for fail-fast behavior."""
     agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-
-    result = _build_start_agent_shell_command(
-        agent=agent,
-        session_name=f"mngr-{agent.name}",
-        command="sleep 1000",
-        additional_commands=[],
-        env_shell_cmd="bash -c 'exec bash'",
-        tmux_config_path=Path("/tmp/tmux.conf"),
-        unset_vars=[],
-        host_dir=temp_host_dir,
-    )
+    result = _build_command_with_defaults(agent, temp_host_dir)
 
     # The result should be a single && chain with at least 7 steps:
     # new-session, set-option, send-keys, Enter, mkdir, printf, nohup
