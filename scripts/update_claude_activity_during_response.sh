@@ -52,9 +52,13 @@ while true; do
         break
     fi
 
-    # Update the activity file (mtime is authoritative per idle_detection.md)
-    CURRENT_TIME_MS=$(( $(date +%s) * 1000 ))
-    printf '{"time": %d, "source": "activity_updater"}' "$CURRENT_TIME_MS" > "$ACTIVITY_FILE"
+    # Only update activity when .claude/active exists (indicates agent is
+    # actively processing, not idle waiting for input)
+    if [ -f .claude/active ]; then
+        # Update the activity file (mtime is authoritative per idle_detection.md)
+        CURRENT_TIME_MS=$(( $(date +%s) * 1000 ))
+        printf '{"time": %d, "source": "activity_updater"}' "$CURRENT_TIME_MS" > "$ACTIVITY_FILE"
+    fi
 
     sleep "$UPDATE_INTERVAL"
 done
