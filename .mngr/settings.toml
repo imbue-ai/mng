@@ -17,7 +17,11 @@ target_path = "/code/mngr"
 
 [agent_types.coder]
 parent_type = "claude"
-cli_args = """--settings '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "./scripts/check_commit_status.sh"}]}, {"hooks": [{"type": "command", "timeout": 600, "command": "./scripts/main_claude_stop_hook.sh"}]}]}}'"""
+# note that the extra permissions at the end are to prevent this agent from running sub-agents.
+# this is necessary because the stop hooks otherwise get triggered when those sub-agents stop, which is not what we want.
+# specifically it happens if the sub-agents stop *after* the main agent, which wakes the main agent, which then just stops right away, and counts as another "Stop" event
+# this causes problems with this line, which is used to prevent claudes from getting horribly stuck: ( git rev-parse HEAD || echo "conflict" ) >> .claude/reviewed_commits
+cli_args = """--settings '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "./scripts/check_commit_status.sh"}]}, {"hooks": [{"type": "command", "timeout": 600, "command": "./scripts/main_claude_stop_hook.sh"}]}]}, "permissions": {"deny": ["Task(Explore)", "Task(Bash)"]}}'"""
 
 [providers.modal]
 is_enabled = true
