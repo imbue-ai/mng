@@ -152,6 +152,19 @@ def setup_test_mngr_env(
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
     monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
 
+    # Set ZDOTDIR to prevent zsh from sourcing config files from the real home directory.
+    # If ZDOTDIR is set, zsh looks for .zshenv in $ZDOTDIR instead of ~/, so we need
+    # to point it to the fake HOME to prevent it from sourcing the real ~/.zshenv.
+    monkeypatch.setenv("ZDOTDIR", str(tmp_path))
+
+    # Isolate uv's cache and installation directories to prevent test uv operations
+    # from affecting the global system. Without this, `uv sync` in tests would install
+    # packages with paths referencing the fake HOME, which could then be picked up
+    # by non-test mngr usage.
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / ".cache" / "uv"))
+    monkeypatch.setenv("UV_PYTHON_INSTALL_DIR", str(tmp_path / ".local" / "share" / "uv" / "python"))
+    monkeypatch.setenv("UV_TOOL_DIR", str(tmp_path / ".local" / "bin"))
+
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.
     actual_home = Path.home()
