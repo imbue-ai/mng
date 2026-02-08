@@ -1,4 +1,4 @@
-# mngr ask - CLI Options Reference
+# mngr ask - CLI Options Reference [future]
 
 Chat directly with mngr for help--it can create the necessary CLI call for pretty much anything you want to do!
 

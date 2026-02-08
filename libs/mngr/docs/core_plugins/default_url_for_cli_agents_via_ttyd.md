@@ -1,4 +1,4 @@
-# Default URL for CLI Agents via ttyd
+# Default URL for CLI Agents via ttyd [future]
 
 This plugin provides web-based terminal access to CLI agents using [ttyd](https://github.com/tsl0922/ttyd).
 

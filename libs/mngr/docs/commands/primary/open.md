@@ -1,4 +1,4 @@
-# mngr open - CLI Options Reference
+# mngr open [future] - CLI Options Reference
 
 Opens a URL associated with an agent in a web browser.
 

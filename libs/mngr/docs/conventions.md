@@ -3,10 +3,9 @@
 The `mngr` tool prefixes the names of many resources with `mngr-` (this can be customized via `MNGR_PREFIX` environment variable--everything below that says "mngr-" will be replaced by that environment variable).
 
 Unless otherwise specified, `mngr` assumes:
-- the user is `root` (override via config or CLI args for most commands) 
-- host names are formatted as `mngr-<host_name>`, where `<host_name>` is the unique identifier for the host (a host can contain multiple agents).
+- the user is either the current user (local) or `root` (remote, override via config or CLI args for most commands)
+- a host name is a unique identifier for the host (a host can contain multiple agents).
 - tmux sessions are named `mngr-<agent_name>`
-- SSH keys are created for each remote host and stored at `~/.ssh/mngr/<host_id>` and `~/.ssh/mngr/<host_id>.pub` (or access to the host is handled by ssh-agent or similar)
 - agent data exists at `$MNGR_AGENT_STATE_DIR` (i.e., `$MNGR_HOST_DIR/agents/$MNGR_AGENT_ID/`)
 - there are `logs` and `events` subdirectories inside `$MNGR_HOST_DIR` and each `$MNGR_AGENT_STATE_DIR` for storing logs and event data
 - environment variables for hosts and agents are stored in `$MNGR_HOST_DIR/env` and `$MNGR_AGENT_STATE_DIR/env` respectively

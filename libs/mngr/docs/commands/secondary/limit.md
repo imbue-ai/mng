@@ -1,4 +1,4 @@
-# mngr limit - CLI Options Reference
+# mngr limit [future] - CLI Options Reference
 
 Configure limits for agents and hosts: idle timeout, permissions, port forwarding, etc.
 

@@ -467,7 +467,6 @@ class ModalProviderInstance(BaseProviderInstance):
                 agent_path = filename.lstrip("/")
                 volume.remove_file(agent_path)
             # then finally remove the empty host directory
-            volume.reload()
             volume.remove_file(host_dir)
 
         # finally, delete the actual host record itself

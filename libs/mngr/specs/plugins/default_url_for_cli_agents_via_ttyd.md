@@ -1,4 +1,4 @@
-# Default URL for CLI Agents via ttyd Spec
+# Default URL for CLI Agents via ttyd Spec [future]
 
 This plugin provides web terminal access to CLI-based agents by running ttyd with a security wrapper.
 

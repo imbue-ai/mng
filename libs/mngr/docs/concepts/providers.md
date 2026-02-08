@@ -36,7 +36,7 @@ url = "https://mngr.internal.company.com"
 
 A special provider instance that is always available. Runs agents directly on your machine with no isolation. Automatically available--no configuration required.
 
-### local_docker
+### local_docker [future]
 
 Runs agents in Docker containers on your local machine. Automatically available as long as `docker` is installed.
 

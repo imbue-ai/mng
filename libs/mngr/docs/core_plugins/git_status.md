@@ -1,4 +1,4 @@
-# Git Status Plugin
+# Git Status Plugin [future]
 
 This plugin provides information about the git status of the agent's work_dir repository by adding fields under the `plugin.git_status` namespace on controlled shutdown:
 

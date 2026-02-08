@@ -1,4 +1,4 @@
-# mngr provision - CLI Options Reference
+# mngr provision [future] - CLI Options Reference
 
 Ensures that an agent has the required packages, libraries, environment variables, and configuration files to run properly.
 
@@ -17,8 +17,8 @@ mngr provision [[--agent] agent]
 
 ## General
 
-- `--bootstrap / --bootstrap-and-warn / --no-bootstrap`: Whether to auto-install any required tools that are missing [default: `--bootstrap-and-warn` on remote hosts, `--no-bootstrap` on local]
-- `--[no-]destroy-on-fail`: Destroy the host if provisioning fails [default: no]
+- `--bootstrap / --bootstrap-and-warn / --no-bootstrap` [future]: Whether to auto-install any required tools that are missing [default: `--bootstrap-and-warn` on remote hosts, `--no-bootstrap` on local]
+- `--[no-]destroy-on-fail` [future]: Destroy the host if provisioning fails [default: no]
 
 ## Simple configuration
 

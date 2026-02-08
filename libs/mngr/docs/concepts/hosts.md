@@ -16,7 +16,7 @@ A host contains:
 - **processes**:
   - **agent processes**: the main programs that count as agents (Claude, Codex, etc.) — one per agent, each in its own tmux session
   - **sshd**: (remote only) the SSH server (one per host)
-  - **...any other services** started by plugins during provisioning (or later by agents themselves). Ex: nginx, frpc, ttyd, etc.
+  - **...any other services** started by plugins during provisioning (or later by agents themselves). Ex: nginx [future], frpc [future], ttyd [future], etc.
 
 Host-level processes (nginx, frpc, sshd, ttyd) are started when the host starts.
 Agent processes and their tmux sessions are created when an agent is created or started.
@@ -76,7 +76,7 @@ The high-level steps when creating a new host are:
 
 When starting a stopped host, steps 1-4 are skipped (the host already exists and has the files it needs).
 
-`mngr` allows specifying hosts via the [devcontainer](https://containers.dev/implementors/spec/) format. This allows you to define lifecycle hooks that run during startup:
+`mngr` allows specifying hosts via the [devcontainer](https://containers.dev/implementors/spec/) format. This allows you to define lifecycle hooks [future] that run during startup:
 
 1. `initializeCommand`: runs before step 1 above. Runs on the local machine where `mngr` is running.
 2. `onCreateCommand`: runs after step 1 above. Runs inside the host.
@@ -101,7 +101,7 @@ Once a host becomes idle, it transitions to the `stopping` state.
 Stopping is triggered by any of the following:
 
 1. A script that is injected and started during host startup (which periodically checks for idleness, and stops the host when idle)
-2. The `mngr enforce` command (as a backup in case the inner script has failed)
+2. The `mngr enforce` command (as a backup in case the inner script has failed) [future]
 3. The user manually stopping the host via `mngr stop`
 
 When a host is "stopping", it performs these steps:

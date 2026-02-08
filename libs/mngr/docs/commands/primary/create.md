@@ -42,7 +42,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `-t`, `--template` | text | Use a named template from create_templates config | None |
+| `-t`, `--template` | text | Use a named template from create_templates config [repeatable, stacks in order] | None |
 | `-n`, `--name` | text | Agent name (alternative to positional argument) [default: auto-generated] | None |
 | `--name-style` | choice (`english` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `animals` &#x7C; `scientists` &#x7C; `demons`) | Auto-generated name style | `english` |
 | `--agent-type` | text | Which type of agent to run [default: claude] | None |
@@ -234,6 +234,12 @@ $ mngr create my-agent --in modal
 
 ```bash
 $ mngr create my-agent --template modal
+```
+
+**Stack multiple templates**
+
+```bash
+$ mngr create my-agent -t modal -t codex
 ```
 
 **Create a codex agent instead of claude**

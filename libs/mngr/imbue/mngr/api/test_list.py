@@ -122,7 +122,7 @@ def test_agent_to_cel_context_basic_fields() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -150,7 +150,7 @@ def test_agent_to_cel_context_with_runtime() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         runtime_seconds=123.45,
         host=host_info,
     )
@@ -176,7 +176,7 @@ def test_agent_to_cel_context_with_activity_time() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         user_activity_time=activity_time,
         host=host_info,
     )
@@ -188,8 +188,8 @@ def test_agent_to_cel_context_with_activity_time() -> None:
     assert context["idle"] >= 0
 
 
-def test_agent_to_cel_context_with_lifecycle_state() -> None:
-    """Test that _agent_to_cel_context flattens lifecycle state."""
+def test_agent_to_cel_context_with_state() -> None:
+    """Test that _agent_to_cel_context flattens state enum to lowercase string."""
     host_info = HostInfo(
         id=HostId.generate(),
         name="test-host",
@@ -203,7 +203,7 @@ def test_agent_to_cel_context_with_lifecycle_state() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.STOPPED,
+        state=AgentLifecycleState.STOPPED,
         host=host_info,
     )
 
@@ -227,7 +227,7 @@ def test_apply_cel_filters_with_include_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -256,7 +256,7 @@ def test_apply_cel_filters_with_non_matching_include() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -285,7 +285,7 @@ def test_apply_cel_filters_with_exclude_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -314,7 +314,7 @@ def test_apply_cel_filters_with_state_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -343,7 +343,7 @@ def test_apply_cel_filters_with_host_provider_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -577,7 +577,7 @@ def test_agent_to_cel_context_with_host_state() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -603,7 +603,7 @@ def test_agent_to_cel_context_with_host_resources() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -636,7 +636,7 @@ def test_agent_to_cel_context_with_host_ssh() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -663,7 +663,7 @@ def test_apply_cel_filters_with_host_state_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -694,7 +694,7 @@ def test_apply_cel_filters_with_host_resource_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -725,7 +725,7 @@ def test_apply_cel_filters_with_host_uptime_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -756,7 +756,7 @@ def test_apply_cel_filters_with_host_tags_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -790,7 +790,7 @@ def test_agent_to_cel_context_with_idle_mode() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         idle_mode="agent",
         host=host_info,
     )
@@ -815,7 +815,7 @@ def test_agent_to_cel_context_with_idle_seconds() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         idle_seconds=300.5,
         host=host_info,
     )
@@ -840,7 +840,7 @@ def test_apply_cel_filters_with_idle_mode_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         idle_mode="user",
         host=host_info,
     )
@@ -870,7 +870,7 @@ def test_apply_cel_filters_with_idle_seconds_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         idle_seconds=600.0,
         host=host_info,
     )

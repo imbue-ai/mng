@@ -417,7 +417,7 @@ def find_agents_by_identifiers_or_state(
     for agent_ref in list_agents(mngr_ctx).agents:
         should_include: bool
         if filter_all:
-            should_include = agent_ref.lifecycle_state == target_state
+            should_include = agent_ref.state == target_state
         elif agent_identifiers:
             agent_name_str = str(agent_ref.name)
             agent_id_str = str(agent_ref.id)

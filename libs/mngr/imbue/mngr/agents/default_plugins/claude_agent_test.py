@@ -72,9 +72,11 @@ def test_claude_agent_assemble_command_with_no_args(mngr_test_prefix: str, temp_
     command = agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
 
     uuid = agent_id.get_uuid()
+    session_name = f"{mngr_test_prefix}test-agent"
+    activity_cmd = agent._build_activity_updater_command(session_name)
     # Local hosts should NOT have IS_SANDBOX set
     assert command == CommandString(
-        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
+        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
     )
 
 
@@ -101,8 +103,10 @@ def test_claude_agent_assemble_command_with_agent_args(mngr_test_prefix: str, te
     command = agent.assemble_command(host=mock_host, agent_args=("--model", "opus"), command_override=None)
 
     uuid = agent_id.get_uuid()
+    session_name = f"{mngr_test_prefix}test-agent"
+    activity_cmd = agent._build_activity_updater_command(session_name)
     assert command == CommandString(
-        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
+        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
     )
 
 
@@ -130,8 +134,10 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
     command = agent.assemble_command(host=mock_host, agent_args=("--model", "opus"), command_override=None)
 
     uuid = agent_id.get_uuid()
+    session_name = f"{mngr_test_prefix}test-agent"
+    activity_cmd = agent._build_activity_updater_command(session_name)
     assert command == CommandString(
-        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus"
+        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus"
     )
 
 
@@ -161,8 +167,10 @@ def test_claude_agent_assemble_command_with_command_override(mngr_test_prefix: s
     )
 
     uuid = agent_id.get_uuid()
+    session_name = f"{mngr_test_prefix}test-agent"
+    activity_cmd = agent._build_activity_updater_command(session_name)
     assert command == CommandString(
-        f"export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
+        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
     )
 
 
@@ -214,10 +222,53 @@ def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
     command = agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
 
     uuid = agent_id.get_uuid()
+    session_name = f"{mngr_test_prefix}test-agent"
+    activity_cmd = agent._build_activity_updater_command(session_name)
     # Remote hosts SHOULD have IS_SANDBOX set
     assert command == CommandString(
-        f"export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
+        f"{activity_cmd} export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
     )
+
+
+def test_build_activity_updater_command(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
+    """_build_activity_updater_command should generate a background activity updater."""
+    pm = pluggy.PluginManager("mngr")
+    agent_id = AgentId.generate()
+
+    agent = ClaudeAgent.model_construct(
+        id=agent_id,
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=Path("/tmp/work"),
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir),
+        agent_config=ClaudeAgentConfig(),
+        host=Mock(),
+    )
+
+    session_name = f"{mngr_test_prefix}test-agent"
+    cmd = agent._build_activity_updater_command(session_name)
+
+    # Should be a background subshell
+    assert cmd.startswith("(")
+    assert cmd.endswith(") &")
+
+    # Should use the correct session name for tmux check
+    assert f"tmux has-session -t '{session_name}'" in cmd
+
+    # Should use a pidfile for deduplication
+    assert f"_MNGR_ACT_LOCK=/tmp/mngr_act_{session_name}.pid" in cmd
+
+    # Should update the activity file
+    assert "MNGR_AGENT_STATE_DIR/activity/agent" in cmd
+
+    # Should check for existing instances via pidfile
+    assert "kill -0" in cmd
+    assert "exit 0" in cmd
+
+    # Should set a trap for cleanup
+    assert "trap" in cmd
 
 
 def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> None:

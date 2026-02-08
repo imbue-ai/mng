@@ -13,3 +13,5 @@ This approach avoids injecting Modal credentials directly into the sandbox, main
 Modal provides native snapshot support. Snapshots are fully incremental since the last snapshot.
 
 To minimize the risk of work loss if a sandbox crashes, Modal sandshots should be taken fairly frequently while the agent is working. The frequency should be configurable but default to a reasonable interval (e.g., every 15-30 minutes of active work).
+
+Note: Automatic periodic snapshots [future] are not yet implemented (currently only on-demand snapshots and snapshot-on-idle are implemented).

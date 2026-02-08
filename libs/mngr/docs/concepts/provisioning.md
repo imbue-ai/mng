@@ -4,7 +4,7 @@ Provisioning sets up a [host](./hosts.md) before an [agent](./agents.md) starts:
 
 ```bash
 mngr create my-agent claude     # Provisioning runs automatically
-mngr provision --agent my-agent # Re-run provisioning manually
+mngr provision --agent my-agent # Re-run provisioning manually [future]
 ```
 
 ## Step Sources
@@ -13,7 +13,7 @@ Provisioning steps come from three sources, executed in order:
 
 1. **Plugin defaults**: The [agent type's](./agent_types.md) plugin defines required setup (e.g., installing Node.js for Claude)
 2. **User commands**: Flags like `--user-command`, `--upload-file`, etc. for the `mngr create` and `mngr provision` commands
-3. **Devcontainer hooks**: If using a devcontainer, its lifecycle hooks (`onCreateCommand`, etc.) run as part of provisioning
+3. **Devcontainer hooks** [future]: If using a devcontainer, its lifecycle hooks (`onCreateCommand`, etc.) run as part of provisioning
 
 ## Custom steps
 
@@ -33,7 +33,7 @@ See [`mngr provision`](../commands/secondary/provision.md) for all options.
 
 You can re-run provisioning on an existing agent with `mngr provision`. This is useful for syncing configuration changes or installing additional packages.
 
-Provisioning is designed to be idempotent--the underlying tool ([pyinfra](https://pyinfra.com/)) and built-in plugins can safely run multiple times without breaking anything.
+Provisioning is designed to be idempotent--the underlying tool ([pyinfra](https://pyinfra.com/)) [future] and built-in plugins can safely run multiple times without breaking anything. Currently pyinfra is only used as a transport layer, not for idempotent package/file management.
 
 ## Plugin provisioning implementation details
 
