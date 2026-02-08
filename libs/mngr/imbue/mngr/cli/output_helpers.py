@@ -106,6 +106,104 @@ def emit_final_json(data: dict[str, Any]) -> None:
     _write_json_line(data)
 
 
+def output_sync_files_result(
+    # result is SyncFilesResult; typed as Any to avoid circular imports
+    # (sync -> errors -> output_helpers)
+    result: Any,
+    output_format: OutputFormat,
+) -> None:
+    """Output a file sync result (SyncFilesResult) in the appropriate format.
+
+    Works for both push and pull operations, using result.mode to determine
+    the event name and human-readable message.
+    """
+    result_data = {
+        "files_transferred": result.files_transferred,
+        "bytes_transferred": result.bytes_transferred,
+        "source_path": str(result.source_path),
+        "destination_path": str(result.destination_path),
+        "is_dry_run": result.is_dry_run,
+    }
+    # SyncMode is a UpperCaseStrEnum, so we can compare directly with string values
+    # to avoid circular imports (sync -> errors -> output_helpers)
+    mode_label = "Push" if result.mode == "PUSH" else "Pull"
+    event_name = f"{mode_label.lower()}_complete"
+
+    match output_format:
+        case OutputFormat.JSON:
+            emit_final_json(result_data)
+        case OutputFormat.JSONL:
+            emit_event(event_name, result_data, OutputFormat.JSONL)
+        case OutputFormat.HUMAN:
+            if result.is_dry_run:
+                logger.info("Dry run complete: {} files would be transferred", result.files_transferred)
+            else:
+                logger.info(
+                    "{} complete: {} files, {} bytes transferred",
+                    mode_label,
+                    result.files_transferred,
+                    result.bytes_transferred,
+                )
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def output_sync_git_result(
+    # result is SyncGitResult; typed as Any to avoid circular imports
+    # (sync -> errors -> output_helpers)
+    result: Any,
+    output_format: OutputFormat,
+) -> None:
+    """Output a git sync result (SyncGitResult) in the appropriate format.
+
+    Works for both push and pull operations, using result.mode to determine
+    the event name and human-readable message.
+    """
+    result_data = {
+        "source_branch": result.source_branch,
+        "target_branch": result.target_branch,
+        "source_path": str(result.source_path),
+        "destination_path": str(result.destination_path),
+        "is_dry_run": result.is_dry_run,
+        "commits_transferred": result.commits_transferred,
+    }
+    # SyncMode is a UpperCaseStrEnum, so we can compare directly with string values
+    # to avoid circular imports (sync -> errors -> output_helpers)
+    is_push = result.mode == "PUSH"
+    event_name = "push_git_complete" if is_push else "pull_git_complete"
+    verb = "push" if is_push else "merge"
+    verb_past = "pushed" if is_push else "merged"
+    preposition = "to" if is_push else "into"
+
+    match output_format:
+        case OutputFormat.JSON:
+            emit_final_json(result_data)
+        case OutputFormat.JSONL:
+            emit_event(event_name, result_data, OutputFormat.JSONL)
+        case OutputFormat.HUMAN:
+            if result.is_dry_run:
+                logger.info(
+                    "Dry run complete: would {} {} commits from {} {} {}",
+                    verb,
+                    result.commits_transferred,
+                    result.source_branch,
+                    preposition,
+                    result.target_branch,
+                )
+            else:
+                logger.info(
+                    "Git {} complete: {} {} commits from {} {} {}",
+                    verb,
+                    verb_past,
+                    result.commits_transferred,
+                    result.source_branch,
+                    preposition,
+                    result.target_branch,
+                )
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 def format_mngr_error_for_cli(error: Exception, user_help_text: str | None) -> str:
     """Format an error for display in the CLI.
 

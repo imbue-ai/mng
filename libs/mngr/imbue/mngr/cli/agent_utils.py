@@ -36,6 +36,24 @@ def _host_matches_filter(host_ref: HostReference, host_filter: str) -> bool:
     return host_ref.host_name == filter_as_name
 
 
+def filter_agents_by_host(
+    agents_by_host: dict[HostReference, list[AgentReference]],
+    host_filter: str,
+) -> dict[HostReference, list[AgentReference]]:
+    """Filter the agents_by_host mapping to only include hosts matching the filter.
+
+    Raises UserInputError if no hosts match the filter.
+    """
+    filtered = {
+        host_ref: agent_refs
+        for host_ref, agent_refs in agents_by_host.items()
+        if _host_matches_filter(host_ref, host_filter)
+    }
+    if not filtered:
+        raise UserInputError(f"No host found matching: {host_filter}")
+    return filtered
+
+
 def find_agent_by_name_or_id(
     agent_str: str,
     agents_by_host: dict[HostReference, list[AgentReference]],
@@ -55,13 +73,7 @@ def find_agent_by_name_or_id(
     # Filter hosts if a host filter is provided
     filtered_agents_by_host = agents_by_host
     if host_filter is not None:
-        filtered_agents_by_host = {
-            host_ref: agent_refs
-            for host_ref, agent_refs in agents_by_host.items()
-            if _host_matches_filter(host_ref, host_filter)
-        }
-        if not filtered_agents_by_host:
-            raise UserInputError(f"No host found matching: {host_filter}")
+        filtered_agents_by_host = filter_agents_by_host(agents_by_host, host_filter)
 
     # Try parsing as an AgentId first
     try:

@@ -6,9 +6,10 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.pair import pair_files
-from imbue.mngr.cli.agent_utils import find_agent_by_name_or_id
+from imbue.mngr.cli.agent_utils import filter_agents_by_host
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -16,6 +17,7 @@ from imbue.mngr.cli.common_opts import setup_command_context
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
@@ -204,8 +206,10 @@ def pair(ctx: click.Context, **kwargs) -> None:
 
     if agent_identifier is not None:
         agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
-        agent, host = find_agent_by_name_or_id(
-            agent_identifier, agents_by_host, mngr_ctx, host_filter=opts.source_host
+        if opts.source_host is not None:
+            agents_by_host = filter_agents_by_host(agents_by_host, opts.source_host)
+        agent, host = find_and_maybe_start_agent_by_name_or_id(
+            agent_identifier, agents_by_host, mngr_ctx, "pair <agent-id>"
         )
     elif not sys.stdin.isatty():
         raise UserInputError("No agent specified and not running in interactive mode")
@@ -256,7 +260,9 @@ def pair(ctx: click.Context, **kwargs) -> None:
             emit_info("Sync started. Press Ctrl+C to stop.", output_opts.output_format)
 
             # Wait for the syncer to complete (usually via Ctrl+C)
-            syncer.wait()
+            exit_code = syncer.wait()
+            if exit_code != 0:
+                raise MngrError(f"Unison exited with code {exit_code}")
     except KeyboardInterrupt:
         logger.debug("Received keyboard interrupt")
     finally:

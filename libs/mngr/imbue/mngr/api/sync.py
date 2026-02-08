@@ -418,10 +418,12 @@ def _count_commits_between(path: Path, base_ref: str, head_ref: str) -> int:
         text=True,
     )
     if result.returncode != 0:
+        logger.warning("Failed to count commits between {} and {}: {}", base_ref, head_ref, result.stderr.strip())
         return 0
     try:
         return int(result.stdout.strip())
     except ValueError:
+        logger.warning("Failed to parse commit count output: {}", result.stdout.strip())
         return 0
 
 
@@ -535,14 +537,24 @@ def _sync_git_push(
         else:
             raise NotImplementedError("Pushing to remote hosts is not yet implemented")
 
-    finally:
-        # For merge mode, restore the stashed changes
+    except (MngrError, NotImplementedError):
+        # On failure, try to restore stashed changes but don't mask the original error
         if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
-            logger.debug("Restoring stashed changes on target")
+            logger.debug("Restoring stashed changes on target after failure")
             try:
                 git_ctx.git_stash_pop(destination_path)
             except MngrError:
-                logger.warning("Failed to restore stashed changes after git push")
+                logger.warning(
+                    "Failed to restore stashed changes after git push failure. "
+                    "Run 'git stash pop' in {} to recover your changes.",
+                    destination_path,
+                )
+        raise
+
+    # On success, restore stashed changes (and let the error propagate if it fails)
+    if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
+        logger.debug("Restoring stashed changes on target")
+        git_ctx.git_stash_pop(destination_path)
 
     return SyncGitResult(
         source_branch=source_branch,
@@ -568,6 +580,10 @@ def _sync_git_pull(
     source_path = agent.work_dir
     git_ctx = LocalGitContext()
 
+    # Record the original branch so we can restore it if we stashed on it and then
+    # checked out a different branch (stash pop must happen on the original branch)
+    original_branch = get_current_branch(local_path)
+
     # Handle uncommitted changes in the destination
     did_stash = handle_uncommitted_changes(git_ctx, local_path, uncommitted_changes)
 
@@ -575,6 +591,7 @@ def _sync_git_pull(
     pre_merge_head = _get_head_commit(local_path)
 
     commits_transferred = 0
+    did_checkout = False
 
     try:
         # Fetch from the agent's repository directly (no temporary remote needed)
@@ -590,8 +607,7 @@ def _sync_git_pull(
             raise MngrError(f"Failed to fetch from agent: {result.stderr}")
 
         # Checkout the target branch if different from current
-        current_branch = get_current_branch(local_path)
-        if current_branch != target_branch:
+        if original_branch != target_branch:
             logger.debug("Checking out target branch: {}", target_branch)
             result = subprocess.run(
                 ["git", "checkout", target_branch],
@@ -601,6 +617,7 @@ def _sync_git_pull(
             )
             if result.returncode != 0:
                 raise MngrError(f"Failed to checkout target branch: {result.stderr}")
+            did_checkout = True
 
         # Count commits that will be merged (using FETCH_HEAD from the fetch)
         commits_to_merge = _count_commits_between(
@@ -628,12 +645,18 @@ def _sync_git_pull(
             )
             if result.returncode != 0:
                 # Abort the merge on failure
-                subprocess.run(
+                abort_result = subprocess.run(
                     ["git", "merge", "--abort"],
                     cwd=local_path,
                     capture_output=True,
                     text=True,
                 )
+                if abort_result.returncode != 0:
+                    logger.warning(
+                        "Failed to abort merge in {}: {}. Repository may be in a conflicted state.",
+                        local_path,
+                        abort_result.stderr.strip(),
+                    )
                 raise GitSyncError(result.stderr)
 
             # Count actual commits merged
@@ -649,14 +672,44 @@ def _sync_git_pull(
                 source_branch,
                 target_branch,
             )
-    finally:
-        # For merge mode, restore the stashed changes
+    except MngrError:
+        # On failure, try to restore stashed changes but don't mask the original error
         if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
-            logger.debug("Restoring stashed changes")
+            logger.debug("Restoring stashed changes after failure")
             try:
+                # Checkout back to the original branch before popping the stash,
+                # since stash was created on the original branch
+                if did_checkout:
+                    subprocess.run(
+                        ["git", "checkout", original_branch],
+                        cwd=local_path,
+                        capture_output=True,
+                        text=True,
+                    )
                 git_ctx.git_stash_pop(local_path)
             except MngrError:
-                logger.warning("Failed to restore stashed changes after git pull")
+                logger.warning(
+                    "Failed to restore stashed changes after git pull failure. "
+                    "Run 'git stash pop' in {} to recover your changes.",
+                    local_path,
+                )
+        raise
+
+    # On success, restore stashed changes (and let the error propagate if it fails)
+    if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
+        logger.debug("Restoring stashed changes")
+        # Checkout back to the original branch before popping the stash,
+        # since stash was created on the original branch
+        if did_checkout:
+            result = subprocess.run(
+                ["git", "checkout", original_branch],
+                cwd=local_path,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise MngrError(f"Failed to checkout original branch {original_branch}: {result.stderr}")
+        git_ctx.git_stash_pop(local_path)
 
     return SyncGitResult(
         source_branch=source_branch,

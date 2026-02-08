@@ -16,8 +16,8 @@ from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.sync import SyncFilesResult
 from imbue.mngr.api.sync import SyncMode
+from imbue.mngr.cli.output_helpers import output_sync_files_result
 from imbue.mngr.cli.pull import PullCliOptions
-from imbue.mngr.cli.pull import _output_files_result
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -408,7 +408,7 @@ def test_output_files_result_human_format() -> None:
     )
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
 
-    _output_files_result(result, output_opts)
+    output_sync_files_result(result, output_opts.output_format)
 
 
 def test_output_files_result_human_format_dry_run() -> None:
@@ -423,7 +423,7 @@ def test_output_files_result_human_format_dry_run() -> None:
     )
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
 
-    _output_files_result(result, output_opts)
+    output_sync_files_result(result, output_opts.output_format)
 
 
 def test_output_files_result_json_format(capsys) -> None:
@@ -438,7 +438,7 @@ def test_output_files_result_json_format(capsys) -> None:
     )
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
 
-    _output_files_result(result, output_opts)
+    output_sync_files_result(result, output_opts.output_format)
     captured = capsys.readouterr()
     assert '"files_transferred": 5' in captured.out
     assert '"bytes_transferred": 1024' in captured.out
@@ -456,7 +456,7 @@ def test_output_files_result_jsonl_format(capsys) -> None:
     )
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
 
-    _output_files_result(result, output_opts)
+    output_sync_files_result(result, output_opts.output_format)
     captured = capsys.readouterr()
     assert "pull_complete" in captured.out
 

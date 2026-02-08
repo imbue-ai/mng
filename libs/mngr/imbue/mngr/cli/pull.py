@@ -1,6 +1,5 @@
 import sys
 from pathlib import Path
-from typing import assert_never
 
 import click
 from click_option_group import optgroup
@@ -11,8 +10,6 @@ from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.api.pull import pull_git
-from imbue.mngr.api.sync import SyncFilesResult
-from imbue.mngr.api.sync import SyncGitResult
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -20,15 +17,13 @@ from imbue.mngr.cli.connect import select_agent_interactively
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
-from imbue.mngr.cli.output_helpers import emit_event
-from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
+from imbue.mngr.cli.output_helpers import output_sync_files_result
+from imbue.mngr.cli.output_helpers import output_sync_git_result
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
-from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import UncommittedChangesMode
 
 
@@ -89,70 +84,6 @@ def _select_agent_for_pull(
     # Find the actual agent and host from the selection
     agents_by_host, _providers = load_all_agents_grouped_by_host(mngr_ctx)
     return find_and_maybe_start_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "pull")
-
-
-def _output_files_result(result: SyncFilesResult, output_opts: OutputOptions) -> None:
-    """Output the pull files result in the appropriate format."""
-    result_data = {
-        "files_transferred": result.files_transferred,
-        "bytes_transferred": result.bytes_transferred,
-        "source_path": str(result.source_path),
-        "destination_path": str(result.destination_path),
-        "is_dry_run": result.is_dry_run,
-    }
-    match output_opts.output_format:
-        case OutputFormat.JSON:
-            emit_final_json(result_data)
-        case OutputFormat.JSONL:
-            emit_event("pull_complete", result_data, OutputFormat.JSONL)
-        case OutputFormat.HUMAN:
-            if result.is_dry_run:
-                logger.info(
-                    "Dry run complete: {} files would be transferred",
-                    result.files_transferred,
-                )
-            else:
-                logger.info(
-                    "Pull complete: {} files, {} bytes transferred",
-                    result.files_transferred,
-                    result.bytes_transferred,
-                )
-        case _ as unreachable:
-            assert_never(unreachable)
-
-
-def _output_git_result(result: SyncGitResult, output_opts: OutputOptions) -> None:
-    """Output the pull git result in the appropriate format."""
-    result_data = {
-        "source_branch": result.source_branch,
-        "target_branch": result.target_branch,
-        "source_path": str(result.source_path),
-        "destination_path": str(result.destination_path),
-        "is_dry_run": result.is_dry_run,
-        "commits_transferred": result.commits_transferred,
-    }
-    match output_opts.output_format:
-        case OutputFormat.JSON:
-            emit_final_json(result_data)
-        case OutputFormat.JSONL:
-            emit_event("pull_git_complete", result_data, OutputFormat.JSONL)
-        case OutputFormat.HUMAN:
-            if result.is_dry_run:
-                logger.info(
-                    "Dry run complete: would merge {} commits from {} into {}",
-                    result.commits_transferred,
-                    result.source_branch,
-                    result.target_branch,
-                )
-            else:
-                logger.info(
-                    "Git pull complete: merged {} commits from {} into {}",
-                    result.commits_transferred,
-                    result.source_branch,
-                    result.target_branch,
-                )
-        case _ as unreachable:
-            assert_never(unreachable)
 
 
 @click.command()
@@ -420,7 +351,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
             host.stop_agents([agent.id])
             emit_info("Agent stopped", output_opts.output_format)
 
-        _output_git_result(git_result, output_opts)
+        output_sync_git_result(git_result, output_opts.output_format)
     else:
         # Files mode: rsync
         # Parse source_path if provided
@@ -449,7 +380,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
             host.stop_agents([agent.id])
             emit_info("Agent stopped", output_opts.output_format)
 
-        _output_files_result(files_result, output_opts)
+        output_sync_files_result(files_result, output_opts.output_format)
 
 
 # Register help metadata for git-style help formatting

@@ -1,29 +1,24 @@
 import sys
 from pathlib import Path
-from typing import assert_never
 
 import click
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.push import push_files
 from imbue.mngr.api.push import push_git
-from imbue.mngr.api.sync import SyncFilesResult
-from imbue.mngr.api.sync import SyncGitResult
-from imbue.mngr.cli.agent_utils import find_agent_by_name_or_id
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
-from imbue.mngr.cli.output_helpers import emit_event
-from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
-from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.cli.output_helpers import output_sync_files_result
+from imbue.mngr.cli.output_helpers import output_sync_git_result
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
-from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import UncommittedChangesMode
 
 
@@ -47,67 +42,6 @@ class PushCliOptions(CommonCliOptions):
     source_branch: str | None
     mirror: bool
     rsync_only: bool
-
-
-def _output_files_result(result: SyncFilesResult, output_opts: OutputOptions) -> None:
-    """Output the push files result in the appropriate format."""
-    result_data = {
-        "files_transferred": result.files_transferred,
-        "bytes_transferred": result.bytes_transferred,
-        "source_path": str(result.source_path),
-        "destination_path": str(result.destination_path),
-        "is_dry_run": result.is_dry_run,
-    }
-    match output_opts.output_format:
-        case OutputFormat.JSON:
-            emit_final_json(result_data)
-        case OutputFormat.JSONL:
-            emit_event("push_complete", result_data, OutputFormat.JSONL)
-        case OutputFormat.HUMAN:
-            if result.is_dry_run:
-                logger.info("Dry run complete: {} files would be transferred", result.files_transferred)
-            else:
-                logger.info(
-                    "Push complete: {} files, {} bytes transferred",
-                    result.files_transferred,
-                    result.bytes_transferred,
-                )
-        case _ as unreachable:
-            assert_never(unreachable)
-
-
-def _output_git_result(result: SyncGitResult, output_opts: OutputOptions) -> None:
-    """Output the push git result in the appropriate format."""
-    result_data = {
-        "source_branch": result.source_branch,
-        "target_branch": result.target_branch,
-        "source_path": str(result.source_path),
-        "destination_path": str(result.destination_path),
-        "is_dry_run": result.is_dry_run,
-        "commits_transferred": result.commits_transferred,
-    }
-    match output_opts.output_format:
-        case OutputFormat.JSON:
-            emit_final_json(result_data)
-        case OutputFormat.JSONL:
-            emit_event("push_git_complete", result_data, OutputFormat.JSONL)
-        case OutputFormat.HUMAN:
-            if result.is_dry_run:
-                logger.info(
-                    "Dry run complete: would push {} commits from {} to {}",
-                    result.commits_transferred,
-                    result.source_branch,
-                    result.target_branch,
-                )
-            else:
-                logger.info(
-                    "Git push complete: pushed {} commits from {} to {}",
-                    result.commits_transferred,
-                    result.source_branch,
-                    result.target_branch,
-                )
-        case _ as unreachable:
-            assert_never(unreachable)
 
 
 @click.command()
@@ -252,7 +186,9 @@ def push(ctx: click.Context, **kwargs) -> None:
 
     if agent_identifier is not None:
         agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
-        agent, host = find_agent_by_name_or_id(agent_identifier, agents_by_host, mngr_ctx)
+        agent, host = find_and_maybe_start_agent_by_name_or_id(
+            agent_identifier, agents_by_host, mngr_ctx, "push <agent-id> <path>"
+        )
     elif not sys.stdin.isatty():
         raise UserInputError("No agent specified and not running in interactive mode")
     else:
@@ -291,7 +227,7 @@ def push(ctx: click.Context, **kwargs) -> None:
             host.stop_agents([agent.id])
             emit_info("Agent stopped", output_opts.output_format)
 
-        _output_git_result(git_result, output_opts)
+        output_sync_git_result(git_result, output_opts.output_format)
     else:
         # Files mode: rsync
         # Parse target_path if provided
@@ -320,4 +256,4 @@ def push(ctx: click.Context, **kwargs) -> None:
             host.stop_agents([agent.id])
             emit_info("Agent stopped", output_opts.output_format)
 
-        _output_files_result(files_result, output_opts)
+        output_sync_files_result(files_result, output_opts.output_format)
