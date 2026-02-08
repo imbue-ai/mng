@@ -144,7 +144,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `idle_seconds` - How long since the agent was active
 - `idle_mode` - Idle detection mode
 - `start_on_boot` - Whether the agent is set to start on host boot
-- `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
+- `state` - Agent lifecycle state (running, stopped, waiting, replaced, done)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):

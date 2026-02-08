@@ -1174,12 +1174,10 @@ class Host(BaseHost, OnlineHostInterface):
         if work_dir_path is None:
             work_dir_path = self.host_dir / "worktrees" / str(agent_id)
 
-        self._mkdir(work_dir_path.parent)
-
         branch_name = self._determine_branch_name(options)
 
         logger.debug("Creating git worktree", path=str(work_dir_path), branch=branch_name)
-        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
+        cmd = f"mkdir -p {work_dir_path.parent} && git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
 
         if options.git and options.git.base_branch:
             cmd += f" {shlex.quote(options.git.base_branch)}"

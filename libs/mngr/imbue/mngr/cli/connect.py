@@ -66,7 +66,7 @@ def filter_agents(
     result = agents
 
     if hide_stopped:
-        result = [a for a in result if a.lifecycle_state != AgentLifecycleState.STOPPED]
+        result = [a for a in result if a.state != AgentLifecycleState.STOPPED]
 
     if search_query:
         query_lower = search_query.lower()
@@ -121,7 +121,7 @@ def _create_selectable_agent_item(agent: AgentInfo, name_width: int, state_width
     """
     # Pad the name and state to their column widths for proper alignment
     name_padded = str(agent.name).ljust(name_width)
-    state_padded = agent.lifecycle_state.value.lower().ljust(state_width)
+    state_padded = agent.state.value.lower().ljust(state_width)
     host_str = str(agent.host.name)
 
     # Create a single SelectableIcon with the full formatted row
@@ -232,7 +232,7 @@ def _run_agent_selector(agents: list[AgentInfo]) -> AgentInfo | None:
     """Run the agent selector UI and return the selected agent, or None if cancelled."""
     # Calculate column widths based on content
     name_width = max((len(str(a.name)) for a in agents), default=10)
-    state_width = max((len(a.lifecycle_state.value) for a in agents), default=7)
+    state_width = max((len(a.state.value) for a in agents), default=7)
 
     # Cap widths at reasonable maximums
     name_width = min(name_width, 40)
