@@ -1789,15 +1789,13 @@ done
         """Stop agents by killing all processes in their tmux sessions.
 
         This ensures all processes in all panes are terminated by:
-        1. Getting all PIDs (panes + descendants) and their process groups BEFORE sending ctrl-c
-        2. Sending ctrl-c to allow graceful shutdown
-        3. Sending SIGTERM to all process groups
-        4. Sending SIGKILL to all process groups if processes remain
-        5. Finally killing the tmux session itself
+        1. Getting all PIDs (panes + descendants)
+        2. Sending SIGTERM to each individual process
+        3. Waiting briefly, then sending SIGKILL to any survivors
+        4. Finally killing the tmux session itself
         """
         logger.debug("Stopping {} agent(s) with timeout={}s", len(agent_ids), timeout_seconds)
         all_pids: list[str] = []
-        process_groups: set[str] = set()
 
         current_agents: list[AgentInterface] = []
 
@@ -1810,7 +1808,7 @@ done
 
             session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
 
-            # Get all pane PIDs and their descendants BEFORE sending ctrl-c
+            # Get all pane PIDs and their descendants
             result = self.execute_command(
                 f"tmux list-panes -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true"
             )
@@ -1825,25 +1823,20 @@ done
                         descendant_pids = self._get_all_descendant_pids(pane_pid)
                         all_pids.extend(descendant_pids)
 
-                # Get process group IDs for all pane PIDs (should be all the same...)
-                for pid in pane_pids:
-                    result_pgid = self.execute_command(f"ps -o pgid= -p {pid} 2>/dev/null || true")
-                    if result_pgid.success and result_pgid.stdout.strip():
-                        pgid = result_pgid.stdout.strip()
-                        process_groups.add(pgid)
-                        # Send SIGTERM. Use negative PGID to signal the entire process group
-                        self.execute_command(f"kill -TERM -- -{pgid} 2>/dev/null || true")
+        # Send SIGTERM to each individual process
+        for pid in all_pids:
+            self.execute_command(f"kill -TERM {pid} 2>/dev/null || true")
 
-        # Force kill any remaining processes with SIGKILL, waiting until timeout
+        # Wait for processes to die, then SIGKILL any survivors
         deadline = time.monotonic() + timeout_seconds
         for pid in all_pids:
             time_left = deadline - time.monotonic()
             if time_left > 0:
                 self.execute_command(
-                    f"kill -TERM -- -{pid} 2>/dev/null && timeout {time_left} tail --pid={pid} -f /dev/null || kill -KILL -- -{pid} 2>/dev/null || true"
+                    f"kill -0 {pid} 2>/dev/null && timeout {time_left} tail --pid={pid} -f /dev/null; kill -KILL {pid} 2>/dev/null || true"
                 )
             else:
-                self.execute_command(f"kill -KILL -- -{pid} 2>/dev/null || true")
+                self.execute_command(f"kill -KILL {pid} 2>/dev/null || true")
 
         # Finally kill the tmux sessions themselves
         for agent in current_agents:

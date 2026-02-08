@@ -585,6 +585,17 @@ def test_unset_vars_applied_during_agent_start(
 
     wait_for(session_ready, error_message="tmux session not ready")
 
+    # Send Ctrl-C to kill the foreground sleep, returning control to the shell.
+    # This lets us send echo commands to check environment variables.
+    host.execute_command(f"tmux send-keys -t '{session_name}' C-c")
+
+    # Wait for the shell prompt to return after Ctrl-C
+    def shell_ready() -> bool:
+        capture_result = host.execute_command(f"tmux capture-pane -t '{session_name}' -p")
+        return capture_result.success and ("$" in capture_result.stdout or "#" in capture_result.stdout)
+
+    wait_for(shell_ready, error_message="Shell prompt not ready after Ctrl-C")
+
     host.execute_command(f"tmux send-keys -t '{session_name}' 'echo HISTFILE_VALUE=${{HISTFILE:-UNSET}}' Enter")
     host.execute_command(f"tmux send-keys -t '{session_name}' 'echo PROFILE_VALUE=${{PROFILE:-UNSET}}' Enter")
 
@@ -603,11 +614,22 @@ def test_unset_vars_applied_during_agent_start(
 
 
 # =============================================================================
-# Agent Start/Stop Process Group Tests
-#
-# Note: because of xdist, we must be very careful with our "grep"'s below--
-#  by using different sleeps for each command invocation, we can make this safe even when these tests are run concurrently.
+# Agent Start/Stop Process Tests
 # =============================================================================
+
+
+def _collect_pane_pids(host: Host, session_name: str) -> list[str]:
+    """Collect all pane PIDs and their descendant PIDs for a tmux session."""
+    all_pids: list[str] = []
+    success, output = host._run_shell_command(
+        StringCommand(f"tmux list-panes -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null")
+    )
+    if success and output.stdout.strip():
+        for pane_pid in output.stdout.strip().split("\n"):
+            if pane_pid:
+                all_pids.append(pane_pid)
+                all_pids.extend(host._get_all_descendant_pids(pane_pid))
+    return all_pids
 
 
 def test_stop_agent_kills_single_pane_processes(
@@ -644,14 +666,21 @@ def test_stop_agent_kills_single_pane_processes(
     assert success
     assert session_name in output.stdout
 
-    host.stop_agents([agent.id], timeout_seconds=1.0)
+    # Capture specific PIDs before stopping so we can verify they are killed
+    pids_to_check = _collect_pane_pids(host, session_name)
+    assert len(pids_to_check) > 0
+
+    host.stop_agents([agent.id], timeout_seconds=3.0)
 
     def check_cleanup() -> bool:
         success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
         session_killed = session_name not in output.stdout
-        success_ps, output_ps = host._run_shell_command(StringCommand("ps aux | grep 'sleep 1001' | grep -v grep"))
-        processes_killed = "sleep 1001" not in output_ps.stdout or not success_ps
-        return session_killed and processes_killed
+        # Check that the specific PIDs from this test are dead
+        for pid in pids_to_check:
+            success_kill, _ = host._run_shell_command(StringCommand(f"kill -0 {pid} 2>/dev/null"))
+            if success_kill:
+                return False
+        return session_killed
 
     wait_for(check_cleanup, error_message="Agent session and processes not cleaned up after stop")
 
@@ -696,16 +725,21 @@ def test_stop_agent_kills_multi_pane_processes(
     pane_count = int(output.stdout.strip())
     assert pane_count == 3
 
-    host.stop_agents([agent.id], timeout_seconds=1.0)
+    # Capture specific PIDs before stopping so we can verify they are killed
+    pids_to_check = _collect_pane_pids(host, session_name)
+    assert len(pids_to_check) > 0
+
+    host.stop_agents([agent.id], timeout_seconds=3.0)
 
     def check_cleanup() -> bool:
         success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
         session_killed = session_name not in output.stdout
-        success_ps, output_ps = host._run_shell_command(
-            StringCommand("ps aux | grep -E 'sleep (1000|2000|3000)' | grep -v grep")
-        )
-        processes_killed = "sleep" not in output_ps.stdout or not success_ps
-        return session_killed and processes_killed
+        # Check that the specific PIDs from this test are dead
+        for pid in pids_to_check:
+            success_kill, _ = host._run_shell_command(StringCommand(f"kill -0 {pid} 2>/dev/null"))
+            if success_kill:
+                return False
+        return session_killed
 
     wait_for(check_cleanup, error_message="Multi-pane agent session and processes not cleaned up after stop")
 
