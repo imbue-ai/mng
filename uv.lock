@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -1681,6 +1681,7 @@ dependencies = [
     { name = "cel-python" },
     { name = "click" },
     { name = "click-option-group" },
+    { name = "concurrency-group" },
     { name = "coolname" },
     { name = "cryptography" },
     { name = "dockerfile-parse" },
@@ -1700,6 +1701,7 @@ requires-dist = [
     { name = "cel-python", specifier = ">=0.1.5" },
     { name = "click", specifier = ">=8.0" },
     { name = "click-option-group", specifier = ">=0.5.6" },
+    { name = "concurrency-group", editable = "libs/concurrency_group" },
     { name = "coolname", specifier = ">=2.2.0" },
     { name = "cryptography", specifier = ">=42.0" },
     { name = "dockerfile-parse", specifier = ">=2.0.0" },
