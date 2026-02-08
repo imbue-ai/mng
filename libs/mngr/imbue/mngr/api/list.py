@@ -283,7 +283,7 @@ def _assemble_host_info(
         id=host.id,
         name=str(host.get_name()),
         provider_name=host_ref.provider_name,
-        state=host.get_state().value.lower(),
+        state=host.get_state(),
         image=host.get_image(),
         tags=host.get_tags(),
         boot_time=boot_time,
@@ -479,11 +479,14 @@ def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
         else:
             result["state"] = str(result["state"]).lower()
 
-    # Normalize host.provider_name to host.provider for consistency
+    # Normalize host fields for CEL consistency
     if result.get("host") and isinstance(result["host"], dict):
         host = result["host"]
         if "provider_name" in host:
             host["provider"] = host.pop("provider_name")
+        # Flatten host.state enum value to lowercase string for CEL
+        if host.get("state"):
+            host["state"] = str(host["state"]).lower()
 
     return result
 

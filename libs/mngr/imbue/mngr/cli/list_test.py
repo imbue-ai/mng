@@ -17,6 +17,7 @@ from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
@@ -39,7 +40,7 @@ def _create_test_agent(snapshots: list[SnapshotInfo] | None = None) -> AgentInfo
         name="test-host",
         provider_name=ProviderInstanceName("local"),
         snapshots=snapshots or [],
-        state="running",
+        state=HostState.RUNNING,
     )
     return AgentInfo(
         id=AgentId.generate(),
@@ -517,7 +518,7 @@ def _create_test_agent_with_name(name: str) -> AgentInfo:
         name="test-host",
         provider_name=ProviderInstanceName("local"),
         snapshots=[],
-        state="running",
+        state=HostState.RUNNING,
     )
     return AgentInfo(
         id=AgentId.generate(),

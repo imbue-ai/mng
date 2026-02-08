@@ -213,7 +213,7 @@ def test_get_state_returns_failed_when_certified_data_has_failed_state(mock_prov
     certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name="failed-host",
-        state=HostState.FAILED.value,
+        state=HostState.FAILED,
         failure_reason="Docker build failed",
         build_log="Step 1/5: RUN apt-get update\nERROR: apt-get failed",
     )
@@ -234,7 +234,7 @@ def test_get_failure_reason_returns_reason_when_present(mock_provider, mock_mngr
     certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name="failed-host",
-        state=HostState.FAILED.value,
+        state=HostState.FAILED,
         failure_reason="Modal sandbox creation failed",
         build_log="Build log contents",
     )
@@ -262,7 +262,7 @@ def test_get_build_log_returns_log_when_present(mock_provider, mock_mngr_ctx):
     certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name="failed-host",
-        state=HostState.FAILED.value,
+        state=HostState.FAILED,
         failure_reason="Build failed",
         build_log=build_log_content,
     )
@@ -301,7 +301,7 @@ def test_failed_state_takes_precedence_over_snapshot_check(mock_provider, mock_m
     certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name="failed-host",
-        state=HostState.FAILED.value,
+        state=HostState.FAILED,
         failure_reason="Build failed",
     )
     mock_provider.supports_snapshots = True

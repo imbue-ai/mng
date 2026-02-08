@@ -30,6 +30,7 @@ from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.utils.cel_utils import compile_cel_filters
 from imbue.mngr.utils.testing import tmux_session_cleanup
@@ -567,7 +568,7 @@ def test_agent_to_cel_context_with_host_state() -> None:
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("local"),
-        state="running",
+        state=HostState.RUNNING,
     )
     agent_info = AgentInfo(
         id=AgentId.generate(),
@@ -653,7 +654,7 @@ def test_apply_cel_filters_with_host_state_filter() -> None:
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("local"),
-        state="running",
+        state=HostState.RUNNING,
     )
     agent_info = AgentInfo(
         id=AgentId.generate(),

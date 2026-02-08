@@ -176,7 +176,7 @@ class BaseHost(HostInterface):
         - If provider doesn't support snapshots, assume STOPPED
         """
         certified_data = self.get_certified_data()
-        if certified_data.state == HostState.FAILED.value:
+        if certified_data.state == HostState.FAILED:
             return HostState.FAILED
 
         # Determine state based on stop_reason

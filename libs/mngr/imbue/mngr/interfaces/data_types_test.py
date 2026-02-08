@@ -12,6 +12,7 @@ from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import RelativePath
 from imbue.mngr.interfaces.data_types import SSHInfo
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
 
 
@@ -147,7 +148,7 @@ def test_host_info_with_extended_fields() -> None:
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("docker"),
-        state="running",
+        state=HostState.RUNNING,
         image="ubuntu:22.04",
         tags={"env": "production", "team": "infra"},
         boot_time=boot_time,
@@ -157,7 +158,7 @@ def test_host_info_with_extended_fields() -> None:
         # Note: not testing snapshots here as SnapshotInfo has complex ID requirements
     )
 
-    assert host_info.state == "running"
+    assert host_info.state == HostState.RUNNING
     assert host_info.image == "ubuntu:22.04"
     assert host_info.tags == {"env": "production", "team": "infra"}
     assert host_info.boot_time == boot_time
@@ -185,7 +186,7 @@ def test_host_info_serialization_with_extended_fields() -> None:
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("modal"),
-        state="running",
+        state=HostState.RUNNING,
         image="custom-image:v1",
         tags={"key": "value"},
         boot_time=boot_time,
@@ -195,7 +196,7 @@ def test_host_info_serialization_with_extended_fields() -> None:
 
     data = host_info.model_dump(mode="json")
 
-    assert data["state"] == "running"
+    assert data["state"] == "RUNNING"
     assert data["image"] == "custom-image:v1"
     assert data["tags"] == {"key": "value"}
     assert data["uptime_seconds"] == 7200.0

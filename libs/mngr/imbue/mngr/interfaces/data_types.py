@@ -16,6 +16,7 @@ from imbue.mngr.errors import InvalidRelativePathError
 from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
@@ -217,9 +218,9 @@ class CertifiedHostData(FrozenModel):
     host_name: str = Field(description="Human-readable name")
     user_tags: dict[str, str] = Field(default_factory=dict, description="User-defined tags")
     snapshots: list[SnapshotRecord] = Field(default_factory=list, description="List of snapshots")
-    state: str | None = Field(
+    state: HostState | None = Field(
         default=None,
-        description="Host state (e.g., 'FAILED' for hosts that failed during creation)",
+        description="Host state (e.g., FAILED for hosts that failed during creation)",
     )
     stop_reason: str | None = Field(
         default=None,
@@ -311,8 +312,7 @@ class HostInfo(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
 
     # Extended fields (all optional)
-    # FIXME: this should be of this type: HostState
-    state: str | None = Field(default=None, description="Current host state (running, stopped, etc.)")
+    state: HostState | None = Field(default=None, description="Current host state (running, stopped, etc.)")
     image: str | None = Field(default=None, description="Host image (Docker image name, Modal image ID, etc.)")
     tags: dict[str, str] = Field(default_factory=dict, description="Metadata tags for the host")
     boot_time: datetime | None = Field(default=None, description="When the host was last started")
