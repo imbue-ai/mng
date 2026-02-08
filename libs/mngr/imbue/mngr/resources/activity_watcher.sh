@@ -8,6 +8,7 @@
 #   - activity_sources: array of activity source names (e.g., ["BOOT", "USER", "AGENT"])
 #   - idle_timeout_seconds: the idle timeout in seconds
 #   - max_host_age: (optional) maximum host age in seconds from boot
+#   - tmux_session_prefix: (optional) prefix for agent tmux sessions (e.g., "mngr-")
 #
 # Activity sources are converted to file patterns:
 #   - Host-level sources (BOOT, USER, SSH): <host_data_dir>/activity/<source>
@@ -19,6 +20,10 @@
 # Additionally, if max_host_age exists in data.json, the script will trigger shutdown when:
 #   current_time > boot_activity_file_mtime + max_host_age_seconds
 # This ensures the host shuts down cleanly before external timeouts (e.g., Modal sandbox timeout).
+#
+# If tmux_session_prefix is set in data.json, the script also checks whether any
+# tmux sessions with that prefix are running. If none are found, the host is shut
+# down with stop_reason=STOPPED (rather than PAUSED) since all agents have exited.
 
 set -e
 
@@ -87,6 +92,35 @@ get_max_host_age() {
         return
     fi
     jq -r '.max_host_age // empty' "$DATA_JSON_PATH" 2>/dev/null
+}
+
+# Read tmux_session_prefix from data.json (optional field)
+get_tmux_session_prefix() {
+    if [ ! -f "$DATA_JSON_PATH" ]; then
+        echo ""
+        return
+    fi
+    jq -r '.tmux_session_prefix // empty' "$DATA_JSON_PATH" 2>/dev/null
+}
+
+# Check if there are any running tmux sessions with the configured prefix.
+# Returns 0 (true) if at least one session exists, 1 (false) if none exist.
+has_running_agent_sessions() {
+    local prefix
+    prefix=$(get_tmux_session_prefix)
+
+    # If no prefix configured, skip this check (return true to avoid false positives)
+    if [ -z "$prefix" ]; then
+        return 0
+    fi
+
+    # List tmux sessions and check if any match the prefix.
+    # tmux list-sessions fails if no server is running, which means no sessions.
+    local sessions
+    sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null) || return 1
+
+    # Check if any session name starts with the prefix
+    echo "$sessions" | grep -q "^${prefix}" 2>/dev/null
 }
 
 # Check if the host has exceeded its maximum age (hard timeout)
@@ -217,6 +251,20 @@ main() {
             else
                 echo "Shutdown script not found or not executable: $SHUTDOWN_SCRIPT"
                 # Continue monitoring in case the script appears later
+            fi
+        fi
+
+        # Check if all agent tmux sessions have exited.
+        # If the prefix is configured and no sessions with that prefix exist,
+        # the host should be stopped (not just paused) since all agents are gone.
+        if ! has_running_agent_sessions; then
+            echo "No agent tmux sessions found with prefix '$(get_tmux_session_prefix)'"
+            if [ -x "$SHUTDOWN_SCRIPT" ]; then
+                echo "Calling shutdown script with STOPPED (no agents running): $SHUTDOWN_SCRIPT"
+                "$SHUTDOWN_SCRIPT" STOPPED
+                exit 0
+            else
+                echo "Shutdown script not found or not executable: $SHUTDOWN_SCRIPT"
             fi
         fi
 

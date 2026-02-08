@@ -222,6 +222,10 @@ class CertifiedHostData(FrozenModel):
         default=None,
         description="Host state (e.g., FAILED for hosts that failed during creation)",
     )
+    tmux_session_prefix: str | None = Field(
+        default=None,
+        description="Prefix for tmux session names on this host (e.g., 'mngr-'). Used by the activity watcher to detect when no agents are running.",
+    )
     stop_reason: str | None = Field(
         default=None,
         description="Reason for last shutdown: 'PAUSED' (idle), 'STOPPED' (user requested), or None (crashed)",
