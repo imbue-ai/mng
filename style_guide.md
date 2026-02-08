@@ -1572,9 +1572,11 @@ def test_export_large_todo_dataset_to_json_produces_expected_output() -> None:
     )
 ```
 
-## Test isolation
+### Test isolation
 
-The `conftest.py` in `libs/mngr/imbue/mngr/` provides an autouse fixture (`setup_test_mngr_env`) that sets `HOME` to a temp directory for all tests. This prevents tests from accidentally reading or modifying the real home directory (e.g., `~/.claude.json`, `~/.mngr/`). Use the shared fixtures (`temp_host_dir`, `temp_mngr_ctx`, `local_provider`, etc.) instead of creating your own.
+Tests should be careful to fully isolate themselves. They should be able to run concurrently, even from within the same pytest process.
+
+This means that base level test fixtures should do things like override the HOME directory to a temp directory. All tests should use unique identifiers for any resources they create and avoid any shared state between tests.
 
 ## Test organization
 
