@@ -1,5 +1,6 @@
 """Unified sync API for push and pull operations between local and agent repositories."""
 
+import shlex
 import subprocess
 from abc import ABC
 from abc import abstractmethod
@@ -177,7 +178,7 @@ class LocalGitContext(GitContextInterface):
             text=True,
         )
         if result.returncode != 0:
-            return False
+            raise MngrError(f"git status failed: {result.stderr}")
         return len(result.stdout.strip()) > 0
 
     def git_stash(self, path: Path) -> bool:
@@ -243,7 +244,7 @@ class RemoteGitContext(GitContextInterface):
     def has_uncommitted_changes(self, path: Path) -> bool:
         result = self._host.execute_command("git status --porcelain", cwd=path)
         if not result.success:
-            return False
+            raise MngrError(f"git status failed: {result.stderr}")
         return len(result.stdout.strip()) > 0
 
     def git_stash(self, path: Path) -> bool:
@@ -366,7 +367,7 @@ def sync_files(
     rsync_cmd.append(str(destination_path))
 
     # Execute rsync
-    cmd_str = " ".join(rsync_cmd)
+    cmd_str = shlex.join(rsync_cmd)
     logger.debug("Running rsync command: {}", cmd_str)
 
     result: CommandResult = host.execute_command(cmd_str)

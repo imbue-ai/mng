@@ -86,7 +86,6 @@ def test_sync_git_state_performs_push_when_local_is_ahead(pair_ctx: PairTestCont
     git_pull_performed, git_push_performed = sync_git_state(
         agent=pair_ctx.agent,
         host=pair_ctx.host,
-        agent_path=pair_ctx.source_dir,
         local_path=pair_ctx.target_dir,
         git_sync_action=git_action,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
@@ -114,7 +113,6 @@ def test_sync_git_state_performs_pull_when_agent_is_ahead(pair_ctx: PairTestCont
     git_pull_performed, git_push_performed = sync_git_state(
         agent=pair_ctx.agent,
         host=pair_ctx.host,
-        agent_path=pair_ctx.source_dir,
         local_path=pair_ctx.target_dir,
         git_sync_action=git_action,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,

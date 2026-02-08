@@ -28,6 +28,8 @@ def parse_rsync_output(
             continue
         if line.startswith("sending incremental file list"):
             continue
+        if line.startswith("receiving incremental file list"):
+            continue
         if line.startswith("sent "):
             # Parse "sent X bytes  received Y bytes" line
             parts = line.split()

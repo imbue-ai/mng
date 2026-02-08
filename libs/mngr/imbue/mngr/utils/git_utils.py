@@ -139,7 +139,10 @@ def is_git_repository(path: Path) -> bool:
     """Check if the given path is inside a git repository.
 
     Works from any subdirectory within a git worktree.
+    Returns False if the path does not exist.
     """
+    if not path.exists():
+        return False
     result = subprocess.run(
         ["git", "rev-parse", "--git-dir"],
         cwd=path,
@@ -153,10 +156,12 @@ def get_current_branch(path: Path) -> str:
     """Get the current branch name for a git repository.
 
     Unlike get_current_git_branch, this function raises an error if the operation
-    fails rather than returning None.
+    fails rather than returning None. Also raises if HEAD is detached (no branch),
+    since callers need an actual branch name for push/pull operations.
 
     Raises:
-        MngrError: If the path is not a git repository or the branch cannot be determined.
+        MngrError: If the path is not a git repository, the branch cannot be
+            determined, or HEAD is detached.
     """
     result = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -166,4 +171,7 @@ def get_current_branch(path: Path) -> str:
     )
     if result.returncode != 0:
         raise MngrError(f"Failed to get current branch: {result.stderr}")
-    return result.stdout.strip()
+    branch = result.stdout.strip()
+    if branch == "HEAD":
+        raise MngrError(f"HEAD is detached in {path}. A branch checkout is required for sync operations.")
+    return branch

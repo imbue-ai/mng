@@ -216,24 +216,6 @@ def _get_commit_hash(path: Path) -> str | None:
     return result.stdout.strip()
 
 
-def _get_remote_commit_hash(local_path: Path, remote_path: Path, branch: str) -> str | None:
-    """Get the commit hash of a branch from a remote repository.
-
-    Uses git ls-remote directly with the path, avoiding the need to add a temporary remote.
-    """
-    result = subprocess.run(
-        ["git", "ls-remote", str(remote_path), branch],
-        cwd=local_path,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-
-    # Output format: "<hash>\t<ref>"
-    return result.stdout.strip().split()[0]
-
-
 def _is_ancestor(path: Path, ancestor_commit: str, descendant_commit: str) -> bool:
     """Check if ancestor_commit is an ancestor of descendant_commit."""
     result = subprocess.run(
@@ -342,7 +324,6 @@ def determine_git_sync_actions(
 def sync_git_state(
     agent: AgentInterface,
     host: OnlineHostInterface,
-    agent_path: Path,
     local_path: Path,
     git_sync_action: GitSyncAction,
     uncommitted_changes: UncommittedChangesMode,
@@ -451,7 +432,6 @@ def pair_files(
             sync_git_state(
                 agent=agent,
                 host=host,
-                agent_path=source_path,
                 local_path=actual_target,
                 git_sync_action=git_action,
                 uncommitted_changes=uncommitted_changes,
