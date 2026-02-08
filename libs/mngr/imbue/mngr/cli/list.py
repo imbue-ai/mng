@@ -24,6 +24,7 @@ from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
@@ -205,9 +206,9 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     # --local: alias for --include 'host.provider == "local"'
     # --remote: alias for --exclude 'host.provider == "local"'
     if opts.running:
-        include_filters.append('state == "RUNNING"')
+        include_filters.append(f'state == "{AgentLifecycleState.RUNNING.value}"')
     if opts.stopped:
-        include_filters.append('state == "STOPPED"')
+        include_filters.append(f'state == "{AgentLifecycleState.STOPPED.value}"')
     if opts.local:
         include_filters.append('host.provider == "local"')
 

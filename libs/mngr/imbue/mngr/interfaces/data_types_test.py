@@ -196,7 +196,7 @@ def test_host_info_serialization_with_extended_fields() -> None:
 
     data = host_info.model_dump(mode="json")
 
-    assert data["state"] == "RUNNING"
+    assert data["state"] == HostState.RUNNING.value
     assert data["image"] == "custom-image:v1"
     assert data["tags"] == {"key": "value"}
     assert data["uptime_seconds"] == 7200.0

@@ -16,6 +16,7 @@ import modal
 import pytest
 
 from imbue.mngr.conftest import register_modal_test_volume
+from imbue.mngr.primitives import HostState
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
 from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.utils.polling import wait_for
@@ -193,7 +194,7 @@ def test_snapshot_and_shutdown_success(
         # The id IS the Modal image ID now
         assert certified_data["snapshots"][0]["id"] == result["snapshot_id"]
         # Verify stop_reason was set (defaults to PAUSED for idle shutdown)
-        assert certified_data["stop_reason"] == "PAUSED"
+        assert certified_data["stop_reason"] == HostState.PAUSED.value
 
         # Verify the sandbox was terminated by polling for termination
         def sandbox_terminated() -> bool:

@@ -1476,7 +1476,7 @@ log "=== Shutdown script completed ==="
         # record twice, since we use it to figure out the name below as well
         host_record = self._read_host_record(host_id, use_cache=False)
         if host_record is not None:
-            updated_certified_data = host_record.certified_host_data.model_copy(update={"stop_reason": "STOPPED"})
+            updated_certified_data = host_record.certified_host_data.model_copy(update={"stop_reason": HostState.STOPPED.value})
             self._write_host_record(host_record.model_copy(update={"certified_host_data": updated_certified_data}))
 
         # Remove from all caches since the sandbox is now terminated

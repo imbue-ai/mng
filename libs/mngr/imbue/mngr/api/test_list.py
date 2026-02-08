@@ -31,6 +31,7 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostState
+from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.utils.cel_utils import compile_cel_filters
 from imbue.mngr.utils.testing import tmux_session_cleanup
@@ -210,7 +211,7 @@ def test_agent_to_cel_context_with_state() -> None:
 
     context = _agent_to_cel_context(agent_info)
 
-    assert context["state"] == "STOPPED"
+    assert context["state"] == AgentLifecycleState.STOPPED.value
 
 
 def test_apply_cel_filters_with_include_filter() -> None:
@@ -320,7 +321,7 @@ def test_apply_cel_filters_with_state_filter() -> None:
     )
 
     include_filters, exclude_filters = compile_cel_filters(
-        include_filters=('state == "RUNNING"',),
+        include_filters=(f'state == "{AgentLifecycleState.RUNNING.value}"',),
         exclude_filters=(),
     )
 
@@ -584,7 +585,7 @@ def test_agent_to_cel_context_with_host_state() -> None:
 
     context = _agent_to_cel_context(agent_info)
 
-    assert context["host"]["state"] == "RUNNING"
+    assert context["host"]["state"] == HostState.RUNNING.value
 
 
 def test_agent_to_cel_context_with_host_resources() -> None:
@@ -669,7 +670,7 @@ def test_apply_cel_filters_with_host_state_filter() -> None:
     )
 
     include_filters, exclude_filters = compile_cel_filters(
-        include_filters=('host.state == "RUNNING"',),
+        include_filters=(f'host.state == "{HostState.RUNNING.value}"',),
         exclude_filters=(),
     )
 
@@ -792,13 +793,13 @@ def test_agent_to_cel_context_with_idle_mode() -> None:
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
         state=AgentLifecycleState.RUNNING,
-        idle_mode="AGENT",
+        idle_mode=IdleMode.AGENT.value,
         host=host_info,
     )
 
     context = _agent_to_cel_context(agent_info)
 
-    assert context["idle_mode"] == "AGENT"
+    assert context["idle_mode"] == IdleMode.AGENT.value
 
 
 def test_agent_to_cel_context_with_idle_seconds() -> None:
@@ -842,12 +843,12 @@ def test_apply_cel_filters_with_idle_mode_filter() -> None:
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
         state=AgentLifecycleState.RUNNING,
-        idle_mode="USER",
+        idle_mode=IdleMode.USER.value,
         host=host_info,
     )
 
     include_filters, exclude_filters = compile_cel_filters(
-        include_filters=('idle_mode == "USER"',),
+        include_filters=(f'idle_mode == "{IdleMode.USER.value}"',),
         exclude_filters=(),
     )
 
@@ -928,7 +929,7 @@ def test_list_agents_populates_idle_mode(
 
         # idle_mode should be populated (default is "agent")
         assert our_agent.idle_mode is not None
-        assert our_agent.idle_mode == "IO"
+        assert our_agent.idle_mode == IdleMode.IO.value
 
 
 def test_list_agents_with_provider_names_filter(

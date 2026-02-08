@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from imbue.mngr.conftest import ModalSubprocessTestEnv
+from imbue.mngr.primitives import HostState
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import get_short_random_string
 
@@ -240,7 +241,7 @@ def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
         state = _get_host_state(modal_subprocess_env.env, "modal", host_name, tolerate_errors=True)
         # Host should be in a non-running state (STOPPED, PAUSED, DESTROYED, etc.)
         # If state is None, we couldn't query it (transient error), so keep polling.
-        return state is not None and state not in ("RUNNING", "STARTING", "BUILDING")
+        return state is not None and state not in (HostState.RUNNING.value, HostState.STARTING.value, HostState.BUILDING.value)
 
     wait_for(
         host_is_offline,
@@ -269,4 +270,4 @@ def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
 
     # Verify the host state is 'paused' (idle shutdown sets stop_reason=PAUSED)
     final_state = _get_host_state(modal_subprocess_env.env, "modal", host_name)
-    assert final_state == "PAUSED", f"Expected host state to be 'PAUSED' after idle shutdown, but got: {final_state}"
+    assert final_state == HostState.PAUSED.value, f"Expected host state to be '{HostState.PAUSED.value}' after idle shutdown, but got: {final_state}"

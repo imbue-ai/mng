@@ -6,6 +6,7 @@ from imbue.mngr.api.message import _agent_to_cel_context
 from imbue.mngr.api.message import send_message_to_agents
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
@@ -57,7 +58,7 @@ def test_agent_to_cel_context_returns_expected_fields(
     assert context["id"] == str(agent.id)
     assert context["name"] == "cel-test-agent"
     assert context["type"] == "generic"
-    assert context["state"] == "STOPPED"
+    assert context["state"] == AgentLifecycleState.STOPPED.value
     assert context["host"]["provider"] == "local"
     assert context["host"]["id"] == str(agent.host_id)
 
