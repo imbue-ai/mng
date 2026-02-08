@@ -23,13 +23,13 @@ from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.plugins import hookspecs
-from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
 from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
+from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import delete_modal_apps_in_environment
 from imbue.mngr.utils.testing import delete_modal_environment
 from imbue.mngr.utils.testing import delete_modal_volumes_in_environment
@@ -806,8 +806,7 @@ def session_cleanup() -> Generator[None, None, None]:
     if errors:
         raise AssertionError(
             "=" * 70 + "\n"
-            "TEST SESSION CLEANUP FOUND LEAKED RESOURCES!\n"
-            "=" * 70 + "\n\n" + "\n\n".join(errors) + "\n\n"
+            "TEST SESSION CLEANUP FOUND LEAKED RESOURCES!\n" + "=" * 70 + "\n\n" + "\n\n".join(errors) + "\n\n"
             "These resources have been cleaned up, but tests should not leak!\n"
             "Please fix the test(s) that failed to clean up properly."
         )
