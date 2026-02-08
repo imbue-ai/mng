@@ -385,7 +385,7 @@ def _emit_jsonl_error(error: ErrorInfo) -> None:
 def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None) -> None:
     """Emit human-readable table output with optional field selection.
 
-    If fields is None, uses default fields (name, state, status, host, provider).
+    If fields is None, uses default fields (name, host, provider, host.state, state, status).
     """
     if not agents:
         return
