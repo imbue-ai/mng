@@ -472,8 +472,8 @@ def test_get_sortable_value_nested_field() -> None:
 def test_get_sortable_value_alias() -> None:
     """_get_sortable_value should resolve field aliases."""
     agent = _create_test_agent()
-    result = _get_sortable_value(agent, "combined_state")
-    assert result == AgentLifecycleState.RUNNING.value.lower()
+    result = _get_sortable_value(agent, "agent_state")
+    assert result == AgentLifecycleState.RUNNING
 
 
 def test_get_sortable_value_invalid_field() -> None:

@@ -144,7 +144,8 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `idle_seconds` - How long since the agent was active
 - `idle_mode` - Idle detection mode
 - `start_on_boot` - Whether the agent is set to start on host boot
-- `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
+- `agent_state` - Agent lifecycle state (running, stopped, waiting, replaced, done) - alias for lifecycle_state
+- `state` - Same as agent_state (for use in CEL filters)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):
@@ -152,7 +153,8 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `host.id` - Host ID
 - `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
 - `host.provider` - Host provider (local, docker, modal, etc.)
-- `host.state` - Current host state (running, stopped, building, etc.)
+- `host_state` - Current host state (running, stopped, building, etc.) - alias for host.state
+- `host.state` - Same as host_state
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host
 - `host.boot_time` - When the host was last started

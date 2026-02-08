@@ -39,7 +39,6 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostReference
-from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
@@ -75,25 +74,6 @@ class AgentInfo(FrozenModel):
     host: HostInfo = Field(description="Host information")
 
     plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-specific fields")
-
-    @property
-    def combined_state(self) -> str:
-        """Return the combined state for display purposes.
-
-        Per docs/concepts/agents.md: If the host's state is not "running",
-        then the agent inherits its state from the host. Otherwise, the
-        agent shows its own lifecycle state.
-        """
-        host_state = self.host.state
-
-        # If host is not running, agent inherits the host state
-        if host_state is None:
-            return HostState.DESTROYED.value.lower()
-        if host_state != HostState.RUNNING.value.lower():
-            return host_state
-
-        # Host is running, so show the agent's lifecycle state
-        return self.lifecycle_state.value.lower()
 
 
 class ErrorInfo(FrozenModel):
