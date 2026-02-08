@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from imbue.mngr.api.connect import SIGNAL_EXIT_CODE_DESTROY
+from imbue.mngr.api.connect import SIGNAL_EXIT_CODE_STOP
 from imbue.mngr.api.connect import _build_ssh_activity_wrapper_script
 
 
@@ -50,3 +52,41 @@ def test_build_ssh_activity_wrapper_script_handles_paths_with_spaces() -> None:
     # Paths should be quoted to handle spaces
     assert "'/home/user/my dir/.mngr/activity'" in script
     assert "'/home/user/my dir/.mngr/activity/ssh'" in script
+
+
+def test_build_ssh_activity_wrapper_script_checks_for_signal_file() -> None:
+    """Test that the wrapper script checks for the session-specific signal file."""
+    script = _build_ssh_activity_wrapper_script("mngr-my-agent", Path("/home/user/.mngr"))
+
+    assert "'/home/user/.mngr/signals/mngr-my-agent'" in script
+    assert "SIGNAL_FILE=" in script
+
+
+def test_build_ssh_activity_wrapper_script_exits_with_destroy_code_on_destroy_signal() -> None:
+    """Test that the wrapper script exits with SIGNAL_EXIT_CODE_DESTROY when signal is 'destroy'."""
+    script = _build_ssh_activity_wrapper_script("mngr-test", Path("/tmp/.mngr"))
+
+    assert f"exit {SIGNAL_EXIT_CODE_DESTROY}" in script
+    assert '"destroy"' in script
+
+
+def test_build_ssh_activity_wrapper_script_exits_with_stop_code_on_stop_signal() -> None:
+    """Test that the wrapper script exits with SIGNAL_EXIT_CODE_STOP when signal is 'stop'."""
+    script = _build_ssh_activity_wrapper_script("mngr-test", Path("/tmp/.mngr"))
+
+    assert f"exit {SIGNAL_EXIT_CODE_STOP}" in script
+    assert '"stop"' in script
+
+
+def test_build_ssh_activity_wrapper_script_removes_signal_file_after_reading() -> None:
+    """Test that the wrapper script removes the signal file after reading it."""
+    script = _build_ssh_activity_wrapper_script("mngr-test", Path("/tmp/.mngr"))
+
+    assert 'rm -f "$SIGNAL_FILE"' in script
+
+
+def test_build_ssh_activity_wrapper_script_signal_file_uses_session_name() -> None:
+    """Test that the signal file path includes the session name for per-session signals."""
+    script = _build_ssh_activity_wrapper_script("mngr-unique-session", Path("/data/.mngr"))
+
+    assert "'/data/.mngr/signals/mngr-unique-session'" in script
