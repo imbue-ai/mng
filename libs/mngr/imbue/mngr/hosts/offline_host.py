@@ -167,7 +167,7 @@ class BaseHost(HostInterface):
         """Get the current state of the host.
 
         For offline hosts, we determine state based on certified data, stop_reason, and snapshots:
-        - If certified data has state=FAILED, the host failed during creation
+        - If certified data has a failure_reason, the host failed during creation
         - If snapshots exist:
           - stop_reason=PAUSED -> host became idle and was paused
           - stop_reason=STOPPED -> user explicitly stopped all agents on the host
@@ -176,7 +176,7 @@ class BaseHost(HostInterface):
         - If provider doesn't support snapshots, assume STOPPED
         """
         certified_data = self.get_certified_data()
-        if certified_data.state == HostState.FAILED:
+        if certified_data.failure_reason is not None:
             return HostState.FAILED
 
         # Determine state based on stop_reason

@@ -207,13 +207,12 @@ def test_get_state_returns_crashed_when_provider_does_not_support_snapshots_and_
     assert state == HostState.CRASHED
 
 
-def test_get_state_returns_failed_when_certified_data_has_failed_state(mock_provider, mock_mngr_ctx):
-    """Test that get_state returns FAILED when certified data indicates failure."""
+def test_get_state_returns_failed_when_certified_data_has_failure_reason(mock_provider, mock_mngr_ctx):
+    """Test that get_state returns FAILED when certified data has a failure_reason."""
     host_id = HostId.generate()
     certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name="failed-host",
-        state=HostState.FAILED,
         failure_reason="Docker build failed",
         build_log="Step 1/5: RUN apt-get update\nERROR: apt-get failed",
     )
@@ -234,7 +233,6 @@ def test_get_failure_reason_returns_reason_when_present(mock_provider, mock_mngr
     certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name="failed-host",
-        state=HostState.FAILED,
         failure_reason="Modal sandbox creation failed",
         build_log="Build log contents",
     )
@@ -262,7 +260,6 @@ def test_get_build_log_returns_log_when_present(mock_provider, mock_mngr_ctx):
     certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name="failed-host",
-        state=HostState.FAILED,
         failure_reason="Build failed",
         build_log=build_log_content,
     )
@@ -295,13 +292,12 @@ def test_get_state_returns_crashed_when_snapshot_check_fails_and_no_stop_reason(
     assert state == HostState.CRASHED
 
 
-def test_failed_state_takes_precedence_over_snapshot_check(mock_provider, mock_mngr_ctx):
-    """Test that FAILED state is returned even when snapshots exist."""
+def test_failure_reason_takes_precedence_over_snapshot_check(mock_provider, mock_mngr_ctx):
+    """Test that FAILED is returned when failure_reason is set, even when snapshots exist."""
     host_id = HostId.generate()
     certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name="failed-host",
-        state=HostState.FAILED,
         failure_reason="Build failed",
     )
     mock_provider.supports_snapshots = True
@@ -321,7 +317,7 @@ def test_failed_state_takes_precedence_over_snapshot_check(mock_provider, mock_m
 
     state = failed_host.get_state()
     assert state == HostState.FAILED
-    # Snapshot check should not be called since FAILED state is checked first
+    # Snapshot check should not be called since failure_reason is checked first
     mock_provider.list_snapshots.assert_not_called()
 
 

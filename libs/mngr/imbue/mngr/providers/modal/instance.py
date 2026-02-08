@@ -410,7 +410,6 @@ class ModalProviderInstance(BaseProviderInstance):
             host_name=str(host_name),
             user_tags=dict(tags) if tags else {},
             snapshots=[],
-            state=HostState.FAILED,
             failure_reason=failure_reason,
             build_log=build_log,
         )
@@ -1394,6 +1393,7 @@ log "=== Shutdown script completed ==="
             host_name=str(name),
             user_tags=dict(tags) if tags else {},
             snapshots=[],
+            tmux_session_prefix=self.mngr_ctx.config.prefix,
         )
 
         # Set up SSH and create host object using shared helper
@@ -1531,7 +1531,7 @@ log "=== Shutdown script completed ==="
         # Sandbox is not running - restore from snapshot
         # First check if this is a failed host (can't be started)
         host_record = self._read_host_record(host_id, use_cache=False)
-        if host_record is not None and host_record.certified_host_data.state == HostState.FAILED:
+        if host_record is not None and host_record.certified_host_data.failure_reason is not None:
             raise MngrError(
                 f"Host {host_id} failed during creation and cannot be started. "
                 f"Reason: {host_record.certified_host_data.failure_reason}"
@@ -1813,7 +1813,7 @@ log "=== Shutdown script completed ==="
             if host_id not in running_sandbox_by_host_id or host_obj is None:
                 # Host has no running sandbox - it's stopped, failed, destroyed, or we couldn't connect
                 has_snapshots = len(host_record.snapshots) > 0
-                is_failed = host_record.certified_host_data.state == HostState.FAILED
+                is_failed = host_record.certified_host_data.failure_reason is not None
 
                 if is_failed:
                     # Failed host - always include so users can debug build failures

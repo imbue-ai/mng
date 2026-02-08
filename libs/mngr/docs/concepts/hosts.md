@@ -46,7 +46,7 @@ building  →  starting      →       running     →    stopping    →    sto
 | **running**   | While any agent is running and considered active                                     |
 | **stopping**  | When all agents become idle, the host is being stopped (snapshotted, host shut down) |
 | **paused**    | Host became idle and was snapshotted/shut down (can be restarted)                    |
-| **stopped**   | User explicitly stopped all agents on the host (agents can be started up again)      |
+| **stopped**   | All agents exited or user explicitly stopped the host (can be restarted)             |
 | **crashed**   | Host shut down unexpectedly without a controlled shutdown                            |
 | **failed**    | Something went wrong before the host could be created                                |
 | **destroyed** | Host gone, resources freed                                                           |
@@ -113,6 +113,10 @@ When a host is "stopping", it performs these steps:
 ### Stopped
 
 While a host is "stopped", it is completely shut down and only consuming storage (for snapshots, etc.)
+
+A host enters the stopped state when:
+- The user explicitly stops the host via `mngr stop`
+- All agent tmux sessions have exited (detected by the activity watcher)
 
 You can "start" agents on a stopped host, which causes the host to transition to the `starting` state.
 
