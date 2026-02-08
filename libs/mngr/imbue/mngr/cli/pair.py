@@ -16,6 +16,7 @@ from imbue.mngr.cli.common_opts import setup_command_context
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
@@ -256,7 +257,9 @@ def pair(ctx: click.Context, **kwargs) -> None:
             emit_info("Sync started. Press Ctrl+C to stop.", output_opts.output_format)
 
             # Wait for the syncer to complete (usually via Ctrl+C)
-            syncer.wait()
+            exit_code = syncer.wait()
+            if exit_code != 0:
+                raise MngrError(f"Unison sync process exited with code {exit_code}")
     except KeyboardInterrupt:
         logger.debug("Received keyboard interrupt")
     finally:

@@ -207,12 +207,13 @@ def test_local_git_context_has_uncommitted_changes_returns_false_when_clean(
 
 
 @patch("subprocess.run")
-def test_local_git_context_has_uncommitted_changes_returns_false_on_error(
+def test_local_git_context_has_uncommitted_changes_raises_on_error(
     mock_run: MagicMock,
 ) -> None:
-    mock_run.return_value = MagicMock(returncode=1, stdout="")
+    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="fatal: error")
     ctx = LocalGitContext()
-    assert ctx.has_uncommitted_changes(Path("/test")) is False
+    with pytest.raises(MngrError, match="git status failed"):
+        ctx.has_uncommitted_changes(Path("/test"))
 
 
 @patch("subprocess.run")
@@ -316,11 +317,12 @@ def test_remote_git_context_has_uncommitted_changes_returns_false_when_clean() -
     assert ctx.has_uncommitted_changes(Path("/test")) is False
 
 
-def test_remote_git_context_has_uncommitted_changes_returns_false_on_error() -> None:
+def test_remote_git_context_has_uncommitted_changes_raises_on_error() -> None:
     mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=False, stdout="")
+    mock_host.execute_command.return_value = MagicMock(success=False, stdout="", stderr="fatal: error")
     ctx = RemoteGitContext(host=mock_host)
-    assert ctx.has_uncommitted_changes(Path("/test")) is False
+    with pytest.raises(MngrError, match="git status failed"):
+        ctx.has_uncommitted_changes(Path("/test"))
 
 
 def test_remote_git_context_git_stash_returns_true_on_success() -> None:

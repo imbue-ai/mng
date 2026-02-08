@@ -6,12 +6,12 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.push import push_files
 from imbue.mngr.api.push import push_git
 from imbue.mngr.api.sync import SyncFilesResult
 from imbue.mngr.api.sync import SyncGitResult
-from imbue.mngr.cli.agent_utils import find_agent_by_name_or_id
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -252,7 +252,7 @@ def push(ctx: click.Context, **kwargs) -> None:
 
     if agent_identifier is not None:
         agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
-        agent, host = find_agent_by_name_or_id(agent_identifier, agents_by_host, mngr_ctx)
+        agent, host = find_and_maybe_start_agent_by_name_or_id(agent_identifier, agents_by_host, mngr_ctx, "push")
     elif not sys.stdin.isatty():
         raise UserInputError("No agent specified and not running in interactive mode")
     else:

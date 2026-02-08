@@ -139,14 +139,18 @@ def is_git_repository(path: Path) -> bool:
     """Check if the given path is inside a git repository.
 
     Works from any subdirectory within a git worktree.
+    Returns False if the path does not exist.
     """
-    result = subprocess.run(
-        ["git", "rev-parse", "--git-dir"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, NotADirectoryError):
+        return False
 
 
 def get_current_branch(path: Path) -> str:

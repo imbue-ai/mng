@@ -1,5 +1,6 @@
 """Unified sync API for push and pull operations between local and agent repositories."""
 
+import shlex
 import subprocess
 from abc import ABC
 from abc import abstractmethod
@@ -177,7 +178,7 @@ class LocalGitContext(GitContextInterface):
             text=True,
         )
         if result.returncode != 0:
-            return False
+            raise MngrError(f"git status failed in {path}: {result.stderr}")
         return len(result.stdout.strip()) > 0
 
     def git_stash(self, path: Path) -> bool:
@@ -243,7 +244,7 @@ class RemoteGitContext(GitContextInterface):
     def has_uncommitted_changes(self, path: Path) -> bool:
         result = self._host.execute_command("git status --porcelain", cwd=path)
         if not result.success:
-            return False
+            raise MngrError(f"git status failed in {path}: {result.stderr}")
         return len(result.stdout.strip()) > 0
 
     def git_stash(self, path: Path) -> bool:
@@ -342,11 +343,7 @@ def sync_files(
         logger.debug("Pulling files from {} to {}", source_path, destination_path)
 
     # Handle uncommitted changes in the destination
-    # Note: CLOBBER mode skips this check - it means "proceed with sync regardless of
-    # uncommitted changes" rather than "reset git state before sync"
-    did_stash = False
-    if uncommitted_changes != UncommittedChangesMode.CLOBBER:
-        did_stash = handle_uncommitted_changes(git_ctx, destination_path, uncommitted_changes)
+    did_stash = handle_uncommitted_changes(git_ctx, destination_path, uncommitted_changes)
 
     # Build rsync command
     rsync_cmd = ["rsync", "-avz", "--progress", "--exclude=.git"]
@@ -365,8 +362,8 @@ def sync_files(
     rsync_cmd.append(source_str)
     rsync_cmd.append(str(destination_path))
 
-    # Execute rsync
-    cmd_str = " ".join(rsync_cmd)
+    # Execute rsync (quote each argument to handle paths with spaces)
+    cmd_str = " ".join(shlex.quote(arg) for arg in rsync_cmd)
     logger.debug("Running rsync command: {}", cmd_str)
 
     result: CommandResult = host.execute_command(cmd_str)
@@ -376,8 +373,12 @@ def sync_files(
         if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
             try:
                 git_ctx.git_stash_pop(destination_path)
-            except MngrError:
-                logger.warning("Failed to restore stashed changes after rsync failure")
+            except MngrError as e:
+                logger.error(
+                    "Failed to restore stashed changes after rsync failure. "
+                    "Your changes remain in the git stash and can be recovered with 'git stash pop': {}",
+                    e,
+                )
         raise MngrError(f"rsync failed: {result.stderr}")
 
     # Parse rsync output to extract statistics
@@ -540,8 +541,12 @@ def _sync_git_push(
             logger.debug("Restoring stashed changes on target")
             try:
                 git_ctx.git_stash_pop(destination_path)
-            except MngrError:
-                logger.warning("Failed to restore stashed changes after git push")
+            except MngrError as e:
+                logger.error(
+                    "Failed to restore stashed changes after git push. "
+                    "Your changes remain in the git stash and can be recovered with 'git stash pop': {}",
+                    e,
+                )
 
     return SyncGitResult(
         source_branch=source_branch,
@@ -567,6 +572,10 @@ def _sync_git_pull(
     source_path = agent.work_dir
     git_ctx = LocalGitContext()
 
+    # Record the original branch before any operations
+    original_branch = get_current_branch(local_path)
+    did_change_branch = False
+
     # Handle uncommitted changes in the destination
     did_stash = handle_uncommitted_changes(git_ctx, local_path, uncommitted_changes)
 
@@ -589,8 +598,7 @@ def _sync_git_pull(
             raise MngrError(f"Failed to fetch from agent: {result.stderr}")
 
         # Checkout the target branch if different from current
-        current_branch = get_current_branch(local_path)
-        if current_branch != target_branch:
+        if original_branch != target_branch:
             logger.debug("Checking out target branch: {}", target_branch)
             result = subprocess.run(
                 ["git", "checkout", target_branch],
@@ -600,6 +608,7 @@ def _sync_git_pull(
             )
             if result.returncode != 0:
                 raise MngrError(f"Failed to checkout target branch: {result.stderr}")
+            did_change_branch = True
 
         # Count commits that will be merged (using FETCH_HEAD from the fetch)
         commits_to_merge = _count_commits_between(
@@ -651,11 +660,27 @@ def _sync_git_pull(
     finally:
         # For merge mode, restore the stashed changes
         if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
+            # If we changed branches, checkout back to original before restoring stash.
+            # The stash was created on original_branch, so it should be popped there.
+            if did_change_branch:
+                logger.debug("Checking out original branch {} before restoring stash", original_branch)
+                checkout_result = subprocess.run(
+                    ["git", "checkout", original_branch],
+                    cwd=local_path,
+                    capture_output=True,
+                    text=True,
+                )
+                if checkout_result.returncode != 0:
+                    logger.error(
+                        "Failed to checkout original branch {} for stash restore: {}",
+                        original_branch,
+                        checkout_result.stderr,
+                    )
             logger.debug("Restoring stashed changes")
             try:
                 git_ctx.git_stash_pop(local_path)
-            except MngrError:
-                logger.warning("Failed to restore stashed changes after git pull")
+            except MngrError as e:
+                logger.error("Failed to restore stashed changes after git pull: {}", e)
 
     return SyncGitResult(
         source_branch=source_branch,
