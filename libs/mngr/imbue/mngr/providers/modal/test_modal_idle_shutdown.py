@@ -238,7 +238,7 @@ def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
         # can occur during the transition period when the sandbox is terminating.
         # We keep polling until we can successfully query the host state.
         state = _get_host_state(modal_subprocess_env.env, "modal", host_name, tolerate_errors=True)
-        # Host should be in a non-running state (stopped, paused, destroyed, etc.)
+        # Host should be in a non-running state (STOPPED, PAUSED, DESTROYED, etc.)
         # If state is None, we couldn't query it (transient error), so keep polling.
         return state is not None and state not in ("RUNNING", "STARTING", "BUILDING")
 

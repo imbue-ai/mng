@@ -121,7 +121,7 @@ def _create_selectable_agent_item(agent: AgentInfo, name_width: int, state_width
     """
     # Pad the name and state to their column widths for proper alignment
     name_padded = str(agent.name).ljust(name_width)
-    state_padded = agent.state.value.lower().ljust(state_width)
+    state_padded = agent.state.value.ljust(state_width)
     host_str = str(agent.host.name)
 
     # Create a single SelectableIcon with the full formatted row
