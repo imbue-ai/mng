@@ -129,12 +129,13 @@ BASE_BRANCH="${GIT_BASE_BRANCH:-main}"
 log_info "Fetching all remotes..."
 git fetch --all
 
-# FIXME: only push the base branch if it doesn't already exist on the origin
-# Ensure the base branch is pushed as well (otherwise cannot make the PR)
-log_info "Ensuring base branch is on origin..."
-if ! retry_command 3 git push origin $BASE_BRANCH; then
-    log_error "Failed to push base branch after retries"
-    exit 1
+# Only push the base branch if it doesn't already exist on the origin
+if ! git rev-parse --verify "origin/$BASE_BRANCH" >/dev/null 2>&1; then
+    log_info "Pushing base branch to origin (not yet present remotely)..."
+    if ! retry_command 3 git push origin "$BASE_BRANCH"; then
+        log_error "Failed to push base branch after retries"
+        exit 1
+    fi
 fi
 
 # Merge the base branch from origin (if it exists)
