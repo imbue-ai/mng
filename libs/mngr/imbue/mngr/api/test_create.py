@@ -272,7 +272,6 @@ def test_create_agent_with_worktree(
     agent_name = AgentName(f"test-worktree-{int(time.time())}")
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
-    _setup_claude_trust_config(temp_git_repo)
     worktree_path: Path | None = None
     with tmux_session_cleanup(session_name):
         try:

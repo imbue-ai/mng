@@ -1173,7 +1173,7 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> Path:
         """Create a work_dir using git worktree.
 
-        Worktrees are placed at ~/.mngr/hosts/<host>/worktrees/<agent-id>/.
+        Worktrees are placed at ~/.mngr/worktrees/<agent-id>/ by default.
         """
         if host.id != self.id:
             raise UserInputError("Worktree mode only works when source is on the same host")
