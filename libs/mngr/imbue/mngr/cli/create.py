@@ -133,7 +133,7 @@ class CreateCliOptions(CommonCliOptions):
     positional_name: str | None
     positional_agent_type: str | None
     agent_args: tuple[str, ...]
-    template: str | None
+    template: tuple[str, ...]
     agent_type: str | None
     reuse: bool
     connect: bool
@@ -214,7 +214,12 @@ class CreateCliOptions(CommonCliOptions):
 @click.argument("positional_agent_type", default=None, required=False)
 @click.argument("agent_args", nargs=-1, type=click.UNPROCESSED)
 @optgroup.group("Agent Options")
-@optgroup.option("-t", "--template", help="Use a named template from create_templates config")
+@optgroup.option(
+    "-t",
+    "--template",
+    multiple=True,
+    help="Use a named template from create_templates config [repeatable, stacks in order]",
+)
 @optgroup.option("-n", "--name", help="Agent name (alternative to positional argument) [default: auto-generated]")
 @optgroup.option(
     "--name-style",
@@ -1493,6 +1498,7 @@ the working directory is copied to the remote host.""",
         ("Create an agent in a Docker container", "mngr create my-agent --in docker"),
         ("Create an agent in a Modal sandbox", "mngr create my-agent --in modal"),
         ("Create using a named template", "mngr create my-agent --template modal"),
+        ("Stack multiple templates", "mngr create my-agent -t modal -t codex"),
         ("Create a codex agent instead of claude", "mngr create my-agent codex"),
         ("Pass arguments to the agent", "mngr create my-agent -- --model opus"),
         ("Create on an existing host", "mngr create my-agent --host my-dev-box"),

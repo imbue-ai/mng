@@ -29,8 +29,7 @@ from pyinfra.connectors.util import CommandOutput
 from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
-from imbue.mngr.agents.agent_registry import get_agent_class
-from imbue.mngr.agents.agent_registry import get_agent_config_class
+from imbue.mngr.agents.agent_registry import resolve_agent_type
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
@@ -804,14 +803,9 @@ class Host(BaseHost, OnlineHostInterface):
         logger.trace("Loaded agent {} from {}", data.get("name"), agent_dir)
 
         agent_type = AgentTypeName(data["type"])
-        agent_class = get_agent_class(str(agent_type))
-        config_class = get_agent_config_class(str(agent_type))
+        resolved = resolve_agent_type(agent_type, self.mngr_ctx.config)
 
-        agent_config = self.mngr_ctx.config.agent_types.get(agent_type)
-        if agent_config is None:
-            agent_config = config_class()
-
-        return cast(type[BaseAgent], agent_class)(
+        return cast(type[BaseAgent], resolved.agent_class)(
             id=AgentId(data["id"]),
             name=AgentName(data["name"]),
             agent_type=agent_type,
@@ -820,7 +814,7 @@ class Host(BaseHost, OnlineHostInterface):
             host_id=self.id,
             host=self,
             mngr_ctx=self.mngr_ctx,
-            agent_config=agent_config,
+            agent_config=resolved.agent_config,
         )
 
     def create_agent_work_dir(
@@ -1183,7 +1177,7 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> Path:
         """Create a work_dir using git worktree.
 
-        Worktrees are placed at ~/.mngr/hosts/<host>/worktrees/<agent-id>/.
+        Worktrees are placed at ~/.mngr/worktrees/<agent-id>/ by default.
         """
         if host.id != self.id:
             raise UserInputError("Worktree mode only works when source is on the same host")
@@ -1195,12 +1189,10 @@ class Host(BaseHost, OnlineHostInterface):
         else:
             work_dir_path = self.host_dir / "worktrees" / str(agent_id)
 
-        self._mkdir(work_dir_path.parent)
-
         branch_name = self._determine_branch_name(options)
 
         logger.debug("Creating git worktree", path=str(work_dir_path), branch=branch_name)
-        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
+        cmd = f"mkdir -p {work_dir_path.parent} && git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
 
         if options.git and options.git.base_branch:
             cmd += f" {shlex.quote(options.git.base_branch)}"
@@ -1241,19 +1233,14 @@ class Host(BaseHost, OnlineHostInterface):
             agent_type=str(agent_type),
         )
 
-        agent_class = get_agent_class(str(agent_type))
-        config_class = get_agent_config_class(str(agent_type))
-
-        agent_config = self.mngr_ctx.config.agent_types.get(agent_type)
-        if agent_config is None:
-            agent_config = config_class()
+        resolved = resolve_agent_type(agent_type, self.mngr_ctx.config)
 
         state_dir = self.host_dir / "agents" / str(agent_id)
         self._mkdirs([state_dir, state_dir / "logs", state_dir / "events"])
 
         create_time = datetime.now(timezone.utc)
 
-        agent = cast(type[BaseAgent], agent_class)(
+        agent = cast(type[BaseAgent], resolved.agent_class)(
             id=agent_id,
             name=agent_name,
             agent_type=agent_type,
@@ -1262,7 +1249,7 @@ class Host(BaseHost, OnlineHostInterface):
             host_id=self.id,
             host=self,
             mngr_ctx=self.mngr_ctx,
-            agent_config=agent_config,
+            agent_config=resolved.agent_config,
         )
 
         command = agent.assemble_command(
@@ -1609,8 +1596,8 @@ class Host(BaseHost, OnlineHostInterface):
             "# Ctrl-q: Detach and destroy the agent whose session this is",
             """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'""",
             "",
-            "# Ctrl-@: Detach and stop the agent whose session this is",
-            """bind -n C-@ run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
+            "# Ctrl-t: Detach and stop the agent whose session this is",
+            """bind -n C-t run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
             "",
             # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
             "# Automatically signal claude to tell it to resize on client attach",
@@ -1640,7 +1627,11 @@ class Host(BaseHost, OnlineHostInterface):
         A custom tmux config is used that:
         - Sources the user's default ~/.tmux.conf if it exists
         - Adds a Ctrl-q binding to detach and destroy the current agent
-        - Adds a Ctrl-@ binding to detach and halt (stop) the current agent
+        - Adds a Ctrl-t binding to detach and halt (stop) the current agent
+
+        All tmux commands, activity recording, and process monitor launch for
+        each agent are batched into a single shell command to minimize network
+        and process round trips (important for remote hosts).
         """
         logger.debug("Starting {} agent(s)", len(agent_ids))
 
@@ -1660,143 +1651,20 @@ class Host(BaseHost, OnlineHostInterface):
             session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
             logger.debug("Starting agent {} in tmux session {}", agent.name, session_name)
 
-            # Build a shell command that sources env files and execs bash
-            # This ensures the tmux session's shell has the env vars set
-            env_shell_cmd = self._build_env_shell_command(agent)
-
-            # Build unset environment variable arguments
-            unset_env_args = ""
-            for var_name in self.mngr_ctx.config.unset_vars:
-                unset_env_args += f"unset {shlex.quote(var_name)} && "
-
-            # Create a tmux session with a shell that has env vars sourced
-            # The shell-command argument makes tmux start with our custom bash
-            # that sources the env files before becoming an interactive shell
-            # The -f flag specifies our custom tmux config with the exit hotkey binding
-            # Note: env_shell_cmd must be quoted so it's passed as a single argument to tmux
-            # The -d flag creates a detached session; tmux returns after the session is created
-            result = self.execute_command(
-                f"{unset_env_args}tmux -f {shlex.quote(str(tmux_config_path))} new-session -d -s '{session_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
+            # Build and execute a single combined shell command for this agent
+            combined_command = _build_start_agent_shell_command(
+                agent=agent,
+                session_name=session_name,
+                command=command,
+                additional_commands=additional_commands,
+                env_shell_cmd=self._build_env_shell_command(agent),
+                tmux_config_path=tmux_config_path,
+                unset_vars=self.mngr_ctx.config.unset_vars,
+                host_dir=self.host_dir,
             )
+            result = self.execute_command(combined_command)
             if not result.success:
-                raise AgentStartError(str(agent.name), f"tmux new-session failed: {result.stderr}")
-
-            # Set the session's default-command so any new window/pane created
-            # by the user will automatically source the env files
-            # Note: env_shell_cmd needs to be quoted as a single argument for tmux
-            result = self.execute_command(
-                f"tmux set-option -t '{session_name}' default-command {shlex.quote(env_shell_cmd)}"
-            )
-            if not result.success:
-                raise AgentStartError(str(agent.name), f"tmux set-option failed: {result.stderr}")
-
-            # Send the command as literal keys (tmux will handle escaping)
-            # Using -l flag to send literal characters
-            result = self.execute_command(f"tmux send-keys -t '{session_name}' -l {shlex.quote(command)}")
-            if not result.success:
-                raise AgentStartError(str(agent.name), f"tmux send-keys failed: {result.stderr}")
-
-            # Send Enter to execute the command
-            result = self.execute_command(f"tmux send-keys -t '{session_name}' Enter")
-            if not result.success:
-                raise AgentStartError(str(agent.name), f"tmux send-keys Enter failed: {result.stderr}")
-
-            # Create additional windows for each additional command
-            for idx, named_cmd in enumerate(additional_commands):
-                window_name = named_cmd.window_name if named_cmd.window_name else f"cmd-{idx + 1}"
-                logger.debug(
-                    "Creating additional tmux window {} for command: {}",
-                    window_name,
-                    named_cmd.command,
-                )
-
-                # Create a new window with a shell that has env vars sourced
-                # Note: env_shell_cmd must be quoted so it's passed as a single argument to tmux
-                result = self.execute_command(
-                    f"tmux new-window -t '{session_name}' -n '{window_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
-                )
-                if not result.success:
-                    raise AgentStartError(
-                        str(agent.name), f"tmux new-window failed for {window_name}: {result.stderr}"
-                    )
-
-                # Send the additional command as literal keys
-                result = self.execute_command(
-                    f"tmux send-keys -t '{session_name}:{window_name}' -l {shlex.quote(str(named_cmd.command))}"
-                )
-                if not result.success:
-                    raise AgentStartError(str(agent.name), f"tmux send-keys failed for {window_name}: {result.stderr}")
-
-                # Send Enter to execute the command
-                result = self.execute_command(f"tmux send-keys -t '{session_name}:{window_name}' Enter")
-                if not result.success:
-                    raise AgentStartError(
-                        str(agent.name), f"tmux send-keys Enter failed for {window_name}: {result.stderr}"
-                    )
-
-            # If we created additional windows, select the first window (the main agent)
-            if additional_commands:
-                result = self.execute_command(f"tmux select-window -t '{session_name}:0'")
-                if not result.success:
-                    raise AgentStartError(str(agent.name), f"tmux select-window failed: {result.stderr}")
-
-            # Record START activity for idle detection
-            agent.record_activity(ActivitySource.START)
-
-            # Start background process activity monitor
-            self._start_process_activity_monitor(agent, session_name)
-
-    def _start_process_activity_monitor(self, agent: AgentInterface, session_name: str) -> None:
-        """Start a background process that writes PROCESS activity while the agent is alive.
-
-        This launches a detached bash script on the host that:
-        1. Gets the tmux pane PID for the agent's session
-        2. Loops while that PID is alive, writing PROCESS activity every ~5 seconds
-        3. Exits when the pane process exits
-
-        The activity file contains JSON with:
-        - time: milliseconds since Unix epoch (int)
-        - pane_pid: the tmux pane PID being monitored (for debugging)
-        - agent_id: the agent's ID (for debugging)
-
-        Note: The authoritative activity time is the file's mtime, not the JSON content.
-        """
-        activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value.lower()
-        agent_id = str(agent.id)
-
-        # Build a bash script that monitors the process and writes activity
-        # We use nohup and redirect output to /dev/null to fully detach
-        # The script:
-        # 1. Gets the pane PID using tmux list-panes
-        # 2. While the PID exists, write activity JSON and sleep
-        # 3. Uses date +%s for seconds since epoch, multiply by 1000 for milliseconds
-        # FIXME: this script really ought to wait for up to X seconds for the PANE_PID to appear (since it can take a little bit)
-        monitor_script = f"""
-PANE_PID=$(tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null | head -n 1)
-if [ -z "$PANE_PID" ]; then
-    exit 0
-fi
-ACTIVITY_PATH={shlex.quote(str(activity_path))}
-AGENT_ID={shlex.quote(agent_id)}
-mkdir -p "$(dirname "$ACTIVITY_PATH")"
-while kill -0 "$PANE_PID" 2>/dev/null; do
-    TIME_MS=$(($(date +%s) * 1000))
-    printf '{{\\n  "time": %d,\\n  "pane_pid": %s,\\n  "agent_id": "%s"\\n}}\\n' "$TIME_MS" "$PANE_PID" "$AGENT_ID" > "$ACTIVITY_PATH"
-    sleep 5
-done
-"""
-        # Run the script in the background, fully detached
-        # nohup ensures it survives if the parent shell exits
-        # Redirect all output to /dev/null and background with &
-        cmd = f"nohup bash -c {shlex.quote(monitor_script)} </dev/null >/dev/null 2>&1 &"
-
-        result = self.execute_command(cmd)
-        if not result.success:
-            logger.warning(
-                "Failed to start process activity monitor for agent {}: {}",
-                agent.name,
-                result.stderr,
-            )
+                raise AgentStartError(str(agent.name), result.stderr)
 
     def _get_all_descendant_pids(self, parent_pid: str) -> list[str]:
         """Recursively get all descendant PIDs of a given parent PID."""
@@ -1814,19 +1682,32 @@ done
 
         return descendant_pids
 
+    def _collect_session_pids(self, session_name: str) -> list[str]:
+        """Collect all pane PIDs and their descendants for a tmux session.
+
+        Uses -s flag to list panes across ALL windows in the session, not just the
+        current window. This is important for sessions with additional command windows.
+        """
+        all_pids: list[str] = []
+        result = self.execute_command(f"tmux list-panes -s -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true")
+        if result.success and result.stdout.strip():
+            for pane_pid in result.stdout.strip().split("\n"):
+                if pane_pid:
+                    all_pids.append(pane_pid)
+                    all_pids.extend(self._get_all_descendant_pids(pane_pid))
+        return all_pids
+
     def stop_agents(self, agent_ids: Sequence[AgentId], timeout_seconds: float = 5.0) -> None:
         """Stop agents by killing all processes in their tmux sessions.
 
         This ensures all processes in all panes are terminated by:
-        1. Getting all PIDs (panes + descendants) and their process groups BEFORE sending ctrl-c
-        2. Sending ctrl-c to allow graceful shutdown
-        3. Sending SIGTERM to all process groups
-        4. Sending SIGKILL to all process groups if processes remain
-        5. Finally killing the tmux session itself
+        1. Getting all PIDs (panes + descendants)
+        2. Sending SIGTERM to each individual process
+        3. Waiting briefly, then sending SIGKILL to any survivors
+        4. Finally killing the tmux session itself
         """
         logger.debug("Stopping {} agent(s) with timeout={}s", len(agent_ids), timeout_seconds)
         all_pids: list[str] = []
-        process_groups: set[str] = set()
 
         current_agents: list[AgentInterface] = []
 
@@ -1836,43 +1717,22 @@ done
                 continue
 
             current_agents.append(agent)
-
             session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
+            all_pids.extend(self._collect_session_pids(session_name))
 
-            # Get all pane PIDs and their descendants BEFORE sending ctrl-c
-            result = self.execute_command(
-                f"tmux list-panes -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true"
+        if all_pids:
+            pid_list = " ".join(all_pids)
+
+            # Send SIGTERM to all processes at once, then wait briefly and SIGKILL survivors.
+            # This is done in a single shell command to avoid the issue where one non-responsive
+            # process (e.g., interactive bash which ignores SIGTERM) would consume the entire
+            # timeout budget in a serial loop, preventing SIGKILL from reaching other processes.
+            grace_seconds = min(1.0, timeout_seconds)
+            self.execute_command(
+                f"for p in {pid_list}; do kill -TERM $p 2>/dev/null; done; "
+                f"sleep {grace_seconds}; "
+                f"for p in {pid_list}; do kill -KILL $p 2>/dev/null; done; true"
             )
-
-            if result.success and result.stdout.strip():
-                pane_pids = result.stdout.strip().split("\n")
-                for pane_pid in pane_pids:
-                    if pane_pid:
-                        # Add the pane PID
-                        all_pids.append(pane_pid)
-                        # Recursively get all descendant PIDs
-                        descendant_pids = self._get_all_descendant_pids(pane_pid)
-                        all_pids.extend(descendant_pids)
-
-                # Get process group IDs for all pane PIDs (should be all the same...)
-                for pid in pane_pids:
-                    result_pgid = self.execute_command(f"ps -o pgid= -p {pid} 2>/dev/null || true")
-                    if result_pgid.success and result_pgid.stdout.strip():
-                        pgid = result_pgid.stdout.strip()
-                        process_groups.add(pgid)
-                        # Send SIGTERM. Use negative PGID to signal the entire process group
-                        self.execute_command(f"kill -TERM -- -{pgid} 2>/dev/null || true")
-
-        # Force kill any remaining processes with SIGKILL, waiting until timeout
-        deadline = time.monotonic() + timeout_seconds
-        for pid in all_pids:
-            time_left = deadline - time.monotonic()
-            if time_left > 0:
-                self.execute_command(
-                    f"kill -TERM -- -{pid} 2>/dev/null && timeout {time_left} tail --pid={pid} -f /dev/null || kill -KILL -- -{pid} 2>/dev/null || true"
-                )
-            else:
-                self.execute_command(f"kill -KILL -- -{pid} 2>/dev/null || true")
 
         # Finally kill the tmux sessions themselves
         for agent in current_agents:
@@ -1974,6 +1834,105 @@ done
 
         # otherwise use the offline logic
         return super().get_state()
+
+
+@pure
+def _build_start_agent_shell_command(
+    agent: AgentInterface,
+    session_name: str,
+    command: str,
+    additional_commands: Sequence[NamedCommand],
+    env_shell_cmd: str,
+    tmux_config_path: Path,
+    unset_vars: Sequence[str],
+    host_dir: Path,
+) -> str:
+    """Build a single shell command that starts an agent and its tmux session.
+
+    Combines all tmux operations, activity recording, and process monitor
+    launch into one command to minimize network round trips for remote hosts.
+
+    The command chains critical steps with && so that if any step fails,
+    subsequent steps are skipped. The process activity monitor is launched
+    in a subshell so it runs in the background without affecting the chain.
+    """
+    steps: list[str] = []
+
+    # Unset environment variables
+    for var_name in unset_vars:
+        steps.append(f"unset {shlex.quote(var_name)}")
+
+    # Create a detached tmux session with env vars sourced
+    steps.append(
+        f"tmux -f {shlex.quote(str(tmux_config_path))} new-session -d"
+        f" -s {shlex.quote(session_name)}"
+        f" -c {shlex.quote(str(agent.work_dir))}"
+        f" {shlex.quote(env_shell_cmd)}"
+    )
+
+    # Set the session's default-command so new windows/panes inherit env vars
+    steps.append(f"tmux set-option -t {shlex.quote(session_name)} default-command {shlex.quote(env_shell_cmd)}")
+
+    # Send the agent command as literal keys, then Enter to execute
+    steps.append(f"tmux send-keys -t {shlex.quote(session_name)} -l {shlex.quote(command)}")
+    steps.append(f"tmux send-keys -t {shlex.quote(session_name)} Enter")
+
+    # Create additional windows for each additional command
+    for idx, named_cmd in enumerate(additional_commands):
+        window_name = named_cmd.window_name if named_cmd.window_name else f"cmd-{idx + 1}"
+        window_target = f"{session_name}:{window_name}"
+
+        steps.append(
+            f"tmux new-window -t {shlex.quote(session_name)}"
+            f" -n {shlex.quote(window_name)}"
+            f" -c {shlex.quote(str(agent.work_dir))}"
+            f" {shlex.quote(env_shell_cmd)}"
+        )
+        steps.append(f"tmux send-keys -t {shlex.quote(window_target)} -l {shlex.quote(str(named_cmd.command))}")
+        steps.append(f"tmux send-keys -t {shlex.quote(window_target)} Enter")
+
+    # If we created additional windows, select the first window (the main agent)
+    if additional_commands:
+        steps.append(f"tmux select-window -t {shlex.quote(session_name + ':0')}")
+
+    # Record START activity for idle detection by writing JSON to the activity file
+    # The authoritative activity time is the file's mtime, not the JSON content
+    activity_dir = host_dir / "agents" / str(agent.id) / "activity"
+    activity_path = activity_dir / ActivitySource.START.value.lower()
+    steps.append(f"mkdir -p {shlex.quote(str(activity_dir))}")
+    activity_printf_cmd = (
+        'printf \'{"time": %s, "agent_id": "%s", "agent_name": "%s"}\\n\''
+        f' "$(($(date +%s) * 1000))"'
+        f" {shlex.quote(str(agent.id))}"
+        f" {shlex.quote(str(agent.name))}"
+        f" > {shlex.quote(str(activity_path))}"
+    )
+    steps.append(activity_printf_cmd)
+
+    # Build the process activity monitor script (runs in the background)
+    # FIXME: this script really ought to wait for up to X seconds for the PANE_PID to appear (since it can take a little bit)
+    process_activity_path = activity_dir / ActivitySource.PROCESS.value.lower()
+    monitor_script = (
+        f"PANE_PID=$(tmux list-panes -t {shlex.quote(session_name)}"
+        " -F '#{pane_pid}' 2>/dev/null | head -n 1); "
+        'if [ -z "$PANE_PID" ]; then exit 0; fi; '
+        f"ACTIVITY_PATH={shlex.quote(str(process_activity_path))}; "
+        f"AGENT_ID={shlex.quote(str(agent.id))}; "
+        'mkdir -p "$(dirname "$ACTIVITY_PATH")"; '
+        'while kill -0 "$PANE_PID" 2>/dev/null; do '
+        "TIME_MS=$(($(date +%s) * 1000)); "
+        'printf \'{\\n  "time": %d,\\n  "pane_pid": %s,\\n  "agent_id": "%s"\\n}\\n\''
+        ' "$TIME_MS" "$PANE_PID" "$AGENT_ID" > "$ACTIVITY_PATH"; '
+        "sleep 5; "
+        "done"
+    )
+
+    # Launch the monitor in a subshell so the & only backgrounds the nohup,
+    # not the entire && chain
+    monitor_cmd = f"(nohup bash -c {shlex.quote(monitor_script)} </dev/null >/dev/null 2>&1 &)"
+    steps.append(monitor_cmd)
+
+    return " && ".join(steps)
 
 
 @pure

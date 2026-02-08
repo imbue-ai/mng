@@ -1,4 +1,5 @@
 import json
+from functools import cached_property
 from pathlib import Path
 from typing import Final
 from typing import Mapping
@@ -80,6 +81,10 @@ class LocalProviderInstance(BaseProviderInstance):
         """Ensure the provider data directory exists."""
         self._provider_data_dir.mkdir(parents=True, exist_ok=True)
 
+    @cached_property
+    def host_id(self) -> HostId:
+        return self._get_or_create_host_id()
+
     def _get_or_create_host_id(self) -> HostId:
         """Get the persistent host ID, creating it if it doesn't exist.
 
@@ -140,7 +145,7 @@ class LocalProviderInstance(BaseProviderInstance):
 
     def _create_host(self, name: HostName, tags: Mapping[str, str] | None = None) -> Host:
         """Create a Host object for the local machine."""
-        host_id = self._get_or_create_host_id()
+        host_id = self.host_id
         pyinfra_host = self._create_local_pyinfra_host()
         connector = PyinfraConnector(pyinfra_host)
 
@@ -245,7 +250,7 @@ class LocalProviderInstance(BaseProviderInstance):
         matches, or raises HostNotFoundError if it doesn't match.
         """
         logger.trace("Getting local host (ref={})", host)
-        host_id = self._get_or_create_host_id()
+        host_id = self.host_id
 
         if isinstance(host, HostId):
             if host != host_id:

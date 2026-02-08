@@ -180,6 +180,31 @@ class ClaudeAgent(BaseAgent):
             "This may indicate a trust dialog appeared or Claude Code failed to start.",
         )
 
+    def _build_activity_updater_command(self, session_name: str) -> str:
+        """Build a shell command that starts the activity updater in the background.
+
+        The activity updater continuously updates the agent's activity file
+        ($MNGR_AGENT_STATE_DIR/activity/agent) as long as the tmux session exists.
+        Uses a pidfile to prevent duplicate instances for the same session.
+        """
+        parts = [
+            "(",
+            f"_MNGR_ACT_LOCK=/tmp/mngr_act_{session_name}.pid;",
+            'if [ -f "$_MNGR_ACT_LOCK" ] &&',
+            'kill -0 "$(cat "$_MNGR_ACT_LOCK" 2>/dev/null)" 2>/dev/null;',
+            "then exit 0; fi;",
+            'echo $$ > "$_MNGR_ACT_LOCK";',
+            """trap 'rm -f "$_MNGR_ACT_LOCK"' EXIT;""",
+            'mkdir -p "$MNGR_AGENT_STATE_DIR/activity";',
+            f"while tmux has-session -t '{session_name}' 2>/dev/null; do",
+            """printf '{"time": %d, "source": "activity_updater"}'""",
+            '"$(($(date +%s) * 1000))" > "$MNGR_AGENT_STATE_DIR/activity/agent";',
+            "sleep 15; done;",
+            'rm -f "$_MNGR_ACT_LOCK"',
+            ") &",
+        ]
+        return " ".join(parts)
+
     def assemble_command(
         self,
         host: OnlineHostInterface,
@@ -191,6 +216,9 @@ class ClaudeAgent(BaseAgent):
         The command format is: 'claude --resume UUID args || claude --session-id UUID args'
         This allows users to hit 'up' and 'enter' in tmux to resume the session (--resume)
         or create it with that ID (--session-id).
+
+        An activity updater is started in the background to keep the agent's activity
+        timestamp up-to-date while the tmux session is alive.
         """
         if command_override is not None:
             base = str(command_override)
@@ -202,15 +230,17 @@ class ClaudeAgent(BaseAgent):
         # Use the agent ID as the stable UUID for session identification
         agent_uuid = str(self.id.get_uuid())
 
-        # Build the additional arguments (cli_args + agent_args)
-        additional_args = []
-        if self.agent_config.cli_args:
-            additional_args.append(self.agent_config.cli_args)
-        if agent_args:
-            additional_args.extend(agent_args)
+        # Build the additional arguments (cli_args from config + agent_args from CLI)
+        args_str = ""
 
-        # Join additional args
-        args_str = " ".join(additional_args) if additional_args else ""
+        # FIXME: it's strange that cli_args is a str and agent_args is a tuple[str, ...].
+        #  We should probably update both to be able to handle either style of argument (at the interface level)
+        #  And convert them to tuple[str, ...] in these data types.
+        if self.agent_config.cli_args:
+            args_str += self.agent_config.cli_args
+
+        if agent_args:
+            args_str = (args_str + " ").lstrip() + " ".join(agent_args)
 
         # Build both command variants
         resume_cmd = f"( find ~/.claude/ -name '{agent_uuid}' | grep . ) && {base} --resume {agent_uuid}"
@@ -227,8 +257,12 @@ class ClaudeAgent(BaseAgent):
         if not host.is_local:
             env_exports = f"export IS_SANDBOX=1 && {env_exports}"
 
-        # Combine with || fallback
-        return CommandString(f"{env_exports} && ( {resume_cmd} ) || {create_cmd}")
+        # Build the activity updater background command
+        session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
+        activity_cmd = self._build_activity_updater_command(session_name)
+
+        # Combine: start activity updater in background, then run the main command
+        return CommandString(f"{activity_cmd} {env_exports} && ( {resume_cmd} ) || {create_cmd}")
 
     def on_before_provisioning(
         self,

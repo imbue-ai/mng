@@ -1,4 +1,4 @@
-# User Activity Tracking via Web
+# User Activity Tracking via Web [future]
 
 This plugin tracks user activity in web-based agent interfaces to prevent hosts from idling while you're actively working.
 

@@ -23,18 +23,3 @@ All errors are one of these four types:
 
 - Transient errors are retried according to configuration
 - PluginMngrError, AgentMngrError, and/or HostMngrError are either warnings or errors, depending on configuration
-
-## Configuration
-
-There is a hierarchy of error configuration:
-
-- Overall defaults
-- Plugin defaults
-- Separate defaults for write and read commands (that override the overall defaults)
-- Per-command overrides (that override the read/write defaults)
-- Per-command, per-plugin overrides (that override all of the above)
-
-What can be configured:
-- Number of retries
-- Back-off exponent, strategy, etc.
-- Whether to treat PluginMngrError, AgentMngrError, and/or HostMngrError as warnings or errors

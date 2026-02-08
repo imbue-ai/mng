@@ -274,51 +274,57 @@ def apply_create_template(
     params: dict[str, Any],
     config: MngrConfig,
 ) -> dict[str, Any]:
-    """Apply a create template to parameters if one is specified.
+    """Apply create templates to parameters if any are specified.
 
     Templates are named presets of create command arguments that can be applied
-    using --template <name>. Template values act as defaults - they only override
-    parameters that came from DEFAULT source, not user-specified values.
+    using --template <name>. Multiple templates can be specified and are applied
+    in order, stacking their values. Template values act as defaults - they only
+    override parameters that came from DEFAULT source, not user-specified values.
+
+    When multiple templates are specified, later templates override earlier ones
+    for the same parameter.
 
     CLI arguments always take precedence over template values.
 
     This function should only be called for the 'create' command.
     """
-    template_name = params.get("template")
-    if not template_name:
+    template_names = params.get("template", ())
+    if not template_names:
         return params
-
-    try:
-        template_key = CreateTemplateName(template_name)
-    except ParseSpecError as e:
-        raise UserInputError(f"Invalid template name: {e}") from e
-
-    if template_key not in config.create_templates:
-        available = list(config.create_templates.keys())
-        if available:
-            raise UserInputError(
-                f"Template '{template_name}' not found. Available templates: {', '.join(str(t) for t in available)}"
-            )
-        else:
-            raise UserInputError(
-                f"Template '{template_name}' not found. No templates are configured. "
-                "Add templates to your settings.toml under [create_templates.<name>]"
-            )
-
-    template = config.create_templates[template_key]
 
     # Start with existing params
     updated_params = params.copy()
 
-    # Apply template options only for parameters that came from defaults (not CLI)
-    for param_name, template_value in template.options.items():
-        if template_value is None:
-            continue
-        if param_name not in params:
-            continue
-        source = ctx.get_parameter_source(param_name)
-        if source == ParameterSource.DEFAULT:
-            updated_params[param_name] = template_value
+    # Apply each template in order (later templates override earlier ones)
+    for template_name in template_names:
+        try:
+            template_key = CreateTemplateName(template_name)
+        except ParseSpecError as e:
+            raise UserInputError(f"Invalid template name: {e}") from e
+
+        if template_key not in config.create_templates:
+            available = list(config.create_templates.keys())
+            if available:
+                raise UserInputError(
+                    f"Template '{template_name}' not found. Available templates: {', '.join(str(t) for t in available)}"
+                )
+            else:
+                raise UserInputError(
+                    f"Template '{template_name}' not found. No templates are configured. "
+                    "Add templates to your settings.toml under [create_templates.<name>]"
+                )
+
+        template = config.create_templates[template_key]
+
+        # Apply template options only for parameters that came from defaults (not CLI)
+        for param_name, template_value in template.options.items():
+            if template_value is None:
+                continue
+            if param_name not in params:
+                continue
+            source = ctx.get_parameter_source(param_name)
+            if source == ParameterSource.DEFAULT:
+                updated_params[param_name] = template_value
 
     return updated_params
 

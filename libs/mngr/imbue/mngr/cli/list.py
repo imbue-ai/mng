@@ -385,14 +385,14 @@ def _emit_jsonl_error(error: ErrorInfo) -> None:
 def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None) -> None:
     """Emit human-readable table output with optional field selection.
 
-    If fields is None, uses default fields (name, state, status, host, provider).
+    If fields is None, uses default fields (name, host, provider, host.state, state, status).
     """
     if not agents:
         return
 
     # Default fields if none specified
     if fields is None:
-        fields = ["name", "host", "provider", "combined_state", "status"]
+        fields = ["name", "host", "provider", "host.state", "state", "status"]
 
     # Build table data dynamically based on requested fields
     headers = []
@@ -663,7 +663,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `idle_seconds` - How long since the agent was active
 - `idle_mode` - Idle detection mode
 - `start_on_boot` - Whether the agent is set to start on host boot
-- `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
+- `state` - Agent lifecycle state (running, stopped, waiting, replaced, done)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):

@@ -17,6 +17,7 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import get_short_random_string
 
 
@@ -105,11 +106,8 @@ def test_lifecycle_state_running_when_expected_process_exists(
             error_message="Expected agent lifecycle state to be RUNNING",
         )
     finally:
-        # Clean up tmux session
-        test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
-            timeout_seconds=5.0,
-        )
+        # Clean up tmux session and all its processes
+        cleanup_tmux_session(session_name)
 
 
 def test_lifecycle_state_replaced_when_different_process_exists(
@@ -136,11 +134,8 @@ def test_lifecycle_state_replaced_when_different_process_exists(
             error_message="Expected agent lifecycle state to be REPLACED",
         )
     finally:
-        # Clean up tmux session
-        test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
-            timeout_seconds=5.0,
-        )
+        # Clean up tmux session and all its processes
+        cleanup_tmux_session(session_name)
 
 
 def test_lifecycle_state_done_when_no_process_in_pane(
@@ -168,11 +163,8 @@ def test_lifecycle_state_done_when_no_process_in_pane(
             error_message="Expected agent lifecycle state to be DONE",
         )
     finally:
-        # Clean up tmux session
-        test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
-            timeout_seconds=5.0,
-        )
+        # Clean up tmux session and all its processes
+        cleanup_tmux_session(session_name)
 
 
 def test_get_reported_status_returns_none_when_no_status_files(
@@ -257,11 +249,8 @@ def test_lifecycle_state_waiting_when_waiting_file_exists(
             error_message="Expected agent lifecycle state to be WAITING",
         )
     finally:
-        # Clean up tmux session
-        test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
-            timeout_seconds=5.0,
-        )
+        # Clean up tmux session and all its processes
+        cleanup_tmux_session(session_name)
 
 
 def test_lifecycle_state_running_when_waiting_file_removed(
@@ -300,11 +289,8 @@ def test_lifecycle_state_running_when_waiting_file_removed(
             error_message="Expected agent lifecycle state to be RUNNING after removing waiting file",
         )
     finally:
-        # Clean up tmux session
-        test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
-            timeout_seconds=5.0,
-        )
+        # Clean up tmux session and all its processes
+        cleanup_tmux_session(session_name)
 
 
 def test_get_initial_message_returns_none_when_not_set(

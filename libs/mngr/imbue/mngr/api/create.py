@@ -3,6 +3,7 @@ from typing import cast
 from loguru import logger
 
 from imbue.mngr.api.data_types import CreateAgentResult
+from imbue.mngr.api.data_types import HostEnvironmentOptions
 from imbue.mngr.api.data_types import NewHostOptions
 from imbue.mngr.api.data_types import OnBeforeCreateArgs
 from imbue.mngr.api.providers import get_provider_instance
@@ -10,6 +11,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.logging import log_call
 
 
@@ -129,6 +131,34 @@ def create(
     return result
 
 
+def _write_host_env_vars(
+    host: OnlineHostInterface,
+    environment: HostEnvironmentOptions,
+) -> None:
+    """Collect host env vars from env_files and explicit env_vars, and write to the host env file.
+
+    Env files are read first (in order), then explicit env vars override.
+    """
+    if not environment.env_vars and not environment.env_files:
+        return
+
+    env_vars: dict[str, str] = {}
+
+    # Load from env_files (earlier files are overridden by later ones)
+    for env_file in environment.env_files:
+        content = env_file.read_text()
+        file_vars = parse_env_file(content)
+        env_vars.update(file_vars)
+
+    # Add explicit env_vars (override file-loaded values)
+    for env_var in environment.env_vars:
+        env_vars[env_var.key] = env_var.value
+
+    if env_vars:
+        logger.debug("Writing host env vars", count=len(env_vars))
+        host.set_env_vars(env_vars)
+
+
 def resolve_target_host(
     target_host: OnlineHostInterface | NewHostOptions,
     mngr_ctx: MngrContext,
@@ -142,7 +172,6 @@ def resolve_target_host(
             target_host.provider,
         )
         provider = get_provider_instance(target_host.provider, mngr_ctx)
-
         logger.trace(
             "Creating host with tags={} build_args={} start_args={} lifecycle={} known_hosts={}",
             target_host.tags,
@@ -151,7 +180,7 @@ def resolve_target_host(
             target_host.lifecycle,
             len(target_host.environment.known_hosts),
         )
-        return provider.create_host(
+        new_host = provider.create_host(
             name=target_host.name,
             tags=target_host.tags,
             build_args=target_host.build.build_args,
@@ -159,6 +188,13 @@ def resolve_target_host(
             lifecycle=target_host.lifecycle,
             known_hosts=target_host.environment.known_hosts,
         )
+
+        # Write host environment variables to the host env file (if creating a new host)
+        if isinstance(target_host, NewHostOptions):
+            _write_host_env_vars(new_host, target_host.environment)
+
+        # and return it
+        return new_host
     else:
         # already have the host
         logger.trace("Using existing host id={}", target_host.id)

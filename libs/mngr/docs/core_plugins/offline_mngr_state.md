@@ -1,4 +1,4 @@
-# offline_mngr_state Plugin
+# offline_mngr_state Plugin [future]
 
 This plugin backs up the state of all agents and hosts to a remote location so that the status of an agent can be understood even if the host is offline.
 

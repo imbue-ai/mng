@@ -8,6 +8,7 @@ dependencies = [
     "cel-python>=0.1.5",
     "click>=8.0",
     "click-option-group>=0.5.6",
+    "concurrency-group",
     "coolname>=2.2.0",
     "cryptography>=42.0",
     "dockerfile-parse>=2.0.0",
@@ -30,6 +31,7 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 imbue-common = { workspace = true }
+concurrency-group = { workspace = true }
 
 [tool.pyright]
 venvPath = "../.."

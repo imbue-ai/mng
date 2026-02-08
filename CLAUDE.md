@@ -12,8 +12,6 @@ IF YOU FAIL TO FOLLOW ONE, YOU MUST EXPLICITLY CALL THAT OUT IN YOUR RESPONSE.
 
 Always begin your session by reading all documentation in the docs/ directory of the project you are working on. These represent *user-facing* documentation and are the most important to understand.
 
-Next, ensure you have read all `.md` files immediately within the `specs/` folder. There's no need to read anything from subfolders of `specs/`, *except* for the particular spec that you will be working on. 
-
 Once you've read these once during a session, there's no need to re-read them unless explicitly instructed to do so.
 
 If you will be writing code, be sure to read the style_guide.md for the project. Then read all README.md files in the relevant project directories, as well as all `.py` files at the root of the project you are working on (ex: `primitives.py`, etc.). Also read everything in data_types, interfaces, and utils to ensure you understand the core abstractions.
@@ -57,10 +55,11 @@ Only after doing all of the above should you begin writing code.
 - If you need to run a specific acceptance test to fix it, iterate on that specific test locally by calling "just test <full_path>::<test_name>" from the root of the git checkout. Do this rather than re-running all tests in CI.
 - Note that tasks are *not* be allowed to finish without A) all tests passing in CI, and B) fixing all MAJOR and CRITICAL issues (flagged by a separate reviewer agent).
 - A PR will be made automatically for you when you finish your reply--do NOT create one yourself.
-- **Never change diretories**. It's just a good way to get yourself confused.
+- **Never change directory**. It's just a good way to get yourself confused.
 - To help verify that you ran the tests, report the exact command you used to run the tests, as well as the total number of tests that passed and failed (and the number that failed had better be 0).
 - If tests fail because of a lack of coverage, you should add tests for the new code that you wrote.
 - When adding tests, consider whether it should be a unit test (in a _test.py file) or an integration/acceptance/release test (in a test_*.py file, and marked with @pytest.mark.acceptance or @pytest.mark.release, no marks needed for integration).  See the style_guide.md for exact details on the types of tests. In general, most slow tests of all functionality should be release tests, and only important / core functionality should be acceptance tests.
+- Use the shared fixtures (`temp_host_dir`, `temp_mngr_ctx`, `local_provider`, etc.) instead of creating your own.
 - If you see a flaky test, YOU MUST HIGHLIGHT THIS IN YOUR RESPONSE. Flaky tests must be fixed as soon as possible. Ideally you should finish your task, then if you are allowed to commit, commit, and try to fix the flaky test in a separate commit.
 - Do not add TODO or FIXME unless explicitly asked to do so
 - To reiterate: code correctness and quality is the most important concern when writing code.

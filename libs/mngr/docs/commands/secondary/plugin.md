@@ -1,4 +1,4 @@
-# mngr plugin - CLI Options Reference
+# mngr plugin [future] - CLI Options Reference
 
 Manage available and active plugins.
 

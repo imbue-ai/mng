@@ -1,4 +1,4 @@
-# mngr pair - CLI Options Reference
+# mngr pair [future] - CLI Options Reference
 
 Continuously syncs files between a source (some agent or host) and a target (another agent or host)
 
