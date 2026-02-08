@@ -524,7 +524,7 @@ def test_list_command_with_field_aliases(
         # List with field aliases
         result = cli_runner.invoke(
             list_command,
-            ["--fields", "name,host.state,agent.state,host,provider"],
+            ["--fields", "name,host.state,state,host,provider"],
             obj=plugin_manager,
             catch_exceptions=False,
         )
@@ -532,7 +532,7 @@ def test_list_command_with_field_aliases(
         assert result.exit_code == 0
         assert "NAME" in result.output
         assert "HOST_STATE" in result.output
-        assert "AGENT_STATE" in result.output
+        assert "STATE" in result.output
         assert "HOST" in result.output
         assert "PROVIDER" in result.output
         assert agent_name in result.output
