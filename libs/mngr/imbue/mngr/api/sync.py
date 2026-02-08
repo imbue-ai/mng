@@ -178,7 +178,7 @@ class LocalGitContext(GitContextInterface):
             text=True,
         )
         if result.returncode != 0:
-            raise MngrError(f"git status failed: {result.stderr}")
+            raise MngrError(f"git status failed in {path}: {result.stderr}")
         return len(result.stdout.strip()) > 0
 
     def git_stash(self, path: Path) -> bool:
@@ -244,7 +244,7 @@ class RemoteGitContext(GitContextInterface):
     def has_uncommitted_changes(self, path: Path) -> bool:
         result = self._host.execute_command("git status --porcelain", cwd=path)
         if not result.success:
-            raise MngrError(f"git status failed: {result.stderr}")
+            raise MngrError(f"git status failed in {path}: {result.stderr}")
         return len(result.stdout.strip()) > 0
 
     def git_stash(self, path: Path) -> bool:
