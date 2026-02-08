@@ -57,7 +57,7 @@ def test_agent_to_cel_context_returns_expected_fields(
     assert context["id"] == str(agent.id)
     assert context["name"] == "cel-test-agent"
     assert context["type"] == "generic"
-    assert context["state"] == "stopped"
+    assert context["state"] == "STOPPED"
     assert context["host"]["provider"] == "local"
     assert context["host"]["id"] == str(agent.host_id)
 

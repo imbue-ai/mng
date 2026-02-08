@@ -341,7 +341,7 @@ def _assemble_host_info(
                     agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
                     ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
                     idle_seconds=None,
-                    idle_mode=activity_config.idle_mode.value.lower(),
+                    idle_mode=activity_config.idle_mode.value,
                     host=host_info,
                     plugin={},
                 )
@@ -472,21 +472,11 @@ def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
         if latest_activity:
             result["idle"] = (datetime.now(timezone.utc) - latest_activity).total_seconds()
 
-    # Flatten state enum value to lowercase string for CEL
-    if result.get("state"):
-        if isinstance(result["state"], dict):
-            result["state"] = result["state"].get("value", "").lower()
-        else:
-            result["state"] = str(result["state"]).lower()
-
-    # Normalize host fields for CEL consistency
+    # Normalize host.provider_name to host.provider for consistency
     if result.get("host") and isinstance(result["host"], dict):
         host = result["host"]
         if "provider_name" in host:
             host["provider"] = host.pop("provider_name")
-        # Flatten host.state enum value to lowercase string for CEL
-        if host.get("state"):
-            host["state"] = str(host["state"]).lower()
 
     return result
 

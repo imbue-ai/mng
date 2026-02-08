@@ -210,7 +210,7 @@ def test_agent_to_cel_context_with_state() -> None:
 
     context = _agent_to_cel_context(agent_info)
 
-    assert context["state"] == "stopped"
+    assert context["state"] == "STOPPED"
 
 
 def test_apply_cel_filters_with_include_filter() -> None:
@@ -320,7 +320,7 @@ def test_apply_cel_filters_with_state_filter() -> None:
     )
 
     include_filters, exclude_filters = compile_cel_filters(
-        include_filters=('state == "running"',),
+        include_filters=('state == "RUNNING"',),
         exclude_filters=(),
     )
 
@@ -584,7 +584,7 @@ def test_agent_to_cel_context_with_host_state() -> None:
 
     context = _agent_to_cel_context(agent_info)
 
-    assert context["host"]["state"] == "running"
+    assert context["host"]["state"] == "RUNNING"
 
 
 def test_agent_to_cel_context_with_host_resources() -> None:
@@ -669,7 +669,7 @@ def test_apply_cel_filters_with_host_state_filter() -> None:
     )
 
     include_filters, exclude_filters = compile_cel_filters(
-        include_filters=('host.state == "running"',),
+        include_filters=('host.state == "RUNNING"',),
         exclude_filters=(),
     )
 
@@ -792,13 +792,13 @@ def test_agent_to_cel_context_with_idle_mode() -> None:
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
         state=AgentLifecycleState.RUNNING,
-        idle_mode="agent",
+        idle_mode="AGENT",
         host=host_info,
     )
 
     context = _agent_to_cel_context(agent_info)
 
-    assert context["idle_mode"] == "agent"
+    assert context["idle_mode"] == "AGENT"
 
 
 def test_agent_to_cel_context_with_idle_seconds() -> None:
@@ -842,12 +842,12 @@ def test_apply_cel_filters_with_idle_mode_filter() -> None:
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
         state=AgentLifecycleState.RUNNING,
-        idle_mode="user",
+        idle_mode="USER",
         host=host_info,
     )
 
     include_filters, exclude_filters = compile_cel_filters(
-        include_filters=('idle_mode == "user"',),
+        include_filters=('idle_mode == "USER"',),
         exclude_filters=(),
     )
 
@@ -928,7 +928,7 @@ def test_list_agents_populates_idle_mode(
 
         # idle_mode should be populated (default is "agent")
         assert our_agent.idle_mode is not None
-        assert our_agent.idle_mode == "io"
+        assert our_agent.idle_mode == "IO"
 
 
 def test_list_agents_with_provider_names_filter(

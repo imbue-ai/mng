@@ -240,7 +240,7 @@ def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
         state = _get_host_state(modal_subprocess_env.env, "modal", host_name, tolerate_errors=True)
         # Host should be in a non-running state (stopped, paused, destroyed, etc.)
         # If state is None, we couldn't query it (transient error), so keep polling.
-        return state is not None and state not in ("running", "starting", "building")
+        return state is not None and state not in ("RUNNING", "STARTING", "BUILDING")
 
     wait_for(
         host_is_offline,
@@ -269,4 +269,4 @@ def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
 
     # Verify the host state is 'paused' (idle shutdown sets stop_reason=PAUSED)
     final_state = _get_host_state(modal_subprocess_env.env, "modal", host_name)
-    assert final_state == "paused", f"Expected host state to be 'paused' after idle shutdown, but got: {final_state}"
+    assert final_state == "PAUSED", f"Expected host state to be 'PAUSED' after idle shutdown, but got: {final_state}"

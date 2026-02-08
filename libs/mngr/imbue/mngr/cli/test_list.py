@@ -536,8 +536,8 @@ def test_list_command_with_field_aliases(
         assert "HOST" in result.output
         assert "PROVIDER" in result.output
         assert agent_name in result.output
-        # States should show "running" or "stopped" in lowercase
-        assert "running" in result.output or "stopped" in result.output
+        # States should show in uppercase
+        assert "RUNNING" in result.output or "STOPPED" in result.output
 
 
 def test_list_command_with_invalid_fields(
