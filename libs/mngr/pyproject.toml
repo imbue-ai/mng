@@ -31,6 +31,7 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 imbue-common = { workspace = true }
+concurrency-group = { workspace = true }
 
 [tool.pyright]
 venvPath = "../.."
