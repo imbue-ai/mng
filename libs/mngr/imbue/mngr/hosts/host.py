@@ -1785,6 +1785,23 @@ done
 
         return descendant_pids
 
+    def _collect_session_pids(self, session_name: str) -> list[str]:
+        """Collect all pane PIDs and their descendants for a tmux session.
+
+        Uses -s flag to list panes across ALL windows in the session, not just the
+        current window. This is important for sessions with additional command windows.
+        """
+        all_pids: list[str] = []
+        result = self.execute_command(
+            f"tmux list-panes -s -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true"
+        )
+        if result.success and result.stdout.strip():
+            for pane_pid in result.stdout.strip().split("\n"):
+                if pane_pid:
+                    all_pids.append(pane_pid)
+                    all_pids.extend(self._get_all_descendant_pids(pane_pid))
+        return all_pids
+
     def stop_agents(self, agent_ids: Sequence[AgentId], timeout_seconds: float = 5.0) -> None:
         """Stop agents by killing all processes in their tmux sessions.
 
@@ -1805,23 +1822,8 @@ done
                 continue
 
             current_agents.append(agent)
-
             session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
-
-            # Get all pane PIDs and their descendants (across ALL windows in the session)
-            result = self.execute_command(
-                f"tmux list-panes -s -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true"
-            )
-
-            if result.success and result.stdout.strip():
-                pane_pids = result.stdout.strip().split("\n")
-                for pane_pid in pane_pids:
-                    if pane_pid:
-                        # Add the pane PID
-                        all_pids.append(pane_pid)
-                        # Recursively get all descendant PIDs
-                        descendant_pids = self._get_all_descendant_pids(pane_pid)
-                        all_pids.extend(descendant_pids)
+            all_pids.extend(self._collect_session_pids(session_name))
 
         if all_pids:
             pid_list = " ".join(all_pids)

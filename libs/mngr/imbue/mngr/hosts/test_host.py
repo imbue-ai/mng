@@ -620,16 +620,7 @@ def test_unset_vars_applied_during_agent_start(
 
 def _collect_pane_pids(host: Host, session_name: str) -> list[str]:
     """Collect all pane PIDs and their descendant PIDs for a tmux session (across all windows)."""
-    all_pids: list[str] = []
-    success, output = host._run_shell_command(
-        StringCommand(f"tmux list-panes -s -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null")
-    )
-    if success and output.stdout.strip():
-        for pane_pid in output.stdout.strip().split("\n"):
-            if pane_pid:
-                all_pids.append(pane_pid)
-                all_pids.extend(host._get_all_descendant_pids(pane_pid))
-    return all_pids
+    return host._collect_session_pids(session_name)
 
 
 def test_stop_agent_kills_single_pane_processes(

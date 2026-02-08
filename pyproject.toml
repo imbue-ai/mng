@@ -29,6 +29,9 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+# Only timeout the test function itself, not fixtures. This is required because
+# --timeout-method=signal sends SIGALRM which kills the entire xdist worker process
+# if it fires during fixture setup/teardown (especially the session-scoped cleanup).
 timeout_func_only = true
 pythonpath = [
   "apps/*",

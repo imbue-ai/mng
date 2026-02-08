@@ -67,7 +67,13 @@ def get_subprocess_test_env(
 
 
 def _get_descendant_pids(pid: str) -> list[str]:
-    """Recursively get all descendant PIDs of a given process."""
+    """Recursively get all descendant PIDs of a given process.
+
+    Note: This mirrors Host._get_all_descendant_pids in host.py but uses subprocess
+    directly instead of host.execute_command, since this is used for test cleanup
+    outside of Host (e.g., in fixtures and context managers). The Host version goes
+    through pyinfra which supports both local and SSH execution.
+    """
     descendants: list[str] = []
     result = subprocess.run(
         ["pgrep", "-P", pid],
@@ -84,6 +90,11 @@ def _get_descendant_pids(pid: str) -> list[str]:
 
 def cleanup_tmux_session(session_name: str) -> None:
     """Clean up a tmux session, all its processes, and any associated activity monitors.
+
+    Note: This mirrors the kill logic in Host.stop_agents (host.py) but uses subprocess
+    directly instead of host.execute_command. The Host version goes through pyinfra to
+    support both local and SSH execution, while this version is used for test cleanup
+    in fixtures and context managers that don't have a Host instance.
 
     This does a thorough cleanup:
     1. Collects all pane PIDs and their descendant process trees
