@@ -23,6 +23,7 @@ from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.plugins import hookspecs
+from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
@@ -327,16 +328,9 @@ def _get_tmux_sessions_with_prefix(prefix: str) -> list[str]:
 
 
 def _kill_tmux_sessions(sessions: list[str]) -> None:
-    """Kill the specified tmux sessions."""
+    """Kill the specified tmux sessions and all their processes."""
     for session in sessions:
-        try:
-            subprocess.run(
-                ["tmux", "kill-session", "-t", session],
-                capture_output=True,
-                timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
-            pass
+        cleanup_tmux_session(session)
 
 
 def _is_xdist_worker_process(proc: psutil.Process) -> bool:

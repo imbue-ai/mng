@@ -1808,9 +1808,9 @@ done
 
             session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
 
-            # Get all pane PIDs and their descendants
+            # Get all pane PIDs and their descendants (across ALL windows in the session)
             result = self.execute_command(
-                f"tmux list-panes -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true"
+                f"tmux list-panes -s -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true"
             )
 
             if result.success and result.stdout.strip():
@@ -1823,20 +1823,19 @@ done
                         descendant_pids = self._get_all_descendant_pids(pane_pid)
                         all_pids.extend(descendant_pids)
 
-        # Send SIGTERM to each individual process
-        for pid in all_pids:
-            self.execute_command(f"kill -TERM {pid} 2>/dev/null || true")
+        if all_pids:
+            pid_list = " ".join(all_pids)
 
-        # Wait for processes to die, then SIGKILL any survivors
-        deadline = time.monotonic() + timeout_seconds
-        for pid in all_pids:
-            time_left = deadline - time.monotonic()
-            if time_left > 0:
-                self.execute_command(
-                    f"kill -0 {pid} 2>/dev/null && timeout {time_left} tail --pid={pid} -f /dev/null; kill -KILL {pid} 2>/dev/null || true"
-                )
-            else:
-                self.execute_command(f"kill -KILL {pid} 2>/dev/null || true")
+            # Send SIGTERM to all processes at once, then wait briefly and SIGKILL survivors.
+            # This is done in a single shell command to avoid the issue where one non-responsive
+            # process (e.g., interactive bash which ignores SIGTERM) would consume the entire
+            # timeout budget in a serial loop, preventing SIGKILL from reaching other processes.
+            grace_seconds = min(1.0, timeout_seconds)
+            self.execute_command(
+                f"for p in {pid_list}; do kill -TERM $p 2>/dev/null; done; "
+                f"sleep {grace_seconds}; "
+                f"for p in {pid_list}; do kill -KILL $p 2>/dev/null; done; true"
+            )
 
         # Finally kill the tmux sessions themselves
         for agent in current_agents:

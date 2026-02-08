@@ -29,6 +29,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+timeout_func_only = true
 pythonpath = [
   "apps/*",
   "libs/*"
