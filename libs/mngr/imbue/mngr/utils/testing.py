@@ -66,22 +66,87 @@ def get_subprocess_test_env(
     return env
 
 
+def _get_descendant_pids(pid: str) -> list[str]:
+    """Recursively get all descendant PIDs of a given process.
+
+    Note: This mirrors Host._get_all_descendant_pids in host.py but uses subprocess
+    directly instead of host.execute_command, since this is used for test cleanup
+    outside of Host (e.g., in fixtures and context managers). The Host version goes
+    through pyinfra which supports both local and SSH execution.
+    """
+    descendants: list[str] = []
+    result = subprocess.run(
+        ["pgrep", "-P", pid],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        for child_pid in result.stdout.strip().split("\n"):
+            if child_pid:
+                descendants.append(child_pid)
+                descendants.extend(_get_descendant_pids(child_pid))
+    return descendants
+
+
 def cleanup_tmux_session(session_name: str) -> None:
-    """Clean up a tmux session if it exists."""
+    """Clean up a tmux session, all its processes, and any associated activity monitors.
+
+    Note: This mirrors the kill logic in Host.stop_agents (host.py) but uses subprocess
+    directly instead of host.execute_command. The Host version goes through pyinfra to
+    support both local and SSH execution, while this version is used for test cleanup
+    in fixtures and context managers that don't have a Host instance.
+
+    This does a thorough cleanup:
+    1. Collects all pane PIDs and their descendant process trees
+    2. Sends SIGTERM to all collected processes
+    3. Kills the tmux session itself
+    4. Sends SIGKILL to any processes that survived
+    5. Kills any orphaned activity monitors for this session
+    """
+    # Collect all pane PIDs and their descendants before killing the session.
+    # Use -s to list panes across ALL windows in the session, not just the current window.
+    all_pids: list[str] = []
+    result = subprocess.run(
+        ["tmux", "list-panes", "-s", "-t", session_name, "-F", "#{pane_pid}"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        for pane_pid in result.stdout.strip().split("\n"):
+            if pane_pid:
+                all_pids.append(pane_pid)
+                all_pids.extend(_get_descendant_pids(pane_pid))
+
+    # SIGTERM all processes
+    for pid in all_pids:
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+        except (ProcessLookupError, ValueError):
+            pass
+
+    # Kill the tmux session (sends SIGHUP to remaining pane processes)
     subprocess.run(
         ["tmux", "kill-session", "-t", session_name],
         capture_output=True,
     )
 
+    # SIGKILL any survivors
+    for pid in all_pids:
+        try:
+            os.kill(int(pid), signal.SIGKILL)
+        except (ProcessLookupError, ValueError):
+            pass
 
-# FIXME: When xdist workers crash (as observed during stress testing), this context manager's
-# finally block may not execute, leaving orphaned tmux sessions. This contributes to resource
-# leaks and contention in parallel test runs. Consider adding a pytest hook or fixture that
-# cleans up all test-prefixed tmux sessions at the start/end of the test run, or using
-# worker-specific tmux socket paths (TMUX_TMPDIR) to isolate workers from each other.
+    # Kill any orphaned activity monitors for this session (started with nohup, detached)
+    subprocess.run(
+        ["pkill", "-9", "-f", f"list-panes -t {session_name}"],
+        capture_output=True,
+    )
+
+
 @contextmanager
 def tmux_session_cleanup(session_name: str) -> Generator[str, None, None]:
-    """Context manager that cleans up a tmux session on exit."""
+    """Context manager that cleans up a tmux session and all its processes on exit."""
     try:
         yield session_name
     finally:
