@@ -60,7 +60,7 @@ class AgentInfo(FrozenModel):
     create_time: datetime = Field(description="Creation timestamp")
     start_on_boot: bool = Field(description="Whether agent starts on host boot")
 
-    state: AgentLifecycleState = Field(description="Agent lifecycle state (stopped/running/waiting/replaced/done)")
+    state: AgentLifecycleState = Field(description="Agent lifecycle state (STOPPED/RUNNING/WAITING/REPLACED/DONE)")
     status: AgentStatus | None = Field(default=None, description="Current status (reported)")
     url: str | None = Field(default=None, description="Agent URL (reported)")
     start_time: datetime | None = Field(default=None, description="Last start time (reported)")

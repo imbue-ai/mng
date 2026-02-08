@@ -142,8 +142,8 @@ def test_format_value_as_string_none_returns_empty() -> None:
     assert _format_value_as_string(None) == ""
 
 
-def test_format_value_as_string_enum_returns_lowercase_value() -> None:
-    """_format_value_as_string should return lowercase enum value."""
+def test_format_value_as_string_enum_returns_uppercase_value() -> None:
+    """_format_value_as_string should return uppercase enum value."""
     result = _format_value_as_string(AgentLifecycleState.RUNNING)
     assert result == "RUNNING"
 
