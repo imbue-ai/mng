@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "touch .claude/active && ./scripts/update_claude_activity_during_response.sh &"
+            "command": "touch .claude/active"
           }
         ]
       }
