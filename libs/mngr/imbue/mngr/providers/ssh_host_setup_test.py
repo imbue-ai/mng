@@ -2,7 +2,9 @@
 
 import importlib.resources
 import json
+import os
 import subprocess
+import time
 from pathlib import Path
 
 import imbue.mngr.resources as mngr_resources
@@ -184,30 +186,47 @@ def _get_activity_watcher_script_path() -> str:
     return str(resource_files.joinpath("activity_watcher.sh"))
 
 
+def _create_test_script(script_path: str, host_data_dir: str, function_call: str) -> str:
+    """Create a bash script string that sources the activity watcher and calls a function.
+
+    Creates a modified version of the activity watcher script where the main()
+    call at the end is replaced with the given function call. This allows testing
+    individual functions without running the main loop.
+    """
+    lines = [
+        "#!/bin/bash",
+        "set -e",
+        "",
+        f'HOST_DATA_DIR="{host_data_dir}"',
+        "",
+    ]
+
+    # Read the script and extract everything between 'set -e' and 'main' (exclusive)
+    with open(script_path) as f:
+        script_lines = f.readlines()
+
+    in_body = False
+    for line in script_lines:
+        stripped = line.rstrip("\n")
+        # Start capturing after the HOST_DATA_DIR assignment block
+        if stripped.startswith("DATA_JSON_PATH="):
+            in_body = True
+        # Stop before the final main call
+        if in_body and stripped == "main":
+            break
+        if in_body:
+            lines.append(stripped)
+
+    lines.append("")
+    lines.append(function_call)
+    return "\n".join(lines)
+
+
 def _run_bash_function(
     script_path: str, host_data_dir: str, function_call: str
 ) -> subprocess.CompletedProcess[str]:
-    """Source the activity_watcher.sh script and run a function in bash.
-
-    Extracts just the function definitions from the script (everything before
-    the main() call), sets up the required variables, and then calls the
-    given function. This avoids triggering the argument check and main loop.
-    """
-    bash_code = f"""
-        set -e
-        HOST_DATA_DIR="{host_data_dir}"
-        DATA_JSON_PATH="{host_data_dir}/data.json"
-        HOST_LOCK_PATH="{host_data_dir}/host_lock"
-        BOOT_ACTIVITY_PATH="{host_data_dir}/activity/boot"
-        SHUTDOWN_SCRIPT="{host_data_dir}/commands/shutdown.sh"
-        CHECK_INTERVAL=15
-        HOST_LEVEL_SOURCES="boot user ssh"
-
-        # Source only function definitions (everything between set -e and main call)
-        eval "$(sed -n '/^get_mtime()/,/^main$/{{ /^main$/d; p }}' "{script_path}")"
-
-        {function_call}
-    """
+    """Source the activity_watcher.sh script and run a function in bash."""
+    bash_code = _create_test_script(script_path, host_data_dir, function_call)
     return subprocess.run(
         ["bash", "-c", bash_code],
         capture_output=True,
@@ -260,7 +279,6 @@ def test_has_running_agent_sessions_returns_true_when_no_agents_dir(tmp_path: Pa
     """has_running_agent_sessions should return 0 (true) when agents dir doesn't exist yet."""
     data_json = tmp_path / "data.json"
     data_json.write_text(json.dumps({"tmux_session_prefix": "mngr-"}))
-    # No agents/ directory exists
 
     script_path = _get_activity_watcher_script_path()
     result = _run_bash_function(script_path, str(tmp_path), "has_running_agent_sessions")
@@ -273,7 +291,21 @@ def test_has_running_agent_sessions_returns_true_when_agents_dir_empty(tmp_path:
     data_json.write_text(json.dumps({"tmux_session_prefix": "mngr-"}))
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()
-    # agents/ exists but has no subdirectories
+
+    script_path = _get_activity_watcher_script_path()
+    result = _run_bash_function(script_path, str(tmp_path), "has_running_agent_sessions")
+    assert result.returncode == 0
+
+
+def test_has_running_agent_sessions_returns_true_during_grace_period(
+    tmp_path: Path,
+) -> None:
+    """has_running_agent_sessions should return 0 (true) when agent dir was created recently."""
+    data_json = tmp_path / "data.json"
+    data_json.write_text(json.dumps({"tmux_session_prefix": "mngr-test-unlikely-prefix-"}))
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "agent-abc123").mkdir()
 
     script_path = _get_activity_watcher_script_path()
     result = _run_bash_function(script_path, str(tmp_path), "has_running_agent_sessions")
@@ -283,14 +315,17 @@ def test_has_running_agent_sessions_returns_true_when_agents_dir_empty(tmp_path:
 def test_has_running_agent_sessions_returns_false_when_agents_exist_but_no_sessions(
     tmp_path: Path,
 ) -> None:
-    """has_running_agent_sessions should return 1 (false) when agent dirs exist but no tmux sessions match."""
+    """has_running_agent_sessions should return 1 (false) when agent dirs are old and no tmux sessions match."""
     data_json = tmp_path / "data.json"
     data_json.write_text(json.dumps({"tmux_session_prefix": "mngr-test-unlikely-prefix-"}))
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()
-    (agents_dir / "agent-abc123").mkdir()
+    agent_dir = agents_dir / "agent-abc123"
+    agent_dir.mkdir()
+    # Set the agent dir mtime to be older than the grace period (120s)
+    old_time = time.time() - 200
+    os.utime(str(agent_dir), (old_time, old_time))
 
     script_path = _get_activity_watcher_script_path()
     result = _run_bash_function(script_path, str(tmp_path), "has_running_agent_sessions")
-    # Should return non-zero since no tmux sessions with this prefix exist
     assert result.returncode != 0

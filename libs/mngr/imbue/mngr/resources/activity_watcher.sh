@@ -108,6 +108,18 @@ get_tmux_session_prefix() {
 # Also returns 0 (true / skip shutdown) if:
 #   - No prefix is configured (can't check)
 #   - No agent directories exist yet (host is still in initial setup)
+#   - An agent directory was created recently (within grace period)
+#
+# Note: The host lock check in the main loop (checking HOST_LOCK_PATH) already
+# prevents this function from being called during agent creation/provisioning,
+# since create() holds the lock. The grace period below is an additional safety
+# net for any edge cases outside the lock.
+#
+# Grace period (seconds) after the most recent agent directory creation.
+# This prevents false positives when an agent dir exists but the tmux
+# session hasn't been started yet (e.g., during provisioning).
+AGENT_SESSION_GRACE_PERIOD=120
+
 has_running_agent_sessions() {
     local prefix
     prefix=$(get_tmux_session_prefix)
@@ -124,11 +136,31 @@ has_running_agent_sessions() {
     if [ ! -d "$agents_dir" ]; then
         return 0
     fi
-    # shellcheck disable=SC2086
-    local agent_count
-    agent_count=$(find "$agents_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-    if [ "$agent_count" -eq 0 ]; then
+    local agent_dirs
+    agent_dirs=$(find "$agents_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
+    if [ -z "$agent_dirs" ]; then
         return 0
+    fi
+
+    # Check if any agent directory was created recently (within grace period).
+    # This protects against the window between agent dir creation and tmux
+    # session start (e.g., during provisioning which can take minutes).
+    local current_time
+    current_time=$(date +%s)
+    local newest_agent_mtime=0
+    for agent_dir in $agent_dirs; do
+        # Use stat directly since get_mtime only works on regular files
+        local mtime
+        mtime=$(stat -c %Y "$agent_dir" 2>/dev/null || stat -f %m "$agent_dir" 2>/dev/null || echo "")
+        if [ -n "$mtime" ] && [ "$mtime" -gt "$newest_agent_mtime" ]; then
+            newest_agent_mtime=$mtime
+        fi
+    done
+    if [ "$newest_agent_mtime" -gt 0 ]; then
+        local age=$((current_time - newest_agent_mtime))
+        if [ "$age" -lt "$AGENT_SESSION_GRACE_PERIOD" ]; then
+            return 0
+        fi
     fi
 
     # List tmux sessions and check if any match the prefix.
