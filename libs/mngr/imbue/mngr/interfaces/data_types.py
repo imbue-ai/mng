@@ -228,7 +228,7 @@ class CertifiedHostData(FrozenModel):
     )
     stop_reason: str | None = Field(
         default=None,
-        description="Reason for last shutdown: 'PAUSED' (idle), 'STOPPED' (user requested), or None (crashed)",
+        description="Reason for last shutdown: 'PAUSED' (idle), 'STOPPED' (user requested or all agents exited), or None (crashed)",
     )
     failure_reason: str | None = Field(
         default=None,

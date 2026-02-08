@@ -1,7 +1,11 @@
 """Tests for SSH host setup utilities."""
 
+import importlib.resources
+import json
+import subprocess
 from pathlib import Path
 
+import imbue.mngr.resources as mngr_resources
 from imbue.mngr.providers.ssh_host_setup import WARNING_PREFIX
 from imbue.mngr.providers.ssh_host_setup import _load_activity_watcher_script
 from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
@@ -164,3 +168,129 @@ def test_build_add_known_hosts_command_escapes_quotes() -> None:
     assert cmd is not None
     # Single quotes should be escaped as '\"'\"'
     assert "'\"'\"'" in cmd
+
+
+# =============================================================================
+# Activity Watcher Shell Function Tests
+#
+# These tests source the activity_watcher.sh script and exercise individual
+# functions in isolation via bash subprocess calls.
+# =============================================================================
+
+
+def _get_activity_watcher_script_path() -> str:
+    """Get the absolute path to the activity_watcher.sh resource file."""
+    resource_files = importlib.resources.files(mngr_resources)
+    return str(resource_files.joinpath("activity_watcher.sh"))
+
+
+def _run_bash_function(
+    script_path: str, host_data_dir: str, function_call: str
+) -> subprocess.CompletedProcess[str]:
+    """Source the activity_watcher.sh script and run a function in bash.
+
+    Extracts just the function definitions from the script (everything before
+    the main() call), sets up the required variables, and then calls the
+    given function. This avoids triggering the argument check and main loop.
+    """
+    bash_code = f"""
+        set -e
+        HOST_DATA_DIR="{host_data_dir}"
+        DATA_JSON_PATH="{host_data_dir}/data.json"
+        HOST_LOCK_PATH="{host_data_dir}/host_lock"
+        BOOT_ACTIVITY_PATH="{host_data_dir}/activity/boot"
+        SHUTDOWN_SCRIPT="{host_data_dir}/commands/shutdown.sh"
+        CHECK_INTERVAL=15
+        HOST_LEVEL_SOURCES="boot user ssh"
+
+        # Source only function definitions (everything between set -e and main call)
+        eval "$(sed -n '/^get_mtime()/,/^main$/{{ /^main$/d; p }}' "{script_path}")"
+
+        {function_call}
+    """
+    return subprocess.run(
+        ["bash", "-c", bash_code],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+def test_get_tmux_session_prefix_returns_empty_when_no_data_json(tmp_path: Path) -> None:
+    """get_tmux_session_prefix should return empty when data.json doesn't exist."""
+    script_path = _get_activity_watcher_script_path()
+    result = _run_bash_function(script_path, str(tmp_path), "get_tmux_session_prefix")
+    assert result.returncode == 0
+    assert result.stdout.strip() == ""
+
+
+def test_get_tmux_session_prefix_returns_empty_when_field_missing(tmp_path: Path) -> None:
+    """get_tmux_session_prefix should return empty when field is not in data.json."""
+    data_json = tmp_path / "data.json"
+    data_json.write_text(json.dumps({"host_id": "test", "host_name": "test"}))
+
+    script_path = _get_activity_watcher_script_path()
+    result = _run_bash_function(script_path, str(tmp_path), "get_tmux_session_prefix")
+    assert result.returncode == 0
+    assert result.stdout.strip() == ""
+
+
+def test_get_tmux_session_prefix_returns_prefix_value(tmp_path: Path) -> None:
+    """get_tmux_session_prefix should return the prefix from data.json."""
+    data_json = tmp_path / "data.json"
+    data_json.write_text(json.dumps({"tmux_session_prefix": "mngr-"}))
+
+    script_path = _get_activity_watcher_script_path()
+    result = _run_bash_function(script_path, str(tmp_path), "get_tmux_session_prefix")
+    assert result.returncode == 0
+    assert result.stdout.strip() == "mngr-"
+
+
+def test_has_running_agent_sessions_returns_true_when_no_prefix(tmp_path: Path) -> None:
+    """has_running_agent_sessions should return 0 (true) when no prefix is configured."""
+    data_json = tmp_path / "data.json"
+    data_json.write_text(json.dumps({"host_id": "test"}))
+
+    script_path = _get_activity_watcher_script_path()
+    result = _run_bash_function(script_path, str(tmp_path), "has_running_agent_sessions")
+    assert result.returncode == 0
+
+
+def test_has_running_agent_sessions_returns_true_when_no_agents_dir(tmp_path: Path) -> None:
+    """has_running_agent_sessions should return 0 (true) when agents dir doesn't exist yet."""
+    data_json = tmp_path / "data.json"
+    data_json.write_text(json.dumps({"tmux_session_prefix": "mngr-"}))
+    # No agents/ directory exists
+
+    script_path = _get_activity_watcher_script_path()
+    result = _run_bash_function(script_path, str(tmp_path), "has_running_agent_sessions")
+    assert result.returncode == 0
+
+
+def test_has_running_agent_sessions_returns_true_when_agents_dir_empty(tmp_path: Path) -> None:
+    """has_running_agent_sessions should return 0 (true) when agents dir exists but is empty."""
+    data_json = tmp_path / "data.json"
+    data_json.write_text(json.dumps({"tmux_session_prefix": "mngr-"}))
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    # agents/ exists but has no subdirectories
+
+    script_path = _get_activity_watcher_script_path()
+    result = _run_bash_function(script_path, str(tmp_path), "has_running_agent_sessions")
+    assert result.returncode == 0
+
+
+def test_has_running_agent_sessions_returns_false_when_agents_exist_but_no_sessions(
+    tmp_path: Path,
+) -> None:
+    """has_running_agent_sessions should return 1 (false) when agent dirs exist but no tmux sessions match."""
+    data_json = tmp_path / "data.json"
+    data_json.write_text(json.dumps({"tmux_session_prefix": "mngr-test-unlikely-prefix-"}))
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "agent-abc123").mkdir()
+
+    script_path = _get_activity_watcher_script_path()
+    result = _run_bash_function(script_path, str(tmp_path), "has_running_agent_sessions")
+    # Should return non-zero since no tmux sessions with this prefix exist
+    assert result.returncode != 0

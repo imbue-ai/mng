@@ -105,12 +105,29 @@ get_tmux_session_prefix() {
 
 # Check if there are any running tmux sessions with the configured prefix.
 # Returns 0 (true) if at least one session exists, 1 (false) if none exist.
+# Also returns 0 (true / skip shutdown) if:
+#   - No prefix is configured (can't check)
+#   - No agent directories exist yet (host is still in initial setup)
 has_running_agent_sessions() {
     local prefix
     prefix=$(get_tmux_session_prefix)
 
     # If no prefix configured, skip this check (return true to avoid false positives)
     if [ -z "$prefix" ]; then
+        return 0
+    fi
+
+    # If no agent directories exist yet, the host is still in its initial setup
+    # phase (agents haven't been created yet). Skip the check to avoid shutting
+    # down the host before any agent has had a chance to start.
+    local agents_dir="$HOST_DATA_DIR/agents"
+    if [ ! -d "$agents_dir" ]; then
+        return 0
+    fi
+    # shellcheck disable=SC2086
+    local agent_count
+    agent_count=$(find "$agents_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+    if [ "$agent_count" -eq 0 ]; then
         return 0
     fi
 
