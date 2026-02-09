@@ -10,7 +10,28 @@ from typing import Any
 
 from loguru import logger
 
-from imbue.mngr.errors import ClaudeDirectoryNotTrustedError
+from imbue.mngr.errors import ConfigError
+
+
+class ClaudeDirectoryNotTrustedError(ConfigError):
+    """The source directory is not trusted in Claude's config.
+
+    When creating worktrees, we copy trust settings from the source directory
+    to the worktree in ~/.claude.json. If the source directory itself is not
+    trusted, the worktree won't be either, so Claude Code will show a trust
+    dialog on startup. When mngr then uses tmux send-keys to deliver the
+    initial prompt, the keystrokes will instead accept the trust dialog and
+    be consumed, and the intended message will be lost. Worse, this silently
+    grants trust to a directory the user never explicitly approved.
+    """
+
+    def __init__(self, source_path: str) -> None:
+        self.source_path = source_path
+        super().__init__(
+            f"Source directory {source_path} is not trusted by Claude Code. "
+            f"Run Claude Code manually in {source_path} first and accept the trust dialog, "
+            "then try again."
+        )
 
 
 def get_claude_config_path() -> Path:

@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
+from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import _find_project_config
 from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.agents.default_plugins.claude_config import get_claude_config_backup_path
 from imbue.mngr.agents.default_plugins.claude_config import get_claude_config_path
 from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
-from imbue.mngr.errors import ClaudeDirectoryNotTrustedError
 
 
 def test_get_claude_config_path_returns_home_dot_claude_json() -> None:
