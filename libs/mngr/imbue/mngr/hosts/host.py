@@ -500,9 +500,9 @@ class Host(BaseHost, OnlineHostInterface):
 
         start_time = time.time()
 
-        with log_span("Acquiring host lock at {}", lock_file_path):
-            lock_file = open(str(lock_file_path), "w")
-            try:
+        lock_file = open(str(lock_file_path), "w")
+        try:
+            with log_span("acquiring host lock at {}", lock_file_path):
                 try:
                     wait_for(
                         lambda: _try_acquire_flock(lock_file),
@@ -513,15 +513,15 @@ class Host(BaseHost, OnlineHostInterface):
                 except TimeoutError as e:
                     raise LockNotHeldError(str(e)) from e
 
-                logger.trace("Lock acquired after {:.2f}s", time.time() - start_time)
+            logger.trace("Lock acquired after {:.2f}s", time.time() - start_time)
 
-                yield
+            yield
+        finally:
+            logger.trace("Releasing host lock")
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
             finally:
-                logger.trace("Releasing host lock")
-                try:
-                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-                finally:
-                    lock_file.close()
+                lock_file.close()
 
     def get_reported_lock_time(self) -> datetime | None:
         """Get the mtime of the lock file."""

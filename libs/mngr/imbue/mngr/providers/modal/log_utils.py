@@ -185,8 +185,8 @@ def enable_modal_output_capture(
 
     multi_writer = _create_multi_writer(writers)
 
-    with log_span("Enabling Modal output capture"):
-        with modal.enable_output(show_progress=True):
+    with modal.enable_output(show_progress=True):
+        with log_span("enabling Modal output capture"):
             output_manager = _QuietOutputManager()
             # Set _stdout to capture Modal's output (build logs, status messages, etc.)
             # This only captures what Modal writes to its OutputManager, not all stdout/stderr
@@ -194,4 +194,4 @@ def enable_modal_output_capture(
             output_manager._timestamps = set()
             OutputManager._instance = output_manager
 
-            yield output_buffer, loguru_writer
+        yield output_buffer, loguru_writer
