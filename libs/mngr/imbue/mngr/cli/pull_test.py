@@ -1,3 +1,4 @@
+# FIXME: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 """Unit tests for pull CLI command."""
 
 from datetime import datetime
