@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.model_update import to_update_dict
 from imbue.imbue_common.pure import pure
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.agents.default_plugins import claude_agent
@@ -126,24 +130,24 @@ def _apply_custom_overrides_to_parent_config(
     (e.g., ClaudeAgentConfig) by constructing a new instance of the parent's
     concrete class with the base fields overridden.
     """
-    # Build update dict from custom config's base fields
-    updates: dict[str, object] = {}
+    # Build update pairs from custom config's base fields
+    updates: list[tuple[str, Any]] = []
 
     if custom_config.command is not None:
-        updates["command"] = custom_config.command
+        updates.append(to_update(parent_config.field_ref().command, custom_config.command))
 
     merged_cli_args = merge_cli_args(parent_config.cli_args, custom_config.cli_args)
     if merged_cli_args != parent_config.cli_args:
-        updates["cli_args"] = merged_cli_args
+        updates.append(to_update(parent_config.field_ref().cli_args, merged_cli_args))
 
     # Permissions override (replace) the parent's permissions per documentation.
     if custom_config.permissions:
-        updates["permissions"] = custom_config.permissions
+        updates.append(to_update(parent_config.field_ref().permissions, custom_config.permissions))
 
     if not updates:
         return parent_config
 
-    return parent_config.model_copy(update=updates)
+    return parent_config.model_copy(update=to_update_dict(*updates))
 
 
 def resolve_agent_type(
