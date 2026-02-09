@@ -128,9 +128,16 @@ def temp_host_dir(tmp_path: Path) -> Path:
     return host_dir
 
 
+@pytest.fixture
+def tmp_home_dir(tmp_path: Path) -> Generator[Path, None, None]:
+    home_dir = tmp_path / "home"
+    home_dir.mkdir(parents=True, exist_ok=True)
+    yield tmp_path
+
+
 @pytest.fixture(autouse=True)
 def setup_test_mngr_env(
-    tmp_path: Path,
+    tmp_home_dir: Path,
     temp_host_dir: Path,
     mngr_test_prefix: str,
     mngr_test_root_name: str,
@@ -147,7 +154,7 @@ def setup_test_mngr_env(
     By setting HOME to tmp_path, tests cannot accidentally read or modify
     files in the real home directory. This protects files like ~/.claude.json.
     """
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_home_dir))
     monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
     monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
