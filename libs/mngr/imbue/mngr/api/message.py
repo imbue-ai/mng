@@ -56,14 +56,14 @@ def send_message_to_agents(
     compiled_include_filters: list[Any] = []
     compiled_exclude_filters: list[Any] = []
     if include_filters or exclude_filters:
-        with log_span("compiling CEL filters"):
+        with log_span("Compiling CEL filters"):
             compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
         logger.trace(
             "Compiled {} include and {} exclude filters", len(compiled_include_filters), len(compiled_exclude_filters)
         )
 
     # Load all agents grouped by host
-    with log_span("loading agents from all providers"):
+    with log_span("Loading agents from all providers"):
         agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx)
     provider_map = {provider.name: provider for provider in providers}
     logger.trace("Found {} hosts with agents", len(agents_by_host))
@@ -178,7 +178,7 @@ def _send_message_to_agent(
         return
 
     try:
-        with log_span("sending message to agent {}", agent_name):
+        with log_span("Sending message to agent {}", agent_name):
             agent.send_message(message_content)
         result.successful_agents.append(agent_name)
         if on_success:

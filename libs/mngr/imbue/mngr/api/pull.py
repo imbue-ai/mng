@@ -74,7 +74,7 @@ def pull_files(
     # Execute rsync on the host
     cmd_str = " ".join(rsync_cmd)
 
-    with log_span("pulling files from {} to {}", actual_source_path, destination):
+    with log_span("Pulling files from {} to {}", actual_source_path, destination):
         result: CommandResult = host.execute_command(cmd_str)
 
     if not result.success:

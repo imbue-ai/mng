@@ -56,7 +56,7 @@ def gc(
     logger.trace("GC options: dry_run={} error_behavior={}", dry_run, error_behavior)
 
     if resource_types.is_work_dirs:
-        with log_span("garbage collecting orphaned work directories"):
+        with log_span("Garbage collecting orphaned work directories"):
             gc_work_dirs(
                 mngr_ctx=mngr_ctx,
                 providers=providers,
@@ -68,7 +68,7 @@ def gc(
             )
 
     if resource_types.is_machines:
-        with log_span("garbage collecting idle machines"):
+        with log_span("Garbage collecting idle machines"):
             gc_machines(
                 providers=providers,
                 include_filters=include_filters,
@@ -79,7 +79,7 @@ def gc(
             )
 
     if resource_types.is_snapshots:
-        with log_span("garbage collecting orphaned snapshots"):
+        with log_span("Garbage collecting orphaned snapshots"):
             gc_snapshots(
                 providers=providers,
                 include_filters=include_filters,
@@ -90,7 +90,7 @@ def gc(
             )
 
     if resource_types.is_volumes:
-        with log_span("garbage collecting orphaned volumes"):
+        with log_span("Garbage collecting orphaned volumes"):
             gc_volumes(
                 providers=providers,
                 include_filters=include_filters,
@@ -101,7 +101,7 @@ def gc(
             )
 
     if resource_types.is_logs:
-        with log_span("garbage collecting old log files"):
+        with log_span("Garbage collecting old log files"):
             gc_logs(
                 mngr_ctx=mngr_ctx,
                 providers=providers,
@@ -113,7 +113,7 @@ def gc(
             )
 
     if resource_types.is_build_cache:
-        with log_span("garbage collecting build cache entries"):
+        with log_span("Garbage collecting build cache entries"):
             gc_build_cache(
                 mngr_ctx=mngr_ctx,
                 providers=providers,

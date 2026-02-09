@@ -81,7 +81,7 @@ def create(
     )
 
     # Determine which provider to use and get the host
-    with log_span("resolving target host"):
+    with log_span("Resolving target host"):
         host = resolve_target_host(target_host, mngr_ctx)
     logger.trace("Resolved to host id={} name={}", host.id, host.connector.name)
 
@@ -89,19 +89,19 @@ def create(
     with host.lock_cooperatively():
         # Create the agent's work_dir on the host
         if create_work_dir:
-            with log_span("creating agent work directory from source {}", source_location.path):
+            with log_span("Creating agent work directory from source {}", source_location.path):
                 work_dir_path = host.create_agent_work_dir(source_location.host, source_location.path, agent_options)
             logger.trace("Created work directory at {}", work_dir_path)
         else:
             work_dir_path = source_location.path
 
         # Create the agent state (registers the agent with the host)
-        with log_span("creating agent state in work directory {}", work_dir_path):
+        with log_span("Creating agent state in work directory {}", work_dir_path):
             agent = host.create_agent_state(work_dir_path, agent_options)
         logger.trace("Created agent id={} name={} type={}", agent.id, agent.name, agent.agent_type)
 
         # Run provisioning for the agent (hooks, dependency installation, etc.)
-        with log_span("provisioning agent {}", agent.name):
+        with log_span("Provisioning agent {}", agent.name):
             host.provision_agent(agent, agent_options, mngr_ctx)
 
         # Send initial message if one is configured
@@ -126,7 +126,7 @@ def create(
         result = CreateAgentResult(agent=agent, host=host)
 
         # Call on_agent_created hooks to notify plugins about the new agent
-        with log_span("calling on_agent_created hooks"):
+        with log_span("Calling on_agent_created hooks"):
             mngr_ctx.pm.hook.on_agent_created(agent=result.agent, host=result.host)
 
     return result
@@ -156,7 +156,7 @@ def _write_host_env_vars(
         env_vars[env_var.key] = env_var.value
 
     if env_vars:
-        with log_span("writing host env vars", count=len(env_vars)):
+        with log_span("Writing host env vars", count=len(env_vars)):
             host.set_env_vars(env_vars)
 
 
@@ -176,7 +176,7 @@ def resolve_target_host(
             target_host.lifecycle,
             len(target_host.environment.known_hosts),
         )
-        with log_span("creating new host '{}' using provider '{}'", target_host.name, target_host.provider):
+        with log_span("Creating new host '{}' using provider '{}'", target_host.name, target_host.provider):
             new_host = provider.create_host(
                 name=target_host.name,
                 tags=target_host.tags,

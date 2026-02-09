@@ -1262,20 +1262,31 @@ Always use the right log level for your statement:
 
 The purpose of log statements is to tell a story to the reader about what is happening in the program. They help us understand program execution and debug issues.
 
-**Log before actions, not after.** Place log statements immediately before the action they describe, not after. This ensures the log appears even if the action fails:
+**Use `log_span` to wrap actions.** When logging an action that is about to happen, use the `log_span` context manager instead of a bare `logger.debug`. This emits a debug message on entry and a trace message with elapsed time on exit, making it easy to see how long operations take:
 
 ```python
-from loguru import logger
+from imbue.mngr.utils.logging import log_span
 
 
 def save_todo_to_repository(
     todo_repository: TodoRepositoryInterface,
     todo_item: TodoItem,
 ) -> None:
-    # Log BEFORE the action
-    logger.debug("Saving todo to repository")
-    todo_repository.save_todo(todo_item)
-    logger.trace("Saved todo id={} title={}", todo_item.todo_id, todo_item.title)
+    with log_span("Saving todo to repository"):
+        todo_repository.save_todo(todo_item)
+```
+
+`log_span` accepts format args and keyword context args (passed to `logger.contextualize`):
+
+```python
+with log_span("Creating agent work directory from source {}", source_path, host=host_name):
+    work_dir = host.create_work_dir(source_path)
+```
+
+Use bare `logger.debug` only for observational messages that don't describe an action about to happen (e.g., noting a condition, logging a result after the fact):
+
+```python
+logger.debug("Source and target are the same path, no file transfer needed")
 ```
 
 **Do not log at function entry points.** Since logs are placed at the call site (before calling a function), the function itself should not log its own entry. The caller's log already describes what's about to happen:
@@ -1298,11 +1309,10 @@ def cli_create_todo(title: str) -> None:
     logger.info("Created todo (ID={})", todo.todo_id)
 
 
-# In library/API code - use debug instead
+# In library/API code - use log_span for actions
 def create_todo(title: str) -> TodoItem:
-    logger.debug("Creating todo item")
-    todo = TodoItem(title=title)
-    logger.trace("Created todo id={} title={}", todo.todo_id, todo.title)
+    with log_span("Creating todo item"):
+        todo = TodoItem(title=title)
     return todo
 ```
 

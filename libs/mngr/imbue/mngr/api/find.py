@@ -200,15 +200,15 @@ def resolve_source_location(
     This is important for making the CLI easy to use in a variety of scenarios.
     """
     # Parse the source string into components
-    with log_span("parsing source location"):
+    with log_span("Parsing source location"):
         parsed = parse_source_string(source, source_agent, source_host, source_path)
     logger.trace("Parsed source: agent={} host={} path={}", parsed.agent, parsed.host, parsed.path)
 
     # Resolve host and agent references from the parsed components
     all_hosts = list(agents_by_host.keys())
-    with log_span("resolving host reference"):
+    with log_span("Resolving host reference"):
         resolved_host = resolve_host_reference(parsed.host, all_hosts)
-    with log_span("resolving agent reference"):
+    with log_span("Resolving agent reference"):
         agent_result = resolve_agent_reference(parsed.agent, resolved_host, agents_by_host)
 
     # Extract resolved agent if found
@@ -217,7 +217,7 @@ def resolve_source_location(
         resolved_host, resolved_agent = agent_result
 
     # Get the host interface from the provider
-    with log_span("getting host interface from provider"):
+    with log_span("Getting host interface from provider"):
         if resolved_host is None:
             provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), mngr_ctx)
             host_interface = provider.get_host(HostName("local"))
