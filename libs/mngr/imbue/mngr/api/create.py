@@ -83,7 +83,6 @@ def create(
     # Determine which provider to use and get the host
     with log_span("Resolving target host"):
         host = resolve_target_host(target_host, mngr_ctx)
-    logger.trace("Resolved to host id={} name={}", host.id, host.connector.name)
 
     # while we are deploying an agent, lock the host:
     with host.lock_cooperatively():
@@ -91,14 +90,12 @@ def create(
         if create_work_dir:
             with log_span("Creating agent work directory from source {}", source_location.path):
                 work_dir_path = host.create_agent_work_dir(source_location.host, source_location.path, agent_options)
-            logger.trace("Created work directory at {}", work_dir_path)
         else:
             work_dir_path = source_location.path
 
         # Create the agent state (registers the agent with the host)
         with log_span("Creating agent state in work directory {}", work_dir_path):
             agent = host.create_agent_state(work_dir_path, agent_options)
-        logger.trace("Created agent id={} name={} type={}", agent.id, agent.name, agent.agent_type)
 
         # Run provisioning for the agent (hooks, dependency installation, etc.)
         with log_span("Provisioning agent {}", agent.name):
@@ -168,15 +165,16 @@ def resolve_target_host(
     if target_host is not None and isinstance(target_host, NewHostOptions):
         # Create a new host using the specified provider
         provider = get_provider_instance(target_host.provider, mngr_ctx)
-        logger.trace(
-            "Creating host with tags={} build_args={} start_args={} lifecycle={} known_hosts={}",
-            target_host.tags,
-            target_host.build.build_args,
-            target_host.build.start_args,
-            target_host.lifecycle,
-            len(target_host.environment.known_hosts),
-        )
-        with log_span("Creating new host '{}' using provider '{}'", target_host.name, target_host.provider):
+        with log_span(
+            "Creating new host '{}' using provider '{}'",
+            target_host.name,
+            target_host.provider,
+            tags=target_host.tags,
+            build_args=target_host.build.build_args,
+            start_args=target_host.build.start_args,
+            lifecycle=target_host.lifecycle,
+            known_hosts_count=len(target_host.environment.known_hosts),
+        ):
             new_host = provider.create_host(
                 name=target_host.name,
                 tags=target_host.tags,
@@ -194,5 +192,5 @@ def resolve_target_host(
         return new_host
     else:
         # already have the host
-        logger.trace("Using existing host id={}", target_host.id)
+        logger.debug("Used existing host id={}", target_host.id)
         return target_host
