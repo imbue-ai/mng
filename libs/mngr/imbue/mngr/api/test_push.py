@@ -746,46 +746,23 @@ def remote_git_push_ctx(tmp_path: Path) -> PushTestContext:
     )
 
 
-def test_push_files_with_remote_host_succeeds(
+def test_push_files_with_remote_host_raises_not_implemented(
     remote_push_ctx: PushTestContext,
 ) -> None:
-    """Test that push_files works with a remote (non-local) host.
+    """Test that push_files raises NotImplementedError for remote hosts.
 
-    rsync is executed via host.execute_command, which works for both local
-    and remote hosts.
+    File sync via rsync requires local paths on both sides. Remote host
+    support will require SSH-based rsync or a different transfer mechanism.
     """
     (remote_push_ctx.host_dir / "file.txt").write_text("host content")
 
-    result = push_files(
-        agent=remote_push_ctx.agent,
-        host=remote_push_ctx.host,
-        source=remote_push_ctx.host_dir,
-        uncommitted_changes=UncommittedChangesMode.CLOBBER,
-    )
-
-    assert (remote_push_ctx.agent_dir / "file.txt").exists()
-    assert (remote_push_ctx.agent_dir / "file.txt").read_text() == "host content"
-    assert result.destination_path == remote_push_ctx.agent_dir
-
-
-def test_push_files_with_remote_host_handles_uncommitted_changes(
-    remote_push_ctx: PushTestContext,
-) -> None:
-    """Test that push_files handles uncommitted changes on remote host."""
-    (remote_push_ctx.host_dir / "file.txt").write_text("host content")
-    (remote_push_ctx.agent_dir / "README.md").write_text("modified content")
-    initial_stash_count = get_stash_count(remote_push_ctx.agent_dir)
-
-    push_files(
-        agent=remote_push_ctx.agent,
-        host=remote_push_ctx.host,
-        source=remote_push_ctx.host_dir,
-        uncommitted_changes=UncommittedChangesMode.STASH,
-    )
-
-    final_stash_count = get_stash_count(remote_push_ctx.agent_dir)
-    assert final_stash_count == initial_stash_count + 1
-    assert (remote_push_ctx.agent_dir / "file.txt").read_text() == "host content"
+    with pytest.raises(NotImplementedError, match="remote hosts"):
+        push_files(
+            agent=remote_push_ctx.agent,
+            host=remote_push_ctx.host,
+            source=remote_push_ctx.host_dir,
+            uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        )
 
 
 def test_push_git_with_remote_host_raises_not_implemented(

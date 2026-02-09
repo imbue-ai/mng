@@ -329,6 +329,9 @@ def sync_files(
     uncommitted_changes: UncommittedChangesMode = UncommittedChangesMode.FAIL,
 ) -> SyncFilesResult:
     """Sync files between local and agent using rsync."""
+    if not host.is_local:
+        raise NotImplementedError("File sync with remote hosts is not yet implemented")
+
     actual_remote_path = remote_path if remote_path is not None else agent.work_dir
 
     # Determine source and destination based on mode

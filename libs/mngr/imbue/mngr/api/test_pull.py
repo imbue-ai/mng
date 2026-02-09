@@ -537,46 +537,23 @@ def remote_git_pull_ctx(tmp_path: Path) -> PullTestContext:
     )
 
 
-def test_pull_files_with_remote_host_succeeds(
+def test_pull_files_with_remote_host_raises_not_implemented(
     remote_pull_ctx: PullTestContext,
 ) -> None:
-    """Test that pull_files works with a remote (non-local) host.
+    """Test that pull_files raises NotImplementedError for remote hosts.
 
-    rsync is executed via host.execute_command, which works for both local
-    and remote hosts.
+    File sync via rsync requires local paths on both sides. Remote host
+    support will require SSH-based rsync or a different transfer mechanism.
     """
     (remote_pull_ctx.agent_dir / "file.txt").write_text("agent content")
 
-    result = pull_files(
-        agent=remote_pull_ctx.agent,
-        host=remote_pull_ctx.host,
-        destination=remote_pull_ctx.host_dir,
-        uncommitted_changes=UncommittedChangesMode.CLOBBER,
-    )
-
-    assert (remote_pull_ctx.host_dir / "file.txt").exists()
-    assert (remote_pull_ctx.host_dir / "file.txt").read_text() == "agent content"
-    assert result.source_path == remote_pull_ctx.agent_dir
-
-
-def test_pull_files_with_remote_host_handles_uncommitted_changes(
-    remote_pull_ctx: PullTestContext,
-) -> None:
-    """Test that pull_files handles uncommitted changes when pulling from remote host."""
-    (remote_pull_ctx.agent_dir / "file.txt").write_text("agent content")
-    (remote_pull_ctx.host_dir / "README.md").write_text("modified content")
-    initial_stash_count = get_stash_count(remote_pull_ctx.host_dir)
-
-    pull_files(
-        agent=remote_pull_ctx.agent,
-        host=remote_pull_ctx.host,
-        destination=remote_pull_ctx.host_dir,
-        uncommitted_changes=UncommittedChangesMode.STASH,
-    )
-
-    final_stash_count = get_stash_count(remote_pull_ctx.host_dir)
-    assert final_stash_count == initial_stash_count + 1
-    assert (remote_pull_ctx.host_dir / "file.txt").read_text() == "agent content"
+    with pytest.raises(NotImplementedError, match="remote hosts"):
+        pull_files(
+            agent=remote_pull_ctx.agent,
+            host=remote_pull_ctx.host,
+            destination=remote_pull_ctx.host_dir,
+            uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        )
 
 
 def test_pull_git_with_local_path_from_remote_host_works(
