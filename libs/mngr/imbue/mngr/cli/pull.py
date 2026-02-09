@@ -6,21 +6,19 @@ from click_option_group import optgroup
 from loguru import logger
 
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
-from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.api.pull import pull_git
+from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
-from imbue.mngr.cli.connect import select_agent_interactively
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.cli.output_helpers import output_sync_files_result
 from imbue.mngr.cli.output_helpers import output_sync_git_result
-from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
@@ -64,26 +62,6 @@ class PullCliOptions(CommonCliOptions):
     merge: bool
     rebase: bool
     uncommitted_source: str | None
-
-
-def _select_agent_for_pull(
-    mngr_ctx: MngrContext,
-) -> tuple[AgentInterface, OnlineHostInterface] | None:
-    """Show interactive UI to select an agent for pulling.
-
-    Returns tuple of (agent, host) or None if user quit without selecting.
-    """
-    list_result = list_agents(mngr_ctx)
-    if not list_result.agents:
-        raise UserInputError("No agents found")
-
-    selected = select_agent_interactively(list_result.agents)
-    if selected is None:
-        return None
-
-    # Find the actual agent and host from the selection
-    agents_by_host, _providers = load_all_agents_grouped_by_host(mngr_ctx)
-    return find_and_maybe_start_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "pull")
 
 
 @click.command()
@@ -317,7 +295,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
         raise UserInputError("No agent specified and not running in interactive mode")
     else:
         # Interactive agent selection
-        result = _select_agent_for_pull(mngr_ctx)
+        result = select_agent_interactively_with_host(mngr_ctx)
         if result is None:
             logger.info("No agent selected")
             return
