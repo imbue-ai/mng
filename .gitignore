@@ -233,9 +233,6 @@ frontend-dist/
 # History of commits reviewed by main_claude_stop_hook.sh (to detect stuck agents)
 .claude/reviewed_commits
 
-# local claude settings:
-.claude/settings.local.json
-
 # Local Claude settings backup files
 .claude/*.bak
 

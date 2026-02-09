@@ -1,5 +1,6 @@
 """Shared test fixtures for API tests."""
 
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -11,20 +12,13 @@ from imbue.mngr.interfaces.data_types import CommandResult
 
 
 class FakeAgent(FrozenModel):
-    """Minimal test double for AgentInterface.
-
-    Only implements work_dir, which is all the sync functions actually use.
-    """
+    """Minimal test double for AgentInterface -- only implements work_dir."""
 
     work_dir: Path = Field(description="Working directory for this agent")
 
 
 class FakeHost(MutableModel):
-    """Minimal test double for OnlineHostInterface.
-
-    Implements execute_command and is_local. Executes commands locally via subprocess.
-    Set is_local=False to simulate a remote host.
-    """
+    """Minimal test double for OnlineHostInterface that executes commands locally."""
 
     is_local: bool = Field(default=True, description="Whether this is a local host")
 
@@ -33,10 +27,9 @@ class FakeHost(MutableModel):
         command: str,
         cwd: Path | None = None,
     ) -> CommandResult:
-        """Execute a shell command locally and return the result."""
+        """Execute a command locally and return the result."""
         result = subprocess.run(
-            command,
-            shell=True,
+            shlex.split(command),
             capture_output=True,
             text=True,
             cwd=cwd,

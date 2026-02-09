@@ -450,23 +450,22 @@ def _sync_git_push(
             # branch checked out (receive.denyCurrentBranch).
             target_git_dir = str(destination_path)
 
-            # Count commits that will be pushed
-            commits_to_push = count_commits_between(
-                local_path,
-                target_branch,
-                source_branch,
-            )
-
             if mirror:
                 logger.debug("Performing mirror fetch to {}", target_git_dir)
 
+                # Record pre-fetch HEAD for accurate commit counting
+                pre_fetch_head = get_head_commit(destination_path)
+
                 if dry_run:
+                    # For dry run, estimate from the local side
+                    estimated_commits = count_commits_between(local_path, target_branch, source_branch)
                     logger.debug(
                         "Dry run: would push {} commits (mirror) from {} to {}",
-                        commits_to_push,
+                        estimated_commits,
                         source_branch,
                         target_branch,
                     )
+                    commits_transferred = estimated_commits
                 else:
                     # Fetch all refs from source into target.
                     # --update-head-ok is needed because git otherwise refuses to
@@ -496,18 +495,29 @@ def _sync_git_push(
                     if not reset_result.success:
                         raise GitSyncError(f"Failed to update working tree: {reset_result.stderr}")
 
-                commits_transferred = commits_to_push
+                    # Count actual commits transferred by comparing pre/post HEAD
+                    post_fetch_head = get_head_commit(destination_path)
+                    if (
+                        pre_fetch_head is not None
+                        and post_fetch_head is not None
+                        and pre_fetch_head != post_fetch_head
+                    ):
+                        commits_transferred = count_commits_between(destination_path, pre_fetch_head, post_fetch_head)
             else:
                 logger.debug("Fetching branch {} into {}", source_branch, target_git_dir)
 
+                # Record pre-fetch HEAD for accurate commit counting
+                pre_fetch_head = get_head_commit(destination_path)
+
                 if dry_run:
+                    estimated_commits = count_commits_between(local_path, target_branch, source_branch)
                     logger.debug(
                         "Dry run: would push {} commits from {} into {}",
-                        commits_to_push,
+                        estimated_commits,
                         source_branch,
                         target_branch,
                     )
-                    commits_transferred = commits_to_push
+                    commits_transferred = estimated_commits
                 else:
                     # Fetch from source repo into the target, then reset to update working tree
                     result = subprocess.run(
@@ -525,15 +535,27 @@ def _sync_git_push(
                     if result.returncode != 0:
                         raise GitSyncError(result.stderr)
 
+                    # Resolve FETCH_HEAD to an explicit commit hash to avoid race conditions
+                    hash_result = subprocess.run(
+                        ["git", "-C", target_git_dir, "rev-parse", "FETCH_HEAD"],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if hash_result.returncode != 0:
+                        raise GitSyncError(f"Failed to resolve FETCH_HEAD: {hash_result.stderr}")
+                    fetched_commit = hash_result.stdout.strip()
+
                     # Reset the target branch to the fetched commit
                     reset_result = host.execute_command(
-                        "git reset --hard FETCH_HEAD",
+                        f"git reset --hard {fetched_commit}",
                         cwd=destination_path,
                     )
                     if not reset_result.success:
                         raise GitSyncError(f"Failed to update working tree: {reset_result.stderr}")
 
-                    commits_transferred = commits_to_push
+                    # Count actual commits transferred by comparing pre/post HEAD
+                    if pre_fetch_head is not None and pre_fetch_head != fetched_commit:
+                        commits_transferred = count_commits_between(destination_path, pre_fetch_head, fetched_commit)
 
                     logger.debug(
                         "Git push complete: pushed {} commits from {} to {}",

@@ -3,6 +3,7 @@ import subprocess
 import threading
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Final
 from typing import Iterator
 from typing import assert_never
 
@@ -26,38 +27,30 @@ from imbue.mngr.utils.git_utils import get_head_commit
 from imbue.mngr.utils.git_utils import is_ancestor
 from imbue.mngr.utils.git_utils import is_git_repository
 
+_GIT_FETCH_TIMEOUT_SECONDS: Final[float] = 30.0
+
 
 class GitSyncAction(FrozenModel):
-    """Describes the git sync state between two repositories.
+    """Describes which side (agent or local) has commits the other doesn't."""
 
-    This class describes which repository (source or target) has commits
-    that the other doesn't. The caller is responsible for determining
-    what actions to take based on this state.
-    """
-
-    source_is_ahead: bool = Field(
+    agent_is_ahead: bool = Field(
         default=False,
-        description="True if source has commits that target doesn't have",
+        description="True if agent has commits that local doesn't have",
     )
-    target_is_ahead: bool = Field(
+    local_is_ahead: bool = Field(
         default=False,
-        description="True if target has commits that source doesn't have",
+        description="True if local has commits that agent doesn't have",
     )
-    source_branch: str = Field(
-        description="The branch name on the source side",
+    agent_branch: str = Field(
+        description="The branch name on the agent side",
     )
-    target_branch: str = Field(
-        description="The branch name on the target side",
+    local_branch: str = Field(
+        description="The branch name on the local side",
     )
 
 
 class UnisonSyncer(MutableModel):
-    """Context manager for running unison file synchronization.
-
-    This class manages a unison process that continuously syncs files between
-    a source and target directory. The sync can be stopped programmatically
-    by calling the stop() method, or automatically when the context manager exits.
-    """
+    """Manages a unison process for continuous bidirectional file synchronization."""
 
     source_path: Path = Field(frozen=True, description="Source directory to sync from")
     target_path: Path = Field(frozen=True, description="Target directory to sync to")
@@ -142,9 +135,9 @@ class UnisonSyncer(MutableModel):
             for line in iter(self._process.stdout.readline, ""):
                 if self._stop_event.is_set():
                     break
-                line = line.rstrip()
-                if line:
-                    logger.debug("unison: {}", line)
+                stripped_line = line.rstrip()
+                if stripped_line:
+                    logger.debug("unison: {}", stripped_line)
         except (OSError, ValueError):
             # OSError: broken pipe / I/O error when process terminates
             # ValueError: I/O operation on closed file
@@ -214,96 +207,77 @@ def check_unison_installed() -> bool:
 
 
 def determine_git_sync_actions(
-    source_path: Path,
-    target_path: Path,
+    agent_path: Path,
+    local_path: Path,
 ) -> GitSyncAction | None:
-    """Determine what git sync actions are needed between source and target.
+    """Determine what git sync actions are needed between agent and local repos.
 
-    Returns None if either path is not a git repository.
+    Returns None if either path is not a git repository. Fetches objects from
+    local into agent's object store (a read-only side effect on agent's repo)
+    to enable ancestry comparison.
     """
-    # Check if both paths are git repositories
-    if not is_git_repository(source_path) or not is_git_repository(target_path):
+    if not is_git_repository(agent_path) or not is_git_repository(local_path):
         return None
 
-    source_branch = get_current_branch(source_path)
-    target_branch = get_current_branch(target_path)
+    agent_branch = get_current_branch(agent_path)
+    local_branch = get_current_branch(local_path)
 
-    source_commit = get_head_commit(source_path)
-    target_commit = get_head_commit(target_path)
+    agent_commit = get_head_commit(agent_path)
+    local_commit = get_head_commit(local_path)
 
-    if source_commit is None or target_commit is None:
+    if agent_commit is None or local_commit is None:
         return GitSyncAction(
-            source_is_ahead=False,
-            target_is_ahead=False,
-            source_branch=source_branch,
-            target_branch=target_branch,
+            agent_branch=agent_branch,
+            local_branch=local_branch,
         )
 
-    # Check if commits are the same (already in sync)
-    if source_commit == target_commit:
+    if agent_commit == local_commit:
         return GitSyncAction(
-            source_is_ahead=False,
-            target_is_ahead=False,
-            source_branch=source_branch,
-            target_branch=target_branch,
+            agent_branch=agent_branch,
+            local_branch=local_branch,
         )
 
-    # Fetch target refs to compare
-    # We need to determine if:
-    # 1. Source is ahead of target (needs push)
-    # 2. Target is ahead of source (needs pull)
-    # 3. Both have diverged (needs both or conflict resolution)
-
-    # Fetch from target directly (without adding a remote) to get the objects
-    # This makes the target commit available locally for ancestry checks
+    # Fetch local refs into agent's object store so we can compare ancestry.
+    # This only adds git objects -- it does not modify branches or working tree.
     fetch_result = subprocess.run(
-        ["git", "fetch", str(target_path), target_branch],
-        cwd=source_path,
+        ["git", "fetch", str(local_path), local_branch],
+        cwd=agent_path,
         capture_output=True,
         text=True,
+        timeout=_GIT_FETCH_TIMEOUT_SECONDS,
     )
     if fetch_result.returncode != 0:
         logger.warning(
-            "Failed to fetch from target for git sync comparison: {}",
+            "Failed to fetch from local for git sync comparison: {}",
             fetch_result.stderr.strip(),
         )
-        # Return no-action since we can't reliably determine sync state
         return GitSyncAction(
-            source_is_ahead=False,
-            target_is_ahead=False,
-            source_branch=source_branch,
-            target_branch=target_branch,
+            agent_branch=agent_branch,
+            local_branch=local_branch,
         )
 
-    # Check if source is ahead of target (target commit is ancestor of source)
-    source_ahead = is_ancestor(source_path, target_commit, source_commit)
+    # Check ancestry from the agent repo (which now has both sets of objects)
+    agent_ahead = is_ancestor(agent_path, local_commit, agent_commit)
+    local_ahead = is_ancestor(agent_path, agent_commit, local_commit)
 
-    # Check if target is ahead of source (source commit is ancestor of target)
-    target_ahead = is_ancestor(source_path, source_commit, target_commit)
-
-    if source_ahead and not target_ahead:
-        # Source has commits that target doesn't - need push
+    if agent_ahead and not local_ahead:
         return GitSyncAction(
-            source_is_ahead=True,
-            target_is_ahead=False,
-            source_branch=source_branch,
-            target_branch=target_branch,
+            agent_is_ahead=True,
+            agent_branch=agent_branch,
+            local_branch=local_branch,
         )
-    elif target_ahead and not source_ahead:
-        # Target has commits that source doesn't - need pull
+    elif local_ahead and not agent_ahead:
         return GitSyncAction(
-            source_is_ahead=False,
-            target_is_ahead=True,
-            source_branch=source_branch,
-            target_branch=target_branch,
+            local_is_ahead=True,
+            agent_branch=agent_branch,
+            local_branch=local_branch,
         )
     else:
-        # Both have diverged - need both operations
         return GitSyncAction(
-            source_is_ahead=True,
-            target_is_ahead=True,
-            source_branch=source_branch,
-            target_branch=target_branch,
+            agent_is_ahead=True,
+            local_is_ahead=True,
+            agent_branch=agent_branch,
+            local_branch=local_branch,
         )
 
 
@@ -316,50 +290,36 @@ def sync_git_state(
 ) -> tuple[bool, bool]:
     """Synchronize git state between agent and local paths.
 
-    The git_sync_action determines what operations are needed:
-    - source_is_ahead: agent (source) has commits local doesn't -> pull from agent to local
-    - target_is_ahead: local (target) has commits agent doesn't -> push from local to agent
-
-    Note: The naming in GitSyncAction (source_is_ahead/target_is_ahead) refers to the direction
-    of data flow relative to the source/target passed to determine_git_sync_actions.
-    Since source=agent and target=local in our calling convention:
-    - source_is_ahead (source ahead) means we need to bring local up to date -> pull_git
-    - target_is_ahead (target ahead) means we need to bring agent up to date -> push_git
-
-    Returns a tuple of (git_pull_performed, git_push_performed) where:
-    - git_pull_performed: True if we pulled from agent to local
-    - git_push_performed: True if we pushed from local to agent
+    Returns (did_pull, did_push) indicating which operations were performed.
     """
-    git_pull_performed = False
-    git_push_performed = False
+    did_pull = False
+    did_push = False
 
-    # If agent (source) has commits local doesn't -> pull from agent to local
-    if git_sync_action.source_is_ahead:
+    if git_sync_action.agent_is_ahead:
         logger.debug("Pulling git state from agent to local")
         pull_git(
             agent=agent,
             host=host,
             destination=local_path,
-            source_branch=git_sync_action.source_branch,
-            target_branch=git_sync_action.target_branch,
+            source_branch=git_sync_action.agent_branch,
+            target_branch=git_sync_action.local_branch,
             uncommitted_changes=uncommitted_changes,
         )
-        git_pull_performed = True
+        did_pull = True
 
-    # If local (target) has commits agent doesn't -> push from local to agent
-    if git_sync_action.target_is_ahead:
+    if git_sync_action.local_is_ahead:
         logger.debug("Pushing git state from local to agent")
         push_git(
             agent=agent,
             host=host,
             source=local_path,
-            source_branch=git_sync_action.target_branch,
-            target_branch=git_sync_action.source_branch,
+            source_branch=git_sync_action.local_branch,
+            target_branch=git_sync_action.agent_branch,
             uncommitted_changes=uncommitted_changes,
         )
-        git_push_performed = True
+        did_push = True
 
-    return git_pull_performed, git_push_performed
+    return did_pull, did_push
 
 
 @contextmanager
@@ -391,6 +351,12 @@ def pair_files(
     # Determine target path
     actual_target = target_path if target_path is not None else agent.work_dir
 
+    # Validate directories exist
+    if not source_path.is_dir():
+        raise MngrError(f"Source directory does not exist: {source_path}")
+    if not actual_target.is_dir():
+        raise MngrError(f"Target directory does not exist: {actual_target}")
+
     # Validate source and target are different directories
     if source_path.resolve() == actual_target.resolve():
         raise MngrError(
@@ -416,11 +382,11 @@ def pair_files(
     # Determine and perform git sync
     if source_is_git and target_is_git:
         git_action = determine_git_sync_actions(source_path, actual_target)
-        if git_action is not None and (git_action.source_is_ahead or git_action.target_is_ahead):
+        if git_action is not None and (git_action.agent_is_ahead or git_action.local_is_ahead):
             logger.info(
                 "Synchronizing git state (agent_ahead={}, local_ahead={})",
-                git_action.source_is_ahead,
-                git_action.target_is_ahead,
+                git_action.agent_is_ahead,
+                git_action.local_is_ahead,
             )
             sync_git_state(
                 agent=agent,

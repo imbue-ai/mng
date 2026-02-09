@@ -73,12 +73,9 @@ def test_sync_git_state_performs_push_when_local_is_ahead(pair_ctx: PairTestCont
     run_git_command(pair_ctx.target_dir, "add", "new_file.txt")
     run_git_command(pair_ctx.target_dir, "commit", "-m", "Add new file")
 
-    # In pair semantics: source=agent, target=local
-    # So we call determine_git_sync_actions(agent_dir, local_dir)
     git_action = determine_git_sync_actions(pair_ctx.source_dir, pair_ctx.target_dir)
     assert git_action is not None
-    # target_is_ahead means target (local) is ahead -> push from local to agent
-    assert git_action.target_is_ahead is True
+    assert git_action.local_is_ahead is True
 
     git_pull_performed, git_push_performed = sync_git_state(
         agent=pair_ctx.agent,
@@ -101,11 +98,9 @@ def test_sync_git_state_performs_pull_when_agent_is_ahead(pair_ctx: PairTestCont
     run_git_command(pair_ctx.source_dir, "add", "agent_file.txt")
     run_git_command(pair_ctx.source_dir, "commit", "-m", "Add agent file")
 
-    # In pair semantics: source=agent, target=local
     git_action = determine_git_sync_actions(pair_ctx.source_dir, pair_ctx.target_dir)
     assert git_action is not None
-    # source_is_ahead means source (agent) is ahead -> pull from agent to local
-    assert git_action.source_is_ahead is True
+    assert git_action.agent_is_ahead is True
 
     git_pull_performed, git_push_performed = sync_git_state(
         agent=pair_ctx.agent,
