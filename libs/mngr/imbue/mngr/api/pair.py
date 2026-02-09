@@ -21,6 +21,8 @@ from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.git_utils import get_current_branch
+from imbue.mngr.utils.git_utils import get_head_commit
+from imbue.mngr.utils.git_utils import is_ancestor
 from imbue.mngr.utils.git_utils import is_git_repository
 
 
@@ -203,30 +205,6 @@ def check_unison_installed() -> bool:
     return shutil.which("unison") is not None and shutil.which("unison-fsmonitor") is not None
 
 
-def _get_commit_hash(path: Path) -> str | None:
-    """Get the current HEAD commit hash for a repository."""
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return None
-    return result.stdout.strip()
-
-
-def _is_ancestor(path: Path, ancestor_commit: str, descendant_commit: str) -> bool:
-    """Check if ancestor_commit is an ancestor of descendant_commit."""
-    result = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", ancestor_commit, descendant_commit],
-        cwd=path,
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
-
-
 def determine_git_sync_actions(
     source_path: Path,
     target_path: Path,
@@ -242,8 +220,8 @@ def determine_git_sync_actions(
     source_branch = get_current_branch(source_path)
     target_branch = get_current_branch(target_path)
 
-    source_commit = _get_commit_hash(source_path)
-    target_commit = _get_commit_hash(target_path)
+    source_commit = get_head_commit(source_path)
+    target_commit = get_head_commit(target_path)
 
     if source_commit is None or target_commit is None:
         return GitSyncAction(
@@ -290,10 +268,10 @@ def determine_git_sync_actions(
         )
 
     # Check if source is ahead of target (target commit is ancestor of source)
-    source_ahead = _is_ancestor(source_path, target_commit, source_commit)
+    source_ahead = is_ancestor(source_path, target_commit, source_commit)
 
     # Check if target is ahead of source (source commit is ancestor of target)
-    target_ahead = _is_ancestor(source_path, source_commit, target_commit)
+    target_ahead = is_ancestor(source_path, source_commit, target_commit)
 
     if source_ahead and not target_ahead:
         # Source has commits that target doesn't - need push

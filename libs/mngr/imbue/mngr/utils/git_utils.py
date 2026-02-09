@@ -177,6 +177,52 @@ def get_current_branch(path: Path) -> str:
     return branch
 
 
+def get_head_commit(path: Path) -> str | None:
+    """Get the current HEAD commit hash for a repository.
+
+    Returns None if the path is not a git repository or HEAD cannot be resolved.
+    """
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def is_ancestor(path: Path, ancestor_commit: str, descendant_commit: str) -> bool:
+    """Check if ancestor_commit is an ancestor of descendant_commit.
+
+    Both commits must be reachable from the repository at path.
+    """
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor_commit, descendant_commit],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def count_commits_between(path: Path, base_ref: str, head_ref: str) -> int:
+    """Count the number of commits between two refs (base_ref..head_ref)."""
+    result = subprocess.run(
+        ["git", "rev-list", "--count", f"{base_ref}..{head_ref}"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return 0
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return 0
+
+
 def find_git_common_dir(path: Path) -> Path | None:
     """Find the common .git directory for a repository or worktree.
 

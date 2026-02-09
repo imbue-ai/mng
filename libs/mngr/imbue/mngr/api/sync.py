@@ -21,7 +21,9 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.utils.git_utils import count_commits_between
 from imbue.mngr.utils.git_utils import get_current_branch
+from imbue.mngr.utils.git_utils import get_head_commit
 from imbue.mngr.utils.git_utils import is_git_repository
 from imbue.mngr.utils.rsync_utils import parse_rsync_output
 
@@ -413,35 +415,12 @@ def sync_files(
 # === Git Sync Functions ===
 
 
-def _count_commits_between(path: Path, base_ref: str, head_ref: str) -> int:
-    """Count the number of commits between two refs."""
-    result = subprocess.run(
-        ["git", "rev-list", "--count", f"{base_ref}..{head_ref}"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        logger.warning("Failed to count commits between {} and {}: {}", base_ref, head_ref, result.stderr.strip())
-        return 0
-    try:
-        return int(result.stdout.strip())
-    except ValueError:
-        logger.warning("Failed to parse commit count output: {}", result.stdout.strip())
-        return 0
-
-
-def _get_head_commit(path: Path) -> str:
-    """Get the current HEAD commit hash."""
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise MngrError(f"Failed to get HEAD commit: {result.stderr}")
-    return result.stdout.strip()
+def _get_head_commit_or_raise(path: Path) -> str:
+    """Get the current HEAD commit hash, raising on failure."""
+    commit = get_head_commit(path)
+    if commit is None:
+        raise MngrError(f"Failed to get HEAD commit in {path}")
+    return commit
 
 
 def _sync_git_push(
@@ -472,7 +451,7 @@ def _sync_git_push(
             target_git_dir = str(destination_path)
 
             # Count commits that will be pushed
-            commits_to_push = _count_commits_between(
+            commits_to_push = count_commits_between(
                 local_path,
                 target_branch,
                 source_branch,
@@ -616,7 +595,7 @@ def _sync_git_pull(
     did_stash = handle_uncommitted_changes(git_ctx, local_path, uncommitted_changes)
 
     # Record the HEAD commit before the merge for counting commits
-    pre_merge_head = _get_head_commit(local_path)
+    pre_merge_head = _get_head_commit_or_raise(local_path)
 
     commits_transferred = 0
     did_checkout = False
@@ -648,7 +627,7 @@ def _sync_git_pull(
             did_checkout = True
 
         # Count commits that will be merged (using FETCH_HEAD from the fetch)
-        commits_to_merge = _count_commits_between(
+        commits_to_merge = count_commits_between(
             local_path,
             "HEAD",
             "FETCH_HEAD",
@@ -688,9 +667,9 @@ def _sync_git_pull(
                 raise GitSyncError(result.stderr)
 
             # Count actual commits merged
-            post_merge_head = _get_head_commit(local_path)
+            post_merge_head = _get_head_commit_or_raise(local_path)
             if pre_merge_head != post_merge_head:
-                commits_transferred = _count_commits_between(local_path, pre_merge_head, post_merge_head)
+                commits_transferred = count_commits_between(local_path, pre_merge_head, post_merge_head)
             else:
                 commits_transferred = 0
 

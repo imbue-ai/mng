@@ -653,8 +653,8 @@ def test_pull_git_raises_when_source_not_git_repo(
 
 @patch.object(LocalGitContext, "is_git_repository", return_value=True)
 @patch.object(LocalGitContext, "get_current_branch", return_value="local-branch")
-@patch("imbue.mngr.api.sync._get_head_commit", return_value="abc123")
-@patch("imbue.mngr.api.sync._count_commits_between", return_value=5)
+@patch("imbue.mngr.api.sync._get_head_commit_or_raise", return_value="abc123")
+@patch("imbue.mngr.api.sync.count_commits_between", return_value=5)
 @patch("subprocess.run")
 def test_pull_git_uses_agent_branch_as_default_source(
     mock_subprocess: MagicMock,
@@ -683,8 +683,8 @@ def test_pull_git_uses_agent_branch_as_default_source(
 
 @patch.object(LocalGitContext, "is_git_repository", return_value=True)
 @patch.object(LocalGitContext, "get_current_branch", return_value="current-branch")
-@patch("imbue.mngr.api.sync._get_head_commit", return_value="abc123")
-@patch("imbue.mngr.api.sync._count_commits_between", return_value=5)
+@patch("imbue.mngr.api.sync._get_head_commit_or_raise", return_value="abc123")
+@patch("imbue.mngr.api.sync.count_commits_between", return_value=5)
 @patch("subprocess.run")
 def test_pull_git_uses_destination_branch_as_default_target(
     mock_subprocess: MagicMock,
@@ -713,8 +713,8 @@ def test_pull_git_uses_destination_branch_as_default_target(
 
 @patch.object(LocalGitContext, "is_git_repository", return_value=True)
 @patch.object(LocalGitContext, "get_current_branch", return_value="current-branch")
-@patch("imbue.mngr.api.sync._get_head_commit", return_value="abc123")
-@patch("imbue.mngr.api.sync._count_commits_between", return_value=3)
+@patch("imbue.mngr.api.sync._get_head_commit_or_raise", return_value="abc123")
+@patch("imbue.mngr.api.sync.count_commits_between", return_value=3)
 @patch("subprocess.run")
 def test_pull_git_dry_run_does_not_merge(
     mock_subprocess: MagicMock,
@@ -752,8 +752,8 @@ def test_pull_git_dry_run_does_not_merge(
 @patch.object(LocalGitContext, "has_uncommitted_changes", return_value=True)
 @patch.object(LocalGitContext, "git_stash", return_value=True)
 @patch.object(LocalGitContext, "git_stash_pop")
-@patch("imbue.mngr.api.sync._get_head_commit", return_value="abc123")
-@patch("imbue.mngr.api.sync._count_commits_between", return_value=2)
+@patch("imbue.mngr.api.sync._get_head_commit_or_raise", return_value="abc123")
+@patch("imbue.mngr.api.sync.count_commits_between", return_value=2)
 @patch("subprocess.run")
 def test_pull_git_merge_mode_stashes_and_restores(
     mock_subprocess: MagicMock,
@@ -787,8 +787,8 @@ def test_pull_git_merge_mode_stashes_and_restores(
 @patch.object(LocalGitContext, "has_uncommitted_changes", return_value=True)
 @patch.object(LocalGitContext, "git_stash", return_value=True)
 @patch.object(LocalGitContext, "git_stash_pop")
-@patch("imbue.mngr.api.sync._get_head_commit", return_value="abc123")
-@patch("imbue.mngr.api.sync._count_commits_between", return_value=2)
+@patch("imbue.mngr.api.sync._get_head_commit_or_raise", return_value="abc123")
+@patch("imbue.mngr.api.sync.count_commits_between", return_value=2)
 @patch("subprocess.run")
 def test_pull_git_stash_mode_does_not_restore(
     mock_subprocess: MagicMock,
@@ -820,8 +820,8 @@ def test_pull_git_stash_mode_does_not_restore(
 @patch.object(LocalGitContext, "is_git_repository", return_value=True)
 @patch.object(LocalGitContext, "get_current_branch", return_value="main")
 @patch.object(LocalGitContext, "has_uncommitted_changes", return_value=False)
-@patch("imbue.mngr.api.sync._get_head_commit", return_value="abc123")
-@patch("imbue.mngr.api.sync._count_commits_between", return_value=5)
+@patch("imbue.mngr.api.sync._get_head_commit_or_raise", return_value="abc123")
+@patch("imbue.mngr.api.sync.count_commits_between", return_value=5)
 @patch("subprocess.run")
 def test_pull_git_raises_on_merge_failure(
     mock_subprocess: MagicMock,
