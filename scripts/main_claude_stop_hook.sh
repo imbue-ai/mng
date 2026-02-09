@@ -40,7 +40,7 @@ echo $MAIN_CLAUDE_SESSION_ID > .claude/sessionid
 # ensure the folder exists
 mkdir -p .claude
 
-# Only track the commit hash if this is the main agent stopping (stop_hook_active=true).
+# Only track the commit hash if this is the main agent and it's already trying to stopp (stop_hook_active=true).
 # Subagents (launched by claude itself) also trigger the stop hook, and we must not
 # append to reviewed_commits for those, otherwise it looks like the main agent stopped
 # again and can falsely trigger the "stuck agent" detection.
