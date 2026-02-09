@@ -9,19 +9,6 @@ Each file is categorized as:
 
 --- DELETE (9 files) ---
 
-future_specs/host_class.md -> DELETE
-  The Host class is fully implemented in hosts/host.py (88KB). The spec's design
-  philosophy (thin pyinfra wrapper, three primitives, stateless, concrete class)
-  is accurately reflected in the code. No remaining gaps.
-
-future_specs/idle_detection.md -> DELETE
-  Core idle detection is fully implemented: activity_watcher.sh, activity file
-  format (JSON with mtime), activity sources (BOOT, CREATE, START, SSH, PROCESS,
-  AGENT, USER), tmux session monitoring, grace periods. The spec's [future] items
-  about web-based user activity tracking are covered by the plugin specs
-  (plugins/user_activity_tracking_via_web.md and
-  plugins/default_url_for_cli_agents_via_ttyd.md) which are kept as LEAVE.
-
 future_specs/host.md -> DELETE
   The host data model is fully captured by CertifiedHostData (in
   interfaces/data_types.py), the Host class (certified vs reported field access
@@ -113,61 +100,3 @@ future_specs/providers/remote.md -> DIGEST
   remote hosts from running indefinitely) is NOT implemented. This is a safety
   feature that should become a tracked issue or comment, since without it,
   orphaned remote hosts could run indefinitely if the controlling process crashes.
-
-
---- LEAVE (12 files) ---
-
-future_specs/future_work.md -> LEAVE
-  All items are unstarted: plugin discovery/search, multi-agent communication
-  (beyond mngr message), cost tracking per agent, git submodule support, and
-  scoped-down credentials for child agents.
-
-future_specs/git_interactions.md -> LEAVE
-  Only --sync-mode=files is implemented. The spec's main content -- git state
-  sync, pair mode (continuous bidirectional sync), conflict handling strategies
-  (--merge, --rebase, newer/local/remote/ask), and partial write debouncing --
-  is entirely unimplemented future work.
-
-future_specs/locking.md -> LEAVE
-  Basic file locking (fcntl, host_lock) exists, but the spec's main content is
-  about deployment locking coordination: a deploy_lock/ folder mechanism to
-  prevent idle shutdown during active deployments, crash recovery via timeout
-  fallback, and per-command locking requirements. None of this is implemented.
-
-future_specs/providers/docker.md -> LEAVE
-  The Docker provider has only a config class (590 bytes). The full backend
-  (container lifecycle, label-based metadata, host discovery, snapshots via
-  docker commit, self-management via PID 1) is entirely unimplemented.
-
-future_specs/plugins/ask.md -> LEAVE
-  The mngr ask command (chat-based CLI help) has no implementation.
-
-future_specs/plugins/offline_mngr_state.md -> LEAVE
-  The offline state backup plugin (periodic + on-shutdown state snapshots to
-  local directory or S3) has no implementation.
-
-future_specs/plugins/recursive_mngr.md -> LEAVE
-  Recursive agent creation (child agents with scoped credentials, orphan
-  handling, depth/children limits, lineage tracking) has no implementation.
-
-future_specs/plugins/default_url_for_cli_agents_via_ttyd.md -> LEAVE
-  The ttyd web terminal plugin (per-agent token auth, tmux attachment, URL
-  generation) has no implementation. User docs exist but are marked [future].
-
-future_specs/plugins/local_port_forwarding_via_frp_and_nginx.md -> LEAVE
-  The FRP+nginx port forwarding plugin (frps/frpc architecture, subdomain
-  routing, cookie/header auth, SSH tunnel management) has no implementation.
-  User docs exist but are marked [future].
-
-future_specs/plugins/github_auth.md -> LEAVE
-  GitHub auth plugin (credential provisioning for agents) has no implementation.
-  Just a short design note.
-
-future_specs/plugins/user_activity_tracking_via_web.md -> LEAVE
-  The web-based activity tracking plugin (JS injection via nginx, activity
-  endpoint, debounced reporting) has no implementation. User docs exist but
-  are marked [future].
-
-future_specs/plugins/git_status.md -> LEAVE
-  Git status plugin (with offline mode considerations) has no implementation.
-  Just a short design note.

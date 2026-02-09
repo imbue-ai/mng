@@ -953,6 +953,8 @@ class Host(BaseHost, OnlineHostInterface):
                 if not result.success:
                     raise MngrError(f"Failed to configure git repo on target: {result.stderr}")
 
+    # FIXME: we should probably warn if we detect any submodules (eg, .git folders inside of here)
+    #  Submodules are *not* supported right now, and we wouldn't want the user thinking they were
     def _git_push_to_target(
         self,
         source_host: OnlineHostInterface,

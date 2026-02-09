@@ -47,3 +47,23 @@ mngr pair [(--agent) agent [--target-agent other-agent]]
 - `--sync-direction DIRECTION`: Sync direction after initialization (forward = source -> target, reverse = target -> reverse) [default: `both`, choices: `both`, `forward`, `reverse`]
 - `--conflict MODE`: Conflict resolution mode (only matters for "--sync-direction=both" mode [default: `newer`, choices: `newer`, `source`, `target`, `ask`]
 - `--atomic` / `--in-place`: Use atomic file operations to prevent partial writes [default: atomic]
+
+# Implementation notes:
+
+## Conflicts
+
+Conflicts are handled differently depending on when they occur:
+
+**During initial sync:**
+- Abort immediately if conflicts exist
+
+**During ongoing sync:**
+- Governed by `--conflict MODE`:
+  - `newer`: Use whichever version the sync process learned about most recently (clock skew doesn't matter)
+  - `local`: Always prefer local version
+  - `remote`: Always prefer remote version
+  - `ask`: Prompt the user to resolve
+
+## Partial Writes
+
+During rapid concurrent edits in pair mode, changes are debounced to avoid partial writes. [future]
