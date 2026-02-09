@@ -168,11 +168,8 @@ def list_agents(
     compiled_include_filters: list[Any] = []
     compiled_exclude_filters: list[Any] = []
     if include_filters or exclude_filters:
-        with log_span("Compiling CEL filters"):
+        with log_span("Compiling CEL filters", include_filters=include_filters, exclude_filters=exclude_filters):
             compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
-        logger.trace(
-            "Compiled {} include and {} exclude filters", len(compiled_include_filters), len(compiled_exclude_filters)
-        )
 
     try:
         # Load all agents grouped by host

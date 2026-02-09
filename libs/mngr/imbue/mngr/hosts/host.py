@@ -512,16 +512,13 @@ class Host(BaseHost, OnlineHostInterface):
                     )
                 except TimeoutError as e:
                     raise LockNotHeldError(str(e)) from e
-
-            logger.trace("Lock acquired after {:.2f}s", time.time() - start_time)
-
             yield
         finally:
-            logger.trace("Releasing host lock")
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
             finally:
                 lock_file.close()
+            logger.trace("Released host lock")
 
     def get_reported_lock_time(self) -> datetime | None:
         """Get the mtime of the lock file."""
