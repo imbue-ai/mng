@@ -14,6 +14,7 @@ from uuid import uuid4
 import pluggy
 import psutil
 import pytest
+import toml
 from click.testing import CliRunner
 from urwid.widget.listbox import SimpleFocusListWalker
 
@@ -156,6 +157,19 @@ def setup_test_mngr_env(
     By setting HOME to tmp_path, tests cannot accidentally read or modify
     files in the real home directory. This protects files like ~/.claude.json.
     """
+    # before we nuke our home directory, we need to load the right token from the real home directory
+    is_modal_auth_loaded = False
+    for key, value in toml.load(os.path.expanduser("~/.modal.toml")).items():
+        if value.get("active", ""):
+            monkeypatch.setenv("MODAL_TOKEN_ID", value.get("token_id", ""))
+            monkeypatch.setenv("MODAL_TOKEN_SECRET", value.get("token_secret", ""))
+    if not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"):
+        # check if we have "release" mark enabled:
+        if "release" in getattr(pytest, "current_test_marks", []):
+            raise RuntimeError(
+                "No active Modal token found in ~/.modal.toml for release tests. Please ensure you have an active token configured or set the env vars"
+            )
+
     monkeypatch.setenv("HOME", str(tmp_home_dir))
     monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
