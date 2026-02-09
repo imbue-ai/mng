@@ -9,6 +9,8 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.model_update import to_update_dict
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
@@ -68,11 +70,11 @@ class BaseHost(HostInterface):
         ):
             certified_data = self.get_certified_data()
             updated_data = certified_data.model_copy(
-                update={
-                    "idle_mode": config.idle_mode,
-                    "idle_timeout_seconds": config.idle_timeout_seconds,
-                    "activity_sources": config.activity_sources,
-                }
+                update=to_update_dict(
+                    to_update(certified_data.field_ref().idle_mode, config.idle_mode),
+                    to_update(certified_data.field_ref().idle_timeout_seconds, config.idle_timeout_seconds),
+                    to_update(certified_data.field_ref().activity_sources, config.activity_sources),
+                )
             )
             self.set_certified_data(updated_data)
 
