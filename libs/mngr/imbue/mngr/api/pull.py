@@ -9,6 +9,7 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.utils.logging import log_span
 
 
 class PullResult(FrozenModel):
@@ -48,7 +49,6 @@ def pull_files(
     """Pull files from an agent's work directory to a local directory using rsync."""
     # Determine source path
     actual_source_path = source_path if source_path is not None else agent.work_dir
-    logger.debug("Pulling files from {} to {}", actual_source_path, destination)
 
     # Build rsync command
     # -a: archive mode (recursive, preserves permissions, etc.)
@@ -73,9 +73,9 @@ def pull_files(
 
     # Execute rsync on the host
     cmd_str = " ".join(rsync_cmd)
-    logger.debug("Running rsync command: {}", cmd_str)
 
-    result: CommandResult = host.execute_command(cmd_str)
+    with log_span("pulling files from {} to {}", actual_source_path, destination):
+        result: CommandResult = host.execute_command(cmd_str)
 
     if not result.success:
         raise MngrError(f"rsync failed: {result.stderr}")

@@ -25,6 +25,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
 from imbue.mngr.utils.logging import log_call
+from imbue.mngr.utils.logging import log_span
 
 
 @log_call
@@ -55,73 +56,73 @@ def gc(
     logger.trace("GC options: dry_run={} error_behavior={}", dry_run, error_behavior)
 
     if resource_types.is_work_dirs:
-        logger.debug("Garbage collecting orphaned work directories")
-        gc_work_dirs(
-            mngr_ctx=mngr_ctx,
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("garbage collecting orphaned work directories"):
+            gc_work_dirs(
+                mngr_ctx=mngr_ctx,
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_machines:
-        logger.debug("Garbage collecting idle machines")
-        gc_machines(
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("garbage collecting idle machines"):
+            gc_machines(
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_snapshots:
-        logger.debug("Garbage collecting orphaned snapshots")
-        gc_snapshots(
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("garbage collecting orphaned snapshots"):
+            gc_snapshots(
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_volumes:
-        logger.debug("Garbage collecting orphaned volumes")
-        gc_volumes(
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("garbage collecting orphaned volumes"):
+            gc_volumes(
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_logs:
-        logger.debug("Garbage collecting old log files")
-        gc_logs(
-            mngr_ctx=mngr_ctx,
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("garbage collecting old log files"):
+            gc_logs(
+                mngr_ctx=mngr_ctx,
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_build_cache:
-        logger.debug("Garbage collecting build cache entries")
-        gc_build_cache(
-            mngr_ctx=mngr_ctx,
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("garbage collecting build cache entries"):
+            gc_build_cache(
+                mngr_ctx=mngr_ctx,
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     return result
 
