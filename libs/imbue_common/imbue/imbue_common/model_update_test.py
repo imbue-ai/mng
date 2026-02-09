@@ -1,8 +1,10 @@
 """Tests for the type-safe model_copy update helpers."""
 
+import pytest
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.model_update import NestedFieldUpdateError
 from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.model_update import to_update_dict
 from imbue.imbue_common.mutable_model import MutableModel
@@ -110,3 +112,9 @@ def test_to_update_dict_with_no_args_returns_empty_dict() -> None:
     result = to_update_dict()
 
     assert result == {}
+
+
+def test_to_update_dict_raises_on_nested_field_path() -> None:
+    """to_update_dict rejects dotted paths that pydantic model_copy silently mishandles."""
+    with pytest.raises(NestedFieldUpdateError, match="nested.field"):
+        to_update_dict(("nested.field", "value"))

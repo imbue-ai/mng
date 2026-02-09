@@ -6,6 +6,19 @@ from imbue.imbue_common.pure import pure
 _T = TypeVar("_T")
 
 
+class NestedFieldUpdateError(ValueError):
+    """Raised when to_update_dict receives a dotted (nested) field path.
+
+    Pydantic's model_copy(update=...) only supports top-level field keys. Dotted
+    keys like "nested.field" are silently accepted but create a hidden attribute
+    instead of updating the nested field. This is a known pydantic limitation:
+    https://github.com/pydantic/pydantic/issues/12312
+
+    If nested field updates become necessary, a workaround can be built on top
+    of this module.
+    """
+
+
 class FieldProxy:
     """Proxy that records attribute access paths for type-safe model_copy updates.
 
@@ -21,6 +34,11 @@ class FieldProxy:
                 to_update(my_model.fields().other_field, other_value),
             )
         )
+
+    Only single-level field access is supported. Chained access like
+    model.fields().nested.child produces a dotted path ("nested.child") which
+    pydantic's model_copy silently mishandles. to_update_dict() raises
+    NestedFieldUpdateError if any key contains a dot.
     """
 
     __slots__ = ("_path",)
@@ -54,5 +72,16 @@ def to_update(field: _T, value: _T) -> tuple[str, Any]:
 
 @pure
 def to_update_dict(*updates: tuple[str, Any]) -> dict[str, Any]:
-    """Convert (field_name, value) pairs into a dict for model_copy(update=...)."""
+    """Convert (field_name, value) pairs into a dict for model_copy(update=...).
+
+    Raises NestedFieldUpdateError if any field name contains a dot, because
+    pydantic's model_copy silently mishandles dotted keys instead of updating
+    nested fields. See https://github.com/pydantic/pydantic/issues/12312
+    """
+    for field_name, _value in updates:
+        if "." in field_name:
+            raise NestedFieldUpdateError(
+                f"Nested field updates are not supported by pydantic model_copy: {field_name!r}. "
+                f"See https://github.com/pydantic/pydantic/issues/12312"
+            )
     return dict(updates)
