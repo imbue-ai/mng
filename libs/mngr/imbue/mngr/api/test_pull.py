@@ -9,6 +9,7 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.api.pull import pull_git
+from imbue.mngr.api.sync import GitSyncError
 from imbue.mngr.api.sync import LocalGitContext
 from imbue.mngr.api.sync import UncommittedChangesError
 from imbue.mngr.api.test_fixtures import FakeAgent
@@ -629,3 +630,175 @@ def test_pull_git_merge_mode_with_different_branch_restores_stash_on_original(
     current_branch = get_current_branch(host_dir)
     assert current_branch == original_branch
     assert (host_dir / "README.md").read_text() == "uncommitted change"
+
+
+# =============================================================================
+# Git pull: branch defaulting, dry run, stash/merge modes, merge failure
+# =============================================================================
+
+
+@pytest.fixture
+def local_git_pull_ctx(tmp_path: Path) -> PullTestContext:
+    """Create a test context with local host for git pull tests.
+
+    Both agent and host directories are git repos with shared history.
+    """
+    agent_dir = tmp_path / "agent"
+    host_dir = tmp_path / "host"
+
+    init_git_repo_with_config(agent_dir)
+
+    subprocess.run(
+        ["git", "clone", str(agent_dir), str(host_dir)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    run_git_command(host_dir, "config", "user.email", "test@example.com")
+    run_git_command(host_dir, "config", "user.name", "Test User")
+
+    return PullTestContext(
+        agent_dir=agent_dir,
+        host_dir=host_dir,
+        agent=cast(AgentInterface, FakeAgent(work_dir=agent_dir)),
+        host=cast(OnlineHostInterface, FakeHost(is_local=True)),
+    )
+
+
+def test_pull_git_uses_agent_branch_as_default_source(
+    local_git_pull_ctx: PullTestContext,
+) -> None:
+    """Test that pull_git uses agent's current branch when source_branch is None."""
+    ctx = local_git_pull_ctx
+
+    # Create a feature branch on the agent with a new commit
+    run_git_command(ctx.agent_dir, "checkout", "-b", "feature-branch")
+    (ctx.agent_dir / "feature.txt").write_text("feature")
+    run_git_command(ctx.agent_dir, "add", "feature.txt")
+    run_git_command(ctx.agent_dir, "commit", "-m", "Feature commit")
+
+    # Create the same branch on host so checkout works
+    run_git_command(ctx.host_dir, "checkout", "-b", "feature-branch")
+
+    result = pull_git(
+        agent=ctx.agent,
+        host=ctx.host,
+        destination=ctx.host_dir,
+        source_branch=None,
+        dry_run=True,
+    )
+
+    assert result.source_branch == "feature-branch"
+
+
+def test_pull_git_uses_destination_branch_as_default_target(
+    local_git_pull_ctx: PullTestContext,
+) -> None:
+    """Test that pull_git uses destination's current branch when target_branch is None."""
+    ctx = local_git_pull_ctx
+
+    (ctx.agent_dir / "new.txt").write_text("new")
+    run_git_command(ctx.agent_dir, "add", "new.txt")
+    run_git_command(ctx.agent_dir, "commit", "-m", "New commit")
+
+    result = pull_git(
+        agent=ctx.agent,
+        host=ctx.host,
+        destination=ctx.host_dir,
+        target_branch=None,
+        dry_run=True,
+    )
+
+    assert result.target_branch == "main"
+
+
+def test_pull_git_dry_run_does_not_merge(
+    local_git_pull_ctx: PullTestContext,
+) -> None:
+    """Test that pull_git with dry_run=True does not actually merge."""
+    ctx = local_git_pull_ctx
+
+    for i in range(3):
+        (ctx.agent_dir / f"file{i}.txt").write_text(f"content{i}")
+        run_git_command(ctx.agent_dir, "add", f"file{i}.txt")
+        run_git_command(ctx.agent_dir, "commit", "-m", f"Commit {i}")
+
+    result = pull_git(
+        agent=ctx.agent,
+        host=ctx.host,
+        destination=ctx.host_dir,
+        dry_run=True,
+    )
+
+    assert result.is_dry_run is True
+    assert result.commits_transferred == 3
+    assert not (ctx.host_dir / "file0.txt").exists()
+
+
+def test_pull_git_merge_mode_stashes_and_restores(
+    local_git_pull_ctx: PullTestContext,
+) -> None:
+    """Test that pull_git in MERGE mode restores stashed changes after pull."""
+    ctx = local_git_pull_ctx
+
+    (ctx.agent_dir / "agent_file.txt").write_text("from agent")
+    run_git_command(ctx.agent_dir, "add", "agent_file.txt")
+    run_git_command(ctx.agent_dir, "commit", "-m", "Agent commit")
+
+    (ctx.host_dir / "README.md").write_text("uncommitted local change")
+
+    pull_git(
+        agent=ctx.agent,
+        host=ctx.host,
+        destination=ctx.host_dir,
+        uncommitted_changes=UncommittedChangesMode.MERGE,
+    )
+
+    assert (ctx.host_dir / "agent_file.txt").exists()
+    assert "uncommitted local change" in (ctx.host_dir / "README.md").read_text()
+    assert get_stash_count(ctx.host_dir) == 0
+
+
+def test_pull_git_stash_mode_does_not_restore(
+    local_git_pull_ctx: PullTestContext,
+) -> None:
+    """Test that pull_git in STASH mode does NOT restore stashed changes after pull."""
+    ctx = local_git_pull_ctx
+
+    (ctx.agent_dir / "agent_file.txt").write_text("from agent")
+    run_git_command(ctx.agent_dir, "add", "agent_file.txt")
+    run_git_command(ctx.agent_dir, "commit", "-m", "Agent commit")
+
+    (ctx.host_dir / "README.md").write_text("uncommitted local change")
+
+    pull_git(
+        agent=ctx.agent,
+        host=ctx.host,
+        destination=ctx.host_dir,
+        uncommitted_changes=UncommittedChangesMode.STASH,
+    )
+
+    assert (ctx.host_dir / "agent_file.txt").exists()
+    assert get_stash_count(ctx.host_dir) == 1
+
+
+def test_pull_git_raises_on_merge_failure(
+    local_git_pull_ctx: PullTestContext,
+) -> None:
+    """Test that pull_git raises GitSyncError when merge fails."""
+    ctx = local_git_pull_ctx
+
+    (ctx.agent_dir / "README.md").write_text("agent version of README")
+    run_git_command(ctx.agent_dir, "add", "README.md")
+    run_git_command(ctx.agent_dir, "commit", "-m", "Agent change to README")
+
+    (ctx.host_dir / "README.md").write_text("host version of README")
+    run_git_command(ctx.host_dir, "add", "README.md")
+    run_git_command(ctx.host_dir, "commit", "-m", "Host change to README")
+
+    with pytest.raises(GitSyncError):
+        pull_git(
+            agent=ctx.agent,
+            host=ctx.host,
+            destination=ctx.host_dir,
+        )

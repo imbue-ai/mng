@@ -1,4 +1,3 @@
-# FIXME0: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 """Unit tests for pull API functions."""
 
 from pathlib import Path
@@ -64,7 +63,7 @@ def mock_host_failure() -> MagicMock:
     return host
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def patch_no_uncommitted_changes() -> Generator[MagicMock, None, None]:
     """Patch LocalGitContext.has_uncommitted_changes to return False by default.
 
@@ -214,6 +213,7 @@ def test_parse_rsync_output_whitespace_only() -> None:
 def test_pull_files_uses_agent_work_dir_as_default_source(
     mock_agent: MagicMock,
     mock_host_success: MagicMock,
+    patch_no_uncommitted_changes: MagicMock,
 ) -> None:
     """Test that pull_files uses agent work_dir when source_path is None."""
     mock_agent.work_dir = Path("/agent/work/dir")
@@ -235,6 +235,7 @@ def test_pull_files_uses_agent_work_dir_as_default_source(
 def test_pull_files_uses_provided_source_path(
     mock_agent: MagicMock,
     mock_host_success: MagicMock,
+    patch_no_uncommitted_changes: MagicMock,
 ) -> None:
     """Test that pull_files uses provided source_path when given."""
     custom_source = Path("/custom/source/path")
@@ -255,6 +256,7 @@ def test_pull_files_uses_provided_source_path(
 def test_pull_files_with_dry_run_flag(
     mock_agent: MagicMock,
     mock_host_success: MagicMock,
+    patch_no_uncommitted_changes: MagicMock,
 ) -> None:
     """Test that pull_files adds --dry-run flag when dry_run=True."""
     result = pull_files(
@@ -274,6 +276,7 @@ def test_pull_files_with_dry_run_flag(
 def test_pull_files_with_delete_flag(
     mock_agent: MagicMock,
     mock_host_success: MagicMock,
+    patch_no_uncommitted_changes: MagicMock,
 ) -> None:
     """Test that pull_files adds --delete flag when delete=True."""
     pull_files(
@@ -292,6 +295,7 @@ def test_pull_files_with_delete_flag(
 def test_pull_files_raises_on_rsync_failure(
     mock_agent: MagicMock,
     mock_host_failure: MagicMock,
+    patch_no_uncommitted_changes: MagicMock,
 ) -> None:
     """Test that pull_files raises MngrError when rsync fails."""
     with pytest.raises(MngrError, match="rsync failed"):
@@ -308,6 +312,7 @@ def test_pull_files_raises_on_rsync_failure(
 def test_pull_files_rsync_command_format(
     mock_agent: MagicMock,
     mock_host_success: MagicMock,
+    patch_no_uncommitted_changes: MagicMock,
 ) -> None:
     """Test that pull_files builds the correct rsync command format."""
     mock_agent.work_dir = Path("/src")
@@ -331,6 +336,7 @@ def test_pull_files_rsync_command_format(
 
 def test_pull_files_returns_correct_result_with_file_count(
     mock_agent: MagicMock,
+    patch_no_uncommitted_changes: MagicMock,
 ) -> None:
     """Test that pull_files returns the correct result with file count from rsync output."""
     mock_agent.work_dir = Path("/agent/work/dir")
@@ -366,6 +372,7 @@ def test_pull_files_returns_correct_result_with_file_count(
 def test_pull_files_with_all_flags(
     mock_agent: MagicMock,
     mock_host_success: MagicMock,
+    patch_no_uncommitted_changes: MagicMock,
 ) -> None:
     """Test that pull_files works with both dry_run and delete flags."""
     result = pull_files(
@@ -386,6 +393,7 @@ def test_pull_files_with_all_flags(
 def test_pull_files_excludes_git_directory(
     mock_agent: MagicMock,
     mock_host_success: MagicMock,
+    patch_no_uncommitted_changes: MagicMock,
 ) -> None:
     """Test that pull_files excludes .git directory from rsync."""
     pull_files(
@@ -433,6 +441,7 @@ def test_uncommitted_changes_error_has_user_help_text() -> None:
 def test_pull_files_default_uncommitted_changes_mode_is_fail(
     mock_agent: MagicMock,
     mock_host_success: MagicMock,
+    patch_no_uncommitted_changes: MagicMock,
 ) -> None:
     """Test that the default uncommitted changes mode is FAIL."""
     # When there are no uncommitted changes, FAIL mode should succeed
@@ -622,6 +631,7 @@ def test_git_sync_error_has_user_help_text() -> None:
 def test_pull_git_raises_when_destination_not_git_repo(
     mock_agent: MagicMock,
     mock_host_success: MagicMock,
+    patch_no_uncommitted_changes: MagicMock,
 ) -> None:
     """Test that pull_git raises NotAGitRepositoryError when destination is not a git repo."""
     with patch.object(LocalGitContext, "is_git_repository", return_value=False):
@@ -637,6 +647,7 @@ def test_pull_git_raises_when_destination_not_git_repo(
 def test_pull_git_raises_when_source_not_git_repo(
     mock_agent: MagicMock,
     mock_host_success: MagicMock,
+    patch_no_uncommitted_changes: MagicMock,
 ) -> None:
     """Test that pull_git raises NotAGitRepositoryError when source is not a git repo."""
     # Local destination is a git repo, remote source is not
@@ -649,204 +660,3 @@ def test_pull_git_raises_when_source_not_git_repo(
                 destination=Path("/dest"),
             )
         assert exc_info.value.path == Path("/agent/work")
-
-
-@patch.object(LocalGitContext, "is_git_repository", return_value=True)
-@patch.object(LocalGitContext, "get_current_branch", return_value="local-branch")
-@patch("imbue.mngr.api.sync._get_head_commit_or_raise", return_value="abc123")
-@patch("imbue.mngr.api.sync.count_commits_between", return_value=5)
-@patch("subprocess.run")
-def test_pull_git_uses_agent_branch_as_default_source(
-    mock_subprocess: MagicMock,
-    mock_count: MagicMock,
-    mock_head: MagicMock,
-    mock_branch: MagicMock,
-    mock_is_git: MagicMock,
-    mock_agent: MagicMock,
-    mock_host_success: MagicMock,
-) -> None:
-    """Test that pull_git uses agent's current branch when source_branch is None."""
-    mock_subprocess.return_value = MagicMock(returncode=0, stdout="", stderr="")
-    # Mock the remote git context to return feature-branch
-    mock_host_success.execute_command.return_value = MagicMock(success=True, stdout="feature-branch\n")
-
-    result = pull_git(
-        agent=mock_agent,
-        host=mock_host_success,
-        destination=Path("/dest"),
-        source_branch=None,
-        dry_run=True,
-    )
-
-    assert result.source_branch == "feature-branch"
-
-
-@patch.object(LocalGitContext, "is_git_repository", return_value=True)
-@patch.object(LocalGitContext, "get_current_branch", return_value="current-branch")
-@patch("imbue.mngr.api.sync._get_head_commit_or_raise", return_value="abc123")
-@patch("imbue.mngr.api.sync.count_commits_between", return_value=5)
-@patch("subprocess.run")
-def test_pull_git_uses_destination_branch_as_default_target(
-    mock_subprocess: MagicMock,
-    mock_count: MagicMock,
-    mock_head: MagicMock,
-    mock_branch: MagicMock,
-    mock_is_git: MagicMock,
-    mock_agent: MagicMock,
-    mock_host_success: MagicMock,
-) -> None:
-    """Test that pull_git uses destination's current branch when target_branch is None."""
-    mock_subprocess.return_value = MagicMock(returncode=0, stdout="", stderr="")
-    # Mock the remote git context to return a branch name
-    mock_host_success.execute_command.return_value = MagicMock(success=True, stdout="remote-branch\n")
-
-    result = pull_git(
-        agent=mock_agent,
-        host=mock_host_success,
-        destination=Path("/dest"),
-        target_branch=None,
-        dry_run=True,
-    )
-
-    assert result.target_branch == "current-branch"
-
-
-@patch.object(LocalGitContext, "is_git_repository", return_value=True)
-@patch.object(LocalGitContext, "get_current_branch", return_value="current-branch")
-@patch("imbue.mngr.api.sync._get_head_commit_or_raise", return_value="abc123")
-@patch("imbue.mngr.api.sync.count_commits_between", return_value=3)
-@patch("subprocess.run")
-def test_pull_git_dry_run_does_not_merge(
-    mock_subprocess: MagicMock,
-    mock_count: MagicMock,
-    mock_head: MagicMock,
-    mock_branch: MagicMock,
-    mock_is_git: MagicMock,
-    mock_agent: MagicMock,
-    mock_host_success: MagicMock,
-) -> None:
-    """Test that pull_git with dry_run=True does not actually merge."""
-    mock_subprocess.return_value = MagicMock(returncode=0, stdout="", stderr="")
-    mock_host_success.execute_command.return_value = MagicMock(success=True, stdout="main\n")
-
-    result = pull_git(
-        agent=mock_agent,
-        host=mock_host_success,
-        destination=Path("/dest"),
-        dry_run=True,
-    )
-
-    assert result.is_dry_run is True
-    # commits_transferred shows what would be merged in dry run mode
-    assert result.commits_transferred == 3
-
-    # Check that git merge was NOT called
-    merge_calls = [call for call in mock_subprocess.call_args_list if "merge" in str(call)]
-    # Only allowed merge calls should be the cleanup (remote remove)
-    for call in merge_calls:
-        assert "remote" in str(call) or "--abort" not in str(call)
-
-
-@patch.object(LocalGitContext, "is_git_repository", return_value=True)
-@patch.object(LocalGitContext, "get_current_branch", return_value="main")
-@patch.object(LocalGitContext, "has_uncommitted_changes", return_value=True)
-@patch.object(LocalGitContext, "git_stash", return_value=True)
-@patch.object(LocalGitContext, "git_stash_pop")
-@patch("imbue.mngr.api.sync._get_head_commit_or_raise", return_value="abc123")
-@patch("imbue.mngr.api.sync.count_commits_between", return_value=2)
-@patch("subprocess.run")
-def test_pull_git_merge_mode_stashes_and_restores(
-    mock_subprocess: MagicMock,
-    mock_count: MagicMock,
-    mock_head: MagicMock,
-    mock_pop: MagicMock,
-    mock_stash: MagicMock,
-    mock_uncommitted: MagicMock,
-    mock_branch: MagicMock,
-    mock_is_git: MagicMock,
-    mock_agent: MagicMock,
-    mock_host_success: MagicMock,
-) -> None:
-    """Test that pull_git in MERGE mode restores stashed changes after pull."""
-    mock_subprocess.return_value = MagicMock(returncode=0, stdout="", stderr="")
-    mock_host_success.execute_command.return_value = MagicMock(success=True, stdout="main\n")
-
-    pull_git(
-        agent=mock_agent,
-        host=mock_host_success,
-        destination=Path("/dest"),
-        uncommitted_changes=UncommittedChangesMode.MERGE,
-    )
-
-    mock_stash.assert_called_once()
-    mock_pop.assert_called_once()
-
-
-@patch.object(LocalGitContext, "is_git_repository", return_value=True)
-@patch.object(LocalGitContext, "get_current_branch", return_value="main")
-@patch.object(LocalGitContext, "has_uncommitted_changes", return_value=True)
-@patch.object(LocalGitContext, "git_stash", return_value=True)
-@patch.object(LocalGitContext, "git_stash_pop")
-@patch("imbue.mngr.api.sync._get_head_commit_or_raise", return_value="abc123")
-@patch("imbue.mngr.api.sync.count_commits_between", return_value=2)
-@patch("subprocess.run")
-def test_pull_git_stash_mode_does_not_restore(
-    mock_subprocess: MagicMock,
-    mock_count: MagicMock,
-    mock_head: MagicMock,
-    mock_pop: MagicMock,
-    mock_stash: MagicMock,
-    mock_uncommitted: MagicMock,
-    mock_branch: MagicMock,
-    mock_is_git: MagicMock,
-    mock_agent: MagicMock,
-    mock_host_success: MagicMock,
-) -> None:
-    """Test that pull_git in STASH mode does NOT restore stashed changes after pull."""
-    mock_subprocess.return_value = MagicMock(returncode=0, stdout="", stderr="")
-    mock_host_success.execute_command.return_value = MagicMock(success=True, stdout="main\n")
-
-    pull_git(
-        agent=mock_agent,
-        host=mock_host_success,
-        destination=Path("/dest"),
-        uncommitted_changes=UncommittedChangesMode.STASH,
-    )
-
-    mock_stash.assert_called_once()
-    mock_pop.assert_not_called()
-
-
-@patch.object(LocalGitContext, "is_git_repository", return_value=True)
-@patch.object(LocalGitContext, "get_current_branch", return_value="main")
-@patch.object(LocalGitContext, "has_uncommitted_changes", return_value=False)
-@patch("imbue.mngr.api.sync._get_head_commit_or_raise", return_value="abc123")
-@patch("imbue.mngr.api.sync.count_commits_between", return_value=5)
-@patch("subprocess.run")
-def test_pull_git_raises_on_merge_failure(
-    mock_subprocess: MagicMock,
-    mock_count: MagicMock,
-    mock_head: MagicMock,
-    mock_uncommitted: MagicMock,
-    mock_branch: MagicMock,
-    mock_is_git: MagicMock,
-    mock_agent: MagicMock,
-    mock_host_success: MagicMock,
-) -> None:
-    """Test that pull_git raises GitSyncError when merge fails."""
-    mock_host_success.execute_command.return_value = MagicMock(success=True, stdout="main\n")
-
-    def subprocess_side_effect(*args, **kwargs) -> MagicMock:
-        cmd = args[0] if args else kwargs.get("args", [])
-        if isinstance(cmd, list) and "merge" in cmd and "--abort" not in cmd:
-            return MagicMock(returncode=1, stdout="", stderr="CONFLICT: Merge conflict in file.txt")
-        return MagicMock(returncode=0, stdout="", stderr="")
-
-    mock_subprocess.side_effect = subprocess_side_effect
-
-    with pytest.raises(GitSyncError):
-        pull_git(
-            agent=mock_agent,
-            host=mock_host_success,
-            destination=Path("/dest"),
-        )
