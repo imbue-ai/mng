@@ -53,9 +53,6 @@ def pair_ctx(tmp_path: Path) -> PairTestContext:
     run_git_command(target_dir, "config", "user.email", "test@example.com")
     run_git_command(target_dir, "config", "user.name", "Test User")
 
-    # Configure source to accept pushes to current branch
-    run_git_command(source_dir, "config", "receive.denyCurrentBranch", "ignore")
-
     return PairTestContext(
         source_dir=source_dir,
         target_dir=target_dir,

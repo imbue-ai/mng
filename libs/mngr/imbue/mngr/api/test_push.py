@@ -494,10 +494,6 @@ def git_push_ctx(tmp_path: Path) -> PushTestContext:
         check=True,
     )
 
-    # Configure agent repo to allow receiving pushes to the current branch
-    # This is required for our push mechanism to work
-    run_git_command(agent_dir, "config", "receive.denyCurrentBranch", "ignore")
-
     # Configure git user for the agent repo
     run_git_command(agent_dir, "config", "user.email", "test@example.com")
     run_git_command(agent_dir, "config", "user.name", "Test User")
@@ -739,7 +735,6 @@ def remote_git_push_ctx(tmp_path: Path) -> PushTestContext:
         text=True,
         check=True,
     )
-    run_git_command(agent_dir, "config", "receive.denyCurrentBranch", "ignore")
     run_git_command(agent_dir, "config", "user.email", "test@example.com")
     run_git_command(agent_dir, "config", "user.name", "Test User")
 
