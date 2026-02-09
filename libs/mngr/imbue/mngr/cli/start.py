@@ -24,6 +24,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import OutputFormat
+from imbue.mngr.utils.logging import log_span
 from imbue.mngr.utils.polling import poll_until
 
 
@@ -69,12 +70,12 @@ def _send_resume_message_if_configured(agent: AgentInterface, output_opts: Outpu
     # Agents like Claude configure hooks that create a 'waiting' file when ready.
     # If the timeout expires (agent doesn't support hooks or is slow), proceed anyway.
     timeout = agent.get_ready_timeout_seconds()
-    logger.debug("Waiting for agent to become ready before sending resume message")
-    is_ready = poll_until(
-        lambda: agent.get_lifecycle_state() == AgentLifecycleState.WAITING,
-        timeout=timeout,
-        poll_interval=0.2,
-    )
+    with log_span("Waiting for agent to become ready before sending resume message"):
+        is_ready = poll_until(
+            lambda: agent.get_lifecycle_state() == AgentLifecycleState.WAITING,
+            timeout=timeout,
+            poll_interval=0.2,
+        )
     if is_ready:
         logger.debug("Agent signaled readiness via WAITING state")
     else:

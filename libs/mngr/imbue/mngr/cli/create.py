@@ -82,6 +82,7 @@ from imbue.mngr.utils.git_utils import derive_project_name_from_path
 from imbue.mngr.utils.git_utils import find_git_worktree_root
 from imbue.mngr.utils.git_utils import get_current_git_branch
 from imbue.mngr.utils.logging import LoggingSuppressor
+from imbue.mngr.utils.logging import log_span
 from imbue.mngr.utils.logging import remove_console_handlers
 from imbue.mngr.utils.name_generator import generate_agent_name
 from imbue.mngr.utils.name_generator import generate_host_name
@@ -769,8 +770,8 @@ def _handle_editor_message(
     the callback has already restored logging.
     """
     try:
-        logger.debug("Waiting for editor to finish...")
-        edited_message = editor_session.wait_for_result()
+        with log_span("Waiting for editor to finish..."):
+            edited_message = editor_session.wait_for_result()
 
         # By this point, the on_exit callback has already restored logging
         # (it's called as soon as the editor process exits)

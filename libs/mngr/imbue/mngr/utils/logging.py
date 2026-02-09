@@ -4,8 +4,11 @@ import io
 import logging
 import os
 import sys
+import time
 from collections import deque
 from collections.abc import Callable
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -271,6 +274,27 @@ def log_call(func: Callable[P, R]) -> Callable[P, R]:
         return result
 
     return wrapper
+
+
+@contextmanager
+def log_span(message: str, *args: Any, **context: Any) -> Iterator[None]:
+    """Context manager that logs a debug message on entry and a trace message with timing on exit.
+
+    On entry, emits logger.debug(message, *args).
+    On exit, emits logger.trace(message + " [done in X.XXXXX sec]", *args, elapsed).
+
+    Keyword arguments are passed to logger.contextualize so that all log messages
+    within the span include the extra context fields.
+    """
+    with logger.contextualize(**context):
+        logger.debug(message, *args)
+        start_time = time.monotonic()
+        try:
+            yield
+        finally:
+            elapsed = time.monotonic() - start_time
+            done_message = message + " [done in {:.5f} sec]"
+            logger.trace(done_message, *args, elapsed)
 
 
 class BufferedMessage(NamedTuple):
