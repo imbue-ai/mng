@@ -16,6 +16,8 @@ from tenacity import wait_exponential
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_call
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.providers import get_all_provider_instances
@@ -43,7 +45,6 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
-from imbue.mngr.utils.logging import log_call
 
 
 class AgentInfo(FrozenModel):
@@ -167,16 +168,15 @@ def list_agents(
     compiled_include_filters: list[Any] = []
     compiled_exclude_filters: list[Any] = []
     if include_filters or exclude_filters:
-        logger.debug("Compiling CEL filters")
-        compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
-        logger.trace(
-            "Compiled {} include and {} exclude filters", len(compiled_include_filters), len(compiled_exclude_filters)
-        )
+        with log_span("Compiling CEL filters", include_filters=include_filters, exclude_filters=exclude_filters):
+            compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
     try:
         # Load all agents grouped by host
-        logger.debug("Loading agents from all providers")
-        agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx, provider_names, include_destroyed=True)
+        with log_span("Loading agents from all providers"):
+            agents_by_host, providers = load_all_agents_grouped_by_host(
+                mngr_ctx, provider_names, include_destroyed=True
+            )
         provider_map = {provider.name: provider for provider in providers}
         logger.trace("Found {} hosts with agents", len(agents_by_host))
 
@@ -573,22 +573,22 @@ def load_all_agents_grouped_by_host(
     agents_by_host: dict[HostReference, list[AgentReference]] = {}
     results_lock = Lock()
 
-    logger.debug("Loading all agents from all providers")
-    providers = get_all_provider_instances(mngr_ctx, provider_names)
-    logger.trace("Found {} provider instances", len(providers))
+    with log_span("Loading all agents from all providers"):
+        providers = get_all_provider_instances(mngr_ctx, provider_names)
+        logger.trace("Found {} provider instances", len(providers))
 
-    # Process all providers in parallel using ConcurrencyGroup
-    with ConcurrencyGroup(name="load_all_agents_grouped_by_host") as cg:
-        threads: list[ObservableThread] = []
-        for provider in providers:
-            threads.append(
-                cg.start_new_thread(
-                    target=_process_provider_for_host_listing,
-                    args=(provider, agents_by_host, include_destroyed, results_lock, cg),
-                    name=f"load_hosts_{provider.name}",
+        # Process all providers in parallel using ConcurrencyGroup
+        with ConcurrencyGroup(name="load_all_agents_grouped_by_host") as cg:
+            threads: list[ObservableThread] = []
+            for provider in providers:
+                threads.append(
+                    cg.start_new_thread(
+                        target=_process_provider_for_host_listing,
+                        args=(provider, agents_by_host, include_destroyed, results_lock, cg),
+                        name=f"load_hosts_{provider.name}",
+                    )
                 )
-            )
-        for thread in threads:
-            thread.join()
+            for thread in threads:
+                thread.join()
 
-    return (agents_by_host, providers)
+        return (agents_by_host, providers)

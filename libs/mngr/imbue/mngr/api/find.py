@@ -5,6 +5,8 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_call
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_provider_instance
@@ -27,7 +29,6 @@ from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
-from imbue.mngr.utils.logging import log_call
 
 
 class ParsedSourceLocation(FrozenModel):
@@ -199,16 +200,16 @@ def resolve_source_location(
     This is important for making the CLI easy to use in a variety of scenarios.
     """
     # Parse the source string into components
-    logger.debug("Parsing source location")
-    parsed = parse_source_string(source, source_agent, source_host, source_path)
-    logger.trace("Parsed source: agent={} host={} path={}", parsed.agent, parsed.host, parsed.path)
+    with log_span("Parsing source location"):
+        parsed = parse_source_string(source, source_agent, source_host, source_path)
+        logger.trace("Parsed source: agent={} host={} path={}", parsed.agent, parsed.host, parsed.path)
 
     # Resolve host and agent references from the parsed components
     all_hosts = list(agents_by_host.keys())
-    logger.debug("Resolving host reference")
-    resolved_host = resolve_host_reference(parsed.host, all_hosts)
-    logger.debug("Resolving agent reference")
-    agent_result = resolve_agent_reference(parsed.agent, resolved_host, agents_by_host)
+    with log_span("Resolving host reference"):
+        resolved_host = resolve_host_reference(parsed.host, all_hosts)
+    with log_span("Resolving agent reference"):
+        agent_result = resolve_agent_reference(parsed.agent, resolved_host, agents_by_host)
 
     # Extract resolved agent if found
     resolved_agent: AgentReference | None = None
@@ -216,14 +217,13 @@ def resolve_source_location(
         resolved_host, resolved_agent = agent_result
 
     # Get the host interface from the provider
-    logger.debug("Getting host interface from provider")
-    if resolved_host is None:
-        provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), mngr_ctx)
-        host_interface = provider.get_host(HostName("local"))
-    else:
-        provider = get_provider_instance(resolved_host.provider_name, mngr_ctx)
-        host_interface = provider.get_host(resolved_host.host_id)
-    logger.trace("Resolved to host id={}", host_interface.id)
+    with log_span("Getting host interface from provider"):
+        if resolved_host is None:
+            provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), mngr_ctx)
+            host_interface = provider.get_host(HostName("local"))
+        else:
+            provider = get_provider_instance(resolved_host.provider_name, mngr_ctx)
+            host_interface = provider.get_host(resolved_host.host_id)
 
     # Ensure host is online for file operations
     if not isinstance(host_interface, OnlineHostInterface):

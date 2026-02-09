@@ -13,6 +13,7 @@ from uuid import uuid4
 from loguru import logger
 from pydantic import Field
 
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import SendMessageError
@@ -312,15 +313,13 @@ class BaseAgent(AgentInterface):
 
         Subclasses can enable this by overriding uses_marker_based_send_message().
         """
-        logger.debug("Sending message to agent {} (length={})", self.name, len(message))
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
 
-        if self.uses_marker_based_send_message():
-            self._send_message_with_marker(session_name, message)
-        else:
-            self._send_message_simple(session_name, message)
-
-        logger.trace("Message sent to agent {}", self.name)
+        with log_span("Sending message to agent {} (length={})", self.name, len(message)):
+            if self.uses_marker_based_send_message():
+                self._send_message_with_marker(session_name, message)
+            else:
+                self._send_message_simple(session_name, message)
 
     def uses_marker_based_send_message(self) -> bool:
         """Return True to use marker-based synchronization for send_message.
@@ -444,16 +443,15 @@ class BaseAgent(AgentInterface):
         Without this check, input sent too early may be lost or appear as raw text
         instead of being processed by the application's input handler.
         """
-        logger.debug("Waiting for TUI to be ready (looking for: {})", indicator)
-        if not poll_until(
-            lambda: self._check_pane_contains(session_name, indicator),
-            timeout=_TUI_READY_TIMEOUT_SECONDS,
-        ):
-            raise SendMessageError(
-                str(self.name),
-                f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)",
-            )
-        logger.debug("TUI ready indicator found: {}", indicator)
+        with log_span("Waiting for TUI to be ready (looking for: {})", indicator):
+            if not poll_until(
+                lambda: self._check_pane_contains(session_name, indicator),
+                timeout=_TUI_READY_TIMEOUT_SECONDS,
+            ):
+                raise SendMessageError(
+                    str(self.name),
+                    f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)",
+                )
 
     def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:
         """Wait until the marker is visible in the tmux pane.
@@ -461,16 +459,15 @@ class BaseAgent(AgentInterface):
         Note: We check if marker is IN the pane, not at the end, because
         Claude Code has a status line at the bottom that appears after the input area.
         """
-        logger.trace("Waiting for marker: {}", marker)
-        if not poll_until(
-            lambda: self._check_pane_contains(session_name, marker),
-            timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
-        ):
-            raise SendMessageError(
-                str(self.name),
-                f"Timeout waiting for message marker to appear (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
-            )
-        logger.debug("Marker {} found in pane", marker)
+        with log_span("Waiting for marker: {}", marker):
+            if not poll_until(
+                lambda: self._check_pane_contains(session_name, marker),
+                timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
+            ):
+                raise SendMessageError(
+                    str(self.name),
+                    f"Timeout waiting for message marker to appear (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
+                )
 
     def _check_pane_contains(self, session_name: str, text: str) -> bool:
         """Check if the pane content contains the given text."""
@@ -511,7 +508,7 @@ class BaseAgent(AgentInterface):
         """
         wait_channel = f"mngr-submit-{session_name}"
         if self._send_enter_and_wait_for_signal(session_name, wait_channel):
-            logger.debug("Message submitted successfully")
+            logger.trace("Message submitted successfully")
             return
 
         raise SendMessageError(

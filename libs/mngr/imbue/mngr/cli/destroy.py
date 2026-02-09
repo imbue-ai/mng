@@ -58,13 +58,13 @@ def get_agent_name_from_session(session_name: str, prefix: str) -> str | None:
     session name doesn't match the expected prefix format.
     """
     if not session_name:
-        logger.debug("Empty session name provided")
+        logger.debug("Failed to extract agent name: empty session name provided")
         return None
 
     # Check if the session name starts with our prefix
     if not session_name.startswith(prefix):
         logger.debug(
-            "Session name '{}' doesn't start with mngr prefix '{}'",
+            "Failed to extract agent name: session name '{}' doesn't start with mngr prefix '{}'",
             session_name,
             prefix,
         )
@@ -73,7 +73,9 @@ def get_agent_name_from_session(session_name: str, prefix: str) -> str | None:
     # Extract the agent name by removing the prefix
     agent_name = session_name[len(prefix) :]
     if not agent_name:
-        logger.debug("Session name '{}' has empty agent name after stripping prefix", session_name)
+        logger.debug(
+            "Failed to extract agent name: session name '{}' has empty agent name after stripping prefix", session_name
+        )
         return None
 
     logger.debug("Extracted agent name '{}' from session '{}'", agent_name, session_name)
@@ -189,7 +191,7 @@ def destroy(ctx: click.Context, **kwargs) -> None:
         command_name="destroy",
         command_class=DestroyCliOptions,
     )
-    logger.debug("Running destroy command")
+    logger.debug("Started destroy command")
 
     # Filter agents to destroy using CEL expressions like:
     # --include 'name.startsWith("test-")' or --include 'host.provider == "docker"'
@@ -486,11 +488,11 @@ def _run_post_destroy_gc(mngr_ctx: MngrContext, output_opts: OutputOptions) -> N
         if result.errors:
             logger.warning("Garbage collection completed with {} error(s)", len(result.errors))
             for error in result.errors:
-                logger.debug("  - {}", error)
+                logger.warning("  - {}", error)
 
     except MngrError as e:
         logger.warning("Garbage collection failed: {}", e)
-        logger.debug("This does not affect the destroy operation, which completed successfully")
+        logger.warning("This does not affect the destroy operation, which completed successfully")
 
 
 # Register help metadata for git-style help formatting

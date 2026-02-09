@@ -172,7 +172,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         command_name="list",
         command_class=ListCliOptions,
     )
-    logger.debug("Running list command")
+    logger.debug("Started list command")
 
     # --format-template FORMAT: Output format as a string template, mutually exclusive with --format
     # Template can reference any field from the Available Fields list (see CommandHelpMetadata)

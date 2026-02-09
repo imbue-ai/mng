@@ -438,7 +438,7 @@ def delete_modal_apps_in_environment(environment_name: str) -> None:
         )
         if result.returncode != 0:
             # Environment may not exist or may have been deleted concurrently
-            logger.debug("Could not list apps in environment {}: {}", environment_name, result.stderr)
+            logger.warning("Failed to list apps in environment {}: {}", environment_name, result.stderr)
             return
 
         apps = json.loads(result.stdout)
@@ -473,7 +473,7 @@ def delete_modal_volumes_in_environment(environment_name: str) -> None:
         )
         if result.returncode != 0:
             # Environment may not exist or may have been deleted concurrently
-            logger.debug("Could not list volumes in environment {}: {}", environment_name, result.stderr)
+            logger.warning("Failed to list volumes in environment {}: {}", environment_name, result.stderr)
             return
 
         volumes = json.loads(result.stdout)

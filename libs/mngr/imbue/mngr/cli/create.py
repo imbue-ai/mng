@@ -12,6 +12,7 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.create import create as api_create
@@ -483,6 +484,8 @@ def create(ctx: click.Context, **kwargs) -> None:
     \b
     Alias: c
     """
+    logger.debug("Started create command")
+
     # Setup command context (config, logging, output options)
     # This loads the config, applies defaults, and creates the final options
     mngr_ctx, output_opts, opts = setup_command_context(
@@ -490,7 +493,6 @@ def create(ctx: click.Context, **kwargs) -> None:
         command_name="create",
         command_class=CreateCliOptions,
     )
-    logger.debug("Running create command")
 
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
@@ -769,8 +771,8 @@ def _handle_editor_message(
     the callback has already restored logging.
     """
     try:
-        logger.debug("Waiting for editor to finish...")
-        edited_message = editor_session.wait_for_result()
+        with log_span("Waiting for editor to finish..."):
+            edited_message = editor_session.wait_for_result()
 
         # By this point, the on_exit callback has already restored logging
         # (it's called as soon as the editor process exits)
@@ -884,7 +886,7 @@ def _try_reuse_existing_agent(
                 matching_agents.append((host_ref, agent_ref))
 
     if len(matching_agents) == 0:
-        logger.debug("No existing agent found with name: {}", agent_name)
+        logger.debug("Failed to find existing agent with name: {}", agent_name)
         return None
 
     if len(matching_agents) > 1:
@@ -1388,7 +1390,7 @@ def _ensure_clean_work_dir(location: HostLocation) -> None:
     result = location.host.execute_command("git status --porcelain", cwd=location.path)
     if not result.success:
         # Not a git repo or git command failed, skip the check
-        logger.debug("Could not check git status: {}", result.stderr)
+        logger.debug("Failed to check git status: {}", result.stderr)
         return
 
     if result.stdout.strip():
@@ -1430,7 +1432,7 @@ def _await_agent_stopped(
             poll_interval=poll_interval_seconds,
             error_message=f"Timeout waiting for agent {agent.name} to stop after {timeout_seconds} seconds",
         )
-        logger.debug("Agent {} has stopped", agent.name)
+        logger.debug("Stopped agent {}", agent.name)
     except TimeoutError as e:
         raise click.ClickException(str(e)) from e
 

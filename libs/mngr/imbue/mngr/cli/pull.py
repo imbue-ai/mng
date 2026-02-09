@@ -217,7 +217,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
         command_name="pull",
         command_class=PullCliOptions,
     )
-    logger.debug("Running pull command")
+    logger.debug("started pull command")
 
     # Check for unsupported options
     if opts.sync_mode == "full":

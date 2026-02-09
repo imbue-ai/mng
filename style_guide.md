@@ -608,7 +608,11 @@ def archive_todos_completed_before(
             todos_to_keep.append(todo)
 
     # Build the result
-    updated_list = todo_list.model_copy(update={"todos": tuple(todos_to_keep)})
+    updated_list = todo_list.model_copy(
+        update=to_update_dict(
+            to_update(todo_list.field_ref().todos, tuple(todos_to_keep)),
+        )
+    )
     return ArchiveCompletedTodosResult(
         updated_list=updated_list,
         archived_todos=tuple(todos_to_archive),
@@ -745,14 +749,33 @@ If something needs to be changed, return an updated copy instead of mutating the
 
 Use an immutable, functional approach.  Accumulate all changes rather than updating any data "in-place"
 
-Avoid mutating objects created outside the function (unless they are "Implementations", see below).  Instead, prefer to create an updated copy whenever possible:
+Avoid mutating objects created outside the function (unless they are "Implementations", see below).  Instead, prefer to create an updated copy whenever possible.
+
+## Type-safe model_copy updates
+
+When creating updated copies of frozen or mutable models, always use the type-safe `to_update_dict`/`to_update`/`field_ref` pattern instead of passing raw string dictionaries to `model_copy(update=...)`. This ensures that field names are checked by the type system and refactoring tools can find all usages of a field.
 
 ```python
+from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.model_update import to_update_dict
+
+
 @pure
 def add_tag_to_todo(todo_item: TodoItem, tag_to_add: Tag) -> TodoItem:
     updated_tags = todo_item.tags + (tag_to_add,)
-    return todo_item.model_copy(update={"tags": updated_tags})
+    return todo_item.model_copy(
+        update=to_update_dict(
+            to_update(todo_item.field_ref().tags, updated_tags),
+        )
+    )
 ```
+
+- `field_ref()` returns a proxy that records attribute access, making field references type-safe
+- `to_update(field_ref, value)` creates a type-checked `(field_name, value)` pair
+- `to_update_dict(...)` converts those pairs into the dict expected by `model_copy(update=...)`
+- Multiple fields can be updated at once by passing multiple `to_update()` calls to `to_update_dict()`
+
+Never pass raw string dictionaries like `model_copy(update={"field_name": value})` -- always use the type-safe pattern above.
 
 Never re-assign to the same function-scoped variable. Instead, create a new variable with an updated name
 
@@ -842,7 +865,11 @@ class TodoReminder(FrozenModel):
     is_sent: bool = Field(default=False, description="Whether sent")
 
     def with_marked_as_sent(self) -> "TodoReminder":
-        return self.model_copy(update={"is_sent": True})
+        return self.model_copy(
+            update=to_update_dict(
+                to_update(self.field_ref().is_sent, True),
+            )
+        )
 ```
 
 Frozen objects should use computed fields and the correct caching decorator to cache read-only derived properties
@@ -1137,7 +1164,9 @@ class TodoArchive(FrozenModel):
 
     def with_added_item(self, todo_to_archive: TodoItem) -> "TodoArchive":
         return self.model_copy(
-            update={"archived_todos": self.archived_todos + (todo_to_archive,)}
+            update=to_update_dict(
+                to_update(self.field_ref().archived_todos, self.archived_todos + (todo_to_archive,)),
+            )
         )
 ```
 
@@ -1262,20 +1291,32 @@ Always use the right log level for your statement:
 
 The purpose of log statements is to tell a story to the reader about what is happening in the program. They help us understand program execution and debug issues.
 
-**Log before actions, not after.** Place log statements immediately before the action they describe, not after. This ensures the log appears even if the action fails:
+**Use `log_span` to wrap actions.** When logging an action that is about to happen, use the `log_span` context manager instead of a bare `logger.debug`. This emits a debug message on entry and a trace message with elapsed time on exit, making it easy to see how long operations take:
 
 ```python
-from loguru import logger
+
+from imbue.imbue_common.logging import log_span
 
 
 def save_todo_to_repository(
-    todo_repository: TodoRepositoryInterface,
-    todo_item: TodoItem,
+        todo_repository: TodoRepositoryInterface,
+        todo_item: TodoItem,
 ) -> None:
-    # Log BEFORE the action
-    logger.debug("Saving todo to repository")
-    todo_repository.save_todo(todo_item)
-    logger.trace("Saved todo id={} title={}", todo_item.todo_id, todo_item.title)
+    with log_span("Saving todo to repository"):
+        todo_repository.save_todo(todo_item)
+```
+
+`log_span` accepts format args and keyword context args (passed to `logger.contextualize`):
+
+```python
+with log_span("Creating agent work directory from source {}", source_path, host=host_name):
+    work_dir = host.create_work_dir(source_path)
+```
+
+Use bare `logger.debug` only for observational messages that don't describe an action about to happen (e.g., noting a condition, logging a result after the fact):
+
+```python
+logger.debug("Source and target are the same path, no file transfer needed")
 ```
 
 **Do not log at function entry points.** Since logs are placed at the call site (before calling a function), the function itself should not log its own entry. The caller's log already describes what's about to happen:
@@ -1298,11 +1339,10 @@ def cli_create_todo(title: str) -> None:
     logger.info("Created todo (ID={})", todo.todo_id)
 
 
-# In library/API code - use debug instead
+# In library/API code - use log_span for actions
 def create_todo(title: str) -> TodoItem:
-    logger.debug("Creating todo item")
-    todo = TodoItem(title=title)
-    logger.trace("Created todo id={} title={}", todo.todo_id, todo.title)
+    with log_span("Creating todo item"):
+        todo = TodoItem(title=title)
     return todo
 ```
 

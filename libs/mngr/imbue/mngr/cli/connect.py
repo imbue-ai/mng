@@ -384,7 +384,6 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
         command_name="connect",
         command_class=ConnectCliOptions,
     )
-    logger.debug("Running connect command")
 
     # Send the specified text as an initial message after the agent starts
     # Should wait for ready_timeout seconds for agent readiness before sending

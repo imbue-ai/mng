@@ -9,6 +9,7 @@ from typing import Final
 
 from loguru import logger
 
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import UserInputError
 
@@ -87,7 +88,7 @@ class EditorSession:
         os.close(temp_fd)
 
         editor_command = get_editor_command()
-        logger.debug("Using editor: {}", editor_command)
+        logger.debug("Got editor command: {}", editor_command)
 
         # Create instance using object.__new__ and set attributes directly
         instance = object.__new__(cls)
@@ -118,16 +119,15 @@ class EditorSession:
         if self._is_started:
             raise UserInputError("Editor session already started")
 
-        logger.debug("Starting editor {} with file {}", self.editor_command, self.temp_file_path)
-
-        # Start the editor process
-        # The editor inherits the terminal (stdin/stdout/stderr) from parent
-        self._process = subprocess.Popen(
-            [self.editor_command, str(self.temp_file_path)],
-            stdin=None,
-            stdout=None,
-            stderr=None,
-        )
+        with log_span("Starting editor {} with file {}", self.editor_command, self.temp_file_path):
+            # Start the editor process
+            # The editor inherits the terminal (stdin/stdout/stderr) from parent
+            self._process = subprocess.Popen(
+                [self.editor_command, str(self.temp_file_path)],
+                stdin=None,
+                stdout=None,
+                stderr=None,
+            )
         self._is_started = True
         self._exit_callback = on_exit
         logger.trace("Editor process started with PID {}", self._process.pid)
@@ -238,26 +238,25 @@ class EditorSession:
         if self._result_ready.is_set():
             return self._result_content
 
-        logger.debug("Waiting for editor to finish...")
+        with log_span("Waiting for editor to finish..."):
+            # Wait for the editor process to complete
+            try:
+                self._process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                logger.warning("Editor timeout expired, terminating")
+                self._process.terminate()
+                self._process.wait()
+                self._exit_code = -1
+                self._is_finished = True
+                self._result_ready.set()
+                return None
 
-        # Wait for the editor process to complete
-        try:
-            self._process.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            logger.warning("Editor timeout expired, terminating")
-            self._process.terminate()
-            self._process.wait()
-            self._exit_code = -1
-            self._is_finished = True
-            self._result_ready.set()
-            return None
+            # Read result if not already done by monitor thread
+            # This also handles the case where no monitor thread was started
+            self._read_result()
 
-        # Read result if not already done by monitor thread
-        # This also handles the case where no monitor thread was started
-        self._read_result()
-
-        # Wait for the result to be fully ready (handles race with monitor thread)
-        self._result_ready.wait(timeout=1.0)
+            # Wait for the result to be fully ready (handles race with monitor thread)
+            self._result_ready.wait(timeout=1.0)
 
         return self._result_content
 
@@ -268,14 +267,14 @@ class EditorSession:
         """
         # Terminate the editor process if it's still running
         if self._process is not None and self._process.poll() is None:
-            logger.debug("Terminating editor process")
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=1.0)
-            except subprocess.TimeoutExpired:
-                logger.warning("Editor process did not terminate gracefully, killing")
-                self._process.kill()
-                self._process.wait()
+            with log_span("Terminating editor process"):
+                self._process.terminate()
+                try:
+                    self._process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    logger.warning("Editor process did not terminate gracefully, killing")
+                    self._process.kill()
+                    self._process.wait()
 
         # Clean up the temp file
         if self.temp_file_path.exists():

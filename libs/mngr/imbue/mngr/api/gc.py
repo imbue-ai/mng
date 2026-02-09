@@ -8,6 +8,10 @@ from typing import Any
 
 from loguru import logger
 
+from imbue.imbue_common.logging import log_call
+from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.model_update import to_update_dict
 from imbue.mngr.api.data_types import GcResourceTypes
 from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.config.data_types import MngrContext
@@ -24,7 +28,6 @@ from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
-from imbue.mngr.utils.logging import log_call
 
 
 @log_call
@@ -55,73 +58,73 @@ def gc(
     logger.trace("GC options: dry_run={} error_behavior={}", dry_run, error_behavior)
 
     if resource_types.is_work_dirs:
-        logger.debug("Garbage collecting orphaned work directories")
-        gc_work_dirs(
-            mngr_ctx=mngr_ctx,
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("Garbage collecting orphaned work directories"):
+            gc_work_dirs(
+                mngr_ctx=mngr_ctx,
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_machines:
-        logger.debug("Garbage collecting idle machines")
-        gc_machines(
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("Garbage collecting idle machines"):
+            gc_machines(
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_snapshots:
-        logger.debug("Garbage collecting orphaned snapshots")
-        gc_snapshots(
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("Garbage collecting orphaned snapshots"):
+            gc_snapshots(
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_volumes:
-        logger.debug("Garbage collecting orphaned volumes")
-        gc_volumes(
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("Garbage collecting orphaned volumes"):
+            gc_volumes(
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_logs:
-        logger.debug("Garbage collecting old log files")
-        gc_logs(
-            mngr_ctx=mngr_ctx,
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("Garbage collecting old log files"):
+            gc_logs(
+                mngr_ctx=mngr_ctx,
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_build_cache:
-        logger.debug("Garbage collecting build cache entries")
-        gc_build_cache(
-            mngr_ctx=mngr_ctx,
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("Garbage collecting build cache entries"):
+            gc_build_cache(
+                mngr_ctx=mngr_ctx,
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     return result
 
@@ -268,7 +271,11 @@ def gc_snapshots(
                     # Sort by creation time (newest first) and assign recency_idx
                     sorted_snapshots = sorted(snapshots, key=lambda s: s.created_at, reverse=True)
                     snapshots_with_recency = [
-                        snapshot.model_copy(update={"recency_idx": idx})
+                        snapshot.model_copy(
+                            update=to_update_dict(
+                                to_update(snapshot.field_ref().recency_idx, idx),
+                            )
+                        )
                         for idx, snapshot in enumerate(sorted_snapshots)
                     ]
 
@@ -570,7 +577,11 @@ def _remove_work_dir_from_certified_data(host: OnlineHostInterface, work_dir_pat
     existing_dirs = set(certified_data.generated_work_dirs)
     existing_dirs.discard(str(work_dir_path))
 
-    updated_data = certified_data.model_copy(update={"generated_work_dirs": tuple(sorted(existing_dirs))})
+    updated_data = certified_data.model_copy(
+        update=to_update_dict(
+            to_update(certified_data.field_ref().generated_work_dirs, tuple(sorted(existing_dirs))),
+        )
+    )
 
     data_json = updated_data.model_dump_json(by_alias=True, indent=2)
     data_path = host.host_dir / "data.json"
