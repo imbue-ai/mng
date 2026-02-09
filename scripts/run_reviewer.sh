@@ -31,6 +31,26 @@ REVIEW_OUTPUT_DIR=".reviews/final_issue_json"
 REVIEW_OUTPUT_FILE="$REVIEW_OUTPUT_DIR/$WINDOW.json"
 REVIEW_DONE_MARKER="$REVIEW_OUTPUT_FILE.done"
 
+# Cache directory for skipping redundant reviews of the same commit
+CACHE_DIR=".reviews/cache"
+CACHE_COMMIT_FILE="$CACHE_DIR/$WINDOW.commit"
+CACHE_OUTPUT_FILE="$CACHE_DIR/$WINDOW.json"
+CACHE_EXIT_CODE_FILE="$CACHE_DIR/$WINDOW.exit_code"
+
+# Check if the current commit has already been reviewed successfully
+CURRENT_COMMIT=$(git rev-parse HEAD)
+if [[ -f "$CACHE_COMMIT_FILE" && -f "$CACHE_OUTPUT_FILE" && -f "$CACHE_EXIT_CODE_FILE" ]]; then
+    CACHED_COMMIT=$(cat "$CACHE_COMMIT_FILE")
+    if [[ "$CURRENT_COMMIT" == "$CACHED_COMMIT" ]]; then
+        CACHED_EXIT_CODE=$(cat "$CACHE_EXIT_CODE_FILE")
+        # Restore the cached output file so callers can read it
+        mkdir -p "$REVIEW_OUTPUT_DIR"
+        cp "$CACHE_OUTPUT_FILE" "$REVIEW_OUTPUT_FILE"
+        echo -e "[$WINDOW] Commit $CURRENT_COMMIT already reviewed -- using cached results (exit code $CACHED_EXIT_CODE)"
+        exit "$CACHED_EXIT_CODE"
+    fi
+fi
+
 # remove the old files
 rm -rf $REVIEW_DONE_MARKER
 rm -rf $REVIEW_OUTPUT_FILE
@@ -153,10 +173,21 @@ BLOCKING_ISSUES=$(jq '[.[] | select(
     (.confidence >= 0.7)
 )] | length' "$SORTED_OUTPUT")
 
+# Cache the results so we can skip re-reviewing the same commit
+cache_results() {
+    local exit_code="$1"
+    mkdir -p "$CACHE_DIR"
+    echo "$CURRENT_COMMIT" > "$CACHE_COMMIT_FILE"
+    cp "$SORTED_OUTPUT" "$CACHE_OUTPUT_FILE"
+    echo "$exit_code" > "$CACHE_EXIT_CODE_FILE"
+}
+
 if [[ "$BLOCKING_ISSUES" -gt 0 ]]; then
     log_error "Found $BLOCKING_ISSUES blocking issues (CRITICAL/MAJOR with confidence >= 0.7)"
+    cache_results 2
     exit 2
 fi
 
 log_info "Reviewer $WINDOW completed successfully (no blocking issues)"
+cache_results 0
 exit 0
