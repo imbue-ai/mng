@@ -1,3 +1,4 @@
+import platform
 import shutil
 import subprocess
 import threading
@@ -202,8 +203,16 @@ class UnisonSyncer(MutableModel):
 
 
 def check_unison_installed() -> bool:
-    """Check if unison and unison-fsmonitor are available in PATH."""
-    return shutil.which("unison") is not None and shutil.which("unison-fsmonitor") is not None
+    """Check if unison (and unison-fsmonitor on macOS) are available in PATH.
+
+    On Linux, only unison is required because inotify provides built-in filesystem
+    monitoring. On macOS, unison-fsmonitor is also required for file watching.
+    """
+    if shutil.which("unison") is None:
+        return False
+    if platform.system() == "Darwin":
+        return shutil.which("unison-fsmonitor") is not None
+    return True
 
 
 def determine_git_sync_actions(
@@ -326,8 +335,8 @@ def sync_git_state(
 def pair_files(
     agent: AgentInterface,
     host: OnlineHostInterface,
-    source_path: Path,
-    target_path: Path | None = None,
+    agent_path: Path,
+    local_path: Path | None = None,
     sync_direction: SyncDirection = SyncDirection.BOTH,
     conflict_mode: ConflictMode = ConflictMode.NEWER,
     is_require_git: bool = True,
@@ -335,7 +344,7 @@ def pair_files(
     exclude_patterns: tuple[str, ...] = (),
     include_patterns: tuple[str, ...] = (),
 ) -> Iterator[UnisonSyncer]:
-    """Start continuous file synchronization between source and agent.
+    """Start continuous file synchronization between agent and local directory.
 
     This function first synchronizes git state if both paths are git repositories,
     then starts a unison process for continuous file synchronization.
@@ -348,40 +357,40 @@ def pair_files(
     if not check_unison_installed():
         raise UnisonNotInstalledError()
 
-    # Determine target path
-    actual_target = target_path if target_path is not None else agent.work_dir
+    # Determine local path
+    actual_local_path = local_path if local_path is not None else agent.work_dir
 
     # Validate directories exist
-    if not source_path.is_dir():
-        raise MngrError(f"Source directory does not exist: {source_path}")
-    if not actual_target.is_dir():
-        raise MngrError(f"Target directory does not exist: {actual_target}")
+    if not agent_path.is_dir():
+        raise MngrError(f"Agent directory does not exist: {agent_path}")
+    if not actual_local_path.is_dir():
+        raise MngrError(f"Local directory does not exist: {actual_local_path}")
 
-    # Validate source and target are different directories
-    if source_path.resolve() == actual_target.resolve():
+    # Validate agent and local are different directories
+    if agent_path.resolve() == actual_local_path.resolve():
         raise MngrError(
-            f"Source and target are the same directory: {source_path.resolve()}. "
+            f"Agent and local are the same directory: {agent_path.resolve()}. "
             "Pair requires two different directories to sync between."
         )
 
     # Check git requirements
-    source_is_git = is_git_repository(source_path)
-    target_is_git = is_git_repository(actual_target)
+    agent_is_git = is_git_repository(agent_path)
+    local_is_git = is_git_repository(actual_local_path)
 
-    if is_require_git and not (source_is_git and target_is_git):
+    if is_require_git and not (agent_is_git and local_is_git):
         missing = []
-        if not source_is_git:
-            missing.append(f"source ({source_path})")
-        if not target_is_git:
-            missing.append(f"target ({actual_target})")
+        if not agent_is_git:
+            missing.append(f"agent ({agent_path})")
+        if not local_is_git:
+            missing.append(f"local ({actual_local_path})")
         raise MngrError(
             f"Git repositories required but not found in: {', '.join(missing)}. "
             "Use --no-require-git to sync without git."
         )
 
     # Determine and perform git sync
-    if source_is_git and target_is_git:
-        git_action = determine_git_sync_actions(source_path, actual_target)
+    if agent_is_git and local_is_git:
+        git_action = determine_git_sync_actions(agent_path, actual_local_path)
         if git_action is not None and (git_action.agent_is_ahead or git_action.local_is_ahead):
             logger.info(
                 "Synchronizing git state (agent_ahead={}, local_ahead={})",
@@ -391,15 +400,15 @@ def pair_files(
             sync_git_state(
                 agent=agent,
                 host=host,
-                local_path=actual_target,
+                local_path=actual_local_path,
                 git_sync_action=git_action,
                 uncommitted_changes=uncommitted_changes,
             )
 
     # Create and start the syncer
     syncer = UnisonSyncer(
-        source_path=source_path,
-        target_path=actual_target,
+        source_path=agent_path,
+        target_path=actual_local_path,
         sync_direction=sync_direction,
         conflict_mode=conflict_mode,
         exclude_patterns=exclude_patterns,

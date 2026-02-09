@@ -1,18 +1,16 @@
 import subprocess
 from pathlib import Path
-from typing import Any
 from typing import cast
 
 import pytest
-from pydantic import Field
 
-from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.push import push_files
 from imbue.mngr.api.push import push_git
 from imbue.mngr.api.sync import RemoteGitContext
 from imbue.mngr.api.sync import UncommittedChangesError
 from imbue.mngr.api.test_fixtures import FakeAgent
 from imbue.mngr.api.test_fixtures import FakeHost
+from imbue.mngr.api.test_fixtures import SyncTestContext
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
@@ -26,25 +24,15 @@ def _has_uncommitted_changes_on_host(host: OnlineHostInterface, path: Path) -> b
     return RemoteGitContext(host=host).has_uncommitted_changes(path)
 
 
-class PushTestContext(FrozenModel):
-    """Shared test context for push_files integration tests."""
-
-    host_dir: Path = Field(description="Host (source) directory - should remain unchanged")
-    agent_dir: Path = Field(description="Agent working directory (destination)")
-    # Use Any to avoid pydantic validation since our test doubles don't inherit from the interfaces
-    agent: Any = Field(description="Test agent")
-    host: Any = Field(description="Test host")
-
-
 @pytest.fixture
-def push_ctx(tmp_path: Path) -> PushTestContext:
-    """Create a test context with host and agent directories."""
-    host_dir = tmp_path / "host"
+def push_ctx(tmp_path: Path) -> SyncTestContext:
+    """Create a test context with local and agent directories."""
+    local_dir = tmp_path / "host"
     agent_dir = tmp_path / "agent"
-    host_dir.mkdir(parents=True)
+    local_dir.mkdir(parents=True)
     init_git_repo_with_config(agent_dir)
-    return PushTestContext(
-        host_dir=host_dir,
+    return SyncTestContext(
+        local_dir=local_dir,
         agent_dir=agent_dir,
         agent=cast(AgentInterface, FakeAgent(work_dir=agent_dir)),
         host=cast(OnlineHostInterface, FakeHost()),
@@ -57,30 +45,30 @@ def push_ctx(tmp_path: Path) -> PushTestContext:
 
 
 def test_push_files_fail_mode_with_no_uncommitted_changes_succeeds(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test that FAIL mode succeeds when there are no uncommitted changes on target."""
-    (push_ctx.host_dir / "file.txt").write_text("host content")
+    (push_ctx.local_dir / "file.txt").write_text("host content")
     assert not _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
     result = push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.FAIL,
     )
 
     assert (push_ctx.agent_dir / "file.txt").exists()
     assert (push_ctx.agent_dir / "file.txt").read_text() == "host content"
     assert result.destination_path == push_ctx.agent_dir
-    assert result.source_path == push_ctx.host_dir
+    assert result.source_path == push_ctx.local_dir
 
 
 def test_push_files_fail_mode_with_uncommitted_changes_raises_error(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test that FAIL mode raises UncommittedChangesError when changes exist on target."""
-    (push_ctx.host_dir / "file.txt").write_text("host content")
+    (push_ctx.local_dir / "file.txt").write_text("host content")
     (push_ctx.agent_dir / "uncommitted.txt").write_text("uncommitted content")
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
@@ -88,7 +76,7 @@ def test_push_files_fail_mode_with_uncommitted_changes_raises_error(
         push_files(
             agent=push_ctx.agent,
             host=push_ctx.host,
-            source=push_ctx.host_dir,
+            source=push_ctx.local_dir,
             uncommitted_changes=UncommittedChangesMode.FAIL,
         )
 
@@ -101,17 +89,17 @@ def test_push_files_fail_mode_with_uncommitted_changes_raises_error(
 
 
 def test_push_files_clobber_mode_overwrites_agent_changes(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test that CLOBBER mode overwrites uncommitted changes on the agent."""
-    (push_ctx.host_dir / "shared.txt").write_text("host version")
+    (push_ctx.local_dir / "shared.txt").write_text("host version")
     (push_ctx.agent_dir / "shared.txt").write_text("agent version")
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
     result = push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
 
@@ -120,17 +108,17 @@ def test_push_files_clobber_mode_overwrites_agent_changes(
 
 
 def test_push_files_clobber_mode_when_only_agent_has_changes(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test CLOBBER mode when only the agent has a modified file."""
-    (push_ctx.host_dir / "host_only.txt").write_text("host file")
+    (push_ctx.local_dir / "host_only.txt").write_text("host file")
     (push_ctx.agent_dir / "agent_only.txt").write_text("agent uncommitted content")
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
     push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
 
@@ -140,10 +128,10 @@ def test_push_files_clobber_mode_when_only_agent_has_changes(
 
 
 def test_push_files_clobber_mode_with_delete_flag_removes_agent_only_files(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test CLOBBER mode with delete=True removes files not in source."""
-    (push_ctx.host_dir / "host_file.txt").write_text("host content")
+    (push_ctx.local_dir / "host_file.txt").write_text("host content")
     (push_ctx.agent_dir / "agent_extra.txt").write_text("this should be deleted")
     run_git_command(push_ctx.agent_dir, "add", "agent_extra.txt")
     run_git_command(push_ctx.agent_dir, "commit", "-m", "Add agent extra file")
@@ -151,7 +139,7 @@ def test_push_files_clobber_mode_with_delete_flag_removes_agent_only_files(
     push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         delete=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
@@ -166,10 +154,10 @@ def test_push_files_clobber_mode_with_delete_flag_removes_agent_only_files(
 
 
 def test_push_files_stash_mode_stashes_changes_and_leaves_stashed(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test that STASH mode stashes uncommitted changes on target and leaves them stashed."""
-    (push_ctx.host_dir / "host_file.txt").write_text("host content")
+    (push_ctx.local_dir / "host_file.txt").write_text("host content")
     # Modify a tracked file (README.md was created by _init_git_repo)
     (push_ctx.agent_dir / "README.md").write_text("modified content")
     initial_stash_count = get_stash_count(push_ctx.agent_dir)
@@ -178,7 +166,7 @@ def test_push_files_stash_mode_stashes_changes_and_leaves_stashed(
     push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.STASH,
     )
 
@@ -190,10 +178,10 @@ def test_push_files_stash_mode_stashes_changes_and_leaves_stashed(
 
 
 def test_push_files_stash_mode_stashes_untracked_files(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test that STASH mode properly stashes untracked files on target."""
-    (push_ctx.host_dir / "host_file.txt").write_text("host content")
+    (push_ctx.local_dir / "host_file.txt").write_text("host content")
     # Create an UNTRACKED file
     (push_ctx.agent_dir / "untracked_file.txt").write_text("untracked content")
     initial_stash_count = get_stash_count(push_ctx.agent_dir)
@@ -202,7 +190,7 @@ def test_push_files_stash_mode_stashes_untracked_files(
     push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.STASH,
     )
 
@@ -214,17 +202,17 @@ def test_push_files_stash_mode_stashes_untracked_files(
 
 
 def test_push_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test that STASH mode does not create a stash when no changes exist on target."""
-    (push_ctx.host_dir / "host_file.txt").write_text("host content")
+    (push_ctx.local_dir / "host_file.txt").write_text("host content")
     assert not _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
     initial_stash_count = get_stash_count(push_ctx.agent_dir)
 
     push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.STASH,
     )
 
@@ -239,10 +227,10 @@ def test_push_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
 
 
 def test_push_files_merge_mode_stashes_and_restores_changes(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test that MERGE mode stashes changes on target, pushes, then restores changes."""
-    (push_ctx.host_dir / "host_file.txt").write_text("host content")
+    (push_ctx.local_dir / "host_file.txt").write_text("host content")
     # Modify the tracked README.md file
     (push_ctx.agent_dir / "README.md").write_text("agent modified content")
     initial_stash_count = get_stash_count(push_ctx.agent_dir)
@@ -251,7 +239,7 @@ def test_push_files_merge_mode_stashes_and_restores_changes(
     push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.MERGE,
     )
 
@@ -262,10 +250,10 @@ def test_push_files_merge_mode_stashes_and_restores_changes(
 
 
 def test_push_files_merge_mode_restores_untracked_files(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test that MERGE mode properly stashes and restores untracked files on target."""
-    (push_ctx.host_dir / "host_file.txt").write_text("host content")
+    (push_ctx.local_dir / "host_file.txt").write_text("host content")
     (push_ctx.agent_dir / "untracked_file.txt").write_text("untracked content")
     initial_stash_count = get_stash_count(push_ctx.agent_dir)
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
@@ -273,7 +261,7 @@ def test_push_files_merge_mode_restores_untracked_files(
     push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.MERGE,
     )
 
@@ -286,10 +274,10 @@ def test_push_files_merge_mode_restores_untracked_files(
 
 
 def test_push_files_merge_mode_when_both_modify_different_files(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test MERGE mode when host and agent modify different files."""
-    (push_ctx.host_dir / "host_only.txt").write_text("host content")
+    (push_ctx.local_dir / "host_only.txt").write_text("host content")
     (push_ctx.agent_dir / "README.md").write_text("agent modified content")
     initial_stash_count = get_stash_count(push_ctx.agent_dir)
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
@@ -297,7 +285,7 @@ def test_push_files_merge_mode_when_both_modify_different_files(
     push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.MERGE,
     )
 
@@ -308,17 +296,17 @@ def test_push_files_merge_mode_when_both_modify_different_files(
 
 
 def test_push_files_merge_mode_with_no_uncommitted_changes(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test that MERGE mode works correctly when there are no uncommitted changes on target."""
-    (push_ctx.host_dir / "host_file.txt").write_text("host content")
+    (push_ctx.local_dir / "host_file.txt").write_text("host content")
     assert not _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
     initial_stash_count = get_stash_count(push_ctx.agent_dir)
 
     push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.MERGE,
     )
 
@@ -333,16 +321,16 @@ def test_push_files_merge_mode_with_no_uncommitted_changes(
 
 
 def test_push_files_excludes_git_directory(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test that push_files excludes the .git directory from rsync."""
     # Make the host directory a git repo too
-    run_git_command(push_ctx.host_dir, "init")
-    run_git_command(push_ctx.host_dir, "config", "user.email", "test@example.com")
-    run_git_command(push_ctx.host_dir, "config", "user.name", "Test User")
-    (push_ctx.host_dir / "file.txt").write_text("host content")
-    run_git_command(push_ctx.host_dir, "add", "file.txt")
-    run_git_command(push_ctx.host_dir, "commit", "-m", "Add file")
+    run_git_command(push_ctx.local_dir, "init")
+    run_git_command(push_ctx.local_dir, "config", "user.email", "test@example.com")
+    run_git_command(push_ctx.local_dir, "config", "user.name", "Test User")
+    (push_ctx.local_dir / "file.txt").write_text("host content")
+    run_git_command(push_ctx.local_dir, "add", "file.txt")
+    run_git_command(push_ctx.local_dir, "commit", "-m", "Add file")
 
     agent_commit_before = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -354,7 +342,7 @@ def test_push_files_excludes_git_directory(
     push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
 
@@ -375,16 +363,16 @@ def test_push_files_excludes_git_directory(
 
 
 def test_push_files_dry_run_does_not_modify_files(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test that dry_run=True shows what would be transferred without modifying files."""
-    (push_ctx.host_dir / "new_file.txt").write_text("host content")
+    (push_ctx.local_dir / "new_file.txt").write_text("host content")
     assert not (push_ctx.agent_dir / "new_file.txt").exists()
 
     result = push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         dry_run=True,
     )
 
@@ -398,17 +386,17 @@ def test_push_files_dry_run_does_not_modify_files(
 
 
 def test_push_files_with_custom_destination_path(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
 ) -> None:
     """Test that push_files can use a custom destination path instead of work_dir."""
     custom_dest = push_ctx.agent_dir / "subdir"
     custom_dest.mkdir(parents=True)
-    (push_ctx.host_dir / "file_from_host.txt").write_text("content from host")
+    (push_ctx.local_dir / "file_from_host.txt").write_text("content from host")
 
     result = push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         destination_path=custom_dest,
     )
 
@@ -431,7 +419,7 @@ def test_push_files_with_custom_destination_path(
     ids=["clobber", "stash", "merge"],
 )
 def test_push_files_does_not_modify_host_directory(
-    push_ctx: PushTestContext,
+    push_ctx: SyncTestContext,
     mode: UncommittedChangesMode,
     modify_tracked_file: bool,
 ) -> None:
@@ -442,12 +430,12 @@ def test_push_files_does_not_modify_host_directory(
     when running in sequence.
     """
     # Set up host with some files
-    (push_ctx.host_dir / "host_file.txt").write_text("host content")
-    (push_ctx.host_dir / "another_file.txt").write_text("another host file")
+    (push_ctx.local_dir / "host_file.txt").write_text("host content")
+    (push_ctx.local_dir / "another_file.txt").write_text("another host file")
 
     # Record the state of the host directory
-    host_files_before = set(push_ctx.host_dir.iterdir())
-    host_contents_before = {f.name: f.read_text() for f in push_ctx.host_dir.iterdir() if f.is_file()}
+    host_files_before = set(push_ctx.local_dir.iterdir())
+    host_contents_before = {f.name: f.read_text() for f in push_ctx.local_dir.iterdir() if f.is_file()}
 
     # Set up agent with uncommitted changes
     if modify_tracked_file:
@@ -460,13 +448,13 @@ def test_push_files_does_not_modify_host_directory(
     push_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
-        source=push_ctx.host_dir,
+        source=push_ctx.local_dir,
         uncommitted_changes=mode,
     )
 
     # Verify host directory is unchanged
-    host_files_after = set(push_ctx.host_dir.iterdir())
-    host_contents_after = {f.name: f.read_text() for f in push_ctx.host_dir.iterdir() if f.is_file()}
+    host_files_after = set(push_ctx.local_dir.iterdir())
+    host_contents_after = {f.name: f.read_text() for f in push_ctx.local_dir.iterdir() if f.is_file()}
 
     assert host_files_before == host_files_after
     assert host_contents_before == host_contents_after
@@ -478,17 +466,17 @@ def test_push_files_does_not_modify_host_directory(
 
 
 @pytest.fixture
-def git_push_ctx(tmp_path: Path) -> PushTestContext:
-    """Create a test context with host and agent git repositories that share history."""
-    host_dir = tmp_path / "host"
+def git_push_ctx(tmp_path: Path) -> SyncTestContext:
+    """Create a test context with local and agent git repositories that share history."""
+    local_dir = tmp_path / "host"
     agent_dir = tmp_path / "agent"
 
-    # Initialize host repo with a commit
-    init_git_repo_with_config(host_dir)
+    # Initialize local repo with a commit
+    init_git_repo_with_config(local_dir)
 
-    # Clone the host repo to create the agent repo (so they share history)
+    # Clone the local repo to create the agent repo (so they share history)
     subprocess.run(
-        ["git", "clone", str(host_dir), str(agent_dir)],
+        ["git", "clone", str(local_dir), str(agent_dir)],
         capture_output=True,
         text=True,
         check=True,
@@ -498,25 +486,25 @@ def git_push_ctx(tmp_path: Path) -> PushTestContext:
     run_git_command(agent_dir, "config", "user.email", "test@example.com")
     run_git_command(agent_dir, "config", "user.name", "Test User")
 
-    return PushTestContext(
-        host_dir=host_dir,
+    return SyncTestContext(
+        local_dir=local_dir,
         agent_dir=agent_dir,
         agent=cast(AgentInterface, FakeAgent(work_dir=agent_dir)),
         host=cast(OnlineHostInterface, FakeHost()),
     )
 
 
-def test_push_git_basic_push(git_push_ctx: PushTestContext) -> None:
+def test_push_git_basic_push(git_push_ctx: SyncTestContext) -> None:
     """Test basic git push from host to agent."""
     # Create a new commit on the host
-    (git_push_ctx.host_dir / "new_file.txt").write_text("new content")
-    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
-    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    (git_push_ctx.local_dir / "new_file.txt").write_text("new content")
+    run_git_command(git_push_ctx.local_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.local_dir, "commit", "-m", "Add new file")
 
     result = push_git(
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
-        source=git_push_ctx.host_dir,
+        source=git_push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
 
@@ -528,17 +516,17 @@ def test_push_git_basic_push(git_push_ctx: PushTestContext) -> None:
     assert result.is_dry_run is False
 
 
-def test_push_git_dry_run(git_push_ctx: PushTestContext) -> None:
+def test_push_git_dry_run(git_push_ctx: SyncTestContext) -> None:
     """Test that dry_run=True does not actually push commits."""
     # Create a new commit on the host
-    (git_push_ctx.host_dir / "new_file.txt").write_text("new content")
-    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
-    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    (git_push_ctx.local_dir / "new_file.txt").write_text("new content")
+    run_git_command(git_push_ctx.local_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.local_dir, "commit", "-m", "Add new file")
 
     result = push_git(
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
-        source=git_push_ctx.host_dir,
+        source=git_push_ctx.local_dir,
         dry_run=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
@@ -548,12 +536,12 @@ def test_push_git_dry_run(git_push_ctx: PushTestContext) -> None:
     assert result.is_dry_run is True
 
 
-def test_push_git_with_stash_mode(git_push_ctx: PushTestContext) -> None:
+def test_push_git_with_stash_mode(git_push_ctx: SyncTestContext) -> None:
     """Test push_git with STASH mode for uncommitted changes on agent."""
     # Create a new commit on the host
-    (git_push_ctx.host_dir / "new_file.txt").write_text("new content from host")
-    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
-    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    (git_push_ctx.local_dir / "new_file.txt").write_text("new content from host")
+    run_git_command(git_push_ctx.local_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.local_dir, "commit", "-m", "Add new file")
 
     # Create uncommitted changes on the agent
     (git_push_ctx.agent_dir / "README.md").write_text("agent uncommitted changes")
@@ -562,7 +550,7 @@ def test_push_git_with_stash_mode(git_push_ctx: PushTestContext) -> None:
     push_git(
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
-        source=git_push_ctx.host_dir,
+        source=git_push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.STASH,
     )
 
@@ -572,12 +560,12 @@ def test_push_git_with_stash_mode(git_push_ctx: PushTestContext) -> None:
     assert (git_push_ctx.agent_dir / "new_file.txt").exists()
 
 
-def test_push_git_with_merge_mode(git_push_ctx: PushTestContext) -> None:
+def test_push_git_with_merge_mode(git_push_ctx: SyncTestContext) -> None:
     """Test push_git with MERGE mode restores uncommitted changes after push."""
     # Create a new commit on the host
-    (git_push_ctx.host_dir / "new_file.txt").write_text("new content from host")
-    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
-    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    (git_push_ctx.local_dir / "new_file.txt").write_text("new content from host")
+    run_git_command(git_push_ctx.local_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.local_dir, "commit", "-m", "Add new file")
 
     # Create an untracked file on the agent (different from host's new file)
     (git_push_ctx.agent_dir / "agent_local_file.txt").write_text("agent local content")
@@ -586,7 +574,7 @@ def test_push_git_with_merge_mode(git_push_ctx: PushTestContext) -> None:
     push_git(
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
-        source=git_push_ctx.host_dir,
+        source=git_push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.MERGE,
     )
 
@@ -598,19 +586,19 @@ def test_push_git_with_merge_mode(git_push_ctx: PushTestContext) -> None:
     assert (git_push_ctx.agent_dir / "agent_local_file.txt").read_text() == "agent local content"
 
 
-def test_push_git_does_not_modify_host_directory(git_push_ctx: PushTestContext) -> None:
+def test_push_git_does_not_modify_host_directory(git_push_ctx: SyncTestContext) -> None:
     """Test that push_git NEVER modifies the host (source) directory."""
     # Create a commit on the host
-    (git_push_ctx.host_dir / "new_file.txt").write_text("host content")
-    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
-    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    (git_push_ctx.local_dir / "new_file.txt").write_text("host content")
+    run_git_command(git_push_ctx.local_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.local_dir, "commit", "-m", "Add new file")
 
     # Record the state of the host directory
-    host_files_before = set(git_push_ctx.host_dir.iterdir())
-    host_contents_before = {f.name: f.read_text() for f in git_push_ctx.host_dir.iterdir() if f.is_file()}
+    host_files_before = set(git_push_ctx.local_dir.iterdir())
+    host_contents_before = {f.name: f.read_text() for f in git_push_ctx.local_dir.iterdir() if f.is_file()}
     host_commit_before = subprocess.run(
         ["git", "rev-parse", "HEAD"],
-        cwd=git_push_ctx.host_dir,
+        cwd=git_push_ctx.local_dir,
         capture_output=True,
         text=True,
     ).stdout.strip()
@@ -618,16 +606,16 @@ def test_push_git_does_not_modify_host_directory(git_push_ctx: PushTestContext) 
     push_git(
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
-        source=git_push_ctx.host_dir,
+        source=git_push_ctx.local_dir,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
 
     # Verify host directory is unchanged
-    host_files_after = set(git_push_ctx.host_dir.iterdir())
-    host_contents_after = {f.name: f.read_text() for f in git_push_ctx.host_dir.iterdir() if f.is_file()}
+    host_files_after = set(git_push_ctx.local_dir.iterdir())
+    host_contents_after = {f.name: f.read_text() for f in git_push_ctx.local_dir.iterdir() if f.is_file()}
     host_commit_after = subprocess.run(
         ["git", "rev-parse", "HEAD"],
-        cwd=git_push_ctx.host_dir,
+        cwd=git_push_ctx.local_dir,
         capture_output=True,
         text=True,
     ).stdout.strip()
@@ -642,17 +630,17 @@ def test_push_git_does_not_modify_host_directory(git_push_ctx: PushTestContext) 
 # =============================================================================
 
 
-def test_push_git_mirror_mode_dry_run(git_push_ctx: PushTestContext) -> None:
+def test_push_git_mirror_mode_dry_run(git_push_ctx: SyncTestContext) -> None:
     """Test that mirror mode with dry_run=True shows what would be pushed."""
     # Create a new commit on the host
-    (git_push_ctx.host_dir / "new_file.txt").write_text("new content")
-    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
-    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    (git_push_ctx.local_dir / "new_file.txt").write_text("new content")
+    run_git_command(git_push_ctx.local_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.local_dir, "commit", "-m", "Add new file")
 
     result = push_git(
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
-        source=git_push_ctx.host_dir,
+        source=git_push_ctx.local_dir,
         mirror=True,
         dry_run=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
@@ -665,17 +653,17 @@ def test_push_git_mirror_mode_dry_run(git_push_ctx: PushTestContext) -> None:
     assert result.commits_transferred >= 0
 
 
-def test_push_git_mirror_mode(git_push_ctx: PushTestContext) -> None:
+def test_push_git_mirror_mode(git_push_ctx: SyncTestContext) -> None:
     """Test that mirror mode pushes all refs to the agent repository."""
     # Create a new commit on the host
-    (git_push_ctx.host_dir / "new_file.txt").write_text("new content")
-    run_git_command(git_push_ctx.host_dir, "add", "new_file.txt")
-    run_git_command(git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    (git_push_ctx.local_dir / "new_file.txt").write_text("new content")
+    run_git_command(git_push_ctx.local_dir, "add", "new_file.txt")
+    run_git_command(git_push_ctx.local_dir, "commit", "-m", "Add new file")
 
     # Get host commit before push
     host_commit = subprocess.run(
         ["git", "rev-parse", "HEAD"],
-        cwd=git_push_ctx.host_dir,
+        cwd=git_push_ctx.local_dir,
         capture_output=True,
         text=True,
     ).stdout.strip()
@@ -683,7 +671,7 @@ def test_push_git_mirror_mode(git_push_ctx: PushTestContext) -> None:
     result = push_git(
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
-        source=git_push_ctx.host_dir,
+        source=git_push_ctx.local_dir,
         mirror=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
@@ -707,14 +695,14 @@ def test_push_git_mirror_mode(git_push_ctx: PushTestContext) -> None:
 
 
 @pytest.fixture
-def remote_push_ctx(tmp_path: Path) -> PushTestContext:
+def remote_push_ctx(tmp_path: Path) -> SyncTestContext:
     """Create a test context with a remote (non-local) host."""
-    host_dir = tmp_path / "host"
+    local_dir = tmp_path / "host"
     agent_dir = tmp_path / "agent"
-    host_dir.mkdir(parents=True)
+    local_dir.mkdir(parents=True)
     init_git_repo_with_config(agent_dir)
-    return PushTestContext(
-        host_dir=host_dir,
+    return SyncTestContext(
+        local_dir=local_dir,
         agent_dir=agent_dir,
         agent=cast(AgentInterface, FakeAgent(work_dir=agent_dir)),
         host=cast(OnlineHostInterface, FakeHost(is_local=False)),
@@ -722,15 +710,15 @@ def remote_push_ctx(tmp_path: Path) -> PushTestContext:
 
 
 @pytest.fixture
-def remote_git_push_ctx(tmp_path: Path) -> PushTestContext:
+def remote_git_push_ctx(tmp_path: Path) -> SyncTestContext:
     """Create a test context with remote host for git push testing."""
-    host_dir = tmp_path / "host"
+    local_dir = tmp_path / "host"
     agent_dir = tmp_path / "agent"
 
-    init_git_repo_with_config(host_dir)
+    init_git_repo_with_config(local_dir)
 
     subprocess.run(
-        ["git", "clone", str(host_dir), str(agent_dir)],
+        ["git", "clone", str(local_dir), str(agent_dir)],
         capture_output=True,
         text=True,
         check=True,
@@ -738,8 +726,8 @@ def remote_git_push_ctx(tmp_path: Path) -> PushTestContext:
     run_git_command(agent_dir, "config", "user.email", "test@example.com")
     run_git_command(agent_dir, "config", "user.name", "Test User")
 
-    return PushTestContext(
-        host_dir=host_dir,
+    return SyncTestContext(
+        local_dir=local_dir,
         agent_dir=agent_dir,
         agent=cast(AgentInterface, FakeAgent(work_dir=agent_dir)),
         host=cast(OnlineHostInterface, FakeHost(is_local=False)),
@@ -747,39 +735,39 @@ def remote_git_push_ctx(tmp_path: Path) -> PushTestContext:
 
 
 def test_push_files_with_remote_host_raises_not_implemented(
-    remote_push_ctx: PushTestContext,
+    remote_push_ctx: SyncTestContext,
 ) -> None:
     """Test that push_files raises NotImplementedError for remote hosts.
 
     File sync via rsync requires local paths on both sides. Remote host
     support will require SSH-based rsync or a different transfer mechanism.
     """
-    (remote_push_ctx.host_dir / "file.txt").write_text("host content")
+    (remote_push_ctx.local_dir / "file.txt").write_text("host content")
 
     with pytest.raises(NotImplementedError, match="remote hosts"):
         push_files(
             agent=remote_push_ctx.agent,
             host=remote_push_ctx.host,
-            source=remote_push_ctx.host_dir,
+            source=remote_push_ctx.local_dir,
             uncommitted_changes=UncommittedChangesMode.CLOBBER,
         )
 
 
 def test_push_git_with_remote_host_raises_not_implemented(
-    remote_git_push_ctx: PushTestContext,
+    remote_git_push_ctx: SyncTestContext,
 ) -> None:
     """Test that push_git raises NotImplementedError for remote hosts.
 
     Git push to remote hosts requires SSH URL support which is not implemented.
     """
-    (remote_git_push_ctx.host_dir / "new_file.txt").write_text("new content")
-    run_git_command(remote_git_push_ctx.host_dir, "add", "new_file.txt")
-    run_git_command(remote_git_push_ctx.host_dir, "commit", "-m", "Add new file")
+    (remote_git_push_ctx.local_dir / "new_file.txt").write_text("new content")
+    run_git_command(remote_git_push_ctx.local_dir, "add", "new_file.txt")
+    run_git_command(remote_git_push_ctx.local_dir, "commit", "-m", "Add new file")
 
     with pytest.raises(NotImplementedError, match="remote hosts is not yet implemented"):
         push_git(
             agent=remote_git_push_ctx.agent,
             host=remote_git_push_ctx.host,
-            source=remote_git_push_ctx.host_dir,
+            source=remote_git_push_ctx.local_dir,
             uncommitted_changes=UncommittedChangesMode.CLOBBER,
         )

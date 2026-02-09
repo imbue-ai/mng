@@ -56,7 +56,6 @@ def _emit_pair_started(
     data = {
         "source_path": str(source_path),
         "target_path": str(target_path),
-        "event": "pair_started",
     }
     match output_opts.output_format:
         case OutputFormat.JSON:
@@ -71,7 +70,7 @@ def _emit_pair_started(
 
 def _emit_pair_stopped(output_opts: OutputOptions) -> None:
     """Emit a message when pairing stops."""
-    data = {"event": "pair_stopped"}
+    data: dict[str, str] = {}
     match output_opts.output_format:
         case OutputFormat.JSON:
             emit_event("pair_stopped", data, OutputFormat.JSON)
@@ -168,10 +167,6 @@ def pair(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("Running pair command")
 
-    # Check for unsupported options
-    if opts.conflict == "ask":
-        raise NotImplementedError("--conflict=ask is not implemented yet")
-
     # Parse source specification
     agent_identifier: str | None = None
     source_subpath: str | None = opts.source_path
@@ -250,8 +245,8 @@ def pair(ctx: click.Context, **kwargs) -> None:
         with pair_files(
             agent=agent,
             host=host,
-            source_path=source_path,
-            target_path=target_path,
+            agent_path=source_path,
+            local_path=target_path,
             sync_direction=sync_direction,
             conflict_mode=conflict_mode,
             is_require_git=opts.require_git,

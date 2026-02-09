@@ -347,8 +347,11 @@ def sync_files(
         git_ctx = LocalGitContext()
 
     # Handle uncommitted changes in the destination
-    # Note: CLOBBER mode skips this check - it means "proceed with sync regardless of
-    # uncommitted changes" rather than "reset git state before sync"
+    # Note: CLOBBER mode skips this check entirely in the file sync path -- it means
+    # "proceed with rsync regardless of uncommitted changes" and overwrites files
+    # in-place. This differs from handle_uncommitted_changes with CLOBBER in the git
+    # sync path (_sync_git_pull / _sync_git_push), where CLOBBER calls git_reset_hard
+    # to discard changes before merging.
     did_stash = False
     if uncommitted_changes != UncommittedChangesMode.CLOBBER:
         did_stash = handle_uncommitted_changes(git_ctx, destination_path, uncommitted_changes)

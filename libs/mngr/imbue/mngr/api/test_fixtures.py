@@ -3,11 +3,13 @@
 import shlex
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mngr.api.sync import LocalGitContext
 from imbue.mngr.interfaces.data_types import CommandResult
 
 
@@ -39,3 +41,17 @@ class FakeHost(MutableModel):
             stderr=result.stderr,
             success=result.returncode == 0,
         )
+
+
+class SyncTestContext(FrozenModel):
+    """Shared test context for sync integration tests (pull, push, pair)."""
+
+    agent_dir: Path = Field(description="Agent working directory")
+    local_dir: Path = Field(description="Local directory")
+    agent: Any = Field(description="Test agent (FakeAgent)")
+    host: Any = Field(description="Test host (FakeHost)")
+
+
+def has_uncommitted_changes(path: Path) -> bool:
+    """Check for uncommitted changes using LocalGitContext."""
+    return LocalGitContext().has_uncommitted_changes(path)
