@@ -122,7 +122,7 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
     type=click.Choice(["newer", "source", "target", "ask"], case_sensitive=False),
     default="newer",
     show_default=True,
-    help="Conflict resolution mode (only matters for bidirectional sync). 'newer' uses whichever version the sync process learned about most recently (based on notification order, not filesystem timestamps, so clock skew between machines does not matter). 'source' and 'target' always prefer that side. 'ask' prompts interactively [future].",
+    help="Conflict resolution mode (only matters for bidirectional sync). 'newer' prefers the file with the more recent modification time (uses unison's -prefer newer). 'source' and 'target' always prefer that side. 'ask' prompts interactively [future].",
 )
 @optgroup.group("File Filtering")
 @optgroup.option(

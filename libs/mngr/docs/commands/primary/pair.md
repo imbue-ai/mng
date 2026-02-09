@@ -64,7 +64,7 @@ mngr pair [OPTIONS] [SOURCE]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--sync-direction` | choice (`both` &#x7C; `forward` &#x7C; `reverse`) | Sync direction: both (bidirectional), forward (source->target), reverse (target->source) | `both` |
-| `--conflict` | choice (`newer` &#x7C; `source` &#x7C; `target` &#x7C; `ask`) | Conflict resolution mode (only matters for bidirectional sync). 'newer' uses whichever version the sync process learned about most recently (based on notification order, not filesystem timestamps, so clock skew between machines does not matter). 'source' and 'target' always prefer that side. 'ask' prompts interactively [future]. | `newer` |
+| `--conflict` | choice (`newer` &#x7C; `source` &#x7C; `target` &#x7C; `ask`) | Conflict resolution mode (only matters for bidirectional sync). 'newer' prefers the file with the more recent modification time (uses unison's -prefer newer). 'source' and 'target' always prefer that side. 'ask' prompts interactively [future]. | `newer` |
 
 ## File Filtering
 
