@@ -160,14 +160,15 @@ def setup_test_mngr_env(
     # before we nuke our home directory, we need to load the right token from the real home directory
     modal_toml_path = Path(os.path.expanduser("~/.modal.toml"))
     if modal_toml_path.exists():
-        for key, value in toml.load(modal_toml_path).items():
+        for value in toml.load(modal_toml_path).values():
             if value.get("active", ""):
                 monkeypatch.setenv("MODAL_TOKEN_ID", value.get("token_id", ""))
                 monkeypatch.setenv("MODAL_TOKEN_SECRET", value.get("token_secret", ""))
+                break
     if not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"):
         # check if we have "release" mark enabled:
         if "release" in getattr(pytest, "current_test_marks", []):
-            raise RuntimeError(
+            raise Exception(
                 "No active Modal token found in ~/.modal.toml for release tests. Please ensure you have an active token configured or set the env vars"
             )
 
