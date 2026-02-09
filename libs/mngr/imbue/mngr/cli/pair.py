@@ -122,7 +122,7 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
     type=click.Choice(["newer", "source", "target", "ask"], case_sensitive=False),
     default="newer",
     show_default=True,
-    help="Conflict resolution mode (only matters for bidirectional sync)",
+    help="Conflict resolution mode (only matters for bidirectional sync). 'newer' uses whichever version the sync process learned about most recently (based on notification order, not filesystem timestamps, so clock skew between machines does not matter). 'source' and 'target' always prefer that side. 'ask' prompts interactively [future].",
 )
 @optgroup.group("File Filtering")
 @optgroup.option(
@@ -147,6 +147,9 @@ def pair(ctx: click.Context, **kwargs) -> None:
     state (branches and commits) before starting the continuous file sync.
 
     Press Ctrl+C to stop the sync.
+
+    During rapid concurrent edits, changes will be debounced to avoid partial
+    writes [future].
 
     \b
     Examples:
