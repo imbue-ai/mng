@@ -7,9 +7,8 @@ from imbue.mngr.api.pair import check_unison_installed
 from imbue.mngr.api.pair import determine_git_sync_actions
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
-from imbue.mngr.utils.testing import init_git_repo
+from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.mngr.utils.testing import run_git_command
-
 
 # =============================================================================
 # Test: check_unison_installed
@@ -175,7 +174,7 @@ def test_determine_git_sync_returns_none_when_only_source_is_git(tmp_path: Path)
     """Test that returns None when only source is a git repo."""
     source = tmp_path / "source"
     target = tmp_path / "target"
-    init_git_repo(source)
+    init_git_repo_with_config(source)
     target.mkdir()
 
     result = determine_git_sync_actions(source, target)
@@ -188,7 +187,7 @@ def test_determine_git_sync_returns_none_when_only_target_is_git(tmp_path: Path)
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()
-    init_git_repo(target)
+    init_git_repo_with_config(target)
 
     result = determine_git_sync_actions(source, target)
 
@@ -201,7 +200,7 @@ def test_determine_git_sync_returns_no_action_when_both_in_sync(tmp_path: Path) 
     target = tmp_path / "target"
 
     # Create source repo
-    init_git_repo(source)
+    init_git_repo_with_config(source)
 
     # Clone source to target (same commit)
     subprocess.run(
@@ -223,7 +222,7 @@ def test_determine_git_sync_detects_source_ahead(tmp_path: Path) -> None:
     target = tmp_path / "target"
 
     # Create source repo
-    init_git_repo(source)
+    init_git_repo_with_config(source)
 
     # Clone source to target
     subprocess.run(
@@ -250,7 +249,7 @@ def test_determine_git_sync_detects_target_ahead(tmp_path: Path) -> None:
     target = tmp_path / "target"
 
     # Create source repo
-    init_git_repo(source)
+    init_git_repo_with_config(source)
 
     # Clone source to target
     subprocess.run(
@@ -279,7 +278,7 @@ def test_determine_git_sync_detects_both_diverged(tmp_path: Path) -> None:
     target = tmp_path / "target"
 
     # Create source repo
-    init_git_repo(source)
+    init_git_repo_with_config(source)
 
     # Clone source to target
     subprocess.run(

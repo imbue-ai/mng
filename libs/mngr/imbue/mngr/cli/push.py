@@ -100,7 +100,7 @@ class PushCliOptions(CommonCliOptions):
     "--mirror",
     is_flag=True,
     default=False,
-    help="Use git push --mirror (dangerous: overwrites all refs in target). Only applies to git mode.",
+    help="Overwrite all refs (branches, tags) in the target to match the source (dangerous). Only applies to git mode. For local agents, uses fetch with forced ref updates since git push cannot update a checked-out branch in a worktree. For remote agents, uses git push --mirror [future].",
 )
 @optgroup.option(
     "--rsync-only",

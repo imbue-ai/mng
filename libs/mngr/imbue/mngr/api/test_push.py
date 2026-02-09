@@ -17,7 +17,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.testing import get_stash_count
-from imbue.mngr.utils.testing import init_git_repo
+from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.mngr.utils.testing import run_git_command
 
 
@@ -42,7 +42,7 @@ def push_ctx(tmp_path: Path) -> PushTestContext:
     host_dir = tmp_path / "host"
     agent_dir = tmp_path / "agent"
     host_dir.mkdir(parents=True)
-    init_git_repo(agent_dir)
+    init_git_repo_with_config(agent_dir)
     return PushTestContext(
         host_dir=host_dir,
         agent_dir=agent_dir,
@@ -484,7 +484,7 @@ def git_push_ctx(tmp_path: Path) -> PushTestContext:
     agent_dir = tmp_path / "agent"
 
     # Initialize host repo with a commit
-    init_git_repo(host_dir)
+    init_git_repo_with_config(host_dir)
 
     # Clone the host repo to create the agent repo (so they share history)
     subprocess.run(
@@ -716,7 +716,7 @@ def remote_push_ctx(tmp_path: Path) -> PushTestContext:
     host_dir = tmp_path / "host"
     agent_dir = tmp_path / "agent"
     host_dir.mkdir(parents=True)
-    init_git_repo(agent_dir)
+    init_git_repo_with_config(agent_dir)
     return PushTestContext(
         host_dir=host_dir,
         agent_dir=agent_dir,
@@ -731,7 +731,7 @@ def remote_git_push_ctx(tmp_path: Path) -> PushTestContext:
     host_dir = tmp_path / "host"
     agent_dir = tmp_path / "agent"
 
-    init_git_repo(host_dir)
+    init_git_repo_with_config(host_dir)
 
     subprocess.run(
         ["git", "clone", str(host_dir), str(agent_dir)],

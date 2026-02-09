@@ -181,7 +181,7 @@ def setup_test_mngr_env(
     # above, unison tries to create its config dir inside tmp_path, which
     # fails because the expected parent directories don't exist. The UNISON
     # env var overrides this to a path we control.
-    unison_dir = tmp_path / ".unison"
+    unison_dir = tmp_home_dir / ".unison"
     unison_dir.mkdir(exist_ok=True)
     monkeypatch.setenv("UNISON", str(unison_dir))
 

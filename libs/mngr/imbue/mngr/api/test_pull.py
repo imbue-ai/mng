@@ -19,7 +19,7 @@ from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.git_utils import get_current_branch
 from imbue.mngr.utils.testing import get_stash_count
-from imbue.mngr.utils.testing import init_git_repo
+from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.mngr.utils.testing import run_git_command
 
 
@@ -44,7 +44,7 @@ def pull_ctx(tmp_path: Path) -> PullTestContext:
     agent_dir = tmp_path / "agent"
     host_dir = tmp_path / "host"
     agent_dir.mkdir(parents=True)
-    init_git_repo(host_dir)
+    init_git_repo_with_config(host_dir)
     return PullTestContext(
         agent_dir=agent_dir,
         host_dir=host_dir,
@@ -498,7 +498,7 @@ def remote_pull_ctx(tmp_path: Path) -> PullTestContext:
     agent_dir = tmp_path / "agent"
     host_dir = tmp_path / "host"
     agent_dir.mkdir(parents=True)
-    init_git_repo(host_dir)
+    init_git_repo_with_config(host_dir)
     return PullTestContext(
         agent_dir=agent_dir,
         host_dir=host_dir,
@@ -517,7 +517,7 @@ def remote_git_pull_ctx(tmp_path: Path) -> PullTestContext:
     host_dir = tmp_path / "host"
 
     # Initialize agent repo (the source for pull)
-    init_git_repo(agent_dir)
+    init_git_repo_with_config(agent_dir)
 
     # Clone agent to create host (so they share history)
     subprocess.run(

@@ -24,7 +24,7 @@ from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.polling import wait_for
-from imbue.mngr.utils.testing import init_git_repo
+from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.mngr.utils.testing import run_git_command
 
 
@@ -44,7 +44,7 @@ def pair_ctx(tmp_path: Path) -> PairTestContext:
     target_dir = tmp_path / "target"
 
     # Initialize both as git repos with shared history
-    init_git_repo(source_dir)
+    init_git_repo_with_config(source_dir)
     subprocess.run(
         ["git", "clone", str(source_dir), str(target_dir)],
         capture_output=True,

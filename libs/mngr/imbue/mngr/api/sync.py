@@ -461,6 +461,10 @@ def _sync_git_push(
 
     try:
         if host.is_local:
+            # For local agents we use fetch+reset from the target side instead of
+            # git push. This avoids the "refusing to update checked out branch"
+            # error that occurs when pushing to a non-bare repo with the target
+            # branch checked out (receive.denyCurrentBranch).
             target_git_dir = str(destination_path)
 
             # Count commits that will be pushed
@@ -471,7 +475,7 @@ def _sync_git_push(
             )
 
             if mirror:
-                logger.debug("Performing mirror push to {}", target_git_dir)
+                logger.debug("Performing mirror fetch to {}", target_git_dir)
 
                 if dry_run:
                     logger.info(
@@ -481,17 +485,37 @@ def _sync_git_push(
                         target_branch,
                     )
                 else:
+                    # Fetch all refs from source into target.
+                    # --update-head-ok is needed because git otherwise refuses to
+                    # fetch into the currently checked-out branch.
                     result = subprocess.run(
-                        ["git", "-C", str(local_path), "push", "--mirror", target_git_dir],
+                        [
+                            "git",
+                            "-C",
+                            target_git_dir,
+                            "fetch",
+                            "--update-head-ok",
+                            str(local_path),
+                            "--force",
+                            "refs/*:refs/*",
+                        ],
                         capture_output=True,
                         text=True,
                     )
                     if result.returncode != 0:
                         raise GitSyncError(result.stderr)
 
+                    # Reset working tree to match
+                    reset_result = host.execute_command(
+                        f"git reset --hard {target_branch}",
+                        cwd=destination_path,
+                    )
+                    if not reset_result.success:
+                        raise GitSyncError(f"Failed to update working tree: {reset_result.stderr}")
+
                 commits_transferred = commits_to_push
             else:
-                logger.debug("Pushing branch {} to {}", source_branch, target_git_dir)
+                logger.debug("Fetching branch {} into {}", source_branch, target_git_dir)
 
                 if dry_run:
                     logger.info(
@@ -502,15 +526,15 @@ def _sync_git_push(
                     )
                     commits_transferred = commits_to_push
                 else:
-                    # Push directly to the agent's repository path (no temporary remote needed)
+                    # Fetch from source repo into the target, then reset to update working tree
                     result = subprocess.run(
                         [
                             "git",
                             "-C",
-                            str(local_path),
-                            "push",
                             target_git_dir,
-                            f"{source_branch}:{target_branch}",
+                            "fetch",
+                            str(local_path),
+                            f"{source_branch}",
                         ],
                         capture_output=True,
                         text=True,
@@ -518,9 +542,9 @@ def _sync_git_push(
                     if result.returncode != 0:
                         raise GitSyncError(result.stderr)
 
-                    # Update the working tree on the target
+                    # Reset the target branch to the fetched commit
                     reset_result = host.execute_command(
-                        f"git reset --hard {target_branch}",
+                        "git reset --hard FETCH_HEAD",
                         cwd=destination_path,
                     )
                     if not reset_result.success:

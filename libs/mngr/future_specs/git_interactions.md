@@ -9,9 +9,10 @@ How mngr handles git state during sync operations.
 
 ## Sync Modes
 
-- `--sync-mode state`: Only sync git state (refs, objects, etc.), not working tree files
-- `--sync-mode files`: Only sync working tree files, explicitly excluding `.git` directory contents (default, only mode currently implemented)
-- `--sync-mode full`: Sync both state and files
+- `--sync-mode files`: Only sync working tree files, explicitly excluding `.git` directory contents (default)
+- `--sync-mode git`: Sync git state (branches, commits) via fetch
+- `--sync-mode state` [future]: Only sync git state (refs, objects, etc.), not working tree files
+- `--sync-mode full` [future]: Sync both state and files
 
 Syncing files-only can cause git to see the working tree as "dirty" (this is expected behavior).
 
@@ -40,6 +41,18 @@ Conflicts are handled differently depending on when they occur:
   - `local`: Always prefer local version
   - `remote`: Always prefer remote version
   - `ask`: Prompt the user to resolve
+
+## Transport Mechanism
+
+Push and pull both use `git fetch` to transfer objects between repositories:
+
+- **Push (local agents)**: The target repo fetches from the source, then does `git reset --hard FETCH_HEAD` to update the working tree. This avoids `receive.denyCurrentBranch` errors that occur with `git push` when the target branch is checked out (which is always the case for local worktrees).
+- **Pull**: The local repo fetches from the agent, then merges `FETCH_HEAD` into the target branch.
+- **Push (remote agents)** [future]: Will likely use `git push` over SSH, where the checked-out branch problem can be handled server-side.
+
+### Mirror mode (`--mirror`)
+
+For local agents, `--mirror` fetches all refs (`refs/*:refs/*`) with `--force` and `--update-head-ok`, then resets the working tree. This overwrites all branches and tags in the target to match the source. Remote agent mirror support is not yet implemented [future]; it will likely use `git push --mirror`.
 
 ## Submodules
 
