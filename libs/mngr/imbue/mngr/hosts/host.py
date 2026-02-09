@@ -498,8 +498,6 @@ class Host(BaseHost, OnlineHostInterface):
 
         lock_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        start_time = time.time()
-
         lock_file = open(str(lock_file_path), "w")
         try:
             with log_span("acquiring host lock at {}", lock_file_path):

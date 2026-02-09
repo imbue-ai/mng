@@ -20,7 +20,7 @@ class _SampleFrozenModel(FrozenModel):
 
 
 class _SampleMutableModel(MutableModel):
-    """Test model for MutableModel.fields()."""
+    """Test model for MutableModel.field_ref()."""
 
     value: int = Field(description="An integer field")
     label: str | None = Field(default=None, description="An optional string field")
@@ -32,7 +32,7 @@ class _SampleMutableModel(MutableModel):
 def test_fields_proxy_returns_field_name_as_string() -> None:
     """Accessing a field on the proxy produces a string matching the field name."""
     model = _SampleFrozenModel(name="test", count=1)
-    proxy_field = model.fields().name
+    proxy_field = model.field_ref().name
 
     assert str(proxy_field) == "name"
 
@@ -41,7 +41,7 @@ def test_to_update_returns_field_name_and_value_pair() -> None:
     """to_update extracts the field name string and pairs it with the value."""
     model = _SampleFrozenModel(name="test", count=1)
 
-    result = to_update(model.fields().name, "new_name")
+    result = to_update(model.field_ref().name, "new_name")
 
     assert result == ("name", "new_name")
 
@@ -51,8 +51,8 @@ def test_to_update_dict_produces_dict_from_pairs() -> None:
     model = _SampleFrozenModel(name="test", count=1)
 
     result = to_update_dict(
-        to_update(model.fields().name, "updated"),
-        to_update(model.fields().count, 42),
+        to_update(model.field_ref().name, "updated"),
+        to_update(model.field_ref().count, 42),
     )
 
     assert result == {"name": "updated", "count": 42}
@@ -64,9 +64,9 @@ def test_model_copy_with_to_update_dict_produces_correct_copy() -> None:
 
     updated = original.model_copy(
         update=to_update_dict(
-            to_update(original.fields().name, "updated"),
-            to_update(original.fields().count, 99),
-            to_update(original.fields().label, None),
+            to_update(original.field_ref().name, "updated"),
+            to_update(original.field_ref().count, 99),
+            to_update(original.field_ref().label, None),
         )
     )
 
@@ -82,7 +82,7 @@ def test_model_copy_with_single_field_update() -> None:
 
     updated = original.model_copy(
         update=to_update_dict(
-            to_update(original.fields().count, 10),
+            to_update(original.field_ref().count, 10),
         )
     )
 
@@ -98,8 +98,8 @@ def test_fields_works_on_mutable_model() -> None:
 
     updated = original.model_copy(
         update=to_update_dict(
-            to_update(original.fields().value, 42),
-            to_update(original.fields().label, "new"),
+            to_update(original.field_ref().value, 42),
+            to_update(original.field_ref().label, "new"),
         )
     )
 

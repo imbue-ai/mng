@@ -15,6 +15,6 @@ class FrozenModel(BaseModel):
         arbitrary_types_allowed=False,
     )
 
-    def fields(self) -> Self:
+    def field_ref(self) -> Self:
         """Return a proxy for type-safe field references with to_update()."""
         return FieldProxy()  # type: ignore[return-value]
