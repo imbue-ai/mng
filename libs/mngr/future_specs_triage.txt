@@ -1,0 +1,173 @@
+Future Specs Triage
+===================
+
+Each file is categorized as:
+  DELETE  - completely captured by existing code and docs
+  DIGEST  - mostly implemented but has remaining differences worth capturing
+  LEAVE   - describes future work that has not been started
+
+
+--- DELETE (9 files) ---
+
+future_specs/host_class.md -> DELETE
+  The Host class is fully implemented in hosts/host.py (88KB). The spec's design
+  philosophy (thin pyinfra wrapper, three primitives, stateless, concrete class)
+  is accurately reflected in the code. No remaining gaps.
+
+future_specs/idle_detection.md -> DELETE
+  Core idle detection is fully implemented: activity_watcher.sh, activity file
+  format (JSON with mtime), activity sources (BOOT, CREATE, START, SSH, PROCESS,
+  AGENT, USER), tmux session monitoring, grace periods. The spec's [future] items
+  about web-based user activity tracking are covered by the plugin specs
+  (plugins/user_activity_tracking_via_web.md and
+  plugins/default_url_for_cli_agents_via_ttyd.md) which are kept as LEAVE.
+
+future_specs/host.md -> DELETE
+  The host data model is fully captured by CertifiedHostData (in
+  interfaces/data_types.py), the Host class (certified vs reported field access
+  via get_certified_data/get_reported_activity_time), and the user docs. All
+  certified fields (id, provider, name, tags, state, image, resources, boot_time,
+  idle config, activity_sources) and reported fields (activity times, lock state,
+  plugin state) are implemented.
+
+future_specs/agent.md -> DELETE
+  The agent data model is fully implemented in BaseAgent (33KB). Certified fields
+  (id, name, type, command, work_dir, permissions, create_time, start_on_boot)
+  and reported fields (url, start_time, status) are all present. The
+  MNGR_AGENT_STATE_DIR convention, tmux session naming, and certified/reported
+  distinction are all captured in code and docs.
+
+future_specs/config.md -> DELETE
+  The config system is fully implemented: MngrConfig with TOML, layered scoping
+  (user + project), provider instance configs, agent type definitions, command
+  defaults, environment variable support (MNGR_COMMANDS_*). The user docs cover
+  config command usage. All validation rules and the example TOML are reflected
+  in the implementation.
+
+future_specs/logging.md -> DELETE
+  Logging is fully implemented: loguru with custom BUILD level, console vs file
+  handlers, OutputFormat (HUMAN/JSON/JSONL), CLI flags (-q, -v, -vv,
+  --log-commands, --log-command-output, --log-env-vars), config (file_level,
+  console_level, log_dir, max_log_files, max_log_size_mb, is_logging_commands,
+  is_logging_command_output, is_logging_env_vars), log rotation, and
+  LoggingSuppressor. All items from the spec including the [future]-tagged env
+  var redaction have been implemented.
+
+future_specs/ssh_access.md -> DELETE
+  This is 3 lines noting that sshd runs inside hosts and all access is via SSH,
+  with per-host keys as [future]. The SSH provider implementation fully captures
+  this. The per-host keys item is minor and can be tracked elsewhere if needed.
+
+future_specs/out_of_scope.md -> DELETE
+  Design principles (no multi-user, no centralized state, no GUI) are embodied
+  in the codebase architecture. The stateless provider-based design, single-user
+  CLI tool nature, and absence of any GUI code make these constraints self-evident.
+
+future_specs/providers/modal.md -> DELETE
+  Modal provider is heavily implemented (98KB instance.py + 20KB backend.py).
+  Agent self-management via Modal function bridge is implemented. Snapshots
+  (on-demand and snapshot-on-idle) are implemented. The only [future] item is
+  periodic automatic snapshots, which is minor and can be tracked as a standalone
+  enhancement if desired.
+
+
+--- DIGEST (5 files) ---
+
+future_specs/error_handling.md -> DIGEST
+  The spec classifies errors as: TransientMngrError (retriable), PluginMngrError,
+  AgentMngrError, HostMngrError, FatalMngrError. The actual code uses a different
+  hierarchy: MngrError, HostError, AgentError, ProviderError, PluginMngrError,
+  ConfigError. TransientMngrError and FatalMngrError do not exist. The retry
+  behavior for transient errors is not implemented. The concept of retriable
+  transient errors vs fatal errors could become comments or design notes in
+  errors.py.
+
+future_specs/provisioning.md -> DIGEST
+  The core provisioning flow is implemented: on_before_provisioning(),
+  get_provision_file_transfers(), provision(), on_after_provisioning() all exist
+  in BaseAgent. File transfer with FileTransferSpec is implemented. Remaining
+  gaps: interactive mode detection for local hosts [future], configuration to
+  disable package checking/auto-install [future], and minimum version requirement
+  checking [future]. These could become comments or doc updates in the
+  provisioning code.
+
+future_specs/provider_instance.md -> DIGEST
+  The core ProviderInstance pattern is implemented (stateless, delegation-based,
+  connection info via provider-native mechanisms). Remaining [future] items:
+  build state tracking for failed hosts on local filesystem, fail-quickly for
+  offline providers, and host listing cache with destroyed host detection and
+  offline operation support. These are significant enough to warrant comments or
+  tracked issues.
+
+future_specs/plugins.md -> DIGEST
+  The plugin system (pluggy hooks, registry, CLI extension) is implemented.
+  Pre-create verification of credentials is partially implemented. Remaining
+  [future] items: plugin stacking and dependency ordering (an open question
+  about how plugins compose), and the reference to offline_mngr_state plugin
+  for offline access. The pyinfra provisioning guidance IS followed in practice.
+  The stacking/dependency question could become a comment in the hookspecs.
+
+future_specs/providers/remote.md -> DIGEST
+  The SSH provider handles remote host access and SSH key management. The spec's
+  heartbeat mechanism for detecting dead mngr processes (to prevent orphaned
+  remote hosts from running indefinitely) is NOT implemented. This is a safety
+  feature that should become a tracked issue or comment, since without it,
+  orphaned remote hosts could run indefinitely if the controlling process crashes.
+
+
+--- LEAVE (12 files) ---
+
+future_specs/future_work.md -> LEAVE
+  All items are unstarted: plugin discovery/search, multi-agent communication
+  (beyond mngr message), cost tracking per agent, git submodule support, and
+  scoped-down credentials for child agents.
+
+future_specs/git_interactions.md -> LEAVE
+  Only --sync-mode=files is implemented. The spec's main content -- git state
+  sync, pair mode (continuous bidirectional sync), conflict handling strategies
+  (--merge, --rebase, newer/local/remote/ask), and partial write debouncing --
+  is entirely unimplemented future work.
+
+future_specs/locking.md -> LEAVE
+  Basic file locking (fcntl, host_lock) exists, but the spec's main content is
+  about deployment locking coordination: a deploy_lock/ folder mechanism to
+  prevent idle shutdown during active deployments, crash recovery via timeout
+  fallback, and per-command locking requirements. None of this is implemented.
+
+future_specs/providers/docker.md -> LEAVE
+  The Docker provider has only a config class (590 bytes). The full backend
+  (container lifecycle, label-based metadata, host discovery, snapshots via
+  docker commit, self-management via PID 1) is entirely unimplemented.
+
+future_specs/plugins/ask.md -> LEAVE
+  The mngr ask command (chat-based CLI help) has no implementation.
+
+future_specs/plugins/offline_mngr_state.md -> LEAVE
+  The offline state backup plugin (periodic + on-shutdown state snapshots to
+  local directory or S3) has no implementation.
+
+future_specs/plugins/recursive_mngr.md -> LEAVE
+  Recursive agent creation (child agents with scoped credentials, orphan
+  handling, depth/children limits, lineage tracking) has no implementation.
+
+future_specs/plugins/default_url_for_cli_agents_via_ttyd.md -> LEAVE
+  The ttyd web terminal plugin (per-agent token auth, tmux attachment, URL
+  generation) has no implementation. User docs exist but are marked [future].
+
+future_specs/plugins/local_port_forwarding_via_frp_and_nginx.md -> LEAVE
+  The FRP+nginx port forwarding plugin (frps/frpc architecture, subdomain
+  routing, cookie/header auth, SSH tunnel management) has no implementation.
+  User docs exist but are marked [future].
+
+future_specs/plugins/github_auth.md -> LEAVE
+  GitHub auth plugin (credential provisioning for agents) has no implementation.
+  Just a short design note.
+
+future_specs/plugins/user_activity_tracking_via_web.md -> LEAVE
+  The web-based activity tracking plugin (JS injection via nginx, activity
+  endpoint, debounced reporting) has no implementation. User docs exist but
+  are marked [future].
+
+future_specs/plugins/git_status.md -> LEAVE
+  Git status plugin (with offline mode considerations) has no implementation.
+  Just a short design note.
