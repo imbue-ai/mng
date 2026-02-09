@@ -1,50 +1,40 @@
+import re
+
 from imbue.imbue_common.pure import pure
+
+# Patterns for --stats output lines
+_FILES_TRANSFERRED_RE = re.compile(r"Number of files transferred:\s+(\d+)")
+_TOTAL_TRANSFERRED_SIZE_RE = re.compile(r"Total transferred file size:\s+([\d,]+)")
 
 
 @pure
 def parse_rsync_output(
-    # stdout from rsync command
+    # stdout from rsync command (must be run with --stats)
     output: str,
     # Tuple of (files_transferred, bytes_transferred)
 ) -> tuple[int, int]:
-    """Parse rsync output to extract transfer statistics.
+    """Parse rsync --stats output to extract transfer statistics.
 
-    Parses the verbose output from rsync to count:
-    - Number of files transferred (from the file list)
-    - Bytes transferred (from the "sent X bytes" summary line)
+    Parses the structured stats block from rsync to extract:
+    - Number of files transferred
+    - Total transferred file size in bytes
 
     Returns a tuple of (files_transferred, bytes_transferred).
     """
     files_transferred = 0
     bytes_transferred = 0
 
-    lines = output.strip().split("\n")
-
-    # Count files from the output (non-empty, non-stat lines)
-    for line in lines:
+    for line in output.split("\n"):
         line = line.strip()
-        # Skip empty lines and stat summary lines
-        if not line:
+
+        match = _FILES_TRANSFERRED_RE.match(line)
+        if match:
+            files_transferred = int(match.group(1))
             continue
-        if line.startswith("sending incremental file list"):
+
+        match = _TOTAL_TRANSFERRED_SIZE_RE.match(line)
+        if match:
+            bytes_transferred = int(match.group(1).replace(",", ""))
             continue
-        if line.startswith("receiving incremental file list"):
-            continue
-        if line.startswith("sent "):
-            # Parse "sent X bytes  received Y bytes" line
-            parts = line.split()
-            for i, part in enumerate(parts):
-                if part == "bytes" and i > 0:
-                    try:
-                        bytes_transferred = int(parts[i - 1].replace(",", ""))
-                    except (ValueError, IndexError):
-                        pass
-                    break
-            continue
-        if line.startswith("total size"):
-            continue
-        # This is a file being transferred
-        if not line.startswith(" "):
-            files_transferred += 1
 
     return files_transferred, bytes_transferred

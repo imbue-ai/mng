@@ -352,7 +352,7 @@ def sync_files(
         did_stash = handle_uncommitted_changes(git_ctx, destination_path, uncommitted_changes)
 
     # Build rsync command
-    rsync_cmd = ["rsync", "-avz", "--progress", "--exclude=.git"]
+    rsync_cmd = ["rsync", "-avz", "--stats", "--exclude=.git"]
 
     if dry_run:
         rsync_cmd.append("--dry-run")

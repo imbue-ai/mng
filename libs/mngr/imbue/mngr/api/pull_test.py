@@ -21,8 +21,15 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.rsync_utils import parse_rsync_output
 
-# Standard rsync output used across tests
-RSYNC_SUCCESS_OUTPUT = "sending incremental file list\nsent 100 bytes  received 50 bytes\ntotal size is 1000"
+# Standard rsync --stats output used across tests
+RSYNC_SUCCESS_OUTPUT = (
+    "Number of files: 1\n"
+    "Number of files transferred: 1\n"
+    "Total file size: 100 B\n"
+    "Total transferred file size: 100 B\n"
+    "sent 100 bytes  received 50 bytes\n"
+    "total size is 100"
+)
 
 
 @pytest.fixture
@@ -78,14 +85,11 @@ def patch_has_uncommitted_changes(
 
 
 def test_parse_rsync_output_with_files() -> None:
-    """Test parsing rsync output with file transfers."""
-    output = """sending incremental file list
-file1.txt
-file2.py
-subdir/file3.md
-
-sent 1,234 bytes  received 567 bytes  1,801.00 bytes/sec
-total size is 5,678  speedup is 3.15
+    """Test parsing rsync --stats output with file transfers."""
+    output = """Number of files: 5
+Number of files transferred: 3
+Total file size: 5,678 B
+Total transferred file size: 1,234 B
 """
     files, bytes_transferred = parse_rsync_output(output)
     assert files == 3
@@ -93,26 +97,23 @@ total size is 5,678  speedup is 3.15
 
 
 def test_parse_rsync_output_empty() -> None:
-    """Test parsing rsync output with no files transferred."""
-    output = """sending incremental file list
-
-sent 100 bytes  received 50 bytes  150.00 bytes/sec
-total size is 1,000  speedup is 6.67
+    """Test parsing rsync --stats output with no files transferred."""
+    output = """Number of files: 10
+Number of files transferred: 0
+Total file size: 1,000 B
+Total transferred file size: 0 B
 """
     files, bytes_transferred = parse_rsync_output(output)
     assert files == 0
-    assert bytes_transferred == 100
+    assert bytes_transferred == 0
 
 
 def test_parse_rsync_output_dry_run() -> None:
-    """Test parsing rsync output in dry run mode."""
-    output = """sending incremental file list
-file1.txt
-file2.py
-file3.md
-
-sent 345 bytes  received 12 bytes  238.00 bytes/sec
-total size is 10,000  speedup is 28.01 (DRY RUN)
+    """Test parsing rsync --stats output in dry run mode."""
+    output = """Number of files: 5
+Number of files transferred: 3
+Total file size: 10,000 B
+Total transferred file size: 345 B
 """
     files, bytes_transferred = parse_rsync_output(output)
     assert files == 3
@@ -120,33 +121,15 @@ total size is 10,000  speedup is 28.01 (DRY RUN)
 
 
 def test_parse_rsync_output_large_numbers() -> None:
-    """Test parsing rsync output with large byte counts."""
-    output = """sending incremental file list
-large_file.bin
-
-sent 1,234,567,890 bytes  received 123 bytes  1,234,568,013.00 bytes/sec
-total size is 2,000,000,000  speedup is 1.62
+    """Test parsing rsync --stats output with large byte counts."""
+    output = """Number of files: 1
+Number of files transferred: 1
+Total file size: 2,000,000,000 B
+Total transferred file size: 1,234,567,890 B
 """
     files, bytes_transferred = parse_rsync_output(output)
     assert files == 1
     assert bytes_transferred == 1234567890
-
-
-def test_parse_rsync_output_with_subdirectory() -> None:
-    """Test parsing rsync output with subdirectories."""
-    output = """sending incremental file list
-src/
-src/main.py
-src/utils.py
-tests/
-tests/test_main.py
-
-sent 5,000 bytes  received 200 bytes  5,200.00 bytes/sec
-total size is 15,000  speedup is 2.88
-"""
-    files, bytes_transferred = parse_rsync_output(output)
-    assert files == 5
-    assert bytes_transferred == 5000
 
 
 def test_pull_result_model() -> None:
@@ -201,27 +184,14 @@ def test_pull_result_model_serialization() -> None:
     assert data["is_dry_run"] is False
 
 
-def test_parse_rsync_output_with_no_bytes_line() -> None:
-    """Test parsing rsync output when bytes line is missing."""
+def test_parse_rsync_output_with_no_stats_lines() -> None:
+    """Test parsing rsync output when stats lines are missing."""
     output = """sending incremental file list
 file1.txt
 file2.txt
 """
     files, bytes_transferred = parse_rsync_output(output)
-    assert files == 2
-    assert bytes_transferred == 0
-
-
-def test_parse_rsync_output_with_malformed_bytes() -> None:
-    """Test parsing rsync output with malformed bytes line."""
-    output = """sending incremental file list
-file1.txt
-
-sent abc bytes  received def bytes
-total size is 1,000
-"""
-    files, bytes_transferred = parse_rsync_output(output)
-    assert files == 1
+    assert files == 0
     assert bytes_transferred == 0
 
 
@@ -354,7 +324,7 @@ def test_pull_files_rsync_command_format(
     call_args = mock_host_success.execute_command.call_args[0][0]
     assert call_args.startswith("rsync")
     assert "-avz" in call_args
-    assert "--progress" in call_args
+    assert "--stats" in call_args
     assert "/src/" in call_args
     assert "/dst" in call_args
 
@@ -368,14 +338,12 @@ def test_pull_files_returns_correct_result_with_file_count(
     mock_host = MagicMock()
     mock_host.execute_command.return_value = MagicMock(
         success=True,
-        stdout="""sending incremental file list
-file1.txt
-file2.py
-file3.md
-
-sent 5,000 bytes  received 200 bytes  5,200.00 bytes/sec
-total size is 15,000  speedup is 2.88
-""",
+        stdout=(
+            "Number of files: 5\n"
+            "Number of files transferred: 3\n"
+            "Total file size: 15,000 B\n"
+            "Total transferred file size: 5,000 B\n"
+        ),
         stderr="",
     )
 
@@ -450,7 +418,7 @@ def test_pull_files_with_clobber_mode_ignores_uncommitted_changes(
             uncommitted_changes=UncommittedChangesMode.CLOBBER,
         )
 
-    assert result.files_transferred == 0
+    assert result.files_transferred == 1
     assert result.bytes_transferred == 100
 
 
@@ -477,7 +445,7 @@ def test_pull_files_default_uncommitted_changes_mode_is_fail(
         delete=False,
     )
 
-    assert result.files_transferred == 0
+    assert result.files_transferred == 1
 
 
 def test_pull_files_fail_mode_raises_when_uncommitted_changes_exist(
@@ -520,7 +488,7 @@ def test_pull_files_stash_mode_stashes_and_leaves_stashed(
 
     mock_stash.assert_called_once()
     mock_pop.assert_not_called()
-    assert result.files_transferred == 0
+    assert result.files_transferred == 1
 
 
 def test_pull_files_merge_mode_stashes_and_restores(
@@ -543,7 +511,7 @@ def test_pull_files_merge_mode_stashes_and_restores(
 
     mock_stash.assert_called_once()
     mock_pop.assert_called_once()
-    assert result.files_transferred == 0
+    assert result.files_transferred == 1
 
 
 def test_pull_files_merge_mode_restores_stash_on_rsync_failure(
