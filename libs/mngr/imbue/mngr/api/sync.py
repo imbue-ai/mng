@@ -14,6 +14,7 @@ from pydantic import PrivateAttr
 
 from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -335,12 +336,10 @@ def sync_files(
         source_path = local_path
         destination_path = actual_remote_path
         git_ctx: GitContextInterface = RemoteGitContext(host=host)
-        logger.debug("Pushing files from {} to {}", source_path, destination_path)
     else:
         source_path = actual_remote_path
         destination_path = local_path
         git_ctx = LocalGitContext()
-        logger.debug("Pulling files from {} to {}", source_path, destination_path)
 
     # Handle uncommitted changes in the destination
     # Note: CLOBBER mode skips this check - it means "proceed with sync regardless of
@@ -368,9 +367,11 @@ def sync_files(
 
     # Execute rsync
     cmd_str = shlex.join(rsync_cmd)
-    logger.debug("Running rsync command: {}", cmd_str)
+    direction = "Pushing" if mode == SyncMode.PUSH else "Pulling"
 
-    result: CommandResult = host.execute_command(cmd_str)
+    with log_span("{} files from {} to {}", direction, source_path, destination_path):
+        logger.debug("Running rsync command: {}", cmd_str)
+        result: CommandResult = host.execute_command(cmd_str)
 
     if not result.success:
         # If we stashed and rsync failed, try to restore the stash for merge mode
@@ -389,7 +390,7 @@ def sync_files(
         logger.debug("Restoring stashed changes")
         git_ctx.git_stash_pop(destination_path)
 
-    logger.info(
+    logger.debug(
         "Sync complete: {} files, {} bytes transferred{}",
         files_transferred,
         bytes_transferred,
@@ -478,7 +479,7 @@ def _sync_git_push(
                 logger.debug("Performing mirror fetch to {}", target_git_dir)
 
                 if dry_run:
-                    logger.info(
+                    logger.debug(
                         "Dry run: would push {} commits (mirror) from {} to {}",
                         commits_to_push,
                         source_branch,
@@ -518,7 +519,7 @@ def _sync_git_push(
                 logger.debug("Fetching branch {} into {}", source_branch, target_git_dir)
 
                 if dry_run:
-                    logger.info(
+                    logger.debug(
                         "Dry run: would push {} commits from {} into {}",
                         commits_to_push,
                         source_branch,
@@ -552,7 +553,7 @@ def _sync_git_push(
 
                     commits_transferred = commits_to_push
 
-                    logger.info(
+                    logger.debug(
                         "Git push complete: pushed {} commits from {} to {}",
                         commits_transferred,
                         source_branch,
@@ -651,7 +652,7 @@ def _sync_git_pull(
         )
 
         if dry_run:
-            logger.info(
+            logger.debug(
                 "Dry run: would merge {} commits from {} into {}",
                 commits_to_merge,
                 source_branch,
@@ -690,7 +691,7 @@ def _sync_git_pull(
             else:
                 commits_transferred = 0
 
-            logger.info(
+            logger.debug(
                 "Git pull complete: merged {} commits from {} into {}",
                 commits_transferred,
                 source_branch,
