@@ -2,6 +2,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from unittest.mock import Mock
+from unittest.mock import patch
 
 import pluggy
 import pytest
@@ -12,11 +13,15 @@ from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import NoCommandDefinedError
+from imbue.mngr.errors import PluginMngrError
+from imbue.mngr.interfaces.host import AgentGitOptions
+from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import WorkDirCopyMode
 
 
 def test_claude_agent_config_has_default_command() -> None:
@@ -486,3 +491,207 @@ def test_provision_skips_installation_check_when_disabled(mngr_test_prefix: str,
 
     # execute_command should not be called since check_installation=False
     mock_host.execute_command.assert_not_called()
+
+
+# =============================================================================
+# Trust Extension / Cleanup Tests
+# =============================================================================
+
+
+def make_mock_claude_agent(
+    work_dir: Path, mngr_test_prefix: str, temp_profile_dir: Path
+) -> tuple[ClaudeAgent, Mock, MngrContext]:
+    """Create a ClaudeAgent with a mock host for verifying method calls.
+
+    Use this when you only need to verify that methods are called with the right
+    arguments (via patch/Mock). Use make_claude_agent instead if you need real
+    filesystem operations.
+    """
+    pm = pluggy.PluginManager("mngr")
+    mock_host = Mock()
+    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
+    agent = ClaudeAgent.model_construct(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=work_dir,
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mngr_ctx=mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False),
+        host=mock_host,
+    )
+    return agent, mock_host, mngr_ctx
+
+
+def test_provision_extends_trust_for_worktree(mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path) -> None:
+    """provision should extend Claude trust when using worktree mode."""
+    work_dir = tmp_path / "worktree"
+    work_dir.mkdir()
+    source_git_dir = tmp_path / "source" / ".git"
+
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(work_dir, mngr_test_prefix, temp_profile_dir)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    )
+
+    with (
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
+            return_value=source_git_dir,
+        ) as mock_find,
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
+        ) as mock_extend,
+    ):
+        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    mock_find.assert_called_once_with(work_dir)
+    mock_extend.assert_called_once_with(source_git_dir.parent, work_dir)
+
+
+def test_provision_does_not_extend_trust_for_non_worktree(
+    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+) -> None:
+    """provision should not extend trust when not using worktree mode."""
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        git=AgentGitOptions(copy_mode=WorkDirCopyMode.COPY),
+    )
+
+    with patch(
+        "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
+    ) as mock_extend:
+        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    mock_extend.assert_not_called()
+
+
+def test_provision_does_not_extend_trust_when_no_git_options(
+    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+) -> None:
+    """provision should not extend trust when git options are None."""
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+    )
+
+    with patch(
+        "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
+    ) as mock_extend:
+        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    mock_extend.assert_not_called()
+
+
+def test_provision_skips_trust_when_git_common_dir_is_none(
+    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+) -> None:
+    """provision should skip trust extension when find_git_common_dir returns None."""
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    )
+
+    with (
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
+            return_value=None,
+        ),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
+        ) as mock_extend,
+    ):
+        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    mock_extend.assert_not_called()
+
+
+def test_on_before_provisioning_raises_for_worktree_on_remote_host(
+    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+) -> None:
+    """on_before_provisioning should raise PluginMngrError for worktree mode on remote hosts."""
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+    mock_host.is_local = False
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    )
+
+    with pytest.raises(PluginMngrError, match="Worktree mode is not supported on remote hosts"):
+        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+
+def test_on_before_provisioning_validates_trust_for_worktree(
+    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+) -> None:
+    """on_before_provisioning should validate source directory is trusted for worktree mode."""
+    source_git_dir = tmp_path / "source" / ".git"
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    )
+
+    with (
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
+            return_value=source_git_dir,
+        ),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.check_source_directory_trusted",
+        ) as mock_check,
+    ):
+        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    mock_check.assert_called_once_with(source_git_dir.parent)
+
+
+def test_on_before_provisioning_skips_trust_check_when_git_common_dir_is_none(
+    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+) -> None:
+    """on_before_provisioning should skip trust check when find_git_common_dir returns None."""
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    )
+
+    with (
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
+            return_value=None,
+        ),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.check_source_directory_trusted",
+        ) as mock_check,
+    ):
+        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    mock_check.assert_not_called()
+
+
+def test_on_destroy_removes_trust(mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path) -> None:
+    """on_destroy should call remove_claude_trust_for_path with the work_dir."""
+    work_dir = tmp_path / "worktree"
+    work_dir.mkdir()
+
+    agent, mock_host, _ = make_mock_claude_agent(work_dir, mngr_test_prefix, temp_profile_dir)
+
+    with patch(
+        "imbue.mngr.agents.default_plugins.claude_agent.remove_claude_trust_for_path",
+        return_value=True,
+    ) as mock_remove:
+        agent.on_destroy(mock_host)
+
+    mock_remove.assert_called_once_with(work_dir)

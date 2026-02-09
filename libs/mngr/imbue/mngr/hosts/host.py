@@ -1165,13 +1165,18 @@ class Host(BaseHost, OnlineHostInterface):
         source_path: Path,
         options: CreateAgentOptions,
     ) -> Path:
-        """Create a work_dir using git worktree."""
+        """Create a work_dir using git worktree.
+
+        Worktrees are placed at ~/.mngr/worktrees/<agent-id>/ by default.
+        """
         if host.id != self.id:
             raise UserInputError("Worktree mode only works when source is on the same host")
 
         agent_id = AgentId.generate()
-        work_dir_path = options.target_path
-        if work_dir_path is None:
+
+        if options.target_path is not None:
+            work_dir_path = options.target_path
+        else:
             work_dir_path = self.host_dir / "worktrees" / str(agent_id)
 
         branch_name = self._determine_branch_name(options)
@@ -1522,12 +1527,15 @@ class Host(BaseHost, OnlineHostInterface):
     def destroy_agent(self, agent: AgentInterface) -> None:
         """Destroy an agent and clean up its resources."""
         logger.debug("Destroying agent", agent_id=str(agent.id), agent_name=str(agent.name))
-        self.stop_agents([agent.id])
-        state_dir = self.host_dir / "agents" / str(agent.id)
-        self._remove_directory(state_dir)
+        try:
+            agent.on_destroy(self)
+        finally:
+            self.stop_agents([agent.id])
+            state_dir = self.host_dir / "agents" / str(agent.id)
+            self._remove_directory(state_dir)
 
-        # Remove persisted agent data from external storage (e.g., Modal volume)
-        self.provider_instance.remove_persisted_agent_data(self.id, agent.id)
+            # Remove persisted agent data from external storage (e.g., Modal volume)
+            self.provider_instance.remove_persisted_agent_data(self.id, agent.id)
 
     def _build_env_shell_command(self, agent: AgentInterface) -> str:
         """Build a shell command that sources env files and then execs bash.
@@ -1697,9 +1705,7 @@ class Host(BaseHost, OnlineHostInterface):
         current window. This is important for sessions with additional command windows.
         """
         all_pids: list[str] = []
-        result = self.execute_command(
-            f"tmux list-panes -s -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true"
-        )
+        result = self.execute_command(f"tmux list-panes -s -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true")
         if result.success and result.stdout.strip():
             for pane_pid in result.stdout.strip().split("\n"):
                 if pane_pid:
@@ -1881,10 +1887,7 @@ def _build_start_agent_shell_command(
     )
 
     # Set the session's default-command so new windows/panes inherit env vars
-    steps.append(
-        f"tmux set-option -t {shlex.quote(session_name)}"
-        f" default-command {shlex.quote(env_shell_cmd)}"
-    )
+    steps.append(f"tmux set-option -t {shlex.quote(session_name)} default-command {shlex.quote(env_shell_cmd)}")
 
     # Send the agent command as literal keys, then Enter to execute
     steps.append(f"tmux send-keys -t {shlex.quote(session_name)} -l {shlex.quote(command)}")
@@ -1901,10 +1904,7 @@ def _build_start_agent_shell_command(
             f" -c {shlex.quote(str(agent.work_dir))}"
             f" {shlex.quote(env_shell_cmd)}"
         )
-        steps.append(
-            f"tmux send-keys -t {shlex.quote(window_target)}"
-            f" -l {shlex.quote(str(named_cmd.command))}"
-        )
+        steps.append(f"tmux send-keys -t {shlex.quote(window_target)} -l {shlex.quote(str(named_cmd.command))}")
         steps.append(f"tmux send-keys -t {shlex.quote(window_target)} Enter")
 
     # If we created additional windows, select the first window (the main agent)
@@ -1936,8 +1936,8 @@ def _build_start_agent_shell_command(
         f"AGENT_ID={shlex.quote(str(agent.id))}; "
         'mkdir -p "$(dirname "$ACTIVITY_PATH")"; '
         'while kill -0 "$PANE_PID" 2>/dev/null; do '
-        'TIME_MS=$(($(date +%s) * 1000)); '
-        "printf '{\\n  \"time\": %d,\\n  \"pane_pid\": %s,\\n  \"agent_id\": \"%s\"\\n}\\n'"
+        "TIME_MS=$(($(date +%s) * 1000)); "
+        'printf \'{\\n  "time": %d,\\n  "pane_pid": %s,\\n  "agent_id": "%s"\\n}\\n\''
         ' "$TIME_MS" "$PANE_PID" "$AGENT_ID" > "$ACTIVITY_PATH"; '
         "sleep 5; "
         "done"

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from imbue.mngr.utils.git_utils import _parse_project_name_from_url
 from imbue.mngr.utils.git_utils import derive_project_name_from_path
+from imbue.mngr.utils.git_utils import find_git_common_dir
 from imbue.mngr.utils.git_utils import find_git_worktree_root
 
 
@@ -137,3 +138,52 @@ def test_find_git_worktree_root_returns_root_when_in_git(tmp_path: Path) -> None
 
     result = find_git_worktree_root(subdir)
     assert result == git_dir
+
+
+def test_find_git_common_dir_returns_none_when_not_in_git(tmp_path: Path) -> None:
+    """Test that find_git_common_dir returns None when not in a git repo."""
+    non_git_dir = tmp_path / "not-a-repo"
+    non_git_dir.mkdir()
+
+    result = find_git_common_dir(non_git_dir)
+    assert result is None
+
+
+def test_find_git_common_dir_returns_git_dir_for_regular_repo(tmp_path: Path) -> None:
+    """Test that find_git_common_dir returns .git for a regular repository."""
+    git_dir = tmp_path / "my-repo"
+    git_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=git_dir, check=True, capture_output=True)
+
+    result = find_git_common_dir(git_dir)
+    assert result is not None
+    assert result == git_dir / ".git"
+
+
+def test_find_git_common_dir_returns_main_git_from_worktree(tmp_path: Path, temp_git_repo: Path) -> None:
+    """Test that find_git_common_dir returns main repo's .git from a worktree."""
+    worktree_path = tmp_path / "worktree"
+    subprocess.run(
+        ["git", "worktree", "add", str(worktree_path), "-b", "test-branch"],
+        cwd=temp_git_repo,
+        check=True,
+        capture_output=True,
+    )
+
+    result = find_git_common_dir(worktree_path)
+    assert result is not None
+    assert result == temp_git_repo / ".git"
+
+
+def test_find_git_common_dir_from_subdirectory(tmp_path: Path) -> None:
+    """Test that find_git_common_dir works from a subdirectory."""
+    git_dir = tmp_path / "my-repo"
+    git_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=git_dir, check=True, capture_output=True)
+
+    subdir = git_dir / "some" / "nested" / "path"
+    subdir.mkdir(parents=True)
+
+    result = find_git_common_dir(subdir)
+    assert result is not None
+    assert result == git_dir / ".git"
