@@ -64,7 +64,7 @@ def to_update(field: _T, value: _T) -> tuple[str, Any]:
     """Create a type-safe (field_name, value) pair for model_copy updates.
 
     The type checker infers _T from the field proxy (which appears as the field's
-    declared type due to fields() returning Self), then checks that value matches.
+    declared type due to field_ref() returning Self), then checks that value matches.
     At runtime, field is a FieldProxy whose str() gives the field name.
     """
     return (str(field), value)
