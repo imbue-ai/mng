@@ -298,6 +298,8 @@ Code that fails silently is code that ignores errors without reporting them.
 
 **Examples:**
 - The code indiscriminately captures exceptions of all types (e.g. Exception) and continues execution without taking any action to handle the error
+- Overly broad "except" clauses that catch many different types of errors and simply continue execution (rather than raising it so that invalid states are not silently ignored)
+- Any "except" clause that does *not* log the error (at least at "trace" level) and/or report it to an error tracking system (e.g. Sentry)
 - The return value of a function that returns an error value in case of a failure is not checked by the caller
 
 **Exceptions:**
