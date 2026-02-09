@@ -49,6 +49,8 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.model_update import to_update_dict
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import HostNotFoundError
@@ -613,7 +615,11 @@ class ModalProviderInstance(BaseProviderInstance):
             host_record = self._read_host_record(host_id, use_cache=False)
             if host_record is None:
                 raise Exception(f"Host record not found on volume for {host_id}")
-            updated_host_record = host_record.model_copy(update={"certified_host_data": certified_data})
+            updated_host_record = host_record.model_copy(
+                update=to_update_dict(
+                    to_update(host_record.field_ref().certified_host_data, certified_data),
+                )
+            )
             self._write_host_record(updated_host_record)
 
     def _build_modal_image(
@@ -1477,9 +1483,17 @@ log "=== Shutdown script completed ==="
         host_record = self._read_host_record(host_id, use_cache=False)
         if host_record is not None:
             updated_certified_data = host_record.certified_host_data.model_copy(
-                update={"stop_reason": HostState.STOPPED.value}
+                update=to_update_dict(
+                    to_update(host_record.certified_host_data.field_ref().stop_reason, HostState.STOPPED.value),
+                )
             )
-            self._write_host_record(host_record.model_copy(update={"certified_host_data": updated_certified_data}))
+            self._write_host_record(
+                host_record.model_copy(
+                    update=to_update_dict(
+                        to_update(host_record.field_ref().certified_host_data, updated_certified_data),
+                    )
+                )
+            )
 
         # Remove from all caches since the sandbox is now terminated
         # Read host record to get the name for cache cleanup (re-read in case it was just updated)
@@ -1925,7 +1939,11 @@ log "=== Shutdown script completed ==="
 
         # Update host record with new snapshot and write to volume
         updated_certified_data = host_record.certified_host_data.model_copy(
-            update={"snapshots": list(host_record.snapshots) + [new_snapshot]}
+            update=to_update_dict(
+                to_update(
+                    host_record.certified_host_data.field_ref().snapshots, list(host_record.snapshots) + [new_snapshot]
+                ),
+            )
         )
         self.get_host(host_id).set_certified_data(updated_certified_data)
         logger.debug(
@@ -2042,7 +2060,9 @@ log "=== Shutdown script completed ==="
 
             # Update host record on volume
             updated_certified_data = host_record.certified_host_data.model_copy(
-                update={"snapshots": updated_snapshots}
+                update=to_update_dict(
+                    to_update(host_record.certified_host_data.field_ref().snapshots, updated_snapshots),
+                )
             )
             self.get_host(host_id).set_certified_data(updated_certified_data)
 
@@ -2116,7 +2136,12 @@ log "=== Shutdown script completed ==="
 
         # Update volume record
         host_obj = self.get_host(host_id)
-        updated_certified_data = host_obj.get_certified_data().model_copy(update={"user_tags": dict(tags)})
+        certified_data = host_obj.get_certified_data()
+        updated_certified_data = certified_data.model_copy(
+            update=to_update_dict(
+                to_update(certified_data.field_ref().user_tags, dict(tags)),
+            )
+        )
         host_obj.set_certified_data(updated_certified_data)
 
     def add_tags_to_host(
@@ -2144,7 +2169,11 @@ log "=== Shutdown script completed ==="
         certified_data = host_obj.get_certified_data()
         merged_tags = dict(certified_data.user_tags)
         merged_tags.update(tags)
-        updated_certified_data = certified_data.model_copy(update={"user_tags": merged_tags})
+        updated_certified_data = certified_data.model_copy(
+            update=to_update_dict(
+                to_update(certified_data.field_ref().user_tags, merged_tags),
+            )
+        )
         host_obj.set_certified_data(updated_certified_data)
 
     def remove_tags_from_host(
@@ -2173,7 +2202,11 @@ log "=== Shutdown script completed ==="
         host_obj = self.get_host(host_id)
         certified_data = host_obj.get_certified_data()
         updated_tags = {k: v for k, v in certified_data.user_tags.items() if k not in keys}
-        updated_certified_data = certified_data.model_copy(update={"user_tags": updated_tags})
+        updated_certified_data = certified_data.model_copy(
+            update=to_update_dict(
+                to_update(certified_data.field_ref().user_tags, updated_tags),
+            )
+        )
         host_obj.set_certified_data(updated_certified_data)
 
     def rename_host(
@@ -2196,7 +2229,12 @@ log "=== Shutdown script completed ==="
 
         # Update volume record
         host_obj = self.get_host(host_id)
-        updated_certified_data = host_obj.get_certified_data().model_copy(update={"host_name": str(name)})
+        certified_data = host_obj.get_certified_data()
+        updated_certified_data = certified_data.model_copy(
+            update=to_update_dict(
+                to_update(certified_data.field_ref().host_name, str(name)),
+            )
+        )
         host_obj.set_certified_data(updated_certified_data)
 
         return host_obj
