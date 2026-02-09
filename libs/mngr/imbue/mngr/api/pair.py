@@ -199,8 +199,8 @@ class UnisonSyncer(MutableModel):
 
 
 def check_unison_installed() -> bool:
-    """Check if unison is installed and available in PATH."""
-    return shutil.which("unison") is not None
+    """Check if unison and unison-fsmonitor are available in PATH."""
+    return shutil.which("unison") is not None and shutil.which("unison-fsmonitor") is not None
 
 
 def _get_commit_hash(path: Path) -> str | None:

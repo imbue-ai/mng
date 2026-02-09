@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from imbue.mngr.errors import MngrError
 from imbue.mngr.utils.testing import get_short_random_string
 from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.mngr.utils.testing import run_git_command
@@ -122,7 +123,7 @@ def _get_agent_work_dir(repo_path: Path, agent_name: str) -> Path:
         for line in lines[1:]:
             if line.startswith("branch ") and agent_name in line:
                 return Path(worktree_path)
-    raise ValueError(f"Could not find worktree for agent {agent_name}")
+    raise MngrError(f"Could not find worktree for agent {agent_name}")
 
 
 # =============================================================================

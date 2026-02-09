@@ -336,7 +336,8 @@ class UnisonNotInstalledError(MngrError):
     """Raised when unison is not installed but is required for pair mode."""
 
     user_help_text = (
-        "Install unison to use the pair command. On macOS: brew install unison. "
+        "Install unison to use the pair command. "
+        "On macOS: brew install unison && brew install autozimu/formulas/unison-fsmonitor. "
         "On Ubuntu/Debian: sudo apt-get install unison. "
         "On other systems, see: https://www.cis.upenn.edu/~bcpierce/unison/"
     )
