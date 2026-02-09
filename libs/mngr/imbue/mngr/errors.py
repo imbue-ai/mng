@@ -2,7 +2,6 @@ from pathlib import Path
 
 from click import ClickException
 
-from imbue.mngr.cli.output_helpers import format_mngr_error_for_cli
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -14,6 +13,18 @@ from imbue.mngr.primitives import SnapshotId
 
 class BaseMngrError(Exception):
     """Base exception for all mngr errors."""
+
+
+def format_mngr_error_for_cli(error: Exception, user_help_text: str | None) -> str:
+    """Format an error for display in the CLI.
+
+    Produces a user-friendly error message without a stack trace.
+    If the error has user_help_text, it is appended on a new line after the error message.
+    """
+    if user_help_text:
+        return str(error) + "  [" + user_help_text + "]"
+    else:
+        return str(error)
 
 
 class MngrError(ClickException, BaseMngrError):

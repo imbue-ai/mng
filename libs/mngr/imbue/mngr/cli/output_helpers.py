@@ -5,6 +5,9 @@ from typing import assert_never
 
 from loguru import logger
 
+from imbue.mngr.api.sync import SyncFilesResult
+from imbue.mngr.api.sync import SyncGitResult
+from imbue.mngr.api.sync import SyncMode
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
@@ -107,12 +110,10 @@ def emit_final_json(data: dict[str, Any]) -> None:
 
 
 def output_sync_files_result(
-    # result is SyncFilesResult; typed as Any to avoid circular imports
-    # (sync -> errors -> output_helpers)
-    result: Any,
+    result: SyncFilesResult,
     output_format: OutputFormat,
 ) -> None:
-    """Output a file sync result (SyncFilesResult) in the appropriate format.
+    """Output a file sync result in the appropriate format.
 
     Works for both push and pull operations, using result.mode to determine
     the event name and human-readable message.
@@ -124,9 +125,7 @@ def output_sync_files_result(
         "destination_path": str(result.destination_path),
         "is_dry_run": result.is_dry_run,
     }
-    # SyncMode is a UpperCaseStrEnum, so we can compare directly with string values
-    # to avoid circular imports (sync -> errors -> output_helpers)
-    mode_label = "Push" if result.mode == "PUSH" else "Pull"
+    mode_label = "Push" if result.mode == SyncMode.PUSH else "Pull"
     event_name = f"{mode_label.lower()}_complete"
 
     match output_format:
@@ -149,12 +148,10 @@ def output_sync_files_result(
 
 
 def output_sync_git_result(
-    # result is SyncGitResult; typed as Any to avoid circular imports
-    # (sync -> errors -> output_helpers)
-    result: Any,
+    result: SyncGitResult,
     output_format: OutputFormat,
 ) -> None:
-    """Output a git sync result (SyncGitResult) in the appropriate format.
+    """Output a git sync result in the appropriate format.
 
     Works for both push and pull operations, using result.mode to determine
     the event name and human-readable message.
@@ -167,9 +164,7 @@ def output_sync_git_result(
         "is_dry_run": result.is_dry_run,
         "commits_transferred": result.commits_transferred,
     }
-    # SyncMode is a UpperCaseStrEnum, so we can compare directly with string values
-    # to avoid circular imports (sync -> errors -> output_helpers)
-    is_push = result.mode == "PUSH"
+    is_push = result.mode == SyncMode.PUSH
     event_name = "push_git_complete" if is_push else "pull_git_complete"
     verb = "push" if is_push else "merge"
     verb_past = "pushed" if is_push else "merged"
@@ -202,15 +197,3 @@ def output_sync_git_result(
                 )
         case _ as unreachable:
             assert_never(unreachable)
-
-
-def format_mngr_error_for_cli(error: Exception, user_help_text: str | None) -> str:
-    """Format an error for display in the CLI.
-
-    Produces a user-friendly error message without a stack trace.
-    If the error has user_help_text, it is appended on a new line after the error message.
-    """
-    if user_help_text:
-        return str(error) + "  [" + user_help_text + "]"
-    else:
-        return str(error)
