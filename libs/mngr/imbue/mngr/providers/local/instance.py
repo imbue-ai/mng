@@ -183,7 +183,6 @@ class LocalProviderInstance(BaseProviderInstance):
         """
         with log_span("Creating local host (provider={})", self.name):
             host = self._create_host(name, tags)
-        logger.trace("Local host created: id={}", host.id)
 
         # FIXME: should probably remove this--there is no boot time for local host
         #  (there's another instance below, remove that as well)

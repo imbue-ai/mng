@@ -321,8 +321,6 @@ class BaseAgent(AgentInterface):
             else:
                 self._send_message_simple(session_name, message)
 
-        logger.trace("Message sent to agent {}", self.name)
-
     def uses_marker_based_send_message(self) -> bool:
         """Return True to use marker-based synchronization for send_message.
 

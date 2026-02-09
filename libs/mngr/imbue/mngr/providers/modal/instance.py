@@ -458,6 +458,10 @@ class ModalProviderInstance(BaseProviderInstance):
         # first delete all agent records for this host
         host_dir = f"/{host_id}"
         try:
+            # FIXME: volume.listdir occasionally raises this:
+            #     modal.exception.InternalError: could not start volume metadata engine
+            #  we should replace all direct calls with a function that instead uses tenacity to retry this a few times (up to 3 tries, up to 5 seconds total wait) in case it is transient
+            #  (eg, both here and the other calls in this file)
             entries = list(volume.listdir(host_dir))
         except (NotFoundError, FileNotFoundError):
             pass
@@ -611,7 +615,6 @@ class ModalProviderInstance(BaseProviderInstance):
                 raise Exception(f"Host record not found on volume for {host_id}")
             updated_host_record = host_record.model_copy(update={"certified_host_data": certified_data})
             self._write_host_record(updated_host_record)
-        logger.trace("Updated certified host data on volume for {}", host_id)
 
     def _build_modal_image(
         self,

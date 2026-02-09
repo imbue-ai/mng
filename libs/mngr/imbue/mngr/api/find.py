@@ -202,7 +202,7 @@ def resolve_source_location(
     # Parse the source string into components
     with log_span("Parsing source location"):
         parsed = parse_source_string(source, source_agent, source_host, source_path)
-    logger.trace("Parsed source: agent={} host={} path={}", parsed.agent, parsed.host, parsed.path)
+        logger.trace("Parsed source: agent={} host={} path={}", parsed.agent, parsed.host, parsed.path)
 
     # Resolve host and agent references from the parsed components
     all_hosts = list(agents_by_host.keys())
@@ -224,7 +224,6 @@ def resolve_source_location(
         else:
             provider = get_provider_instance(resolved_host.provider_name, mngr_ctx)
             host_interface = provider.get_host(resolved_host.host_id)
-    logger.trace("Resolved to host id={}", host_interface.id)
 
     # Ensure host is online for file operations
     if not isinstance(host_interface, OnlineHostInterface):
