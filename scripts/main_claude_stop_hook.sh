@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+# Read hook input JSON from stdin (must be done before anything else consumes stdin)
+HOOK_INPUT=$(cat 2>/dev/null || echo '{}')
+
 # Remove the active session marker file on exit (regardless of success/failure)
 cleanup_active_file() {
     rm -f .claude/active
@@ -37,21 +40,14 @@ echo $MAIN_CLAUDE_SESSION_ID > .claude/sessionid
 # ensure the folder exists
 mkdir -p .claude
 
-# FIXME: only do this next line IF we're sent "stop_hook_active=True" in the json that is sent to the stdin of this script
-#  This script is sent some JSON on stdin that looks like this:
-#  {
-#    "session_id": "abc123",
-#    "transcript_path": "~/.claude/projects/.../00893aaf-19fa-41d2-8238-13269b9b3ca0.jsonl",
-#    "cwd": "/Users/...",
-#    "permission_mode": "default",
-#    "hook_event_name": "Stop",
-#    "stop_hook_active": true
-#  }
-#  We only need to add to reviewed_commits if stop_hook_active is true
-#  This is important to check for because otherwise subagents (launched by claude itself) that stop after the main agent will cause the stop hook to re-run, and make it look as though we should be stopping when, in fact, we should not.
-
-# Track the commit hash we're reviewing (to detect stuck agents)
-( git rev-parse HEAD || echo "conflict" ) >> .claude/reviewed_commits
+# Only track the commit hash if this is the main agent stopping (stop_hook_active=true).
+# Subagents (launched by claude itself) also trigger the stop hook, and we must not
+# append to reviewed_commits for those, otherwise it looks like the main agent stopped
+# again and can falsely trigger the "stuck agent" detection.
+STOP_HOOK_ACTIVE=$(echo "$HOOK_INPUT" | jq -r '.stop_hook_active // false')
+if [[ "$STOP_HOOK_ACTIVE" == "true" ]]; then
+    ( git rev-parse HEAD || echo "conflict" ) >> .claude/reviewed_commits
+fi
 
 # Check if we've reviewed the same commit 3 times in a row (agent is stuck)
 if [[ -f .claude/reviewed_commits ]]; then
