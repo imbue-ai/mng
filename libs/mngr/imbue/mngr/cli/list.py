@@ -24,6 +24,7 @@ from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
@@ -72,12 +73,12 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--running",
     is_flag=True,
-    help="Show only running agents (alias for --include 'state == \"running\"')",
+    help="Show only running agents (alias for --include 'state == \"RUNNING\"')",
 )
 @optgroup.option(
     "--stopped",
     is_flag=True,
-    help="Show only stopped agents (alias for --include 'state == \"stopped\"')",
+    help="Show only stopped agents (alias for --include 'state == \"STOPPED\"')",
 )
 @optgroup.option(
     "--local",
@@ -200,14 +201,14 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             combined_filter = " || ".join(ref_filters)
             include_filters.append(combined_filter)
 
-    # --running: alias for --include 'state == "running"'
-    # --stopped: alias for --include 'state == "stopped"'
+    # --running: alias for --include 'state == "RUNNING"'
+    # --stopped: alias for --include 'state == "STOPPED"'
     # --local: alias for --include 'host.provider == "local"'
     # --remote: alias for --exclude 'host.provider == "local"'
     if opts.running:
-        include_filters.append('state == "running"')
+        include_filters.append(f'state == "{AgentLifecycleState.RUNNING.value}"')
     if opts.stopped:
-        include_filters.append('state == "stopped"')
+        include_filters.append(f'state == "{AgentLifecycleState.STOPPED.value}"')
     if opts.local:
         include_filters.append('host.provider == "local"')
 
@@ -385,14 +386,14 @@ def _emit_jsonl_error(error: ErrorInfo) -> None:
 def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None) -> None:
     """Emit human-readable table output with optional field selection.
 
-    If fields is None, uses default fields (name, state, status, host, provider).
+    If fields is None, uses default fields (name, host, provider, host.state, state, status).
     """
     if not agents:
         return
 
     # Default fields if none specified
     if fields is None:
-        fields = ["name", "host", "provider", "combined_state", "status"]
+        fields = ["name", "host", "provider", "host.state", "state", "status"]
 
     # Build table data dynamically based on requested fields
     headers = []
@@ -453,7 +454,7 @@ def _format_value_as_string(value: Any) -> str:
     if value is None:
         return ""
     elif isinstance(value, Enum):
-        return str(value.value).lower()
+        return str(value.value)
     elif hasattr(value, "line"):
         # For AgentStatus objects which have a 'line' attribute
         return str(value.line)
@@ -616,13 +617,13 @@ All agent fields from the "Available Fields" section can be used in filter expre
 
 **Simple equality filters:**
 - `name == "my-agent"` - Match agent by exact name
-- `state == "running"` - Match running agents
+- `state == "RUNNING"` - Match running agents
 - `host.provider == "docker"` - Match agents on Docker hosts
 - `type == "claude"` - Match agents of type "claude"
 
 **Compound expressions:**
-- `state == "running" && host.provider == "modal"` - Running agents on Modal
-- `state == "stopped" || state == "failed"` - Stopped or failed agents
+- `state == "RUNNING" && host.provider == "modal"` - Running agents on Modal
+- `state == "STOPPED" || state == "FAILED"` - Stopped or failed agents
 - `host.provider == "docker" && name.startsWith("test-")` - Docker agents with names starting with "test-"
 
 **String operations:**
@@ -663,7 +664,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `idle_seconds` - How long since the agent was active
 - `idle_mode` - Idle detection mode
 - `start_on_boot` - Whether the agent is set to start on host boot
-- `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
+- `state` - Agent lifecycle state (RUNNING, STOPPED, WAITING, REPLACED, DONE)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):
@@ -671,7 +672,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `host.id` - Host ID
 - `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
 - `host.provider` - Host provider (local, docker, modal, etc.)
-- `host.state` - Current host state (running, stopped, building, etc.)
+- `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host
 - `host.boot_time` - When the host was last started

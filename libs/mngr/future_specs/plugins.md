@@ -1,12 +1,12 @@
 ## Plugin Execution and Ordering
 
-During create, plugins must verify that they have enough auth/credential information in order for it to be worth making the host *before* we make the host
+During create, plugins must verify that they have enough auth/credential information [future: incomplete for Claude agent] in order for it to be worth making the host *before* we make the host
 
 They should *not* verify that the information is correct--simply that it is present in the correct form.
 
 (obviously agents can end up becoming unauthorized later, in which case plugins should generally be presenting errors in their state and whenever a command is run that uses the plugin's functionality)
 
-### Plugin Stacking and Dependencies
+### Plugin Stacking and Dependencies [future]
 
 **Open Question**: How should plugins "stack" when one plugin depends on or extends another?
 
@@ -21,7 +21,7 @@ This needs to be resolved to support composable plugin ecosystems where plugins 
 
 ## Offline Access
 
-If plugins restrict themselves to accessing just data via read_file for files within the `MNGR_HOST_DIR`, then the offline_mngr_state plugin will allow offline access to that data.
+If plugins restrict themselves to accessing just data via read_file for files within the `MNGR_HOST_DIR`, then the offline_mngr_state plugin [future] will allow offline access to that data.
 
 Obviously commands will always work with local agents, since the data is local.
 

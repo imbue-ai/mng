@@ -66,6 +66,20 @@ def _get_agent_from_create_result(result: CreateAgentResult, temp_mngr_ctx: Mngr
     return agent
 
 
+def _setup_claude_trust_config(work_dir: Path, tmp_home_dir: Path) -> None:
+    """Create a Claude trust config marking work_dir as trusted.
+
+    Since the autouse setup_test_mngr_env fixture sets HOME to a temp directory,
+    this ends up writing ~/.claude.json for the home dir set and used in setup_test_mngr_env
+    """
+    claude_config = {
+        "projects": {
+            str(work_dir): {"allowedTools": [], "hasTrustDialogAccepted": True},
+        }
+    }
+    (tmp_home_dir / ".claude.json").write_text(json.dumps(claude_config))
+
+
 def test_create_simple_echo_agent(
     temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,
@@ -307,6 +321,7 @@ def test_create_agent_with_worktree(
 
 
 def test_worktree_with_custom_branch_name(
+    tmp_home_dir: Path,
     temp_mngr_ctx: MngrContext,
     temp_git_repo: Path,
 ) -> None:
@@ -324,6 +339,7 @@ def test_worktree_with_custom_branch_name(
     )
     current_branch = branch_result.stdout.strip()
 
+    _setup_claude_trust_config(temp_git_repo, tmp_home_dir)
     worktree_path: Path | None = None
     with tmux_session_cleanup(session_name):
         try:
@@ -418,6 +434,7 @@ def test_in_place_mode_sets_is_generated_work_dir_false(
 
 
 def test_worktree_mode_sets_is_generated_work_dir_true(
+    tmp_home_dir: Path,
     temp_mngr_ctx: MngrContext,
     temp_git_repo: Path,
     temp_host_dir: Path,
@@ -426,6 +443,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
     agent_name = AgentName(f"test-worktree-gen-{int(time.time())}")
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
+    _setup_claude_trust_config(temp_git_repo, tmp_home_dir)
     worktree_path: Path | None = None
     with tmux_session_cleanup(session_name):
         try:

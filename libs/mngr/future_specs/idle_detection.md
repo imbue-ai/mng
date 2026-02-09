@@ -1,8 +1,12 @@
 When relevant, the last user input time is tracked via:
-- Keystrokes sent when running `mngr connect` (terminal)
-- Mouse/keyboard events via injected JS (when accessing an agent via the web with default plugins that run `ttyd` and configure `nginx` to inject the script)
+- Keystrokes sent when running `mngr connect` (terminal) [future]
+- Mouse/keyboard events via injected JS [future] (when accessing an agent via the web with default plugins that run `ttyd` and configure `nginx` to inject the script)
 
 When relevant, the last agent output time is tracked by writing to an activity file (self-reporting, configured by default for most agents). See [agent conventions](./conventions.md#Activity-Reporting) for details.
+
+Automatic host stopping based on idle timeout is handled by `activity_watcher.sh`, which monitors activity files and calls the shutdown script when idle. SSH connection tracking writes to `activity/ssh` while connected (see `api/connect.py`). Agent process monitoring (`ActivitySource.PROCESS`) writes activity every ~5 seconds while the agent's tmux pane is alive (see `host.py:_start_process_activity_monitor`).
+
+In addition to idle timeout, the activity watcher also checks whether any agent tmux sessions are still running (using the `tmux_session_prefix` from `data.json`). If all agent sessions have exited, the host is shut down with `stop_reason=STOPPED` (rather than `PAUSED` for idle timeout). This ensures hosts are promptly cleaned up when all agents finish their work. A grace period prevents false positives during agent provisioning.
 
 ## Activity File Format
 

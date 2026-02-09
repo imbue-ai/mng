@@ -175,3 +175,26 @@ def get_current_branch(path: Path) -> str:
     if branch == "HEAD":
         raise MngrError(f"HEAD is detached in {path}. A branch checkout is required for sync operations.")
     return branch
+
+
+def find_git_common_dir(path: Path) -> Path | None:
+    """Find the common .git directory for a repository or worktree.
+
+    For a regular repository, this returns the .git directory.
+    For a worktree, this returns the main repository's .git directory,
+    not the worktree's .git file.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        git_common_dir = Path(result.stdout.strip())
+        if not git_common_dir.is_absolute():
+            git_common_dir = (path / git_common_dir).resolve()
+        return git_common_dir
+    except subprocess.CalledProcessError:
+        return None

@@ -1,11 +1,14 @@
 import json
 import shlex
+import time
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from typing import Final
 from typing import Mapping
 from typing import Sequence
+from uuid import uuid4
 
 from loguru import logger
 from pydantic import Field
@@ -17,12 +20,22 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.host import CreateAgentOptions
+from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import Permission
 from imbue.mngr.utils.env_utils import parse_env_file
+from imbue.mngr.utils.polling import poll_until
+
+# Constants for send_message marker-based synchronization
+_SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
+_TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
+_CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
+
+# Constants for signal-based synchronization
+_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 2.0
 
 
 class BaseAgent(AgentInterface):
@@ -170,9 +183,8 @@ class BaseAgent(AgentInterface):
                 return AgentLifecycleState.DONE
 
             # Check if current command matches expected command (by basename)
-            expected_command = self.get_command()
-            expected_basename = self._get_command_basename(expected_command)
-            if self._command_basename_matches(current_command, expected_command):
+            expected_basename = self.get_expected_process_name()
+            if current_command == expected_basename:
                 return self._check_waiting_state()
 
             # Current command doesn't match expected - check descendant processes
@@ -213,6 +225,14 @@ class BaseAgent(AgentInterface):
         # Handle both "sleep 1000" and "/usr/bin/sleep 1000"
         return command.split()[0].split("/")[-1] if command else ""
 
+    def get_expected_process_name(self) -> str:
+        """Get the expected process name for lifecycle state detection.
+
+        Subclasses can override this to return a hardcoded process name
+        when the command is complex (e.g., shell wrappers with exports).
+        """
+        return self._get_command_basename(self.get_command())
+
     def _get_descendant_process_names(self, root_pid: str, ps_output: str) -> list[str]:
         """Get names of all descendant processes from ps output."""
         # Build maps: children_by_ppid and comm_by_pid
@@ -239,16 +259,22 @@ class BaseAgent(AgentInterface):
 
         return descendant_names
 
+    def _check_file_exists(self, path: Path) -> bool:
+        """Check if a file exists on the host."""
+        try:
+            self.host.read_text_file(path)
+            return True
+        except FileNotFoundError:
+            return False
+
     def _check_waiting_state(self) -> AgentLifecycleState:
         """Check if the agent is waiting and return WAITING or RUNNING state."""
         waiting_path = self._get_agent_dir() / "waiting"
-        try:
-            self.host.read_text_file(waiting_path)
+        if self._check_file_exists(waiting_path):
             logger.trace("Agent {} lifecycle state: WAITING", self.name)
             return AgentLifecycleState.WAITING
-        except FileNotFoundError:
-            logger.trace("Agent {} lifecycle state: RUNNING", self.name)
-            return AgentLifecycleState.RUNNING
+        logger.trace("Agent {} lifecycle state: RUNNING (no waiting file)", self.name)
+        return AgentLifecycleState.RUNNING
 
     def _command_basename_matches(self, current: str, expected: str) -> bool:
         """Check if current command basename matches expected command."""
@@ -272,15 +298,54 @@ class BaseAgent(AgentInterface):
         data = self._read_data()
         return data.get("resume_message")
 
-    def get_message_delay_seconds(self) -> float:
+    def get_ready_timeout_seconds(self) -> float:
         data = self._read_data()
-        return data.get("message_delay_seconds", 1.0)
+        return data.get("ready_timeout_seconds", DEFAULT_AGENT_READY_TIMEOUT_SECONDS)
 
     def send_message(self, message: str) -> None:
-        """Send a message to the running agent."""
+        """Send a message to the running agent.
+
+        For agents that echo input to the terminal (like Claude Code), uses a
+        marker-based synchronization approach to ensure the message is fully
+        received before sending Enter. This avoids race conditions where Enter
+        could be interpreted as a literal newline instead of a submit action.
+
+        Subclasses can enable this by overriding uses_marker_based_send_message().
+        """
         logger.debug("Sending message to agent {} (length={})", self.name, len(message))
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
 
+        if self.uses_marker_based_send_message():
+            self._send_message_with_marker(session_name, message)
+        else:
+            self._send_message_simple(session_name, message)
+
+        logger.trace("Message sent to agent {}", self.name)
+
+    def uses_marker_based_send_message(self) -> bool:
+        """Return True to use marker-based synchronization for send_message.
+
+        Marker-based send requires the application to echo input to the terminal.
+        This is useful for interactive agents like Claude Code where sending Enter
+        immediately after the message text can cause race conditions.
+
+        Returns False by default. Subclasses can override to enable.
+        """
+        return False
+
+    def get_tui_ready_indicator(self) -> str | None:
+        """Return a string that indicates the TUI is ready to accept input.
+
+        This string will be looked for in the terminal pane content before sending
+        messages. This is useful for TUIs that take time to initialize after the
+        process starts.
+
+        Returns None by default (no TUI readiness check). Subclasses can override.
+        """
+        return None
+
+    def _send_message_simple(self, session_name: str, message: str) -> None:
+        """Send a message without marker-based synchronization."""
         send_msg_cmd = f"tmux send-keys -t '{session_name}' -l {shlex.quote(message)}"
         result = self.host.execute_command(send_msg_cmd)
         if not result.success:
@@ -291,7 +356,198 @@ class BaseAgent(AgentInterface):
         if not result.success:
             raise SendMessageError(str(self.name), f"tmux send-keys Enter failed: {result.stderr or result.stdout}")
 
-        logger.trace("Message sent to agent {}", self.name)
+    def _send_message_with_marker(self, session_name: str, message: str) -> None:
+        """Send a message using marker-based synchronization.
+
+        This approach appends a unique marker to the message, waits for it to appear
+        in the terminal, removes it with backspaces, and then sends Enter. This ensures
+        the input handler has fully processed the message text before submitting.
+
+        On failure (e.g. marker visibility or submission timeout), partial text
+        including the marker may remain in the input field. We intentionally do not
+        attempt cleanup because deleting text risks accidentally removing part of
+        the user's message -- leaving stale marker text is safer than data loss.
+        """
+        # Wait for TUI to be ready if an indicator is configured
+        tui_indicator = self.get_tui_ready_indicator()
+        if tui_indicator is not None:
+            self._wait_for_tui_ready(session_name, tui_indicator)
+
+        # Generate a unique marker to detect when the message has been fully received
+        # Using just the UUID without newlines - newlines are harder to reliably delete
+        # with backspace in some input areas
+        marker = uuid4().hex
+        message_with_marker = message + marker
+
+        # Send the message with marker
+        send_msg_cmd = f"tmux send-keys -t '{session_name}' -l {shlex.quote(message_with_marker)}"
+        result = self.host.execute_command(send_msg_cmd)
+        if not result.success:
+            raise SendMessageError(str(self.name), f"tmux send-keys failed: {result.stderr or result.stdout}")
+
+        # Wait for the marker to appear in the pane (confirms message was fully received)
+        self._wait_for_marker_visible(session_name, marker)
+
+        # Remove the marker by sending backspaces (32 hex chars for UUID)
+        # Send backspaces and noop keys to clean up the marker
+        self._send_backspace_with_noop(session_name, count=len(marker))
+
+        # Verify the marker is gone and the message ends correctly
+        # Use the tail of the last line of the message as the expected ending, since
+        # only that portion is visible on the current input line in the tmux pane.
+        last_line = message.rsplit("\n", 1)[-1]
+        expected_ending = last_line[-32:] if len(last_line) > 32 else last_line
+        self._wait_for_message_ending(session_name, marker, expected_ending)
+
+        # Send Enter and wait for submission signal
+        self._send_enter_and_wait(session_name)
+
+    def _send_backspace_with_noop(self, session_name: str, count: int = 1) -> None:
+        """Send backspace(s) followed by noop keys to reset input handler state.
+
+        This helper sends the specified number of backspaces, then sends a no-op
+        key sequence (Left then Right) to reset state.
+
+        The noop keys are necessary because Claude Code's input handler can get into
+        a state after backspaces where Enter is interpreted as a literal newline.
+        Sending any key (even a no-op) before Enter fixes this.
+        """
+        if count > 0:
+            backspace_keys = " ".join(["BSpace"] * count)
+            backspace_cmd = f"tmux send-keys -t '{session_name}' {backspace_keys}"
+            result = self.host.execute_command(backspace_cmd)
+            if not result.success:
+                raise SendMessageError(
+                    str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}"
+                )
+
+        # Send a no-op key sequence (Left then Right) to reset input handler state
+        noop_cmd = f"tmux send-keys -t '{session_name}' Left Right"
+        result = self.host.execute_command(noop_cmd)
+        if not result.success:
+            logger.warning("Failed to send noop keys: {}", result.stderr or result.stdout)
+
+    def _capture_pane_content(self, session_name: str) -> str | None:
+        """Capture the current pane content, returning None on failure."""
+        result = self.host.execute_command(
+            f"tmux capture-pane -t '{session_name}' -p",
+            timeout_seconds=_CAPTURE_PANE_TIMEOUT_SECONDS,
+        )
+        if result.success:
+            return result.stdout.rstrip()
+        return None
+
+    def _wait_for_tui_ready(self, session_name: str, indicator: str) -> None:
+        """Wait until the TUI is ready by looking for the indicator string in the pane.
+
+        This ensures the application's UI is fully rendered before we send input.
+        Without this check, input sent too early may be lost or appear as raw text
+        instead of being processed by the application's input handler.
+        """
+        logger.debug("Waiting for TUI to be ready (looking for: {})", indicator)
+        if not poll_until(
+            lambda: self._check_pane_contains(session_name, indicator),
+            timeout=_TUI_READY_TIMEOUT_SECONDS,
+        ):
+            raise SendMessageError(
+                str(self.name),
+                f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)",
+            )
+        logger.debug("TUI ready indicator found: {}", indicator)
+
+    def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:
+        """Wait until the marker is visible in the tmux pane.
+
+        Note: We check if marker is IN the pane, not at the end, because
+        Claude Code has a status line at the bottom that appears after the input area.
+        """
+        logger.trace("Waiting for marker: {}", marker)
+        if not poll_until(
+            lambda: self._check_pane_contains(session_name, marker),
+            timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
+        ):
+            raise SendMessageError(
+                str(self.name),
+                f"Timeout waiting for message marker to appear (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
+            )
+        logger.debug("Marker {} found in pane", marker)
+
+    def _check_pane_contains(self, session_name: str, text: str) -> bool:
+        """Check if the pane content contains the given text."""
+        content = self._capture_pane_content(session_name)
+        found = content is not None and text in content
+        return found
+
+    def _wait_for_message_ending(self, session_name: str, marker: str, expected_ending: str) -> None:
+        """Wait until the marker is removed and the expected message ending is visible.
+
+        Note: We check if expected_ending is IN the pane, not at the end, because
+        Claude Code has a status line at the bottom that appears after the input area.
+        """
+        if not poll_until(
+            lambda: self._check_marker_removed_and_contains(session_name, marker, expected_ending),
+            timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
+        ):
+            raise SendMessageError(
+                str(self.name),
+                f"Timeout waiting for message to be ready for submission (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
+            )
+        logger.trace("Marker removed and expected content visible in pane")
+
+    def _check_marker_removed_and_contains(self, session_name: str, marker: str, expected_ending: str) -> bool:
+        """Check if the marker is gone and pane contains expected content."""
+        content = self._capture_pane_content(session_name)
+        if content is None:
+            return False
+        marker_gone = marker not in content
+        contains_expected = expected_ending in content
+        return marker_gone and contains_expected
+
+    def _send_enter_and_wait(self, session_name: str) -> None:
+        """Send Enter to submit the message and wait for the submission signal.
+
+        Uses tmux wait-for to detect when the UserPromptSubmit hook fires.
+        Raises SendMessageError if the signal is not received within the timeout.
+        """
+        wait_channel = f"mngr-submit-{session_name}"
+        if self._send_enter_and_wait_for_signal(session_name, wait_channel):
+            logger.debug("Message submitted successfully")
+            return
+
+        raise SendMessageError(
+            str(self.name),
+            f"Timeout waiting for message submission signal (waited {_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS}s)",
+        )
+
+    def _send_enter_and_wait_for_signal(self, session_name: str, wait_channel: str) -> bool:
+        """Send Enter and wait for the tmux wait-for signal from the hook.
+
+        This starts waiting BEFORE sending Enter to avoid a race condition where
+        the hook might fire before we start listening for the signal.
+
+        The sequence is:
+        1. Start tmux wait-for (with timeout) in background
+        2. Send Enter
+        3. Wait for the background process to complete
+
+        Returns True if signal received, False if timeout.
+        """
+        timeout_secs = _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS
+        cmd = (
+            f"bash -c '"
+            f'timeout {timeout_secs} tmux wait-for "$0" & W=$!; '
+            f'tmux send-keys -t "$1" Enter; '
+            f"wait $W"
+            f"' {shlex.quote(wait_channel)} {shlex.quote(session_name)}"
+        )
+        start = time.time()
+        result = self.host.execute_command(cmd, timeout_seconds=timeout_secs + 1)
+        elapsed_ms = (time.time() - start) * 1000
+        if result.success:
+            logger.trace("Received submission signal in {:.0f}ms", elapsed_ms)
+            return True
+        logger.debug("Timeout waiting for submission signal on channel {}", wait_channel)
+        return False
 
     # =========================================================================
     # Status (Reported)
@@ -507,4 +763,14 @@ class BaseAgent(AgentInterface):
         """Default implementation: no-op.
 
         Subclasses can override to perform finalization after provisioning.
+        """
+
+    # =========================================================================
+    # Destruction Lifecycle
+    # =========================================================================
+
+    def on_destroy(self, host: OnlineHostInterface) -> None:
+        """Default implementation: no-op.
+
+        Subclasses can override to perform cleanup when the agent is destroyed.
         """

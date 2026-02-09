@@ -326,7 +326,7 @@ def _make_mock_agent(name: str, state: AgentLifecycleState) -> AgentInfo:
 
     agent = MagicMock(spec=AgentInfo)
     agent.name = name
-    agent.lifecycle_state = state
+    agent.state = state
     agent.host = mock_host
     agent.id = f"id-{name}"
     return agent
@@ -354,7 +354,7 @@ def test_filter_agents_hide_stopped() -> None:
 
     result = filter_agents(agents, hide_stopped=True, search_query="")
     assert len(result) == 2
-    assert all(a.lifecycle_state != AgentLifecycleState.STOPPED for a in result)
+    assert all(a.state != AgentLifecycleState.STOPPED for a in result)
 
 
 def test_filter_agents_search_query() -> None:
@@ -492,7 +492,7 @@ def _create_test_selector_state(agents: list[AgentInfo]) -> AgentSelectorState:
     status_text = Text("")
     # Calculate reasonable default widths for tests
     name_width = max((len(str(a.name)) for a in agents), default=10)
-    state_width = max((len(a.lifecycle_state.value) for a in agents), default=7)
+    state_width = max((len(a.state.value) for a in agents), default=7)
     return AgentSelectorState(
         agents=agents,
         list_walker=list_walker,
@@ -747,8 +747,6 @@ def test_connect_defaults_to_most_recent_agent_non_interactive(
     agent_name_new = f"test-connect-new-{int(time.time())}"
 
     with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_old, 192837):
-        # Sleep briefly to ensure different create times
-        time.sleep(0.1)
         with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_new, 283746):
             # Simulate non-interactive mode by providing input (makes stdin not a tty)
             with patch("imbue.mngr.cli.connect.connect_to_agent") as mock_connect:

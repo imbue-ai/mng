@@ -16,6 +16,7 @@ from imbue.mngr.errors import InvalidRelativePathError
 from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
@@ -217,13 +218,13 @@ class CertifiedHostData(FrozenModel):
     host_name: str = Field(description="Human-readable name")
     user_tags: dict[str, str] = Field(default_factory=dict, description="User-defined tags")
     snapshots: list[SnapshotRecord] = Field(default_factory=list, description="List of snapshots")
-    state: str | None = Field(
+    tmux_session_prefix: str | None = Field(
         default=None,
-        description="Host state (e.g., 'FAILED' for hosts that failed during creation)",
+        description="Prefix for tmux session names on this host (e.g., 'mngr-'). Used by the activity watcher to detect when no agents are running.",
     )
     stop_reason: str | None = Field(
         default=None,
-        description="Reason for last shutdown: 'PAUSED' (idle), 'STOPPED' (user requested), or None (crashed)",
+        description="Reason for last shutdown: 'PAUSED' (idle), 'STOPPED' (user requested or all agents exited), or None (crashed)",
     )
     failure_reason: str | None = Field(
         default=None,
@@ -311,8 +312,7 @@ class HostInfo(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Provider that owns the host")
 
     # Extended fields (all optional)
-    # FIXME: this should be of this type: HostState
-    state: str | None = Field(default=None, description="Current host state (running, stopped, etc.)")
+    state: HostState | None = Field(default=None, description="Current host state (RUNNING, STOPPED, etc.)")
     image: str | None = Field(default=None, description="Host image (Docker image name, Modal image ID, etc.)")
     tags: dict[str, str] = Field(default_factory=dict, description="Metadata tags for the host")
     boot_time: datetime | None = Field(default=None, description="When the host was last started")

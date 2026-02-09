@@ -20,7 +20,7 @@ Agents fully contain their own state on their host.
 
 This means no database, no state corruption, and multiple `mngr` instances can manage the same agents.
 
-Some interactions are gated via cooperative locking (using `flock` on known lock files) to avoid race conditions. See [locking spec](../specs/locking.md) for details.
+Some interactions are gated via cooperative locking [future] (using `flock` on known lock files) to avoid race conditions. See [locking spec](../future_specs/locking.md) for details.
 
 ## Conventions
 
@@ -36,8 +36,8 @@ mngr is responsible for:
 - implementing the [core CLI commands](../README.md) (create, connect, stop, list, push, pull, pair, etc.)
 - enforcing the [host lifecycle](./concepts/hosts.md#Lifecycle), including automatically stopping a host when all its agents are idle
 - configuring/enabling/disabling [plugins](./concepts/plugins.md)
-- handling [permissions](./concepts/permissions.md) for remote hosts
-- detecting hangs and failures (via the [`mngr enforce` command](./commands/secondary/enforce.md))
+- handling [permissions](./concepts/permissions.md) [future] for remote hosts
+- detecting hangs and failures (via the [`mngr enforce` command](./commands/secondary/enforce.md) [future])
 
 ## Multi-user support
 

@@ -213,7 +213,7 @@ def test_message_file_flag_reads_message_from_file(
                 "--await-ready",
                 "--no-copy-work-dir",
                 "--no-ensure-clean",
-                "--message-delay",
+                "--ready-timeout",
                 "0.01",
             ],
             obj=plugin_manager,
@@ -300,7 +300,7 @@ def test_multiline_message_creates_file_and_pipes(
                 "--await-ready",
                 "--no-copy-work-dir",
                 "--no-ensure-clean",
-                "--message-delay",
+                "--ready-timeout",
                 "0.01",
             ],
             obj=plugin_manager,
@@ -348,7 +348,7 @@ def test_single_line_message_uses_echo(
                 "--await-ready",
                 "--no-copy-work-dir",
                 "--no-ensure-clean",
-                "--message-delay",
+                "--ready-timeout",
                 "0.01",
             ],
             obj=plugin_manager,
@@ -407,6 +407,14 @@ def test_no_await_ready_creates_agent_in_background(
             lambda: tmux_session_exists(session_name),
             error_message=f"Expected tmux session {session_name} to exist",
         )
+
+        # Wait for the command to actually start running in the session.
+        # The background thread may still be sending keys after the session is created.
+        def command_is_running() -> bool:
+            pane_content = capture_tmux_pane_contents(session_name)
+            return "sleep" in pane_content
+
+        wait_for(command_is_running, error_message="Expected sleep command to be running")
 
 
 def test_add_command_with_named_window(
@@ -908,7 +916,7 @@ no_ensure_clean = true
                 "mytemplate",
                 "--message",
                 "cli-message",
-                "--message-delay",
+                "--ready-timeout",
                 "0.01",
             ],
             obj=plugin_manager,

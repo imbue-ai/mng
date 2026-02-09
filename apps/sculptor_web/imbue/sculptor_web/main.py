@@ -96,12 +96,12 @@ def _parse_agent_info(data: dict) -> AgentDisplayInfo:
     status_data = data.get("status")
     status_info = AgentStatusInfo(line=status_data.get("line", "")) if status_data else None
 
-    # Extract lifecycle_state value
-    lifecycle_state_data = data.get("lifecycle_state", "")
-    if isinstance(lifecycle_state_data, dict):
-        lifecycle_state = lifecycle_state_data.get("value", "").lower()
+    # Extract state value
+    state_data = data.get("state", "")
+    if isinstance(state_data, dict):
+        state = state_data.get("value", "").lower()
     else:
-        lifecycle_state = str(lifecycle_state_data).lower()
+        state = str(state_data).lower()
 
     return AgentDisplayInfo(
         id=data.get("id", ""),
@@ -111,7 +111,7 @@ def _parse_agent_info(data: dict) -> AgentDisplayInfo:
         work_dir=data.get("work_dir", "."),
         create_time=data.get("create_time", "1970-01-01T00:00:00Z"),
         start_on_boot=data.get("start_on_boot", False),
-        lifecycle_state=lifecycle_state,
+        state=state,
         status=status_info,
         url=data.get("url"),
         start_time=data.get("start_time"),
@@ -189,7 +189,7 @@ def _render_sidebar(agents: tuple[AgentDisplayInfo, ...], selected_agent_id: str
     agent_items = []
     for agent in agents:
         is_selected = agent.id == selected_agent_id
-        state_class = f"state-{agent.lifecycle_state}"
+        state_class = f"state-{agent.state}"
         selected_class = "selected" if is_selected else ""
 
         status_text = agent.status.line if agent.status else ""
@@ -198,7 +198,7 @@ def _render_sidebar(agents: tuple[AgentDisplayInfo, ...], selected_agent_id: str
             Li(
                 Div(
                     Span(agent.name, cls="agent-name"),
-                    Span(agent.lifecycle_state, cls=f"agent-state {state_class}"),
+                    Span(agent.state, cls=f"agent-state {state_class}"),
                     Span(status_text, cls="agent-status") if status_text else None,
                     cls="agent-item-content",
                 ),

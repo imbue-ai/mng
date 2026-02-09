@@ -1,4 +1,4 @@
-# host_data_url Plugin
+# host_data_url Plugin [future]
 
 The `host_data_url` plugin provides a way to access host-specific data via a URL.
 

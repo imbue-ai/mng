@@ -5,6 +5,7 @@ from abc import abstractmethod
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from typing import Callable
 from typing import Mapping
 from typing import Sequence
 from typing import TYPE_CHECKING
@@ -123,14 +124,26 @@ class AgentInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
-    def get_message_delay_seconds(self) -> float:
-        """Return the delay in seconds to wait before sending messages to the agent."""
+    def get_ready_timeout_seconds(self) -> float:
+        """Return the timeout in seconds to wait for agent readiness."""
         ...
 
     @abstractmethod
     def send_message(self, message: str) -> None:
         """Send a message to the running agent via its stdin."""
         ...
+
+    def wait_for_ready_signal(self, start_action: Callable[[], None], timeout: float | None = None) -> None:
+        """Wait for the agent to become ready, executing start_action while listening.
+
+        Can be overridden by agent implementations that support signal-based readiness
+        detection (e.g., polling for a marker file). Default just runs start_action
+        without waiting for readiness confirmation.
+
+        Implementations that override this should raise AgentStartError if the agent
+        doesn't signal readiness within the timeout.
+        """
+        start_action()
 
     # =========================================================================
     # Status (Reported)
@@ -337,5 +350,21 @@ class AgentInterface(MutableModel, ABC):
         - Verify that provisioning completed successfully
         - Perform final configuration that depends on other provisioning
         - Log or report provisioning status
+        """
+        ...
+
+    # =========================================================================
+    # Destruction Lifecycle
+    # =========================================================================
+
+    @abstractmethod
+    def on_destroy(self, host: OnlineHostInterface) -> None:
+        """Called when the agent is being destroyed, before cleanup.
+
+        This method is called at the beginning of destroy_agent(), before
+        the agent's state directory and work directory are removed.
+
+        Use this method to perform agent-type-specific cleanup, such as
+        removing external configuration entries or releasing resources.
         """
         ...

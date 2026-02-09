@@ -16,7 +16,7 @@ A host contains:
 - **processes**:
   - **agent processes**: the main programs that count as agents (Claude, Codex, etc.) — one per agent, each in its own tmux session
   - **sshd**: (remote only) the SSH server (one per host)
-  - **...any other services** started by plugins during provisioning (or later by agents themselves). Ex: nginx, frpc, ttyd, etc.
+  - **...any other services** started by plugins during provisioning (or later by agents themselves). Ex: nginx [future], frpc [future], ttyd [future], etc.
 
 Host-level processes (nginx, frpc, sshd, ttyd) are started when the host starts.
 Agent processes and their tmux sessions are created when an agent is created or started.
@@ -46,7 +46,7 @@ building  →  starting      →       running     →    stopping    →    sto
 | **running**   | While any agent is running and considered active                                     |
 | **stopping**  | When all agents become idle, the host is being stopped (snapshotted, host shut down) |
 | **paused**    | Host became idle and was snapshotted/shut down (can be restarted)                    |
-| **stopped**   | User explicitly stopped all agents on the host (agents can be started up again)      |
+| **stopped**   | All agents exited or user explicitly stopped the host (can be restarted)             |
 | **crashed**   | Host shut down unexpectedly without a controlled shutdown                            |
 | **failed**    | Something went wrong before the host could be created                                |
 | **destroyed** | Host gone, resources freed                                                           |
@@ -76,7 +76,7 @@ The high-level steps when creating a new host are:
 
 When starting a stopped host, steps 1-4 are skipped (the host already exists and has the files it needs).
 
-`mngr` allows specifying hosts via the [devcontainer](https://containers.dev/implementors/spec/) format. This allows you to define lifecycle hooks that run during startup:
+`mngr` allows specifying hosts via the [devcontainer](https://containers.dev/implementors/spec/) format. This allows you to define lifecycle hooks [future] that run during startup:
 
 1. `initializeCommand`: runs before step 1 above. Runs on the local machine where `mngr` is running.
 2. `onCreateCommand`: runs after step 1 above. Runs inside the host.
@@ -101,7 +101,7 @@ Once a host becomes idle, it transitions to the `stopping` state.
 Stopping is triggered by any of the following:
 
 1. A script that is injected and started during host startup (which periodically checks for idleness, and stops the host when idle)
-2. The `mngr enforce` command (as a backup in case the inner script has failed)
+2. The `mngr enforce` command (as a backup in case the inner script has failed) [future]
 3. The user manually stopping the host via `mngr stop`
 
 When a host is "stopping", it performs these steps:
@@ -113,6 +113,10 @@ When a host is "stopping", it performs these steps:
 ### Stopped
 
 While a host is "stopped", it is completely shut down and only consuming storage (for snapshots, etc.)
+
+A host enters the stopped state when:
+- The user explicitly stops the host via `mngr stop`
+- All agent tmux sessions have exited (detected by the activity watcher)
 
 You can "start" agents on a stopped host, which causes the host to transition to the `starting` state.
 
@@ -144,7 +148,7 @@ A host is considered "destroyed" when either of these is true:
 
 ## Properties
 
-See [host spec](../../specs/host.md) for the properties of hosts and their storage locations.
+See [host spec](../../future_specs/host.md) for the properties of hosts and their storage locations.
 
 ## Interface
 

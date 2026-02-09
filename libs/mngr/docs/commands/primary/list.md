@@ -39,8 +39,8 @@ mngr list [OPTIONS]
 | ---- | ---- | ----------- | ------- |
 | `--include` | text | Include agents matching CEL expression (repeatable) | None |
 | `--exclude` | text | Exclude agents matching CEL expression (repeatable) | None |
-| `--running` | boolean | Show only running agents (alias for --include 'state == "running"') | `False` |
-| `--stopped` | boolean | Show only stopped agents (alias for --include 'state == "stopped"') | `False` |
+| `--running` | boolean | Show only running agents (alias for --include 'state == "RUNNING"') | `False` |
+| `--stopped` | boolean | Show only stopped agents (alias for --include 'state == "STOPPED"') | `False` |
 | `--local` | boolean | Show only local agents (alias for --include 'host.provider == "local"') | `False` |
 | `--remote` | boolean | Show only remote agents (alias for --exclude 'host.provider == "local"') | `False` |
 | `--provider` | text | Show only agents using specified provider (repeatable) | None |
@@ -96,13 +96,13 @@ All agent fields from the "Available Fields" section can be used in filter expre
 
 **Simple equality filters:**
 - `name == "my-agent"` - Match agent by exact name
-- `state == "running"` - Match running agents
+- `state == "RUNNING"` - Match running agents
 - `host.provider == "docker"` - Match agents on Docker hosts
 - `type == "claude"` - Match agents of type "claude"
 
 **Compound expressions:**
-- `state == "running" && host.provider == "modal"` - Running agents on Modal
-- `state == "stopped" || state == "failed"` - Stopped or failed agents
+- `state == "RUNNING" && host.provider == "modal"` - Running agents on Modal
+- `state == "STOPPED" || state == "FAILED"` - Stopped or failed agents
 - `host.provider == "docker" && name.startsWith("test-")` - Docker agents with names starting with "test-"
 
 **String operations:**
@@ -144,7 +144,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `idle_seconds` - How long since the agent was active
 - `idle_mode` - Idle detection mode
 - `start_on_boot` - Whether the agent is set to start on host boot
-- `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
+- `state` - Agent lifecycle state (RUNNING, STOPPED, WAITING, REPLACED, DONE)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):
@@ -152,7 +152,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `host.id` - Host ID
 - `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
 - `host.provider` - Host provider (local, docker, modal, etc.)
-- `host.state` - Current host state (running, stopped, building, etc.)
+- `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host
 - `host.boot_time` - When the host was last started

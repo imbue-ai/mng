@@ -1,4 +1,4 @@
-# Local Port Forwarding via FRP and Nginx Spec
+# Local Port Forwarding via FRP and Nginx Spec [future]
 
 This plugin exposes services running inside remote hosts to the user's local browser.
 

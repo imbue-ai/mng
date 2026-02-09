@@ -198,7 +198,7 @@ def _agent_to_cel_context(agent: AgentInterface, provider_name: str) -> dict[str
         "id": str(agent.id),
         "name": str(agent.name),
         "type": str(agent.agent_type),
-        "state": agent.get_lifecycle_state().value.lower(),
+        "state": agent.get_lifecycle_state().value,
         "host": {
             "id": str(agent.host_id),
             "provider": provider_name,

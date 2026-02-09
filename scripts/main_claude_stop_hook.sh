@@ -118,6 +118,86 @@ retry_command() {
     return 1
 }
 
+# Create git notes for the transcript URLs
+COMMIT_SHA=$(git rev-parse HEAD)
+
+# Ensure a PR exists for this branch
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+BASE_BRANCH="${GIT_BASE_BRANCH:-main}"
+
+# Fetch all remotes and merge base branch to stay up-to-date
+log_info "Fetching all remotes..."
+git fetch --all
+
+# Only push the base branch if it doesn't already exist on the origin
+if ! git rev-parse --verify "origin/$BASE_BRANCH" >/dev/null 2>&1; then
+    log_info "Pushing base branch to origin (not yet present remotely)..."
+    if ! retry_command 3 git push origin "$BASE_BRANCH"; then
+        log_error "Failed to push base branch after retries"
+        exit 1
+    fi
+fi
+
+# Merge the base branch from origin (if it exists)
+if git rev-parse --verify "origin/$BASE_BRANCH" >/dev/null 2>&1; then
+    log_info "Merging origin/$BASE_BRANCH..."
+    if ! git merge "origin/$BASE_BRANCH" --no-edit; then
+        log_error "Merge conflict detected while merging origin/$BASE_BRANCH."
+        log_error "Please resolve the merge conflicts before continuing."
+        exit 2
+    fi
+fi
+
+# Merge the local base branch (if it exists)
+if git rev-parse --verify "$BASE_BRANCH" >/dev/null 2>&1; then
+    log_info "Merging $BASE_BRANCH..."
+    if ! git merge "$BASE_BRANCH" --no-edit; then
+        log_error "Merge conflict detected while merging $BASE_BRANCH."
+        log_error "Please resolve the merge conflicts before continuing."
+        exit 2
+    fi
+fi
+
+# Push merge commits (if any were created)
+log_info "Pushing any merge commits..."
+if ! retry_command 3 git push origin HEAD; then
+    log_error "Failed to push merge commits after retries"
+    exit 1
+fi
+
+# Check if there are any non-markdown file changes compared to the base branch
+IS_INFORMATIONAL_ONLY=false
+if [[ "$CURRENT_BRANCH" == "$BASE_BRANCH" ]]; then
+    log_info "Currently on base branch ($BASE_BRANCH) - no PR needed"
+    IS_INFORMATIONAL_ONLY=true
+else
+    # Get files that have changed since the (now updated) base branch
+    CHANGED_FILES=$(git diff --name-only "$BASE_BRANCH"...HEAD 2>/dev/null || echo "")
+    if [[ -z "$CHANGED_FILES" ]]; then
+        log_info "No files changed compared to $BASE_BRANCH - this was an informational session, skipping PR creation"
+        IS_INFORMATIONAL_ONLY=true
+    else
+        # If all changed files are .md files, consider this an informational session
+        NON_MD_FILES=$(echo "$CHANGED_FILES" | grep -v '\.md$' || true)
+        if [[ -z "$NON_MD_FILES" ]]; then
+            log_info "Only .md files changed compared to $BASE_BRANCH - this was an informational session, skipping PR creation"
+            IS_INFORMATIONAL_ONLY=true
+        fi
+    fi
+fi
+
+if [[ "$IS_INFORMATIONAL_ONLY" == "true" ]]; then
+    log_info "No code changes detected compared to $BASE_BRANCH - this is an informational session. Exiting cleanly."
+    exit 0
+fi
+
+# Find all windows named reviewer_* and start review processes as background jobs
+REVIEWER_PIDS=()
+for window in $(tmux list-windows -t "$session" -F '#W' 2>/dev/null | grep '^reviewer_' || true); do
+    "$SCRIPT_DIR/run_reviewer.sh" "$session" "$window" &
+    REVIEWER_PIDS+=($!)
+done
+
 # Store HTML transcript in git LFS
 HTML_TRANSCRIPT="/tmp/transcript/$MAIN_CLAUDE_SESSION_ID/page-001.html"
 HTML_RAW_URL=""
@@ -156,9 +236,6 @@ if [[ -n "$JSON_TRANSCRIPT" && -f "$JSON_TRANSCRIPT" ]]; then
     fi
 fi
 
-# Create git notes for the transcript URLs
-COMMIT_SHA=$(git rev-parse HEAD)
-
 if [[ -n "$HTML_RAW_URL" ]]; then
     log_info "Creating git note for HTML transcript..."
     git notes --ref=transcripts/html add -f -m "$HTML_RAW_URL" "$COMMIT_SHA"
@@ -181,36 +258,6 @@ log_info "Pushing git notes to origin..."
 if ! git push --force origin "refs/notes/*"; then
     log_warn "Failed to push git notes"
 fi
-
-# Ensure a PR exists for this branch
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-BASE_BRANCH="${GIT_BASE_BRANCH:-main}"
-
-# Ensure the base branch is pushed as well (otherwise cannot make the PR)
-log_info "Ensuring base branch is on origin..."
-if ! retry_command 3 git push origin $BASE_BRANCH; then
-    log_error "Failed to push base branch after retries"
-    exit 1
-fi
-
-# Check if there are any commits ahead of base branch (skip PR if purely informational)
-IS_INFORMATIONAL_ONLY=false
-if [[ "$CURRENT_BRANCH" == "$BASE_BRANCH" ]]; then
-    log_info "Currently on base branch ($BASE_BRANCH) - no PR needed"
-    IS_INFORMATIONAL_ONLY=true
-elif COMMITS_AHEAD=$(git rev-list --count "origin/$BASE_BRANCH..HEAD" 2>/dev/null); then
-    if [[ "$COMMITS_AHEAD" == "0" ]]; then
-        log_info "No commits ahead of $BASE_BRANCH - this was an informational session, skipping PR creation"
-        IS_INFORMATIONAL_ONLY=true
-    fi
-fi
-
-# Find all windows named reviewer_* and start review processes as background jobs
-REVIEWER_PIDS=()
-for window in $(tmux list-windows -t "$session" -F '#W' 2>/dev/null | grep '^reviewer_' || true); do
-    "$SCRIPT_DIR/run_reviewer.sh" "$session" "$window" &
-    REVIEWER_PIDS+=($!)
-done
 
 # Helper function to create a new PR
 # Returns the PR number on success, exits with error on failure
@@ -239,123 +286,123 @@ create_new_pr() {
 # Skip PR creation and polling if this was an informational-only session
 EXISTING_PR=""
 PR_WAS_CREATED=false
-if [[ "$IS_INFORMATIONAL_ONLY" == "false" ]]; then
-    # Check if PR already exists
-    log_info "Checking for existing PR..."
-    PR_STATE=""
-    if PR_INFO=$(gh pr view "$CURRENT_BRANCH" --json number,state 2>/dev/null); then
-        EXISTING_PR=$(echo "$PR_INFO" | jq -r '.number')
-        PR_STATE=$(echo "$PR_INFO" | jq -r '.state')
-        log_info "Found existing PR #$EXISTING_PR (state: $PR_STATE)"
+
+# Check if PR already exists
+log_info "Checking for existing PR..."
+PR_STATE=""
+if PR_INFO=$(gh pr view "$CURRENT_BRANCH" --json number,state 2>/dev/null); then
+    EXISTING_PR=$(echo "$PR_INFO" | jq -r '.number')
+    PR_STATE=$(echo "$PR_INFO" | jq -r '.state')
+    log_info "Found existing PR #$EXISTING_PR (state: $PR_STATE)"
+fi
+
+if [[ -z "$EXISTING_PR" ]]; then
+    # No PR exists - create a new one
+    log_info "Creating new PR..."
+    if NEW_PR=$(create_new_pr "$CURRENT_BRANCH" "$HTML_WEB_URL"); then
+        EXISTING_PR="$NEW_PR"
+        PR_WAS_CREATED=true
+        log_info "Created PR #$EXISTING_PR"
+    else
+        log_error "Failed to create PR"
+        exit 1
     fi
-
-    if [[ -z "$EXISTING_PR" ]]; then
-        # No PR exists - create a new one
-        log_info "Creating new PR..."
-        if NEW_PR=$(create_new_pr "$CURRENT_BRANCH" "$HTML_WEB_URL"); then
-            EXISTING_PR="$NEW_PR"
-            PR_WAS_CREATED=true
-            log_info "Created PR #$EXISTING_PR"
-        else
-            log_error "Failed to create PR"
-            exit 1
-        fi
-    elif [[ "$PR_STATE" == "MERGED" ]]; then
-        # PR was merged - need to create a new one (can't reopen merged PRs on GitHub)
-        log_info "PR #$EXISTING_PR is merged. Creating a new PR..."
-        # Use a different title to distinguish from the merged PR
-        NEW_TITLE="${CURRENT_BRANCH} (subsequent)"
-        if NEW_PR=$(create_new_pr "$NEW_TITLE" "$HTML_WEB_URL"); then
-            EXISTING_PR="$NEW_PR"
-            PR_WAS_CREATED=true
-            log_info "Created new PR #$EXISTING_PR (previous PR was merged)"
-        else
-            log_error "Failed to create new PR after merge"
-            exit 1
-        fi
-    elif [[ "$PR_STATE" == "CLOSED" ]]; then
-        # PR was closed but not merged - reopen it
-        log_info "PR #$EXISTING_PR is closed. Reopening..."
-        if gh pr reopen "$EXISTING_PR" --comment "Reopening PR for continued work."; then
-            log_info "Reopened PR #$EXISTING_PR"
-        else
-            log_error "Failed to reopen PR #$EXISTING_PR"
-            exit 1
-        fi
+elif [[ "$PR_STATE" == "MERGED" ]]; then
+    # PR was merged - need to create a new one (can't reopen merged PRs on GitHub)
+    log_info "PR #$EXISTING_PR is merged. Creating a new PR..."
+    # Use a different title to distinguish from the merged PR
+    NEW_TITLE="${CURRENT_BRANCH} (subsequent)"
+    if NEW_PR=$(create_new_pr "$NEW_TITLE" "$HTML_WEB_URL"); then
+        EXISTING_PR="$NEW_PR"
+        PR_WAS_CREATED=true
+        log_info "Created new PR #$EXISTING_PR (previous PR was merged)"
+    else
+        log_error "Failed to create new PR after merge"
+        exit 1
     fi
-
-    # Write PR URL to .claude/pr_url for status line display
-    if [[ -n "$EXISTING_PR" ]]; then
-        PR_URL=$(gh pr view "$EXISTING_PR" --json url --jq '.url' 2>/dev/null || echo "")
-        if [[ -n "$PR_URL" ]]; then
-            echo "$PR_URL" > .claude/pr_url
-            log_info "Wrote PR URL to .claude/pr_url: $PR_URL"
-        fi
-        # Initialize PR status as pending before polling
-        echo "pending" > .claude/pr_status
+elif [[ "$PR_STATE" == "CLOSED" ]]; then
+    # PR was closed but not merged - reopen it
+    log_info "PR #$EXISTING_PR is closed. Reopening..."
+    if gh pr reopen "$EXISTING_PR" --comment "Reopening PR for continued work."; then
+        log_info "Reopened PR #$EXISTING_PR"
+    else
+        log_error "Failed to reopen PR #$EXISTING_PR"
+        exit 1
     fi
+fi
 
-    # Update existing PR description with transcript link (only for pre-existing PRs, not newly created ones)
-    if [[ -n "$EXISTING_PR" && "$PR_WAS_CREATED" == "false" && -n "$HTML_WEB_URL" ]]; then
-        log_info "Updating PR #$EXISTING_PR with transcript link..."
+# Write PR URL to .claude/pr_url for status line display
+if [[ -n "$EXISTING_PR" ]]; then
+    PR_URL=$(gh pr view "$EXISTING_PR" --json url --jq '.url' 2>/dev/null || echo "")
+    if [[ -n "$PR_URL" ]]; then
+        echo "$PR_URL" > .claude/pr_url
+        log_info "Wrote PR URL to .claude/pr_url: $PR_URL"
+    fi
+fi
 
-        # Get current PR body
-        if ! CURRENT_BODY=$(gh pr view "$EXISTING_PR" --json body --jq '.body'); then
-            log_error "Failed to get current PR body"
-            exit 1
-        else
-            # Build new transcript section
-            TRANSCRIPT_SECTION="## Transcript
+# Initialize PR status as pending before polling
+echo "pending" > .claude/pr_status
+
+# Update existing PR description with transcript link (only for pre-existing PRs, not newly created ones)
+if [[ -n "$EXISTING_PR" && "$PR_WAS_CREATED" == "false" && -n "$HTML_WEB_URL" ]]; then
+    log_info "Updating PR #$EXISTING_PR with transcript link..."
+
+    # Get current PR body
+    if ! CURRENT_BODY=$(gh pr view "$EXISTING_PR" --json body --jq '.body'); then
+        log_error "Failed to get current PR body"
+        exit 1
+    else
+        # Build new transcript section
+        TRANSCRIPT_SECTION="## Transcript
 - [View HTML Transcript]($HTML_WEB_URL)"
 
-            # Remove existing transcript section if present (everything from "## Transcript" to next "##" or end)
-            # and append new one
-            if echo "$CURRENT_BODY" | grep -q "## Transcript"; then
-                # Use awk to remove the old transcript section
-                NEW_BODY=$(echo "$CURRENT_BODY" | awk '
-                    /^## Transcript/ { in_transcript=1; next }
-                    /^## / && in_transcript { in_transcript=0 }
-                    !in_transcript { print }
-                ')
-                NEW_BODY="$NEW_BODY
+        # Remove existing transcript section if present (everything from "## Transcript" to next "##" or end)
+        # and append new one
+        if echo "$CURRENT_BODY" | grep -q "## Transcript"; then
+            # Use awk to remove the old transcript section
+            NEW_BODY=$(echo "$CURRENT_BODY" | awk '
+                /^## Transcript/ { in_transcript=1; next }
+                /^## / && in_transcript { in_transcript=0 }
+                !in_transcript { print }
+            ')
+            NEW_BODY="$NEW_BODY
 $TRANSCRIPT_SECTION"
-            else
-                # Add transcript section at the end
-                NEW_BODY="$CURRENT_BODY
+        else
+            # Add transcript section at the end
+            NEW_BODY="$CURRENT_BODY
 
 $TRANSCRIPT_SECTION"
-            fi
+        fi
 
-            if gh pr edit "$EXISTING_PR" --body "$NEW_BODY"; then
-                log_info "PR description updated successfully"
-            else
-                log_error "Failed to update PR description"
-                exit 1
-            fi
+        if gh pr edit "$EXISTING_PR" --body "$NEW_BODY"; then
+            log_info "PR description updated successfully"
+        else
+            log_error "Failed to update PR description"
+            exit 1
         fi
     fi
+fi
 
-    # Poll for PR checks to complete and report result
-    if [[ -n "$EXISTING_PR" ]]; then
-        log_info "Polling for PR check results..."
-        if RESULT=$("$SCRIPT_DIR/poll_pr_checks.sh" "$EXISTING_PR"); then
-            echo "$RESULT"
-            # Write successful status to .claude/pr_status
-            echo "success" > .claude/pr_status
-            log_info "Wrote PR status to .claude/pr_status: success"
-        else
-            # Write failure status to .claude/pr_status
-            echo "failure" > .claude/pr_status
-            log_info "Wrote PR status to .claude/pr_status: failure"
-            log_error "The tests have failed for the PR that was created by this script!"
-            log_error "Use the gh tool to inspect the remote test results for this branch and see what failed."
-            log_error "Note that you MUST identify the issue and fix it locally before trying again!"
-            log_error "NEVER just re-trigger the pipeline!"
-            log_error "NEVER fix timeouts by increasing them! Instead, make things faster or increase parallelism."
-            log_error "If it is impossible to fix the test, tell the user and say that you failed."
-            log_error "Otherwise, once you have understood and fixed the issue, you can simply commit to try again."
-            exit 2
-        fi
+# Poll for PR checks to complete and report result
+if [[ -n "$EXISTING_PR" ]]; then
+    log_info "Polling for PR check results..."
+    if RESULT=$("$SCRIPT_DIR/poll_pr_checks.sh" "$EXISTING_PR"); then
+        echo "$RESULT"
+        # Write successful status to .claude/pr_status
+        echo "success" > .claude/pr_status
+        log_info "Wrote PR status to .claude/pr_status: success"
+    else
+        # Write failure status to .claude/pr_status
+        echo "failure" > .claude/pr_status
+        log_info "Wrote PR status to .claude/pr_status: failure"
+        log_error "The tests have failed for the PR that was created by this script!"
+        log_error "Use the gh tool to inspect the remote test results for this branch and see what failed."
+        log_error "Note that you MUST identify the issue and fix it locally before trying again!"
+        log_error "NEVER just re-trigger the pipeline!"
+        log_error "NEVER fix timeouts by increasing them! Instead, make things faster or increase parallelism."
+        log_error "If it is impossible to fix the test, tell the user and say that you failed."
+        log_error "Otherwise, once you have understood and fixed the issue, you can simply commit to try again."
+        exit 2
     fi
 fi
 

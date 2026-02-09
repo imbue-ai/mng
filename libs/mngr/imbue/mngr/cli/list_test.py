@@ -17,6 +17,7 @@ from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
@@ -39,7 +40,7 @@ def _create_test_agent(snapshots: list[SnapshotInfo] | None = None) -> AgentInfo
         name="test-host",
         provider_name=ProviderInstanceName("local"),
         snapshots=snapshots or [],
-        state="running",
+        state=HostState.RUNNING,
     )
     return AgentInfo(
         id=AgentId.generate(),
@@ -49,7 +50,7 @@ def _create_test_agent(snapshots: list[SnapshotInfo] | None = None) -> AgentInfo
         work_dir=Path("/tmp/work"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -141,10 +142,10 @@ def test_format_value_as_string_none_returns_empty() -> None:
     assert _format_value_as_string(None) == ""
 
 
-def test_format_value_as_string_enum_returns_lowercase_value() -> None:
-    """_format_value_as_string should return lowercase enum value."""
+def test_format_value_as_string_enum_returns_uppercase_value() -> None:
+    """_format_value_as_string should return uppercase enum value."""
     result = _format_value_as_string(AgentLifecycleState.RUNNING)
-    assert result == "running"
+    assert result == AgentLifecycleState.RUNNING.value
 
 
 def test_format_value_as_string_string_returns_unchanged() -> None:
@@ -472,8 +473,8 @@ def test_get_sortable_value_nested_field() -> None:
 def test_get_sortable_value_alias() -> None:
     """_get_sortable_value should resolve field aliases."""
     agent = _create_test_agent()
-    result = _get_sortable_value(agent, "combined_state")
-    assert result == AgentLifecycleState.RUNNING.value.lower()
+    result = _get_sortable_value(agent, "provider")
+    assert result == "local"
 
 
 def test_get_sortable_value_invalid_field() -> None:
@@ -517,7 +518,7 @@ def _create_test_agent_with_name(name: str) -> AgentInfo:
         name="test-host",
         provider_name=ProviderInstanceName("local"),
         snapshots=[],
-        state="running",
+        state=HostState.RUNNING,
     )
     return AgentInfo(
         id=AgentId.generate(),
@@ -527,6 +528,6 @@ def _create_test_agent_with_name(name: str) -> AgentInfo:
         work_dir=Path("/tmp/work"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )

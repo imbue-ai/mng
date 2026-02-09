@@ -200,7 +200,7 @@ def destroy(ctx: click.Context, **kwargs) -> None:
             "See https://github.com/imbue-ai/mngr/issues/XXX for progress."
         )
     # Exclude agents matching CEL expressions from destruction:
-    # --exclude 'state == "running"' to skip running agents
+    # --exclude 'state == "RUNNING"' to skip running agents
     # See mngr list --exclude for the pattern to follow
     if opts.exclude:
         raise NotImplementedError(

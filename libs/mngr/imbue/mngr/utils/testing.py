@@ -36,6 +36,29 @@ MODAL_TEST_ENV_PATTERN: Final[re.Pattern[str]] = re.compile(
 )
 
 
+def assert_home_is_temp_directory() -> None:
+    """Assert that Path.home() is in a temp directory.
+
+    This safety check prevents tests from accidentally modifying the real home
+    directory. Should be called before any operation that writes to ~/.
+
+    Raises AssertionError if HOME is not in a recognized temp directory.
+    """
+    actual_home = Path.home()
+    actual_home_str = str(actual_home)
+    # pytest's tmp_path uses /tmp on Linux, /var/folders or /private/var on macOS
+    if not (
+        actual_home_str.startswith("/tmp")
+        or actual_home_str.startswith("/var/folders")
+        or actual_home_str.startswith("/private/var")
+    ):
+        raise AssertionError(
+            f"Path.home() returned {actual_home}, which is not in a temp directory. "
+            "Tests may be operating on real home directory! "
+            "Ensure setup_test_mngr_env autouse fixture has run before this call."
+        )
+
+
 def get_subprocess_test_env(
     root_name: str = "mngr-test",
     prefix: str | None = None,
@@ -67,22 +90,87 @@ def get_subprocess_test_env(
     return env
 
 
+def _get_descendant_pids(pid: str) -> list[str]:
+    """Recursively get all descendant PIDs of a given process.
+
+    Note: This mirrors Host._get_all_descendant_pids in host.py but uses subprocess
+    directly instead of host.execute_command, since this is used for test cleanup
+    outside of Host (e.g., in fixtures and context managers). The Host version goes
+    through pyinfra which supports both local and SSH execution.
+    """
+    descendants: list[str] = []
+    result = subprocess.run(
+        ["pgrep", "-P", pid],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        for child_pid in result.stdout.strip().split("\n"):
+            if child_pid:
+                descendants.append(child_pid)
+                descendants.extend(_get_descendant_pids(child_pid))
+    return descendants
+
+
 def cleanup_tmux_session(session_name: str) -> None:
-    """Clean up a tmux session if it exists."""
+    """Clean up a tmux session, all its processes, and any associated activity monitors.
+
+    Note: This mirrors the kill logic in Host.stop_agents (host.py) but uses subprocess
+    directly instead of host.execute_command. The Host version goes through pyinfra to
+    support both local and SSH execution, while this version is used for test cleanup
+    in fixtures and context managers that don't have a Host instance.
+
+    This does a thorough cleanup:
+    1. Collects all pane PIDs and their descendant process trees
+    2. Sends SIGTERM to all collected processes
+    3. Kills the tmux session itself
+    4. Sends SIGKILL to any processes that survived
+    5. Kills any orphaned activity monitors for this session
+    """
+    # Collect all pane PIDs and their descendants before killing the session.
+    # Use -s to list panes across ALL windows in the session, not just the current window.
+    all_pids: list[str] = []
+    result = subprocess.run(
+        ["tmux", "list-panes", "-s", "-t", session_name, "-F", "#{pane_pid}"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        for pane_pid in result.stdout.strip().split("\n"):
+            if pane_pid:
+                all_pids.append(pane_pid)
+                all_pids.extend(_get_descendant_pids(pane_pid))
+
+    # SIGTERM all processes
+    for pid in all_pids:
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+        except (ProcessLookupError, ValueError):
+            pass
+
+    # Kill the tmux session (sends SIGHUP to remaining pane processes)
     subprocess.run(
         ["tmux", "kill-session", "-t", session_name],
         capture_output=True,
     )
 
+    # SIGKILL any survivors
+    for pid in all_pids:
+        try:
+            os.kill(int(pid), signal.SIGKILL)
+        except (ProcessLookupError, ValueError):
+            pass
 
-# FIXME: When xdist workers crash (as observed during stress testing), this context manager's
-# finally block may not execute, leaving orphaned tmux sessions. This contributes to resource
-# leaks and contention in parallel test runs. Consider adding a pytest hook or fixture that
-# cleans up all test-prefixed tmux sessions at the start/end of the test run, or using
-# worker-specific tmux socket paths (TMUX_TMPDIR) to isolate workers from each other.
+    # Kill any orphaned activity monitors for this session (started with nohup, detached)
+    subprocess.run(
+        ["pkill", "-9", "-f", f"list-panes -t {session_name}"],
+        capture_output=True,
+    )
+
+
 @contextmanager
 def tmux_session_cleanup(session_name: str) -> Generator[str, None, None]:
-    """Context manager that cleans up a tmux session on exit."""
+    """Context manager that cleans up a tmux session and all its processes on exit."""
     try:
         yield session_name
     finally:
@@ -142,6 +230,25 @@ def make_mngr_ctx(default_host_dir: Path, prefix: str) -> MngrContext:
     return MngrContext(config=config, pm=pm, profile_dir=profile_dir)
 
 
+def init_git_repo(path: Path, initial_commit: bool = True) -> None:
+    """Initialize a git repo at the given path.
+
+    If initial_commit is True, creates a README.md and commits it.
+    Requires setup_git_config fixture to have created .gitconfig in the fake HOME
+    (or temp_git_repo fixture, which depends on it).
+    """
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+    if initial_commit:
+        (path / "README.md").write_text("Test repository")
+        subprocess.run(["git", "add", "."], cwd=path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Initial commit"],
+            cwd=path,
+            check=True,
+            capture_output=True,
+        )
+
+
 def get_short_random_string() -> str:
     return uuid4().hex[:8]
 
@@ -162,11 +269,15 @@ def run_git_command(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def init_git_repo(path: Path) -> None:
-    """Initialize a git repository with an initial commit.
+def init_git_repo_with_config(path: Path) -> None:
+    """Initialize a git repository with an initial commit and local git config.
 
-    Creates the directory if it doesn't exist, initializes git, and creates
-    an initial commit with a README.md file.
+    Creates the directory if it doesn't exist, initializes git, sets local
+    user.email and user.name config, and creates an initial commit with a
+    README.md file.
+
+    Use this variant when you don't have a global .gitconfig (e.g., in
+    subprocess tests without the setup_git_config fixture).
     """
     path.mkdir(parents=True, exist_ok=True)
     run_git_command(path, "init")
@@ -189,6 +300,50 @@ def get_stash_count(path: Path) -> int:
         return 0
     lines = result.stdout.strip().split("\n")
     return len([line for line in lines if line])
+
+
+def setup_claude_trust_config_for_subprocess(
+    trusted_paths: list[Path],
+    root_name: str = "mngr-acceptance-test",
+) -> dict[str, str]:
+    """Create a Claude trust config file and return env vars for subprocess tests.
+
+    This creates ~/.claude.json (in the temp HOME set by setup_test_mngr_env autouse
+    fixture) that marks the specified paths as trusted.
+
+    Uses get_subprocess_test_env() as the base to ensure MNGR_ROOT_NAME is set,
+    which prevents loading the project's .mngr/settings.toml. The env dict includes
+    HOME from os.environ, which was set by the setup_test_mngr_env autouse fixture.
+
+    Raises AssertionError if called before the autouse fixture has set HOME to a
+    temp directory.
+    """
+    # Safety check: ensure we're writing to a temp directory, not the real home
+    assert_home_is_temp_directory()
+
+    claude_config: dict[str, object] = {
+        "projects": {str(path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True} for path in trusted_paths},
+        # Skip first-run prompts that block the TUI:
+        # - hasCompletedOnboarding: skips theme picker
+        # - numStartups: signals this isn't a first run
+        # - bypassPermissionsModeAccepted: skips permissions mode prompt
+        "hasCompletedOnboarding": True,
+        "numStartups": 1,
+        "bypassPermissionsModeAccepted": True,
+    }
+
+    # Pre-approve any ANTHROPIC_API_KEY so Claude doesn't prompt for confirmation.
+    # Claude uses the last 20 characters of the key as its identifier.
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if len(api_key) >= 20:
+        key_id = api_key[-20:]
+        claude_config["customApiKeyResponses"] = {"approved": [key_id]}
+
+    config_file = Path.home() / ".claude.json"
+    config_file.write_text(json.dumps(claude_config))
+
+    # get_subprocess_test_env() copies os.environ which includes HOME from the autouse fixture
+    return get_subprocess_test_env(root_name=root_name)
 
 
 # =============================================================================

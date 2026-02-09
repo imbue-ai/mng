@@ -14,6 +14,7 @@ from uuid import uuid4
 import pluggy
 import psutil
 import pytest
+import toml
 from click.testing import CliRunner
 from urwid.widget.listbox import SimpleFocusListWalker
 
@@ -29,10 +30,13 @@ from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
 from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
+from imbue.mngr.utils.testing import assert_home_is_temp_directory
+from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import delete_modal_apps_in_environment
 from imbue.mngr.utils.testing import delete_modal_environment
 from imbue.mngr.utils.testing import delete_modal_volumes_in_environment
 from imbue.mngr.utils.testing import get_subprocess_test_env
+from imbue.mngr.utils.testing import init_git_repo
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
@@ -127,9 +131,16 @@ def temp_host_dir(tmp_path: Path) -> Path:
     return host_dir
 
 
+@pytest.fixture
+def tmp_home_dir(tmp_path: Path) -> Generator[Path, None, None]:
+    home_dir = tmp_path / "home"
+    home_dir.mkdir(parents=True, exist_ok=True)
+    yield tmp_path
+
+
 @pytest.fixture(autouse=True)
 def setup_test_mngr_env(
-    tmp_path: Path,
+    tmp_home_dir: Path,
     temp_host_dir: Path,
     mngr_test_prefix: str,
     mngr_test_root_name: str,
@@ -146,7 +157,22 @@ def setup_test_mngr_env(
     By setting HOME to tmp_path, tests cannot accidentally read or modify
     files in the real home directory. This protects files like ~/.claude.json.
     """
-    monkeypatch.setenv("HOME", str(tmp_path))
+    # before we nuke our home directory, we need to load the right token from the real home directory
+    modal_toml_path = Path(os.path.expanduser("~/.modal.toml"))
+    if modal_toml_path.exists():
+        for value in toml.load(modal_toml_path).values():
+            if value.get("active", ""):
+                monkeypatch.setenv("MODAL_TOKEN_ID", value.get("token_id", ""))
+                monkeypatch.setenv("MODAL_TOKEN_SECRET", value.get("token_secret", ""))
+                break
+    if not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"):
+        # check if we have "release" mark enabled:
+        if "release" in getattr(pytest, "current_test_marks", []):
+            raise Exception(
+                "No active Modal token found in ~/.modal.toml for release tests. Please ensure you have an active token configured or set the env vars"
+            )
+
+    monkeypatch.setenv("HOME", str(tmp_home_dir))
     monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
     monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
@@ -161,18 +187,7 @@ def setup_test_mngr_env(
 
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.
-    actual_home = Path.home()
-    actual_home_str = str(actual_home)
-    # pytest's tmp_path uses /tmp on Linux, /var/folders or /private/var on macOS
-    if not (
-        actual_home_str.startswith("/tmp")
-        or actual_home_str.startswith("/var/folders")
-        or actual_home_str.startswith("/private/var")
-    ):
-        raise AssertionError(
-            f"Failed to set fake HOME! Path.home() returned {actual_home}, "
-            f"which is not in a temp directory. Tests may be operating on real home directory!"
-        )
+    assert_home_is_temp_directory()
 
 
 @pytest.fixture
@@ -201,16 +216,7 @@ def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
     repo_dir = tmp_path / "git_repo"
     repo_dir.mkdir()
 
-    # Initialize git and create initial commit
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
-    (repo_dir / "README.md").write_text("Test repository")
-    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=repo_dir,
-        check=True,
-        capture_output=True,
-    )
+    init_git_repo(repo_dir)
 
     return repo_dir
 
@@ -335,16 +341,9 @@ def _get_tmux_sessions_with_prefix(prefix: str) -> list[str]:
 
 
 def _kill_tmux_sessions(sessions: list[str]) -> None:
-    """Kill the specified tmux sessions."""
+    """Kill the specified tmux sessions and all their processes."""
     for session in sessions:
-        try:
-            subprocess.run(
-                ["tmux", "kill-session", "-t", session],
-                capture_output=True,
-                timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
-            pass
+        cleanup_tmux_session(session)
 
 
 def _is_xdist_worker_process(proc: psutil.Process) -> bool:
@@ -820,8 +819,7 @@ def session_cleanup() -> Generator[None, None, None]:
     if errors:
         raise AssertionError(
             "=" * 70 + "\n"
-            "TEST SESSION CLEANUP FOUND LEAKED RESOURCES!\n"
-            "=" * 70 + "\n\n" + "\n\n".join(errors) + "\n\n"
+            "TEST SESSION CLEANUP FOUND LEAKED RESOURCES!\n" + "=" * 70 + "\n\n" + "\n\n".join(errors) + "\n\n"
             "These resources have been cleaned up, but tests should not leak!\n"
             "Please fix the test(s) that failed to clean up properly."
         )

@@ -34,6 +34,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentLifecycleState
 
@@ -49,7 +50,7 @@ class ConnectCliOptions(CommonCliOptions):
     reconnect: bool
     message: str | None
     message_file: str | None
-    message_delay: float
+    ready_timeout: float
     retry: int
     retry_delay: str
     attach_command: str | None
@@ -66,7 +67,7 @@ def filter_agents(
     result = agents
 
     if hide_stopped:
-        result = [a for a in result if a.lifecycle_state != AgentLifecycleState.STOPPED]
+        result = [a for a in result if a.state != AgentLifecycleState.STOPPED]
 
     if search_query:
         query_lower = search_query.lower()
@@ -121,7 +122,7 @@ def _create_selectable_agent_item(agent: AgentInfo, name_width: int, state_width
     """
     # Pad the name and state to their column widths for proper alignment
     name_padded = str(agent.name).ljust(name_width)
-    state_padded = agent.lifecycle_state.value.lower().ljust(state_width)
+    state_padded = agent.state.value.ljust(state_width)
     host_str = str(agent.host.name)
 
     # Create a single SelectableIcon with the full formatted row
@@ -232,7 +233,7 @@ def _run_agent_selector(agents: list[AgentInfo]) -> AgentInfo | None:
     """Run the agent selector UI and return the selected agent, or None if cancelled."""
     # Calculate column widths based on content
     name_width = max((len(str(a.name)) for a in agents), default=10)
-    state_width = max((len(a.lifecycle_state.value) for a in agents), default=7)
+    state_width = max((len(a.state.value) for a in agents), default=7)
 
     # Cap widths at reasonable maximums
     name_width = min(name_width, 40)
@@ -347,11 +348,11 @@ def select_agent_interactively(agents: list[AgentInfo]) -> AgentInfo | None:
     "--message-file", type=click.Path(exists=True), help="File containing initial message to send [future]"
 )
 @optgroup.option(
-    "--message-delay",
+    "--ready-timeout",
     type=float,
-    default=1.0,
+    default=DEFAULT_AGENT_READY_TIMEOUT_SECONDS,
     show_default=True,
-    help="Seconds to wait before sending initial message [future]",
+    help="Timeout in seconds to wait for agent readiness [future]",
 )
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries [future]")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries [future]")
@@ -386,7 +387,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     logger.debug("Running connect command")
 
     # Send the specified text as an initial message after the agent starts
-    # Should wait for message_delay seconds before sending
+    # Should wait for ready_timeout seconds for agent readiness before sending
     if opts.message is not None:
         raise NotImplementedError("--message is not implemented yet")
 
@@ -394,9 +395,9 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     if opts.message_file is not None:
         raise NotImplementedError("--message-file is not implemented yet")
 
-    # Wait this many seconds before sending the initial message
-    if opts.message_delay != 1.0:
-        raise NotImplementedError("--message-delay with non-default value is not implemented yet")
+    # Timeout for waiting for agent readiness
+    if opts.ready_timeout != DEFAULT_AGENT_READY_TIMEOUT_SECONDS:
+        raise NotImplementedError("--ready-timeout with non-default value is not implemented yet")
 
     # Number of times to retry connection on failure before giving up
     if opts.retry != 3:

@@ -1,6 +1,7 @@
 from imbue.imbue_common.pure import pure
 
 
+# FIXME: this is a silly way of parsing env files - we should use a proper library for this so that quotes, etc are handled correctly
 @pure
 def parse_env_file(content: str) -> dict[str, str]:
     """Parse an environment file into a dict."""

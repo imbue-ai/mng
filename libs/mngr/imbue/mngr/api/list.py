@@ -39,7 +39,6 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostReference
-from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
@@ -61,7 +60,7 @@ class AgentInfo(FrozenModel):
     create_time: datetime = Field(description="Creation timestamp")
     start_on_boot: bool = Field(description="Whether agent starts on host boot")
 
-    lifecycle_state: AgentLifecycleState = Field(description="Lifecycle state (stopped/running/replaced/done)")
+    state: AgentLifecycleState = Field(description="Agent lifecycle state (STOPPED/RUNNING/WAITING/REPLACED/DONE)")
     status: AgentStatus | None = Field(default=None, description="Current status (reported)")
     url: str | None = Field(default=None, description="Agent URL (reported)")
     start_time: datetime | None = Field(default=None, description="Last start time (reported)")
@@ -75,25 +74,6 @@ class AgentInfo(FrozenModel):
     host: HostInfo = Field(description="Host information")
 
     plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-specific fields")
-
-    @property
-    def combined_state(self) -> str:
-        """Return the combined state for display purposes.
-
-        Per docs/concepts/agents.md: If the host's state is not "running",
-        then the agent inherits its state from the host. Otherwise, the
-        agent shows its own lifecycle state.
-        """
-        host_state = self.host.state
-
-        # If host is not running, agent inherits the host state
-        if host_state is None:
-            return HostState.DESTROYED.value.lower()
-        if host_state != HostState.RUNNING.value.lower():
-            return host_state
-
-        # Host is running, so show the agent's lifecycle state
-        return self.lifecycle_state.value.lower()
 
 
 class ErrorInfo(FrozenModel):
@@ -303,7 +283,7 @@ def _assemble_host_info(
         id=host.id,
         name=str(host.get_name()),
         provider_name=host_ref.provider_name,
-        state=host.get_state().value.lower(),
+        state=host.get_state(),
         image=host.get_image(),
         tags=host.get_tags(),
         boot_time=boot_time,
@@ -352,7 +332,7 @@ def _assemble_host_info(
                     work_dir=agent.work_dir,
                     create_time=agent.create_time,
                     start_on_boot=agent.get_is_start_on_boot(),
-                    lifecycle_state=agent.get_lifecycle_state(),
+                    state=agent.get_lifecycle_state(),
                     status=agent_status,
                     url=agent.get_reported_url(),
                     start_time=agent.get_reported_start_time(),
@@ -361,7 +341,7 @@ def _assemble_host_info(
                     agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
                     ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
                     idle_seconds=None,
-                    idle_mode=activity_config.idle_mode.value.lower(),
+                    idle_mode=activity_config.idle_mode.value,
                     host=host_info,
                     plugin={},
                 )
@@ -378,7 +358,7 @@ def _assemble_host_info(
                     work_dir=agent_ref.work_dir or Path("/"),
                     create_time=create_time,
                     start_on_boot=agent_ref.start_on_boot,
-                    lifecycle_state=AgentLifecycleState.STOPPED,
+                    state=AgentLifecycleState.STOPPED,
                     status=None,
                     url=None,
                     start_time=None,
@@ -491,13 +471,6 @@ def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
                     latest_activity = activity_dt
         if latest_activity:
             result["idle"] = (datetime.now(timezone.utc) - latest_activity).total_seconds()
-
-    # Flatten lifecycle_state value
-    if result.get("lifecycle_state"):
-        if isinstance(result["lifecycle_state"], dict):
-            result["state"] = result["lifecycle_state"].get("value", "").lower()
-        else:
-            result["state"] = str(result["lifecycle_state"]).lower()
 
     # Normalize host.provider_name to host.provider for consistency
     if result.get("host") and isinstance(result["host"], dict):

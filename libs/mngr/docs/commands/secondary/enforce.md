@@ -1,4 +1,4 @@
-# mngr enforce - CLI Options Reference
+# mngr enforce [future] - CLI Options Reference
 
 Ensure that no hosts have exceeded their idle timeouts, etc.
 

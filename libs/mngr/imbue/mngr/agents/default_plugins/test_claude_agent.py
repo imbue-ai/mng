@@ -49,6 +49,12 @@ def test_claude_agent_provisioning_on_modal(
     unique_id = uuid4().hex[:12]
     agent_name = f"test-claude-modal-{unique_id}"
 
+    # make a .gitignore file to ignore the claude local settings
+    claude_settings_dir = temp_source_dir / ".claude"
+    claude_settings_dir.mkdir()
+    (claude_settings_dir / "settings.local.json").write_text("{}")
+    (temp_source_dir / ".gitignore").write_text(".claude/settings.local.json\n")
+
     # Run mngr create with claude agent on modal
     # Using --no-connect and --await-ready to run synchronously without attaching
     # Using --no-ensure-clean since temp dir won't be a git repo

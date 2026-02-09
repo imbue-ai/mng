@@ -1,4 +1,4 @@
-# Recursive mngr Invocation
+# Recursive mngr Invocation [future]
 
 This plugin enables agents to remote / untrusted child agents by invoking `mngr`.
 
