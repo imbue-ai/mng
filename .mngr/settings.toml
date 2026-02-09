@@ -29,10 +29,3 @@ default_cpu = 4
 default_memory = 8
 default_idle_timeout = 600
 default_sandbox_timeout = 7200
-
-[providers.modal_github]
-backend = "modal"
-is_enabled = true
-user_id = "github-ci"
-default_idle_timeout = 600
-default_sandbox_timeout = 900
