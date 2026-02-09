@@ -280,7 +280,7 @@ def init_git_repo_with_config(path: Path) -> None:
     subprocess tests without the setup_git_config fixture).
     """
     path.mkdir(parents=True, exist_ok=True)
-    run_git_command(path, "init")
+    run_git_command(path, "init", "-b", "main")
     run_git_command(path, "config", "user.email", "test@example.com")
     run_git_command(path, "config", "user.name", "Test User")
     (path / "README.md").write_text("Initial content")
