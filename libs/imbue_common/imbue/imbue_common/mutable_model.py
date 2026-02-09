@@ -1,5 +1,9 @@
+from typing import Self
+
 from pydantic import BaseModel
 from pydantic import ConfigDict
+
+from imbue.imbue_common.model_update import FieldProxy
 
 
 class MutableModel(BaseModel):
@@ -10,3 +14,7 @@ class MutableModel(BaseModel):
         extra="forbid",
         arbitrary_types_allowed=False,
     )
+
+    def fields(self) -> Self:
+        """Return a proxy for type-safe field references with to_update()."""
+        return FieldProxy()  # type: ignore[return-value]
