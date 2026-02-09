@@ -3,6 +3,13 @@
 
 # mngr push
 
+**Synopsis:**
+
+```text
+mngr push [TARGET] [SOURCE] [--target-agent <AGENT>] [--dry-run] [--stop]
+```
+
+
 Push files or git commits from local machine to an agent.
 
 Syncs files or git state from a local directory to an agent's working directory.
@@ -83,3 +90,54 @@ mngr push [OPTIONS] [TARGET] [SOURCE]
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## See Also
+
+- [mngr create](./create.md) - Create a new agent
+- [mngr list](./list.md) - List agents to find one to push to
+- [mngr pull](./pull.md) - Pull files or git commits from an agent
+- [mngr pair](./pair.md) - Continuously sync files between agent and local
+
+## Examples
+
+**Push to agent from current directory**
+
+```bash
+$ mngr push my-agent
+```
+
+**Push from specific local directory**
+
+```bash
+$ mngr push my-agent ./local-dir
+```
+
+**Push to specific subdirectory**
+
+```bash
+$ mngr push my-agent:subdir ./local-src
+```
+
+**Preview what would be transferred**
+
+```bash
+$ mngr push my-agent --dry-run
+```
+
+**Push git commits**
+
+```bash
+$ mngr push my-agent --sync-mode=git
+```
+
+**Mirror all refs to agent**
+
+```bash
+$ mngr push my-agent --sync-mode=git --mirror
+```

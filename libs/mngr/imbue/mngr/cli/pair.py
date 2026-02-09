@@ -14,6 +14,9 @@ from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.config.data_types import OutputOptions
@@ -266,3 +269,37 @@ def pair(ctx: click.Context, **kwargs) -> None:
         logger.debug("Received keyboard interrupt")
     finally:
         _emit_pair_stopped(output_opts)
+
+
+# Register help metadata for git-style help formatting
+_PAIR_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-pair",
+    one_line_description="Continuously sync files between an agent and local directory",
+    synopsis="mngr pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]",
+    description="""Continuously sync files between an agent and local directory.
+
+This command establishes a bidirectional file sync between an agent's working
+directory and a local directory. Changes are watched and synced in real-time.
+
+If git repositories exist on both sides, the command first synchronizes git
+state (branches and commits) before starting the continuous file sync.
+
+Press Ctrl+C to stop the sync.""",
+    examples=(
+        ("Pair with an agent", "mngr pair my-agent"),
+        ("Pair to specific local directory", "mngr pair my-agent ./local-dir"),
+        ("One-way sync (source to target)", "mngr pair my-agent --sync-direction=forward"),
+        ("Prefer source on conflicts", "mngr pair my-agent --conflict=source"),
+        ("Filter to specific host", "mngr pair my-agent --source-host @local"),
+    ),
+    see_also=(
+        ("push", "Push files or git commits to an agent"),
+        ("pull", "Pull files or git commits from an agent"),
+        ("create", "Create a new agent"),
+        ("list", "List agents to find one to pair with"),
+    ),
+)
+
+register_help_metadata("pair", _PAIR_HELP_METADATA)
+
+add_pager_help_option(pair)

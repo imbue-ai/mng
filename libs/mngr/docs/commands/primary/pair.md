@@ -3,6 +3,13 @@
 
 # mngr pair
 
+**Synopsis:**
+
+```text
+mngr pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]
+```
+
+
 Continuously sync files between an agent and local directory.
 
 This command establishes a bidirectional file sync between an agent's working
@@ -86,3 +93,48 @@ mngr pair [OPTIONS] [SOURCE]
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## See Also
+
+- [mngr push](./push.md) - Push files or git commits to an agent
+- [mngr pull](./pull.md) - Pull files or git commits from an agent
+- [mngr create](./create.md) - Create a new agent
+- [mngr list](./list.md) - List agents to find one to pair with
+
+## Examples
+
+**Pair with an agent**
+
+```bash
+$ mngr pair my-agent
+```
+
+**Pair to specific local directory**
+
+```bash
+$ mngr pair my-agent ./local-dir
+```
+
+**One-way sync (source to target)**
+
+```bash
+$ mngr pair my-agent --sync-direction=forward
+```
+
+**Prefer source on conflicts**
+
+```bash
+$ mngr pair my-agent --conflict=source
+```
+
+**Filter to specific host**
+
+```bash
+$ mngr pair my-agent --source-host @local
+```
