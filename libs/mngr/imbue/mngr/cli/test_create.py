@@ -1,11 +1,9 @@
-# FIXME0: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 """Tests for the create CLI command."""
 
 import os
 import subprocess
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pluggy
 import pytest
@@ -117,30 +115,39 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
     temp_work_dir: Path,
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that --connect flag attempts to attach to the tmux session for local agents."""
     agent_name = f"test-connect-local-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
 
+    # Track what os.execvp was called with instead of using unittest.mock.patch
+    execvp_calls: list[tuple[str, list[str]]] = []
+
+    def capture_execvp(file: str, args: list[str]) -> None:
+        execvp_calls.append((file, args))
+
+    monkeypatch.setattr("os.execvp", capture_execvp)
+
     with tmux_session_cleanup(session_name):
-        with patch("os.execvp") as mock_execvp:
-            cli_runner.invoke(
-                create,
-                [
-                    "--name",
-                    agent_name,
-                    "--agent-cmd",
-                    "sleep 397265",
-                    "--source",
-                    str(temp_work_dir),
-                    "--connect",
-                    "--no-copy-work-dir",
-                    "--no-ensure-clean",
-                ],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
-            mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
+        cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 397265",
+                "--source",
+                str(temp_work_dir),
+                "--connect",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert len(execvp_calls) == 1
+        assert execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_name])
 
 
 def test_no_connect_flag_skips_tmux_attach(
