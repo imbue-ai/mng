@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from imbue.mngr.cli.create import CreateCliOptions
 from imbue.mngr.cli.create import _parse_host_lifecycle_options
 from imbue.mngr.cli.create import _try_reuse_existing_agent
@@ -23,22 +25,18 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
 # =============================================================================
-# Typed test data factory
+# Shared fixture: baseline CreateCliOptions with sensible defaults
 # =============================================================================
 
 
-def _make_create_cli_opts(
-    idle_timeout: int | None = None,
-    idle_mode: str | None = None,
-    activity_sources: str | None = None,
-) -> CreateCliOptions:
-    """Build a real CreateCliOptions with sensible defaults for all fields."""
+@pytest.fixture
+def default_create_cli_opts() -> CreateCliOptions:
+    """Baseline CreateCliOptions with sensible defaults for all fields.
+
+    Tests use .model_copy(update={...}) to override only the fields relevant
+    to each test case.
+    """
     return CreateCliOptions(
-        # Fields under test
-        idle_timeout=idle_timeout,
-        idle_mode=idle_mode,
-        activity_sources=activity_sources,
-        # CommonCliOptions defaults
         output_format="human",
         quiet=False,
         verbose=0,
@@ -49,7 +47,6 @@ def _make_create_cli_opts(
         project_context_path=None,
         plugin=(),
         disable_plugin=(),
-        # CreateCliOptions defaults
         positional_name=None,
         positional_agent_type=None,
         agent_args=(),
@@ -115,6 +112,9 @@ def _make_create_cli_opts(
         retry=3,
         retry_delay="5s",
         attach_command=None,
+        idle_timeout=None,
+        idle_mode=None,
+        activity_sources=None,
         start_on_boot=None,
         grant=(),
         user_command=(),
@@ -132,20 +132,18 @@ def _make_create_cli_opts(
 # =============================================================================
 
 
-def test_parse_host_lifecycle_options_all_none() -> None:
+def test_parse_host_lifecycle_options_all_none(default_create_cli_opts: CreateCliOptions) -> None:
     """When all CLI options are None, result should have all None values."""
-    opts = _make_create_cli_opts()
-
-    result = _parse_host_lifecycle_options(opts)
+    result = _parse_host_lifecycle_options(default_create_cli_opts)
 
     assert result.idle_timeout_seconds is None
     assert result.idle_mode is None
     assert result.activity_sources is None
 
 
-def test_parse_host_lifecycle_options_with_idle_timeout() -> None:
+def test_parse_host_lifecycle_options_with_idle_timeout(default_create_cli_opts: CreateCliOptions) -> None:
     """idle_timeout should be passed through directly."""
-    opts = _make_create_cli_opts(idle_timeout=600)
+    opts = default_create_cli_opts.model_copy(update={"idle_timeout": 600})
 
     result = _parse_host_lifecycle_options(opts)
 
@@ -154,9 +152,9 @@ def test_parse_host_lifecycle_options_with_idle_timeout() -> None:
     assert result.activity_sources is None
 
 
-def test_parse_host_lifecycle_options_with_idle_mode_lowercase() -> None:
+def test_parse_host_lifecycle_options_with_idle_mode_lowercase(default_create_cli_opts: CreateCliOptions) -> None:
     """idle_mode should be parsed and uppercased to IdleMode enum."""
-    opts = _make_create_cli_opts(idle_mode="agent")
+    opts = default_create_cli_opts.model_copy(update={"idle_mode": "agent"})
 
     result = _parse_host_lifecycle_options(opts)
 
@@ -165,48 +163,54 @@ def test_parse_host_lifecycle_options_with_idle_mode_lowercase() -> None:
     assert result.activity_sources is None
 
 
-def test_parse_host_lifecycle_options_with_idle_mode_uppercase() -> None:
+def test_parse_host_lifecycle_options_with_idle_mode_uppercase(default_create_cli_opts: CreateCliOptions) -> None:
     """idle_mode should work with uppercase input."""
-    opts = _make_create_cli_opts(idle_mode="SSH")
+    opts = default_create_cli_opts.model_copy(update={"idle_mode": "SSH"})
 
     result = _parse_host_lifecycle_options(opts)
 
     assert result.idle_mode == IdleMode.SSH
 
 
-def test_parse_host_lifecycle_options_with_activity_sources_single() -> None:
+def test_parse_host_lifecycle_options_with_activity_sources_single(default_create_cli_opts: CreateCliOptions) -> None:
     """activity_sources should parse a single source."""
-    opts = _make_create_cli_opts(activity_sources="boot")
+    opts = default_create_cli_opts.model_copy(update={"activity_sources": "boot"})
 
     result = _parse_host_lifecycle_options(opts)
 
     assert result.activity_sources == (ActivitySource.BOOT,)
 
 
-def test_parse_host_lifecycle_options_with_activity_sources_multiple() -> None:
+def test_parse_host_lifecycle_options_with_activity_sources_multiple(
+    default_create_cli_opts: CreateCliOptions,
+) -> None:
     """activity_sources should parse comma-separated sources."""
-    opts = _make_create_cli_opts(activity_sources="boot,ssh,agent")
+    opts = default_create_cli_opts.model_copy(update={"activity_sources": "boot,ssh,agent"})
 
     result = _parse_host_lifecycle_options(opts)
 
     assert result.activity_sources == (ActivitySource.BOOT, ActivitySource.SSH, ActivitySource.AGENT)
 
 
-def test_parse_host_lifecycle_options_with_activity_sources_whitespace() -> None:
+def test_parse_host_lifecycle_options_with_activity_sources_whitespace(
+    default_create_cli_opts: CreateCliOptions,
+) -> None:
     """activity_sources should handle whitespace around commas."""
-    opts = _make_create_cli_opts(activity_sources="boot , ssh , agent")
+    opts = default_create_cli_opts.model_copy(update={"activity_sources": "boot , ssh , agent"})
 
     result = _parse_host_lifecycle_options(opts)
 
     assert result.activity_sources == (ActivitySource.BOOT, ActivitySource.SSH, ActivitySource.AGENT)
 
 
-def test_parse_host_lifecycle_options_all_provided() -> None:
+def test_parse_host_lifecycle_options_all_provided(default_create_cli_opts: CreateCliOptions) -> None:
     """All options should be correctly parsed when all are provided."""
-    opts = _make_create_cli_opts(
-        idle_timeout=1800,
-        idle_mode="disabled",
-        activity_sources="create,process",
+    opts = default_create_cli_opts.model_copy(
+        update={
+            "idle_timeout": 1800,
+            "idle_mode": "disabled",
+            "activity_sources": "create,process",
+        }
     )
 
     result = _parse_host_lifecycle_options(opts)
@@ -326,7 +330,6 @@ def test_try_reuse_existing_agent_found_and_started(
     temp_work_dir: Path,
 ) -> None:
     """Returns (agent, host) when agent is found and started."""
-    # Get the real local host (always online)
     local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
 
     # Create a real agent on the local host with a harmless command
@@ -353,8 +356,6 @@ def test_try_reuse_existing_agent_found_and_started(
         provider_name=ProviderInstanceName("local"),
     )
 
-    # Call the function under test with real data, using try/finally to guarantee
-    # cleanup of the tmux session even if assertions fail
     try:
         result = _try_reuse_existing_agent(
             agent_name=agent.name,
@@ -370,7 +371,6 @@ def test_try_reuse_existing_agent_found_and_started(
         assert found_agent.name == agent.name
         assert found_host.id == local_host.id
     finally:
-        # Clean up the tmux session that ensure_agent_started created
         local_host.stop_agents([agent.id])
 
 
