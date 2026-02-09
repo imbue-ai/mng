@@ -405,6 +405,13 @@ def pair_files(
     # Determine target path
     actual_target = target_path if target_path is not None else agent.work_dir
 
+    # Validate source and target are different directories
+    if source_path.resolve() == actual_target.resolve():
+        raise MngrError(
+            f"Source and target are the same directory: {source_path.resolve()}. "
+            "Pair requires two different directories to sync between."
+        )
+
     # Check git requirements
     source_is_git = is_git_repository(source_path)
     target_is_git = is_git_repository(actual_target)

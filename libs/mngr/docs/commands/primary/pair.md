@@ -50,7 +50,6 @@ mngr pair [OPTIONS] [SOURCE]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--target` | path | Local target directory [default: nearest git root or current directory] | None |
-| `--target-path` | text | Target path (if different from --target) | None |
 
 ## Git Handling
 

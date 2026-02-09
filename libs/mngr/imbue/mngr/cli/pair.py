@@ -36,7 +36,6 @@ class PairCliOptions(CommonCliOptions):
     source_host: str | None
     source_path: str | None
     target: str | None
-    target_path: str | None
     require_git: bool
     sync_direction: str
     conflict: str
@@ -95,7 +94,6 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
     type=click.Path(),
     help="Local target directory [default: nearest git root or current directory]",
 )
-@optgroup.option("--target-path", help="Target path (if different from --target)")
 @optgroup.group("Git Handling")
 @optgroup.option(
     "--require-git/--no-require-git",
@@ -196,8 +194,6 @@ def pair(ctx: click.Context, **kwargs) -> None:
     # Determine target path
     if opts.target is not None:
         target_path = Path(opts.target)
-    elif opts.target_path is not None:
-        target_path = Path(opts.target_path)
     else:
         # Default to nearest git root, or current directory
         git_root = find_git_worktree_root()
