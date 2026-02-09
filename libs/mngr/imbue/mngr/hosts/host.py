@@ -1603,33 +1603,39 @@ class Host(BaseHost, OnlineHostInterface):
 
         if self.is_local:
             # Local hosts: detach and exec into mngr destroy/stop directly
-            lines.extend([
-                "# Ctrl-q: Detach and destroy the agent whose session this is",
-                """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'""",
-                "",
-                "# Ctrl-t: Detach and stop the agent whose session this is",
-                """bind -n C-t run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
-            ])
+            lines.extend(
+                [
+                    "# Ctrl-q: Detach and destroy the agent whose session this is",
+                    """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'""",
+                    "",
+                    "# Ctrl-t: Detach and stop the agent whose session this is",
+                    """bind -n C-t run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
+                ]
+            )
         else:
             # Remote hosts: write a signal file and detach. The SSH wrapper script
             # reads the signal file after tmux exits and returns an exit code that
             # the local mngr process uses to run the appropriate command.
             signals_dir = self.host_dir / "signals"
-            lines.extend([
-                "# Ctrl-q: Write destroy signal and detach (handled by local mngr after SSH exits)",
-                f"""bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{{session_name}}"); mkdir -p {shlex.quote(str(signals_dir))}; echo destroy > {shlex.quote(str(signals_dir))}/"$SESSION"; tmux detach-client'""",
-                "",
-                "# Ctrl-t: Write stop signal and detach (handled by local mngr after SSH exits)",
-                f"""bind -n C-t run-shell 'SESSION=$(tmux display-message -p "#{{session_name}}"); mkdir -p {shlex.quote(str(signals_dir))}; echo stop > {shlex.quote(str(signals_dir))}/"$SESSION"; tmux detach-client'""",
-            ])
+            lines.extend(
+                [
+                    "# Ctrl-q: Write destroy signal and detach (handled by local mngr after SSH exits)",
+                    f"""bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{{session_name}}"); mkdir -p {shlex.quote(str(signals_dir))}; echo destroy > {shlex.quote(str(signals_dir))}/"$SESSION"; tmux detach-client'""",
+                    "",
+                    "# Ctrl-t: Write stop signal and detach (handled by local mngr after SSH exits)",
+                    f"""bind -n C-t run-shell 'SESSION=$(tmux display-message -p "#{{session_name}}"); mkdir -p {shlex.quote(str(signals_dir))}; echo stop > {shlex.quote(str(signals_dir))}/"$SESSION"; tmux detach-client'""",
+                ]
+            )
 
-        lines.extend([
-            "",
-            # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
-            "# Automatically signal claude to tell it to resize on client attach",
-            """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'""",
-            "",
-        ])
+        lines.extend(
+            [
+                "",
+                # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
+                "# Automatically signal claude to tell it to resize on client attach",
+                """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'""",
+                "",
+            ]
+        )
         config_content = "\n".join(lines)
 
         self.write_text_file(config_path, config_content)
