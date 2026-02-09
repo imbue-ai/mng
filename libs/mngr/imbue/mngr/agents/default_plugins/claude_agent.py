@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import shlex
-import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -13,6 +12,7 @@ import click
 from loguru import logger
 from pydantic import Field
 
+from imbue.imbue_common.logging import log_span
 from imbue.mngr import hookimpl
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
@@ -144,41 +144,30 @@ class ClaudeAgent(BaseAgent):
 
         session_started_path = self._get_agent_dir() / "session_started"
 
-        logger.debug("Waiting for session_started file (timeout={}s)", timeout)
+        with log_span("Waiting for session_started file (timeout={}s)", timeout):
+            # Remove any stale marker file
+            rm_cmd = f"rm -f {shlex.quote(str(session_started_path))}"
+            self.host.execute_command(rm_cmd, timeout_seconds=1.0)
 
-        # Remove any stale marker file
-        rm_cmd = f"rm -f {shlex.quote(str(session_started_path))}"
-        self.host.execute_command(rm_cmd, timeout_seconds=1.0)
+            # Run the start action (e.g., start the agent)
+            with log_span("Calling start_action..."):
+                start_action()
 
-        # Run the start action (e.g., start the agent)
-        logger.debug("Calling start_action...")
-        action_start = time.time()
-        start_action()
-        action_elapsed = time.time() - action_start
-        logger.debug("start_action completed in {:.2f}s, now polling for session_started...", action_elapsed)
-
-        # Poll for the session_started file (created by SessionStart hook)
-        success, poll_count, poll_elapsed = poll_until_counted(
-            lambda: self._check_file_exists(session_started_path),
-            timeout=timeout,
-            poll_interval=0.05,
-        )
-
-        if success:
-            logger.trace(
-                "Session started after {:.2f}s (action={:.2f}s, poll={:.2f}s, polls={})",
-                action_elapsed + poll_elapsed,
-                action_elapsed,
-                poll_elapsed,
-                poll_count,
+            # Poll for the session_started file (created by SessionStart hook)
+            success, poll_count, poll_elapsed = poll_until_counted(
+                lambda: self._check_file_exists(session_started_path),
+                timeout=timeout,
+                poll_interval=0.05,
             )
-            return
 
-        raise AgentStartError(
-            str(self.name),
-            f"Agent did not signal readiness within {timeout}s. "
-            "This may indicate a trust dialog appeared or Claude Code failed to start.",
-        )
+            if success:
+                return
+
+            raise AgentStartError(
+                str(self.name),
+                f"Agent did not signal readiness within {timeout}s. "
+                "This may indicate a trust dialog appeared or Claude Code failed to start.",
+            )
 
     def _build_activity_updater_command(self, session_name: str) -> str:
         """Build a shell command that starts the activity updater in the background.
@@ -295,7 +284,7 @@ class ClaudeAgent(BaseAgent):
 
         config = self._get_claude_config()
         if not config.check_installation:
-            logger.debug("Skipping claude installation check (check_installation=False)")
+            logger.debug("Skipped claude installation check (check_installation=False)")
             return
 
         # FIXME: check that we either have an API key in the env, or that it is configured locally and credentials will be synced
@@ -384,8 +373,8 @@ class ClaudeAgent(BaseAgent):
             return
 
         # Write the merged settings
-        logger.debug("Configuring readiness hooks in {}", settings_path)
-        host.write_text_file(settings_path, json.dumps(merged, indent=2) + "\n")
+        with log_span("Configuring readiness hooks in {}", settings_path):
+            host.write_text_file(settings_path, json.dumps(merged, indent=2) + "\n")
 
     def provision(
         self,
@@ -467,7 +456,7 @@ class ClaudeAgent(BaseAgent):
                     logger.info("Transferring ~/.claude.json to remote host...")
                     host.write_text_file(Path(".claude.json"), claude_json_path.read_text())
                 else:
-                    logger.debug("Skipping ~/.claude.json (file does not exist)")
+                    logger.debug("Skipped ~/.claude.json (file does not exist)")
 
             if config.sync_claude_credentials:
                 credentials_path = Path.home() / ".claude" / ".credentials.json"
@@ -475,7 +464,7 @@ class ClaudeAgent(BaseAgent):
                     logger.info("Transferring ~/.claude/.credentials.json to remote host...")
                     host.write_text_file(Path(".claude/.credentials.json"), credentials_path.read_text())
                 else:
-                    logger.debug("Skipping ~/.claude/.credentials.json (file does not exist)")
+                    logger.debug("Skipped ~/.claude/.credentials.json (file does not exist)")
 
         # Configure readiness hooks (for both local and remote hosts)
         self._configure_readiness_hooks(host)

@@ -4,6 +4,7 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -48,7 +49,6 @@ def pull_files(
     """Pull files from an agent's work directory to a local directory using rsync."""
     # Determine source path
     actual_source_path = source_path if source_path is not None else agent.work_dir
-    logger.debug("Pulling files from {} to {}", actual_source_path, destination)
 
     # Build rsync command
     # -a: archive mode (recursive, preserves permissions, etc.)
@@ -73,9 +73,9 @@ def pull_files(
 
     # Execute rsync on the host
     cmd_str = " ".join(rsync_cmd)
-    logger.debug("Running rsync command: {}", cmd_str)
 
-    result: CommandResult = host.execute_command(cmd_str)
+    with log_span("Pulling files from {} to {}", actual_source_path, destination):
+        result: CommandResult = host.execute_command(cmd_str)
 
     if not result.success:
         raise MngrError(f"rsync failed: {result.stderr}")

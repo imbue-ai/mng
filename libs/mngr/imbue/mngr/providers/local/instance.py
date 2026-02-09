@@ -12,6 +12,7 @@ from pyinfra.api import State
 from pyinfra.api.inventory import Inventory
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
@@ -180,8 +181,8 @@ class LocalProviderInstance(BaseProviderInstance):
         the local host is always the same machine. The known_hosts parameter
         is also ignored since the local machine uses its own known_hosts file.
         """
-        logger.debug("Creating local host (provider={})", self.name)
-        host = self._create_host(name, tags)
+        with log_span("Creating local host (provider={})", self.name):
+            host = self._create_host(name, tags)
         logger.trace("Local host created: id={}", host.id)
 
         # FIXME: should probably remove this--there is no boot time for local host

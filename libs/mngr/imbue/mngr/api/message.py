@@ -4,6 +4,8 @@ from typing import Any
 from loguru import logger
 from pydantic import Field
 
+from imbue.imbue_common.logging import log_call
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.config.data_types import MngrContext
@@ -17,7 +19,6 @@ from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
-from imbue.mngr.utils.logging import log_call
 
 
 class MessageResult(MutableModel):
@@ -55,15 +56,15 @@ def send_message_to_agents(
     compiled_include_filters: list[Any] = []
     compiled_exclude_filters: list[Any] = []
     if include_filters or exclude_filters:
-        logger.debug("Compiling CEL filters")
-        compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
+        with log_span("Compiling CEL filters"):
+            compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
         logger.trace(
             "Compiled {} include and {} exclude filters", len(compiled_include_filters), len(compiled_exclude_filters)
         )
 
     # Load all agents grouped by host
-    logger.debug("Loading agents from all providers")
-    agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx)
+    with log_span("Loading agents from all providers"):
+        agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx)
     provider_map = {provider.name: provider for provider in providers}
     logger.trace("Found {} hosts with agents", len(agents_by_host))
 
@@ -177,9 +178,8 @@ def _send_message_to_agent(
         return
 
     try:
-        logger.debug("Sending message to agent {}", agent_name)
-        agent.send_message(message_content)
-        logger.trace("Message sent to agent {}", agent_name)
+        with log_span("Sending message to agent {}", agent_name):
+            agent.send_message(message_content)
         result.successful_agents.append(agent_name)
         if on_success:
             on_success(agent_name)

@@ -133,7 +133,7 @@ def _extend_trust_locked(config_path: Path, source_path: Path, worktree_path: Pa
 
     worktree_path_str = str(worktree_path)
     if worktree_path_str in projects:
-        logger.debug(
+        logger.trace(
             "Claude trust already exists for worktree {}",
             worktree_path,
         )
@@ -142,7 +142,7 @@ def _extend_trust_locked(config_path: Path, source_path: Path, worktree_path: Pa
     # Create a backup before modifying the config
     backup_path = get_claude_config_backup_path()
     shutil.copy2(config_path, backup_path)
-    logger.debug("Created backup of Claude config at {}", backup_path)
+    logger.trace("Created backup of Claude config at {}", backup_path)
 
     worktree_config = copy.deepcopy(source_config)
     worktree_config["_mngrCreated"] = True
@@ -170,7 +170,7 @@ def _extend_trust_locked(config_path: Path, source_path: Path, worktree_path: Pa
 
     tmp_path.rename(config_path)
 
-    logger.debug(
+    logger.trace(
         "Extended Claude trust from {} to worktree {}",
         source_path,
         worktree_path,
@@ -225,13 +225,13 @@ def _remove_trust_locked(config_path: Path, path: Path) -> bool:
 
     path_str = str(path)
     if path_str not in projects:
-        logger.debug("No Claude trust entry found for {}", path)
+        logger.trace("No Claude trust entry found for {}", path)
         return False
 
     # Only remove entries created by mngr to avoid removing user-created trust
     project_config = projects[path_str]
     if not project_config.get("_mngrCreated", False):
-        logger.debug("Skipping removal of non-mngr trust entry for {}", path)
+        logger.trace("SKipped removal of non-mngr trust entry for {}", path)
         return False
 
     del projects[path_str]
@@ -253,7 +253,7 @@ def _remove_trust_locked(config_path: Path, path: Path) -> bool:
 
     tmp_path.rename(config_path)
 
-    logger.debug("Removed Claude trust entry for {}", path)
+    logger.trace("Removed Claude trust entry for {}", path)
     return True
 
 
