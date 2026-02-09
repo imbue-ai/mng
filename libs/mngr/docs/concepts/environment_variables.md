@@ -28,6 +28,8 @@ The following environment variables are special because they control both the be
 - `MNGR_PREFIX` - Prefix for naming resources (default: `mngr-`). Affects tmux session names, Docker container names, etc.
 - `MNGR_HOST_DIR` - Base directory for all mngr data on a host (default: `~/.mngr`)
 
+- `MNGR_TMUX_SOCKET` - Tmux socket name (`-L` flag). If unset, uses the default tmux server. This is used internally by tests to isolate test tmux sessions from production sessions. You can also set it to run multiple isolated mngr instances that don't share tmux state.
+
 Changing those variables after creating a host is not supported.
 
 ## Command-Specific Variables

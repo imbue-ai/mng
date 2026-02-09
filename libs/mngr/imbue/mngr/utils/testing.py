@@ -25,6 +25,7 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.tmux import build_test_tmux_args
 
 # Prefix used for test environments
 MODAL_TEST_ENV_PREFIX: Final[str] = "mngr_test-"
@@ -87,6 +88,10 @@ def get_subprocess_test_env(
         env["MNGR_PREFIX"] = prefix
     if host_dir is not None:
         env["MNGR_HOST_DIR"] = str(host_dir)
+    # Propagate MNGR_TMUX_SOCKET so subprocesses use the test tmux server
+    tmux_socket = os.environ.get("MNGR_TMUX_SOCKET")
+    if tmux_socket is not None:
+        env["MNGR_TMUX_SOCKET"] = tmux_socket
     return env
 
 
@@ -131,7 +136,7 @@ def cleanup_tmux_session(session_name: str) -> None:
     # Use -s to list panes across ALL windows in the session, not just the current window.
     all_pids: list[str] = []
     result = subprocess.run(
-        ["tmux", "list-panes", "-s", "-t", session_name, "-F", "#{pane_pid}"],
+        build_test_tmux_args("list-panes", "-s", "-t", session_name, "-F", "#{pane_pid}"),
         capture_output=True,
         text=True,
     )
@@ -150,7 +155,7 @@ def cleanup_tmux_session(session_name: str) -> None:
 
     # Kill the tmux session (sends SIGHUP to remaining pane processes)
     subprocess.run(
-        ["tmux", "kill-session", "-t", session_name],
+        build_test_tmux_args("kill-session", "-t", session_name),
         capture_output=True,
     )
 
@@ -180,7 +185,7 @@ def tmux_session_cleanup(session_name: str) -> Generator[str, None, None]:
 def capture_tmux_pane_contents(session_name: str) -> str:
     """Capture the contents of a tmux session's pane and return as a string."""
     result = subprocess.run(
-        ["tmux", "capture-pane", "-t", session_name, "-p"],
+        build_test_tmux_args("capture-pane", "-t", session_name, "-p"),
         capture_output=True,
         text=True,
     )
@@ -190,7 +195,7 @@ def capture_tmux_pane_contents(session_name: str) -> str:
 def tmux_session_exists(session_name: str) -> bool:
     """Check if a tmux session exists."""
     result = subprocess.run(
-        ["tmux", "has-session", "-t", session_name],
+        build_test_tmux_args("has-session", "-t", session_name),
         capture_output=True,
     )
     return result.returncode == 0
@@ -222,7 +227,11 @@ def make_local_provider(
 
 def make_mngr_ctx(default_host_dir: Path, prefix: str) -> MngrContext:
     """Create a MngrContext with the given default_host_dir, prefix, and a basic plugin manager."""
-    config = MngrConfig(default_host_dir=default_host_dir, prefix=prefix)
+    config = MngrConfig(
+        default_host_dir=default_host_dir,
+        prefix=prefix,
+        tmux_socket_name=os.environ.get("MNGR_TMUX_SOCKET"),
+    )
     pm = pluggy.PluginManager("mngr")
     # Create a profile directory in the default_host_dir
     profile_dir = default_host_dir / PROFILES_DIRNAME / uuid4().hex

@@ -228,6 +228,7 @@ def _make_mock_remote_host_and_agent(
 
     mngr_ctx = MagicMock()
     mngr_ctx.config.prefix = prefix
+    mngr_ctx.config.tmux_socket_name = None
 
     return agent, host, mngr_ctx
 

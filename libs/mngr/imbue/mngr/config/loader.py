@@ -174,6 +174,16 @@ def load_config(
     if config.logging is not None:
         config_dict["logging"] = config.logging
 
+    # Apply MNGR_TMUX_SOCKET env var override
+    tmux_socket_name = os.environ.get("MNGR_TMUX_SOCKET")
+    if tmux_socket_name is not None:
+        config_dict["tmux_socket_name"] = tmux_socket_name
+    elif config.tmux_socket_name is not None:
+        config_dict["tmux_socket_name"] = config.tmux_socket_name
+    else:
+        # Neither env var nor config has tmux_socket_name - will use pydantic default (None)
+        pass
+
     config_dict["is_allowed_in_pytest"] = config.is_allowed_in_pytest
     config_dict["pre_command_scripts"] = config.pre_command_scripts
 
@@ -464,6 +474,7 @@ def _parse_config(raw: dict[str, Any]) -> MngrConfig:
         _parse_create_templates(raw.pop("create_templates", {})) if "create_templates" in raw else {}
     )
     kwargs["logging"] = _parse_logging_config(raw.pop("logging", {})) if "logging" in raw else None
+    kwargs["tmux_socket_name"] = raw.pop("tmux_socket_name", None) if "tmux_socket_name" in raw else None
     kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", {}) if "is_allowed_in_pytest" in raw else None
     kwargs["pre_command_scripts"] = raw.pop("pre_command_scripts", {}) if "pre_command_scripts" in raw else None
 

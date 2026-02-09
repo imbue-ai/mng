@@ -7,6 +7,7 @@ import sys
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from typing import Final
 from typing import Generator
 from typing import NamedTuple
 from uuid import uuid4
@@ -37,6 +38,7 @@ from imbue.mngr.utils.testing import delete_modal_environment
 from imbue.mngr.utils.testing import delete_modal_volumes_in_environment
 from imbue.mngr.utils.testing import get_subprocess_test_env
 from imbue.mngr.utils.testing import init_git_repo
+from imbue.mngr.utils.tmux import build_test_tmux_args
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
@@ -79,6 +81,9 @@ def _remove_deprecated_urwid_module_aliases() -> None:
 _ = SimpleFocusListWalker
 _remove_deprecated_urwid_module_aliases()
 
+
+# Tmux socket name used by all tests to isolate test sessions from production
+TEST_TMUX_SOCKET_NAME: Final[str] = "mngr-test"
 
 # Track test IDs used by this worker/process for cleanup verification.
 # Each xdist worker is a separate process with isolated memory, so this
@@ -176,6 +181,7 @@ def setup_test_mngr_env(
     monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
     monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
+    monkeypatch.setenv("MNGR_TMUX_SOCKET", TEST_TMUX_SOCKET_NAME)
 
     # Unison derives its config directory from $HOME. Since we override HOME
     # above, unison tries to create its config dir inside tmp_path, which
@@ -246,7 +252,11 @@ def temp_config(temp_host_dir: Path, mngr_test_prefix: str) -> MngrConfig:
 
     Use this fixture when calling API functions that need a config.
     """
-    return MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    return MngrConfig(
+        default_host_dir=temp_host_dir,
+        prefix=mngr_test_prefix,
+        tmux_socket_name=TEST_TMUX_SOCKET_NAME,
+    )
 
 
 @pytest.fixture
@@ -327,7 +337,7 @@ def _get_tmux_sessions_with_prefix(prefix: str) -> list[str]:
     """Get tmux sessions matching the given prefix."""
     try:
         result = subprocess.run(
-            ["tmux", "list-sessions", "-F", "#{session_name}"],
+            build_test_tmux_args("list-sessions", "-F", "#{session_name}"),
             capture_output=True,
             text=True,
             timeout=5,

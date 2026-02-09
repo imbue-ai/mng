@@ -21,6 +21,7 @@ from pyinfra.api.command import StringCommand
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.conftest import TEST_TMUX_SOCKET_NAME
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
@@ -50,6 +51,8 @@ from imbue.mngr.providers.ssh.instance import SSHProviderInstance
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import generate_ssh_keypair
 from imbue.mngr.utils.testing import local_sshd
+from imbue.mngr.utils.tmux import build_test_tmux_args
+from imbue.mngr.utils.tmux import build_test_tmux_shell_cmd
 
 
 @pytest.fixture
@@ -553,6 +556,7 @@ def test_unset_vars_applied_during_agent_start(
         default_host_dir=temp_host_dir,
         prefix=mngr_test_prefix,
         unset_vars=["HISTFILE", "PROFILE"],
+        tmux_socket_name=TEST_TMUX_SOCKET_NAME,
     )
 
     mngr_ctx_with_unset = MngrContext(config=config_with_unset, pm=plugin_manager, profile_dir=temp_profile_dir)
@@ -580,17 +584,17 @@ def test_unset_vars_applied_during_agent_start(
 
     # Wait for the tmux session to be fully ready before sending keys
     def session_ready() -> bool:
-        result = host.execute_command(f"tmux has-session -t '{session_name}'")
+        result = host.execute_command(build_test_tmux_shell_cmd(f"has-session -t '{session_name}'"))
         if not result.success:
             return False
-        capture_result = host.execute_command(f"tmux capture-pane -t '{session_name}' -p")
+        capture_result = host.execute_command(build_test_tmux_shell_cmd(f"capture-pane -t '{session_name}' -p"))
         return capture_result.success and ("sleep 736249" in capture_result.stdout)
 
     wait_for(session_ready, error_message="tmux session not ready")
 
     # Send Ctrl-C to kill the foreground sleep, returning control to the shell.
     # This lets us send echo commands to check environment variables.
-    host.execute_command(f"tmux send-keys -t '{session_name}' C-c")
+    host.execute_command(build_test_tmux_shell_cmd(f"send-keys -t '{session_name}' C-c"))
 
     # This was enabled in modal, but caused things to fail locally. I don't think we need or want this (and I did do a better job of waiting above by ensuring that the sleep text shows up)
     # # Wait for the shell prompt to return after Ctrl-C
@@ -600,11 +604,15 @@ def test_unset_vars_applied_during_agent_start(
     #
     # wait_for(shell_ready, error_message="Shell prompt not ready after Ctrl-C")
 
-    host.execute_command(f"tmux send-keys -t '{session_name}' 'echo HISTFILE_VALUE=${{HISTFILE:-UNSET}}' Enter")
-    host.execute_command(f"tmux send-keys -t '{session_name}' 'echo PROFILE_VALUE=${{PROFILE:-UNSET}}' Enter")
+    host.execute_command(
+        build_test_tmux_shell_cmd(f"send-keys -t '{session_name}' 'echo HISTFILE_VALUE=${{HISTFILE:-UNSET}}' Enter")
+    )
+    host.execute_command(
+        build_test_tmux_shell_cmd(f"send-keys -t '{session_name}' 'echo PROFILE_VALUE=${{PROFILE:-UNSET}}' Enter")
+    )
 
     def check_output() -> bool:
-        capture_result = host.execute_command(f"tmux capture-pane -t '{session_name}' -p")
+        capture_result = host.execute_command(build_test_tmux_shell_cmd(f"capture-pane -t '{session_name}' -p"))
         if not capture_result.success:
             return False
         output = capture_result.stdout
@@ -635,7 +643,9 @@ def test_stop_agent_kills_single_pane_processes(
     mngr_test_prefix: str,
 ) -> None:
     """Test that stop_agents kills all processes in a single-pane session."""
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    config = MngrConfig(
+        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
+    )
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
@@ -657,7 +667,9 @@ def test_stop_agent_kills_single_pane_processes(
     host.start_agents([agent.id])
     session_name = f"{mngr_test_prefix}{agent.name}"
 
-    success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
+    success, output = host._run_shell_command(
+        StringCommand(build_test_tmux_shell_cmd("list-sessions -F '#{session_name}' 2>/dev/null"))
+    )
     assert success
     assert session_name in output.stdout
 
@@ -668,7 +680,9 @@ def test_stop_agent_kills_single_pane_processes(
     host.stop_agents([agent.id], timeout_seconds=3.0)
 
     def check_cleanup() -> bool:
-        success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
+        success, output = host._run_shell_command(
+            StringCommand(build_test_tmux_shell_cmd("list-sessions -F '#{session_name}' 2>/dev/null"))
+        )
         session_killed = session_name not in output.stdout
         # Check that the specific PIDs from this test are dead
         for pid in pids_to_check:
@@ -688,7 +702,9 @@ def test_stop_agent_kills_multi_pane_processes(
     mngr_test_prefix: str,
 ) -> None:
     """Test that stop_agents kills all processes in a multi-pane session."""
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    config = MngrConfig(
+        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
+    )
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
@@ -710,11 +726,11 @@ def test_stop_agent_kills_multi_pane_processes(
     host.start_agents([agent.id])
     session_name = f"{mngr_test_prefix}{agent.name}"
 
-    host._run_shell_command(StringCommand(f"tmux split-window -t '{session_name}' 'sleep 2000'"))
-    host._run_shell_command(StringCommand(f"tmux split-window -t '{session_name}' 'sleep 3000'"))
+    host._run_shell_command(StringCommand(build_test_tmux_shell_cmd(f"split-window -t '{session_name}' 'sleep 2000'")))
+    host._run_shell_command(StringCommand(build_test_tmux_shell_cmd(f"split-window -t '{session_name}' 'sleep 3000'")))
 
     success, output = host._run_shell_command(
-        StringCommand(f"tmux list-panes -t '{session_name}' 2>/dev/null | wc -l")
+        StringCommand(build_test_tmux_shell_cmd(f"list-panes -t '{session_name}' 2>/dev/null | wc -l"))
     )
     assert success
     pane_count = int(output.stdout.strip())
@@ -727,7 +743,9 @@ def test_stop_agent_kills_multi_pane_processes(
     host.stop_agents([agent.id], timeout_seconds=3.0)
 
     def check_cleanup() -> bool:
-        success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
+        success, output = host._run_shell_command(
+            StringCommand(build_test_tmux_shell_cmd("list-sessions -F '#{session_name}' 2>/dev/null"))
+        )
         session_killed = session_name not in output.stdout
         # Check that the specific PIDs from this test are dead
         for pid in pids_to_check:
@@ -747,7 +765,9 @@ def test_start_agent_creates_process_group(
     mngr_test_prefix: str,
 ) -> None:
     """Test that start_agents creates tmux sessions in their own process group."""
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    config = MngrConfig(
+        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
+    )
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
@@ -771,7 +791,7 @@ def test_start_agent_creates_process_group(
 
     try:
         success, output = host._run_shell_command(
-            StringCommand(f"tmux list-panes -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null")
+            StringCommand(build_test_tmux_shell_cmd(f"list-panes -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null"))
         )
         assert success
         pane_pid = output.stdout.strip()
@@ -803,7 +823,9 @@ def test_start_agent_starts_process_activity_monitor(
     mngr_test_prefix: str,
 ) -> None:
     """Test that start_agents launches a process activity monitor that writes PROCESS activity."""
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    config = MngrConfig(
+        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
+    )
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
@@ -861,7 +883,9 @@ def test_additional_commands_stored_in_agent_data(
     mngr_test_prefix: str,
 ) -> None:
     """Test that additional_commands are stored in the agent's data.json."""
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    config = MngrConfig(
+        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
+    )
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
@@ -903,7 +927,9 @@ def test_start_agent_creates_additional_tmux_windows(
     mngr_test_prefix: str,
 ) -> None:
     """Test that start_agents creates additional tmux windows for additional_commands."""
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    config = MngrConfig(
+        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
+    )
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
@@ -931,13 +957,17 @@ def test_start_agent_creates_additional_tmux_windows(
 
     try:
         # Verify the session was created
-        success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
+        success, output = host._run_shell_command(
+            StringCommand(build_test_tmux_shell_cmd("list-sessions -F '#{session_name}' 2>/dev/null"))
+        )
         assert success
         assert session_name in output.stdout
 
         # Verify we have 3 windows (main + 2 additional)
         success, output = host._run_shell_command(
-            StringCommand(f"tmux list-windows -t '{session_name}' -F '#{{window_name}}' 2>/dev/null")
+            StringCommand(
+                build_test_tmux_shell_cmd(f"list-windows -t '{session_name}' -F '#{{window_name}}' 2>/dev/null")
+            )
         )
         assert success
         windows = output.stdout.strip().split("\n")
@@ -959,7 +989,9 @@ def test_start_agent_additional_windows_run_commands(
     mngr_test_prefix: str,
 ) -> None:
     """Test that additional tmux windows actually run the specified commands."""
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    config = MngrConfig(
+        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
+    )
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
@@ -988,7 +1020,7 @@ def test_start_agent_additional_windows_run_commands(
         # Wait for the additional command to produce output
         def check_output() -> bool:
             capture_result = host._run_shell_command(
-                StringCommand(f"tmux capture-pane -t '{session_name}:cmd-1' -p 2>/dev/null")
+                StringCommand(build_test_tmux_shell_cmd(f"capture-pane -t '{session_name}:cmd-1' -p 2>/dev/null"))
             )
             if not capture_result[0]:
                 return False
@@ -1813,7 +1845,9 @@ def test_start_agent_has_access_to_env_vars(
     environment variables defined in the agent's env file. We use a command
     that prints an env var to a file to verify this.
     """
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    config = MngrConfig(
+        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
+    )
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
@@ -1874,7 +1908,9 @@ def test_new_tmux_window_inherits_env_vars(
     This verifies that the default-command is set on the tmux session so that
     any new window/pane created by the user will automatically source the env files.
     """
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    config = MngrConfig(
+        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
+    )
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
@@ -1908,7 +1944,7 @@ def test_new_tmux_window_inherits_env_vars(
         # Create a new window in the session (simulating what a user would do)
         # This window should inherit the default-command which sources env files
         subprocess.run(
-            ["tmux", "new-window", "-t", session_name, "-n", "user-window"],
+            build_test_tmux_args("new-window", "-t", session_name, "-n", "user-window"),
             check=True,
             capture_output=True,
         )
@@ -1917,7 +1953,7 @@ def test_new_tmux_window_inherits_env_vars(
         # The shell is ready when it shows a prompt (has content in the pane)
         def window_ready() -> bool:
             result = subprocess.run(
-                ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
+                build_test_tmux_args("list-windows", "-t", session_name, "-F", "#{window_name}"),
                 capture_output=True,
                 text=True,
             )
@@ -1926,7 +1962,7 @@ def test_new_tmux_window_inherits_env_vars(
             # Check if the shell has started by looking for prompt content
             # The pane should have some content once the shell is ready
             capture = subprocess.run(
-                ["tmux", "capture-pane", "-t", f"{session_name}:user-window", "-p"],
+                build_test_tmux_args("capture-pane", "-t", f"{session_name}:user-window", "-p"),
                 capture_output=True,
                 text=True,
             )
@@ -1938,14 +1974,13 @@ def test_new_tmux_window_inherits_env_vars(
 
         # Send a command to the new window that writes the env var to a file
         subprocess.run(
-            [
-                "tmux",
+            build_test_tmux_args(
                 "send-keys",
                 "-t",
                 f"{session_name}:user-window",
                 f"echo NEW_WINDOW_VAR=$NEW_WINDOW_VAR > {marker_file}",
                 "Enter",
-            ],
+            ),
             check=True,
             capture_output=True,
         )

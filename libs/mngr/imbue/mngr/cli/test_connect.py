@@ -29,6 +29,7 @@ from imbue.mngr.cli.connect import filter_agents
 from imbue.mngr.cli.connect import handle_search_key
 from imbue.mngr.cli.connect import select_agent_interactively
 from imbue.mngr.cli.create import create
+from imbue.mngr.conftest import TEST_TMUX_SOCKET_NAME
 from imbue.mngr.main import cli
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.utils.testing import cleanup_tmux_session
@@ -92,7 +93,9 @@ def test_connect_to_agent_by_name(
                 catch_exceptions=False,
             )
             assert result.exit_code == 0, f"Connect failed with output: {result.output}"
-            mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
+            mock_execvp.assert_called_once_with(
+                "tmux", ["tmux", "-L", TEST_TMUX_SOCKET_NAME, "attach", "-t", session_name]
+            )
 
 
 def test_connect_via_cli_group(
@@ -136,7 +139,9 @@ def test_connect_via_cli_group(
                 catch_exceptions=False,
             )
 
-            mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
+            mock_execvp.assert_called_once_with(
+                "tmux", ["tmux", "-L", TEST_TMUX_SOCKET_NAME, "attach", "-t", session_name]
+            )
 
     finally:
         cleanup_tmux_session(session_name)
@@ -205,7 +210,9 @@ def test_connect_start_restarts_stopped_agent(
 
             # Verify the tmux session was recreated before attaching
             assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to be restarted"
-            mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
+            mock_execvp.assert_called_once_with(
+                "tmux", ["tmux", "-L", TEST_TMUX_SOCKET_NAME, "attach", "-t", session_name]
+            )
 
     finally:
         cleanup_tmux_session(session_name)

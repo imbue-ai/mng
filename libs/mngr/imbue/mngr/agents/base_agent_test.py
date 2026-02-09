@@ -19,6 +19,7 @@ from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import get_short_random_string
+from imbue.mngr.utils.tmux import build_test_tmux_shell_cmd
 
 
 def create_test_agent(
@@ -94,7 +95,7 @@ def test_lifecycle_state_running_when_expected_process_exists(
 
     # Create a tmux session and run the expected command
     test_agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'sleep 1000'",
+        build_test_tmux_shell_cmd(f"new-session -d -s '{session_name}' 'sleep 1000'"),
         timeout_seconds=5.0,
     )
 
@@ -121,7 +122,7 @@ def test_lifecycle_state_replaced_when_different_process_exists(
 
     # Create a tmux session with a different command (cat waits for input indefinitely)
     test_agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'cat'",
+        build_test_tmux_shell_cmd(f"new-session -d -s '{session_name}' 'cat'"),
         timeout_seconds=5.0,
     )
 
@@ -150,7 +151,7 @@ def test_lifecycle_state_done_when_no_process_in_pane(
     # Create a tmux session, then manually stop the process inside it
     # First create it with a long-running command
     test_agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}'",
+        build_test_tmux_shell_cmd(f"new-session -d -s '{session_name}'"),
         timeout_seconds=5.0,
     )
 
@@ -233,7 +234,7 @@ def test_lifecycle_state_waiting_when_waiting_file_exists(
 
     # Create a tmux session and run the expected command
     test_agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'sleep 1000'",
+        build_test_tmux_shell_cmd(f"new-session -d -s '{session_name}' 'sleep 1000'"),
         timeout_seconds=5.0,
     )
 
@@ -264,7 +265,7 @@ def test_lifecycle_state_running_when_waiting_file_removed(
 
     # Create a tmux session and run the expected command
     test_agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'sleep 1000'",
+        build_test_tmux_shell_cmd(f"new-session -d -s '{session_name}' 'sleep 1000'"),
         timeout_seconds=5.0,
     )
 
@@ -419,7 +420,7 @@ def test_send_backspace_with_noop_sends_keys_to_tmux(
 
     # Create a tmux session with some text
     test_agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'cat'",
+        build_test_tmux_shell_cmd(f"new-session -d -s '{session_name}' 'cat'"),
         timeout_seconds=5.0,
     )
 
@@ -427,7 +428,7 @@ def test_send_backspace_with_noop_sends_keys_to_tmux(
         # Wait for cat to start
         wait_for(
             lambda: test_agent.host.execute_command(
-                f"tmux list-panes -t '{session_name}' -F '#{{pane_current_command}}'"
+                build_test_tmux_shell_cmd(f"list-panes -t '{session_name}' -F '#{{pane_current_command}}'")
             ).stdout.strip()
             == "cat",
             timeout=5.0,
@@ -435,7 +436,7 @@ def test_send_backspace_with_noop_sends_keys_to_tmux(
         )
 
         # Send some text
-        test_agent.host.execute_command(f"tmux send-keys -t '{session_name}' -l 'hello'")
+        test_agent.host.execute_command(build_test_tmux_shell_cmd(f"send-keys -t '{session_name}' -l 'hello'"))
 
         # Wait for text to appear
         wait_for(
@@ -454,7 +455,7 @@ def test_send_backspace_with_noop_sends_keys_to_tmux(
         assert "hel" in content
     finally:
         test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
+            build_test_tmux_shell_cmd(f"kill-session -t '{session_name}' 2>/dev/null"),
             timeout_seconds=5.0,
         )
 
@@ -471,15 +472,16 @@ def test_send_enter_and_wait_for_signal_returns_true_when_signal_received(
 
     # Create a tmux session
     test_agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'bash'",
+        build_test_tmux_shell_cmd(f"new-session -d -s '{session_name}' 'bash'"),
         timeout_seconds=5.0,
     )
 
     try:
         # Signal the channel from a background process after a short delay
         # This simulates what the UserPromptSubmit hook does
+        wait_for_cmd = build_test_tmux_shell_cmd(f"wait-for -S '{wait_channel}'")
         test_agent.host.execute_command(
-            f"( sleep 0.1 && tmux wait-for -S '{wait_channel}' ) &",
+            f"( sleep 0.1 && {wait_for_cmd} ) &",
             timeout_seconds=1.0,
         )
 
@@ -488,7 +490,7 @@ def test_send_enter_and_wait_for_signal_returns_true_when_signal_received(
         assert result is True
     finally:
         test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
+            build_test_tmux_shell_cmd(f"kill-session -t '{session_name}' 2>/dev/null"),
             timeout_seconds=5.0,
         )
 
@@ -506,7 +508,7 @@ def test_send_enter_and_wait_for_signal_returns_false_on_timeout(
 
     # Create a tmux session
     test_agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'bash'",
+        build_test_tmux_shell_cmd(f"new-session -d -s '{session_name}' 'bash'"),
         timeout_seconds=5.0,
     )
 
@@ -516,6 +518,6 @@ def test_send_enter_and_wait_for_signal_returns_false_on_timeout(
         assert result is False
     finally:
         test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
+            build_test_tmux_shell_cmd(f"kill-session -t '{session_name}' 2>/dev/null"),
             timeout_seconds=5.0,
         )

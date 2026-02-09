@@ -10,6 +10,8 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.utils.tmux import build_tmux_args
+from imbue.mngr.utils.tmux import build_tmux_shell_cmd
 
 # Exit codes used by the remote SSH wrapper script to signal post-disconnect actions.
 # These are checked by connect_to_agent after the SSH session ends to determine
@@ -18,7 +20,11 @@ SIGNAL_EXIT_CODE_DESTROY: Final[int] = 10
 SIGNAL_EXIT_CODE_STOP: Final[int] = 11
 
 
-def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str:
+def _build_ssh_activity_wrapper_script(
+    session_name: str,
+    host_dir: Path,
+    tmux_socket_name: str | None = None,
+) -> str:
     """Build a shell script that tracks SSH activity while running tmux.
 
     The script:
@@ -38,6 +44,7 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str
     activity_dir = host_dir / "activity"
     activity_file = activity_dir / "ssh"
     signal_file = host_dir / "signals" / session_name
+    tmux_attach_cmd = build_tmux_shell_cmd(tmux_socket_name, f"attach -t '{session_name}'")
     # Use single quotes around most things to avoid shell expansion issues,
     # but the paths need to be interpolated
     return (
@@ -47,7 +54,7 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str
         f'printf \'{{\\n  "time": %d,\\n  "ssh_pid": %d\\n}}\\n\' "$TIME_MS" "$$" > \'{activity_file}\'; '
         f"sleep 5; done) & "
         "MNGR_ACTIVITY_PID=$!; "
-        f"tmux attach -t '{session_name}'; "
+        f"{tmux_attach_cmd}; "
         "kill $MNGR_ACTIVITY_PID 2>/dev/null; "
         # Check for signal files written by tmux key bindings (Ctrl-q writes "destroy", Ctrl-t writes "stop")
         f"SIGNAL_FILE='{signal_file}'; "
@@ -128,14 +135,16 @@ def connect_to_agent(
     logger.info("Connecting to agent...")
 
     session_name = f"{mngr_ctx.config.prefix}{agent.name}"
+    tmux_socket_name = mngr_ctx.config.tmux_socket_name
 
     if host.is_local:
-        os.execvp("tmux", ["tmux", "attach", "-t", session_name])
+        tmux_args = build_tmux_args(tmux_socket_name, "attach", "-t", session_name)
+        os.execvp("tmux", tmux_args)
     else:
         ssh_args = _build_ssh_args(host, connection_opts)
 
         # Build wrapper script that tracks SSH activity while running tmux
-        wrapper_script = _build_ssh_activity_wrapper_script(session_name, host.host_dir)
+        wrapper_script = _build_ssh_activity_wrapper_script(session_name, host.host_dir, tmux_socket_name)
         ssh_args.extend(["-t", "bash", "-c", wrapper_script])
 
         # Use subprocess.call instead of os.execvp so we can check the exit code

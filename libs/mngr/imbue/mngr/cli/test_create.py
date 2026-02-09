@@ -15,6 +15,7 @@ from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import capture_tmux_pane_contents
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
+from imbue.mngr.utils.tmux import build_test_tmux_args
 
 
 def test_cli_create_with_echo_command(
@@ -139,7 +140,7 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
                 obj=plugin_manager,
                 catch_exceptions=False,
             )
-            mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
+            mock_execvp.assert_called_once_with("tmux", ["tmux", "-L", "mngr-test", "attach", "-t", session_name])
 
 
 def test_no_connect_flag_skips_tmux_attach(
@@ -452,7 +453,7 @@ def test_add_command_with_named_window(
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
         window_list_result = subprocess.run(
-            ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
+            build_test_tmux_args("list-windows", "-t", session_name, "-F", "#{window_name}"),
             capture_output=True,
             text=True,
         )
@@ -495,7 +496,7 @@ def test_add_command_without_name_uses_default_window_name(
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
         window_list_result = subprocess.run(
-            ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
+            build_test_tmux_args("list-windows", "-t", session_name, "-F", "#{window_name}"),
             capture_output=True,
             text=True,
         )

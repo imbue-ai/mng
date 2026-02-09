@@ -406,6 +406,11 @@ class MngrConfig(FrozenModel):
         default_factory=LoggingConfig,
         description="Logging configuration",
     )
+    tmux_socket_name: str | None = Field(
+        default=None,
+        description="Tmux socket name (-L flag). If None, uses the default tmux server. "
+        "Set via MNGR_TMUX_SOCKET env var to isolate test tmux sessions from production.",
+    )
     is_allowed_in_pytest: bool = Field(
         default=True,
         description="Set this to False to prevent loading this config in pytest runs",
@@ -513,6 +518,11 @@ class MngrConfig(FrozenModel):
         # Merge pre_command_scripts (dict - override keys take precedence)
         merged_pre_command_scripts = merge_dict_fields(self.pre_command_scripts, override.pre_command_scripts)
 
+        # Merge tmux_socket_name (scalar - override wins if not None)
+        merged_tmux_socket_name = (
+            override.tmux_socket_name if override.tmux_socket_name is not None else self.tmux_socket_name
+        )
+
         is_allowed_in_pytest = self.is_allowed_in_pytest
         if override.is_allowed_in_pytest is not None:
             is_allowed_in_pytest = override.is_allowed_in_pytest
@@ -535,6 +545,7 @@ class MngrConfig(FrozenModel):
             commands=merged_commands,
             create_templates=merged_create_templates,
             pre_command_scripts=merged_pre_command_scripts,
+            tmux_socket_name=merged_tmux_socket_name,
             logging=merged_logging,
             is_allowed_in_pytest=is_allowed_in_pytest,
         )
