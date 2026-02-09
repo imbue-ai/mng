@@ -1,11 +1,4 @@
-"""Tests for create module helper functions.
-
-This file demonstrates testing without mocks by using:
-1. Typed data objects instead of MagicMock-as-data-bag
-2. Real fixtures (temp_mngr_ctx, local_provider) instead of MagicMock-as-dependency
-3. Plain functions instead of MagicMock(return_value=...)
-4. Real provider infrastructure instead of @patch + MagicMock chains
-"""
+"""Tests for create module helper functions."""
 
 from pathlib import Path
 from typing import cast
@@ -30,7 +23,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
 # =============================================================================
-# Typed test data factory (replaces MagicMock-as-data-bag)
+# Typed test data factory
 # =============================================================================
 
 
@@ -39,14 +32,7 @@ def _make_create_cli_opts(
     idle_mode: str | None = None,
     activity_sources: str | None = None,
 ) -> CreateCliOptions:
-    """Build a real CreateCliOptions with sensible defaults.
-
-    Instead of using MagicMock() and setting arbitrary attributes, this constructs
-    a real typed object. This gives us type safety and makes the test's data
-    requirements explicit. If the function under test starts reading additional
-    fields, the test will fail with a clear error rather than silently returning
-    a MagicMock auto-attribute.
-    """
+    """Build a real CreateCliOptions with sensible defaults for all fields."""
     return CreateCliOptions(
         # Fields under test
         idle_timeout=idle_timeout,
@@ -266,10 +252,6 @@ def _make_agent_ref(
 
 
 # -- Filtering tests (function returns early, no provider/host interaction) --
-# These tests use temp_mngr_ctx (a real MngrContext from fixtures) instead of
-# MagicMock, and plain functions instead of MagicMock(return_value=...).
-# The mngr_ctx is never accessed in these code paths, but using a real typed
-# object prevents accidentally relying on MagicMock's "respond to anything" behavior.
 
 
 def test_try_reuse_existing_agent_no_agents_found(temp_mngr_ctx: MngrContext) -> None:
@@ -306,7 +288,6 @@ def test_try_reuse_existing_agent_filters_by_provider(temp_mngr_ctx: MngrContext
     host_ref = _make_host_ref(provider="modal")
     agent_ref = _make_agent_ref(agent_name="test-agent", provider="modal")
 
-    # Filtering by "local" provider should not find the agent on "modal"
     result = _try_reuse_existing_agent(
         agent_name=AgentName("test-agent"),
         provider_name=ProviderInstanceName("local"),
@@ -323,7 +304,6 @@ def test_try_reuse_existing_agent_filters_by_host(temp_mngr_ctx: MngrContext) ->
     host_ref = _make_host_ref(host_id=TEST_HOST_ID_1)
     agent_ref = _make_agent_ref(agent_name="test-agent", host_id=TEST_HOST_ID_1)
 
-    # Create a different target host reference
     target_host_ref = _make_host_ref(host_id=TEST_HOST_ID_2)
 
     result = _try_reuse_existing_agent(
@@ -337,19 +317,15 @@ def test_try_reuse_existing_agent_filters_by_host(temp_mngr_ctx: MngrContext) ->
     assert result is None
 
 
-# -- Integration tests using real local provider infrastructure --
-# Instead of @patch + MagicMock chains (which only verify function call signatures,
-# not actual behavior), these tests use the real local provider to create actual
-# host and agent state. This tests that the full reuse flow actually works.
+# -- Tests using real local provider infrastructure --
 
 
 def test_try_reuse_existing_agent_found_and_started(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,
-    mngr_test_prefix: str,
 ) -> None:
-    """Returns (agent, host) when agent is found and started using real infrastructure."""
+    """Returns (agent, host) when agent is found and started."""
     # Get the real local host (always online)
     local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
 
@@ -377,24 +353,25 @@ def test_try_reuse_existing_agent_found_and_started(
         provider_name=ProviderInstanceName("local"),
     )
 
-    # Call the function under test with real data
-    result = _try_reuse_existing_agent(
-        agent_name=agent.name,
-        provider_name=None,
-        target_host_ref=None,
-        mngr_ctx=temp_mngr_ctx,
-        agent_and_host_loader=lambda: {host_ref: [agent_ref]},
-    )
+    # Call the function under test with real data, using try/finally to guarantee
+    # cleanup of the tmux session even if assertions fail
+    try:
+        result = _try_reuse_existing_agent(
+            agent_name=agent.name,
+            provider_name=None,
+            target_host_ref=None,
+            mngr_ctx=temp_mngr_ctx,
+            agent_and_host_loader=lambda: {host_ref: [agent_ref]},
+        )
 
-    # Verify the result
-    assert result is not None
-    found_agent, found_host = result
-    assert found_agent.id == agent.id
-    assert found_agent.name == agent.name
-    assert found_host.id == local_host.id
-
-    # Clean up: stop the agent's tmux session that ensure_agent_started created
-    local_host.stop_agents([agent.id])
+        assert result is not None
+        found_agent, found_host = result
+        assert found_agent.id == agent.id
+        assert found_agent.name == agent.name
+        assert found_host.id == local_host.id
+    finally:
+        # Clean up the tmux session that ensure_agent_started created
+        local_host.stop_agents([agent.id])
 
 
 def test_try_reuse_existing_agent_not_found_on_host(
@@ -402,12 +379,9 @@ def test_try_reuse_existing_agent_not_found_on_host(
     temp_mngr_ctx: MngrContext,
 ) -> None:
     """Returns None when agent reference exists but agent not found on online host."""
-    # Get the real local host
     local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
 
-    # Build references pointing to this host, but with a nonexistent agent ID.
-    # The host has no agents, so get_agents() will return an empty list (or a list
-    # that doesn't contain our referenced agent_id).
+    # Build references pointing to this host, but with a nonexistent agent ID
     host_ref = HostReference(
         provider_name=ProviderInstanceName("local"),
         host_id=local_host.id,
@@ -420,7 +394,6 @@ def test_try_reuse_existing_agent_not_found_on_host(
         provider_name=ProviderInstanceName("local"),
     )
 
-    # Call the function under test
     result = _try_reuse_existing_agent(
         agent_name=AgentName("ghost-agent"),
         provider_name=None,
@@ -429,5 +402,4 @@ def test_try_reuse_existing_agent_not_found_on_host(
         agent_and_host_loader=lambda: {host_ref: [agent_ref]},
     )
 
-    # The function should return None because the agent doesn't actually exist on the host
     assert result is None
