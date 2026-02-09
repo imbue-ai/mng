@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import json
+import shlex
+import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
+from typing import Callable
+from typing import Final
 
 import click
 from loguru import logger
@@ -9,11 +15,14 @@ from pydantic import Field
 
 from imbue.mngr import hookimpl
 from imbue.mngr.agents.base_agent import BaseAgent
+from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
+from imbue.mngr.agents.default_plugins.claude_config import merge_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import PluginMngrError
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -24,6 +33,9 @@ from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.git_utils import find_git_common_dir
+from imbue.mngr.utils.polling import poll_until_counted
+
+_READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
 
 
 class ClaudeAgentConfig(AgentTypeConfig):
@@ -91,6 +103,82 @@ class ClaudeAgent(BaseAgent):
             return self.agent_config
         # Fall back to default config if not a ClaudeAgentConfig
         return ClaudeAgentConfig()
+
+    def get_expected_process_name(self) -> str:
+        """Return 'claude' as the expected process name.
+
+        This overrides the base implementation because ClaudeAgent uses a complex
+        shell command with exports and fallbacks, but the actual process is always 'claude'.
+        """
+        return "claude"
+
+    def uses_marker_based_send_message(self) -> bool:
+        """Enable marker-based send_message for Claude Code.
+
+        Claude Code echoes input to the terminal and has a complex input handler
+        that can misinterpret Enter as a literal newline if sent too quickly after
+        the message text. The marker-based approach ensures the input handler has
+        fully processed the message before submitting.
+        """
+        return True
+
+    def get_tui_ready_indicator(self) -> str | None:
+        """Return Claude Code's banner text as the TUI ready indicator.
+
+        Claude Code displays "Claude Code" in its banner when the TUI is ready.
+        Waiting for this ensures we don't send input before the UI is fully rendered,
+        which would cause the input to be lost or appear as raw text.
+        """
+        return "Claude Code"
+
+    def wait_for_ready_signal(self, start_action: Callable[[], None], timeout: float | None = None) -> None:
+        """Wait for the agent to become ready, executing start_action then polling.
+
+        Polls for the 'session_started' file that the SessionStart hook creates.
+        This indicates Claude Code has started and is ready for input.
+
+        Raises AgentStartError if the agent doesn't signal readiness within the timeout.
+        """
+        if timeout is None:
+            timeout = _READY_SIGNAL_TIMEOUT_SECONDS
+
+        session_started_path = self._get_agent_dir() / "session_started"
+
+        logger.debug("Waiting for session_started file (timeout={}s)", timeout)
+
+        # Remove any stale marker file
+        rm_cmd = f"rm -f {shlex.quote(str(session_started_path))}"
+        self.host.execute_command(rm_cmd, timeout_seconds=1.0)
+
+        # Run the start action (e.g., start the agent)
+        logger.debug("Calling start_action...")
+        action_start = time.time()
+        start_action()
+        action_elapsed = time.time() - action_start
+        logger.debug("start_action completed in {:.2f}s, now polling for session_started...", action_elapsed)
+
+        # Poll for the session_started file (created by SessionStart hook)
+        success, poll_count, poll_elapsed = poll_until_counted(
+            lambda: self._check_file_exists(session_started_path),
+            timeout=timeout,
+            poll_interval=0.05,
+        )
+
+        if success:
+            logger.trace(
+                "Session started after {:.2f}s (action={:.2f}s, poll={:.2f}s, polls={})",
+                action_elapsed + poll_elapsed,
+                action_elapsed,
+                poll_elapsed,
+                poll_count,
+            )
+            return
+
+        raise AgentStartError(
+            str(self.name),
+            f"Agent did not signal readiness within {timeout}s. "
+            "This may indicate a trust dialog appeared or Claude Code failed to start.",
+        )
 
     def _build_activity_updater_command(self, session_name: str) -> str:
         """Build a shell command that starts the activity updater in the background.
@@ -249,6 +337,54 @@ class ClaudeAgent(BaseAgent):
 
         return transfers
 
+    def _configure_readiness_hooks(self, host: OnlineHostInterface) -> None:
+        """Configure Claude hooks for readiness signaling in the agent's work_dir.
+
+        This writes hooks to .claude/settings.local.json in the agent's work_dir.
+        The hooks signal when Claude is ready for input by creating/removing a
+        'waiting' file in the agent's state directory.
+
+        Skips if hooks already exist.
+        """
+        # Future improvement: use `claude --settings <path>` to load hooks from
+        # outside the worktree (e.g. the agent state dir), eliminating the need
+        # to write to .claude/settings.local.json and check that it's gitignored.
+        settings_relative = Path(".claude") / "settings.local.json"
+        settings_path = self.work_dir / settings_relative
+
+        # Verify .claude/settings.local.json is gitignored to avoid unstaged changes
+        result = host.execute_command(
+            f"git check-ignore -q {shlex.quote(str(settings_relative))}",
+            cwd=self.work_dir,
+            timeout_seconds=5.0,
+        )
+        if not result.success:
+            raise PluginMngrError(
+                f".claude/settings.local.json is not gitignored in {self.work_dir}.\n"
+                "mngr needs to write Claude hooks to this file, but it would appear as an unstaged change.\n"
+                "Add '.claude/settings.local.json' to your .gitignore and try again."
+            )
+
+        hooks_config = build_readiness_hooks_config()
+
+        # Read existing settings if present
+        existing_settings: dict[str, Any] = {}
+        try:
+            content = host.read_text_file(settings_path)
+            existing_settings = json.loads(content)
+        except FileNotFoundError:
+            pass
+
+        # Merge hooks, checking for duplicates
+        merged = merge_hooks_config(existing_settings, hooks_config)
+        if merged is None:
+            logger.debug("Readiness hooks already configured in {}", settings_path)
+            return
+
+        # Write the merged settings
+        logger.debug("Configuring readiness hooks in {}", settings_path)
+        host.write_text_file(settings_path, json.dumps(merged, indent=2) + "\n")
+
     def provision(
         self,
         host: OnlineHostInterface,
@@ -338,6 +474,9 @@ class ClaudeAgent(BaseAgent):
                     host.write_text_file(Path(".claude/.credentials.json"), credentials_path.read_text())
                 else:
                     logger.debug("Skipping ~/.claude/.credentials.json (file does not exist)")
+
+        # Configure readiness hooks (for both local and remote hosts)
+        self._configure_readiness_hooks(host)
 
     def on_destroy(self, host: OnlineHostInterface) -> None:
         """Clean up Claude trust entries for this agent's work directory."""

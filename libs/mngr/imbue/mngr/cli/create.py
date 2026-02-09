@@ -53,6 +53,7 @@ from imbue.mngr.interfaces.host import AgentLifecycleOptions
 from imbue.mngr.interfaces.host import AgentPermissionsOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
+from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mngr.interfaces.host import FileModificationSpec
 from imbue.mngr.interfaces.host import NamedCommand
 from imbue.mngr.interfaces.host import OnlineHostInterface
@@ -205,7 +206,7 @@ class CreateCliOptions(CommonCliOptions):
     append_to_file: tuple[str, ...]
     prepend_to_file: tuple[str, ...]
     create_directory: tuple[str, ...]
-    message_delay: float
+    ready_timeout: float
 
 
 @click.command()
@@ -462,11 +463,11 @@ class CreateCliOptions(CommonCliOptions):
     "--resume-message-file", type=click.Path(exists=True), help="File containing resume message to send on start"
 )
 @optgroup.option(
-    "--message-delay",
+    "--ready-timeout",
     type=float,
-    default=1.0,
+    default=DEFAULT_AGENT_READY_TIMEOUT_SECONDS,
     show_default=True,
-    help="Seconds to wait before sending initial message",
+    help="Timeout in seconds to wait for agent readiness before sending initial message",
 )
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries (e.g., 5s, 1m)")
@@ -1238,7 +1239,7 @@ def _parse_agent_opts(
         is_copy_immediate=should_copy,
         initial_message=initial_message,
         resume_message=resume_message,
-        message_delay_seconds=opts.message_delay,
+        ready_timeout_seconds=opts.ready_timeout,
         data_options=data_options,
         git=git,
         environment=environment,

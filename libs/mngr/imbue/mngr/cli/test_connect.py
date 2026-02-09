@@ -747,8 +747,6 @@ def test_connect_defaults_to_most_recent_agent_non_interactive(
     agent_name_new = f"test-connect-new-{int(time.time())}"
 
     with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_old, 192837):
-        # Sleep briefly to ensure different create times
-        time.sleep(0.1)
         with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_new, 283746):
             # Simulate non-interactive mode by providing input (makes stdin not a tty)
             with patch("imbue.mngr.cli.connect.connect_to_agent") as mock_connect:

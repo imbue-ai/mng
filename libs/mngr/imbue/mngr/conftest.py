@@ -29,11 +29,13 @@ from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
 from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
+from imbue.mngr.utils.testing import assert_home_is_temp_directory
 from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import delete_modal_apps_in_environment
 from imbue.mngr.utils.testing import delete_modal_environment
 from imbue.mngr.utils.testing import delete_modal_volumes_in_environment
 from imbue.mngr.utils.testing import get_subprocess_test_env
+from imbue.mngr.utils.testing import init_git_repo
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
@@ -161,18 +163,7 @@ def setup_test_mngr_env(
 
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.
-    actual_home = Path.home()
-    actual_home_str = str(actual_home)
-    # pytest's tmp_path uses /tmp on Linux, /var/folders or /private/var on macOS
-    if not (
-        actual_home_str.startswith("/tmp")
-        or actual_home_str.startswith("/var/folders")
-        or actual_home_str.startswith("/private/var")
-    ):
-        raise AssertionError(
-            f"Failed to set fake HOME! Path.home() returned {actual_home}, "
-            f"which is not in a temp directory. Tests may be operating on real home directory!"
-        )
+    assert_home_is_temp_directory()
 
 
 @pytest.fixture
@@ -201,16 +192,7 @@ def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
     repo_dir = tmp_path / "git_repo"
     repo_dir.mkdir()
 
-    # Initialize git and create initial commit
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
-    (repo_dir / "README.md").write_text("Test repository")
-    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=repo_dir,
-        check=True,
-        capture_output=True,
-    )
+    init_git_repo(repo_dir)
 
     return repo_dir
 

@@ -35,6 +35,29 @@ MODAL_TEST_ENV_PATTERN: Final[re.Pattern[str]] = re.compile(
 )
 
 
+def assert_home_is_temp_directory() -> None:
+    """Assert that Path.home() is in a temp directory.
+
+    This safety check prevents tests from accidentally modifying the real home
+    directory. Should be called before any operation that writes to ~/.
+
+    Raises AssertionError if HOME is not in a recognized temp directory.
+    """
+    actual_home = Path.home()
+    actual_home_str = str(actual_home)
+    # pytest's tmp_path uses /tmp on Linux, /var/folders or /private/var on macOS
+    if not (
+        actual_home_str.startswith("/tmp")
+        or actual_home_str.startswith("/var/folders")
+        or actual_home_str.startswith("/private/var")
+    ):
+        raise AssertionError(
+            f"Path.home() returned {actual_home}, which is not in a temp directory. "
+            "Tests may be operating on real home directory! "
+            "Ensure setup_test_mngr_env autouse fixture has run before this call."
+        )
+
+
 def get_subprocess_test_env(
     root_name: str = "mngr-test",
     prefix: str | None = None,
@@ -206,8 +229,71 @@ def make_mngr_ctx(default_host_dir: Path, prefix: str) -> MngrContext:
     return MngrContext(config=config, pm=pm, profile_dir=profile_dir)
 
 
+def init_git_repo(path: Path, initial_commit: bool = True) -> None:
+    """Initialize a git repo at the given path.
+
+    If initial_commit is True, creates a README.md and commits it.
+    Requires setup_git_config fixture to have created .gitconfig in the fake HOME
+    (or temp_git_repo fixture, which depends on it).
+    """
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+    if initial_commit:
+        (path / "README.md").write_text("Test repository")
+        subprocess.run(["git", "add", "."], cwd=path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Initial commit"],
+            cwd=path,
+            check=True,
+            capture_output=True,
+        )
+
+
 def get_short_random_string() -> str:
     return uuid4().hex[:8]
+
+
+def setup_claude_trust_config_for_subprocess(
+    trusted_paths: list[Path],
+    root_name: str = "mngr-acceptance-test",
+) -> dict[str, str]:
+    """Create a Claude trust config file and return env vars for subprocess tests.
+
+    This creates ~/.claude.json (in the temp HOME set by setup_test_mngr_env autouse
+    fixture) that marks the specified paths as trusted.
+
+    Uses get_subprocess_test_env() as the base to ensure MNGR_ROOT_NAME is set,
+    which prevents loading the project's .mngr/settings.toml. The env dict includes
+    HOME from os.environ, which was set by the setup_test_mngr_env autouse fixture.
+
+    Raises AssertionError if called before the autouse fixture has set HOME to a
+    temp directory.
+    """
+    # Safety check: ensure we're writing to a temp directory, not the real home
+    assert_home_is_temp_directory()
+
+    claude_config: dict[str, object] = {
+        "projects": {str(path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True} for path in trusted_paths},
+        # Skip first-run prompts that block the TUI:
+        # - hasCompletedOnboarding: skips theme picker
+        # - numStartups: signals this isn't a first run
+        # - bypassPermissionsModeAccepted: skips permissions mode prompt
+        "hasCompletedOnboarding": True,
+        "numStartups": 1,
+        "bypassPermissionsModeAccepted": True,
+    }
+
+    # Pre-approve any ANTHROPIC_API_KEY so Claude doesn't prompt for confirmation.
+    # Claude uses the last 20 characters of the key as its identifier.
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if len(api_key) >= 20:
+        key_id = api_key[-20:]
+        claude_config["customApiKeyResponses"] = {"approved": [key_id]}
+
+    config_file = Path.home() / ".claude.json"
+    config_file.write_text(json.dumps(claude_config))
+
+    # get_subprocess_test_env() copies os.environ which includes HOME from the autouse fixture
+    return get_subprocess_test_env(root_name=root_name)
 
 
 # =============================================================================

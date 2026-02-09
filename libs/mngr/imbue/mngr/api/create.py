@@ -1,4 +1,3 @@
-import time
 from typing import cast
 
 from loguru import logger
@@ -49,7 +48,11 @@ def _call_on_before_create_hooks(
             current_args = result
 
     # Return the final values
-    return current_args.target_host, current_args.agent_options, current_args.create_work_dir
+    return (
+        current_args.target_host,
+        current_args.agent_options,
+        current_args.create_work_dir,
+    )
 
 
 @log_call
@@ -100,20 +103,23 @@ def create(
         logger.debug("Provisioning agent {}", agent.name)
         host.provision_agent(agent, agent_options, mngr_ctx)
 
-        # Start the agent
-        logger.info("Starting agent {} ...", agent.name)
-        host.start_agents([agent.id])
-
         # Send initial message if one is configured
         initial_message = agent.get_initial_message()
         if initial_message is not None:
+            # Start agent with signal-based readiness detection
+            # Raises AgentStartError if the agent doesn't signal readiness in time
+            logger.info("Starting agent {} ...", agent.name)
+            timeout = agent_options.ready_timeout_seconds
+            agent.wait_for_ready_signal(
+                start_action=lambda: host.start_agents([agent.id]),
+                timeout=timeout,
+            )
             logger.info("Sending initial message...")
-            # Note: ideally agents would have their own mechanism for signaling readiness
-            # (e.g., claude has hooks we could use). For now, use configurable delay.
-            # Give the agent a moment to start up before sending the message
-            logger.debug("Waiting for agent to become ready before sending initial message")
-            time.sleep(agent_options.message_delay_seconds)
             agent.send_message(initial_message)
+        else:
+            # No initial message - just start the agent
+            logger.info("Starting agent {} ...", agent.name)
+            host.start_agents([agent.id])
 
         # Build and return the result
         result = CreateAgentResult(agent=agent, host=host)
@@ -160,7 +166,11 @@ def resolve_target_host(
     """Resolve which host to use for the agent."""
     if target_host is not None and isinstance(target_host, NewHostOptions):
         # Create a new host using the specified provider
-        logger.debug("Creating new host '{}' using provider '{}'", target_host.name, target_host.provider)
+        logger.debug(
+            "Creating new host '{}' using provider '{}'",
+            target_host.name,
+            target_host.provider,
+        )
         provider = get_provider_instance(target_host.provider, mngr_ctx)
         logger.trace(
             "Creating host with tags={} build_args={} start_args={} lifecycle={} known_hosts={}",

@@ -31,7 +31,7 @@ Except for the contents of `data.json` (which is signed), data in the host direc
 | `uptime_seconds`             | `current_time` - `boot_time`                                                                                           | (computed)       |
 | `idle_seconds`               | How long since the host was active                                                                                     | (computed)       |
 | `idle_mode`                  | One of `io`, `user`, `agent`, `ssh`, `create`, `boot`, `start`, `run`, `disabled`, `custom`                            | `data.json`      |
-| `idle_timeout_seconds`       | Maximum idle time before stopping                                                                                      | `data.json`      |
+| `idle_timeout_seconds`     | Maximum idle time before stopping                                                                                      | `data.json`      |
 | `activity_sources`           | What to consider as activity for idle detection (list of `create`, `boot`, `start`, `ssh`, `process`, `agent`, `user`) | `data.json`      |
 | `plugin.*`                   | Plugin-specific (certified) host state                                                                                 | `data.json`      |
 | `permissions`                | Union of all agent permissions on this host                                                                            | (computed)       |
