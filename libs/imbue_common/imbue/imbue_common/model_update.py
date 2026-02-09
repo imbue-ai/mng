@@ -1,32 +1,26 @@
-"""Type-safe helpers for pydantic model_copy(update={...}) calls.
-
-Provides a way to create update dicts where the field name and value type are
-statically checked by the type checker, without relying on untyped string keys.
-
-Usage:
-    updated = my_model.model_copy(
-        update=to_update_dict(
-            to_update(my_model.fields().some_field, new_value),
-            to_update(my_model.fields().other_field, other_value),
-        )
-    )
-
-The type checker sees fields() as returning Self, so .some_field has the
-declared field type. to_update() then constrains the value to match that type.
-"""
-
 from typing import Any
 from typing import TypeVar
+
+from imbue.imbue_common.pure import pure
 
 _T = TypeVar("_T")
 
 
 class FieldProxy:
-    """Proxy that records attribute access paths for type-safe model updates.
+    """Proxy that records attribute access paths for type-safe model_copy updates.
 
-    When fields() is called on a model, it returns one of these. Attribute access
-    on the proxy produces another proxy that remembers the path. str() on the
-    proxy returns the dotted path string (e.g. "idle_mode" or "nested.field").
+    Used by FrozenModel.fields() and MutableModel.fields() to create type-safe
+    references to model fields. The type checker sees fields() as returning Self,
+    so attribute access (e.g. model.fields().idle_mode) resolves to the field's
+    declared type. to_update() then constrains the value to match that type.
+
+    Usage:
+        updated = my_model.model_copy(
+            update=to_update_dict(
+                to_update(my_model.fields().some_field, new_value),
+                to_update(my_model.fields().other_field, other_value),
+            )
+        )
     """
 
     __slots__ = ("_path",)
@@ -47,6 +41,7 @@ class FieldProxy:
         return f"FieldProxy({path!r})"
 
 
+@pure
 def to_update(field: _T, value: _T) -> tuple[str, Any]:
     """Create a type-safe (field_name, value) pair for model_copy updates.
 
@@ -57,6 +52,7 @@ def to_update(field: _T, value: _T) -> tuple[str, Any]:
     return (str(field), value)
 
 
+@pure
 def to_update_dict(*updates: tuple[str, Any]) -> dict[str, Any]:
     """Convert (field_name, value) pairs into a dict for model_copy(update=...)."""
     return dict(updates)
