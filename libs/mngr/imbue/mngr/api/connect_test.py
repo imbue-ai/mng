@@ -1,3 +1,4 @@
+# FIXME0: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 """Unit tests for the connect API module."""
 
 from pathlib import Path
@@ -242,9 +243,7 @@ def test_connect_to_agent_remote_destroy_signal(mock_call: MagicMock, mock_execv
     connect_to_agent(agent, host, mngr_ctx, opts)
 
     mock_call.assert_called_once()
-    mock_execvp.assert_called_once_with(
-        "mngr", ["mngr", "destroy", "--session", "mngr-test-agent", "-f"]
-    )
+    mock_execvp.assert_called_once_with("mngr", ["mngr", "destroy", "--session", "mngr-test-agent", "-f"])
 
 
 @patch("imbue.mngr.api.connect.os.execvp")
@@ -258,9 +257,7 @@ def test_connect_to_agent_remote_stop_signal(mock_call: MagicMock, mock_execvp: 
     connect_to_agent(agent, host, mngr_ctx, opts)
 
     mock_call.assert_called_once()
-    mock_execvp.assert_called_once_with(
-        "mngr", ["mngr", "stop", "--session", "mngr-test-agent"]
-    )
+    mock_execvp.assert_called_once_with("mngr", ["mngr", "stop", "--session", "mngr-test-agent"])
 
 
 @patch("imbue.mngr.api.connect.os.execvp")
@@ -279,9 +276,7 @@ def test_connect_to_agent_remote_normal_exit_no_action(mock_call: MagicMock, moc
 
 @patch("imbue.mngr.api.connect.os.execvp")
 @patch("imbue.mngr.api.connect.subprocess.call")
-def test_connect_to_agent_remote_unknown_exit_code_no_action(
-    mock_call: MagicMock, mock_execvp: MagicMock
-) -> None:
+def test_connect_to_agent_remote_unknown_exit_code_no_action(mock_call: MagicMock, mock_execvp: MagicMock) -> None:
     """Test that connect_to_agent does not exec into anything on unexpected SSH exit codes."""
     agent, host, mngr_ctx = _make_mock_remote_host_and_agent()
     opts = ConnectionOptions(is_unknown_host_allowed=False)
@@ -295,9 +290,7 @@ def test_connect_to_agent_remote_unknown_exit_code_no_action(
 
 @patch("imbue.mngr.api.connect.os.execvp")
 @patch("imbue.mngr.api.connect.subprocess.call")
-def test_connect_to_agent_remote_uses_correct_session_name(
-    mock_call: MagicMock, mock_execvp: MagicMock
-) -> None:
+def test_connect_to_agent_remote_uses_correct_session_name(mock_call: MagicMock, mock_execvp: MagicMock) -> None:
     """Test that connect_to_agent constructs the session name from prefix + agent name."""
     agent, host, mngr_ctx = _make_mock_remote_host_and_agent(prefix="custom-", agent_name="my-agent")
     opts = ConnectionOptions(is_unknown_host_allowed=False)
@@ -305,6 +298,4 @@ def test_connect_to_agent_remote_uses_correct_session_name(
 
     connect_to_agent(agent, host, mngr_ctx, opts)
 
-    mock_execvp.assert_called_once_with(
-        "mngr", ["mngr", "destroy", "--session", "custom-my-agent", "-f"]
-    )
+    mock_execvp.assert_called_once_with("mngr", ["mngr", "destroy", "--session", "custom-my-agent", "-f"])
