@@ -14,10 +14,10 @@ Unless otherwise specified, `mngr` assumes:
 
 `mngr` automatically sets these additional environment variables inside agent tmux sessions:
 
-- `MNGR_HOST_DIR` — The base directory for all mngr data within the host where the agent is running. See [host spec](../specs/host.md) for data layout (default: `~/.mngr`).
+- `MNGR_HOST_DIR` — The base directory for all mngr data within the host where the agent is running. See [host spec](../future_specs/host.md) for data layout (default: `~/.mngr`).
 - `MNGR_AGENT_ID` — The agent's unique identifier
 - `MNGR_AGENT_NAME` — The agent's human-readable name
-- `MNGR_AGENT_STATE_DIR` — The per-agent directory for status, activity, plugins. See [agent spec](../specs/agent.md) for data layout (default: `$MNGR_HOST_DIR/agents/$MNGR_AGENT_ID/`)
+- `MNGR_AGENT_STATE_DIR` — The per-agent directory for status, activity, plugins. See [agent spec](../future_specs/agent.md) for data layout (default: `$MNGR_HOST_DIR/agents/$MNGR_AGENT_ID/`)
 - `MNGR_AGENT_WORK_DIR` — The directory in which the agent is started, which contains your project files
 
 See [environment variables](./concepts/environment_variables.md) for the full list and how to set custom variables.

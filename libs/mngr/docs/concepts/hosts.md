@@ -148,7 +148,7 @@ A host is considered "destroyed" when either of these is true:
 
 ## Properties
 
-See [host spec](../../specs/host.md) for the properties of hosts and their storage locations.
+See [host spec](../../future_specs/host.md) for the properties of hosts and their storage locations.
 
 ## Interface
 

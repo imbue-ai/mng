@@ -64,7 +64,7 @@ mngr create sub-task-agent claude
 
 By default, the `mngr` binary only exposes the "local" provider, which means that these child agents run on the same host as the parent.
 
-If you want to allow agents to create remote/untrusted child agents, see the [recursive mngr plugin](../../specs/plugins/recursive_mngr.md) [future] for security considerations and more details.
+If you want to allow agents to create remote/untrusted child agents, see the [recursive mngr plugin](../../future_specs/plugins/recursive_mngr.md) [future] for security considerations and more details.
 
 ## Lifecycle
 
@@ -79,7 +79,7 @@ If the host's state is not "running", then the agent inherits it state from the 
 
 ## Properties
 
-See [agent spec](../../specs/agent.md) for the properties of agents and their storage locations.
+See [agent spec](../../future_specs/agent.md) for the properties of agents and their storage locations.
 
 You can also run [`mngr list --help`](../commands/primary/list.md#available-fields) for the full list.
 

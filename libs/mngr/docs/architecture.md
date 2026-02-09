@@ -20,7 +20,7 @@ Agents fully contain their own state on their host.
 
 This means no database, no state corruption, and multiple `mngr` instances can manage the same agents.
 
-Some interactions are gated via cooperative locking [future] (using `flock` on known lock files) to avoid race conditions. See [locking spec](../specs/locking.md) for details.
+Some interactions are gated via cooperative locking [future] (using `flock` on known lock files) to avoid race conditions. See [locking spec](../future_specs/locking.md) for details.
 
 ## Conventions
 
