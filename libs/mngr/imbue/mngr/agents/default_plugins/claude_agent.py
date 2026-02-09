@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import shlex
-import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -152,9 +151,7 @@ class ClaudeAgent(BaseAgent):
 
             # Run the start action (e.g., start the agent)
             with log_span("Calling start_action..."):
-                action_start = time.time()
                 start_action()
-                action_elapsed = time.time() - action_start
 
             # Poll for the session_started file (created by SessionStart hook)
             success, poll_count, poll_elapsed = poll_until_counted(

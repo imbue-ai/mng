@@ -133,7 +133,7 @@ def test_log_span_logs_timing_even_on_exception() -> None:
         assert len(captured_messages) == 2
         assert captured_messages[0] == "risky operation"
         assert captured_levels[0] == "DEBUG"
-        assert "risky operation [done in " in captured_messages[1]
+        assert "risky operation [failed after " in captured_messages[1]
         assert captured_levels[1] == "TRACE"
     finally:
         logger.remove(handler_id)
