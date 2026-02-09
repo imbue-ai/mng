@@ -59,7 +59,7 @@ def test_to_update_dict_produces_dict_from_pairs() -> None:
 
 
 def test_model_copy_with_to_update_dict_produces_correct_copy() -> None:
-    """Full round-trip: fields() + to_update + to_update_dict + model_copy."""
+    """Full round-trip: field_ref() + to_update + to_update_dict + model_copy."""
     original = _SampleFrozenModel(name="original", count=1, label="old", tags=("a",))
 
     updated = original.model_copy(
@@ -93,7 +93,7 @@ def test_model_copy_with_single_field_update() -> None:
 
 
 def test_fields_works_on_mutable_model() -> None:
-    """fields() and to_update work identically on MutableModel subclasses."""
+    """field_ref() and to_update work identically on MutableModel subclasses."""
     original = _SampleMutableModel(value=1, label="old")
 
     updated = original.model_copy(
