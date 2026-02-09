@@ -4,6 +4,7 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
+from typing import assert_never
 
 from loguru import logger
 from pydantic import Field
@@ -101,15 +102,17 @@ class UnisonSyncer(MutableModel):
         ]
 
         # Add conflict preference based on mode
-        if self.conflict_mode == ConflictMode.SOURCE:
-            cmd.extend(["-prefer", str(self.source_path)])
-        elif self.conflict_mode == ConflictMode.TARGET:
-            cmd.extend(["-prefer", str(self.target_path)])
-        elif self.conflict_mode == ConflictMode.NEWER:
-            cmd.extend(["-prefer", "newer"])
-        else:
-            # ConflictMode.ASK requires interactive mode, default to newer
-            cmd.extend(["-prefer", "newer"])
+        match self.conflict_mode:
+            case ConflictMode.SOURCE:
+                cmd.extend(["-prefer", str(self.source_path)])
+            case ConflictMode.TARGET:
+                cmd.extend(["-prefer", str(self.target_path)])
+            case ConflictMode.NEWER:
+                cmd.extend(["-prefer", "newer"])
+            case ConflictMode.ASK:
+                raise NotImplementedError("ConflictMode.ASK is not yet implemented")
+            case _ as unreachable:
+                assert_never(unreachable)
 
         # Add sync direction constraints
         if self.sync_direction == SyncDirection.FORWARD:
@@ -135,12 +138,17 @@ class UnisonSyncer(MutableModel):
         if self._process is None or self._process.stdout is None:
             return
 
-        for line in iter(self._process.stdout.readline, ""):
-            if self._stop_event.is_set():
-                break
-            line = line.rstrip()
-            if line:
-                logger.debug("unison: {}", line)
+        try:
+            for line in iter(self._process.stdout.readline, ""):
+                if self._stop_event.is_set():
+                    break
+                line = line.rstrip()
+                if line:
+                    logger.debug("unison: {}", line)
+        except (OSError, ValueError):
+            # OSError: broken pipe / I/O error when process terminates
+            # ValueError: I/O operation on closed file
+            logger.debug("unison output reader stopped")
 
     def start(self) -> None:
         """Start the unison sync process."""
