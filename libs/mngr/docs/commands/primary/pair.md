@@ -54,7 +54,7 @@ mngr pair [OPTIONS] [SOURCE]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--require-git`, `--no-require-git` | boolean | Require that both source and target are git repositories [default: require git] | `True` |
-| `--uncommitted-changes` | choice (`stash` &#x7C; `clobber` &#x7C; `merge` &#x7C; `fail`) | How to handle uncommitted changes during initial git sync | `fail` |
+| `--uncommitted-changes` | choice (`stash` &#x7C; `clobber` &#x7C; `merge` &#x7C; `fail`) | How to handle uncommitted changes during initial git sync. The initial sync aborts immediately if unresolved conflicts exist, regardless of this setting. | `fail` |
 
 ## Sync Behavior
 

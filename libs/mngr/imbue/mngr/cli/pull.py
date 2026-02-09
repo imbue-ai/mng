@@ -176,7 +176,7 @@ def _select_agent_for_pull(
 @optgroup.option(
     "--force-git",
     is_flag=True,
-    help="Force overwrite local git state (use with caution) [future]",
+    help="Force overwrite local git state (use with caution) [future]. Without this flag, the command fails if local and remote history have diverged (e.g. after a force-push) and the user must resolve manually.",
 )
 @optgroup.option("--merge", is_flag=True, help="Merge remote changes with local changes [future]")
 @optgroup.option("--rebase", is_flag=True, help="Rebase local changes onto remote changes [future]")

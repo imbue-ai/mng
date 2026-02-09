@@ -107,7 +107,7 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
     type=click.Choice(["stash", "clobber", "merge", "fail"], case_sensitive=False),
     default="fail",
     show_default=True,
-    help="How to handle uncommitted changes during initial git sync",
+    help="How to handle uncommitted changes during initial git sync. The initial sync aborts immediately if unresolved conflicts exist, regardless of this setting.",
 )
 @optgroup.group("Sync Behavior")
 @optgroup.option(

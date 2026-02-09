@@ -103,7 +103,7 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | `--target-branch` | text | Branch to merge into (git mode only) [default: current branch] | None |
 | `--all-branches`, `--all` | boolean | Pull all remote branches [future] | `False` |
 | `--tags` | boolean | Include git tags in sync [future] | `False` |
-| `--force-git` | boolean | Force overwrite local git state (use with caution) [future] | `False` |
+| `--force-git` | boolean | Force overwrite local git state (use with caution) [future]. Without this flag, the command fails if local and remote history have diverged (e.g. after a force-push) and the user must resolve manually. | `False` |
 | `--merge` | boolean | Merge remote changes with local changes [future] | `False` |
 | `--rebase` | boolean | Rebase local changes onto remote changes [future] | `False` |
 | `--uncommitted-source` | choice (`warn` &#x7C; `error`) | Warn or error if source has uncommitted changes [future] | None |
