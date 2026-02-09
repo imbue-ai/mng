@@ -8,6 +8,7 @@ import modal
 from loguru import logger
 from modal._output import OutputManager
 
+from imbue.mngr.utils.logging import log_span
 from imbue.mngr.utils.logging import register_build_level
 
 # Ensure BUILD level is registered (in case this module is imported before logging.py)
@@ -184,14 +185,13 @@ def enable_modal_output_capture(
 
     multi_writer = _create_multi_writer(writers)
 
-    logger.debug("Enabling Modal output capture")
+    with log_span("Enabling Modal output capture"):
+        with modal.enable_output(show_progress=True):
+            output_manager = _QuietOutputManager()
+            # Set _stdout to capture Modal's output (build logs, status messages, etc.)
+            # This only captures what Modal writes to its OutputManager, not all stdout/stderr
+            output_manager._stdout = multi_writer
+            output_manager._timestamps = set()
+            OutputManager._instance = output_manager
 
-    with modal.enable_output(show_progress=True):
-        output_manager = _QuietOutputManager()
-        # Set _stdout to capture Modal's output (build logs, status messages, etc.)
-        # This only captures what Modal writes to its OutputManager, not all stdout/stderr
-        output_manager._stdout = multi_writer
-        output_manager._timestamps = set()
-        OutputManager._instance = output_manager
-
-        yield output_buffer, loguru_writer
+            yield output_buffer, loguru_writer

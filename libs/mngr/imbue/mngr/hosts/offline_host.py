@@ -20,6 +20,7 @@ from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
+from imbue.mngr.utils.logging import log_span
 
 
 class BaseHost(HostInterface):
@@ -59,21 +60,21 @@ class BaseHost(HostInterface):
         Saves activity configuration to data.json, which is read by the
         activity_watcher.sh script using jq.
         """
-        logger.debug(
+        with log_span(
             "Setting activity config for host {}: idle_mode={}, idle_timeout={}s",
             self.id,
             config.idle_mode,
             config.idle_timeout_seconds,
-        )
-        certified_data = self.get_certified_data()
-        updated_data = certified_data.model_copy(
-            update={
-                "idle_mode": config.idle_mode,
-                "idle_timeout_seconds": config.idle_timeout_seconds,
-                "activity_sources": config.activity_sources,
-            }
-        )
-        self.set_certified_data(updated_data)
+        ):
+            certified_data = self.get_certified_data()
+            updated_data = certified_data.model_copy(
+                update={
+                    "idle_mode": config.idle_mode,
+                    "idle_timeout_seconds": config.idle_timeout_seconds,
+                    "activity_sources": config.activity_sources,
+                }
+            )
+            self.set_certified_data(updated_data)
 
     # =========================================================================
     # Certified Data

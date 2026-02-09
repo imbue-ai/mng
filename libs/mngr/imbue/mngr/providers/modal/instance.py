@@ -89,6 +89,7 @@ from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
 from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
+from imbue.mngr.utils.logging import log_span
 
 # Constants
 CONTAINER_SSH_PORT = 22
@@ -418,8 +419,8 @@ class ModalProviderInstance(BaseProviderInstance):
             certified_host_data=host_data,
         )
 
-        logger.debug("Saving failed host record for host_id={}", host_id)
-        self._write_host_record(host_record)
+        with log_span("Saving failed host record for host_id={}", host_id):
+            self._write_host_record(host_record)
 
     def _read_host_record(self, host_id: HostId, use_cache: bool = True) -> HostRecord | None:
         """Read a host record from the volume.
@@ -604,12 +605,12 @@ class ModalProviderInstance(BaseProviderInstance):
         Reads the current host record from the volume to avoid overwriting
         any changes made by other operations (snapshots, tags, etc.).
         """
-        logger.debug("Updating certified host data on volume", host_id=str(host_id))
-        host_record = self._read_host_record(host_id, use_cache=False)
-        if host_record is None:
-            raise Exception(f"Host record not found on volume for {host_id}")
-        updated_host_record = host_record.model_copy(update={"certified_host_data": certified_data})
-        self._write_host_record(updated_host_record)
+        with log_span("Updating certified host data on volume", host_id=str(host_id)):
+            host_record = self._read_host_record(host_id, use_cache=False)
+            if host_record is None:
+                raise Exception(f"Host record not found on volume for {host_id}")
+            updated_host_record = host_record.model_copy(update={"certified_host_data": certified_data})
+            self._write_host_record(updated_host_record)
         logger.trace("Updated certified host data on volume for {}", host_id)
 
     def _build_modal_image(
@@ -703,16 +704,15 @@ class ModalProviderInstance(BaseProviderInstance):
         # Check for required packages and install if missing
         self._check_and_install_packages(sandbox)
 
-        logger.debug("Configuring SSH keys in sandbox", ssh_user=ssh_user)
-
-        # Build and execute the SSH configuration command
-        configure_ssh_cmd = build_configure_ssh_command(
-            user=ssh_user,
-            client_public_key=client_public_key,
-            host_private_key=host_private_key,
-            host_public_key=host_public_key,
-        )
-        sandbox.exec("sh", "-c", configure_ssh_cmd).wait()
+        with log_span("Configuring SSH keys in sandbox", ssh_user=ssh_user):
+            # Build and execute the SSH configuration command
+            configure_ssh_cmd = build_configure_ssh_command(
+                user=ssh_user,
+                client_public_key=client_public_key,
+                host_private_key=host_private_key,
+                host_public_key=host_public_key,
+            )
+            sandbox.exec("sh", "-c", configure_ssh_cmd).wait()
 
         # Add known_hosts entries for outbound SSH if specified
         if known_hosts:
@@ -721,12 +721,11 @@ class ModalProviderInstance(BaseProviderInstance):
             if add_known_hosts_cmd is not None:
                 sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
 
-        logger.debug("Starting sshd in sandbox")
-
-        # Start sshd (-D: don't detach)
-        # suppress all output--we don't want Modal tracking this for performance and stability reasons.
-        # yes, this is annoying for debugging, sorry--feel free to modify this code when debugging
-        sandbox.exec("/usr/sbin/sshd", "-D", stdout=StreamType.DEVNULL, stderr=StreamType.DEVNULL)
+        with log_span("Starting sshd in sandbox"):
+            # Start sshd (-D: don't detach)
+            # suppress all output--we don't want Modal tracking this for performance and stability reasons.
+            # yes, this is annoying for debugging, sorry--feel free to modify this code when debugging
+            sandbox.exec("/usr/sbin/sshd", "-D", stdout=StreamType.DEVNULL, stderr=StreamType.DEVNULL)
 
     def _get_ssh_info_from_sandbox(self, sandbox: modal.Sandbox) -> tuple[str, int]:
         """Extract SSH connection info from a running sandbox."""
@@ -830,8 +829,8 @@ class ModalProviderInstance(BaseProviderInstance):
             name=host_name,
             user_tags=user_tags,
         )
-        logger.debug("Setting sandbox tags: {}", list(sandbox_tags.keys()))
-        sandbox.set_tags(sandbox_tags)
+        with log_span("Setting sandbox tags: {}", list(sandbox_tags.keys())):
+            sandbox.set_tags(sandbox_tags)
 
         # Create pyinfra host and connector
         pyinfra_host = self._create_pyinfra_host(ssh_host, ssh_port, private_key_path)
@@ -876,9 +875,9 @@ class ModalProviderInstance(BaseProviderInstance):
         # Start the activity watcher. We have to start it here because we only created the shutdown script (with the hardcoded sandbox id)
         # in the above block, thus this cannot be started any earlier.
         # Plus we really want the boot time to be written, etc, as otherwise it can be a bit racey
-        logger.debug("Starting activity watcher in sandbox")
-        start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
-        sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
+        with log_span("Starting activity watcher in sandbox"):
+            start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
+            sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
 
         return host, ssh_host, ssh_port, host_public_key
 
@@ -976,8 +975,8 @@ log "=== Shutdown script completed ==="
         commands_dir = host.host_dir / "commands"
         script_path = commands_dir / "shutdown.sh"
 
-        logger.debug("Creating shutdown script at {}", script_path)
-        host.write_text_file(script_path, script_content, mode="755")
+        with log_span("Creating shutdown script at {}", script_path):
+            host.write_text_file(script_path, script_content, mode="755")
 
     def _parse_build_args(
         self,
@@ -1319,12 +1318,12 @@ log "=== Shutdown script completed ==="
 
         try:
             # Build the Modal image
-            logger.debug("Building Modal image...")
-            modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
+            with log_span("Building Modal image..."):
+                modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
 
             # Get or create the Modal app (uses singleton pattern with context manager)
-            logger.debug("Getting Modal app", app_name=self.app_name)
-            app = self._get_modal_app()
+            with log_span("Getting Modal app", app_name=self.app_name):
+                app = self._get_modal_app()
 
             # Create the sandbox
             # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
@@ -1476,7 +1475,9 @@ log "=== Shutdown script completed ==="
         # record twice, since we use it to figure out the name below as well
         host_record = self._read_host_record(host_id, use_cache=False)
         if host_record is not None:
-            updated_certified_data = host_record.certified_host_data.model_copy(update={"stop_reason": HostState.STOPPED.value})
+            updated_certified_data = host_record.certified_host_data.model_copy(
+                update={"stop_reason": HostState.STOPPED.value}
+            )
             self._write_host_record(host_record.model_copy(update={"certified_host_data": updated_certified_data}))
 
         # Remove from all caches since the sandbox is now terminated
@@ -1583,30 +1584,30 @@ log "=== Shutdown script completed ==="
         user_tags = host_record.user_tags
 
         # Create the image reference from the snapshot (the id IS the Modal image ID)
-        logger.debug("Creating sandbox from snapshot image", image_id=modal_image_id)
-        # Cast needed because modal.Image.from_id returns Self which the type checker can't resolve
-        modal_image = cast(modal.Image, modal.Image.from_id(modal_image_id))
+        with log_span("Creating sandbox from snapshot image", image_id=modal_image_id):
+            # Cast needed because modal.Image.from_id returns Self which the type checker can't resolve
+            modal_image = cast(modal.Image, modal.Image.from_id(modal_image_id))
 
-        # Get or create the Modal app
-        app = self._get_modal_app()
+            # Get or create the Modal app
+            app = self._get_modal_app()
 
-        # Create the sandbox from the snapshot image
-        # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
-        # trigger a clean shutdown before Modal's hard timeout kills the host
-        modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
-        memory_mb = int(config.memory * 1024)
-        new_sandbox = modal.Sandbox.create(
-            image=modal_image,
-            app=app,
-            # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
-            # environment_name=self.environment_name,
-            timeout=modal_timeout,
-            cpu=config.cpu,
-            memory=memory_mb,
-            unencrypted_ports=[CONTAINER_SSH_PORT],
-            gpu=config.gpu,
-            region=config.region,
-        )
+            # Create the sandbox from the snapshot image
+            # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
+            # trigger a clean shutdown before Modal's hard timeout kills the host
+            modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
+            memory_mb = int(config.memory * 1024)
+            new_sandbox = modal.Sandbox.create(
+                image=modal_image,
+                app=app,
+                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
+                # environment_name=self.environment_name,
+                timeout=modal_timeout,
+                cpu=config.cpu,
+                memory=memory_mb,
+                unencrypted_ports=[CONTAINER_SSH_PORT],
+                gpu=config.gpu,
+                region=config.region,
+            )
         logger.info("Created sandbox from snapshot", sandbox_id=new_sandbox.object_id)
 
         # Cache the sandbox for fast lookup (avoids Modal's eventual consistency issues)
@@ -1909,8 +1910,8 @@ log "=== Shutdown script completed ==="
             raise HostNotFoundError(host_id)
 
         # Create the filesystem snapshot
-        logger.debug("Creating filesystem snapshot", name=str(name))
-        modal_image = sandbox.snapshot_filesystem()
+        with log_span("Creating filesystem snapshot", name=str(name)):
+            modal_image = sandbox.snapshot_filesystem()
         # Use the Modal image ID directly as the snapshot ID
         snapshot_id = SnapshotId(modal_image.object_id)
         created_at = datetime.now(timezone.utc)
@@ -1960,7 +1961,6 @@ log "=== Shutdown script completed ==="
         sandbox termination and sharing between mngr instances.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
-        logger.debug("Creating snapshot for Modal sandbox", host_id=str(host_id))
 
         sandbox = self._find_sandbox_by_host_id(host_id)
         if sandbox is None:
@@ -1973,7 +1973,8 @@ log "=== Shutdown script completed ==="
             short_id = uuid4().hex[:8]
             name = SnapshotName(f"snapshot-{short_id}")
 
-        snapshot_id = self._record_snapshot(sandbox, host_id, name)
+        with log_span("Creating snapshot for Modal sandbox", host_id=str(host_id)):
+            snapshot_id = self._record_snapshot(sandbox, host_id, name)
         logger.info("Created snapshot: id={}, name={}", snapshot_id, name)
         return snapshot_id
 
@@ -2024,23 +2025,25 @@ log "=== Shutdown script completed ==="
         by Modal when no longer referenced.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
-        logger.debug("Deleting snapshot from Modal sandbox", snapshot_id=str(snapshot_id), host_id=str(host_id))
 
-        # Read host record from volume
-        host_record = self._read_host_record(host_id, use_cache=False)
-        if host_record is None:
-            raise HostNotFoundError(host_id)
+        with log_span("Deleting snapshot from Modal sandbox", snapshot_id=str(snapshot_id), host_id=str(host_id)):
+            # Read host record from volume
+            host_record = self._read_host_record(host_id, use_cache=False)
+            if host_record is None:
+                raise HostNotFoundError(host_id)
 
-        # Find and remove the snapshot
-        snapshot_id_str = str(snapshot_id)
-        updated_snapshots = [s for s in host_record.snapshots if s.id != snapshot_id_str]
+            # Find and remove the snapshot
+            snapshot_id_str = str(snapshot_id)
+            updated_snapshots = [s for s in host_record.snapshots if s.id != snapshot_id_str]
 
-        if len(updated_snapshots) == len(host_record.snapshots):
-            raise SnapshotNotFoundError(snapshot_id)
+            if len(updated_snapshots) == len(host_record.snapshots):
+                raise SnapshotNotFoundError(snapshot_id)
 
-        # Update host record on volume
-        updated_certified_data = host_record.certified_host_data.model_copy(update={"snapshots": updated_snapshots})
-        self.get_host(host_id).set_certified_data(updated_certified_data)
+            # Update host record on volume
+            updated_certified_data = host_record.certified_host_data.model_copy(
+                update={"snapshots": updated_snapshots}
+            )
+            self.get_host(host_id).set_certified_data(updated_certified_data)
 
         logger.info("Deleted snapshot", snapshot_id=str(snapshot_id))
 
@@ -2275,8 +2278,8 @@ def _build_modal_secrets_from_env(
             "Set these environment variables before building."
         )
 
-    logger.debug("Creating Modal secrets from environment variables", count=len(secret_dict))
-    return [modal.Secret.from_dict(secret_dict)]
+    with log_span("Creating Modal secrets from environment variables", count=len(secret_dict)):
+        return [modal.Secret.from_dict(secret_dict)]
 
 
 def _build_image_from_dockerfile_contents(

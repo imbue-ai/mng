@@ -33,6 +33,7 @@ from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.git_utils import find_git_common_dir
+from imbue.mngr.utils.logging import log_span
 from imbue.mngr.utils.polling import poll_until_counted
 
 _READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
@@ -144,25 +145,24 @@ class ClaudeAgent(BaseAgent):
 
         session_started_path = self._get_agent_dir() / "session_started"
 
-        logger.debug("Waiting for session_started file (timeout={}s)", timeout)
+        with log_span("Waiting for session_started file (timeout={}s)", timeout):
+            # Remove any stale marker file
+            rm_cmd = f"rm -f {shlex.quote(str(session_started_path))}"
+            self.host.execute_command(rm_cmd, timeout_seconds=1.0)
 
-        # Remove any stale marker file
-        rm_cmd = f"rm -f {shlex.quote(str(session_started_path))}"
-        self.host.execute_command(rm_cmd, timeout_seconds=1.0)
+            # Run the start action (e.g., start the agent)
+            with log_span("Calling start_action..."):
+                action_start = time.time()
+                start_action()
+                action_elapsed = time.time() - action_start
+            logger.debug("start_action completed in {:.2f}s, now polling for session_started...", action_elapsed)
 
-        # Run the start action (e.g., start the agent)
-        logger.debug("Calling start_action...")
-        action_start = time.time()
-        start_action()
-        action_elapsed = time.time() - action_start
-        logger.debug("start_action completed in {:.2f}s, now polling for session_started...", action_elapsed)
-
-        # Poll for the session_started file (created by SessionStart hook)
-        success, poll_count, poll_elapsed = poll_until_counted(
-            lambda: self._check_file_exists(session_started_path),
-            timeout=timeout,
-            poll_interval=0.05,
-        )
+            # Poll for the session_started file (created by SessionStart hook)
+            success, poll_count, poll_elapsed = poll_until_counted(
+                lambda: self._check_file_exists(session_started_path),
+                timeout=timeout,
+                poll_interval=0.05,
+            )
 
         if success:
             logger.trace(
@@ -384,8 +384,8 @@ class ClaudeAgent(BaseAgent):
             return
 
         # Write the merged settings
-        logger.debug("Configuring readiness hooks in {}", settings_path)
-        host.write_text_file(settings_path, json.dumps(merged, indent=2) + "\n")
+        with log_span("Configuring readiness hooks in {}", settings_path):
+            host.write_text_file(settings_path, json.dumps(merged, indent=2) + "\n")
 
     def provision(
         self,

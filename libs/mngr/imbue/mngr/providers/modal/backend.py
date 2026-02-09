@@ -30,6 +30,7 @@ from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
+from imbue.mngr.utils.logging import log_span
 
 MODAL_BACKEND_NAME = ProviderBackendName("modal")
 STATE_VOLUME_SUFFIX = "-state"
@@ -63,22 +64,22 @@ def _ensure_environment_exists(environment_name: str) -> None:
         pass
 
     # Environment doesn't exist, create it
-    logger.debug("Creating Modal environment: {}", environment_name)
-    try:
-        result = subprocess.run(
-            ["uv", "run", "modal", "environment", "create", environment_name],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode == 0:
-            logger.info("Created Modal environment: {}", environment_name)
-        else:
-            # If creation fails, it might already exist (race condition) or there's an error
-            # We'll let the subsequent Modal API calls fail with a more specific error if needed
-            logger.debug("Modal environment create returned non-zero: {}", result.stderr)
-    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
-        logger.warning("Failed to create Modal environment via CLI: {}", e)
+    with log_span("Creating Modal environment: {}", environment_name):
+        try:
+            result = subprocess.run(
+                ["uv", "run", "modal", "environment", "create", environment_name],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                logger.info("Created Modal environment: {}", environment_name)
+            else:
+                # If creation fails, it might already exist (race condition) or there's an error
+                # We'll let the subsequent Modal API calls fail with a more specific error if needed
+                logger.debug("Modal environment create returned non-zero: {}", result.stderr)
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
+            logger.warning("Failed to create Modal environment via CLI: {}", e)
 
 
 def _lookup_persistent_app_with_env_retry(app_name: str, environment_name: str) -> modal.App:
@@ -104,8 +105,8 @@ def _lookup_persistent_app_with_env_retry(app_name: str, environment_name: str) 
 )
 def _lookup_persistent_app_with_retry(app_name: str, environment_name: str) -> modal.App:
     """Look up or create a persistent Modal app with tenacity retry."""
-    logger.debug("Retrying Modal app lookup: {} (env: {})", app_name, environment_name)
-    return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
+    with log_span("Retrying Modal app lookup: {} (env: {})", app_name, environment_name):
+        return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
 
 
 def _enter_ephemeral_app_context_with_env_retry(app: modal.App, environment_name: str) -> Any:
@@ -133,10 +134,10 @@ def _enter_ephemeral_app_context_with_env_retry(app: modal.App, environment_name
 )
 def _enter_ephemeral_app_context_with_retry(app: modal.App, environment_name: str) -> Any:
     """Enter an ephemeral Modal app's run context with tenacity retry."""
-    logger.debug("Retrying Modal app context entry (env: {})", environment_name)
-    run_context = app.run(environment_name=environment_name)
-    run_context.__enter__()
-    return run_context
+    with log_span("Retrying Modal app context entry (env: {})", environment_name):
+        run_context = app.run(environment_name=environment_name)
+        run_context.__enter__()
+        return run_context
 
 
 class ModalAppContextHandle(FrozenModel):
@@ -167,24 +168,23 @@ class ModalAppContextHandle(FrozenModel):
 
 def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
     """Exit a Modal app context and its output capture context."""
-    logger.debug("Exiting Modal app context: {}", handle.app_name)
+    with log_span("Exiting Modal app context: {}", handle.app_name):
+        # Log any captured output for debugging
+        captured_output = handle.output_buffer.getvalue()
+        if captured_output:
+            logger.trace("Modal output captured ({} chars): {}", len(captured_output), captured_output[:500])
 
-    # Log any captured output for debugging
-    captured_output = handle.output_buffer.getvalue()
-    if captured_output:
-        logger.trace("Modal output captured ({} chars): {}", len(captured_output), captured_output[:500])
+        # Exit the app context first
+        try:
+            if handle.run_context is not None:
+                handle.run_context.__exit__(None, None, None)
+        except modal.exception.Error as e:
+            logger.warning("Modal error exiting app context {}: {}", handle.app_name, e)
 
-    # Exit the app context first
-    try:
-        if handle.run_context is not None:
-            handle.run_context.__exit__(None, None, None)
-    except modal.exception.Error as e:
-        logger.warning("Modal error exiting app context {}: {}", handle.app_name, e)
-
-    # Exit the output capture context - this is a cleanup operation so we just
-    # suppress any errors
-    with contextlib.suppress(OSError, RuntimeError):
-        handle.output_capture_context.__exit__(None, None, None)
+        # Exit the output capture context - this is a cleanup operation so we just
+        # suppress any errors
+        with contextlib.suppress(OSError, RuntimeError):
+            handle.output_capture_context.__exit__(None, None, None)
 
 
 class ModalProviderBackend(ProviderBackendInterface):
@@ -228,42 +228,41 @@ class ModalProviderBackend(ProviderBackendInterface):
         if app_name in cls._app_registry:
             return cls._app_registry[app_name]
 
-        logger.debug("Creating ephemeral Modal app with output capture: {} (env: {})", app_name, environment_name)
+        with log_span("Creating ephemeral Modal app with output capture: {} (env: {})", app_name, environment_name):
+            # Enter the output capture context first
+            output_capture_context = enable_modal_output_capture(is_logging_to_loguru=True)
+            output_buffer, loguru_writer = output_capture_context.__enter__()
 
-        # Enter the output capture context first
-        output_capture_context = enable_modal_output_capture(is_logging_to_loguru=True)
-        output_buffer, loguru_writer = output_capture_context.__enter__()
+            if is_persistent:
+                app = _lookup_persistent_app_with_env_retry(app_name, environment_name)
+                run_context = None
+            else:
+                # Create the Modal app
+                app = modal.App(app_name)
 
-        if is_persistent:
-            app = _lookup_persistent_app_with_env_retry(app_name, environment_name)
-            run_context = None
-        else:
-            # Create the Modal app
-            app = modal.App(app_name)
+                # Enter the app.run() context manager manually so we can return the app
+                # while keeping the context active until close() is called
+                run_context = _enter_ephemeral_app_context_with_env_retry(app, environment_name)
 
-            # Enter the app.run() context manager manually so we can return the app
-            # while keeping the context active until close() is called
-            run_context = _enter_ephemeral_app_context_with_env_retry(app, environment_name)
+            # Set app metadata on the loguru writer for structured logging
+            if loguru_writer is not None:
+                loguru_writer.app_id = app.app_id
+                loguru_writer.app_name = app.name
 
-        # Set app metadata on the loguru writer for structured logging
-        if loguru_writer is not None:
-            loguru_writer.app_id = app.app_id
-            loguru_writer.app_name = app.name
+            # Create the volume name for state storage (volume created lazily)
+            volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
 
-        # Create the volume name for state storage (volume created lazily)
-        volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
-
-        context_handle = ModalAppContextHandle(
-            run_context=run_context,
-            app_name=app_name,
-            environment_name=environment_name,
-            output_capture_context=output_capture_context,
-            output_buffer=output_buffer,
-            loguru_writer=loguru_writer,
-            volume_name=volume_name,
-            volume=None,
-        )
-        cls._app_registry[app_name] = (app, context_handle)
+            context_handle = ModalAppContextHandle(
+                run_context=run_context,
+                app_name=app_name,
+                environment_name=environment_name,
+                output_capture_context=output_capture_context,
+                output_buffer=output_buffer,
+                loguru_writer=loguru_writer,
+                volume_name=volume_name,
+                volume=None,
+            )
+            cls._app_registry[app_name] = (app, context_handle)
         return app, context_handle
 
     @classmethod

@@ -27,6 +27,7 @@ from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import Permission
 from imbue.mngr.utils.env_utils import parse_env_file
+from imbue.mngr.utils.logging import log_span
 from imbue.mngr.utils.polling import poll_until
 
 # Constants for send_message marker-based synchronization
@@ -312,13 +313,13 @@ class BaseAgent(AgentInterface):
 
         Subclasses can enable this by overriding uses_marker_based_send_message().
         """
-        logger.debug("Sending message to agent {} (length={})", self.name, len(message))
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
 
-        if self.uses_marker_based_send_message():
-            self._send_message_with_marker(session_name, message)
-        else:
-            self._send_message_simple(session_name, message)
+        with log_span("Sending message to agent {} (length={})", self.name, len(message)):
+            if self.uses_marker_based_send_message():
+                self._send_message_with_marker(session_name, message)
+            else:
+                self._send_message_simple(session_name, message)
 
         logger.trace("Message sent to agent {}", self.name)
 
@@ -444,15 +445,15 @@ class BaseAgent(AgentInterface):
         Without this check, input sent too early may be lost or appear as raw text
         instead of being processed by the application's input handler.
         """
-        logger.debug("Waiting for TUI to be ready (looking for: {})", indicator)
-        if not poll_until(
-            lambda: self._check_pane_contains(session_name, indicator),
-            timeout=_TUI_READY_TIMEOUT_SECONDS,
-        ):
-            raise SendMessageError(
-                str(self.name),
-                f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)",
-            )
+        with log_span("Waiting for TUI to be ready (looking for: {})", indicator):
+            if not poll_until(
+                lambda: self._check_pane_contains(session_name, indicator),
+                timeout=_TUI_READY_TIMEOUT_SECONDS,
+            ):
+                raise SendMessageError(
+                    str(self.name),
+                    f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)",
+                )
         logger.debug("TUI ready indicator found: {}", indicator)
 
     def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:

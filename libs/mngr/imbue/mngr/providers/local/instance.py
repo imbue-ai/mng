@@ -32,6 +32,7 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
+from imbue.mngr.utils.logging import log_span
 
 LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
 HOST_ID_FILENAME: Final[str] = "host_id"
@@ -180,8 +181,8 @@ class LocalProviderInstance(BaseProviderInstance):
         the local host is always the same machine. The known_hosts parameter
         is also ignored since the local machine uses its own known_hosts file.
         """
-        logger.debug("Creating local host (provider={})", self.name)
-        host = self._create_host(name, tags)
+        with log_span("Creating local host (provider={})", self.name):
+            host = self._create_host(name, tags)
         logger.trace("Local host created: id={}", host.id)
 
         # FIXME: should probably remove this--there is no boot time for local host
