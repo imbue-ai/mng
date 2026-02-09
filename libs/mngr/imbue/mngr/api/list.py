@@ -16,6 +16,8 @@ from tenacity import wait_exponential
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_call
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.providers import get_all_provider_instances
@@ -43,8 +45,6 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
-from imbue.mngr.utils.logging import log_call
-from imbue.mngr.utils.logging import log_span
 
 
 class AgentInfo(FrozenModel):
@@ -576,22 +576,22 @@ def load_all_agents_grouped_by_host(
     agents_by_host: dict[HostReference, list[AgentReference]] = {}
     results_lock = Lock()
 
-    logger.debug("Loading all agents from all providers")
-    providers = get_all_provider_instances(mngr_ctx, provider_names)
-    logger.trace("Found {} provider instances", len(providers))
+    with log_span("Loading all agents from all providers"):
+        providers = get_all_provider_instances(mngr_ctx, provider_names)
+        logger.trace("Found {} provider instances", len(providers))
 
-    # Process all providers in parallel using ConcurrencyGroup
-    with ConcurrencyGroup(name="load_all_agents_grouped_by_host") as cg:
-        threads: list[ObservableThread] = []
-        for provider in providers:
-            threads.append(
-                cg.start_new_thread(
-                    target=_process_provider_for_host_listing,
-                    args=(provider, agents_by_host, include_destroyed, results_lock, cg),
-                    name=f"load_hosts_{provider.name}",
+        # Process all providers in parallel using ConcurrencyGroup
+        with ConcurrencyGroup(name="load_all_agents_grouped_by_host") as cg:
+            threads: list[ObservableThread] = []
+            for provider in providers:
+                threads.append(
+                    cg.start_new_thread(
+                        target=_process_provider_for_host_listing,
+                        args=(provider, agents_by_host, include_destroyed, results_lock, cg),
+                        name=f"load_hosts_{provider.name}",
+                    )
                 )
-            )
-        for thread in threads:
-            thread.join()
+            for thread in threads:
+                thread.join()
 
-    return (agents_by_host, providers)
+        return (agents_by_host, providers)

@@ -2,6 +2,8 @@ from typing import cast
 
 from loguru import logger
 
+from imbue.imbue_common.logging import log_call
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.api.data_types import CreateAgentResult
 from imbue.mngr.api.data_types import HostEnvironmentOptions
 from imbue.mngr.api.data_types import NewHostOptions
@@ -12,8 +14,6 @@ from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.utils.env_utils import parse_env_file
-from imbue.mngr.utils.logging import log_call
-from imbue.mngr.utils.logging import log_span
 
 
 def _call_on_before_create_hooks(

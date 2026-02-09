@@ -116,7 +116,7 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
         command_name="stop",
         command_class=StopCliOptions,
     )
-    logger.debug("Running stop command")
+    logger.debug("Started stop command")
 
     # Validate input
     agent_identifiers = list(opts.agents) + list(opts.agent_list)

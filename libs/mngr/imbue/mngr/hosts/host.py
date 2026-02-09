@@ -28,6 +28,7 @@ from pyinfra.connectors.util import CommandOutput
 
 from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mngr.agents.agent_registry import resolve_agent_type
 from imbue.mngr.agents.base_agent import BaseAgent
@@ -64,7 +65,6 @@ from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.git_utils import get_current_git_branch
-from imbue.mngr.utils.logging import log_span
 from imbue.mngr.utils.polling import wait_for
 
 
@@ -861,7 +861,7 @@ class Host(BaseHost, OnlineHostInterface):
 
         # If source and target are same path on same host, nothing to transfer
         if source_is_same_host and source_path == target_path:
-            logger.debug("Source and target are the same path, no file transfer needed")
+            logger.debug("Skipped file transfer: source and target are the same path")
             return target_path
 
         # Check if source has a .git directory
@@ -937,7 +937,7 @@ class Host(BaseHost, OnlineHostInterface):
                 target_has_git = result.success
 
             if target_has_git:
-                logger.debug("Target already has .git")
+                logger.trace("Skipped git repo initialization: target already has .git")
             else:
                 with log_span("Initializing bare git repo on target"):
                     result = self.execute_command(
@@ -1093,7 +1093,7 @@ class Host(BaseHost, OnlineHostInterface):
         files_to_include = list(set(files_to_include))
 
         if not files_to_include:
-            logger.debug("No extra files to transfer")
+            logger.debug("Skipped extra file transfer: no files to transfer")
             return
 
         with log_span("Transferring extra files", count=len(files_to_include)):

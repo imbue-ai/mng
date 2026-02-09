@@ -4,7 +4,7 @@ from pathlib import Path
 
 from modal import Function
 
-from imbue.mngr.utils.logging import log_span
+from imbue.imbue_common.logging import log_span
 
 
 def deploy_function(function: str, app_name: str, environment_name: str | None) -> str:

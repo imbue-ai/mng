@@ -1265,12 +1265,13 @@ The purpose of log statements is to tell a story to the reader about what is hap
 **Use `log_span` to wrap actions.** When logging an action that is about to happen, use the `log_span` context manager instead of a bare `logger.debug`. This emits a debug message on entry and a trace message with elapsed time on exit, making it easy to see how long operations take:
 
 ```python
-from imbue.mngr.utils.logging import log_span
+
+from imbue.imbue_common.logging import log_span
 
 
 def save_todo_to_repository(
-    todo_repository: TodoRepositoryInterface,
-    todo_item: TodoItem,
+        todo_repository: TodoRepositoryInterface,
+        todo_item: TodoItem,
 ) -> None:
     with log_span("Saving todo to repository"):
         todo_repository.save_todo(todo_item)

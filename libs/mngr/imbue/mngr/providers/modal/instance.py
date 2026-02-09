@@ -48,6 +48,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import HostNotFoundError
@@ -89,7 +90,6 @@ from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
 from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
-from imbue.mngr.utils.logging import log_span
 
 # Constants
 CONTAINER_SSH_PORT = 22
@@ -716,10 +716,10 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Add known_hosts entries for outbound SSH if specified
         if known_hosts:
-            logger.debug("Adding {} known_hosts entries to sandbox", len(known_hosts))
             add_known_hosts_cmd = build_add_known_hosts_command(ssh_user, tuple(known_hosts))
             if add_known_hosts_cmd is not None:
-                sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
+                with log_span("Adding {} known_hosts entries to sandbox", len(known_hosts)):
+                    sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
 
         with log_span("Starting sshd in sandbox"):
             # Start sshd (-D: don't detach)
@@ -812,16 +812,15 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Get SSH connection info
         ssh_host, ssh_port = self._get_ssh_info_from_sandbox(sandbox)
-        logger.debug("SSH endpoint available", ssh_host=ssh_host, ssh_port=ssh_port)
+        logger.trace("SSH endpoint available", ssh_host=ssh_host, ssh_port=ssh_port)
 
         # Add the host to our known_hosts file before waiting for sshd
-        logger.debug("Adding host to known_hosts", ssh_host=ssh_host, ssh_port=ssh_port)
-        add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
+        with log_span("Adding host to known_hosts", ssh_host=ssh_host, ssh_port=ssh_port):
+            add_host_to_known_hosts(self._known_hosts_path, ssh_host, ssh_port, host_public_key)
 
         # Wait for sshd to be ready
-        logger.debug("Waiting for sshd to be ready...")
-        self._wait_for_sshd(ssh_host, ssh_port)
-        logger.debug("sshd is ready")
+        with log_span("Waiting for sshd to be ready..."):
+            self._wait_for_sshd(ssh_host, ssh_port)
 
         # Set sandbox tags
         sandbox_tags = self._build_sandbox_tags(
@@ -1217,12 +1216,12 @@ log "=== Shutdown script completed ==="
         # Read host metadata from the volume
         host_record = self._read_host_record(host_id, use_cache=False)
         if host_record is None:
-            logger.debug("Skipping sandbox {} - no host record on volume", sandbox.object_id)
+            logger.warning("Skipped sandbox {}: no host record on volume", sandbox.object_id)
             return None
 
         # Failed hosts don't have SSH info and can't be connected to
         if host_record.ssh_host is None or host_record.ssh_port is None or host_record.ssh_host_public_key is None:
-            logger.debug("Skipping sandbox {} - host record missing SSH info (likely failed host)", sandbox.object_id)
+            logger.warning("Skipped sandbox {}: host record missing SSH info (likely failed host)", sandbox.object_id)
             return None
 
         # Add the sandbox's host key to known_hosts so SSH connections will work
@@ -1329,30 +1328,29 @@ log "=== Shutdown script completed ==="
             # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
             # trigger a clean shutdown before Modal's hard timeout kills the host
             modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
-            logger.debug(
+            with log_span(
                 "Creating Modal sandbox",
                 timeout=config.timeout,
                 modal_timeout=modal_timeout,
                 shutdown_buffer=self.config.shutdown_buffer_seconds,
                 cpu=config.cpu,
                 memory_gb=config.memory,
-            )
-
-            # Memory is in GB but Modal expects MB
-            memory_mb = int(config.memory * 1024)
-            sandbox = modal.Sandbox.create(
-                image=modal_image,
-                app=app,
-                # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
-                # environment_name=self.environment_name,
-                timeout=modal_timeout,
-                cpu=config.cpu,
-                memory=memory_mb,
-                unencrypted_ports=[CONTAINER_SSH_PORT],
-                gpu=config.gpu,
-                region=config.region,
-            )
-            logger.debug("Created Modal sandbox", sandbox_id=sandbox.object_id)
+            ):
+                # Memory is in GB but Modal expects MB
+                memory_mb = int(config.memory * 1024)
+                sandbox = modal.Sandbox.create(
+                    image=modal_image,
+                    app=app,
+                    # note: we do NOT pass the environment_name here because that is deprecated (it is inferred from the app)
+                    # environment_name=self.environment_name,
+                    timeout=modal_timeout,
+                    cpu=config.cpu,
+                    memory=memory_mb,
+                    unencrypted_ports=[CONTAINER_SSH_PORT],
+                    gpu=config.gpu,
+                    region=config.region,
+                )
+                logger.trace("Created Modal sandbox", sandbox_id=sandbox.object_id)
         except (modal.exception.Error, MngrError) as e:
             # On failure, save a failed host record so the user can see what happened
             failure_reason = str(e)
@@ -1412,10 +1410,10 @@ log "=== Shutdown script completed ==="
         # Optionally create an initial snapshot based on config
         # When enabled, this ensures the host can be restarted even after a hard kill
         if self.config.is_snapshotted_after_create:
-            logger.debug("Creating initial snapshot for host", host_id=str(host.id))
-            sandbox = self._find_sandbox_by_host_id(host.id)
-            assert sandbox is not None, "Sandbox must exist for online host"
-            self._create_initial_snapshot(sandbox, host.id)
+            with log_span("Creating initial snapshot for host", host_id=str(host.id)):
+                sandbox = self._find_sandbox_by_host_id(host.id)
+                assert sandbox is not None, "Sandbox must exist for online host"
+                self._create_initial_snapshot(sandbox, host.id)
 
     @handle_modal_auth_error
     def stop_host(
@@ -1456,8 +1454,8 @@ log "=== Shutdown script completed ==="
             # Create a snapshot before termination if requested
             if create_snapshot:
                 try:
-                    logger.debug("Creating snapshot before termination", host_id=str(host_id))
-                    self.create_snapshot(host_id, SnapshotName("stop"))
+                    with log_span("Creating snapshot before termination", host_id=str(host_id)):
+                        self.create_snapshot(host_id, SnapshotName("stop"))
                 except (MngrError, modal.exception.Error) as e:
                     logger.warning("Failed to create snapshot before termination: {}", e)
 
@@ -1466,7 +1464,7 @@ log "=== Shutdown script completed ==="
             except modal.exception.Error as e:
                 logger.warning("Error terminating sandbox: {}", e)
         else:
-            logger.debug("No sandbox found, may already be terminated", host_id=str(host_id))
+            logger.debug("Failed to fins sandbox (may already be terminated)", host_id=str(host_id))
 
         # Record stop_reason=STOPPED to distinguish user-initiated stops from idle pauses
         # Note that we are explicitly avoiding going through the normal host.set_certified_data(host_data) call here
@@ -1792,7 +1790,7 @@ log "=== Shutdown script completed ==="
                 host_id = HostId(tags[TAG_HOST_ID])
                 running_sandbox_by_host_id[host_id] = sandbox
             except (KeyError, ValueError) as e:
-                logger.debug("Skipping sandbox with invalid tags: {}", e)
+                logger.warning("Skipped sandbox with invalid tags: {}", e)
                 continue
 
         # First, process host records (includes both running and stopped hosts)
@@ -1809,7 +1807,7 @@ log "=== Shutdown script completed ==="
                     if host_obj is not None:
                         hosts.append(host_obj)
                 except (KeyError, ValueError, HostConnectionError) as e:
-                    logger.debug("Failed to create host from sandbox {}: {}", host_id, e)
+                    logger.warning("Failed to create host from sandbox {}: {}", host_id, e)
                     continue
             if host_id not in running_sandbox_by_host_id or host_obj is None:
                 # Host has no running sandbox - it's stopped, failed, destroyed, or we couldn't connect
@@ -1817,12 +1815,12 @@ log "=== Shutdown script completed ==="
                 is_failed = host_record.certified_host_data.failure_reason is not None
 
                 if is_failed:
-                    # Failed host - always include so users can debug build failures
+                    # Failed host - always include so users can warning() build failures
                     try:
                         host_obj = self._create_host_from_host_record(host_record)
                         hosts.append(host_obj)
                     except (OSError, IOError, ValueError, KeyError) as e:
-                        logger.debug("Failed to create host from host record {}: {}", host_id, e)
+                        logger.warning("Failed to create host from host record {}: {}", host_id, e)
                         continue
                 elif has_snapshots:
                     # Stopped host (can be restarted)
@@ -1830,7 +1828,7 @@ log "=== Shutdown script completed ==="
                         host_obj = self._create_host_from_host_record(host_record)
                         hosts.append(host_obj)
                     except (OSError, IOError, ValueError, KeyError) as e:
-                        logger.debug("Failed to create host from host record {}: {}", host_id, e)
+                        logger.warning("Failed to create host from host record {}: {}", host_id, e)
                         continue
                 elif include_destroyed:
                     # Destroyed host (no snapshots, can't be restarted)
@@ -1838,7 +1836,7 @@ log "=== Shutdown script completed ==="
                         host_obj = self._create_host_from_host_record(host_record)
                         hosts.append(host_obj)
                     except (OSError, IOError, ValueError, KeyError) as e:
-                        logger.debug("Failed to create host from host record {}: {}", host_id, e)
+                        logger.warning("Failed to create host from host record {}: {}", host_id, e)
                         continue
                 else:
                     # Skip destroyed hosts when include_destroyed=False
@@ -1854,7 +1852,7 @@ log "=== Shutdown script completed ==="
                 if host_obj is not None:
                     hosts.append(host_obj)
             except (KeyError, ValueError, HostConnectionError) as e:
-                logger.debug("Failed to create host from sandbox {}: {}", host_id, e)
+                logger.warning("Failed to create host from sandbox {}: {}", host_id, e)
                 continue
 
         # add these hosts to a cache so we don't need to look them up by name or id again

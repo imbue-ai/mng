@@ -8,7 +8,7 @@ import modal
 from loguru import logger
 from modal._output import OutputManager
 
-from imbue.mngr.utils.logging import log_span
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.utils.logging import register_build_level
 
 # Ensure BUILD level is registered (in case this module is imported before logging.py)

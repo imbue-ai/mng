@@ -13,6 +13,7 @@ from uuid import uuid4
 from loguru import logger
 from pydantic import Field
 
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import SendMessageError
@@ -27,7 +28,6 @@ from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import Permission
 from imbue.mngr.utils.env_utils import parse_env_file
-from imbue.mngr.utils.logging import log_span
 from imbue.mngr.utils.polling import poll_until
 
 # Constants for send_message marker-based synchronization
@@ -454,7 +454,6 @@ class BaseAgent(AgentInterface):
                     str(self.name),
                     f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)",
                 )
-        logger.debug("TUI ready indicator found: {}", indicator)
 
     def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:
         """Wait until the marker is visible in the tmux pane.
@@ -462,16 +461,15 @@ class BaseAgent(AgentInterface):
         Note: We check if marker is IN the pane, not at the end, because
         Claude Code has a status line at the bottom that appears after the input area.
         """
-        logger.trace("Waiting for marker: {}", marker)
-        if not poll_until(
-            lambda: self._check_pane_contains(session_name, marker),
-            timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
-        ):
-            raise SendMessageError(
-                str(self.name),
-                f"Timeout waiting for message marker to appear (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
-            )
-        logger.debug("Marker {} found in pane", marker)
+        with log_span("Waiting for marker: {}", marker):
+            if not poll_until(
+                lambda: self._check_pane_contains(session_name, marker),
+                timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
+            ):
+                raise SendMessageError(
+                    str(self.name),
+                    f"Timeout waiting for message marker to appear (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
+                )
 
     def _check_pane_contains(self, session_name: str, text: str) -> bool:
         """Check if the pane content contains the given text."""
@@ -512,7 +510,7 @@ class BaseAgent(AgentInterface):
         """
         wait_channel = f"mngr-submit-{session_name}"
         if self._send_enter_and_wait_for_signal(session_name, wait_channel):
-            logger.debug("Message submitted successfully")
+            logger.trace("Message submitted successfully")
             return
 
         raise SendMessageError(

@@ -9,9 +9,9 @@ from typing import Final
 
 from loguru import logger
 
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import UserInputError
-from imbue.mngr.utils.logging import log_span
 
 FALLBACK_EDITORS: Final[tuple[str, ...]] = ("vim", "vi", "nano", "notepad")
 
@@ -88,7 +88,7 @@ class EditorSession:
         os.close(temp_fd)
 
         editor_command = get_editor_command()
-        logger.debug("Using editor: {}", editor_command)
+        logger.debug("Got editor command: {}", editor_command)
 
         # Create instance using object.__new__ and set attributes directly
         instance = object.__new__(cls)

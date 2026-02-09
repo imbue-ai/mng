@@ -12,6 +12,7 @@ from pyinfra.api import State
 from pyinfra.api.inventory import Inventory
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
@@ -32,7 +33,6 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
-from imbue.mngr.utils.logging import log_span
 
 LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
 HOST_ID_FILENAME: Final[str] = "host_id"

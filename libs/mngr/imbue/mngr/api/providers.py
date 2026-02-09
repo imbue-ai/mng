@@ -25,7 +25,7 @@ def _close_all_provider_instances() -> None:
         try:
             instance.close()
         except (MngrError, OSError) as e:
-            logger.debug("Error closing provider instance {}: {}", instance.name, e)
+            logger.warning("Error closing provider instance {}: {}", instance.name, e)
     _created_instances.clear()
 
 

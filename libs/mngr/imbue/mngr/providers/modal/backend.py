@@ -15,6 +15,7 @@ from tenacity import stop_after_attempt
 from tenacity import wait_exponential
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_span
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
@@ -30,11 +31,14 @@ from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
-from imbue.mngr.utils.logging import log_span
 
 MODAL_BACKEND_NAME = ProviderBackendName("modal")
 STATE_VOLUME_SUFFIX = "-state"
 MODAL_NAME_MAX_LENGTH = 64
+
+
+class ModalDeployFailedError(MngrError):
+    pass
 
 
 # FIXME: this should just be renamed to _create_environment, and we should delete the first check, since it is only called when the env is missing
@@ -75,10 +79,8 @@ def _ensure_environment_exists(environment_name: str) -> None:
             if result.returncode == 0:
                 logger.info("Created Modal environment: {}", environment_name)
             else:
-                # If creation fails, it might already exist (race condition) or there's an error
-                # We'll let the subsequent Modal API calls fail with a more specific error if needed
-                logger.debug("Modal environment create returned non-zero: {}", result.stderr)
-        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError) as e:
+                raise ModalDeployFailedError(f"Modal environment create returned non-zero: {result.stderr}")
+        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError, ModalDeployFailedError) as e:
             logger.warning("Failed to create Modal environment via CLI: {}", e)
 
 
@@ -290,15 +292,15 @@ class ModalProviderBackend(ProviderBackendInterface):
             return context_handle.volume
 
         # Create or get the volume in the same environment as the app
-        logger.debug(
-            "Creating/getting state volume: {} (env: {})", context_handle.volume_name, context_handle.environment_name
-        )
-        volume = modal.Volume.from_name(
-            context_handle.volume_name,
-            create_if_missing=True,
-            environment_name=context_handle.environment_name,
-            version=2,
-        )
+        with log_span(
+            "Ensuring state volume: {} (env: {})", context_handle.volume_name, context_handle.environment_name
+        ):
+            volume = modal.Volume.from_name(
+                context_handle.volume_name,
+                create_if_missing=True,
+                environment_name=context_handle.environment_name,
+                version=2,
+            )
 
         # Cache the volume in the context handle (need to update the registry entry)
         # Since FrozenModel is immutable, we need to create a new handle
@@ -339,7 +341,7 @@ class ModalProviderBackend(ProviderBackendInterface):
             try:
                 _exit_modal_app_context(context_handle)
             except modal.exception.Error as e:
-                logger.debug("Modal error closing app {} during reset: {}", app_name, e)
+                logger.warning("Modal error closing app {} during reset: {}", app_name, e)
         cls._app_registry.clear()
 
     @staticmethod

@@ -5,6 +5,8 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_call
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_provider_instance
@@ -27,8 +29,6 @@ from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
-from imbue.mngr.utils.logging import log_call
-from imbue.mngr.utils.logging import log_span
 
 
 class ParsedSourceLocation(FrozenModel):

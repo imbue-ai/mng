@@ -8,6 +8,7 @@ from typing import Callable
 from loguru import logger
 from pydantic import Field
 
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
@@ -20,7 +21,6 @@ from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
-from imbue.mngr.utils.logging import log_span
 
 
 class BaseHost(HostInterface):

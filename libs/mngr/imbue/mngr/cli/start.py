@@ -5,6 +5,7 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.find import ensure_host_started
@@ -24,7 +25,6 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import OutputFormat
-from imbue.mngr.utils.logging import log_span
 from imbue.mngr.utils.polling import poll_until
 
 
@@ -77,14 +77,14 @@ def _send_resume_message_if_configured(agent: AgentInterface, output_opts: Outpu
             poll_interval=0.2,
         )
     if is_ready:
-        logger.debug("Agent signaled readiness via WAITING state")
+        logger.debug("Signaled agent readiness via WAITING state")
     else:
         logger.debug(
-            "Agent did not reach WAITING state within {}s, proceeding anyway",
+            "Failed to reach WAITING state within {}s, proceeding anyway",
             timeout,
         )
     agent.send_message(resume_message)
-    logger.debug("Resume message sent to agent {}", agent.name)
+    logger.debug("Sent resume message to agent {}", agent.name)
 
 
 @click.command(name="start")
@@ -139,7 +139,7 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
         command_name="start",
         command_class=StartCliOptions,
     )
-    logger.debug("Running start command")
+    logger.debug("Started start command")
 
     # Validate input
     agent_identifiers = list(opts.agents) + list(opts.agent_list)

@@ -4,6 +4,8 @@ from typing import Any
 from loguru import logger
 from pydantic import Field
 
+from imbue.imbue_common.logging import log_call
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.config.data_types import MngrContext
@@ -17,8 +19,6 @@ from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
-from imbue.mngr.utils.logging import log_call
-from imbue.mngr.utils.logging import log_span
 
 
 class MessageResult(MutableModel):
