@@ -158,11 +158,12 @@ def setup_test_mngr_env(
     files in the real home directory. This protects files like ~/.claude.json.
     """
     # before we nuke our home directory, we need to load the right token from the real home directory
-    is_modal_auth_loaded = False
-    for key, value in toml.load(os.path.expanduser("~/.modal.toml")).items():
-        if value.get("active", ""):
-            monkeypatch.setenv("MODAL_TOKEN_ID", value.get("token_id", ""))
-            monkeypatch.setenv("MODAL_TOKEN_SECRET", value.get("token_secret", ""))
+    modal_toml_path = Path(os.path.expanduser("~/.modal.toml"))
+    if modal_toml_path.exists():
+        for key, value in toml.load(modal_toml_path).items():
+            if value.get("active", ""):
+                monkeypatch.setenv("MODAL_TOKEN_ID", value.get("token_id", ""))
+                monkeypatch.setenv("MODAL_TOKEN_SECRET", value.get("token_secret", ""))
     if not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"):
         # check if we have "release" mark enabled:
         if "release" in getattr(pytest, "current_test_marks", []):
