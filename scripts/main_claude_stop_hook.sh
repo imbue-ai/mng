@@ -40,7 +40,7 @@ echo $MAIN_CLAUDE_SESSION_ID > .claude/sessionid
 # ensure the folder exists
 mkdir -p .claude
 
-# Only track the commit hash if this is the main agent and it's already trying to stopp (stop_hook_active=true).
+# Only track the commit hash if this is the main agent and it's already trying to stop (stop_hook_active=true).
 # Subagents (launched by claude itself) also trigger the stop hook, and we must not
 # append to reviewed_commits for those, otherwise it looks like the main agent stopped
 # again and can falsely trigger the "stuck agent" detection.
@@ -75,9 +75,6 @@ fi
 
 # Get the directory of this script (needed for launching reviewer scripts)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# convert jsonl conversation transcript to html
-uv run --project contrib/claude-code-transcripts/ claude-code-transcripts json -o /tmp/transcript/$MAIN_CLAUDE_SESSION_ID `find ~/.claude/projects/ -name "$MAIN_CLAUDE_SESSION_ID.jsonl"`
 
 # Colors for output (disabled if not a terminal)
 if [[ -t 2 ]]; then
@@ -128,9 +125,6 @@ retry_command() {
     log_error "Command failed after $max_retries attempts: $*"
     return 1
 }
-
-# Create git notes for the transcript URLs
-COMMIT_SHA=$(git rev-parse HEAD)
 
 # Ensure a PR exists for this branch
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -209,80 +203,11 @@ for window in $(tmux list-windows -t "$session" -F '#W' 2>/dev/null | grep '^rev
     REVIEWER_PIDS+=($!)
 done
 
-# Store HTML transcript in git LFS
-HTML_TRANSCRIPT="/tmp/transcript/$MAIN_CLAUDE_SESSION_ID/page-001.html"
-HTML_RAW_URL=""
-HTML_WEB_URL=""
-if [[ -f "$HTML_TRANSCRIPT" ]]; then
-    log_info "Storing HTML transcript in git LFS..."
-    if HTML_OUTPUT=$("$SCRIPT_DIR/add_commit_metadata_file.sh" "$HTML_TRANSCRIPT" "transcripts/html" 2>&1); then
-        HTML_RAW_URL=$(echo "$HTML_OUTPUT" | grep "raw.githubusercontent.com" | sed 's/^[[:space:]]*//')
-        HTML_WEB_URL=$(echo "$HTML_OUTPUT" | grep "github.com/.*blob" | sed 's/^[[:space:]]*//')
-        log_info "HTML transcript stored successfully"
-        if [[ -z "$HTML_WEB_URL" ]]; then
-            log_warn "Could not extract HTML web URL from output"
-            log_warn "Output was: $HTML_OUTPUT"
-        else
-            log_info "HTML web URL: $HTML_WEB_URL"
-        fi
-    else
-        log_error "Failed to store HTML transcript: $HTML_OUTPUT"
-        exit 1
-    fi
-else
-    log_warn "HTML transcript not found at $HTML_TRANSCRIPT"
-fi
-
-# Store JSON transcript in git LFS
-JSON_TRANSCRIPT=$(find ~/.claude/projects/ -name "$MAIN_CLAUDE_SESSION_ID.jsonl" 2>/dev/null | head -1)
-JSON_RAW_URL=""
-if [[ -n "$JSON_TRANSCRIPT" && -f "$JSON_TRANSCRIPT" ]]; then
-    log_info "Storing JSON transcript in git LFS..."
-    if JSON_OUTPUT=$("$SCRIPT_DIR/add_commit_metadata_file.sh" "$JSON_TRANSCRIPT" "transcripts/json" 2>&1); then
-        JSON_RAW_URL=$(echo "$JSON_OUTPUT" | grep "raw.githubusercontent.com" | sed 's/^[[:space:]]*//')
-        log_info "JSON transcript stored successfully"
-    else
-        log_error "Failed to store JSON transcript: $JSON_OUTPUT"
-        exit 1
-    fi
-fi
-
-if [[ -n "$HTML_RAW_URL" ]]; then
-    log_info "Creating git note for HTML transcript..."
-    git notes --ref=transcripts/html add -f -m "$HTML_RAW_URL" "$COMMIT_SHA"
-fi
-
-if [[ -n "$JSON_RAW_URL" ]]; then
-    log_info "Creating git note for JSON transcript..."
-    git notes --ref=transcripts/json add -f -m "$JSON_RAW_URL" "$COMMIT_SHA"
-fi
-
-# Push commits with retry logic
-log_info "Pushing commits to origin..."
-if ! retry_command 3 git push origin HEAD; then
-    log_error "Failed to push commits after retries"
-    exit 1
-fi
-
-# Push notes with force (notes can be force-pushed safely)
-log_info "Pushing git notes to origin..."
-if ! git push --force origin "refs/notes/*"; then
-    log_warn "Failed to push git notes"
-fi
-
 # Helper function to create a new PR
 # Returns the PR number on success, exits with error on failure
 create_new_pr() {
     local pr_title="$1"
-    local html_url="${2:-}"
-
-    local pr_body="Automated PR created by Claude Code session.
-
-## Transcript"
-    if [[ -n "$html_url" ]]; then
-        pr_body+="
-- [View HTML Transcript]($html_url)"
-    fi
+    local pr_body="Automated PR created by Claude Code session."
 
     if gh pr create --base "$BASE_BRANCH" --head "$CURRENT_BRANCH" --title "$pr_title" --body "$pr_body" > /dev/null; then
         # Get the PR number after creation
@@ -310,7 +235,7 @@ fi
 if [[ -z "$EXISTING_PR" ]]; then
     # No PR exists - create a new one
     log_info "Creating new PR..."
-    if NEW_PR=$(create_new_pr "$CURRENT_BRANCH" "$HTML_WEB_URL"); then
+    if NEW_PR=$(create_new_pr "$CURRENT_BRANCH"); then
         EXISTING_PR="$NEW_PR"
         PR_WAS_CREATED=true
         log_info "Created PR #$EXISTING_PR"
@@ -323,7 +248,7 @@ elif [[ "$PR_STATE" == "MERGED" ]]; then
     log_info "PR #$EXISTING_PR is merged. Creating a new PR..."
     # Use a different title to distinguish from the merged PR
     NEW_TITLE="${CURRENT_BRANCH} (subsequent)"
-    if NEW_PR=$(create_new_pr "$NEW_TITLE" "$HTML_WEB_URL"); then
+    if NEW_PR=$(create_new_pr "$NEW_TITLE"); then
         EXISTING_PR="$NEW_PR"
         PR_WAS_CREATED=true
         log_info "Created new PR #$EXISTING_PR (previous PR was merged)"
@@ -354,46 +279,6 @@ fi
 # Initialize PR status as pending before polling
 echo "pending" > .claude/pr_status
 
-# Update existing PR description with transcript link (only for pre-existing PRs, not newly created ones)
-if [[ -n "$EXISTING_PR" && "$PR_WAS_CREATED" == "false" && -n "$HTML_WEB_URL" ]]; then
-    log_info "Updating PR #$EXISTING_PR with transcript link..."
-
-    # Get current PR body
-    if ! CURRENT_BODY=$(gh pr view "$EXISTING_PR" --json body --jq '.body'); then
-        log_error "Failed to get current PR body"
-        exit 1
-    else
-        # Build new transcript section
-        TRANSCRIPT_SECTION="## Transcript
-- [View HTML Transcript]($HTML_WEB_URL)"
-
-        # Remove existing transcript section if present (everything from "## Transcript" to next "##" or end)
-        # and append new one
-        if echo "$CURRENT_BODY" | grep -q "## Transcript"; then
-            # Use awk to remove the old transcript section
-            NEW_BODY=$(echo "$CURRENT_BODY" | awk '
-                /^## Transcript/ { in_transcript=1; next }
-                /^## / && in_transcript { in_transcript=0 }
-                !in_transcript { print }
-            ')
-            NEW_BODY="$NEW_BODY
-$TRANSCRIPT_SECTION"
-        else
-            # Add transcript section at the end
-            NEW_BODY="$CURRENT_BODY
-
-$TRANSCRIPT_SECTION"
-        fi
-
-        if gh pr edit "$EXISTING_PR" --body "$NEW_BODY"; then
-            log_info "PR description updated successfully"
-        else
-            log_error "Failed to update PR description"
-            exit 1
-        fi
-    fi
-fi
-
 # Poll for PR checks to complete and report result
 if [[ -n "$EXISTING_PR" ]]; then
     log_info "Polling for PR check results..."
@@ -418,15 +303,9 @@ if [[ -n "$EXISTING_PR" ]]; then
 fi
 
 # Wait for all reviewer background jobs to complete
-REVIEWER_WINDOWS=()
 if [[ ${#REVIEWER_PIDS[@]} -gt 0 ]]; then
     log_info "Waiting for ${#REVIEWER_PIDS[@]} reviewer(s) to complete..."
     REVIEWER_FAILED=false
-
-    # Collect reviewer windows for later
-    for window in $(tmux list-windows -t "$session" -F '#W' 2>/dev/null | grep '^reviewer_' || true); do
-        REVIEWER_WINDOWS+=("$window")
-    done
 
     for pid in "${REVIEWER_PIDS[@]}"; do
         wait "$pid" && EXIT_CODE=0 || EXIT_CODE=$?
@@ -438,93 +317,20 @@ if [[ ${#REVIEWER_PIDS[@]} -gt 0 ]]; then
                 REVIEWER_FAILED=true
             else
                 # Other exit codes indicate internal errors that should be surfaced immediately
-                # Exit code 1 = failed to store review results
-                # Exit code 3 = timeout waiting for review
                 log_error "Reviewer process $pid failed with internal error (exit code $EXIT_CODE)"
                 log_error "This indicates a problem with the review infrastructure, not code issues."
-                log_error "Exit code 1 = failed to store review results"
                 log_error "Exit code 3 = timeout waiting for review"
                 exit $EXIT_CODE
             fi
         fi
     done
     if [[ "$REVIEWER_FAILED" == true ]]; then
-        log_error "Some issue were identified by the review agent!"
+        log_error "Some issues were identified by the review agent!"
         log_error "Run 'cat .reviews/final_issue_json/*.json' to see the issues."
         log_error "You MUST fix any CRITICAL or MAJOR issues (with confidence >= 0.7) before trying again."
         exit 2
     else
         log_info "All reviewers completed successfully"
-    fi
-fi
-
-# Update PR with reviewer issue links (if any reviewers ran and PR exists)
-if [[ ${#REVIEWER_WINDOWS[@]} -gt 0 && -n "$EXISTING_PR" ]]; then
-    log_info "Adding reviewer issue links to PR..."
-
-    COMMIT_SHA=$(git rev-parse HEAD)
-    REVIEW_OUTPUT_DIR=".reviews/final_issue_json"
-
-    # Build the issues section
-    ISSUES_SECTION="## Code Review Issues"
-
-    for window in "${REVIEWER_WINDOWS[@]}"; do
-        # Get the URL from git note
-        NOTE_REF="issues/verify_branch/$window"
-        ISSUES_URL=""
-        if ISSUES_URL=$(git notes --ref="$NOTE_REF" show "$COMMIT_SHA" 2>/dev/null); then
-            # Get web URL from raw URL (convert raw.githubusercontent.com to github.com/blob)
-            ISSUES_WEB_URL=$(echo "$ISSUES_URL" | sed 's|raw.githubusercontent.com|github.com|' | sed 's|/commit-metadata/|/blob/commit-metadata/|')
-
-            # Count issues from local file
-            LOCAL_FILE="$REVIEW_OUTPUT_DIR/$window.json"
-            if [[ -f "$LOCAL_FILE" ]]; then
-                CONTENT=$(cat "$LOCAL_FILE")
-                if [[ "$CONTENT" == "[]" || -z "$CONTENT" || ! -s "$LOCAL_FILE" ]]; then
-                    ISSUES_SECTION+="
-- [$window: no issues found]($ISSUES_WEB_URL)"
-                else
-                    # Count items in JSON array using jq
-                    ISSUE_COUNT=$(jq 'length' "$LOCAL_FILE" 2>/dev/null || echo "?")
-                    ISSUES_SECTION+="
-- [$window: $ISSUE_COUNT issue(s) found]($ISSUES_WEB_URL)"
-                fi
-            else
-                # File doesn't exist, check if it was empty (stored as [])
-                ISSUES_SECTION+="
-- [$window: no issues found]($ISSUES_WEB_URL)"
-            fi
-        else
-            log_warn "Could not read git note for $window"
-        fi
-    done
-
-    # Update PR description with issues section
-    if ! CURRENT_BODY=$(gh pr view "$EXISTING_PR" --json body --jq '.body'); then
-        log_error "Failed to get current PR body for issues update"
-        exit 1
-    else
-        # Remove existing issues section if present and append new one
-        if echo "$CURRENT_BODY" | grep -q "## Code Review Issues"; then
-            NEW_BODY=$(echo "$CURRENT_BODY" | awk '
-                /^## Code Review Issues/ { in_issues=1; next }
-                /^## / && in_issues { in_issues=0 }
-                !in_issues { print }
-            ')
-            NEW_BODY="$NEW_BODY
-$ISSUES_SECTION"
-        else
-            NEW_BODY="$CURRENT_BODY
-
-$ISSUES_SECTION"
-        fi
-
-        if gh pr edit "$EXISTING_PR" --body "$NEW_BODY"; then
-            log_info "PR description updated with reviewer issue links"
-        else
-            log_error "Failed to update PR description with reviewer issue links"
-            exit 1
-        fi
     fi
 fi
 

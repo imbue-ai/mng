@@ -3,7 +3,7 @@
 # run_reviewer.sh
 #
 # Triggers a code review in a tmux reviewer window, waits for completion,
-# sorts the results, and stores them in git LFS with a git note.
+# and sorts the results.
 #
 # Usage: ./run_reviewer.sh <session> <window>
 #
@@ -20,9 +20,6 @@ fi
 
 SESSION="$1"
 WINDOW="$2"
-
-# Get the directory of this script
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Configuration
 REVIEW_TIMEOUT=600  # 10 minutes max wait for review
@@ -140,32 +137,8 @@ else
     )' "$REVIEW_OUTPUT_FILE" > "$SORTED_OUTPUT"
 fi
 
-# Store the sorted JSON in git LFS
-FILE_TYPE="issues/verify_branch/$WINDOW"
-log_info "Storing review results with FILE_TYPE: $FILE_TYPE"
-
-if OUTPUT=$("$SCRIPT_DIR/add_commit_metadata_file.sh" "$SORTED_OUTPUT" "$FILE_TYPE" 2>&1); then
-    RAW_URL=$(echo "$OUTPUT" | grep "raw.githubusercontent.com" | sed 's/^[[:space:]]*//')
-    log_info "Review results stored successfully"
-
-    if [[ -n "$RAW_URL" ]]; then
-        # Create git note for the review results
-        COMMIT_SHA=$(git rev-parse HEAD)
-        log_info "Creating git note for review results..."
-        git notes --ref="$FILE_TYPE" add -f -m "$RAW_URL" "$COMMIT_SHA"
-
-        # Push the note
-        log_info "Pushing git note..."
-        if ! git push --force origin "refs/notes/$FILE_TYPE"; then
-            log_warn "Failed to push git note"
-        fi
-    else
-        log_warn "Could not extract URL from output"
-    fi
-else
-    log_error "Failed to store review results: $OUTPUT"
-    exit 1
-fi
+# Copy sorted output back to the review output file for callers to read
+cp "$SORTED_OUTPUT" "$REVIEW_OUTPUT_FILE"
 
 # Check for blocking issues (CRITICAL or MAJOR severity with confidence >= 0.7)
 BLOCKING_ISSUES=$(jq '[.[] | select(
