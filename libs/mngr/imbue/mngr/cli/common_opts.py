@@ -149,6 +149,8 @@ def setup_command_context(
         is_interactive=is_interactive,
     )
 
+    # FIXME: actually, we should probably move the construction of this object (and the call to setup_logging) down after the "opts = command_class(**updated_params)" line (so that it can take those settings into consideration)
+    #  The tricky thing about this is that it means that you're not allowed to log during any of this early code, esp during the _apply_plugin_option_overrides calls
     # Parse output options
     output_opts = parse_output_options(
         output_format=initial_opts.output_format,
