@@ -608,10 +608,8 @@ def archive_todos_completed_before(
             todos_to_keep.append(todo)
 
     # Build the result
-    updated_list = todo_list.model_copy(
-        update=to_update_dict(
-            to_update(todo_list.field_ref().todos, tuple(todos_to_keep)),
-        )
+    updated_list = todo_list.model_copy_update(
+        to_update(todo_list.field_ref().todos, tuple(todos_to_keep)),
     )
     return ArchiveCompletedTodosResult(
         updated_list=updated_list,
@@ -751,31 +749,30 @@ Use an immutable, functional approach.  Accumulate all changes rather than updat
 
 Avoid mutating objects created outside the function (unless they are "Implementations", see below).  Instead, prefer to create an updated copy whenever possible.
 
-## Type-safe model_copy updates
+## Type-safe model_copy_update
 
-When creating updated copies of frozen or mutable models, always use the type-safe `to_update_dict`/`to_update`/`field_ref` pattern instead of passing raw string dictionaries to `model_copy(update=...)`. This ensures that field names are checked by the type system and refactoring tools can find all usages of a field.
+When creating updated copies of frozen or mutable models, always use the type-safe `model_copy_update`/`to_update`/`field_ref` pattern instead of passing raw string dictionaries to `model_copy(update=...)`. This ensures that field names are checked by the type system and refactoring tools can find all usages of a field.
 
 ```python
 from imbue.imbue_common.model_update import to_update
-from imbue.imbue_common.model_update import to_update_dict
 
 
 @pure
 def add_tag_to_todo(todo_item: TodoItem, tag_to_add: Tag) -> TodoItem:
     updated_tags = todo_item.tags + (tag_to_add,)
-    return todo_item.model_copy(
-        update=to_update_dict(
-            to_update(todo_item.field_ref().tags, updated_tags),
-        )
+    return todo_item.model_copy_update(
+        to_update(todo_item.field_ref().tags, updated_tags),
     )
 ```
 
 - `field_ref()` returns a proxy that records attribute access, making field references type-safe
 - `to_update(field_ref, value)` creates a type-checked `(field_name, value)` pair
-- `to_update_dict(...)` converts those pairs into the dict expected by `model_copy(update=...)`
-- Multiple fields can be updated at once by passing multiple `to_update()` calls to `to_update_dict()`
+- `model_copy_update(...)` accepts `to_update()` pairs and creates an updated copy of the model
+- Multiple fields can be updated at once by passing multiple `to_update()` calls to `model_copy_update()`
 
 Never pass raw string dictionaries like `model_copy(update={"field_name": value})` -- always use the type-safe pattern above.
+
+Never call `model_copy(update=to_update_dict(...))` directly -- always use `model_copy_update(...)` instead.
 
 Never re-assign to the same function-scoped variable. Instead, create a new variable with an updated name
 
@@ -865,10 +862,8 @@ class TodoReminder(FrozenModel):
     is_sent: bool = Field(default=False, description="Whether sent")
 
     def with_marked_as_sent(self) -> "TodoReminder":
-        return self.model_copy(
-            update=to_update_dict(
-                to_update(self.field_ref().is_sent, True),
-            )
+        return self.model_copy_update(
+            to_update(self.field_ref().is_sent, True),
         )
 ```
 
@@ -1163,10 +1158,8 @@ class TodoArchive(FrozenModel):
         return len(self.archived_todos)
 
     def with_added_item(self, todo_to_archive: TodoItem) -> "TodoArchive":
-        return self.model_copy(
-            update=to_update_dict(
-                to_update(self.field_ref().archived_todos, self.archived_todos + (todo_to_archive,)),
-            )
+        return self.model_copy_update(
+            to_update(self.field_ref().archived_todos, self.archived_todos + (todo_to_archive,)),
         )
 ```
 

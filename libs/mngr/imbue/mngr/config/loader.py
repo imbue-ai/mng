@@ -9,7 +9,6 @@ from uuid import uuid4
 import pluggy
 
 from imbue.imbue_common.model_update import to_update
-from imbue.imbue_common.model_update import to_update_dict
 from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import CommandDefaults
@@ -380,10 +379,8 @@ def _apply_plugin_overrides(
             if plugin_name in result:
                 # Plugin exists - set enabled=True
                 existing = result[plugin_name]
-                result[plugin_name] = existing.model_copy(
-                    update=to_update_dict(
-                        to_update(existing.field_ref().enabled, True),
-                    )
+                result[plugin_name] = existing.model_copy_update(
+                    to_update(existing.field_ref().enabled, True),
                 )
             else:
                 # Plugin doesn't exist - create with enabled=True
@@ -397,10 +394,8 @@ def _apply_plugin_overrides(
             if plugin_name in result:
                 # Plugin exists - set enabled=False
                 existing = result[plugin_name]
-                result[plugin_name] = existing.model_copy(
-                    update=to_update_dict(
-                        to_update(existing.field_ref().enabled, False),
-                    )
+                result[plugin_name] = existing.model_copy_update(
+                    to_update(existing.field_ref().enabled, False),
                 )
             else:
                 # Plugin doesn't exist - create with enabled=False

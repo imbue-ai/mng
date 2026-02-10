@@ -37,7 +37,6 @@ from typing import Final
 from collections.abc import Mapping
 from collections.abc import Sequence
 from imbue.imbue_common.model_update import to_update
-from imbue.imbue_common.model_update import to_update_dict
 from abc import ABC
 from abc import abstractmethod
 from imbue.imbue_common.mutable_model import MutableModel
@@ -476,10 +475,8 @@ def archive_todos_completed_before(
             todos_to_keep.append(todo)
 
     # Build the result
-    updated_list = todo_list.model_copy(
-        update=to_update_dict(
-            to_update(todo_list.field_ref().todos, tuple(todos_to_keep)),
-        )
+    updated_list = todo_list.model_copy_update(
+        to_update(todo_list.field_ref().todos, tuple(todos_to_keep)),
     )
     return ArchiveCompletedTodosResult(
         updated_list=updated_list,
@@ -572,10 +569,8 @@ def find_todos_with_any_tag(
 @pure
 def add_tag_to_todo(todo_item: TodoItem, tag_to_add: Tag) -> TodoItem:
     updated_tags = todo_item.tags + (tag_to_add,)
-    return todo_item.model_copy(
-        update=to_update_dict(
-            to_update(todo_item.field_ref().tags, updated_tags),
-        )
+    return todo_item.model_copy_update(
+        to_update(todo_item.field_ref().tags, updated_tags),
     )
 
 
@@ -639,10 +634,8 @@ class TodoReminder(FrozenModel):
     is_sent: bool = Field(default=False, description="Whether sent")
 
     def with_marked_as_sent(self) -> "TodoReminder":
-        return self.model_copy(
-            update=to_update_dict(
-                to_update(self.field_ref().is_sent, True),
-            )
+        return self.model_copy_update(
+            to_update(self.field_ref().is_sent, True),
         )
 
 
@@ -855,10 +848,8 @@ class TodoArchive(FrozenModel):
         return len(self.archived_todos)
 
     def with_added_item(self, todo_to_archive: TodoItem) -> "TodoArchive":
-        return self.model_copy(
-            update=to_update_dict(
-                to_update(self.field_ref().archived_todos, self.archived_todos + (todo_to_archive,)),
-            )
+        return self.model_copy_update(
+            to_update(self.field_ref().archived_todos, self.archived_todos + (todo_to_archive,)),
         )
 
 

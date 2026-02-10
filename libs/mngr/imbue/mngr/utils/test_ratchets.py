@@ -509,30 +509,27 @@ def test_prevent_code_in_init_files() -> None:
     )
 
 
-def test_prevent_raw_dict_model_copy() -> None:
-    """Prevent raw dict usage with model_copy(update={...}).
+def test_prevent_model_copy() -> None:
+    """Prevent direct usage of .model_copy().
 
-    Use the type-safe to_update_dict/to_update/field_ref pattern instead:
+    Use model_copy_update instead:
 
-        obj.model_copy(
-            update=to_update_dict(
-                to_update(obj.field_ref().field_name, new_value),
-            )
+        obj.model_copy_update(
+            to_update(obj.field_ref().field_name, new_value),
         )
 
-    This ensures field names are checked by the type system and refactoring
-    tools can find all usages of a field. See style guide "Type-safe model_copy
-    updates" section for details.
+    model_copy_update wraps model_copy with type-safe field references.
+    See style guide 'Type-safe model_copy_update' section for details.
     """
-    pattern = RegexPattern(r"\.model_copy\(\s*update=\{", multiline=True)
+    pattern = RegexPattern(r"\.model_copy\(")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
-        rule_name="raw dict model_copy usage",
+        rule_name=".model_copy() usage",
         rule_description=(
-            "Do not pass raw string dicts to model_copy(update={...}). "
-            "Use the type-safe pattern instead: model_copy(update=to_update_dict(to_update(obj.field_ref().field, value))). "
-            "See style guide 'Type-safe model_copy updates' section."
+            "Do not use .model_copy() directly. "
+            "Use model_copy_update instead: obj.model_copy_update(to_update(obj.field_ref().field, value)). "
+            "See style guide 'Type-safe model_copy_update' section."
         ),
         chunks=chunks,
     )
