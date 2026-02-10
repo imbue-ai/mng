@@ -399,7 +399,13 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
-        """Extend trust for worktrees and install Claude if needed."""
+        """Extend trust for worktrees and install Claude if needed.
+
+        For worktree-mode agents, copies the source directory's Claude trust
+        config to the new worktree. If the source directory isn't yet trusted,
+        interactive runs prompt the user to add trust; non-interactive runs
+        re-raise the error.
+        """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             git_common_dir = find_git_common_dir(self.work_dir)
             if git_common_dir is not None:
