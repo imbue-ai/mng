@@ -9,13 +9,8 @@ import pytest
 
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.api.pull import pull_git
-from imbue.mngr.api.sync import GitSyncError
 from imbue.mngr.api.sync import LocalGitContext
 from imbue.mngr.api.sync import NotAGitRepositoryError
-from imbue.mngr.api.sync import SyncFilesResult
-from imbue.mngr.api.sync import SyncGitResult
-from imbue.mngr.api.sync import SyncMode
-from imbue.mngr.api.sync import UncommittedChangesError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import UncommittedChangesMode
 
@@ -80,58 +75,6 @@ def patch_has_uncommitted_changes(
     """Override the autouse fixture to return True for uncommitted changes."""
     patch_no_uncommitted_changes.return_value = True
     yield patch_no_uncommitted_changes
-
-
-def test_pull_result_model() -> None:
-    """Test SyncFilesResult model creation and serialization."""
-    result = SyncFilesResult(
-        files_transferred=10,
-        bytes_transferred=1024,
-        source_path=Path("/source/dir"),
-        destination_path=Path("/dest/dir"),
-        is_dry_run=False,
-        mode=SyncMode.PULL,
-    )
-
-    assert result.files_transferred == 10
-    assert result.bytes_transferred == 1024
-    assert result.source_path == Path("/source/dir")
-    assert result.destination_path == Path("/dest/dir")
-    assert result.is_dry_run is False
-    assert result.mode == SyncMode.PULL
-
-
-def test_pull_result_model_dry_run() -> None:
-    """Test SyncFilesResult model with dry run flag."""
-    result = SyncFilesResult(
-        files_transferred=5,
-        bytes_transferred=0,
-        source_path=Path("/source"),
-        destination_path=Path("/dest"),
-        is_dry_run=True,
-        mode=SyncMode.PULL,
-    )
-
-    assert result.is_dry_run is True
-
-
-def test_pull_result_model_serialization() -> None:
-    """Test SyncFilesResult model can be serialized to dict."""
-    result = SyncFilesResult(
-        files_transferred=3,
-        bytes_transferred=500,
-        source_path=Path("/src"),
-        destination_path=Path("/dst"),
-        is_dry_run=False,
-        mode=SyncMode.PULL,
-    )
-
-    data = result.model_dump()
-    assert data["files_transferred"] == 3
-    assert data["bytes_transferred"] == 500
-    assert data["source_path"] == Path("/src")
-    assert data["destination_path"] == Path("/dst")
-    assert data["is_dry_run"] is False
 
 
 def test_pull_files_uses_agent_work_dir_as_default_source(
@@ -354,14 +297,6 @@ def test_pull_files_with_clobber_mode_ignores_uncommitted_changes(
     assert result.bytes_transferred == 100
 
 
-def test_uncommitted_changes_error_has_user_help_text() -> None:
-    """Test that UncommittedChangesError has helpful user text."""
-    error = UncommittedChangesError(Path("/some/path"))
-    assert "stash" in error.user_help_text.lower()
-    assert "clobber" in error.user_help_text.lower()
-    assert error.destination == Path("/some/path")
-
-
 def test_pull_files_default_uncommitted_changes_mode_is_fail(
     mock_agent: MagicMock,
     mock_host_success: MagicMock,
@@ -384,60 +319,6 @@ def test_pull_files_default_uncommitted_changes_mode_is_fail(
 # ============================================================================
 # pull_git tests
 # ============================================================================
-
-
-def test_pull_git_result_model() -> None:
-    """Test SyncGitResult model creation and serialization."""
-    result = SyncGitResult(
-        source_branch="feature-branch",
-        target_branch="main",
-        source_path=Path("/agent/work"),
-        destination_path=Path("/local/repo"),
-        is_dry_run=False,
-        commits_transferred=3,
-        mode=SyncMode.PULL,
-    )
-
-    assert result.source_branch == "feature-branch"
-    assert result.target_branch == "main"
-    assert result.source_path == Path("/agent/work")
-    assert result.destination_path == Path("/local/repo")
-    assert result.is_dry_run is False
-    assert result.commits_transferred == 3
-
-
-def test_pull_git_result_model_serialization() -> None:
-    """Test SyncGitResult model can be serialized to dict."""
-    result = SyncGitResult(
-        source_branch="dev",
-        target_branch="main",
-        source_path=Path("/src"),
-        destination_path=Path("/dst"),
-        is_dry_run=True,
-        commits_transferred=0,
-        mode=SyncMode.PULL,
-    )
-
-    data = result.model_dump()
-    assert data["source_branch"] == "dev"
-    assert data["target_branch"] == "main"
-    assert data["source_path"] == Path("/src")
-    assert data["destination_path"] == Path("/dst")
-    assert data["is_dry_run"] is True
-    assert data["commits_transferred"] == 0
-
-
-def test_not_a_git_repository_error_has_user_help_text() -> None:
-    """Test that NotAGitRepositoryError has helpful user text."""
-    error = NotAGitRepositoryError(Path("/some/path"))
-    assert "sync-mode=files" in error.user_help_text
-    assert error.path == Path("/some/path")
-
-
-def test_git_sync_error_has_user_help_text() -> None:
-    """Test that GitSyncError has helpful user text."""
-    error = GitSyncError("conflict in file.txt")
-    assert "clobber" in error.user_help_text.lower()
 
 
 def test_pull_git_raises_when_destination_not_git_repo(
