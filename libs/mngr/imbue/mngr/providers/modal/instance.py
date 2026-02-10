@@ -385,11 +385,11 @@ class ModalProviderInstance(BaseProviderInstance):
         host_id = HostId(host_record.host_id)
         path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
-        logger.trace("Wrote host record to volume: {}", path)
 
         # Upload the data as a file-like object
         with volume.batch_upload(force=True) as batch:
             batch.put_file(io.BytesIO(data.encode("utf-8")), path)
+        logger.trace("Wrote host record to volume: {}", path)
 
         # Update the cache with the new host record
         self._host_record_cache_by_id[host_id] = host_record
@@ -437,7 +437,6 @@ class ModalProviderInstance(BaseProviderInstance):
 
         volume = self._get_volume()
         path = self._get_host_record_path(host_id)
-        logger.trace("Read host record from volume: {}", path)
 
         try:
             # Read file returns a generator that yields bytes chunks
@@ -446,6 +445,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 chunks.append(chunk)
             data = b"".join(chunks)
             host_record = HostRecord.model_validate_json(data)
+            logger.trace("Read host record from volume: {}", path)
             # Cache the result
             self._host_record_cache_by_id[host_id] = host_record
             return host_record
@@ -476,11 +476,11 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
-        logger.trace("Deleted host record from volume: {}", path)
         try:
             volume.remove_file(path)
         except (NotFoundError, FileNotFoundError):
             pass
+        logger.trace("Deleted host record from volume: {}", path)
 
         # Clear cache entries for this host
         self._host_by_id_cache.pop(host_id, None)
@@ -493,7 +493,6 @@ class ModalProviderInstance(BaseProviderInstance):
         Host records are stored at /<host_id>.json.
         """
         volume = self._get_volume()
-        logger.trace("Listed all host records from volume")
 
         with (
             cg.make_concurrency_group("modal_list_all_host_records")
@@ -521,7 +520,9 @@ class ModalProviderInstance(BaseProviderInstance):
             for thread in threads:
                 thread.join()
 
-        return list(host_records_by_id.values())
+        result = list(host_records_by_id.values())
+        logger.trace("Listed all host records from volume")
+        return result
 
     def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
         """List persisted agent data for a stopped host.
@@ -531,7 +532,6 @@ class ModalProviderInstance(BaseProviderInstance):
         show agents on stopped hosts.
         """
         volume = self._get_volume()
-        logger.trace("Listed agent records for host {} from volume", host_id)
 
         agent_records: list[dict[str, Any]] = []
         host_dir = f"/{host_id}"
@@ -556,6 +556,7 @@ class ModalProviderInstance(BaseProviderInstance):
             # Host directory might not exist yet (no agents persisted)
             logger.trace("Found no agent records for host {}: {}", host_id, e)
 
+        logger.trace("Listed agent records for host {} from volume", host_id)
         return agent_records
 
     def persist_agent_data(self, host_id: HostId, agent_data: Mapping[str, object]) -> None:
@@ -573,8 +574,6 @@ class ModalProviderInstance(BaseProviderInstance):
         host_dir = f"/{host_id}"
         agent_path = f"{host_dir}/{agent_id}.json"
 
-        logger.trace("Persisted agent data to volume: {}", agent_path)
-
         # Serialize the agent data to JSON
         data = json.dumps(dict(agent_data), indent=2)
 
@@ -582,6 +581,7 @@ class ModalProviderInstance(BaseProviderInstance):
         # First ensure the host directory exists by uploading with force=True
         with volume.batch_upload(force=True) as batch:
             batch.put_file(io.BytesIO(data.encode("utf-8")), agent_path)
+        logger.trace("Persisted agent data to volume: {}", agent_path)
 
     def remove_persisted_agent_data(self, host_id: HostId, agent_id: AgentId) -> None:
         """Remove persisted agent data from the Modal volume.
@@ -592,13 +592,12 @@ class ModalProviderInstance(BaseProviderInstance):
         volume = self._get_volume()
         agent_path = f"/{host_id}/{agent_id}.json"
 
-        logger.trace("Removed agent data from volume: {}", agent_path)
-
         try:
             volume.remove_file(agent_path)
         except FileNotFoundError:
             # File doesn't exist, nothing to remove
             pass
+        logger.trace("Removed agent data from volume: {}", agent_path)
 
     def _on_certified_host_data_updated(self, host_id: HostId, certified_data: CertifiedHostData) -> None:
         """Update the certified host data in the volume's host record.

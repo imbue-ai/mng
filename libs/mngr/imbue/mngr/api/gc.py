@@ -141,10 +141,7 @@ def gc_work_dirs(
     compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
     for provider_instance in providers:
-        logger.trace("Checked provider {} for orphaned work directories", provider_instance.name)
         for host in provider_instance.list_hosts():
-            logger.trace("Checked host {} for orphaned work directories", host.id)
-
             if not isinstance(host, OnlineHostInterface):
                 # Skip offline hosts - can't query them
                 logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
@@ -187,7 +184,6 @@ def gc_machines(
     compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
     for provider in providers:
-        logger.trace("Checked provider {} for idle machines", provider.name)
         try:
             hosts = provider.list_hosts(include_destroyed=False)
 
@@ -259,7 +255,6 @@ def gc_snapshots(
             logger.trace("Skipped provider {} (does not support snapshots)", provider.name)
             continue
 
-        logger.trace("Checked provider {} for orphaned snapshots", provider.name)
         try:
             hosts = provider.list_hosts(include_destroyed=False)
 
@@ -319,7 +314,6 @@ def gc_volumes(
             logger.trace("Skipped provider {} (does not support volumes)", provider.name)
             continue
 
-        logger.trace("Checked provider {} for orphaned volumes", provider.name)
         try:
             # Get all volumes
             all_volumes = provider.list_volumes()

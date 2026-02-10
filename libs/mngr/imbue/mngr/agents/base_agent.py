@@ -58,7 +58,6 @@ class BaseAgent(AgentInterface):
         If no explicit command is defined, falls back to using the agent_type as a command.
         This allows using arbitrary commands as agent types (e.g., 'mngr create my-agent echo').
         """
-        logger.trace("Assembled command for agent {} (type={}) on host {}", self.name, self.agent_type, host.id)
         if command_override is not None:
             base = str(command_override)
         elif self.agent_config.command is not None:
@@ -134,7 +133,6 @@ class BaseAgent(AgentInterface):
 
     def is_running(self) -> bool:
         """Check if the agent is currently running."""
-        logger.trace("Checked if agent {} is running", self.name)
         pid_path = self._get_agent_dir() / "agent.pid"
         try:
             content = self.host.read_text_file(pid_path)
@@ -154,7 +152,6 @@ class BaseAgent(AgentInterface):
         complex command constructs (like shell wrappers or fallback commands using ||).
         """
         try:
-            logger.trace("Determined lifecycle state for agent {}", self.name)
             session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
 
             # Get pane state and pid in one command using tmux format variables
@@ -621,7 +618,6 @@ class BaseAgent(AgentInterface):
         Note: The authoritative activity time is the file's mtime, not the
         JSON content. The JSON is for debugging/auditing purposes.
         """
-        logger.trace("Recorded {} activity for agent {}", activity_type, self.name)
         activity_path = self._get_agent_dir() / "activity" / activity_type.value.lower()
         now = datetime.now(timezone.utc)
         data = {
@@ -630,6 +626,7 @@ class BaseAgent(AgentInterface):
             "agent_name": str(self.name),
         }
         self.host.write_text_file(activity_path, json.dumps(data, indent=2))
+        logger.trace("Recorded {} activity for agent {}", activity_type, self.name)
 
     def get_reported_activity_record(self, activity_type: ActivitySource) -> str | None:
         activity_path = self._get_agent_dir() / "activity" / activity_type.value.lower()

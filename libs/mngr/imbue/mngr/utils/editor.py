@@ -278,5 +278,5 @@ class EditorSession:
 
         # Clean up the temp file
         if self.temp_file_path.exists():
-            logger.trace("Cleaned up temp file {}", self.temp_file_path)
             self.temp_file_path.unlink()
+            logger.trace("Cleaned up temp file {}", self.temp_file_path)
