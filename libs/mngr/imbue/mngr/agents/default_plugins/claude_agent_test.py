@@ -137,6 +137,33 @@ def _write_mngr_trust_entry(path: Path) -> None:
     config_path.write_text(json.dumps(config))
 
 
+_WORKTREE_OPTIONS = CreateAgentOptions(
+    agent_type=AgentTypeName("claude"),
+    git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+)
+
+
+def _setup_worktree_agent(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    mngr_ctx: MngrContext,
+    *,
+    is_source_trusted: bool = False,
+) -> tuple[Path, Path, ClaudeAgent, Host]:
+    """Set up a git worktree with an agent for trust testing.
+
+    Requires the setup_git_config fixture. Creates a source repo and worktree,
+    optionally writes trust for the source, and creates an agent at the worktree.
+
+    Returns (source_path, worktree_path, agent, host).
+    """
+    source_path, worktree_path = _setup_git_worktree(tmp_path)
+    if is_source_trusted:
+        _write_claude_trust(source_path)
+    agent, host = make_claude_agent(local_provider, tmp_path, mngr_ctx, work_dir=worktree_path)
+    return source_path, worktree_path, agent, host
+
+
 # =============================================================================
 # ClaudeAgentConfig Tests
 # =============================================================================
@@ -661,22 +688,14 @@ def test_provision_extends_trust_for_worktree(
     setup_git_config: None,
 ) -> None:
     """provision should extend Claude trust when using worktree mode."""
-    source_path, worktree_path = _setup_git_worktree(tmp_path)
-    _write_claude_trust(source_path)
-
-    agent, host = make_claude_agent(
+    source_path, worktree_path, agent, host = _setup_worktree_agent(
         local_provider,
         tmp_path,
         temp_mngr_ctx,
-        work_dir=worktree_path,
+        is_source_trusted=True,
     )
 
-    options = CreateAgentOptions(
-        agent_type=AgentTypeName("claude"),
-        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
-    )
-
-    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
+    agent.provision(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=temp_mngr_ctx)
 
     # Verify trust was extended to the worktree
     config_path = Path.home() / ".claude.json"
@@ -730,12 +749,7 @@ def test_provision_skips_trust_when_git_common_dir_is_none(
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
     # Don't init git - work_dir is not a git repo
 
-    options = CreateAgentOptions(
-        agent_type=AgentTypeName("claude"),
-        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
-    )
-
-    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
+    agent.provision(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=temp_mngr_ctx)
 
     # Trust should NOT have been extended since there's no git common dir
     config_path = Path.home() / ".claude.json"
@@ -769,23 +783,15 @@ def test_on_before_provisioning_validates_trust_for_worktree(
     setup_git_config: None,
 ) -> None:
     """on_before_provisioning should validate source directory is trusted for worktree mode."""
-    source_path, worktree_path = _setup_git_worktree(tmp_path)
-    _write_claude_trust(source_path)
-
-    agent, host = make_claude_agent(
+    source_path, worktree_path, agent, host = _setup_worktree_agent(
         local_provider,
         tmp_path,
         temp_mngr_ctx,
-        work_dir=worktree_path,
-    )
-
-    options = CreateAgentOptions(
-        agent_type=AgentTypeName("claude"),
-        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+        is_source_trusted=True,
     )
 
     # Should succeed without error because the source directory is trusted
-    agent.on_before_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
+    agent.on_before_provisioning(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=temp_mngr_ctx)
 
 
 def test_on_before_provisioning_skips_trust_check_when_interactive(
@@ -795,18 +801,14 @@ def test_on_before_provisioning_skips_trust_check_when_interactive(
     setup_git_config: None,
 ) -> None:
     """on_before_provisioning should skip trust check for interactive runs (provision() handles it)."""
-    source_path, worktree_path = _setup_git_worktree(tmp_path)
-    # Deliberately do NOT write trust for source_path -- it's untrusted
-
-    agent, host = make_claude_agent(local_provider, tmp_path, interactive_mngr_ctx, work_dir=worktree_path)
-
-    options = CreateAgentOptions(
-        agent_type=AgentTypeName("claude"),
-        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    source_path, worktree_path, agent, host = _setup_worktree_agent(
+        local_provider,
+        tmp_path,
+        interactive_mngr_ctx,
     )
 
     # Should NOT raise even though source is untrusted -- interactive defers to provision()
-    agent.on_before_provisioning(host=host, options=options, mngr_ctx=interactive_mngr_ctx)
+    agent.on_before_provisioning(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=interactive_mngr_ctx)
 
 
 def test_on_before_provisioning_skips_trust_check_when_git_common_dir_is_none(
@@ -816,13 +818,8 @@ def test_on_before_provisioning_skips_trust_check_when_git_common_dir_is_none(
     # Create agent with work_dir that is NOT a git repo
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
-    options = CreateAgentOptions(
-        agent_type=AgentTypeName("claude"),
-        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
-    )
-
     # Should succeed without error because find_git_common_dir returns None
-    agent.on_before_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
+    agent.on_before_provisioning(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=temp_mngr_ctx)
 
 
 def test_on_destroy_removes_trust(
@@ -853,21 +850,17 @@ def test_provision_prompts_for_trust_when_interactive(
     setup_git_config: None,
 ) -> None:
     """provision should prompt and add trust when interactive and source is untrusted."""
-    source_path, worktree_path = _setup_git_worktree(tmp_path)
-    # Source is deliberately untrusted -- no _write_claude_trust(source_path)
-
-    agent, host = make_claude_agent(local_provider, tmp_path, interactive_mngr_ctx, work_dir=worktree_path)
-
-    options = CreateAgentOptions(
-        agent_type=AgentTypeName("claude"),
-        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    source_path, worktree_path, agent, host = _setup_worktree_agent(
+        local_provider,
+        tmp_path,
+        interactive_mngr_ctx,
     )
 
     with patch(
         "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_trust",
         return_value=True,
     ) as mock_prompt:
-        agent.provision(host=host, options=options, mngr_ctx=interactive_mngr_ctx)
+        agent.provision(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=interactive_mngr_ctx)
 
     # Verify user was prompted for the source directory
     mock_prompt.assert_called_once_with(source_path)
@@ -889,18 +882,14 @@ def test_provision_raises_when_non_interactive_and_untrusted(
     setup_git_config: None,
 ) -> None:
     """provision should raise when non-interactive and source is untrusted."""
-    source_path, worktree_path = _setup_git_worktree(tmp_path)
-    # Source is deliberately untrusted
-
-    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx, work_dir=worktree_path)
-
-    options = CreateAgentOptions(
-        agent_type=AgentTypeName("claude"),
-        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    source_path, worktree_path, agent, host = _setup_worktree_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
     )
 
     with pytest.raises(ClaudeDirectoryNotTrustedError):
-        agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
+        agent.provision(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=temp_mngr_ctx)
 
 
 def test_provision_raises_when_user_declines_trust(
@@ -910,14 +899,10 @@ def test_provision_raises_when_user_declines_trust(
     setup_git_config: None,
 ) -> None:
     """provision should raise when user declines the trust prompt."""
-    source_path, worktree_path = _setup_git_worktree(tmp_path)
-    # Source is deliberately untrusted
-
-    agent, host = make_claude_agent(local_provider, tmp_path, interactive_mngr_ctx, work_dir=worktree_path)
-
-    options = CreateAgentOptions(
-        agent_type=AgentTypeName("claude"),
-        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    source_path, worktree_path, agent, host = _setup_worktree_agent(
+        local_provider,
+        tmp_path,
+        interactive_mngr_ctx,
     )
 
     with patch(
@@ -925,4 +910,4 @@ def test_provision_raises_when_user_declines_trust(
         return_value=False,
     ):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
-            agent.provision(host=host, options=options, mngr_ctx=interactive_mngr_ctx)
+            agent.provision(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=interactive_mngr_ctx)
