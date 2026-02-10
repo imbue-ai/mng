@@ -133,10 +133,11 @@ while true; do
 
     # Count the status of checks
     # gh pr checks output format: "check_name<tab>status<tab>duration<tab>url"
-    # grep -c returns 1 if no matches, so we use || echo 0 to get 0 instead
-    PENDING_COUNT=$(echo "$CHECK_OUTPUT" | grep -cE "pending|queued|in_progress|waiting" || echo 0)
-    FAILED_COUNT=$(echo "$CHECK_OUTPUT" | grep -cE "fail|error|cancelled|timed_out|action_required|stale" || echo 0)
-    PASSED_COUNT=$(echo "$CHECK_OUTPUT" | grep -cE "pass|success|neutral|skipped" || echo 0)
+    # grep -c outputs "0" and exits 1 when no matches; || true suppresses the
+    # exit code while keeping the "0" output (using || echo 0 would double it).
+    PENDING_COUNT=$(echo "$CHECK_OUTPUT" | grep -cE "pending|queued|in_progress|waiting" || true)
+    FAILED_COUNT=$(echo "$CHECK_OUTPUT" | grep -cE "fail|error|cancelled|timed_out|action_required|stale" || true)
+    PASSED_COUNT=$(echo "$CHECK_OUTPUT" | grep -cE "pass|success|neutral|skipped" || true)
 
     log_info "Check status (${ELAPSED}s elapsed): $PASSED_COUNT passed, $FAILED_COUNT failed, $PENDING_COUNT pending"
 
