@@ -250,6 +250,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             error_behavior=error_behavior,
             on_agent=limited_callback,
             on_error=_emit_jsonl_error,
+            is_streaming=False,
         )
         # Exit with non-zero code if there were errors (per error_handling.md spec)
         if result.errors:
@@ -462,6 +463,7 @@ def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> Non
         exclude_filters=params.exclude_filters,
         provider_names=params.provider_names,
         error_behavior=params.error_behavior,
+        is_streaming=False,
     )
 
     if result.errors:

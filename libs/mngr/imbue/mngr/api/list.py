@@ -147,6 +147,9 @@ class ListResult(MutableModel):
 @log_call
 def list_agents(
     mngr_ctx: MngrContext,
+    # When True, each provider streams results as soon as it finishes loading
+    # (on_agent fires immediately per provider, without waiting for all providers)
+    is_streaming: bool,
     # CEL expressions - only include agents matching these
     include_filters: tuple[str, ...] = (),
     # CEL expressions - exclude agents matching these
@@ -159,9 +162,6 @@ def list_agents(
     on_agent: Callable[[AgentInfo], None] | None = None,
     # Optional callback invoked immediately when each error is encountered (for streaming)
     on_error: Callable[[ErrorInfo], None] | None = None,
-    # When True, each provider streams results as soon as it finishes loading
-    # (on_agent fires immediately per provider, without waiting for all providers)
-    is_streaming: bool = False,
 ) -> ListResult:
     """List all agents with optional filtering."""
     result = ListResult()

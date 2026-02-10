@@ -365,6 +365,7 @@ def test_list_agents_returns_empty_when_no_agents(
     """Test that list_agents returns empty result when no agents exist."""
     result = list_agents(
         mngr_ctx=temp_mngr_ctx,
+        is_streaming=False,
     )
 
     assert result.agents == []
@@ -404,7 +405,7 @@ def test_list_agents_with_agent(
         assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
 
         # Now list agents
-        result = list_agents(mngr_ctx=temp_mngr_ctx)
+        result = list_agents(mngr_ctx=temp_mngr_ctx, is_streaming=False)
 
         assert len(result.agents) >= 1
         agent_names = [a.name for a in result.agents]
@@ -447,6 +448,7 @@ def test_list_agents_with_include_filter(
         result = list_agents(
             mngr_ctx=temp_mngr_ctx,
             include_filters=(f'name == "{agent_name}"',),
+            is_streaming=False,
         )
 
         assert len(result.agents) == 1
@@ -489,6 +491,7 @@ def test_list_agents_with_exclude_filter(
         result = list_agents(
             mngr_ctx=temp_mngr_ctx,
             exclude_filters=(f'name == "{agent_name}"',),
+            is_streaming=False,
         )
 
         agent_names = [a.name for a in result.agents]
@@ -536,6 +539,7 @@ def test_list_agents_with_callbacks(
         result = list_agents(
             mngr_ctx=temp_mngr_ctx,
             on_agent=on_agent,
+            is_streaming=False,
         )
 
         # Callback should have been called for each agent
@@ -552,6 +556,7 @@ def test_list_agents_with_error_behavior_continue(
     result = list_agents(
         mngr_ctx=temp_mngr_ctx,
         error_behavior=ErrorBehavior.CONTINUE,
+        is_streaming=False,
     )
 
     # Should return a result, possibly empty
@@ -921,7 +926,7 @@ def test_list_agents_populates_idle_mode(
         assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
 
         # List agents and check idle_mode is populated
-        result = list_agents(mngr_ctx=temp_mngr_ctx)
+        result = list_agents(mngr_ctx=temp_mngr_ctx, is_streaming=False)
 
         # Find our agent
         our_agent = next((a for a in result.agents if a.name == AgentName(agent_name)), None)
@@ -965,12 +970,12 @@ def test_list_agents_with_provider_names_filter(
         assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
 
         # List agents filtering to local provider - should find the agent
-        result = list_agents(mngr_ctx=temp_mngr_ctx, provider_names=("local",))
+        result = list_agents(mngr_ctx=temp_mngr_ctx, provider_names=("local",), is_streaming=False)
 
         agent_names = [a.name for a in result.agents]
         assert AgentName(agent_name) in agent_names
 
         # List agents filtering to nonexistent provider - should not find any agents
-        result_empty = list_agents(mngr_ctx=temp_mngr_ctx, provider_names=("nonexistent",))
+        result_empty = list_agents(mngr_ctx=temp_mngr_ctx, provider_names=("nonexistent",), is_streaming=False)
 
         assert len(result_empty.agents) == 0

@@ -414,7 +414,7 @@ def find_agents_by_identifiers_or_state(
     matches: list[AgentMatch] = []
     matched_identifiers: set[str] = set()
 
-    for agent_ref in list_agents(mngr_ctx).agents:
+    for agent_ref in list_agents(mngr_ctx, is_streaming=False).agents:
         should_include: bool
         if filter_all:
             should_include = agent_ref.state == target_state
