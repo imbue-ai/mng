@@ -249,12 +249,12 @@ class LocalProviderInstance(BaseProviderInstance):
         For the local provider, this always returns the same host if the ID
         matches, or raises HostNotFoundError if it doesn't match.
         """
-        logger.trace("Getting local host (ref={})", host)
+        logger.trace("Got local host (ref={})", host)
         host_id = self.host_id
 
         if isinstance(host, HostId):
             if host != host_id:
-                logger.trace("Host id={} not found (local host id={})", host, host_id)
+                logger.trace("Found no host with id={} (local host id={})", host, host_id)
                 raise HostNotFoundError(host)
         # For HostName, we accept "local" or any name since there's only one host
 
@@ -270,7 +270,7 @@ class LocalProviderInstance(BaseProviderInstance):
         For the local provider, this always returns a single-element list
         containing the local host.
         """
-        logger.trace("Listing hosts for local provider {}", self.name)
+        logger.trace("Listed hosts for local provider {}", self.name)
         return [self._create_host(HostName("local"))]
 
     # =========================================================================
@@ -347,7 +347,7 @@ class LocalProviderInstance(BaseProviderInstance):
         tags: Mapping[str, str],
     ) -> None:
         """Set tags for the local host."""
-        logger.trace("Setting {} tag(s) on local host", len(tags))
+        logger.trace("Set {} tag(s) on local host", len(tags))
         self._save_tags(tags)
 
     def add_tags_to_host(
@@ -356,7 +356,7 @@ class LocalProviderInstance(BaseProviderInstance):
         tags: Mapping[str, str],
     ) -> None:
         """Add tags to the local host."""
-        logger.trace("Adding {} tag(s) to local host", len(tags))
+        logger.trace("Added {} tag(s) to local host", len(tags))
         existing_tags = self._load_tags()
         existing_tags.update(tags)
         self._save_tags(existing_tags)
@@ -367,7 +367,7 @@ class LocalProviderInstance(BaseProviderInstance):
         keys: Sequence[str],
     ) -> None:
         """Remove tags by key from the local host."""
-        logger.trace("Removing {} tag(s) from local host", len(keys))
+        logger.trace("Removed {} tag(s) from local host", len(keys))
         existing_tags = self._load_tags()
         keys_to_remove = set(keys)
         filtered_tags = {k: v for k, v in existing_tags.items() if k not in keys_to_remove}

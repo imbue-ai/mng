@@ -134,7 +134,7 @@ def _extend_trust_locked(config_path: Path, source_path: Path, worktree_path: Pa
     worktree_path_str = str(worktree_path)
     if worktree_path_str in projects:
         logger.trace(
-            "Claude trust already exists for worktree {}",
+            "Found existing Claude trust for worktree {}",
             worktree_path,
         )
         return
@@ -225,13 +225,13 @@ def _remove_trust_locked(config_path: Path, path: Path) -> bool:
 
     path_str = str(path)
     if path_str not in projects:
-        logger.trace("No Claude trust entry found for {}", path)
+        logger.trace("Found no Claude trust entry for {}", path)
         return False
 
     # Only remove entries created by mngr to avoid removing user-created trust
     project_config = projects[path_str]
     if not project_config.get("_mngrCreated", False):
-        logger.trace("SKipped removal of non-mngr trust entry for {}", path)
+        logger.trace("Skipped removal of non-mngr trust entry for {}", path)
         return False
 
     del projects[path_str]

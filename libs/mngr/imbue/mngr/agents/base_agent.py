@@ -58,7 +58,7 @@ class BaseAgent(AgentInterface):
         If no explicit command is defined, falls back to using the agent_type as a command.
         This allows using arbitrary commands as agent types (e.g., 'mngr create my-agent echo').
         """
-        logger.trace("Assembling command for agent {} (type={}) on host {}", self.name, self.agent_type, host.id)
+        logger.trace("Assembled command for agent {} (type={}) on host {}", self.name, self.agent_type, host.id)
         if command_override is not None:
             base = str(command_override)
         elif self.agent_config.command is not None:
@@ -134,17 +134,17 @@ class BaseAgent(AgentInterface):
 
     def is_running(self) -> bool:
         """Check if the agent is currently running."""
-        logger.trace("Checking if agent {} is running", self.name)
+        logger.trace("Checked if agent {} is running", self.name)
         pid_path = self._get_agent_dir() / "agent.pid"
         try:
             content = self.host.read_text_file(pid_path)
             pid = int(content.strip())
             result = self.host.execute_command(f"ps -p {pid}", timeout_seconds=5.0)
             is_running = result.success
-            logger.trace("Agent {} is_running={} (pid={})", self.name, is_running, pid)
+            logger.trace("Determined agent {} is_running={} (pid={})", self.name, is_running, pid)
             return is_running
         except (FileNotFoundError, ValueError):
-            logger.trace("Agent {} is_running=False (no pid file or invalid)", self.name)
+            logger.trace("Determined agent {} is_running=False (no pid file or invalid)", self.name)
             return False
 
     def get_lifecycle_state(self) -> AgentLifecycleState:
@@ -154,7 +154,7 @@ class BaseAgent(AgentInterface):
         complex command constructs (like shell wrappers or fallback commands using ||).
         """
         try:
-            logger.trace("Getting lifecycle state for agent {}", self.name)
+            logger.trace("Determined lifecycle state for agent {}", self.name)
             session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
 
             # Get pane state and pid in one command using tmux format variables
@@ -168,19 +168,19 @@ class BaseAgent(AgentInterface):
             )
 
             if not result.success or not result.stdout.strip():
-                logger.trace("Agent {} lifecycle state: STOPPED (no tmux session)", self.name)
+                logger.trace("Determined agent {} lifecycle state: STOPPED (no tmux session)", self.name)
                 return AgentLifecycleState.STOPPED
 
             parts = result.stdout.strip().split("|")
             if len(parts) != 3:
-                logger.trace("Agent {} lifecycle state: STOPPED (malformed tmux output)", self.name)
+                logger.trace("Determined agent {} lifecycle state: STOPPED (malformed tmux output)", self.name)
                 return AgentLifecycleState.STOPPED
 
             pane_dead, current_command, pane_pid = parts
 
             # If pane's main process died, the agent is done
             if pane_dead == "1":
-                logger.trace("Agent {} lifecycle state: DONE (pane process died)", self.name)
+                logger.trace("Determined agent {} lifecycle state: DONE (pane process died)", self.name)
                 return AgentLifecycleState.DONE
 
             # Check if current command matches expected command (by basename)
@@ -205,20 +205,22 @@ class BaseAgent(AgentInterface):
                 # Check for non-shell descendant processes
                 non_shell_processes = [p for p in descendant_names if not self._is_shell_command(p)]
                 if non_shell_processes:
-                    logger.trace("Agent {} lifecycle state: REPLACED (non-shell descendant processes)", self.name)
+                    logger.trace(
+                        "Determined agent {} lifecycle state: REPLACED (non-shell descendant processes)", self.name
+                    )
                     return AgentLifecycleState.REPLACED
 
             # No matching descendant found
             # If current command is a shell, the agent probably finished or never started (DONE)
             # If it's not a shell, the agent was replaced by something else (REPLACED)
             if self._is_shell_command(current_command):
-                logger.trace("Agent {} lifecycle state: DONE (shell command, no agent process)", self.name)
+                logger.trace("Determined agent {} lifecycle state: DONE (shell command, no agent process)", self.name)
                 return AgentLifecycleState.DONE
 
-            logger.trace("Agent {} lifecycle state: REPLACED (unknown process)", self.name)
+            logger.trace("Determined agent {} lifecycle state: REPLACED (unknown process)", self.name)
             return AgentLifecycleState.REPLACED
         except HostConnectionError:
-            logger.trace("Agent {} lifecycle state: STOPPED (host connection error)", self.name)
+            logger.trace("Determined agent {} lifecycle state: STOPPED (host connection error)", self.name)
             return AgentLifecycleState.STOPPED
 
     def _get_command_basename(self, command: CommandString) -> str:
@@ -272,9 +274,9 @@ class BaseAgent(AgentInterface):
         """Check if the agent is waiting and return WAITING or RUNNING state."""
         waiting_path = self._get_agent_dir() / "waiting"
         if self._check_file_exists(waiting_path):
-            logger.trace("Agent {} lifecycle state: WAITING", self.name)
+            logger.trace("Determined agent {} lifecycle state: WAITING", self.name)
             return AgentLifecycleState.WAITING
-        logger.trace("Agent {} lifecycle state: RUNNING (no waiting file)", self.name)
+        logger.trace("Determined agent {} lifecycle state: RUNNING (no waiting file)", self.name)
         return AgentLifecycleState.RUNNING
 
     def _command_basename_matches(self, current: str, expected: str) -> bool:
@@ -489,7 +491,7 @@ class BaseAgent(AgentInterface):
                 str(self.name),
                 f"Timeout waiting for message to be ready for submission (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
             )
-        logger.trace("Marker removed and expected content visible in pane")
+        logger.trace("Verified marker removed and expected content visible in pane")
 
     def _check_marker_removed_and_contains(self, session_name: str, marker: str, expected_ending: str) -> bool:
         """Check if the marker is gone and pane contains expected content."""
@@ -508,7 +510,7 @@ class BaseAgent(AgentInterface):
         """
         wait_channel = f"mngr-submit-{session_name}"
         if self._send_enter_and_wait_for_signal(session_name, wait_channel):
-            logger.trace("Message submitted successfully")
+            logger.trace("Submitted message successfully")
             return
 
         raise SendMessageError(
@@ -619,7 +621,7 @@ class BaseAgent(AgentInterface):
         Note: The authoritative activity time is the file's mtime, not the
         JSON content. The JSON is for debugging/auditing purposes.
         """
-        logger.trace("Recording {} activity for agent {}", activity_type, self.name)
+        logger.trace("Recorded {} activity for agent {}", activity_type, self.name)
         activity_path = self._get_agent_dir() / "activity" / activity_type.value.lower()
         now = datetime.now(timezone.utc)
         data = {

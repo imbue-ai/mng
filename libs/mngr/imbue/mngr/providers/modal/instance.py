@@ -385,7 +385,7 @@ class ModalProviderInstance(BaseProviderInstance):
         host_id = HostId(host_record.host_id)
         path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
-        logger.trace("Writing host record to volume: {}", path)
+        logger.trace("Wrote host record to volume: {}", path)
 
         # Upload the data as a file-like object
         with volume.batch_upload(force=True) as batch:
@@ -432,12 +432,12 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Check cache first
         if use_cache and host_id in self._host_record_cache_by_id:
-            logger.trace("Using cached host record for host_id={}", host_id)
+            logger.trace("Used cached host record for host_id={}", host_id)
             return self._host_record_cache_by_id[host_id]
 
         volume = self._get_volume()
         path = self._get_host_record_path(host_id)
-        logger.trace("Reading host record from volume: {}", path)
+        logger.trace("Read host record from volume: {}", path)
 
         try:
             # Read file returns a generator that yields bytes chunks
@@ -476,7 +476,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
-        logger.trace("Deleting host record from volume: {}", path)
+        logger.trace("Deleted host record from volume: {}", path)
         try:
             volume.remove_file(path)
         except (NotFoundError, FileNotFoundError):
@@ -493,7 +493,7 @@ class ModalProviderInstance(BaseProviderInstance):
         Host records are stored at /<host_id>.json.
         """
         volume = self._get_volume()
-        logger.trace("Listing all host records from volume")
+        logger.trace("Listed all host records from volume")
 
         with (
             cg.make_concurrency_group("modal_list_all_host_records")
@@ -531,7 +531,7 @@ class ModalProviderInstance(BaseProviderInstance):
         show agents on stopped hosts.
         """
         volume = self._get_volume()
-        logger.trace("Listing agent records for host {} from volume", host_id)
+        logger.trace("Listed agent records for host {} from volume", host_id)
 
         agent_records: list[dict[str, Any]] = []
         host_dir = f"/{host_id}"
@@ -550,11 +550,11 @@ class ModalProviderInstance(BaseProviderInstance):
                         agent_data = json.loads(content)
                         agent_records.append(agent_data)
                     except (OSError, IOError, json.JSONDecodeError) as e:
-                        logger.trace("Skipping invalid agent record file {}: {}", agent_path, e)
+                        logger.trace("Skipped invalid agent record file {}: {}", agent_path, e)
                         continue
         except (OSError, IOError, modal.exception.Error) as e:
             # Host directory might not exist yet (no agents persisted)
-            logger.trace("No agent records found for host {}: {}", host_id, e)
+            logger.trace("Found no agent records for host {}: {}", host_id, e)
 
         return agent_records
 
@@ -573,7 +573,7 @@ class ModalProviderInstance(BaseProviderInstance):
         host_dir = f"/{host_id}"
         agent_path = f"{host_dir}/{agent_id}.json"
 
-        logger.trace("Persisting agent data to volume: {}", agent_path)
+        logger.trace("Persisted agent data to volume: {}", agent_path)
 
         # Serialize the agent data to JSON
         data = json.dumps(dict(agent_data), indent=2)
@@ -592,7 +592,7 @@ class ModalProviderInstance(BaseProviderInstance):
         volume = self._get_volume()
         agent_path = f"/{host_id}/{agent_id}.json"
 
-        logger.trace("Removing agent data from volume: {}", agent_path)
+        logger.trace("Removed agent data from volume: {}", agent_path)
 
         try:
             volume.remove_file(agent_path)
@@ -818,7 +818,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Get SSH connection info
         ssh_host, ssh_port = self._get_ssh_info_from_sandbox(sandbox)
-        logger.trace("SSH endpoint available", ssh_host=ssh_host, ssh_port=ssh_port)
+        logger.trace("Found SSH endpoint available", ssh_host=ssh_host, ssh_port=ssh_port)
 
         # Add the host to our known_hosts file before waiting for sshd
         with log_span("Adding host to known_hosts", ssh_host=ssh_host, ssh_port=ssh_port):
@@ -1135,7 +1135,7 @@ log "=== Shutdown script completed ==="
         self, host_id: HostId, timeout: float = 5.0, poll_interval: float = 1.0
     ) -> modal.Sandbox | None:
         """Find a Modal sandbox by its mngr host_id tag."""
-        logger.trace("Looking up sandbox with host_id={} in env={}", host_id, self.environment_name)
+        logger.trace("Looked up sandbox with host_id={} in env={}", host_id, self.environment_name)
 
         # Check cache first - this avoids eventual consistency issues for recently created sandboxes
         if host_id in self._sandbox_cache_by_id:
@@ -1174,7 +1174,7 @@ log "=== Shutdown script completed ==="
         after a sandbox is created. This method polls for the sandbox with delays
         to handle this race condition when the sandbox isn't in the cache.
         """
-        logger.trace("Looking up sandbox with name={} in env={}", name, self.environment_name)
+        logger.trace("Looked up sandbox with name={} in env={}", name, self.environment_name)
 
         # Check cache first - this avoids eventual consistency issues for recently created sandboxes
         if name in self._sandbox_cache_by_name:
@@ -1191,7 +1191,7 @@ log "=== Shutdown script completed ==="
         The app_id identifies the app within its environment, so sandboxes created
         in that app's environment will be found via app_id alone.
         """
-        logger.trace("Listing all mngr sandboxes for app={} in env={}", self.app_name, self.environment_name)
+        logger.trace("Listed all mngr sandboxes for app={} in env={}", self.app_name, self.environment_name)
         app = self._get_modal_app()
         sandboxes: list[modal.Sandbox] = []
         for sandbox in modal.Sandbox.list(app_id=app.app_id):
