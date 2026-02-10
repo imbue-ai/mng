@@ -336,7 +336,7 @@ def pair_files(
     agent: AgentInterface,
     host: OnlineHostInterface,
     agent_path: Path,
-    local_path: Path | None = None,
+    local_path: Path,
     sync_direction: SyncDirection = SyncDirection.BOTH,
     conflict_mode: ConflictMode = ConflictMode.NEWER,
     is_require_git: bool = True,
@@ -357,17 +357,14 @@ def pair_files(
     if not check_unison_installed():
         raise UnisonNotInstalledError()
 
-    # Determine local path
-    actual_local_path = local_path if local_path is not None else agent.work_dir
-
     # Validate directories exist
     if not agent_path.is_dir():
         raise MngrError(f"Agent directory does not exist: {agent_path}")
-    if not actual_local_path.is_dir():
-        raise MngrError(f"Local directory does not exist: {actual_local_path}")
+    if not local_path.is_dir():
+        raise MngrError(f"Local directory does not exist: {local_path}")
 
     # Validate agent and local are different directories
-    if agent_path.resolve() == actual_local_path.resolve():
+    if agent_path.resolve() == local_path.resolve():
         raise MngrError(
             f"Agent and local are the same directory: {agent_path.resolve()}. "
             "Pair requires two different directories to sync between."
@@ -375,14 +372,14 @@ def pair_files(
 
     # Check git requirements
     agent_is_git = is_git_repository(agent_path)
-    local_is_git = is_git_repository(actual_local_path)
+    local_is_git = is_git_repository(local_path)
 
     if is_require_git and not (agent_is_git and local_is_git):
         missing = []
         if not agent_is_git:
             missing.append(f"agent ({agent_path})")
         if not local_is_git:
-            missing.append(f"local ({actual_local_path})")
+            missing.append(f"local ({local_path})")
         raise MngrError(
             f"Git repositories required but not found in: {', '.join(missing)}. "
             "Use --no-require-git to sync without git."
@@ -391,7 +388,7 @@ def pair_files(
     # Determine and perform git sync (skip when --no-require-git is set,
     # since the user explicitly opted out of git-based behavior)
     if is_require_git and agent_is_git and local_is_git:
-        git_action = determine_git_sync_actions(agent_path, actual_local_path)
+        git_action = determine_git_sync_actions(agent_path, local_path)
         if git_action is not None and (git_action.agent_is_ahead or git_action.local_is_ahead):
             logger.info(
                 "Synchronizing git state (agent_ahead={}, local_ahead={})",
@@ -401,7 +398,7 @@ def pair_files(
             sync_git_state(
                 agent=agent,
                 host=host,
-                local_path=actual_local_path,
+                local_path=local_path,
                 git_sync_action=git_action,
                 uncommitted_changes=uncommitted_changes,
             )
@@ -409,7 +406,7 @@ def pair_files(
     # Create and start the syncer
     syncer = UnisonSyncer(
         source_path=agent_path,
-        target_path=actual_local_path,
+        target_path=local_path,
         sync_direction=sync_direction,
         conflict_mode=conflict_mode,
         exclude_patterns=exclude_patterns,
