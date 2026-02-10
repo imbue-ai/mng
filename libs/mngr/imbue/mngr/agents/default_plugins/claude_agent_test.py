@@ -321,8 +321,8 @@ def test_build_activity_updater_command(
     assert cmd.startswith("(")
     assert cmd.endswith(") &")
 
-    # Should use the correct session name for tmux check
-    assert f"tmux has-session -t '{session_name}'" in cmd
+    # Should use the correct session name for tmux check (with socket flag from temp_mngr_ctx)
+    assert f"tmux -L mngr-test has-session -t '{session_name}'" in cmd
 
     # Should use a pidfile for deduplication
     assert f"_MNGR_ACT_LOCK=/tmp/mngr_act_{session_name}.pid" in cmd
