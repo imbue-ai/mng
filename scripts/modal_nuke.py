@@ -19,6 +19,7 @@ Usage:
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -71,11 +72,7 @@ def _run_modal(args: list[str], environment: str | None) -> subprocess.Completed
     cmd = ["modal"] + args
     if environment:
         cmd.extend(["-e", environment])
-    try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    except FileNotFoundError:
-        print("modal CLI not found. Install it with: pip install modal", file=sys.stderr)
-        sys.exit(1)
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
 
 def _list_resources(resource_type: str, environment: str) -> list[dict[str, str]] | None:
@@ -205,6 +202,10 @@ def _execute_nuke(apps: list[dict[str, str]], volumes: list[dict[str, str]], env
 
 def main() -> int:
     args = _parse_args()
+
+    if not shutil.which("modal"):
+        print("modal CLI not found. Install it with: pip install modal", file=sys.stderr)
+        return 1
 
     environment = _resolve_environment(args)
     if environment is None:
