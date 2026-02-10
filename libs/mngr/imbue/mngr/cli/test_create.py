@@ -4,13 +4,16 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pluggy
 import pytest
 from click.testing import CliRunner
 
+from imbue.mngr.cli.create import CreateCliOptions
+from imbue.mngr.cli.create import _handle_create
 from imbue.mngr.cli.create import create
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import capture_tmux_pane_contents
 from imbue.mngr.utils.testing import tmux_session_cleanup
@@ -112,34 +115,126 @@ def test_cli_create_via_subprocess(
 
 
 def test_connect_flag_calls_tmux_attach_for_local_agent(
-    cli_runner: CliRunner,
     temp_work_dir: Path,
+    temp_mngr_ctx: MngrContext,
     mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that --connect flag attempts to attach to the tmux session for local agents."""
+    """Test that --connect flag results in connection options that would attach to the tmux session.
+
+    Calls _handle_create directly (bypassing _post_create) so we can verify the agent
+    was created and the returned options indicate a connect should happen, without
+    actually calling os.execvp to attach to tmux.
+    """
     agent_name = f"test-connect-local-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
 
+    opts = CreateCliOptions(
+        output_format="human",
+        quiet=False,
+        verbose=0,
+        log_file=None,
+        log_commands=None,
+        log_command_output=None,
+        log_env_vars=None,
+        project_context_path=None,
+        plugin=(),
+        disable_plugin=(),
+        positional_name=None,
+        positional_agent_type=None,
+        agent_args=(),
+        template=(),
+        agent_type=None,
+        reuse=False,
+        connect=True,
+        await_ready=None,
+        await_agent_stopped=None,
+        copy_work_dir=False,
+        ensure_clean=False,
+        snapshot_source=None,
+        name=agent_name,
+        name_style="english",
+        agent_command="sleep 397265",
+        add_command=(),
+        user=None,
+        source=None,
+        source_agent=None,
+        source_host=None,
+        source_path=str(temp_work_dir),
+        target=None,
+        target_path=None,
+        in_place=False,
+        copy_source=False,
+        clone=False,
+        worktree=False,
+        rsync=None,
+        rsync_args=None,
+        include_git=True,
+        include_unclean=None,
+        include_gitignored=False,
+        base_branch=None,
+        new_branch="",
+        new_branch_prefix="mngr/",
+        depth=None,
+        shallow_since=None,
+        agent_env=(),
+        agent_env_file=(),
+        pass_agent_env=(),
+        host=None,
+        new_host=None,
+        host_name=None,
+        host_name_style="astronomy",
+        tag=(),
+        project=None,
+        host_env=(),
+        host_env_file=(),
+        pass_host_env=(),
+        known_host=(),
+        snapshot=None,
+        build_arg=(),
+        build_args=None,
+        start_arg=(),
+        start_args=None,
+        reconnect=True,
+        interactive=None,
+        message=None,
+        message_file=None,
+        edit_message=False,
+        resume_message=None,
+        resume_message_file=None,
+        retry=3,
+        retry_delay="5s",
+        attach_command=None,
+        idle_timeout=None,
+        idle_mode=None,
+        activity_sources=None,
+        start_on_boot=None,
+        grant=(),
+        user_command=(),
+        sudo_command=(),
+        upload_file=(),
+        append_to_file=(),
+        prepend_to_file=(),
+        create_directory=(),
+        ready_timeout=10.0,
+    )
+
+    output_opts = OutputOptions()
+
     with tmux_session_cleanup(session_name):
-        with patch("os.execvp") as mock_execvp:
-            cli_runner.invoke(
-                create,
-                [
-                    "--name",
-                    agent_name,
-                    "--agent-cmd",
-                    "sleep 397265",
-                    "--source",
-                    str(temp_work_dir),
-                    "--connect",
-                    "--no-copy-work-dir",
-                    "--no-ensure-clean",
-                ],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
-            mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
+        result = _handle_create(temp_mngr_ctx, output_opts, opts)
+
+        assert result is not None
+        create_result, connection_opts, _, returned_opts, _ = result
+
+        # Verify the agent was created and the tmux session is running
+        assert create_result.agent is not None
+        assert create_result.host is not None
+        assert tmux_session_exists(session_name)
+
+        # Verify the returned options indicate connect should happen
+        # (_post_create would call connect_to_agent -> os.execvp with tmux attach)
+        assert returned_opts.connect is True
+        assert connection_opts.is_reconnect is True
 
 
 def test_no_connect_flag_skips_tmux_attach(

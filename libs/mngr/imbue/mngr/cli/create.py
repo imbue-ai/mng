@@ -494,7 +494,10 @@ def create(ctx: click.Context, **kwargs) -> None:
         command_class=CreateCliOptions,
     )
 
-    create_result, connection_opts, output_opts, opts, mngr_ctx = _handle_create(mngr_ctx, output_opts, opts)
+    result = _handle_create(mngr_ctx, output_opts, opts)
+    if result is None:
+        return
+    create_result, connection_opts, output_opts, opts, mngr_ctx = result
     _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
 
 
