@@ -172,7 +172,9 @@ while true; do
         wait "$PR_CI_PID" && PR_CI_EXIT=0 || PR_CI_EXIT=$?
         if [[ $PR_CI_EXIT -eq 2 ]]; then
             log_error "PR/CI hook failed (exit code 2)"
-            log_warn "Reviewer hook is still running in the background -- its result will be checked on the next stop."
+            log_error "Reviewer hook is still running in the background -- go fix the tests first, then check the outputs from the reviewers."
+            log_error "Run 'cat .reviews/final_issue_json/*.json' to see those issues when you're ready (after fixing CI failures)."
+            log_error "And remember that you MUST fix any CRITICAL or MAJOR issues (with confidence >= 0.7) before trying again."
             exit 2
         elif [[ $PR_CI_EXIT -ne 0 ]]; then
             log_error "PR/CI hook failed (exit code $PR_CI_EXIT)"
@@ -184,7 +186,13 @@ while true; do
         wait "$REVIEWER_PID" && REVIEWER_EXIT=0 || REVIEWER_EXIT=$?
         if [[ $REVIEWER_EXIT -eq 2 ]]; then
             log_error "Reviewer hook failed (exit code 2)"
-            log_warn "PR/CI hook is still running in the background -- its result will be checked on the next stop."
+            log_error "PR/CI hook is still running in the background -- go fix the issues flagged by the reviewer first, then check back in to see if the tests passed in CI."
+            log_error "When checking CI, use the gh tool to inspect the remote test results for this branch and see what failed."
+            log_error "If any tests failed, remember that you MUST identify the issue and fix it locally before trying again!"
+            log_error "NEVER just re-trigger the pipeline!"
+            log_error "NEVER fix timeouts by increasing them! Instead, make things faster or increase parallelism."
+            log_error "If it is impossible to fix the test, tell the user and say that you failed."
+            log_error "Otherwise, once you have understood and fixed any issues, you can simply commit to try again."
             exit 2
         elif [[ $REVIEWER_EXIT -ne 0 ]]; then
             log_error "Reviewer hook failed (exit code $REVIEWER_EXIT)"
