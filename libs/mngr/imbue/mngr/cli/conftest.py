@@ -1,5 +1,6 @@
 import pytest
 
+from imbue.mngr.cli.connect import ConnectCliOptions
 from imbue.mngr.cli.create import CreateCliOptions
 
 
@@ -98,4 +99,35 @@ def default_create_cli_opts() -> CreateCliOptions:
         prepend_to_file=(),
         create_directory=(),
         ready_timeout=10.0,
+    )
+
+
+@pytest.fixture
+def default_connect_cli_opts() -> ConnectCliOptions:
+    """Baseline ConnectCliOptions with sensible defaults for all fields.
+
+    Tests use .model_copy_update() with to_update_dict() to override only the fields
+    relevant to each test case.
+    """
+    return ConnectCliOptions(
+        output_format="human",
+        quiet=False,
+        verbose=0,
+        log_file=None,
+        log_commands=None,
+        log_command_output=None,
+        log_env_vars=None,
+        project_context_path=None,
+        plugin=(),
+        disable_plugin=(),
+        agent=None,
+        start=True,
+        reconnect=True,
+        message=None,
+        message_file=None,
+        ready_timeout=10.0,
+        retry=3,
+        retry_delay="5s",
+        attach_command=None,
+        allow_unknown_host=False,
     )
