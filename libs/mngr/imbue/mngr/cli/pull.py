@@ -335,15 +335,15 @@ def pull(ctx: click.Context, **kwargs) -> None:
             uncommitted_changes=uncommitted_changes_mode,
         )
 
-        # Stop agent if requested
+        output_sync_git_result(git_result, output_opts.output_format)
+
+        # Stop agent if requested (after outputting result so it's not lost if stop fails)
         if opts.stop and not opts.dry_run:
             emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
             host.stop_agents([agent.id])
             emit_info("Agent stopped", output_opts.output_format)
         elif opts.stop:
             emit_info("Dry run: would stop agent after sync", output_opts.output_format)
-
-        output_sync_git_result(git_result, output_opts.output_format)
     else:
         # Files mode: rsync
         # Parse source_path if provided
@@ -366,15 +366,15 @@ def pull(ctx: click.Context, **kwargs) -> None:
             uncommitted_changes=uncommitted_changes_mode,
         )
 
-        # Stop agent if requested
+        output_sync_files_result(files_result, output_opts.output_format)
+
+        # Stop agent if requested (after outputting result so it's not lost if stop fails)
         if opts.stop and not opts.dry_run:
             emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
             host.stop_agents([agent.id])
             emit_info("Agent stopped", output_opts.output_format)
         elif opts.stop:
             emit_info("Dry run: would stop agent after sync", output_opts.output_format)
-
-        output_sync_files_result(files_result, output_opts.output_format)
 
 
 # Register help metadata for git-style help formatting
