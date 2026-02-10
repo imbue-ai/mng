@@ -170,7 +170,6 @@ def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext) -> None:
         # Wait for unison to start
         wait_for(
             lambda: syncer.is_running,
-            timeout=5.0,
             error_message="Syncer did not start within timeout",
         )
 
@@ -183,7 +182,6 @@ def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext) -> None:
         # Wait for it to stop
         wait_for(
             lambda: not syncer.is_running,
-            timeout=5.0,
             error_message="Syncer did not stop within timeout",
         )
 
@@ -240,7 +238,6 @@ def test_pair_files_with_no_git_requirement(tmp_path: Path) -> None:
         # Wait for unison to start
         wait_for(
             lambda: syncer.is_running,
-            timeout=5.0,
             error_message="Syncer did not start within timeout",
         )
 
@@ -275,7 +272,6 @@ def test_unison_syncer_start_and_stop(tmp_path: Path) -> None:
         # Wait for unison to start
         wait_for(
             lambda: syncer.is_running,
-            timeout=5.0,
             error_message="Syncer did not start within timeout",
         )
 
@@ -315,7 +311,6 @@ def test_unison_syncer_syncs_file_changes(tmp_path: Path) -> None:
         # Wait for initial sync to complete
         wait_for(
             lambda: (target / "initial.txt").exists(),
-            timeout=5.0,
             error_message="File was not synced within timeout",
         )
 
@@ -350,7 +345,6 @@ def test_unison_syncer_syncs_symlinks(tmp_path: Path) -> None:
         # Wait for sync to complete
         wait_for(
             lambda: (target / "link_to_file.txt").exists(),
-            timeout=5.0,
             error_message="Symlink was not synced within timeout",
         )
 
@@ -389,7 +383,6 @@ def test_unison_syncer_syncs_directory_symlinks(tmp_path: Path) -> None:
         # Wait for sync to complete
         wait_for(
             lambda: (target / "link_to_dir").exists(),
-            timeout=5.0,
             error_message="Directory symlink was not synced within timeout",
         )
 
@@ -422,7 +415,6 @@ def test_unison_syncer_handles_process_crash(tmp_path: Path) -> None:
         # Wait for unison to start
         wait_for(
             lambda: syncer.is_running,
-            timeout=5.0,
             error_message="Syncer did not start within timeout",
         )
 
@@ -435,7 +427,6 @@ def test_unison_syncer_handles_process_crash(tmp_path: Path) -> None:
         # is_running should eventually become False
         wait_for(
             lambda: not syncer.is_running,
-            timeout=5.0,
             error_message="Syncer did not detect process crash",
         )
 
