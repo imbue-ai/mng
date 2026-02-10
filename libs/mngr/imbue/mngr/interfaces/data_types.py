@@ -343,19 +343,16 @@ class RelativePath(PurePosixPath):
     Uses POSIX path semantics since agent paths are always on remote Linux hosts.
     """
 
-    def __new__(cls, *args: str | Path) -> "RelativePath":
-        instance = super().__new__(cls, *args)
-        if instance.is_absolute():
-            raise InvalidRelativePathError(str(instance))
-        return instance
-
     @classmethod
     def _validate(cls, value: Any) -> "RelativePath":
         """Validate and convert input to RelativePath."""
-        if isinstance(value, cls):
-            return value
         if isinstance(value, (str, Path, PurePosixPath)):
-            return cls(value)
+            path = PurePosixPath(str(value))
+            if path.is_absolute():
+                raise InvalidRelativePathError(str(path))
+            if isinstance(value, cls):
+                return value
+            return cls(path)
         raise ParseSpecError(f"Expected str, Path, or RelativePath, got {type(value)}")
 
     @classmethod
