@@ -501,17 +501,14 @@ def _sync_git_push(
                     if result.returncode != 0:
                         raise GitSyncError(result.stderr)
 
-                    # Checkout the source branch and reset working tree to match.
-                    # We use source_branch (not target_branch) so the agent ends
-                    # up on the same branch as the source after a mirror push.
-                    checkout_result = host.execute_command(
-                        f"git checkout -f {source_branch}",
-                        cwd=destination_path,
-                    )
-                    if not checkout_result.success:
-                        raise GitSyncError(f"Failed to checkout branch {source_branch}: {checkout_result.stderr}")
+                    # Reset working tree to match the source branch content.
+                    # We do NOT checkout source_branch because in the worktree case
+                    # (local agents), the source branch may already be checked out in
+                    # the source worktree, and git forbids two worktrees from having
+                    # the same branch checked out. Instead, stay on the current branch
+                    # and reset to the source branch's commit.
                     reset_result = host.execute_command(
-                        f"git reset --hard {source_branch}",
+                        f"git reset --hard refs/heads/{source_branch}",
                         cwd=destination_path,
                     )
                     if not reset_result.success:
