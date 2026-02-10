@@ -4,6 +4,7 @@ import os
 import sys
 from collections import deque
 from datetime import datetime
+from functools import partialmethod
 from pathlib import Path
 from typing import Any
 from typing import Final
@@ -52,6 +53,11 @@ def register_build_level() -> None:
     except ValueError:
         # Level doesn't exist, create it
         logger.level("BUILD", no=BUILD_LEVEL_NO, color="<white>")
+
+    # Add .build() convenience method to logger so callers can use logger.build(...)
+    # instead of logger.log("BUILD", ...). Uses partialmethod so call depth is preserved.
+    if not hasattr(logger.__class__, "build"):
+        logger.__class__.build = partialmethod(logger.__class__.log, "BUILD")  # ty: ignore[invalid-assignment]
 
 
 # Register BUILD level at module import time
