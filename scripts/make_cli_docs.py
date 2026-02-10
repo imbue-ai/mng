@@ -208,10 +208,11 @@ def generate_arguments_section(command: click.Command, command_name: str) -> str
     lines = ["## Arguments", ""]
 
     for arg in arguments:
-        # Get argument name (uppercase for display)
-        arg_name = arg.name.upper() if arg.name else "ARG"
-        # Try to get help text (arguments don't have help in click, but we can infer from name)
-        # or use a generic description
+        # Use human_readable_name (returns metavar if set) for user-facing display
+        arg_name = arg.human_readable_name
+        if arg_name is None:
+            raise ValueError(f"Argument {arg.name!r} is missing a metavar; add metavar= to the click.argument() call")
+        arg_name = arg_name.upper()
         description = _infer_argument_description(arg)
         lines.append(f"- `{arg_name}`: {description}")
 
@@ -221,7 +222,7 @@ def generate_arguments_section(command: click.Command, command_name: str) -> str
 
 def _infer_argument_description(arg: click.Argument) -> str:
     """Infer a description for an argument based on its properties."""
-    name = arg.name or "arg"
+    name = (arg.name or "arg").removesuffix("_pos")
 
     # Common argument patterns
     if "name" in name.lower():

@@ -34,8 +34,8 @@ mngr pull [OPTIONS] SOURCE DESTINATION
 
 ## Arguments
 
-- `SOURCE_POS`: The source pos (optional)
-- `DESTINATION_POS`: The destination pos (optional)
+- `SOURCE`: The source (optional)
+- `DESTINATION`: The destination (optional)
 
 **Options:**
 

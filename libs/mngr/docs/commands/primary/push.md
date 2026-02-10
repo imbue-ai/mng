@@ -37,8 +37,8 @@ mngr push [OPTIONS] TARGET SOURCE
 
 ## Arguments
 
-- `TARGET_POS`: The target pos (optional)
-- `SOURCE_POS`: The source pos (optional)
+- `TARGET`: The target (optional)
+- `SOURCE`: The source (optional)
 
 **Options:**
 

@@ -39,7 +39,7 @@ mngr pair [OPTIONS] SOURCE
 
 ## Arguments
 
-- `SOURCE_POS`: The source pos (optional)
+- `SOURCE`: The source (optional)
 
 **Options:**
 
