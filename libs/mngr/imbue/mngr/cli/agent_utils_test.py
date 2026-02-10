@@ -219,13 +219,18 @@ def test_parse_agent_spec_parses_agent_colon_path() -> None:
     assert subpath == "src/dir"
 
 
-def test_parse_agent_spec_agent_colon_path_overrides_default_subpath() -> None:
+def test_parse_agent_spec_agent_colon_path_uses_matching_default_subpath() -> None:
     agent_id, subpath = parse_agent_spec(
-        spec="my-agent:src/dir", explicit_agent=None, spec_name="Target", default_subpath="old/path"
+        spec="my-agent:src/dir", explicit_agent=None, spec_name="Target", default_subpath="src/dir"
     )
 
     assert agent_id == "my-agent"
     assert subpath == "src/dir"
+
+
+def test_parse_agent_spec_raises_on_conflicting_subpath_and_default() -> None:
+    with pytest.raises(UserInputError, match="Cannot specify both a subpath in target"):
+        parse_agent_spec(spec="my-agent:src/dir", explicit_agent=None, spec_name="Target", default_subpath="old/path")
 
 
 def test_parse_agent_spec_raises_on_bare_absolute_path() -> None:

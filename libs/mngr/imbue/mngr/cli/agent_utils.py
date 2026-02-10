@@ -88,7 +88,13 @@ def parse_agent_spec(
 
     if spec is not None:
         if ":" in spec:
-            agent_identifier, subpath = spec.split(":", 1)
+            agent_identifier, parsed_subpath = spec.split(":", 1)
+            if default_subpath is not None and parsed_subpath != default_subpath:
+                raise UserInputError(
+                    f"Cannot specify both a subpath in {spec_name.lower()} "
+                    f"('{parsed_subpath}') and --{spec_name.lower()}-path ('{default_subpath}')"
+                )
+            subpath = parsed_subpath
         elif spec.startswith(("/", "./", "~/", "../")):
             raise UserInputError(f"{spec_name} must include an agent specification")
         else:
