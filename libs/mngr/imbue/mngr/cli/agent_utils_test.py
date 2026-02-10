@@ -9,7 +9,6 @@ from imbue.mngr.cli.agent_utils import _host_matches_filter
 from imbue.mngr.cli.agent_utils import filter_agents_by_host
 from imbue.mngr.cli.agent_utils import parse_agent_spec
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
-from imbue.mngr.cli.agent_utils import stop_agent_after_sync
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
@@ -17,7 +16,6 @@ from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostReference
-from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import ProviderInstanceName
 
 
@@ -272,34 +270,3 @@ def test_parse_agent_spec_raises_on_conflicting_explicit_agent() -> None:
 def test_parse_agent_spec_raises_on_conflicting_source_agent() -> None:
     with pytest.raises(UserInputError, match="Cannot specify both --source and --source-agent"):
         parse_agent_spec(spec="agent-a:path", explicit_agent="agent-b", spec_name="Source")
-
-
-# =============================================================================
-# stop_agent_after_sync tests
-# =============================================================================
-
-
-@patch("imbue.mngr.cli.agent_utils.emit_info")
-def test_stop_agent_after_sync_dry_run_emits_dry_run_message(mock_emit_info: MagicMock) -> None:
-    mock_agent = MagicMock()
-    mock_host = MagicMock()
-
-    stop_agent_after_sync(mock_agent, mock_host, is_dry_run=True, output_format=OutputFormat.HUMAN)
-
-    mock_emit_info.assert_called_once_with("Dry run: would stop agent after sync", OutputFormat.HUMAN)
-    mock_host.stop_agents.assert_not_called()
-
-
-@patch("imbue.mngr.cli.agent_utils.emit_info")
-def test_stop_agent_after_sync_stops_agent(mock_emit_info: MagicMock) -> None:
-    mock_agent = MagicMock()
-    mock_agent.name = "test-agent"
-    mock_agent.id = AgentId.generate()
-    mock_host = MagicMock()
-
-    stop_agent_after_sync(mock_agent, mock_host, is_dry_run=False, output_format=OutputFormat.HUMAN)
-
-    mock_host.stop_agents.assert_called_once_with([mock_agent.id])
-    assert mock_emit_info.call_count == 2
-    mock_emit_info.assert_any_call("Stopping agent: test-agent", OutputFormat.HUMAN)
-    mock_emit_info.assert_any_call("Agent stopped", OutputFormat.HUMAN)
