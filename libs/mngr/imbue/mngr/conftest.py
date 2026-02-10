@@ -7,7 +7,6 @@ import sys
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from typing import Final
 from typing import Generator
 from typing import NamedTuple
 from uuid import uuid4
@@ -31,6 +30,7 @@ from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
 from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
+from imbue.mngr.utils.testing import TEST_TMUX_SOCKET_NAME
 from imbue.mngr.utils.testing import assert_home_is_temp_directory
 from imbue.mngr.utils.testing import assert_tmux_uses_test_socket
 from imbue.mngr.utils.testing import build_test_tmux_args
@@ -82,9 +82,6 @@ def _remove_deprecated_urwid_module_aliases() -> None:
 _ = SimpleFocusListWalker
 _remove_deprecated_urwid_module_aliases()
 
-
-# Tmux socket name used by all tests to isolate test sessions from production
-TEST_TMUX_SOCKET_NAME: Final[str] = "mngr-test"
 
 # Track test IDs used by this worker/process for cleanup verification.
 # Each xdist worker is a separate process with isolated memory, so this

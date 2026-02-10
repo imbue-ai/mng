@@ -29,9 +29,9 @@ from imbue.mngr.cli.connect import filter_agents
 from imbue.mngr.cli.connect import handle_search_key
 from imbue.mngr.cli.connect import select_agent_interactively
 from imbue.mngr.cli.create import create
-from imbue.mngr.conftest import TEST_TMUX_SOCKET_NAME
 from imbue.mngr.main import cli
 from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.utils.testing import TEST_TMUX_SOCKET_NAME
 from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import tmux_session_exists
 

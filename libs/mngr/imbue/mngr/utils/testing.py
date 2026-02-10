@@ -39,6 +39,9 @@ def build_test_tmux_shell_cmd(subcmd: str) -> str:
     return build_tmux_shell_cmd(os.environ.get("MNGR_TMUX_SOCKET"), subcmd)
 
 
+# Tmux socket name used by all tests to isolate test sessions from production
+TEST_TMUX_SOCKET_NAME: Final[str] = "mngr-test"
+
 # Prefix used for test environments
 MODAL_TEST_ENV_PREFIX: Final[str] = "mngr_test-"
 
