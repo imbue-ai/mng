@@ -55,7 +55,7 @@ class PushCliOptions(CommonCliOptions):
 @optgroup.group("Target Selection")
 @optgroup.option("--target", "target", help="Target specification: AGENT, AGENT:PATH, or PATH")
 @optgroup.option("--target-agent", help="Target agent name or ID")
-@optgroup.option("--target-host", help="Target host name or ID")
+@optgroup.option("--target-host", help="Target host name or ID [future]")
 @optgroup.option("--target-path", help="Path within the agent's work directory")
 @optgroup.group("Source")
 @optgroup.option("--source", "source", type=click.Path(exists=True), help="Local source directory [default: .]")
@@ -87,7 +87,7 @@ class PushCliOptions(CommonCliOptions):
 @optgroup.option(
     "--exclude",
     multiple=True,
-    help="Patterns to exclude from sync [repeatable]",
+    help="Patterns to exclude from sync [repeatable] [future]",
 )
 @optgroup.option(
     "--source-branch",

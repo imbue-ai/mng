@@ -48,7 +48,7 @@ mngr push [OPTIONS] TARGET SOURCE
 | ---- | ---- | ----------- | ------- |
 | `--target` | text | Target specification: AGENT, AGENT:PATH, or PATH | None |
 | `--target-agent` | text | Target agent name or ID | None |
-| `--target-host` | text | Target host name or ID | None |
+| `--target-host` | text | Target host name or ID [future] | None |
 | `--target-path` | text | Path within the agent's work directory | None |
 
 ## Source
@@ -65,7 +65,7 @@ mngr push [OPTIONS] TARGET SOURCE
 | `--stop` | boolean | Stop the agent after pushing (for state consistency) | `False` |
 | `--delete`, `--no-delete` | boolean | Delete files in destination that don't exist in source | `False` |
 | `--sync-mode` | choice (`files` &#x7C; `git` &#x7C; `full`) | What to sync: files (working directory via rsync), git (push git branches), or full (everything) | `files` |
-| `--exclude` | text | Patterns to exclude from sync [repeatable] | None |
+| `--exclude` | text | Patterns to exclude from sync [repeatable] [future] | None |
 | `--source-branch` | text | Branch to push from (git mode only) [default: current branch] | None |
 | `--uncommitted-changes` | choice (`stash` &#x7C; `clobber` &#x7C; `merge` &#x7C; `fail`) | How to handle uncommitted changes in the agent workspace: stash (stash and leave stashed), clobber (overwrite), merge (stash, push, unstash), fail (error if changes exist) | `fail` |
 
