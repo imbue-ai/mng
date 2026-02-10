@@ -9,8 +9,6 @@ from unittest.mock import patch
 
 import pytest
 
-from imbue.imbue_common.model_update import to_update
-from imbue.imbue_common.model_update import to_update_dict
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
@@ -793,20 +791,14 @@ def test_on_before_provisioning_validates_trust_for_worktree(
 def test_on_before_provisioning_skips_trust_check_when_interactive(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
-    temp_mngr_ctx: MngrContext,
+    interactive_mngr_ctx: MngrContext,
     setup_git_config: None,
 ) -> None:
     """on_before_provisioning should skip trust check for interactive runs (provision() handles it)."""
     source_path, worktree_path = _setup_git_worktree(tmp_path)
     # Deliberately do NOT write trust for source_path -- it's untrusted
 
-    interactive_ctx = temp_mngr_ctx.model_copy(
-        update=to_update_dict(
-            to_update(temp_mngr_ctx.field_ref().is_interactive, True),
-        )
-    )
-
-    agent, host = make_claude_agent(local_provider, tmp_path, interactive_ctx, work_dir=worktree_path)
+    agent, host = make_claude_agent(local_provider, tmp_path, interactive_mngr_ctx, work_dir=worktree_path)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
@@ -814,7 +806,7 @@ def test_on_before_provisioning_skips_trust_check_when_interactive(
     )
 
     # Should NOT raise even though source is untrusted -- interactive defers to provision()
-    agent.on_before_provisioning(host=host, options=options, mngr_ctx=interactive_ctx)
+    agent.on_before_provisioning(host=host, options=options, mngr_ctx=interactive_mngr_ctx)
 
 
 def test_on_before_provisioning_skips_trust_check_when_git_common_dir_is_none(
@@ -857,20 +849,14 @@ def test_on_destroy_removes_trust(
 def test_provision_prompts_for_trust_when_interactive(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
-    temp_mngr_ctx: MngrContext,
+    interactive_mngr_ctx: MngrContext,
     setup_git_config: None,
 ) -> None:
     """provision should prompt and add trust when interactive and source is untrusted."""
     source_path, worktree_path = _setup_git_worktree(tmp_path)
     # Source is deliberately untrusted -- no _write_claude_trust(source_path)
 
-    interactive_ctx = temp_mngr_ctx.model_copy(
-        update=to_update_dict(
-            to_update(temp_mngr_ctx.field_ref().is_interactive, True),
-        )
-    )
-
-    agent, host = make_claude_agent(local_provider, tmp_path, interactive_ctx, work_dir=worktree_path)
+    agent, host = make_claude_agent(local_provider, tmp_path, interactive_mngr_ctx, work_dir=worktree_path)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
@@ -881,7 +867,7 @@ def test_provision_prompts_for_trust_when_interactive(
         "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_trust",
         return_value=True,
     ) as mock_prompt:
-        agent.provision(host=host, options=options, mngr_ctx=interactive_ctx)
+        agent.provision(host=host, options=options, mngr_ctx=interactive_mngr_ctx)
 
     # Verify user was prompted for the source directory
     mock_prompt.assert_called_once_with(source_path)
@@ -920,20 +906,14 @@ def test_provision_raises_when_non_interactive_and_untrusted(
 def test_provision_raises_when_user_declines_trust(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
-    temp_mngr_ctx: MngrContext,
+    interactive_mngr_ctx: MngrContext,
     setup_git_config: None,
 ) -> None:
     """provision should raise when user declines the trust prompt."""
     source_path, worktree_path = _setup_git_worktree(tmp_path)
     # Source is deliberately untrusted
 
-    interactive_ctx = temp_mngr_ctx.model_copy(
-        update=to_update_dict(
-            to_update(temp_mngr_ctx.field_ref().is_interactive, True),
-        )
-    )
-
-    agent, host = make_claude_agent(local_provider, tmp_path, interactive_ctx, work_dir=worktree_path)
+    agent, host = make_claude_agent(local_provider, tmp_path, interactive_mngr_ctx, work_dir=worktree_path)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
@@ -945,4 +925,4 @@ def test_provision_raises_when_user_declines_trust(
         return_value=False,
     ):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
-            agent.provision(host=host, options=options, mngr_ctx=interactive_ctx)
+            agent.provision(host=host, options=options, mngr_ctx=interactive_mngr_ctx)

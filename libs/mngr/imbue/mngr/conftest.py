@@ -248,6 +248,21 @@ def temp_config(temp_host_dir: Path, mngr_test_prefix: str) -> MngrConfig:
     return MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
 
 
+def make_mngr_ctx(
+    config: MngrConfig,
+    pm: pluggy.PluginManager,
+    profile_dir: Path,
+    *,
+    is_interactive: bool = False,
+) -> MngrContext:
+    """Create a MngrContext with the given parameters.
+
+    Use this directly in tests that need non-default settings (e.g., interactive mode).
+    Most tests should use the temp_mngr_ctx fixture instead.
+    """
+    return MngrContext(config=config, pm=pm, profile_dir=profile_dir, is_interactive=is_interactive)
+
+
 @pytest.fixture
 def temp_mngr_ctx(
     temp_config: MngrConfig, temp_profile_dir: Path, plugin_manager: pluggy.PluginManager
@@ -256,7 +271,18 @@ def temp_mngr_ctx(
 
     Use this fixture when calling API functions that need a context.
     """
-    return MngrContext(config=temp_config, pm=plugin_manager, profile_dir=temp_profile_dir)
+    return make_mngr_ctx(temp_config, plugin_manager, temp_profile_dir)
+
+
+@pytest.fixture
+def interactive_mngr_ctx(
+    temp_config: MngrConfig, temp_profile_dir: Path, plugin_manager: pluggy.PluginManager
+) -> MngrContext:
+    """Create an interactive MngrContext with a temporary host directory.
+
+    Use this fixture when testing code paths that require is_interactive=True.
+    """
+    return make_mngr_ctx(temp_config, plugin_manager, temp_profile_dir, is_interactive=True)
 
 
 @pytest.fixture
