@@ -9,6 +9,7 @@ from loguru import logger
 from modal._output import OutputManager
 
 from imbue.imbue_common.logging import log_span
+from imbue.mngr.primitives import LogLevel
 from imbue.mngr.utils.logging import register_build_level
 
 # Ensure BUILD level is registered (in case this module is imported before logging.py)
@@ -78,7 +79,7 @@ class _ModalLoguruWriter:
         stripped = text.strip()
         if stripped == "":
             return len(text)
-        logger.log("BUILD", "{}", stripped, source="modal", app_id=self.app_id, app_name=self.app_name)
+        logger.log(LogLevel.BUILD.value, "{}", stripped, source="modal", app_id=self.app_id, app_name=self.app_name)
         return len(text)
 
     def flush(self) -> None:
