@@ -3,16 +3,12 @@
 # stop_hook_reviewer.sh
 #
 # Ensures all reviewers have not found any major or critical issues.
-#
-# Normally launched in parallel by main_claude_stop_hook.sh (which handles
-# common setup once). Can also be run standalone -- in that case,
-# stop_hook_common.sh performs the full setup automatically.
+# Launched by main_claude_stop_hook.sh with TMUX_SESSION, SCRIPT_DIR,
+# CURRENT_BRANCH, and BASE_BRANCH exported in the environment.
 
 set -euo pipefail
 
-# Source shared logic. When launched from main_claude_stop_hook.sh this is a
-# fast no-op (variables already exported, just redefines functions). When run
-# standalone it performs the full setup (stdin, preconditions, fetch/merge/push).
+# Source shared function definitions (log_error, log_warn, log_info, retry_command)
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/stop_hook_common.sh"
 
 # Find all windows named reviewer_* and start review processes as background jobs
