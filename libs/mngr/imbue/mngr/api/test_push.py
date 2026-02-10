@@ -55,6 +55,9 @@ def test_push_files_fail_mode_with_no_uncommitted_changes_succeeds(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=UncommittedChangesMode.FAIL,
     )
 
@@ -77,6 +80,9 @@ def test_push_files_fail_mode_with_uncommitted_changes_raises_error(
             agent=push_ctx.agent,
             host=push_ctx.host,
             source=push_ctx.local_dir,
+            destination_path=None,
+            is_dry_run=False,
+            is_delete=False,
             uncommitted_changes=UncommittedChangesMode.FAIL,
         )
 
@@ -100,6 +106,9 @@ def test_push_files_clobber_mode_overwrites_agent_changes(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
 
@@ -119,6 +128,9 @@ def test_push_files_clobber_mode_when_only_agent_has_changes(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
 
@@ -140,7 +152,9 @@ def test_push_files_clobber_mode_with_delete_flag_removes_agent_only_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
-        delete=True,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
 
@@ -167,6 +181,9 @@ def test_push_files_stash_mode_stashes_changes_and_leaves_stashed(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=UncommittedChangesMode.STASH,
     )
 
@@ -191,6 +208,9 @@ def test_push_files_stash_mode_stashes_untracked_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=UncommittedChangesMode.STASH,
     )
 
@@ -213,6 +233,9 @@ def test_push_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=UncommittedChangesMode.STASH,
     )
 
@@ -240,6 +263,9 @@ def test_push_files_merge_mode_stashes_and_restores_changes(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=UncommittedChangesMode.MERGE,
     )
 
@@ -262,6 +288,9 @@ def test_push_files_merge_mode_restores_untracked_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=UncommittedChangesMode.MERGE,
     )
 
@@ -286,6 +315,9 @@ def test_push_files_merge_mode_when_both_modify_different_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=UncommittedChangesMode.MERGE,
     )
 
@@ -307,6 +339,9 @@ def test_push_files_merge_mode_with_no_uncommitted_changes(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=UncommittedChangesMode.MERGE,
     )
 
@@ -343,6 +378,9 @@ def test_push_files_excludes_git_directory(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
 
@@ -373,7 +411,10 @@ def test_push_files_dry_run_does_not_modify_files(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
-        dry_run=True,
+        destination_path=None,
+        is_dry_run=True,
+        is_delete=False,
+        uncommitted_changes=UncommittedChangesMode.FAIL,
     )
 
     assert not (push_ctx.agent_dir / "new_file.txt").exists()
@@ -398,6 +439,9 @@ def test_push_files_with_custom_destination_path(
         host=push_ctx.host,
         source=push_ctx.local_dir,
         destination_path=custom_dest,
+        is_dry_run=False,
+        is_delete=False,
+        uncommitted_changes=UncommittedChangesMode.FAIL,
     )
 
     assert (custom_dest / "file_from_host.txt").read_text() == "content from host"
@@ -449,6 +493,9 @@ def test_push_files_does_not_modify_host_directory(
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
+        destination_path=None,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=mode,
     )
 
@@ -505,7 +552,11 @@ def test_push_git_basic_push(git_push_ctx: SyncTestContext) -> None:
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
+        source_branch=None,
+        target_branch=None,
+        is_dry_run=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        is_mirror=False,
     )
 
     # The new file should exist on the agent
@@ -527,8 +578,11 @@ def test_push_git_dry_run(git_push_ctx: SyncTestContext) -> None:
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
-        dry_run=True,
+        source_branch=None,
+        target_branch=None,
+        is_dry_run=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        is_mirror=False,
     )
 
     # The new file should NOT exist on the agent (dry run)
@@ -551,7 +605,11 @@ def test_push_git_with_stash_mode(git_push_ctx: SyncTestContext) -> None:
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
+        source_branch=None,
+        target_branch=None,
+        is_dry_run=False,
         uncommitted_changes=UncommittedChangesMode.STASH,
+        is_mirror=False,
     )
 
     # The push should succeed and changes should be stashed
@@ -575,7 +633,11 @@ def test_push_git_with_merge_mode(git_push_ctx: SyncTestContext) -> None:
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
+        source_branch=None,
+        target_branch=None,
+        is_dry_run=False,
         uncommitted_changes=UncommittedChangesMode.MERGE,
+        is_mirror=False,
     )
 
     # The push should succeed and local changes should be restored
@@ -607,7 +669,11 @@ def test_push_git_does_not_modify_host_directory(git_push_ctx: SyncTestContext) 
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
+        source_branch=None,
+        target_branch=None,
+        is_dry_run=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        is_mirror=False,
     )
 
     # Verify host directory is unchanged
@@ -641,9 +707,11 @@ def test_push_git_mirror_mode_dry_run(git_push_ctx: SyncTestContext) -> None:
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
-        mirror=True,
-        dry_run=True,
+        source_branch=None,
+        target_branch=None,
+        is_dry_run=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        is_mirror=True,
     )
 
     # The new file should NOT exist on the agent (dry run)
@@ -672,8 +740,11 @@ def test_push_git_mirror_mode(git_push_ctx: SyncTestContext) -> None:
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
-        mirror=True,
+        source_branch=None,
+        target_branch=None,
+        is_dry_run=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        is_mirror=True,
     )
 
     # Get agent commit after push
@@ -749,6 +820,9 @@ def test_push_files_with_remote_host_raises_not_implemented(
             agent=remote_push_ctx.agent,
             host=remote_push_ctx.host,
             source=remote_push_ctx.local_dir,
+            destination_path=None,
+            is_dry_run=False,
+            is_delete=False,
             uncommitted_changes=UncommittedChangesMode.CLOBBER,
         )
 
@@ -769,7 +843,11 @@ def test_push_git_with_remote_host_raises_not_implemented(
             agent=remote_git_push_ctx.agent,
             host=remote_git_push_ctx.host,
             source=remote_git_push_ctx.local_dir,
+            source_branch=None,
+            target_branch=None,
+            is_dry_run=False,
             uncommitted_changes=UncommittedChangesMode.CLOBBER,
+            is_mirror=False,
         )
 
 
@@ -797,6 +875,8 @@ def test_push_files_to_nonexistent_subdir_creates_directory(
         host=push_ctx.host,
         source=push_ctx.local_dir,
         destination_path=subdir_path,
+        is_dry_run=False,
+        is_delete=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
 

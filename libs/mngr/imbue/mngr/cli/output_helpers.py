@@ -7,9 +7,9 @@ from loguru import logger
 
 from imbue.mngr.api.sync import SyncFilesResult
 from imbue.mngr.api.sync import SyncGitResult
-from imbue.mngr.api.sync import SyncMode
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
+from imbue.mngr.primitives import SyncMode
 
 
 def _write_json_line(data: dict[str, Any]) -> None:

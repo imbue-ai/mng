@@ -130,12 +130,23 @@ class WorkDirCopyMode(UpperCaseStrEnum):
 
 
 class UncommittedChangesMode(UpperCaseStrEnum):
-    """Mode for handling uncommitted changes in the host repo when pulling files."""
+    """Mode for handling uncommitted changes in the destination during sync operations."""
 
     STASH = auto()
     CLOBBER = auto()
     MERGE = auto()
     FAIL = auto()
+
+
+class SyncMode(UpperCaseStrEnum):
+    """Direction of sync operation.
+
+    PUSH: local -> agent
+    PULL: agent -> local
+    """
+
+    PUSH = auto()
+    PULL = auto()
 
 
 class SyncDirection(UpperCaseStrEnum):

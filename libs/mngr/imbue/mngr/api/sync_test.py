@@ -11,11 +11,11 @@ from imbue.mngr.api.sync import NotAGitRepositoryError
 from imbue.mngr.api.sync import RemoteGitContext
 from imbue.mngr.api.sync import SyncFilesResult
 from imbue.mngr.api.sync import SyncGitResult
-from imbue.mngr.api.sync import SyncMode
 from imbue.mngr.api.sync import UncommittedChangesError
 from imbue.mngr.api.test_fixtures import FakeHost
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.primitives import SyncMode
 from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.mngr.utils.testing import run_git_command
 
