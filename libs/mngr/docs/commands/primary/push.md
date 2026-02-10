@@ -73,7 +73,7 @@ mngr push [OPTIONS] TARGET SOURCE
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--mirror` | boolean | Overwrite all refs (branches, tags) in the target to match the source (dangerous). Only applies to git mode. For local agents, uses fetch with forced ref updates since git push cannot update a checked-out branch in a worktree. For remote agents, uses git push --mirror [future]. | `False` |
+| `--mirror` | boolean | Force the agent's git state to match the source, overwriting all refs (branches, tags) and resetting the working tree (dangerous). Any commits or branches that exist only in the agent will be lost. Only applies to --sync-mode=git. Required when the agent and source have diverged (non-fast-forward). For remote agents, uses git push --mirror [future]. | `False` |
 | `--rsync-only` | boolean | Use rsync even if git is available in both source and destination | `False` |
 
 ## Common
