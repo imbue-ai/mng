@@ -4,6 +4,7 @@ from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.cli.connect import select_agent_interactively
+from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -12,6 +13,7 @@ from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostReference
+from imbue.mngr.primitives import OutputFormat
 
 
 def _host_matches_filter(host_ref: HostReference, host_filter: str) -> bool:
@@ -68,3 +70,50 @@ def select_agent_interactively_with_host(
     # Find the actual agent and host from the selection
     agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
     return find_and_maybe_start_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "select")
+
+
+def parse_agent_spec(
+    spec: str | None,
+    explicit_agent: str | None,
+    # Used in error messages, e.g. "Target" or "Source"
+    spec_name: str,
+    default_subpath: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Parse an AGENT, AGENT:PATH, or PATH specification string.
+
+    Returns (agent_identifier, subpath).
+    """
+    agent_identifier: str | None = None
+    subpath: str | None = default_subpath
+
+    if spec is not None:
+        if ":" in spec:
+            agent_identifier, subpath = spec.split(":", 1)
+        elif spec.startswith(("/", "./", "~/", "../")):
+            raise UserInputError(f"{spec_name} must include an agent specification")
+        else:
+            agent_identifier = spec
+
+    if explicit_agent is not None:
+        if agent_identifier is not None and agent_identifier != explicit_agent:
+            raise UserInputError(
+                f"Cannot specify both --{spec_name.lower()} and --{spec_name.lower()}-agent with different values"
+            )
+        agent_identifier = explicit_agent
+
+    return agent_identifier, subpath
+
+
+def stop_agent_after_sync(
+    agent: AgentInterface,
+    host: OnlineHostInterface,
+    is_dry_run: bool,
+    output_format: OutputFormat,
+) -> None:
+    """Stop an agent after a sync operation, respecting dry-run mode."""
+    if is_dry_run:
+        emit_info("Dry run: would stop agent after sync", output_format)
+    else:
+        emit_info(f"Stopping agent: {agent.name}", output_format)
+        host.stop_agents([agent.id])
+        emit_info("Agent stopped", output_format)

@@ -25,14 +25,14 @@ Examples:
   mngr push my-agent
   mngr push my-agent ./local-dir
   mngr push my-agent:subdir ./local-src
-  mngr push --target-agent my-agent --source ./local-dir
+  mngr push my-agent --source ./local-dir
   mngr push my-agent --sync-mode=git
   mngr push my-agent --sync-mode=git --mirror
 
 **Usage:**
 
 ```text
-mngr push [OPTIONS] [TARGET] [SOURCE]
+mngr push [OPTIONS] TARGET SOURCE
 ```
 
 ## Arguments
@@ -48,7 +48,7 @@ mngr push [OPTIONS] [TARGET] [SOURCE]
 | ---- | ---- | ----------- | ------- |
 | `--target` | text | Target specification: AGENT, AGENT:PATH, or PATH | None |
 | `--target-agent` | text | Target agent name or ID | None |
-| `--target-host` | text | Target host name or ID | None |
+| `--target-host` | text | Target host name or ID [future] | None |
 | `--target-path` | text | Path within the agent's work directory | None |
 
 ## Source
@@ -64,8 +64,8 @@ mngr push [OPTIONS] [TARGET] [SOURCE]
 | `--dry-run` | boolean | Show what would be transferred without actually transferring | `False` |
 | `--stop` | boolean | Stop the agent after pushing (for state consistency) | `False` |
 | `--delete`, `--no-delete` | boolean | Delete files in destination that don't exist in source | `False` |
-| `--sync-mode` | choice (`files` &#x7C; `git` &#x7C; `full`) | What to sync: files (working directory via rsync), git (push git branches), or full (everything) | `files` |
-| `--exclude` | text | Patterns to exclude from sync [repeatable] | None |
+| `--sync-mode` | choice (`files` &#x7C; `git` &#x7C; `full`) | What to sync: files (working directory via rsync), git (push git branches), or full (everything) [future] | `files` |
+| `--exclude` | text | Patterns to exclude from sync [repeatable] [future] | None |
 | `--source-branch` | text | Branch to push from (git mode only) [default: current branch] | None |
 | `--uncommitted-changes` | choice (`stash` &#x7C; `clobber` &#x7C; `merge` &#x7C; `fail`) | How to handle uncommitted changes in the agent workspace: stash (stash and leave stashed), clobber (overwrite), merge (stash, push, unstash), fail (error if changes exist) | `fail` |
 
@@ -73,7 +73,7 @@ mngr push [OPTIONS] [TARGET] [SOURCE]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--mirror` | boolean | Overwrite all refs (branches, tags) in the target to match the source (dangerous). Only applies to git mode. For local agents, uses fetch with forced ref updates since git push cannot update a checked-out branch in a worktree. For remote agents, uses git push --mirror [future]. | `False` |
+| `--mirror` | boolean | Force the agent's git state to match the source, overwriting all refs (branches, tags) and resetting the working tree (dangerous). Any commits or branches that exist only in the agent will be lost. Only applies to --sync-mode=git. Required when the agent and source have diverged (non-fast-forward). For remote agents, uses git push --mirror [future]. | `False` |
 | `--rsync-only` | boolean | Use rsync even if git is available in both source and destination | `False` |
 
 ## Common

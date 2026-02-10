@@ -9,7 +9,9 @@ from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.api.pull import pull_git
+from imbue.mngr.cli.agent_utils import parse_agent_spec
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
+from imbue.mngr.cli.agent_utils import stop_agent_after_sync
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -31,6 +33,8 @@ class PullCliOptions(CommonCliOptions):
     Inherits common options (output_format, quiet, verbose, etc.) from CommonCliOptions.
     """
 
+    source_pos: str | None
+    destination_pos: str | None
     source: str | None
     source_agent: str | None
     source_host: str | None
@@ -65,8 +69,8 @@ class PullCliOptions(CommonCliOptions):
 
 
 @click.command()
-@click.argument("source", default=None, required=False)
-@click.argument("destination", default=None, required=False)
+@click.argument("source_pos", default=None, required=False, metavar="SOURCE")
+@click.argument("destination_pos", default=None, required=False, metavar="DESTINATION")
 @optgroup.group("Source Selection")
 @optgroup.option("--source", "source", help="Source specification: AGENT, AGENT:PATH, or PATH")
 @optgroup.option("--source-agent", help="Source agent name or ID")
@@ -102,7 +106,7 @@ class PullCliOptions(CommonCliOptions):
     type=click.Choice(["files", "git", "full"], case_sensitive=False),
     default="files",
     show_default=True,
-    help="What to sync: files (working directory via rsync), git (merge git branches), or full (everything)",
+    help="What to sync: files (working directory via rsync), git (merge git branches), or full (everything) [future]",
 )
 @optgroup.option(
     "--exclude",
@@ -197,6 +201,10 @@ def pull(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("started pull command")
 
+    # Merge positional and named arguments (named option takes precedence)
+    effective_source = opts.source if opts.source is not None else opts.source_pos
+    effective_destination = opts.destination if opts.destination is not None else opts.destination_pos
+
     # Check for unsupported options
     if opts.sync_mode == "full":
         raise NotImplementedError("--sync-mode=full is not implemented yet")
@@ -258,29 +266,15 @@ def pull(ctx: click.Context, **kwargs) -> None:
         raise NotImplementedError("--uncommitted-source is not implemented yet")
 
     # Parse source specification
-    agent_identifier: str | None = None
-    source_path: str | None = opts.source_path
-
-    if opts.source is not None:
-        # Parse source string: AGENT, AGENT:PATH, or PATH
-        if ":" in opts.source:
-            # AGENT:PATH format
-            agent_identifier, source_path = opts.source.split(":", 1)
-        elif opts.source.startswith(("/", "./", "~/", "../")):
-            # PATH format - not supported without agent
-            raise UserInputError("Source must include an agent specification")
-        else:
-            # AGENT format
-            agent_identifier = opts.source
-
-    # Override with explicit options if provided
-    if opts.source_agent is not None:
-        if agent_identifier is not None and agent_identifier != opts.source_agent:
-            raise UserInputError("Cannot specify both --source and --source-agent with different values")
-        agent_identifier = opts.source_agent
+    agent_identifier, source_path = parse_agent_spec(
+        spec=effective_source,
+        explicit_agent=opts.source_agent,
+        spec_name="Source",
+        default_subpath=opts.source_path,
+    )
 
     # Determine destination
-    destination_path = Path(opts.destination) if opts.destination else Path.cwd()
+    destination_path = Path(effective_destination) if effective_destination else Path.cwd()
 
     # Find the agent
     agent: AgentInterface
@@ -311,6 +305,12 @@ def pull(ctx: click.Context, **kwargs) -> None:
     uncommitted_changes_mode = UncommittedChangesMode(opts.uncommitted_changes.upper())
 
     if opts.sync_mode == "git":
+        if source_path is not None:
+            raise UserInputError(
+                "--sync-mode=git operates on the entire repository; "
+                "subpath specifications (AGENT:PATH or --source-path) are not supported in git mode"
+            )
+
         # Git mode: merge branches
         # source_branch=None means use agent's current branch
         git_result = pull_git(
@@ -323,13 +323,11 @@ def pull(ctx: click.Context, **kwargs) -> None:
             uncommitted_changes=uncommitted_changes_mode,
         )
 
-        # Stop agent if requested
-        if opts.stop:
-            emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
-            host.stop_agents([agent.id])
-            emit_info("Agent stopped", output_opts.output_format)
-
         output_sync_git_result(git_result, output_opts.output_format)
+
+        # Stop agent if requested (after outputting result so it's not lost if stop fails)
+        if opts.stop:
+            stop_agent_after_sync(agent, host, opts.dry_run, output_opts.output_format)
     else:
         # Files mode: rsync
         # Parse source_path if provided
@@ -352,13 +350,11 @@ def pull(ctx: click.Context, **kwargs) -> None:
             uncommitted_changes=uncommitted_changes_mode,
         )
 
-        # Stop agent if requested
-        if opts.stop:
-            emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
-            host.stop_agents([agent.id])
-            emit_info("Agent stopped", output_opts.output_format)
-
         output_sync_files_result(files_result, output_opts.output_format)
+
+        # Stop agent if requested (after outputting result so it's not lost if stop fails)
+        if opts.stop:
+            stop_agent_after_sync(agent, host, opts.dry_run, output_opts.output_format)
 
 
 # Register help metadata for git-style help formatting

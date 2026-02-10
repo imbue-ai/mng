@@ -15,18 +15,6 @@ class BaseMngrError(Exception):
     """Base exception for all mngr errors."""
 
 
-def format_mngr_error_for_cli(error: Exception, user_help_text: str | None) -> str:
-    """Format an error for display in the CLI.
-
-    Produces a user-friendly error message without a stack trace.
-    If the error has user_help_text, it is appended on a new line after the error message.
-    """
-    if user_help_text:
-        return str(error) + "  [" + user_help_text + "]"
-    else:
-        return str(error)
-
-
 class MngrError(ClickException, BaseMngrError):
     """Base exception for all user-facing mngr errors.
 
@@ -38,8 +26,9 @@ class MngrError(ClickException, BaseMngrError):
     user_help_text: str | None = None
 
     def format_message(self) -> str:
-        error_message = format_mngr_error_for_cli(self, self.user_help_text)
-        return error_message
+        if self.user_help_text:
+            return str(self) + "  [" + self.user_help_text + "]"
+        return str(self)
 
 
 class UserInputError(MngrError):

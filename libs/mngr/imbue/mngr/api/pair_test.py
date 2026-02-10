@@ -212,8 +212,8 @@ def test_determine_git_sync_returns_no_action_when_both_in_sync(tmp_path: Path) 
     result = determine_git_sync_actions(source, target)
 
     assert result is not None
-    assert result.source_is_ahead is False
-    assert result.target_is_ahead is False
+    assert result.agent_is_ahead is False
+    assert result.local_is_ahead is False
 
 
 def test_determine_git_sync_detects_source_ahead(tmp_path: Path) -> None:
@@ -239,8 +239,8 @@ def test_determine_git_sync_detects_source_ahead(tmp_path: Path) -> None:
     result = determine_git_sync_actions(source, target)
 
     assert result is not None
-    assert result.source_is_ahead is True
-    assert result.target_is_ahead is False
+    assert result.agent_is_ahead is True
+    assert result.local_is_ahead is False
 
 
 def test_determine_git_sync_detects_target_ahead(tmp_path: Path) -> None:
@@ -268,8 +268,8 @@ def test_determine_git_sync_detects_target_ahead(tmp_path: Path) -> None:
     result = determine_git_sync_actions(source, target)
 
     assert result is not None
-    assert result.source_is_ahead is False
-    assert result.target_is_ahead is True
+    assert result.agent_is_ahead is False
+    assert result.local_is_ahead is True
 
 
 def test_determine_git_sync_detects_both_diverged(tmp_path: Path) -> None:
@@ -302,8 +302,8 @@ def test_determine_git_sync_detects_both_diverged(tmp_path: Path) -> None:
     result = determine_git_sync_actions(source, target)
 
     assert result is not None
-    assert result.source_is_ahead is True
-    assert result.target_is_ahead is True
+    assert result.agent_is_ahead is True
+    assert result.local_is_ahead is True
 
 
 # =============================================================================
@@ -314,11 +314,11 @@ def test_determine_git_sync_detects_both_diverged(tmp_path: Path) -> None:
 def test_git_sync_action_default_values() -> None:
     """Test that GitSyncAction has correct default values."""
     action = GitSyncAction(
-        source_branch="main",
-        target_branch="main",
+        agent_branch="main",
+        local_branch="main",
     )
 
-    assert action.source_is_ahead is False
-    assert action.target_is_ahead is False
-    assert action.source_branch == "main"
-    assert action.target_branch == "main"
+    assert action.agent_is_ahead is False
+    assert action.local_is_ahead is False
+    assert action.agent_branch == "main"
+    assert action.local_branch == "main"

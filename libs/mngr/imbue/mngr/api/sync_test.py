@@ -1,8 +1,7 @@
 """Unit tests for sync API functions."""
 
 from pathlib import Path
-from unittest.mock import MagicMock
-from unittest.mock import patch
+from typing import cast
 
 import pytest
 
@@ -14,9 +13,11 @@ from imbue.mngr.api.sync import SyncFilesResult
 from imbue.mngr.api.sync import SyncGitResult
 from imbue.mngr.api.sync import SyncMode
 from imbue.mngr.api.sync import UncommittedChangesError
-from imbue.mngr.api.sync import handle_uncommitted_changes
+from imbue.mngr.api.test_fixtures import FakeHost
 from imbue.mngr.errors import MngrError
-from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.utils.testing import init_git_repo_with_config
+from imbue.mngr.utils.testing import run_git_command
 
 # =============================================================================
 # SyncMode enum tests
@@ -184,276 +185,252 @@ def test_git_sync_error_provides_user_help_text() -> None:
 
 
 # =============================================================================
-# LocalGitContext tests
+# LocalGitContext tests (using real git repos)
 # =============================================================================
 
 
-@patch("subprocess.run")
 def test_local_git_context_has_uncommitted_changes_returns_true_when_changes_exist(
-    mock_run: MagicMock,
+    tmp_path: Path,
 ) -> None:
-    mock_run.return_value = MagicMock(returncode=0, stdout="M file.txt\n")
+    init_git_repo_with_config(tmp_path)
+    (tmp_path / "dirty.txt").write_text("dirty")
+
     ctx = LocalGitContext()
-    assert ctx.has_uncommitted_changes(Path("/test")) is True
+    assert ctx.has_uncommitted_changes(tmp_path) is True
 
 
-@patch("subprocess.run")
 def test_local_git_context_has_uncommitted_changes_returns_false_when_clean(
-    mock_run: MagicMock,
+    tmp_path: Path,
 ) -> None:
-    mock_run.return_value = MagicMock(returncode=0, stdout="")
+    init_git_repo_with_config(tmp_path)
+
     ctx = LocalGitContext()
-    assert ctx.has_uncommitted_changes(Path("/test")) is False
+    assert ctx.has_uncommitted_changes(tmp_path) is False
 
 
-@patch("subprocess.run")
-def test_local_git_context_has_uncommitted_changes_raises_on_error(
-    mock_run: MagicMock,
+def test_local_git_context_has_uncommitted_changes_raises_on_non_git_dir(
+    tmp_path: Path,
 ) -> None:
-    mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="fatal: not a git repository")
     ctx = LocalGitContext()
     with pytest.raises(MngrError, match="git status failed"):
-        ctx.has_uncommitted_changes(Path("/test"))
+        ctx.has_uncommitted_changes(tmp_path)
 
 
-@patch("subprocess.run")
 def test_local_git_context_git_stash_returns_true_on_success(
-    mock_run: MagicMock,
+    tmp_path: Path,
 ) -> None:
-    mock_run.return_value = MagicMock(returncode=0, stdout="Saved working directory")
+    init_git_repo_with_config(tmp_path)
+    (tmp_path / "README.md").write_text("modified")
+
     ctx = LocalGitContext()
-    result = ctx.git_stash(Path("/test"))
+    result = ctx.git_stash(tmp_path)
     assert result is True
 
 
-@patch("subprocess.run")
 def test_local_git_context_git_stash_returns_false_when_no_changes_to_save(
-    mock_run: MagicMock,
+    tmp_path: Path,
 ) -> None:
-    mock_run.return_value = MagicMock(returncode=0, stdout="No local changes to save")
+    init_git_repo_with_config(tmp_path)
+
     ctx = LocalGitContext()
-    result = ctx.git_stash(Path("/test"))
+    result = ctx.git_stash(tmp_path)
     assert result is False
 
 
-@patch("subprocess.run")
-def test_local_git_context_git_stash_raises_on_failure(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=1, stderr="error")
+def test_local_git_context_git_stash_pop_succeeds(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
+    (tmp_path / "README.md").write_text("modified")
+
     ctx = LocalGitContext()
-    with pytest.raises(MngrError, match="git stash failed"):
-        ctx.git_stash(Path("/test"))
+    ctx.git_stash(tmp_path)
+    ctx.git_stash_pop(tmp_path)
+
+    assert (tmp_path / "README.md").read_text() == "modified"
 
 
-@patch("subprocess.run")
-def test_local_git_context_git_stash_pop_succeeds(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=0)
-    ctx = LocalGitContext()
-    ctx.git_stash_pop(Path("/test"))
+def test_local_git_context_git_stash_pop_raises_when_no_stash(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
 
-
-@patch("subprocess.run")
-def test_local_git_context_git_stash_pop_raises_on_failure(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=1, stderr="error")
     ctx = LocalGitContext()
     with pytest.raises(MngrError, match="git stash pop failed"):
-        ctx.git_stash_pop(Path("/test"))
+        ctx.git_stash_pop(tmp_path)
 
 
-@patch("subprocess.run")
-def test_local_git_context_git_reset_hard_succeeds(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=0)
+def test_local_git_context_git_reset_hard_succeeds(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
+    (tmp_path / "README.md").write_text("modified")
+    (tmp_path / "untracked.txt").write_text("untracked")
+
     ctx = LocalGitContext()
-    ctx.git_reset_hard(Path("/test"))
+    ctx.git_reset_hard(tmp_path)
+
+    assert (tmp_path / "README.md").read_text() == "Initial content"
+    assert not (tmp_path / "untracked.txt").exists()
 
 
-@patch("subprocess.run")
-def test_local_git_context_git_reset_hard_raises_on_failure(mock_run: MagicMock) -> None:
-    mock_run.return_value = MagicMock(returncode=1, stderr="error")
-    ctx = LocalGitContext()
-    with pytest.raises(MngrError, match="git reset --hard failed"):
-        ctx.git_reset_hard(Path("/test"))
-
-
-@patch("imbue.mngr.api.sync.get_current_branch", return_value="main")
 def test_local_git_context_get_current_branch_returns_branch_name(
-    mock_branch: MagicMock,
+    tmp_path: Path,
 ) -> None:
+    init_git_repo_with_config(tmp_path)
+
     ctx = LocalGitContext()
-    assert ctx.get_current_branch(Path("/test")) == "main"
+    assert ctx.get_current_branch(tmp_path) == "main"
 
 
-@patch("imbue.mngr.api.sync.is_git_repository", return_value=True)
 def test_local_git_context_is_git_repository_returns_true_for_git_repo(
-    mock_is_git: MagicMock,
+    tmp_path: Path,
 ) -> None:
+    init_git_repo_with_config(tmp_path)
+
     ctx = LocalGitContext()
-    assert ctx.is_git_repository(Path("/test")) is True
+    assert ctx.is_git_repository(tmp_path) is True
 
 
-@patch("imbue.mngr.api.sync.is_git_repository", return_value=False)
 def test_local_git_context_is_git_repository_returns_false_for_non_git_dir(
-    mock_is_git: MagicMock,
+    tmp_path: Path,
 ) -> None:
     ctx = LocalGitContext()
-    assert ctx.is_git_repository(Path("/test")) is False
+    assert ctx.is_git_repository(tmp_path) is False
 
 
 # =============================================================================
-# RemoteGitContext tests
+# RemoteGitContext tests (using FakeHost with real git repos)
 # =============================================================================
 
 
-def test_remote_git_context_has_uncommitted_changes_returns_true_when_changes_exist() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=True, stdout="M file.txt\n")
-    ctx = RemoteGitContext(host=mock_host)
-    assert ctx.has_uncommitted_changes(Path("/test")) is True
+def test_remote_git_context_has_uncommitted_changes_returns_true_when_changes_exist(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
+    (tmp_path / "dirty.txt").write_text("dirty")
+
+    host = cast(OnlineHostInterface, FakeHost())
+    ctx = RemoteGitContext(host=host)
+    assert ctx.has_uncommitted_changes(tmp_path) is True
 
 
-def test_remote_git_context_has_uncommitted_changes_returns_false_when_clean() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=True, stdout="")
-    ctx = RemoteGitContext(host=mock_host)
-    assert ctx.has_uncommitted_changes(Path("/test")) is False
+def test_remote_git_context_has_uncommitted_changes_returns_false_when_clean(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
+
+    host = cast(OnlineHostInterface, FakeHost())
+    ctx = RemoteGitContext(host=host)
+    assert ctx.has_uncommitted_changes(tmp_path) is False
 
 
-def test_remote_git_context_has_uncommitted_changes_raises_on_error() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=False, stdout="", stderr="fatal: not a git repository")
-    ctx = RemoteGitContext(host=mock_host)
+def test_remote_git_context_has_uncommitted_changes_raises_on_non_git_dir(
+    tmp_path: Path,
+) -> None:
+    host = cast(OnlineHostInterface, FakeHost())
+    ctx = RemoteGitContext(host=host)
     with pytest.raises(MngrError, match="git status failed"):
-        ctx.has_uncommitted_changes(Path("/test"))
+        ctx.has_uncommitted_changes(tmp_path)
 
 
-def test_remote_git_context_git_stash_returns_true_on_success() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=True, stdout="Saved")
-    ctx = RemoteGitContext(host=mock_host)
-    result = ctx.git_stash(Path("/test"))
+def test_remote_git_context_git_stash_returns_true_on_success(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
+    (tmp_path / "README.md").write_text("modified")
+
+    host = cast(OnlineHostInterface, FakeHost())
+    ctx = RemoteGitContext(host=host)
+    result = ctx.git_stash(tmp_path)
     assert result is True
 
 
-def test_remote_git_context_git_stash_returns_false_when_no_changes_to_save() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=True, stdout="No local changes to save")
-    ctx = RemoteGitContext(host=mock_host)
-    result = ctx.git_stash(Path("/test"))
+def test_remote_git_context_git_stash_returns_false_when_no_changes_to_save(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
+
+    host = cast(OnlineHostInterface, FakeHost())
+    ctx = RemoteGitContext(host=host)
+    result = ctx.git_stash(tmp_path)
     assert result is False
 
 
-def test_remote_git_context_git_stash_raises_on_failure() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=False, stderr="error")
-    ctx = RemoteGitContext(host=mock_host)
-    with pytest.raises(MngrError, match="git stash failed"):
-        ctx.git_stash(Path("/test"))
+def test_remote_git_context_git_stash_pop_succeeds(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
+    (tmp_path / "README.md").write_text("modified")
+
+    host = cast(OnlineHostInterface, FakeHost())
+    ctx = RemoteGitContext(host=host)
+    ctx.git_stash(tmp_path)
+    ctx.git_stash_pop(tmp_path)
+
+    assert (tmp_path / "README.md").read_text() == "modified"
 
 
-def test_remote_git_context_git_stash_pop_succeeds() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=True)
-    ctx = RemoteGitContext(host=mock_host)
-    ctx.git_stash_pop(Path("/test"))
+def test_remote_git_context_git_stash_pop_raises_when_no_stash(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
 
-
-def test_remote_git_context_git_stash_pop_raises_on_failure() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=False, stderr="error")
-    ctx = RemoteGitContext(host=mock_host)
+    host = cast(OnlineHostInterface, FakeHost())
+    ctx = RemoteGitContext(host=host)
     with pytest.raises(MngrError, match="git stash pop failed"):
-        ctx.git_stash_pop(Path("/test"))
+        ctx.git_stash_pop(tmp_path)
 
 
-def test_remote_git_context_git_reset_hard_succeeds() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=True)
-    ctx = RemoteGitContext(host=mock_host)
-    ctx.git_reset_hard(Path("/test"))
+def test_remote_git_context_git_reset_hard_succeeds(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
+    (tmp_path / "README.md").write_text("modified")
+    (tmp_path / "untracked.txt").write_text("untracked")
+
+    host = cast(OnlineHostInterface, FakeHost())
+    ctx = RemoteGitContext(host=host)
+    ctx.git_reset_hard(tmp_path)
+
+    assert (tmp_path / "README.md").read_text() == "Initial content"
+    assert not (tmp_path / "untracked.txt").exists()
 
 
-def test_remote_git_context_git_reset_hard_raises_on_failure() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=False, stderr="error")
-    ctx = RemoteGitContext(host=mock_host)
-    with pytest.raises(MngrError, match="git reset --hard failed"):
-        ctx.git_reset_hard(Path("/test"))
+def test_remote_git_context_get_current_branch_returns_branch_name(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
+
+    host = cast(OnlineHostInterface, FakeHost())
+    ctx = RemoteGitContext(host=host)
+    assert ctx.get_current_branch(tmp_path) == "main"
 
 
-def test_remote_git_context_get_current_branch_returns_branch_name() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=True, stdout="main\n")
-    ctx = RemoteGitContext(host=mock_host)
-    assert ctx.get_current_branch(Path("/test")) == "main"
+def test_remote_git_context_get_current_branch_returns_feature_branch(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
+    run_git_command(tmp_path, "checkout", "-b", "feature-branch")
+
+    host = cast(OnlineHostInterface, FakeHost())
+    ctx = RemoteGitContext(host=host)
+    assert ctx.get_current_branch(tmp_path) == "feature-branch"
 
 
-def test_remote_git_context_get_current_branch_raises_on_failure() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=False, stderr="error")
-    ctx = RemoteGitContext(host=mock_host)
-    with pytest.raises(MngrError, match="Failed to get current branch"):
-        ctx.get_current_branch(Path("/test"))
+def test_remote_git_context_is_git_repository_returns_true_for_git_repo(
+    tmp_path: Path,
+) -> None:
+    init_git_repo_with_config(tmp_path)
+
+    host = cast(OnlineHostInterface, FakeHost())
+    ctx = RemoteGitContext(host=host)
+    assert ctx.is_git_repository(tmp_path) is True
 
 
-def test_remote_git_context_is_git_repository_returns_true_for_git_repo() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=True)
-    ctx = RemoteGitContext(host=mock_host)
-    assert ctx.is_git_repository(Path("/test")) is True
-
-
-def test_remote_git_context_is_git_repository_returns_false_for_non_git_dir() -> None:
-    mock_host = MagicMock()
-    mock_host.execute_command.return_value = MagicMock(success=False)
-    ctx = RemoteGitContext(host=mock_host)
-    assert ctx.is_git_repository(Path("/test")) is False
-
-
-# =============================================================================
-# handle_uncommitted_changes tests
-# =============================================================================
-
-
-def test_handle_uncommitted_changes_returns_false_when_no_uncommitted_changes() -> None:
-    mock_ctx = MagicMock()
-    mock_ctx.has_uncommitted_changes.return_value = False
-
-    result = handle_uncommitted_changes(mock_ctx, Path("/test"), UncommittedChangesMode.FAIL)
-    assert result is False
-
-
-def test_handle_uncommitted_changes_raises_error_in_fail_mode() -> None:
-    mock_ctx = MagicMock()
-    mock_ctx.has_uncommitted_changes.return_value = True
-
-    with pytest.raises(UncommittedChangesError) as exc_info:
-        handle_uncommitted_changes(mock_ctx, Path("/test"), UncommittedChangesMode.FAIL)
-    assert exc_info.value.destination == Path("/test")
-
-
-def test_handle_uncommitted_changes_stashes_and_returns_true_in_stash_mode() -> None:
-    mock_ctx = MagicMock()
-    mock_ctx.has_uncommitted_changes.return_value = True
-    mock_ctx.git_stash.return_value = True
-
-    result = handle_uncommitted_changes(mock_ctx, Path("/test"), UncommittedChangesMode.STASH)
-    assert result is True
-    mock_ctx.git_stash.assert_called_once_with(Path("/test"))
-
-
-def test_handle_uncommitted_changes_stashes_and_returns_true_in_merge_mode() -> None:
-    mock_ctx = MagicMock()
-    mock_ctx.has_uncommitted_changes.return_value = True
-    mock_ctx.git_stash.return_value = True
-
-    result = handle_uncommitted_changes(mock_ctx, Path("/test"), UncommittedChangesMode.MERGE)
-    assert result is True
-    mock_ctx.git_stash.assert_called_once_with(Path("/test"))
-
-
-def test_handle_uncommitted_changes_resets_hard_in_clobber_mode() -> None:
-    mock_ctx = MagicMock()
-    mock_ctx.has_uncommitted_changes.return_value = True
-
-    result = handle_uncommitted_changes(mock_ctx, Path("/test"), UncommittedChangesMode.CLOBBER)
-    assert result is False
-    mock_ctx.git_reset_hard.assert_called_once_with(Path("/test"))
+def test_remote_git_context_is_git_repository_returns_false_for_non_git_dir(
+    tmp_path: Path,
+) -> None:
+    host = cast(OnlineHostInterface, FakeHost())
+    ctx = RemoteGitContext(host=host)
+    assert ctx.is_git_repository(tmp_path) is False

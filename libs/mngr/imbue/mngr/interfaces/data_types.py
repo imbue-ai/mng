@@ -344,10 +344,10 @@ class RelativePath(PurePosixPath):
     """
 
     def __new__(cls, *args: str | Path) -> "RelativePath":
-        instance = super().__new__(cls, *args)
-        if instance.is_absolute():
-            raise InvalidRelativePathError(str(instance))
-        return instance
+        path_str = str(PurePosixPath(*args))
+        if path_str.startswith("/"):
+            raise InvalidRelativePathError(path_str)
+        return super().__new__(cls, *args)
 
     @classmethod
     def _validate(cls, value: Any) -> "RelativePath":

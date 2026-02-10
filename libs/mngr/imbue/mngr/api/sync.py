@@ -24,6 +24,7 @@ from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.git_utils import count_commits_between
 from imbue.mngr.utils.git_utils import get_current_branch
 from imbue.mngr.utils.git_utils import get_head_commit
+from imbue.mngr.utils.git_utils import is_ancestor
 from imbue.mngr.utils.git_utils import is_git_repository
 from imbue.mngr.utils.rsync_utils import parse_rsync_output
 
@@ -347,11 +348,24 @@ def sync_files(
         git_ctx = LocalGitContext()
 
     # Handle uncommitted changes in the destination
-    # Note: CLOBBER mode skips this check - it means "proceed with sync regardless of
-    # uncommitted changes" rather than "reset git state before sync"
+    # Note: CLOBBER mode skips this check entirely in the file sync path -- it means
+    # "proceed with rsync regardless of uncommitted changes" and overwrites files
+    # in-place. This differs from handle_uncommitted_changes with CLOBBER in the git
+    # sync path (_sync_git_pull / _sync_git_push), where CLOBBER calls git_reset_hard
+    # to discard changes before merging.
+    #
+    # Skip the uncommitted changes check if the destination doesn't exist yet
+    # (e.g. pushing to a new subdirectory) or if the destination isn't a git repo
+    # (e.g. pulling to a plain directory with --sync-mode=files).
     did_stash = False
-    if uncommitted_changes != UncommittedChangesMode.CLOBBER:
+    is_destination_git_repo = destination_path.is_dir() and git_ctx.is_git_repository(destination_path)
+    if uncommitted_changes != UncommittedChangesMode.CLOBBER and is_destination_git_repo:
         did_stash = handle_uncommitted_changes(git_ctx, destination_path, uncommitted_changes)
+
+    # Ensure destination directory exists for push mode subdirectory targets.
+    # For pull mode, rsync will create the destination directory if needed.
+    if mode == SyncMode.PUSH and not destination_path.is_dir():
+        destination_path.mkdir(parents=True, exist_ok=True)
 
     # Build rsync command
     rsync_cmd = ["rsync", "-avz", "--stats", "--exclude=.git"]
@@ -450,23 +464,28 @@ def _sync_git_push(
             # branch checked out (receive.denyCurrentBranch).
             target_git_dir = str(destination_path)
 
-            # Count commits that will be pushed
-            commits_to_push = count_commits_between(
-                local_path,
-                target_branch,
-                source_branch,
-            )
-
             if mirror:
                 logger.debug("Performing mirror fetch to {}", target_git_dir)
 
+                # Record pre-fetch HEAD for accurate commit counting
+                pre_fetch_head = get_head_commit(destination_path)
+
                 if dry_run:
+                    # For dry run, estimate using pre_fetch_head (the agent's current
+                    # HEAD). target_branch is a branch name that may not exist locally,
+                    # but pre_fetch_head is a commit hash valid in both repos since
+                    # local agents share the same git object store.
+                    if pre_fetch_head is not None:
+                        estimated_commits = count_commits_between(local_path, pre_fetch_head, source_branch)
+                    else:
+                        estimated_commits = 0
                     logger.debug(
                         "Dry run: would push {} commits (mirror) from {} to {}",
-                        commits_to_push,
+                        estimated_commits,
                         source_branch,
                         target_branch,
                     )
+                    commits_transferred = estimated_commits
                 else:
                     # Fetch all refs from source into target.
                     # --update-head-ok is needed because git otherwise refuses to
@@ -488,26 +507,47 @@ def _sync_git_push(
                     if result.returncode != 0:
                         raise GitSyncError(result.stderr)
 
-                    # Reset working tree to match
+                    # Reset working tree to match the source branch content.
+                    # We do NOT checkout source_branch because in the worktree case
+                    # (local agents), the source branch may already be checked out in
+                    # the source worktree, and git forbids two worktrees from having
+                    # the same branch checked out. Instead, stay on the current branch
+                    # and reset to the source branch's commit.
                     reset_result = host.execute_command(
-                        f"git reset --hard {target_branch}",
+                        f"git reset --hard refs/heads/{source_branch}",
                         cwd=destination_path,
                     )
                     if not reset_result.success:
                         raise GitSyncError(f"Failed to update working tree: {reset_result.stderr}")
 
-                commits_transferred = commits_to_push
+                    # Count actual commits transferred by comparing pre/post HEAD
+                    post_fetch_head = get_head_commit(destination_path)
+                    if (
+                        pre_fetch_head is not None
+                        and post_fetch_head is not None
+                        and pre_fetch_head != post_fetch_head
+                    ):
+                        commits_transferred = count_commits_between(destination_path, pre_fetch_head, post_fetch_head)
             else:
                 logger.debug("Fetching branch {} into {}", source_branch, target_git_dir)
 
+                # Record pre-fetch HEAD for accurate commit counting
+                pre_fetch_head = get_head_commit(destination_path)
+
                 if dry_run:
+                    # Use pre_fetch_head instead of target_branch (see mirror
+                    # dry-run comment above for rationale)
+                    if pre_fetch_head is not None:
+                        estimated_commits = count_commits_between(local_path, pre_fetch_head, source_branch)
+                    else:
+                        estimated_commits = 0
                     logger.debug(
                         "Dry run: would push {} commits from {} into {}",
-                        commits_to_push,
+                        estimated_commits,
                         source_branch,
                         target_branch,
                     )
-                    commits_transferred = commits_to_push
+                    commits_transferred = estimated_commits
                 else:
                     # Fetch from source repo into the target, then reset to update working tree
                     result = subprocess.run(
@@ -525,15 +565,37 @@ def _sync_git_push(
                     if result.returncode != 0:
                         raise GitSyncError(result.stderr)
 
+                    # Resolve FETCH_HEAD to an explicit commit hash to avoid race conditions
+                    hash_result = subprocess.run(
+                        ["git", "-C", target_git_dir, "rev-parse", "FETCH_HEAD"],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if hash_result.returncode != 0:
+                        raise GitSyncError(f"Failed to resolve FETCH_HEAD: {hash_result.stderr}")
+                    fetched_commit = hash_result.stdout.strip()
+
+                    # Check for non-fast-forward push (diverged history)
+                    if pre_fetch_head is not None and pre_fetch_head != fetched_commit:
+                        is_fast_forward = is_ancestor(destination_path, pre_fetch_head, fetched_commit)
+                        if not is_fast_forward:
+                            raise GitSyncError(
+                                f"Cannot push: agent branch '{target_branch}' has diverged from "
+                                f"local branch '{source_branch}'. Use --mirror to force-overwrite "
+                                f"all refs, or pull agent changes first to reconcile."
+                            )
+
                     # Reset the target branch to the fetched commit
                     reset_result = host.execute_command(
-                        "git reset --hard FETCH_HEAD",
+                        f"git reset --hard {fetched_commit}",
                         cwd=destination_path,
                     )
                     if not reset_result.success:
                         raise GitSyncError(f"Failed to update working tree: {reset_result.stderr}")
 
-                    commits_transferred = commits_to_push
+                    # Count actual commits transferred by comparing pre/post HEAD
+                    if pre_fetch_head is not None and pre_fetch_head != fetched_commit:
+                        commits_transferred = count_commits_between(destination_path, pre_fetch_head, fetched_commit)
 
                     logger.debug(
                         "Git push complete: pushed {} commits from {} to {}",
@@ -651,19 +713,27 @@ def _sync_git_pull(
                 text=True,
             )
             if result.returncode != 0:
-                # Abort the merge on failure
-                abort_result = subprocess.run(
-                    ["git", "merge", "--abort"],
+                # Check if a merge is actually in progress before trying to abort
+                merge_check = subprocess.run(
+                    ["git", "rev-parse", "--verify", "MERGE_HEAD"],
                     cwd=local_path,
                     capture_output=True,
                     text=True,
                 )
-                if abort_result.returncode != 0:
-                    logger.warning(
-                        "Failed to abort merge in {}: {}. Repository may be in a conflicted state.",
-                        local_path,
-                        abort_result.stderr.strip(),
+                if merge_check.returncode == 0:
+                    # Merge is in progress, abort it
+                    abort_result = subprocess.run(
+                        ["git", "merge", "--abort"],
+                        cwd=local_path,
+                        capture_output=True,
+                        text=True,
                     )
+                    if abort_result.returncode != 0:
+                        logger.warning(
+                            "Failed to abort merge in {}: {}. Repository may be in a conflicted state.",
+                            local_path,
+                            abort_result.stderr.strip(),
+                        )
                 raise GitSyncError(result.stderr)
 
             # Count actual commits merged
@@ -680,42 +750,41 @@ def _sync_git_pull(
                 target_branch,
             )
     except MngrError:
-        # On failure, try to restore stashed changes but don't mask the original error
-        if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
-            logger.debug("Restoring stashed changes after failure")
-            try:
-                # Checkout back to the original branch before popping the stash,
-                # since stash was created on the original branch
-                if did_checkout:
-                    subprocess.run(
-                        ["git", "checkout", original_branch],
-                        cwd=local_path,
-                        capture_output=True,
-                        text=True,
-                    )
-                git_ctx.git_stash_pop(local_path)
-            except MngrError:
-                logger.warning(
-                    "Failed to restore stashed changes after git pull failure. "
-                    "Run 'git stash pop' in {} to recover your changes.",
-                    local_path,
+        # On failure, try to restore original branch and stashed changes
+        # but don't mask the original error
+        try:
+            if did_checkout:
+                subprocess.run(
+                    ["git", "checkout", original_branch],
+                    cwd=local_path,
+                    capture_output=True,
+                    text=True,
                 )
+            if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
+                logger.debug("Restoring stashed changes after failure")
+                git_ctx.git_stash_pop(local_path)
+        except MngrError:
+            logger.warning(
+                "Failed to restore stashed changes after git pull failure. "
+                "Run 'git stash pop' in {} to recover your changes.",
+                local_path,
+            )
         raise
 
-    # On success, restore stashed changes (and let the error propagate if it fails)
+    # Always restore original branch if we checked out a different one
+    if did_checkout:
+        result = subprocess.run(
+            ["git", "checkout", original_branch],
+            cwd=local_path,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise MngrError(f"Failed to checkout original branch {original_branch}: {result.stderr}")
+
+    # For MERGE mode, also restore stashed changes
     if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
         logger.debug("Restoring stashed changes")
-        # Checkout back to the original branch before popping the stash,
-        # since stash was created on the original branch
-        if did_checkout:
-            result = subprocess.run(
-                ["git", "checkout", original_branch],
-                cwd=local_path,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                raise MngrError(f"Failed to checkout original branch {original_branch}: {result.stderr}")
         git_ctx.git_stash_pop(local_path)
 
     return SyncGitResult(

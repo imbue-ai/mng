@@ -9,7 +9,9 @@ from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.push import push_files
 from imbue.mngr.api.push import push_git
+from imbue.mngr.cli.agent_utils import parse_agent_spec
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
+from imbue.mngr.cli.agent_utils import stop_agent_after_sync
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -31,6 +33,8 @@ class PushCliOptions(CommonCliOptions):
     Inherits common options (output_format, quiet, verbose, etc.) from CommonCliOptions.
     """
 
+    target_pos: str | None
+    source_pos: str | None
     target: str | None
     target_agent: str | None
     target_host: str | None
@@ -48,12 +52,12 @@ class PushCliOptions(CommonCliOptions):
 
 
 @click.command()
-@click.argument("target", default=None, required=False)
-@click.argument("source", default=None, required=False)
+@click.argument("target_pos", default=None, required=False, metavar="TARGET")
+@click.argument("source_pos", default=None, required=False, metavar="SOURCE")
 @optgroup.group("Target Selection")
 @optgroup.option("--target", "target", help="Target specification: AGENT, AGENT:PATH, or PATH")
 @optgroup.option("--target-agent", help="Target agent name or ID")
-@optgroup.option("--target-host", help="Target host name or ID")
+@optgroup.option("--target-host", help="Target host name or ID [future]")
 @optgroup.option("--target-path", help="Path within the agent's work directory")
 @optgroup.group("Source")
 @optgroup.option("--source", "source", type=click.Path(exists=True), help="Local source directory [default: .]")
@@ -80,12 +84,12 @@ class PushCliOptions(CommonCliOptions):
     type=click.Choice(["files", "git", "full"], case_sensitive=False),
     default="files",
     show_default=True,
-    help="What to sync: files (working directory via rsync), git (push git branches), or full (everything)",
+    help="What to sync: files (working directory via rsync), git (push git branches), or full (everything) [future]",
 )
 @optgroup.option(
     "--exclude",
     multiple=True,
-    help="Patterns to exclude from sync [repeatable]",
+    help="Patterns to exclude from sync [repeatable] [future]",
 )
 @optgroup.option(
     "--source-branch",
@@ -103,7 +107,7 @@ class PushCliOptions(CommonCliOptions):
     "--mirror",
     is_flag=True,
     default=False,
-    help="Overwrite all refs (branches, tags) in the target to match the source (dangerous). Only applies to git mode. For local agents, uses fetch with forced ref updates since git push cannot update a checked-out branch in a worktree. For remote agents, uses git push --mirror [future].",
+    help="Force the agent's git state to match the source, overwriting all refs (branches, tags) and resetting the working tree (dangerous). Any commits or branches that exist only in the agent will be lost. Only applies to --sync-mode=git. Required when the agent and source have diverged (non-fast-forward). For remote agents, uses git push --mirror [future].",
 )
 @optgroup.option(
     "--rsync-only",
@@ -130,7 +134,7 @@ def push(ctx: click.Context, **kwargs) -> None:
       mngr push my-agent
       mngr push my-agent ./local-dir
       mngr push my-agent:subdir ./local-src
-      mngr push --target-agent my-agent --source ./local-dir
+      mngr push my-agent --source ./local-dir
       mngr push my-agent --sync-mode=git
       mngr push my-agent --sync-mode=git --mirror
     """
@@ -140,6 +144,10 @@ def push(ctx: click.Context, **kwargs) -> None:
         command_class=PushCliOptions,
     )
     logger.debug("Running push command")
+
+    # Merge positional and named arguments (named option takes precedence)
+    effective_target = opts.target if opts.target is not None else opts.target_pos
+    effective_source = opts.source if opts.source is not None else opts.source_pos
 
     # Check for unsupported options
     if opts.sync_mode == "full":
@@ -158,30 +166,26 @@ def push(ctx: click.Context, **kwargs) -> None:
     if opts.mirror and opts.sync_mode != "git":
         raise UserInputError("--mirror can only be used with --sync-mode=git")
 
+    if opts.rsync_only:
+        if opts.source_branch is not None:
+            raise UserInputError("--source-branch has no effect with --rsync-only")
+        if opts.mirror:
+            raise UserInputError("--mirror has no effect with --rsync-only")
+        if opts.sync_mode == "git":
+            raise NotImplementedError(
+                "--rsync-only with --sync-mode=git is not yet supported; use --sync-mode=files instead"
+            )
+
     # Parse target specification
-    agent_identifier: str | None = None
-    target_path: str | None = opts.target_path
-
-    if opts.target is not None:
-        # Parse target string: AGENT, AGENT:PATH, or PATH
-        if ":" in opts.target:
-            # AGENT:PATH format
-            agent_identifier, target_path = opts.target.split(":", 1)
-        elif opts.target.startswith(("/", "./", "~/", "../")):
-            # PATH format - not supported without agent
-            raise UserInputError("Target must include an agent specification")
-        else:
-            # AGENT format
-            agent_identifier = opts.target
-
-    # Override with explicit options if provided
-    if opts.target_agent is not None:
-        if agent_identifier is not None and agent_identifier != opts.target_agent:
-            raise UserInputError("Cannot specify both --target and --target-agent with different values")
-        agent_identifier = opts.target_agent
+    agent_identifier, target_path = parse_agent_spec(
+        spec=effective_target,
+        explicit_agent=opts.target_agent,
+        spec_name="Target",
+        default_subpath=opts.target_path,
+    )
 
     # Determine source path
-    source_path = Path(opts.source) if opts.source else Path.cwd()
+    source_path = Path(effective_source) if effective_source else Path.cwd()
 
     # Find the agent
     agent: AgentInterface
@@ -212,6 +216,12 @@ def push(ctx: click.Context, **kwargs) -> None:
     uncommitted_changes_mode = UncommittedChangesMode(opts.uncommitted_changes.upper())
 
     if opts.sync_mode == "git" and not opts.rsync_only:
+        if target_path is not None:
+            raise UserInputError(
+                "--sync-mode=git operates on the entire repository; "
+                "subpath specifications (AGENT:PATH or --target-path) are not supported in git mode"
+            )
+
         # Git mode: push branches
         git_result = push_git(
             agent=agent,
@@ -224,13 +234,11 @@ def push(ctx: click.Context, **kwargs) -> None:
             mirror=opts.mirror,
         )
 
-        # Stop agent if requested
-        if opts.stop:
-            emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
-            host.stop_agents([agent.id])
-            emit_info("Agent stopped", output_opts.output_format)
-
         output_sync_git_result(git_result, output_opts.output_format)
+
+        # Stop agent if requested (after outputting result so it's not lost if stop fails)
+        if opts.stop:
+            stop_agent_after_sync(agent, host, opts.dry_run, output_opts.output_format)
     else:
         # Files mode: rsync
         # Parse target_path if provided
@@ -253,13 +261,11 @@ def push(ctx: click.Context, **kwargs) -> None:
             uncommitted_changes=uncommitted_changes_mode,
         )
 
-        # Stop agent if requested
-        if opts.stop:
-            emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
-            host.stop_agents([agent.id])
-            emit_info("Agent stopped", output_opts.output_format)
-
         output_sync_files_result(files_result, output_opts.output_format)
+
+        # Stop agent if requested (after outputting result so it's not lost if stop fails)
+        if opts.stop:
+            stop_agent_after_sync(agent, host, opts.dry_run, output_opts.output_format)
 
 
 # Register help metadata for git-style help formatting

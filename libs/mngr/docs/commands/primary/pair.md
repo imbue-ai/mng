@@ -25,7 +25,7 @@ writes [future].
 
 Examples:
   mngr pair my-agent
-  mngr pair my-agent ./local-dir
+  mngr pair my-agent --target ./local-dir
   mngr pair --source-agent my-agent --target ./local-copy
   mngr pair my-agent --sync-direction=forward
   mngr pair my-agent --conflict=source
@@ -34,7 +34,7 @@ Examples:
 **Usage:**
 
 ```text
-mngr pair [OPTIONS] [SOURCE]
+mngr pair [OPTIONS] SOURCE
 ```
 
 ## Arguments
@@ -118,7 +118,7 @@ $ mngr pair my-agent
 **Pair to specific local directory**
 
 ```bash
-$ mngr pair my-agent ./local-dir
+$ mngr pair my-agent --target ./local-dir
 ```
 
 **One-way sync (source to target)**

@@ -10,6 +10,7 @@ from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.pair import pair_files
 from imbue.mngr.cli.agent_utils import filter_agents_by_host
+from imbue.mngr.cli.agent_utils import parse_agent_spec
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -34,6 +35,7 @@ from imbue.mngr.utils.git_utils import find_git_worktree_root
 class PairCliOptions(CommonCliOptions):
     """Options passed from the CLI to the pair command."""
 
+    source_pos: str | None
     source: str | None
     source_agent: str | None
     source_host: str | None
@@ -56,13 +58,10 @@ def _emit_pair_started(
     data = {
         "source_path": str(source_path),
         "target_path": str(target_path),
-        "event": "pair_started",
     }
     match output_opts.output_format:
-        case OutputFormat.JSON:
-            emit_event("pair_started", data, OutputFormat.JSON)
-        case OutputFormat.JSONL:
-            emit_event("pair_started", data, OutputFormat.JSONL)
+        case OutputFormat.JSON | OutputFormat.JSONL:
+            emit_event("pair_started", data, output_opts.output_format)
         case OutputFormat.HUMAN:
             logger.info("Pairing {} <-> {}", source_path, target_path)
         case _ as unreachable:
@@ -71,12 +70,10 @@ def _emit_pair_started(
 
 def _emit_pair_stopped(output_opts: OutputOptions) -> None:
     """Emit a message when pairing stops."""
-    data = {"event": "pair_stopped"}
+    data: dict[str, str] = {}
     match output_opts.output_format:
-        case OutputFormat.JSON:
-            emit_event("pair_stopped", data, OutputFormat.JSON)
-        case OutputFormat.JSONL:
-            emit_event("pair_stopped", data, OutputFormat.JSONL)
+        case OutputFormat.JSON | OutputFormat.JSONL:
+            emit_event("pair_stopped", data, output_opts.output_format)
         case OutputFormat.HUMAN:
             logger.info("Pairing stopped")
         case _ as unreachable:
@@ -84,7 +81,7 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
 
 
 @click.command()
-@click.argument("source", default=None, required=False)
+@click.argument("source_pos", default=None, required=False, metavar="SOURCE")
 @optgroup.group("Source Selection")
 @optgroup.option("--source", "source", help="Source specification: AGENT, AGENT:PATH, or PATH")
 @optgroup.option("--source-agent", help="Source agent name or ID")
@@ -155,7 +152,7 @@ def pair(ctx: click.Context, **kwargs) -> None:
     \b
     Examples:
       mngr pair my-agent
-      mngr pair my-agent ./local-dir
+      mngr pair my-agent --target ./local-dir
       mngr pair --source-agent my-agent --target ./local-copy
       mngr pair my-agent --sync-direction=forward
       mngr pair my-agent --conflict=source
@@ -168,31 +165,16 @@ def pair(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("Running pair command")
 
-    # Check for unsupported options
-    if opts.conflict == "ask":
-        raise NotImplementedError("--conflict=ask is not implemented yet")
+    # Merge positional and named arguments (named option takes precedence)
+    effective_source = opts.source if opts.source is not None else opts.source_pos
 
     # Parse source specification
-    agent_identifier: str | None = None
-    source_subpath: str | None = opts.source_path
-
-    if opts.source is not None:
-        # Parse source string: AGENT, AGENT:PATH, or PATH
-        if ":" in opts.source:
-            # AGENT:PATH format
-            agent_identifier, source_subpath = opts.source.split(":", 1)
-        elif opts.source.startswith(("/", "./", "~/", "../")):
-            # PATH format - not supported without agent
-            raise UserInputError("Source must include an agent specification")
-        else:
-            # AGENT format
-            agent_identifier = opts.source
-
-    # Override with explicit options if provided
-    if opts.source_agent is not None:
-        if agent_identifier is not None and agent_identifier != opts.source_agent:
-            raise UserInputError("Cannot specify both --source and --source-agent with different values")
-        agent_identifier = opts.source_agent
+    agent_identifier, source_subpath = parse_agent_spec(
+        spec=effective_source,
+        explicit_agent=opts.source_agent,
+        spec_name="Source",
+        default_subpath=opts.source_path,
+    )
 
     # Determine target path
     if opts.target is not None:
@@ -250,8 +232,8 @@ def pair(ctx: click.Context, **kwargs) -> None:
         with pair_files(
             agent=agent,
             host=host,
-            source_path=source_path,
-            target_path=target_path,
+            agent_path=source_path,
+            local_path=target_path,
             sync_direction=sync_direction,
             conflict_mode=conflict_mode,
             is_require_git=opts.require_git,
@@ -287,7 +269,7 @@ state (branches and commits) before starting the continuous file sync.
 Press Ctrl+C to stop the sync.""",
     examples=(
         ("Pair with an agent", "mngr pair my-agent"),
-        ("Pair to specific local directory", "mngr pair my-agent ./local-dir"),
+        ("Pair to specific local directory", "mngr pair my-agent --target ./local-dir"),
         ("One-way sync (source to target)", "mngr pair my-agent --sync-direction=forward"),
         ("Prefer source on conflicts", "mngr pair my-agent --conflict=source"),
         ("Filter to specific host", "mngr pair my-agent --source-host @local"),
