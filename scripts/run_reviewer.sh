@@ -124,7 +124,7 @@ if [[ ! -s "$REVIEW_OUTPUT_FILE" ]]; then
 else
     # Sort the JSON by severity (most severe first), then by confidence (high to low)
     # Severity order: CRITICAL > MAJOR > MINOR > NITPICK > unknown
-    # Confidence is a numeric value from 0.0 to 1.0 (higher = more confident)
+    # Confidence may be numeric (0.0-1.0) or a string ("HIGH", "MEDIUM", "LOW")
     log_info "Sorting review results..."
 
     jq -s 'sort_by(
@@ -133,17 +133,23 @@ else
        elif .severity == "MINOR" then 2
        elif .severity == "NITPICK" then 3
        else 4 end),
-      (-.confidence)
+      (if (.confidence | type) == "number" then -.confidence
+       elif .confidence == "HIGH" then 0
+       elif .confidence == "MEDIUM" then 1
+       elif .confidence == "LOW" then 2
+       else 3 end)
     )' "$REVIEW_OUTPUT_FILE" > "$SORTED_OUTPUT"
 fi
 
 # Copy sorted output back to the review output file for callers to read
 cp "$SORTED_OUTPUT" "$REVIEW_OUTPUT_FILE"
 
-# Check for blocking issues (CRITICAL or MAJOR severity with confidence >= 0.7)
+# Check for blocking issues (CRITICAL or MAJOR severity with high confidence)
+# Confidence may be numeric (>= 0.7) or a string ("HIGH")
 BLOCKING_ISSUES=$(jq '[.[] | select(
     (.severity == "CRITICAL" or .severity == "MAJOR") and
-    (.confidence >= 0.7)
+    (((.confidence | type) == "number" and .confidence >= 0.7) or
+     ((.confidence | type) == "string" and .confidence == "HIGH"))
 )] | length' "$SORTED_OUTPUT")
 
 # Cache the results so we can skip re-reviewing the same commit
