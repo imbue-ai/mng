@@ -1,4 +1,4 @@
-"""Pull API for syncing from agent to local - thin wrappers around sync module."""
+"""Push API for syncing from local to agent - thin wrappers around sync module."""
 
 from pathlib import Path
 
@@ -12,46 +12,47 @@ from imbue.mngr.primitives import SyncMode
 from imbue.mngr.primitives import UncommittedChangesMode
 
 
-def pull_files(
+def push_files(
     agent: AgentInterface,
     host: OnlineHostInterface,
-    destination: Path,
-    source_path: Path | None,
+    source: Path,
+    destination_path: Path | None,
     is_dry_run: bool,
     is_delete: bool,
     uncommitted_changes: UncommittedChangesMode,
 ) -> SyncFilesResult:
-    """Pull files from an agent's work directory to a local directory using rsync."""
+    """Push files from a local directory to an agent's work directory using rsync."""
     return sync_files(
         agent=agent,
         host=host,
-        mode=SyncMode.PULL,
-        local_path=destination,
-        remote_path=source_path,
+        mode=SyncMode.PUSH,
+        local_path=source,
+        remote_path=destination_path,
         is_dry_run=is_dry_run,
         is_delete=is_delete,
         uncommitted_changes=uncommitted_changes,
     )
 
 
-def pull_git(
+def push_git(
     agent: AgentInterface,
     host: OnlineHostInterface,
-    destination: Path,
+    source: Path,
     source_branch: str | None,
     target_branch: str | None,
     is_dry_run: bool,
     uncommitted_changes: UncommittedChangesMode,
+    is_mirror: bool,
 ) -> SyncGitResult:
-    """Pull git commits from an agent's repository by merging branches."""
+    """Push git commits from a local repository to an agent's repository."""
     return sync_git(
         agent=agent,
         host=host,
-        mode=SyncMode.PULL,
-        local_path=destination,
+        mode=SyncMode.PUSH,
+        local_path=source,
         source_branch=source_branch,
         target_branch=target_branch,
         is_dry_run=is_dry_run,
         uncommitted_changes=uncommitted_changes,
-        is_mirror=False,
+        is_mirror=is_mirror,
     )

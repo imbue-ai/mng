@@ -2,7 +2,10 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
+from loguru import logger
+
 from imbue.imbue_common.pure import pure
+from imbue.mngr.errors import MngrError
 
 
 def get_current_git_branch(path: Path | None = None) -> str | None:
@@ -132,6 +135,100 @@ def find_git_worktree_root(start: Path | None = None) -> Path | None:
         return Path(result.stdout.strip())
     except subprocess.CalledProcessError:
         return None
+
+
+def is_git_repository(path: Path) -> bool:
+    """Check if the given path is inside a git repository.
+
+    Works from any subdirectory within a git worktree.
+    Returns False if the path does not exist.
+    """
+    if not path.exists():
+        return False
+    result = subprocess.run(
+        ["git", "rev-parse", "--git-dir"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def get_current_branch(path: Path) -> str:
+    """Get the current branch name for a git repository.
+
+    Unlike get_current_git_branch, this function raises an error if the operation
+    fails rather than returning None. Also raises if HEAD is detached (no branch),
+    since callers need an actual branch name for push/pull operations.
+
+    Raises:
+        MngrError: If the path is not a git repository, the branch cannot be
+            determined, or HEAD is detached.
+    """
+    result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise MngrError(f"Failed to get current branch: {result.stderr}")
+    branch = result.stdout.strip()
+    if branch == "HEAD":
+        raise MngrError(f"HEAD is detached in {path}. A branch checkout is required for sync operations.")
+    return branch
+
+
+def get_head_commit(path: Path) -> str | None:
+    """Get the current HEAD commit hash for a repository.
+
+    Returns None if the path is not a git repository or HEAD cannot be resolved.
+    """
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def is_ancestor(path: Path, ancestor_commit: str, descendant_commit: str) -> bool:
+    """Check if ancestor_commit is an ancestor of descendant_commit.
+
+    Both commits must be reachable from the repository at path.
+    """
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor_commit, descendant_commit],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def count_commits_between(path: Path, base_ref: str, head_ref: str) -> int:
+    """Count the number of commits between two refs (base_ref..head_ref)."""
+    result = subprocess.run(
+        ["git", "rev-list", "--count", f"{base_ref}..{head_ref}"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.debug(
+            "Failed to count commits between {} and {}: {}",
+            base_ref,
+            head_ref,
+            result.stderr.strip(),
+        )
+        return 0
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return 0
 
 
 def find_git_common_dir(path: Path) -> Path | None:
