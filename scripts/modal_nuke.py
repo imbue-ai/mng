@@ -26,6 +26,10 @@ import tomllib
 from pathlib import Path
 from typing import Final
 
+from loguru import logger
+
+from imbue.imbue_common.logging import setup_logging
+
 DEFAULT_MNGR_DIR: Final[Path] = Path("~/.mngr")
 DEFAULT_PREFIX: Final[str] = "mngr-"
 
@@ -35,9 +39,9 @@ def _get_app_id(app: dict[str, str]) -> str:
     return app.get("App ID", app.get("app_id", app.get("id", "unknown")))
 
 
-def _get_volume_name(vol: dict[str, str]) -> str:
+def _get_volume_name(volume: dict[str, str]) -> str:
     """Extract volume name from a Modal volume dict."""
-    return vol.get("Name", vol.get("name", "unknown"))
+    return volume.get("Name", volume.get("name", "unknown"))
 
 
 def _read_user_id(mngr_dir: Path) -> str | None:
@@ -55,7 +59,7 @@ def _read_user_id(mngr_dir: Path) -> str | None:
         if user_id_path.exists():
             return user_id_path.read_text().strip()
     except (tomllib.TOMLDecodeError, OSError) as exc:
-        print(f"Warning: Failed to read config: {exc}", file=sys.stderr)
+        logger.warning(f"Failed to read config: {exc}")
     return None
 
 
@@ -82,12 +86,12 @@ def _list_resources(resource_type: str, environment: str) -> list[dict[str, str]
     """
     result = _run_modal([resource_type, "list", "--json"], environment)
     if result.returncode != 0:
-        print(f"Failed to list {resource_type}s: {result.stderr.strip()}", file=sys.stderr)
+        logger.error(f"Failed to list {resource_type}s: {result.stderr.strip()}")
         return None
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
-        print(f"Failed to parse {resource_type} list JSON: {exc}", file=sys.stderr)
+        logger.error(f"Failed to parse {resource_type} list JSON: {exc}")
         return None
 
 
@@ -157,8 +161,8 @@ def _display_resources(apps: list[dict[str, str]], volumes: list[dict[str, str]]
 
     if volumes:
         print(f"Volumes to delete ({len(volumes)}):")
-        for vol in volumes:
-            print(f"  {_get_volume_name(vol)}")
+        for volume in volumes:
+            print(f"  {_get_volume_name(volume)}")
     else:
         print("No volumes found.")
 
@@ -176,43 +180,42 @@ def _confirm_nuke(is_force: bool) -> bool:
 
 def _execute_nuke(apps: list[dict[str, str]], volumes: list[dict[str, str]], environment: str) -> int:
     """Stop apps and delete volumes. Returns the number of failures."""
-    failures = 0
+    app_results: list[bool] = []
     for app in apps:
-        aid = _get_app_id(app)
-        print(f"Stopping app {aid}...", end=" ", flush=True)
-        is_success, stderr = _stop_app(aid, environment)
+        app_id = _get_app_id(app)
+        print(f"Stopping app {app_id}...", end=" ", flush=True)
+        is_success, stderr = _stop_app(app_id, environment)
+        app_results.append(is_success)
         if is_success:
             print("done")
         else:
-            failures += 1
             print(f"FAILED: {stderr}" if stderr else "FAILED (may already be stopped)")
 
-    for vol in volumes:
-        vname = _get_volume_name(vol)
-        print(f"Deleting volume {vname}...", end=" ", flush=True)
-        is_success, stderr = _delete_volume(vname, environment)
+    volume_results: list[bool] = []
+    for volume in volumes:
+        volume_name = _get_volume_name(volume)
+        print(f"Deleting volume {volume_name}...", end=" ", flush=True)
+        is_success, stderr = _delete_volume(volume_name, environment)
+        volume_results.append(is_success)
         if is_success:
             print("done")
         else:
-            failures += 1
             print(f"FAILED: {stderr}" if stderr else "FAILED")
 
-    return failures
+    return sum(not s for s in app_results) + sum(not s for s in volume_results)
 
 
 def main() -> int:
     args = _parse_args()
+    setup_logging(level="INFO")
 
     if not shutil.which("modal"):
-        print("modal CLI not found. Install it with: pip install modal", file=sys.stderr)
+        logger.error("modal CLI not found. Install it with: pip install modal")
         return 1
 
     environment = _resolve_environment(args)
     if environment is None:
-        print(
-            "Could not auto-detect Modal environment. Use --environment to specify it explicitly.",
-            file=sys.stderr,
-        )
+        logger.error("Could not auto-detect Modal environment. Use --environment to specify it explicitly.")
         return 1
 
     print(f"Modal environment: {environment}")
@@ -222,7 +225,7 @@ def main() -> int:
     volumes = _list_resources("volume", environment)
 
     if apps is None or volumes is None:
-        print("Failed to list Modal resources. Cannot proceed.", file=sys.stderr)
+        logger.error("Failed to list Modal resources. Cannot proceed.")
         return 1
 
     is_any_resources = _display_resources(apps, volumes)
@@ -242,7 +245,7 @@ def main() -> int:
 
     print()
     if failures:
-        print(f"Nuke finished with {failures} failure(s).", file=sys.stderr)
+        logger.error(f"Nuke finished with {failures} failure(s).")
         return 1
     print("Nuke complete.")
     return 0
