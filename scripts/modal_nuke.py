@@ -28,13 +28,23 @@ DEFAULT_MNGR_DIR = Path("~/.mngr")
 DEFAULT_PREFIX = "mngr-"
 
 
+def _get_app_id(app: dict[str, str]) -> str:
+    """Extract app ID from a Modal app dict."""
+    return app.get("App ID", app.get("app_id", app.get("id", "unknown")))
+
+
+def _get_volume_name(vol: dict[str, str]) -> str:
+    """Extract volume name from a Modal volume dict."""
+    return vol.get("Name", vol.get("name", "unknown"))
+
+
 def _read_user_id(host_dir: Path) -> str | None:
     """Read the user_id from the mngr profile directory."""
     config_path = host_dir / "config.toml"
     if not config_path.exists():
         return None
     try:
-        with open(config_path, "rb") as f:
+        with config_path.open("rb") as f:
             root_config = tomllib.load(f)
         profile_id = root_config.get("profile")
         if not profile_id:
@@ -42,8 +52,8 @@ def _read_user_id(host_dir: Path) -> str | None:
         user_id_path = host_dir / "profiles" / profile_id / "user_id"
         if user_id_path.exists():
             return user_id_path.read_text().strip()
-    except (tomllib.TOMLDecodeError, OSError):
-        pass
+    except (tomllib.TOMLDecodeError, OSError) as exc:
+        print(f"Warning: Failed to read config: {exc}", file=sys.stderr)
     return None
 
 
@@ -87,9 +97,9 @@ def _list_apps(environment: str) -> list[dict[str, str]]:
         return []
 
 
-def _stop_app(app_name: str, environment: str) -> bool:
+def _stop_app(app_id: str, environment: str) -> bool:
     """Stop a Modal app."""
-    result = _run_modal(["app", "stop", app_name], environment)
+    result = _run_modal(["app", "stop", app_id], environment)
     return result.returncode == 0
 
 
@@ -99,7 +109,8 @@ def _delete_volume(volume_name: str, environment: str) -> bool:
     return result.returncode == 0
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Nuke all Modal resources for this mngr installation. "
         "Use when mngr state is out of sync with Modal.",
@@ -131,12 +142,67 @@ def main() -> int:
         action="store_true",
         help="Skip confirmation prompt",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def _resolve_environment(args: argparse.Namespace) -> str | None:
+    """Resolve the Modal environment from args or auto-detection."""
     mngr_dir = args.mngr_dir.expanduser()
+    return args.environment or _detect_environment(mngr_dir, args.prefix)
 
-    # Auto-detect environment
-    environment = args.environment or _detect_environment(mngr_dir, args.prefix)
+
+def _display_resources(apps: list[dict[str, str]], volumes: list[dict[str, str]]) -> bool:
+    """Print what will be nuked. Returns True if there is anything to nuke."""
+    if apps:
+        print(f"Apps to stop ({len(apps)}):")
+        for app in apps:
+            description = app.get("Description", app.get("description", app.get("name", "")))
+            print(f"  {_get_app_id(app)}  {description}")
+    else:
+        print("No apps found.")
+
+    if volumes:
+        print(f"Volumes to delete ({len(volumes)}):")
+        for vol in volumes:
+            print(f"  {_get_volume_name(vol)}")
+    else:
+        print("No volumes found.")
+
+    print()
+    return bool(apps or volumes)
+
+
+def _confirm_nuke(is_force: bool) -> bool:
+    """Prompt user for confirmation. Returns True if confirmed."""
+    if is_force:
+        return True
+    response = input("Proceed with nuke? [y/N] ")
+    return response.lower() in ("y", "yes")
+
+
+def _execute_nuke(apps: list[dict[str, str]], volumes: list[dict[str, str]], environment: str) -> None:
+    """Stop apps and delete volumes."""
+    for app in apps:
+        aid = _get_app_id(app)
+        print(f"Stopping app {aid}...", end=" ", flush=True)
+        if _stop_app(aid, environment):
+            print("done")
+        else:
+            print("FAILED (may already be stopped)")
+
+    for vol in volumes:
+        vname = _get_volume_name(vol)
+        print(f"Deleting volume {vname}...", end=" ", flush=True)
+        if _delete_volume(vname, environment):
+            print("done")
+        else:
+            print("FAILED")
+
+
+def main() -> int:
+    args = _parse_args()
+
+    environment = _resolve_environment(args)
     if environment is None:
         print(
             "Could not auto-detect Modal environment. Use --environment to specify it explicitly.",
@@ -147,31 +213,11 @@ def main() -> int:
     print(f"Modal environment: {environment}")
     print()
 
-    # Discover resources
     apps = _list_apps(environment)
     volumes = _list_volumes(environment)
 
-    # Show what will be nuked
-    if apps:
-        print(f"Apps to stop ({len(apps)}):")
-        for app in apps:
-            app_id = app.get("App ID", app.get("app_id", app.get("id", "unknown")))
-            description = app.get("Description", app.get("description", app.get("name", "")))
-            print(f"  {app_id}  {description}")
-    else:
-        print("No apps found.")
-
-    if volumes:
-        print(f"Volumes to delete ({len(volumes)}):")
-        for vol in volumes:
-            vol_name = vol.get("Name", vol.get("name", "unknown"))
-            print(f"  {vol_name}")
-    else:
-        print("No volumes found.")
-
-    print()
-
-    if not apps and not volumes:
+    has_resources = _display_resources(apps, volumes)
+    if not has_resources:
         print("Nothing to nuke.")
         return 0
 
@@ -179,30 +225,11 @@ def main() -> int:
         print("Dry run -- no changes made.")
         return 0
 
-    # Confirm
-    if not args.force:
-        response = input("Proceed with nuke? [y/N] ")
-        if response.lower() not in ("y", "yes"):
-            print("Aborted.")
-            return 1
+    if not _confirm_nuke(args.force):
+        print("Aborted.")
+        return 1
 
-    # Stop apps
-    for app in apps:
-        app_id = app.get("App ID", app.get("app_id", app.get("id", "unknown")))
-        print(f"Stopping app {app_id}...", end=" ", flush=True)
-        if _stop_app(app_id, environment):
-            print("done")
-        else:
-            print("FAILED (may already be stopped)")
-
-    # Delete volumes
-    for vol in volumes:
-        vol_name = vol.get("Name", vol.get("name", "unknown"))
-        print(f"Deleting volume {vol_name}...", end=" ", flush=True)
-        if _delete_volume(vol_name, environment):
-            print("done")
-        else:
-            print("FAILED")
+    _execute_nuke(apps, volumes, environment)
 
     print()
     print("Nuke complete.")
