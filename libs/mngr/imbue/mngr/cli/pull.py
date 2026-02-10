@@ -336,10 +336,12 @@ def pull(ctx: click.Context, **kwargs) -> None:
         )
 
         # Stop agent if requested
-        if opts.stop:
+        if opts.stop and not opts.dry_run:
             emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
             host.stop_agents([agent.id])
             emit_info("Agent stopped", output_opts.output_format)
+        elif opts.stop:
+            emit_info("Dry run: would stop agent after sync", output_opts.output_format)
 
         output_sync_git_result(git_result, output_opts.output_format)
     else:
@@ -365,10 +367,12 @@ def pull(ctx: click.Context, **kwargs) -> None:
         )
 
         # Stop agent if requested
-        if opts.stop:
+        if opts.stop and not opts.dry_run:
             emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
             host.stop_agents([agent.id])
             emit_info("Agent stopped", output_opts.output_format)
+        elif opts.stop:
+            emit_info("Dry run: would stop agent after sync", output_opts.output_format)
 
         output_sync_files_result(files_result, output_opts.output_format)
 
