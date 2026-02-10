@@ -66,7 +66,7 @@ def _detect_environment(mngr_dir: Path, prefix: str) -> str | None:
     return None
 
 
-def _run_modal(args: list[str], environment: str | None = None) -> subprocess.CompletedProcess[str]:
+def _run_modal(args: list[str], environment: str | None) -> subprocess.CompletedProcess[str]:
     """Run a modal CLI command."""
     cmd = ["modal"] + args
     if environment:
@@ -74,17 +74,20 @@ def _run_modal(args: list[str], environment: str | None = None) -> subprocess.Co
     return subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
 
-def _list_resources(resource_type: str, environment: str) -> list[dict[str, str]]:
-    """List all resources of the given type (e.g. 'app', 'volume') in the environment."""
+def _list_resources(resource_type: str, environment: str) -> list[dict[str, str]] | None:
+    """List all resources of the given type (e.g. 'app', 'volume') in the environment.
+
+    Returns None on failure (CLI error or unparseable output), empty list if no resources found.
+    """
     result = _run_modal([resource_type, "list", "--json"], environment)
     if result.returncode != 0:
-        print(f"Warning: Failed to list {resource_type}s: {result.stderr.strip()}", file=sys.stderr)
-        return []
+        print(f"Failed to list {resource_type}s: {result.stderr.strip()}", file=sys.stderr)
+        return None
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
-        print(f"Warning: Failed to parse {resource_type} list JSON: {exc}", file=sys.stderr)
-        return []
+        print(f"Failed to parse {resource_type} list JSON: {exc}", file=sys.stderr)
+        return None
 
 
 def _stop_app(app_id: str, environment: str) -> tuple[bool, str]:
@@ -208,8 +211,12 @@ def main() -> int:
     apps = _list_resources("app", environment)
     volumes = _list_resources("volume", environment)
 
-    has_resources = _display_resources(apps, volumes)
-    if not has_resources:
+    if apps is None or volumes is None:
+        print("Failed to list Modal resources. Cannot proceed.", file=sys.stderr)
+        return 1
+
+    is_any_resources = _display_resources(apps, volumes)
+    if not is_any_resources:
         print("Nothing to nuke.")
         return 0
 
