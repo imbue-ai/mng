@@ -148,21 +148,19 @@ def _resolve_environment(args: argparse.Namespace) -> str | None:
 
 def _display_resources(apps: Sequence[Mapping[str, str]], volumes: Sequence[Mapping[str, str]]) -> None:
     if apps:
-        print(f"Apps to stop ({len(apps)}):")
+        logger.info(f"Apps to stop ({len(apps)}):")
         for app in apps:
             description = app.get("Description", app.get("description", app.get("name", "")))
-            print(f"  {_get_app_id(app)}  {description}")
+            logger.info(f"  {_get_app_id(app)}  {description}")
     else:
-        print("No apps found.")
+        logger.info("No apps found.")
 
     if volumes:
-        print(f"Volumes to delete ({len(volumes)}):")
+        logger.info(f"Volumes to delete ({len(volumes)}):")
         for volume in volumes:
-            print(f"  {_get_volume_name(volume)}")
+            logger.info(f"  {_get_volume_name(volume)}")
     else:
-        print("No volumes found.")
-
-    print()
+        logger.info("No volumes found.")
 
 
 def _confirm_nuke(is_force: bool) -> bool:
@@ -183,13 +181,13 @@ def _nuke_resources(
     failure_count = 0
     for resource in resources:
         identifier = get_identifier(resource)
-        print(f"{action_label} {identifier}...", end=" ", flush=True)
+        logger.info(f"{action_label} {identifier}...")
         is_success, stderr = execute_action(identifier, environment)
         if is_success:
-            print("done")
+            logger.info(f"{action_label} {identifier}... done")
         else:
             failure_count += 1
-            print(stderr if stderr else "FAILED")
+            logger.error(f"{action_label} {identifier}... {stderr if stderr else 'FAILED'}")
     return failure_count
 
 
@@ -212,8 +210,7 @@ def main() -> int:
         logger.error("Could not auto-detect Modal environment. Use --environment to specify it explicitly.")
         return 1
 
-    print(f"Modal environment: {environment}")
-    print()
+    logger.info(f"Modal environment: {environment}")
 
     apps = _list_resources("app", environment)
     volumes = _list_resources("volume", environment)
@@ -224,24 +221,23 @@ def main() -> int:
 
     _display_resources(apps, volumes)
     if not apps and not volumes:
-        print("Nothing to nuke.")
+        logger.info("Nothing to nuke.")
         return 0
 
     if args.dry_run:
-        print("Dry run -- no changes made.")
+        logger.info("Dry run -- no changes made.")
         return 0
 
     if not _confirm_nuke(args.force):
-        print("Aborted.")
+        logger.info("Aborted.")
         return 1
 
     failures = _execute_nuke(apps, volumes, environment)
 
-    print()
     if failures:
         logger.error(f"Nuke finished with {failures} failure(s).")
         return 1
-    print("Nuke complete.")
+    logger.info("Nuke complete.")
     return 0
 
 
