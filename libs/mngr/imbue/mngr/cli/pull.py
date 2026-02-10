@@ -104,7 +104,7 @@ class PullCliOptions(CommonCliOptions):
     type=click.Choice(["files", "git", "full"], case_sensitive=False),
     default="files",
     show_default=True,
-    help="What to sync: files (working directory via rsync), git (merge git branches), or full (everything)",
+    help="What to sync: files (working directory via rsync), git (merge git branches), or full (everything) [future]",
 )
 @optgroup.option(
     "--exclude",
