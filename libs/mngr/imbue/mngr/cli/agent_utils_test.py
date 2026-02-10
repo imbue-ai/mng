@@ -7,7 +7,9 @@ import pytest
 
 from imbue.mngr.cli.agent_utils import _host_matches_filter
 from imbue.mngr.cli.agent_utils import filter_agents_by_host
+from imbue.mngr.cli.agent_utils import parse_agent_spec
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
+from imbue.mngr.cli.agent_utils import stop_agent_after_sync
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
@@ -15,6 +17,7 @@ from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostReference
+from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import ProviderInstanceName
 
 
@@ -183,3 +186,120 @@ def test_select_agent_interactively_returns_selected_agent(
 
     assert result == (final_agent, final_host)
     mock_find_agent.assert_called_once()
+
+
+# =============================================================================
+# parse_agent_spec tests
+# =============================================================================
+
+
+def test_parse_agent_spec_returns_none_when_spec_is_none() -> None:
+    agent_id, subpath = parse_agent_spec(spec=None, explicit_agent=None, spec_name="Target")
+
+    assert agent_id is None
+    assert subpath is None
+
+
+def test_parse_agent_spec_returns_default_subpath_when_spec_is_none() -> None:
+    agent_id, subpath = parse_agent_spec(spec=None, explicit_agent=None, spec_name="Target", default_subpath="sub/dir")
+
+    assert agent_id is None
+    assert subpath == "sub/dir"
+
+
+def test_parse_agent_spec_parses_agent_name_only() -> None:
+    agent_id, subpath = parse_agent_spec(spec="my-agent", explicit_agent=None, spec_name="Target")
+
+    assert agent_id == "my-agent"
+    assert subpath is None
+
+
+def test_parse_agent_spec_parses_agent_colon_path() -> None:
+    agent_id, subpath = parse_agent_spec(spec="my-agent:src/dir", explicit_agent=None, spec_name="Target")
+
+    assert agent_id == "my-agent"
+    assert subpath == "src/dir"
+
+
+def test_parse_agent_spec_agent_colon_path_overrides_default_subpath() -> None:
+    agent_id, subpath = parse_agent_spec(
+        spec="my-agent:src/dir", explicit_agent=None, spec_name="Target", default_subpath="old/path"
+    )
+
+    assert agent_id == "my-agent"
+    assert subpath == "src/dir"
+
+
+def test_parse_agent_spec_raises_on_bare_absolute_path() -> None:
+    with pytest.raises(UserInputError, match="Target must include an agent specification"):
+        parse_agent_spec(spec="/some/path", explicit_agent=None, spec_name="Target")
+
+
+def test_parse_agent_spec_raises_on_bare_relative_path() -> None:
+    with pytest.raises(UserInputError, match="Source must include an agent specification"):
+        parse_agent_spec(spec="./local-dir", explicit_agent=None, spec_name="Source")
+
+
+def test_parse_agent_spec_raises_on_bare_home_path() -> None:
+    with pytest.raises(UserInputError, match="Target must include an agent specification"):
+        parse_agent_spec(spec="~/my-dir", explicit_agent=None, spec_name="Target")
+
+
+def test_parse_agent_spec_raises_on_bare_parent_path() -> None:
+    with pytest.raises(UserInputError, match="Source must include an agent specification"):
+        parse_agent_spec(spec="../my-dir", explicit_agent=None, spec_name="Source")
+
+
+def test_parse_agent_spec_explicit_agent_with_no_spec() -> None:
+    agent_id, subpath = parse_agent_spec(spec=None, explicit_agent="override-agent", spec_name="Target")
+
+    assert agent_id == "override-agent"
+    assert subpath is None
+
+
+def test_parse_agent_spec_explicit_agent_matches_spec() -> None:
+    agent_id, subpath = parse_agent_spec(spec="my-agent:path", explicit_agent="my-agent", spec_name="Target")
+
+    assert agent_id == "my-agent"
+    assert subpath == "path"
+
+
+def test_parse_agent_spec_raises_on_conflicting_explicit_agent() -> None:
+    with pytest.raises(UserInputError, match="Cannot specify both --target and --target-agent"):
+        parse_agent_spec(spec="agent-a", explicit_agent="agent-b", spec_name="Target")
+
+
+def test_parse_agent_spec_raises_on_conflicting_source_agent() -> None:
+    with pytest.raises(UserInputError, match="Cannot specify both --source and --source-agent"):
+        parse_agent_spec(spec="agent-a:path", explicit_agent="agent-b", spec_name="Source")
+
+
+# =============================================================================
+# stop_agent_after_sync tests
+# =============================================================================
+
+
+@patch("imbue.mngr.cli.agent_utils.emit_info")
+def test_stop_agent_after_sync_dry_run_emits_dry_run_message(mock_emit_info: MagicMock) -> None:
+    mock_agent = MagicMock()
+    mock_host = MagicMock()
+
+    stop_agent_after_sync(mock_agent, mock_host, is_dry_run=True, output_format=OutputFormat.HUMAN)
+
+    mock_emit_info.assert_called_once_with("Dry run: would stop agent after sync", OutputFormat.HUMAN)
+    mock_host.stop_agents.assert_not_called()
+
+
+@patch("imbue.mngr.cli.agent_utils.emit_info")
+def test_stop_agent_after_sync_stops_agent(mock_emit_info: MagicMock) -> None:
+    mock_agent = MagicMock()
+    mock_agent.name = "test-agent"
+    mock_agent.id = AgentId.generate()
+    mock_host = MagicMock()
+
+    stop_agent_after_sync(mock_agent, mock_host, is_dry_run=False, output_format=OutputFormat.HUMAN)
+
+    mock_host.stop_agents.assert_called_once_with([mock_agent.id])
+    assert mock_emit_info.call_count == 2
+    mock_emit_info.assert_any_call("Stopping agent: test-agent", OutputFormat.HUMAN)
+    mock_emit_info.assert_any_call("Agent stopped", OutputFormat.HUMAN)

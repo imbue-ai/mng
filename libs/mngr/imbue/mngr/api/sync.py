@@ -471,8 +471,14 @@ def _sync_git_push(
                 pre_fetch_head = get_head_commit(destination_path)
 
                 if dry_run:
-                    # For dry run, estimate from the local side
-                    estimated_commits = count_commits_between(local_path, target_branch, source_branch)
+                    # For dry run, estimate using pre_fetch_head (the agent's current
+                    # HEAD). target_branch is a branch name that may not exist locally,
+                    # but pre_fetch_head is a commit hash valid in both repos since
+                    # local agents share the same git object store.
+                    if pre_fetch_head is not None:
+                        estimated_commits = count_commits_between(local_path, pre_fetch_head, source_branch)
+                    else:
+                        estimated_commits = 0
                     logger.debug(
                         "Dry run: would push {} commits (mirror) from {} to {}",
                         estimated_commits,
@@ -529,7 +535,12 @@ def _sync_git_push(
                 pre_fetch_head = get_head_commit(destination_path)
 
                 if dry_run:
-                    estimated_commits = count_commits_between(local_path, target_branch, source_branch)
+                    # Use pre_fetch_head instead of target_branch (see mirror
+                    # dry-run comment above for rationale)
+                    if pre_fetch_head is not None:
+                        estimated_commits = count_commits_between(local_path, pre_fetch_head, source_branch)
+                    else:
+                        estimated_commits = 0
                     logger.debug(
                         "Dry run: would push {} commits from {} into {}",
                         estimated_commits,

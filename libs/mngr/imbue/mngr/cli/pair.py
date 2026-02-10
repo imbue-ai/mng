@@ -10,6 +10,7 @@ from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.pair import pair_files
 from imbue.mngr.cli.agent_utils import filter_agents_by_host
+from imbue.mngr.cli.agent_utils import parse_agent_spec
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -59,10 +60,8 @@ def _emit_pair_started(
         "target_path": str(target_path),
     }
     match output_opts.output_format:
-        case OutputFormat.JSON:
-            emit_event("pair_started", data, OutputFormat.JSON)
-        case OutputFormat.JSONL:
-            emit_event("pair_started", data, OutputFormat.JSONL)
+        case OutputFormat.JSON | OutputFormat.JSONL:
+            emit_event("pair_started", data, output_opts.output_format)
         case OutputFormat.HUMAN:
             logger.info("Pairing {} <-> {}", source_path, target_path)
         case _ as unreachable:
@@ -73,10 +72,8 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
     """Emit a message when pairing stops."""
     data: dict[str, str] = {}
     match output_opts.output_format:
-        case OutputFormat.JSON:
-            emit_event("pair_stopped", data, OutputFormat.JSON)
-        case OutputFormat.JSONL:
-            emit_event("pair_stopped", data, OutputFormat.JSONL)
+        case OutputFormat.JSON | OutputFormat.JSONL:
+            emit_event("pair_stopped", data, output_opts.output_format)
         case OutputFormat.HUMAN:
             logger.info("Pairing stopped")
         case _ as unreachable:
@@ -172,26 +169,12 @@ def pair(ctx: click.Context, **kwargs) -> None:
     effective_source = opts.source if opts.source is not None else opts.source_pos
 
     # Parse source specification
-    agent_identifier: str | None = None
-    source_subpath: str | None = opts.source_path
-
-    if effective_source is not None:
-        # Parse source string: AGENT, AGENT:PATH, or PATH
-        if ":" in effective_source:
-            # AGENT:PATH format
-            agent_identifier, source_subpath = effective_source.split(":", 1)
-        elif effective_source.startswith(("/", "./", "~/", "../")):
-            # PATH format - not supported without agent
-            raise UserInputError("Source must include an agent specification")
-        else:
-            # AGENT format
-            agent_identifier = effective_source
-
-    # Override with explicit options if provided
-    if opts.source_agent is not None:
-        if agent_identifier is not None and agent_identifier != opts.source_agent:
-            raise UserInputError("Cannot specify both --source and --source-agent with different values")
-        agent_identifier = opts.source_agent
+    agent_identifier, source_subpath = parse_agent_spec(
+        spec=effective_source,
+        explicit_agent=opts.source_agent,
+        spec_name="Source",
+        default_subpath=opts.source_path,
+    )
 
     # Determine target path
     if opts.target is not None:

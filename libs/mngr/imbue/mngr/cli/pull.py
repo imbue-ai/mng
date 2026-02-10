@@ -9,7 +9,9 @@ from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.api.pull import pull_git
+from imbue.mngr.cli.agent_utils import parse_agent_spec
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
+from imbue.mngr.cli.agent_utils import stop_agent_after_sync
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -264,26 +266,12 @@ def pull(ctx: click.Context, **kwargs) -> None:
         raise NotImplementedError("--uncommitted-source is not implemented yet")
 
     # Parse source specification
-    agent_identifier: str | None = None
-    source_path: str | None = opts.source_path
-
-    if effective_source is not None:
-        # Parse source string: AGENT, AGENT:PATH, or PATH
-        if ":" in effective_source:
-            # AGENT:PATH format
-            agent_identifier, source_path = effective_source.split(":", 1)
-        elif effective_source.startswith(("/", "./", "~/", "../")):
-            # PATH format - not supported without agent
-            raise UserInputError("Source must include an agent specification")
-        else:
-            # AGENT format
-            agent_identifier = effective_source
-
-    # Override with explicit options if provided
-    if opts.source_agent is not None:
-        if agent_identifier is not None and agent_identifier != opts.source_agent:
-            raise UserInputError("Cannot specify both --source and --source-agent with different values")
-        agent_identifier = opts.source_agent
+    agent_identifier, source_path = parse_agent_spec(
+        spec=effective_source,
+        explicit_agent=opts.source_agent,
+        spec_name="Source",
+        default_subpath=opts.source_path,
+    )
 
     # Determine destination
     destination_path = Path(effective_destination) if effective_destination else Path.cwd()
@@ -339,12 +327,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
 
         # Stop agent if requested (after outputting result so it's not lost if stop fails)
         if opts.stop:
-            if opts.dry_run:
-                emit_info("Dry run: would stop agent after sync", output_opts.output_format)
-            else:
-                emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
-                host.stop_agents([agent.id])
-                emit_info("Agent stopped", output_opts.output_format)
+            stop_agent_after_sync(agent, host, opts.dry_run, output_opts.output_format)
     else:
         # Files mode: rsync
         # Parse source_path if provided
@@ -371,12 +354,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
 
         # Stop agent if requested (after outputting result so it's not lost if stop fails)
         if opts.stop:
-            if opts.dry_run:
-                emit_info("Dry run: would stop agent after sync", output_opts.output_format)
-            else:
-                emit_info(f"Stopping agent: {agent.name}", output_opts.output_format)
-                host.stop_agents([agent.id])
-                emit_info("Agent stopped", output_opts.output_format)
+            stop_agent_after_sync(agent, host, opts.dry_run, output_opts.output_format)
 
 
 # Register help metadata for git-style help formatting

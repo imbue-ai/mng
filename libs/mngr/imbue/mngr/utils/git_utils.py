@@ -2,6 +2,8 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
+from loguru import logger
+
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import MngrError
 
@@ -216,6 +218,12 @@ def count_commits_between(path: Path, base_ref: str, head_ref: str) -> int:
         text=True,
     )
     if result.returncode != 0:
+        logger.debug(
+            "Failed to count commits between {} and {}: {}",
+            base_ref,
+            head_ref,
+            result.stderr.strip(),
+        )
         return 0
     try:
         return int(result.stdout.strip())
