@@ -11,7 +11,6 @@ from loguru import logger
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
-from imbue.imbue_common.model_update import to_update_dict
 from imbue.mngr.api.data_types import GcResourceTypes
 from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.config.data_types import MngrContext
@@ -271,10 +270,8 @@ def gc_snapshots(
                     # Sort by creation time (newest first) and assign recency_idx
                     sorted_snapshots = sorted(snapshots, key=lambda s: s.created_at, reverse=True)
                     snapshots_with_recency = [
-                        snapshot.model_copy(
-                            update=to_update_dict(
-                                to_update(snapshot.field_ref().recency_idx, idx),
-                            )
+                        snapshot.model_copy_update(
+                            to_update(snapshot.field_ref().recency_idx, idx),
                         )
                         for idx, snapshot in enumerate(sorted_snapshots)
                     ]
@@ -577,10 +574,8 @@ def _remove_work_dir_from_certified_data(host: OnlineHostInterface, work_dir_pat
     existing_dirs = set(certified_data.generated_work_dirs)
     existing_dirs.discard(str(work_dir_path))
 
-    updated_data = certified_data.model_copy(
-        update=to_update_dict(
-            to_update(certified_data.field_ref().generated_work_dirs, tuple(sorted(existing_dirs))),
-        )
+    updated_data = certified_data.model_copy_update(
+        to_update(certified_data.field_ref().generated_work_dirs, tuple(sorted(existing_dirs))),
     )
 
     data_json = updated_data.model_dump_json(by_alias=True, indent=2)

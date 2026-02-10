@@ -10,7 +10,6 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.imbue_common.model_update import to_update
-from imbue.imbue_common.model_update import to_update_dict
 from imbue.mngr.cli.create import CreateCliOptions
 from imbue.mngr.cli.create import _handle_create
 from imbue.mngr.cli.create import create
@@ -131,15 +130,13 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
     agent_name = f"test-connect-local-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
 
-    opts = default_create_cli_opts.model_copy(
-        update=to_update_dict(
-            to_update(default_create_cli_opts.field_ref().name, agent_name),
-            to_update(default_create_cli_opts.field_ref().agent_command, "sleep 397265"),
-            to_update(default_create_cli_opts.field_ref().source_path, str(temp_work_dir)),
-            to_update(default_create_cli_opts.field_ref().connect, True),
-            to_update(default_create_cli_opts.field_ref().copy_work_dir, False),
-            to_update(default_create_cli_opts.field_ref().ensure_clean, False),
-        )
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().name, agent_name),
+        to_update(default_create_cli_opts.field_ref().agent_command, "sleep 397265"),
+        to_update(default_create_cli_opts.field_ref().source_path, str(temp_work_dir)),
+        to_update(default_create_cli_opts.field_ref().connect, True),
+        to_update(default_create_cli_opts.field_ref().copy_work_dir, False),
+        to_update(default_create_cli_opts.field_ref().ensure_clean, False),
     )
 
     output_opts = OutputOptions()

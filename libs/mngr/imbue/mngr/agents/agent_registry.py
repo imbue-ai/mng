@@ -6,7 +6,6 @@ from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.model_update import to_update
-from imbue.imbue_common.model_update import to_update_dict
 from imbue.imbue_common.pure import pure
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.agents.default_plugins import claude_agent
@@ -147,7 +146,7 @@ def _apply_custom_overrides_to_parent_config(
     if not updates:
         return parent_config
 
-    return parent_config.model_copy(update=to_update_dict(*updates))
+    return parent_config.model_copy_update(*updates)
 
 
 def resolve_agent_type(

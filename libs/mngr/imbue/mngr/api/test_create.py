@@ -12,7 +12,6 @@ from typing import cast
 import pluggy
 
 from imbue.imbue_common.model_update import to_update
-from imbue.imbue_common.model_update import to_update_dict
 from imbue.mngr import hookimpl
 from imbue.mngr.api.create import _call_on_before_create_hooks
 from imbue.mngr.api.create import create
@@ -590,15 +589,11 @@ class PluginModifyingAgentOptions:
     @hookimpl
     def on_before_create(self, args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
         # Modify the agent name by adding a prefix
-        new_options = args.agent_options.model_copy(
-            update=to_update_dict(
-                to_update(args.agent_options.field_ref().name, AgentName(f"modified-{args.agent_options.name}")),
-            )
+        new_options = args.agent_options.model_copy_update(
+            to_update(args.agent_options.field_ref().name, AgentName(f"modified-{args.agent_options.name}")),
         )
-        return args.model_copy(
-            update=to_update_dict(
-                to_update(args.field_ref().agent_options, new_options),
-            )
+        return args.model_copy_update(
+            to_update(args.field_ref().agent_options, new_options),
         )
 
 
@@ -608,10 +603,8 @@ class PluginModifyingCreateWorkDir:
     @hookimpl
     def on_before_create(self, args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
         # Force create_work_dir to False
-        return args.model_copy(
-            update=to_update_dict(
-                to_update(args.field_ref().create_work_dir, False),
-            )
+        return args.model_copy_update(
+            to_update(args.field_ref().create_work_dir, False),
         )
 
 
@@ -629,15 +622,11 @@ class PluginChainA:
     @hookimpl
     def on_before_create(self, args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
         new_name = AgentName(f"{args.agent_options.name}-A")
-        new_options = args.agent_options.model_copy(
-            update=to_update_dict(
-                to_update(args.agent_options.field_ref().name, new_name),
-            )
+        new_options = args.agent_options.model_copy_update(
+            to_update(args.agent_options.field_ref().name, new_name),
         )
-        return args.model_copy(
-            update=to_update_dict(
-                to_update(args.field_ref().agent_options, new_options),
-            )
+        return args.model_copy_update(
+            to_update(args.field_ref().agent_options, new_options),
         )
 
 
@@ -647,15 +636,11 @@ class PluginChainB:
     @hookimpl
     def on_before_create(self, args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
         new_name = AgentName(f"{args.agent_options.name}-B")
-        new_options = args.agent_options.model_copy(
-            update=to_update_dict(
-                to_update(args.agent_options.field_ref().name, new_name),
-            )
+        new_options = args.agent_options.model_copy_update(
+            to_update(args.agent_options.field_ref().name, new_name),
         )
-        return args.model_copy(
-            update=to_update_dict(
-                to_update(args.field_ref().agent_options, new_options),
-            )
+        return args.model_copy_update(
+            to_update(args.field_ref().agent_options, new_options),
         )
 
 
@@ -670,10 +655,8 @@ def test_on_before_create_hook_modifies_agent_options(
     pm.register(PluginModifyingAgentOptions())
 
     # Create a modified context with our test plugin manager
-    test_ctx = temp_mngr_ctx.model_copy(
-        update=to_update_dict(
-            to_update(temp_mngr_ctx.field_ref().pm, pm),
-        )
+    test_ctx = temp_mngr_ctx.model_copy_update(
+        to_update(temp_mngr_ctx.field_ref().pm, pm),
     )
 
     local_host = _get_local_host_for_test(test_ctx)
@@ -703,10 +686,8 @@ def test_on_before_create_hook_modifies_create_work_dir(
     pm.add_hookspecs(hookspecs)
     pm.register(PluginModifyingCreateWorkDir())
 
-    test_ctx = temp_mngr_ctx.model_copy(
-        update=to_update_dict(
-            to_update(temp_mngr_ctx.field_ref().pm, pm),
-        )
+    test_ctx = temp_mngr_ctx.model_copy_update(
+        to_update(temp_mngr_ctx.field_ref().pm, pm),
     )
 
     local_host = _get_local_host_for_test(test_ctx)
@@ -734,10 +715,8 @@ def test_on_before_create_hook_returning_none_passes_through(
     pm.add_hookspecs(hookspecs)
     pm.register(PluginReturningNone())
 
-    test_ctx = temp_mngr_ctx.model_copy(
-        update=to_update_dict(
-            to_update(temp_mngr_ctx.field_ref().pm, pm),
-        )
+    test_ctx = temp_mngr_ctx.model_copy_update(
+        to_update(temp_mngr_ctx.field_ref().pm, pm),
     )
 
     local_host = _get_local_host_for_test(test_ctx)
@@ -769,10 +748,8 @@ def test_on_before_create_hooks_chain_in_order(
     pm.register(PluginChainA())
     pm.register(PluginChainB())
 
-    test_ctx = temp_mngr_ctx.model_copy(
-        update=to_update_dict(
-            to_update(temp_mngr_ctx.field_ref().pm, pm),
-        )
+    test_ctx = temp_mngr_ctx.model_copy_update(
+        to_update(temp_mngr_ctx.field_ref().pm, pm),
     )
 
     local_host = _get_local_host_for_test(test_ctx)

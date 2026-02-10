@@ -188,15 +188,11 @@ def on_before_create(args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
         def on_before_create(args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
             if args.agent_options.agent_type == "claude":
                 # Override agent name for claude agents
-                new_options = args.agent_options.model_copy(
-                    update=to_update_dict(
-                        to_update(args.agent_options.field_ref().name, f"claude-{args.agent_options.name}"),
-                    )
+                new_options = args.agent_options.model_copy_update(
+                    to_update(args.agent_options.field_ref().name, f"claude-{args.agent_options.name}"),
                 )
-                return args.model_copy(
-                    update=to_update_dict(
-                        to_update(args.field_ref().agent_options, new_options),
-                    )
+                return args.model_copy_update(
+                    to_update(args.field_ref().agent_options, new_options),
                 )
             return None
     """
