@@ -106,7 +106,7 @@ def default_create_cli_opts() -> CreateCliOptions:
 def default_connect_cli_opts() -> ConnectCliOptions:
     """Baseline ConnectCliOptions with sensible defaults for all fields.
 
-    Tests use .model_copy_update() with to_update_dict() to override only the fields
+    Tests use .model_copy_update() with to_update() to override only the fields
     relevant to each test case.
     """
     return ConnectCliOptions(

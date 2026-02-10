@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 import pluggy
@@ -20,7 +21,6 @@ from urwid.widget.wimp import SelectableIcon
 from imbue.imbue_common.model_update import to_update
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import AgentInfo
-from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.cli.connect import AgentSelectorState
 from imbue.mngr.cli.connect import ConnectCliOptions
@@ -37,7 +37,6 @@ from imbue.mngr.cli.connect import select_agent_interactively
 from imbue.mngr.cli.create import create
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.interfaces.data_types import HostInfo
-from imbue.mngr.main import cli
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
@@ -111,84 +110,8 @@ def _created_agent(
 
 
 # =============================================================================
-# Integration tests for connect command agent resolution
+# Integration tests for connect command error paths
 # =============================================================================
-
-
-def test_connect_resolves_agent_by_name(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-    temp_mngr_ctx: MngrContext,
-) -> None:
-    """Test that agent resolution by name works correctly for connect."""
-    agent_name = f"test-connect-name-{int(time.time())}"
-
-    with _created_agent(
-        cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name, 827364
-    ) as session_name:
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
-
-        # Verify the agent can be resolved by name through the API
-        agents_by_host, _providers = load_all_agents_grouped_by_host(temp_mngr_ctx)
-        agent, host = find_and_maybe_start_agent_by_name_or_id(
-            agent_name, agents_by_host, temp_mngr_ctx, "connect", is_start_desired=True
-        )
-
-        assert str(agent.name) == agent_name
-        assert host.is_local
-
-        # Verify the session name matches what connect_to_agent would use
-        expected_session = f"{temp_mngr_ctx.config.prefix}{agent.name}"
-        assert expected_session == session_name
-
-
-def test_connect_resolves_agent_via_cli_group(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-    temp_mngr_ctx: MngrContext,
-) -> None:
-    """Test that agents created through the CLI group can be resolved for connect."""
-    agent_name = f"test-connect-cli-{int(time.time())}"
-    session_name = f"{mngr_test_prefix}{agent_name}"
-
-    try:
-        # Create an agent through the CLI group
-        create_result = cli_runner.invoke(
-            cli,
-            [
-                "create",
-                "--name",
-                agent_name,
-                "--agent-cmd",
-                "sleep 918273",
-                "--source",
-                str(temp_work_dir),
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
-                "--no-ensure-clean",
-            ],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-        assert create_result.exit_code == 0, f"Create failed with: {create_result.output}"
-
-        # Verify the agent can be resolved by name
-        agents_by_host, _providers = load_all_agents_grouped_by_host(temp_mngr_ctx)
-        agent, host = find_and_maybe_start_agent_by_name_or_id(
-            agent_name, agents_by_host, temp_mngr_ctx, "connect", is_start_desired=True
-        )
-
-        assert str(agent.name) == agent_name
-        expected_session = f"{temp_mngr_ctx.config.prefix}{agent.name}"
-        assert expected_session == session_name
-
-    finally:
-        cleanup_tmux_session(session_name)
 
 
 def test_connect_no_agent_found(
@@ -310,6 +233,90 @@ def test_connect_no_start_raises_error_for_stopped_agent(
 
 
 # =============================================================================
+# CLI-level integration tests for connect command happy path
+#
+# These tests invoke the connect CLI command end-to-end. Because os.execvp
+# replaces the test process, we intercept it with a simple callable (not
+# MagicMock) to capture the args and verify the full CLI pipeline works.
+# =============================================================================
+
+
+def _make_execvp_recorder(calls: list[tuple[str, list[str]]]) -> object:
+    """Create a callable that records os.execvp invocations."""
+
+    def record_execvp(program: str, args: list[str]) -> None:
+        calls.append((program, args))
+
+    return record_execvp
+
+
+def test_connect_cli_invokes_tmux_attach_for_named_agent(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test the full connect CLI path: argument parsing -> agent resolution -> tmux attach."""
+    agent_name = f"test-connect-cli-tmux-{int(time.time())}"
+
+    with _created_agent(
+        cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name, 493827
+    ) as session_name:
+        assert tmux_session_exists(session_name)
+
+        # Intercept os.execvp with a simple recorder (not MagicMock)
+        execvp_calls: list[tuple[str, list[str]]] = []
+        with patch("imbue.mngr.api.connect.os.execvp", new=_make_execvp_recorder(execvp_calls)):
+            result = cli_runner.invoke(
+                connect,
+                [agent_name],
+                obj=plugin_manager,
+                catch_exceptions=False,
+            )
+            assert result.exit_code == 0, f"Connect failed with output: {result.output}"
+
+            # Verify the CLI resolved the agent and called tmux attach with the right session
+            assert len(execvp_calls) == 1
+            assert execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_name])
+
+
+def test_connect_cli_non_interactive_selects_most_recent_agent(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test the non-interactive code path selects the most recently created agent.
+
+    When stdin is not a tty (simulated by providing input=""), the connect
+    command should detect non-interactive mode, call list_agents, sort by
+    create_time descending, and select the most recently created agent.
+    """
+    agent_name_old = f"test-connect-old-{int(time.time())}"
+    agent_name_new = f"test-connect-new-{int(time.time())}"
+
+    with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_old, 192837):
+        with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_new, 283746):
+            expected_session = f"{mngr_test_prefix}{agent_name_new}"
+
+            # Intercept os.execvp to capture the session name without replacing the process
+            execvp_calls: list[tuple[str, list[str]]] = []
+            with patch("imbue.mngr.api.connect.os.execvp", new=_make_execvp_recorder(execvp_calls)):
+                cli_runner.invoke(
+                    connect,
+                    [],
+                    obj=plugin_manager,
+                    catch_exceptions=False,
+                    # Providing input="" makes stdin non-tty, triggering the non-interactive path
+                    input="",
+                )
+
+                # Verify the CLI selected the most recently created agent
+                assert len(execvp_calls) == 1
+                assert execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", expected_session])
+
+
+# =============================================================================
 # Tests for _build_connection_options (CLI option to ConnectionOptions mapping)
 # =============================================================================
 
@@ -355,41 +362,6 @@ def test_build_connection_options_maps_all_fields(
     assert connection_opts.retry_delay == "10s"
     assert connection_opts.attach_command == "bash"
     assert connection_opts.is_unknown_host_allowed is True
-
-
-# =============================================================================
-# Test for non-interactive agent selection (most recent agent)
-# =============================================================================
-
-
-def test_most_recent_agent_selected_in_non_interactive_mode(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-    temp_mngr_ctx: MngrContext,
-) -> None:
-    """Test that the most recently created agent is first when sorted by create_time.
-
-    When stdin is not a tty (non-interactive), the connect command sorts agents
-    by create_time descending and selects the first one. This test verifies that
-    sorting logic works correctly.
-    """
-    agent_name_old = f"test-connect-old-{int(time.time())}"
-    agent_name_new = f"test-connect-new-{int(time.time())}"
-
-    with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_old, 192837):
-        with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_new, 283746):
-            # Use the same logic the connect command uses for non-interactive mode
-            list_result = list_agents(temp_mngr_ctx)
-            assert len(list_result.agents) >= 2
-
-            # Sort by create_time descending (same as connect command)
-            sorted_agents = sorted(list_result.agents, key=lambda a: a.create_time, reverse=True)
-            most_recent = sorted_agents[0]
-
-            # The most recently created agent should be the "new" one
-            assert str(most_recent.name) == agent_name_new
 
 
 # =============================================================================
