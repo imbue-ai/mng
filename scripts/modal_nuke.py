@@ -181,13 +181,13 @@ def _nuke_resources(
     failure_count = 0
     for resource in resources:
         identifier = get_identifier(resource)
-        logger.info(f"{action_label} {identifier}...")
+        print(f"{action_label} {identifier}...", end=" ", flush=True)
         is_success, stderr = execute_action(identifier, environment)
         if is_success:
-            logger.info(f"{action_label} {identifier}... done")
+            print("done")
         else:
             failure_count += 1
-            logger.error(f"{action_label} {identifier}... {stderr if stderr else 'FAILED'}")
+            print(stderr if stderr else "FAILED")
     return failure_count
 
 
