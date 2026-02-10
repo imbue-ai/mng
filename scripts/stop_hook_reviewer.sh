@@ -2,12 +2,17 @@
 #
 # stop_hook_reviewer.sh
 #
-# Stop hook that ensures all reviewers have not found any major or critical issues.
-# Sources stop_hook_common.sh for shared precondition checks.
+# Ensures all reviewers have not found any major or critical issues.
+#
+# Normally launched in parallel by main_claude_stop_hook.sh (which handles
+# common setup once). Can also be run standalone -- in that case,
+# stop_hook_common.sh performs the full setup automatically.
 
 set -euo pipefail
 
-# Source shared logic (reads stdin, checks preconditions, sets up variables/functions)
+# Source shared logic. When launched from main_claude_stop_hook.sh this is a
+# fast no-op (variables already exported, just redefines functions). When run
+# standalone it performs the full setup (stdin, preconditions, fetch/merge/push).
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/stop_hook_common.sh"
 
 # Find all windows named reviewer_* and start review processes as background jobs

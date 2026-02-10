@@ -17,7 +17,7 @@ target_path = "/code/mngr"
 
 [agent_types.coder]
 parent_type = "claude"
-cli_args = """--settings '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "./scripts/check_commit_status.sh"}]}, {"hooks": [{"type": "command", "timeout": 600, "command": "./scripts/stop_hook_pr_and_ci.sh"}]}, {"hooks": [{"type": "command", "timeout": 600, "command": "./scripts/stop_hook_reviewer.sh"}]}]}}'"""
+cli_args = """--settings '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "./scripts/check_commit_status.sh"}]}, {"hooks": [{"type": "command", "timeout": 600, "command": "./scripts/main_claude_stop_hook.sh"}]}]}}'"""
 
 [providers.modal]
 is_enabled = true

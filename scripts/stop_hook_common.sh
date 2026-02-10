@@ -3,9 +3,15 @@
 # stop_hook_common.sh
 #
 # Shared logic for stop hook scripts. This file is meant to be sourced
-# (not executed directly) by stop_hook_pr_and_ci.sh and stop_hook_reviewer.sh.
+# (not executed directly) by main_claude_stop_hook.sh, stop_hook_pr_and_ci.sh,
+# and stop_hook_reviewer.sh.
 #
-# When sourced, this script:
+# When sourced from the main orchestrator (which exports STOP_HOOK_COMMON_SOURCED=1),
+# this script skips expensive operations (fetch, merge, push) and just redefines
+# the helper functions that don't survive across process boundaries.
+#
+# When sourced standalone (e.g., running stop_hook_pr_and_ci.sh directly), this
+# script performs the full setup:
 #   1. Reads hook input JSON from stdin
 #   2. Sets up cleanup of .claude/active on exit
 #   3. Exits cleanly if not in tmux or not the main claude session
@@ -21,6 +27,44 @@
 #
 # After sourcing, the following functions are available:
 #   log_error, log_warn, log_info, retry_command
+
+# --- Fast path: already sourced by the main orchestrator ---
+# When launched as a subprocess from main_claude_stop_hook.sh, all variables are
+# already exported. We just need to redefine functions (which don't survive exec).
+if [[ "${STOP_HOOK_COMMON_SOURCED:-}" == "1" ]]; then
+    # Colors are already exported as env vars
+    log_error() {
+        echo -e "${RED}ERROR: $1${NC}" >&2
+    }
+    log_warn() {
+        echo -e "${YELLOW}WARN: $1${NC}" >&2
+    }
+    log_info() {
+        echo -e "${GREEN}$1${NC}"
+    }
+    retry_command() {
+        local max_retries=$1
+        shift
+        local attempt=1
+        local wait_time=1
+        while [[ $attempt -le $max_retries ]]; do
+            if "$@"; then
+                return 0
+            fi
+            if [[ $attempt -lt $max_retries ]]; then
+                log_warn "Command failed (attempt $attempt/$max_retries), retrying in ${wait_time}s..."
+                sleep "$wait_time"
+                wait_time=$((wait_time * 2))
+            fi
+            attempt=$((attempt + 1))
+        done
+        log_error "Command failed after $max_retries attempts: $*"
+        return 1
+    }
+    return 0
+fi
+
+# --- Full setup path: sourced standalone ---
 
 # Read hook input JSON from stdin (must be done before anything else consumes stdin)
 HOOK_INPUT=$(cat 2>/dev/null || echo '{}')

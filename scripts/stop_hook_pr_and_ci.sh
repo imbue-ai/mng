@@ -2,41 +2,18 @@
 #
 # stop_hook_pr_and_ci.sh
 #
-# Stop hook that ensures a PR is created/updated and that all CI tests pass.
-# Sources stop_hook_common.sh for shared precondition checks.
+# Ensures a PR is created/updated and that all CI tests pass.
+#
+# Normally launched in parallel by main_claude_stop_hook.sh (which handles
+# common setup once). Can also be run standalone -- in that case,
+# stop_hook_common.sh performs the full setup automatically.
 
 set -euo pipefail
 
-# Source shared logic (reads stdin, checks preconditions, sets up variables/functions)
+# Source shared logic. When launched from main_claude_stop_hook.sh this is a
+# fast no-op (variables already exported, just redefines functions). When run
+# standalone it performs the full setup (stdin, preconditions, fetch/merge/push).
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/stop_hook_common.sh"
-
-# Track the commit hash to detect stuck agents.
-# Only track if this is the main agent and it's already trying to stop (stop_hook_active=true).
-# Subagents (launched by claude itself) also trigger the stop hook, and we must not
-# append to reviewed_commits for those, otherwise it looks like the main agent stopped
-# again and can falsely trigger the "stuck agent" detection.
-STOP_HOOK_ACTIVE=$(echo "$HOOK_INPUT" | jq -r '.stop_hook_active // false')
-if [[ "$STOP_HOOK_ACTIVE" == "true" ]]; then
-    ( git rev-parse HEAD || echo "conflict" ) >> .claude/reviewed_commits
-fi
-
-# Check if we've reviewed the same commit 3 times in a row (agent is stuck)
-if [[ -f .claude/reviewed_commits ]]; then
-    # Get the last 3 entries
-    LAST_THREE=$(tail -n 3 .claude/reviewed_commits)
-    ENTRY_COUNT=$(echo "$LAST_THREE" | wc -l)
-
-    if [[ $ENTRY_COUNT -ge 3 ]]; then
-        # Check if all 3 entries are identical
-        UNIQUE_COUNT=$(echo "$LAST_THREE" | sort -u | wc -l)
-        if [[ $UNIQUE_COUNT -eq 1 ]]; then
-            echo "ERROR: This hook has been run 3 times at the same commit." >&2
-            echo "ERROR: The agent appears to be stuck and unable to make progress." >&2
-            echo "ERROR: Please investigate and resolve the issue manually." >&2
-            exit 1
-        fi
-    fi
-fi
 
 # Helper function to create a new PR
 # Returns the PR number on success, exits with error on failure
