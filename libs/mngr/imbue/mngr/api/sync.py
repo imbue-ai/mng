@@ -739,42 +739,41 @@ def _sync_git_pull(
                 target_branch,
             )
     except MngrError:
-        # On failure, try to restore stashed changes but don't mask the original error
-        if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
-            logger.debug("Restoring stashed changes after failure")
-            try:
-                # Checkout back to the original branch before popping the stash,
-                # since stash was created on the original branch
-                if did_checkout:
-                    subprocess.run(
-                        ["git", "checkout", original_branch],
-                        cwd=local_path,
-                        capture_output=True,
-                        text=True,
-                    )
-                git_ctx.git_stash_pop(local_path)
-            except MngrError:
-                logger.warning(
-                    "Failed to restore stashed changes after git pull failure. "
-                    "Run 'git stash pop' in {} to recover your changes.",
-                    local_path,
+        # On failure, try to restore original branch and stashed changes
+        # but don't mask the original error
+        try:
+            if did_checkout:
+                subprocess.run(
+                    ["git", "checkout", original_branch],
+                    cwd=local_path,
+                    capture_output=True,
+                    text=True,
                 )
+            if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
+                logger.debug("Restoring stashed changes after failure")
+                git_ctx.git_stash_pop(local_path)
+        except MngrError:
+            logger.warning(
+                "Failed to restore stashed changes after git pull failure. "
+                "Run 'git stash pop' in {} to recover your changes.",
+                local_path,
+            )
         raise
 
-    # On success, restore stashed changes (and let the error propagate if it fails)
+    # Always restore original branch if we checked out a different one
+    if did_checkout:
+        result = subprocess.run(
+            ["git", "checkout", original_branch],
+            cwd=local_path,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise MngrError(f"Failed to checkout original branch {original_branch}: {result.stderr}")
+
+    # For MERGE mode, also restore stashed changes
     if did_stash and uncommitted_changes == UncommittedChangesMode.MERGE:
         logger.debug("Restoring stashed changes")
-        # Checkout back to the original branch before popping the stash,
-        # since stash was created on the original branch
-        if did_checkout:
-            result = subprocess.run(
-                ["git", "checkout", original_branch],
-                cwd=local_path,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                raise MngrError(f"Failed to checkout original branch {original_branch}: {result.stderr}")
         git_ctx.git_stash_pop(local_path)
 
     return SyncGitResult(
