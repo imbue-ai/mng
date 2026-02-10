@@ -484,11 +484,6 @@ def create(ctx: click.Context, **kwargs) -> None:
     \b
     Alias: c
     """
-    create_result, connection_opts, output_opts, opts, mngr_ctx = _handle_create(ctx)
-    _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
-
-
-def _handle_create(ctx: click.Context):
     logger.debug("Started create command")
 
     # Setup command context (config, logging, output options)
@@ -499,6 +494,11 @@ def _handle_create(ctx: click.Context):
         command_class=CreateCliOptions,
     )
 
+    create_result, connection_opts, output_opts, opts, mngr_ctx = _handle_create(mngr_ctx, output_opts, opts)
+    _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
+
+
+def _handle_create(mngr_ctx, output_opts, opts):
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
