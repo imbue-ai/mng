@@ -9,6 +9,8 @@ import pluggy
 import pytest
 from click.testing import CliRunner
 
+from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.model_update import to_update_dict
 from imbue.mngr.cli.create import CreateCliOptions
 from imbue.mngr.cli.create import _handle_create
 from imbue.mngr.cli.create import create
@@ -118,6 +120,7 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
     temp_work_dir: Path,
     temp_mngr_ctx: MngrContext,
     mngr_test_prefix: str,
+    default_create_cli_opts: CreateCliOptions,
 ) -> None:
     """Test that --connect flag results in connection options that would attach to the tmux session.
 
@@ -128,94 +131,15 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
     agent_name = f"test-connect-local-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
 
-    opts = CreateCliOptions(
-        output_format="human",
-        quiet=False,
-        verbose=0,
-        log_file=None,
-        log_commands=None,
-        log_command_output=None,
-        log_env_vars=None,
-        project_context_path=None,
-        plugin=(),
-        disable_plugin=(),
-        positional_name=None,
-        positional_agent_type=None,
-        agent_args=(),
-        template=(),
-        agent_type=None,
-        reuse=False,
-        connect=True,
-        await_ready=None,
-        await_agent_stopped=None,
-        copy_work_dir=False,
-        ensure_clean=False,
-        snapshot_source=None,
-        name=agent_name,
-        name_style="english",
-        agent_command="sleep 397265",
-        add_command=(),
-        user=None,
-        source=None,
-        source_agent=None,
-        source_host=None,
-        source_path=str(temp_work_dir),
-        target=None,
-        target_path=None,
-        in_place=False,
-        copy_source=False,
-        clone=False,
-        worktree=False,
-        rsync=None,
-        rsync_args=None,
-        include_git=True,
-        include_unclean=None,
-        include_gitignored=False,
-        base_branch=None,
-        new_branch="",
-        new_branch_prefix="mngr/",
-        depth=None,
-        shallow_since=None,
-        agent_env=(),
-        agent_env_file=(),
-        pass_agent_env=(),
-        host=None,
-        new_host=None,
-        host_name=None,
-        host_name_style="astronomy",
-        tag=(),
-        project=None,
-        host_env=(),
-        host_env_file=(),
-        pass_host_env=(),
-        known_host=(),
-        snapshot=None,
-        build_arg=(),
-        build_args=None,
-        start_arg=(),
-        start_args=None,
-        reconnect=True,
-        interactive=None,
-        message=None,
-        message_file=None,
-        edit_message=False,
-        resume_message=None,
-        resume_message_file=None,
-        retry=3,
-        retry_delay="5s",
-        attach_command=None,
-        idle_timeout=None,
-        idle_mode=None,
-        activity_sources=None,
-        start_on_boot=None,
-        grant=(),
-        user_command=(),
-        sudo_command=(),
-        upload_file=(),
-        append_to_file=(),
-        prepend_to_file=(),
-        create_directory=(),
-        ready_timeout=10.0,
+    opts = default_create_cli_opts.model_copy(
+        update=to_update_dict(
+            to_update(default_create_cli_opts.field_ref().name, agent_name),
+            to_update(default_create_cli_opts.field_ref().agent_command, "sleep 397265"),
+            to_update(default_create_cli_opts.field_ref().source_path, str(temp_work_dir)),
+            to_update(default_create_cli_opts.field_ref().connect, True),
+            to_update(default_create_cli_opts.field_ref().copy_work_dir, False),
+            to_update(default_create_cli_opts.field_ref().ensure_clean, False),
+        )
     )
 
     output_opts = OutputOptions()
