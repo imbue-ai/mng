@@ -5,18 +5,17 @@ from datetime import timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import Mock
 from unittest.mock import patch
 
-import pluggy
 import pytest
 
+from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.model_update import to_update_dict
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.config.data_types import AgentTypeConfig
-from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import PluginMngrError
@@ -28,7 +27,6 @@ from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
-from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.providers.local.instance import LocalProviderInstance
@@ -658,46 +656,6 @@ def test_provision_configures_readiness_hooks(
 # =============================================================================
 
 
-def make_mock_claude_agent(
-    work_dir: Path,
-    mngr_test_prefix: str,
-    temp_profile_dir: Path,
-    is_interactive: bool = False,
-) -> tuple[ClaudeAgent, Mock, MngrContext]:
-    """Create a ClaudeAgent with a mock host for verifying method calls.
-
-    Use this when you only need to verify that methods are called with the right
-    arguments (via patch/Mock). Use make_claude_agent instead if you need real
-    filesystem operations.
-
-    The mock host is preconfigured so that _configure_readiness_hooks succeeds:
-    execute_command returns success (git check-ignore), read_text_file raises
-    FileNotFoundError (no existing settings), and write_text_file succeeds.
-    """
-    pm = pluggy.PluginManager("mngr")
-    mock_host = Mock()
-    mock_host.execute_command.return_value = Mock(success=True)
-    mock_host.read_text_file.side_effect = FileNotFoundError()
-    mngr_ctx = MngrContext(
-        config=MngrConfig(prefix=mngr_test_prefix),
-        pm=pm,
-        profile_dir=temp_profile_dir,
-        is_interactive=is_interactive,
-    )
-    agent = ClaudeAgent.model_construct(
-        id=AgentId.generate(),
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=work_dir,
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=mngr_ctx,
-        agent_config=ClaudeAgentConfig(check_installation=False),
-        host=mock_host,
-    )
-    return agent, mock_host, mngr_ctx
-
-
 def test_provision_extends_trust_for_worktree(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
@@ -833,31 +791,30 @@ def test_on_before_provisioning_validates_trust_for_worktree(
 
 
 def test_on_before_provisioning_skips_trust_check_when_interactive(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mngr_ctx: MngrContext,
+    setup_git_config: None,
 ) -> None:
     """on_before_provisioning should skip trust check for interactive runs (provision() handles it)."""
-    source_git_dir = tmp_path / "source" / ".git"
-    agent, mock_host, mngr_ctx = make_mock_claude_agent(
-        tmp_path, mngr_test_prefix, temp_profile_dir, is_interactive=True
+    source_path, worktree_path = _setup_git_worktree(tmp_path)
+    # Deliberately do NOT write trust for source_path -- it's untrusted
+
+    interactive_ctx = temp_mngr_ctx.model_copy(
+        update=to_update_dict(
+            to_update(temp_mngr_ctx.field_ref().is_interactive, True),
+        )
     )
+
+    agent, host = make_claude_agent(local_provider, tmp_path, interactive_ctx, work_dir=worktree_path)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
     )
 
-    with (
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
-            return_value=source_git_dir,
-        ),
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.check_source_directory_trusted",
-        ) as mock_check,
-    ):
-        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
-
-    mock_check.assert_not_called()
+    # Should NOT raise even though source is untrusted -- interactive defers to provision()
+    agent.on_before_provisioning(host=host, options=options, mngr_ctx=interactive_ctx)
 
 
 def test_on_before_provisioning_skips_trust_check_when_git_common_dir_is_none(
@@ -898,96 +855,94 @@ def test_on_destroy_removes_trust(
 
 
 def test_provision_prompts_for_trust_when_interactive(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mngr_ctx: MngrContext,
+    setup_git_config: None,
 ) -> None:
     """provision should prompt and add trust when interactive and source is untrusted."""
-    source_git_dir = tmp_path / "source" / ".git"
-    agent, mock_host, mngr_ctx = make_mock_claude_agent(
-        tmp_path, mngr_test_prefix, temp_profile_dir, is_interactive=True
+    source_path, worktree_path = _setup_git_worktree(tmp_path)
+    # Source is deliberately untrusted -- no _write_claude_trust(source_path)
+
+    interactive_ctx = temp_mngr_ctx.model_copy(
+        update=to_update_dict(
+            to_update(temp_mngr_ctx.field_ref().is_interactive, True),
+        )
     )
+
+    agent, host = make_claude_agent(local_provider, tmp_path, interactive_ctx, work_dir=worktree_path)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
     )
 
-    with (
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
-            return_value=source_git_dir,
-        ),
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
-            side_effect=[ClaudeDirectoryNotTrustedError(str(source_git_dir.parent)), None],
-        ) as mock_extend,
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_trust",
-            return_value=True,
-        ) as mock_prompt,
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.add_claude_trust_for_path",
-        ) as mock_add_trust,
-    ):
-        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+    with patch(
+        "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_trust",
+        return_value=True,
+    ) as mock_prompt:
+        agent.provision(host=host, options=options, mngr_ctx=interactive_ctx)
 
-    mock_prompt.assert_called_once_with(source_git_dir.parent)
-    mock_add_trust.assert_called_once_with(source_git_dir.parent)
-    assert mock_extend.call_count == 2
+    # Verify user was prompted for the source directory
+    mock_prompt.assert_called_once_with(source_path)
+
+    # Verify trust was added for source and extended to worktree
+    config_path = Path.home() / ".claude.json"
+    config = json.loads(config_path.read_text())
+    assert str(source_path.resolve()) in config["projects"]
+    assert str(worktree_path.resolve()) in config["projects"]
+    worktree_entry = config["projects"][str(worktree_path.resolve())]
+    assert worktree_entry["hasTrustDialogAccepted"] is True
+    assert worktree_entry["_mngrCreated"] is True
 
 
 def test_provision_raises_when_non_interactive_and_untrusted(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mngr_ctx: MngrContext,
+    setup_git_config: None,
 ) -> None:
     """provision should raise when non-interactive and source is untrusted."""
-    source_git_dir = tmp_path / "source" / ".git"
-    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+    source_path, worktree_path = _setup_git_worktree(tmp_path)
+    # Source is deliberately untrusted
+
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx, work_dir=worktree_path)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
     )
 
-    with (
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
-            return_value=source_git_dir,
-        ),
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
-            side_effect=ClaudeDirectoryNotTrustedError(str(source_git_dir.parent)),
-        ),
-    ):
-        with pytest.raises(ClaudeDirectoryNotTrustedError):
-            agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+    with pytest.raises(ClaudeDirectoryNotTrustedError):
+        agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
 
 def test_provision_raises_when_user_declines_trust(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mngr_ctx: MngrContext,
+    setup_git_config: None,
 ) -> None:
     """provision should raise when user declines the trust prompt."""
-    source_git_dir = tmp_path / "source" / ".git"
-    agent, mock_host, mngr_ctx = make_mock_claude_agent(
-        tmp_path, mngr_test_prefix, temp_profile_dir, is_interactive=True
+    source_path, worktree_path = _setup_git_worktree(tmp_path)
+    # Source is deliberately untrusted
+
+    interactive_ctx = temp_mngr_ctx.model_copy(
+        update=to_update_dict(
+            to_update(temp_mngr_ctx.field_ref().is_interactive, True),
+        )
     )
+
+    agent, host = make_claude_agent(local_provider, tmp_path, interactive_ctx, work_dir=worktree_path)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
     )
 
-    with (
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
-            return_value=source_git_dir,
-        ),
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
-            side_effect=ClaudeDirectoryNotTrustedError(str(source_git_dir.parent)),
-        ),
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_trust",
-            return_value=False,
-        ),
+    with patch(
+        "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_trust",
+        return_value=False,
     ):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
-            agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+            agent.provision(host=host, options=options, mngr_ctx=interactive_ctx)
