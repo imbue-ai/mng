@@ -1,8 +1,10 @@
-# FIXME0: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 import json
+import subprocess
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 from unittest.mock import Mock
 from unittest.mock import patch
 
@@ -21,6 +23,7 @@ from imbue.mngr.errors import PluginMngrError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
@@ -31,6 +34,10 @@ from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.testing import init_git_repo
 
+# =============================================================================
+# Test Helpers
+# =============================================================================
+
 
 def make_claude_agent(
     local_provider: LocalProviderInstance,
@@ -38,12 +45,14 @@ def make_claude_agent(
     mngr_ctx: MngrContext,
     agent_config: ClaudeAgentConfig | AgentTypeConfig | None = None,
     agent_type: AgentTypeName | None = None,
+    work_dir: Path | None = None,
 ) -> tuple[ClaudeAgent, Host]:
     """Create a ClaudeAgent with a real local host for testing."""
     host = local_provider.create_host(HostName(f"test-host-{str(AgentId.generate().get_uuid())[:8]}"))
     assert isinstance(host, Host)
-    work_dir = tmp_path / f"work-{str(AgentId.generate().get_uuid())[:8]}"
-    work_dir.mkdir()
+    if work_dir is None:
+        work_dir = tmp_path / f"work-{str(AgentId.generate().get_uuid())[:8]}"
+        work_dir.mkdir()
 
     if agent_config is None:
         agent_config = ClaudeAgentConfig(check_installation=False)
@@ -62,6 +71,79 @@ def make_claude_agent(
         host=host,
     )
     return agent, host
+
+
+def _init_git_with_gitignore(work_dir: Path) -> None:
+    """Initialize a git repo in work_dir with .claude/settings.local.json gitignored."""
+    init_git_repo(work_dir, initial_commit=False)
+    (work_dir / ".gitignore").write_text(".claude/settings.local.json\n")
+
+
+def _setup_git_worktree(tmp_path: Path) -> tuple[Path, Path]:
+    """Set up a git repo and worktree for trust extension testing.
+
+    Creates a source repo with .gitignore (for readiness hooks) and a worktree
+    branched from it. Requires setup_git_config fixture for git user config.
+
+    Returns (source_path, worktree_path).
+    """
+    source = tmp_path / "source"
+    source.mkdir()
+    init_git_repo(source, initial_commit=True)
+
+    # Add .gitignore (needed by _configure_readiness_hooks in provision)
+    (source / ".gitignore").write_text(".claude/settings.local.json\n")
+    subprocess.run(["git", "-C", str(source), "add", ".gitignore"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(source), "commit", "-m", "add gitignore"],
+        check=True,
+        capture_output=True,
+    )
+
+    # Create worktree from the source repo
+    worktree = tmp_path / "worktree"
+    subprocess.run(
+        ["git", "-C", str(source), "worktree", "add", str(worktree), "-b", "test-branch"],
+        check=True,
+        capture_output=True,
+    )
+
+    return source, worktree
+
+
+def _write_claude_trust(source_path: Path) -> None:
+    """Write ~/.claude.json with trust entry for source_path."""
+    config_path = Path.home() / ".claude.json"
+    config = {
+        "projects": {
+            str(source_path.resolve()): {
+                "hasTrustDialogAccepted": True,
+                "allowedTools": [],
+            }
+        }
+    }
+    config_path.write_text(json.dumps(config))
+
+
+def _write_mngr_trust_entry(path: Path) -> None:
+    """Write ~/.claude.json with a mngr-created trust entry for path."""
+    config_path = Path.home() / ".claude.json"
+    config = {
+        "projects": {
+            str(path.resolve()): {
+                "hasTrustDialogAccepted": True,
+                "allowedTools": [],
+                "_mngrCreated": True,
+                "_mngrSourcePath": "/some/source",
+            }
+        }
+    }
+    config_path.write_text(json.dumps(config))
+
+
+# =============================================================================
+# ClaudeAgentConfig Tests
+# =============================================================================
 
 
 def test_claude_agent_config_has_default_command() -> None:
@@ -90,29 +172,32 @@ def test_claude_agent_config_merge_concatenates_cli_args() -> None:
     assert merged.cli_args == "--verbose --model sonnet"
 
 
-def test_claude_agent_assemble_command_with_no_args(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
+def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> None:
+    """ClaudeAgentConfig merge should use override cli_args when base is empty."""
+    base = ClaudeAgentConfig()
+    override = ClaudeAgentConfig(cli_args="--verbose")
+
+    merged = base.merge_with(override)
+
+    assert merged.cli_args == "--verbose"
+
+
+# =============================================================================
+# assemble_command Tests
+# =============================================================================
+
+
+def test_claude_agent_assemble_command_with_no_args(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
     """ClaudeAgent should generate resume/session-id command format with no args."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mock_host.is_local = True
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir),
-        agent_config=ClaudeAgentConfig(),
-        host=mock_host,
-    )
+    command = agent.assemble_command(host=host, agent_args=(), command_override=None)
 
-    command = agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
-
-    uuid = agent_id.get_uuid()
-    session_name = f"{mngr_test_prefix}test-agent"
+    uuid = agent.id.get_uuid()
+    prefix = temp_mngr_ctx.config.prefix
+    session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
     # Local hosts should NOT have IS_SANDBOX set
     assert command == CommandString(
@@ -120,30 +205,17 @@ def test_claude_agent_assemble_command_with_no_args(mngr_test_prefix: str, temp_
     )
 
 
-# FIXME: many of these tests contain duplicated code. Please factor it out into fixtures and/or helpers.
-def test_claude_agent_assemble_command_with_agent_args(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
+def test_claude_agent_assemble_command_with_agent_args(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
     """ClaudeAgent should append agent args to both command variants."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mock_host.is_local = True
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir),
-        agent_config=ClaudeAgentConfig(),
-        host=mock_host,
-    )
+    command = agent.assemble_command(host=host, agent_args=("--model", "opus"), command_override=None)
 
-    command = agent.assemble_command(host=mock_host, agent_args=("--model", "opus"), command_override=None)
-
-    uuid = agent_id.get_uuid()
-    session_name = f"{mngr_test_prefix}test-agent"
+    uuid = agent.id.get_uuid()
+    prefix = temp_mngr_ctx.config.prefix
+    session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
     assert command == CommandString(
         f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
@@ -151,118 +223,80 @@ def test_claude_agent_assemble_command_with_agent_args(mngr_test_prefix: str, te
 
 
 def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
-    mngr_test_prefix: str, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """ClaudeAgent should append both cli_args and agent_args to both command variants."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mock_host.is_local = True
-
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir),
-        agent_config=ClaudeAgentConfig(cli_args="--verbose"),
-        host=mock_host,
+    agent, host = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
+        agent_config=ClaudeAgentConfig(cli_args="--verbose", check_installation=False),
     )
 
-    command = agent.assemble_command(host=mock_host, agent_args=("--model", "opus"), command_override=None)
+    command = agent.assemble_command(host=host, agent_args=("--model", "opus"), command_override=None)
 
-    uuid = agent_id.get_uuid()
-    session_name = f"{mngr_test_prefix}test-agent"
+    uuid = agent.id.get_uuid()
+    prefix = temp_mngr_ctx.config.prefix
+    session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
     assert command == CommandString(
         f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus"
     )
 
 
-def test_claude_agent_assemble_command_with_command_override(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
+def test_claude_agent_assemble_command_with_command_override(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
     """ClaudeAgent should use command override when provided."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mock_host.is_local = True
-
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir),
-        agent_config=ClaudeAgentConfig(),
-        host=mock_host,
-    )
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
     command = agent.assemble_command(
-        host=mock_host,
+        host=host,
         agent_args=("--model", "opus"),
         command_override=CommandString("custom-claude"),
     )
 
-    uuid = agent_id.get_uuid()
-    session_name = f"{mngr_test_prefix}test-agent"
+    uuid = agent.id.get_uuid()
+    prefix = temp_mngr_ctx.config.prefix
+    session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
     assert command == CommandString(
         f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
     )
 
 
-def test_claude_agent_assemble_command_raises_when_no_command(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
+def test_claude_agent_assemble_command_raises_when_no_command(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
     """ClaudeAgent should raise NoCommandDefinedError when no command defined."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mock_host.is_local = True
-
-    # Create agent with no command configured
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("custom"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir),
+    agent, host = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
         agent_config=AgentTypeConfig(),
-        host=mock_host,
+        agent_type=AgentTypeName("custom"),
     )
 
     with pytest.raises(NoCommandDefinedError, match="No command defined"):
-        agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
+        agent.assemble_command(host=host, agent_args=(), command_override=None)
 
 
 def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
-    mngr_test_prefix: str, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """ClaudeAgent should set IS_SANDBOX=1 only for remote (non-local) hosts."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mock_host.is_local = False
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir),
-        agent_config=ClaudeAgentConfig(),
-        host=mock_host,
-    )
+    # Use SimpleNamespace to simulate a non-local host. Creating a real remote host
+    # requires SSH infrastructure that is not available in unit tests. The assemble_command
+    # method only reads host.is_local to decide whether to set IS_SANDBOX.
+    non_local_host = cast(OnlineHostInterface, SimpleNamespace(is_local=False))
 
-    command = agent.assemble_command(host=mock_host, agent_args=(), command_override=None)
+    command = agent.assemble_command(host=non_local_host, agent_args=(), command_override=None)
 
-    uuid = agent_id.get_uuid()
-    session_name = f"{mngr_test_prefix}test-agent"
+    uuid = agent.id.get_uuid()
+    prefix = temp_mngr_ctx.config.prefix
+    session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
     # Remote hosts SHOULD have IS_SANDBOX set
     assert command == CommandString(
@@ -270,24 +304,19 @@ def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
     )
 
 
-def test_build_activity_updater_command(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
+# =============================================================================
+# Activity Updater Tests
+# =============================================================================
+
+
+def test_build_activity_updater_command(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
     """_build_activity_updater_command should generate a background activity updater."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir),
-        agent_config=ClaudeAgentConfig(),
-        host=Mock(),
-    )
-
-    session_name = f"{mngr_test_prefix}test-agent"
+    prefix = temp_mngr_ctx.config.prefix
+    session_name = f"{prefix}test-agent"
     cmd = agent._build_activity_updater_command(session_name)
 
     # Should be a background subshell
@@ -314,35 +343,17 @@ def test_build_activity_updater_command(mngr_test_prefix: str, temp_profile_dir:
     assert "trap" in cmd
 
 
-def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> None:
-    """ClaudeAgentConfig merge should use override cli_args when base is empty."""
-    base = ClaudeAgentConfig()
-    override = ClaudeAgentConfig(cli_args="--verbose")
-
-    merged = base.merge_with(override)
-
-    assert merged.cli_args == "--verbose"
+# =============================================================================
+# _get_claude_config Tests
+# =============================================================================
 
 
 def test_get_claude_config_returns_config_when_claude_agent_config(
-    mngr_test_prefix: str, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """_get_claude_config should return the config when it is a ClaudeAgentConfig."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    config = ClaudeAgentConfig(cli_args="--verbose")
-
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir),
-        agent_config=config,
-        host=Mock(),
-    )
+    config = ClaudeAgentConfig(cli_args="--verbose", check_installation=False)
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx, agent_config=config)
 
     result = agent._get_claude_config()
 
@@ -351,22 +362,14 @@ def test_get_claude_config_returns_config_when_claude_agent_config(
 
 
 def test_get_claude_config_returns_default_when_not_claude_agent_config(
-    mngr_test_prefix: str, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """_get_claude_config should return default ClaudeAgentConfig when config is not ClaudeAgentConfig."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir),
+    agent, _ = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
         agent_config=AgentTypeConfig(),
-        host=Mock(),
     )
 
     result = agent._get_claude_config()
@@ -386,7 +389,7 @@ def test_on_before_provisioning_skips_check_when_disabled(
     """on_before_provisioning should skip installation check when check_installation=False."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
-    options = Mock()
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
 
     # Should not raise and should complete without error
     agent.on_before_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
@@ -404,7 +407,7 @@ def test_get_provision_file_transfers_returns_empty_when_no_local_settings(
         agent_config=ClaudeAgentConfig(check_installation=False, sync_repo_settings=True),
     )
 
-    options = Mock()
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
 
     transfers = agent.get_provision_file_transfers(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
@@ -433,7 +436,7 @@ def test_get_provision_file_transfers_returns_override_folder_files(
         ),
     )
 
-    options = Mock()
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
 
     transfers = list(agent.get_provision_file_transfers(host=host, options=options, mngr_ctx=temp_mngr_ctx))
 
@@ -454,46 +457,12 @@ def test_get_provision_file_transfers_with_sync_repo_settings_disabled(
         agent_config=ClaudeAgentConfig(check_installation=False, sync_repo_settings=False),
     )
 
-    options = Mock()
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
 
     transfers = list(agent.get_provision_file_transfers(host=host, options=options, mngr_ctx=temp_mngr_ctx))
 
     # Should return empty since sync_repo_settings=False and no override folder
     assert transfers == []
-
-
-def test_provision_skips_installation_check_when_disabled(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
-    """provision should skip claude installation check when check_installation=False."""
-    pm = pluggy.PluginManager("mngr")
-    agent_id = AgentId.generate()
-    mock_host = Mock()
-    mock_host.is_local = True
-    mock_host.execute_command.return_value = Mock(success=True)
-    mock_host.read_text_file.side_effect = FileNotFoundError()
-    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
-
-    agent = ClaudeAgent.model_construct(
-        id=agent_id,
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=Path("/tmp/work"),
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=mngr_ctx,
-        agent_config=ClaudeAgentConfig(check_installation=False),
-        host=mock_host,
-    )
-
-    options = Mock()
-
-    # Should not call execute_command to check installation, but _configure_readiness_hooks
-    # will call it for git check-ignore
-    agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
-
-    # execute_command should only be called for git check-ignore (not installation check)
-    mock_host.execute_command.assert_called_once()
-    call_args = mock_host.execute_command.call_args
-    assert "git check-ignore" in call_args[0][0]
 
 
 # =============================================================================
@@ -553,12 +522,6 @@ def test_uses_marker_based_send_message_returns_true(
     """ClaudeAgent.uses_marker_based_send_message should return True."""
     agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
     assert agent.uses_marker_based_send_message() is True
-
-
-def _init_git_with_gitignore(work_dir: Path) -> None:
-    """Initialize a git repo in work_dir with .claude/settings.local.json gitignored."""
-    init_git_repo(work_dir, initial_commit=False)
-    (work_dir / ".gitignore").write_text(".claude/settings.local.json\n")
 
 
 def test_configure_readiness_hooks_raises_when_not_gitignored(
@@ -679,7 +642,7 @@ def test_provision_configures_readiness_hooks(
     )
     _init_git_with_gitignore(agent.work_dir)
 
-    options = Mock()
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
     agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
     # Verify the hooks file was actually created
@@ -735,102 +698,104 @@ def make_mock_claude_agent(
     return agent, mock_host, mngr_ctx
 
 
-def test_provision_extends_trust_for_worktree(mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path) -> None:
+def test_provision_extends_trust_for_worktree(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mngr_ctx: MngrContext,
+    setup_git_config: None,
+) -> None:
     """provision should extend Claude trust when using worktree mode."""
-    work_dir = tmp_path / "worktree"
-    work_dir.mkdir()
-    source_git_dir = tmp_path / "source" / ".git"
+    source_path, worktree_path = _setup_git_worktree(tmp_path)
+    _write_claude_trust(source_path)
 
-    agent, mock_host, mngr_ctx = make_mock_claude_agent(work_dir, mngr_test_prefix, temp_profile_dir)
+    agent, host = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
+        work_dir=worktree_path,
+    )
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
     )
 
-    with (
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
-            return_value=source_git_dir,
-        ) as mock_find,
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
-        ) as mock_extend,
-    ):
-        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
-    mock_find.assert_called_once_with(work_dir)
-    mock_extend.assert_called_once_with(source_git_dir.parent, work_dir)
+    # Verify trust was extended to the worktree
+    config_path = Path.home() / ".claude.json"
+    config = json.loads(config_path.read_text())
+    assert str(worktree_path.resolve()) in config["projects"]
+    worktree_entry = config["projects"][str(worktree_path.resolve())]
+    assert worktree_entry["hasTrustDialogAccepted"] is True
+    assert worktree_entry["_mngrCreated"] is True
 
 
 def test_provision_does_not_extend_trust_for_non_worktree(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """provision should not extend trust when not using worktree mode."""
-    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    _init_git_with_gitignore(agent.work_dir)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         git=AgentGitOptions(copy_mode=WorkDirCopyMode.COPY),
     )
 
-    with patch(
-        "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
-    ) as mock_extend:
-        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
-    mock_extend.assert_not_called()
+    # Trust should NOT have been extended since we're using COPY mode
+    config_path = Path.home() / ".claude.json"
+    assert not config_path.exists()
 
 
 def test_provision_does_not_extend_trust_when_no_git_options(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """provision should not extend trust when git options are None."""
-    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    _init_git_with_gitignore(agent.work_dir)
 
-    options = CreateAgentOptions(
-        agent_type=AgentTypeName("claude"),
-    )
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
 
-    with patch(
-        "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
-    ) as mock_extend:
-        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
-    mock_extend.assert_not_called()
+    # Trust should NOT have been extended since no git options provided
+    config_path = Path.home() / ".claude.json"
+    assert not config_path.exists()
 
 
 def test_provision_skips_trust_when_git_common_dir_is_none(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """provision should skip trust extension when find_git_common_dir returns None."""
-    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+    # Create agent with work_dir that is NOT a git repo
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    # Don't init git - work_dir is not a git repo
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
     )
 
-    with (
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
-            return_value=None,
-        ),
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
-        ) as mock_extend,
-    ):
-        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
-    mock_extend.assert_not_called()
+    # Trust should NOT have been extended since there's no git common dir
+    config_path = Path.home() / ".claude.json"
+    assert not config_path.exists()
 
 
 def test_on_before_provisioning_raises_for_worktree_on_remote_host(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """on_before_provisioning should raise PluginMngrError for worktree mode on remote hosts."""
-    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
-    mock_host.is_local = False
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    # Use SimpleNamespace to simulate a non-local host. Creating a real remote host
+    # requires SSH infrastructure not available in unit tests. The method only reads
+    # host.is_local before raising.
+    non_local_host = cast(OnlineHostInterface, SimpleNamespace(is_local=False))
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
@@ -838,33 +803,33 @@ def test_on_before_provisioning_raises_for_worktree_on_remote_host(
     )
 
     with pytest.raises(PluginMngrError, match="Worktree mode is not supported on remote hosts"):
-        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+        agent.on_before_provisioning(host=non_local_host, options=options, mngr_ctx=temp_mngr_ctx)
 
 
 def test_on_before_provisioning_validates_trust_for_worktree(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mngr_ctx: MngrContext,
+    setup_git_config: None,
 ) -> None:
     """on_before_provisioning should validate source directory is trusted for worktree mode."""
-    source_git_dir = tmp_path / "source" / ".git"
-    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+    source_path, worktree_path = _setup_git_worktree(tmp_path)
+    _write_claude_trust(source_path)
+
+    agent, host = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
+        work_dir=worktree_path,
+    )
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
     )
 
-    with (
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
-            return_value=source_git_dir,
-        ),
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.check_source_directory_trusted",
-        ) as mock_check,
-    ):
-        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
-
-    mock_check.assert_called_once_with(source_git_dir.parent)
+    # Should succeed without error because the source directory is trusted
+    agent.on_before_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
 
 def test_on_before_provisioning_skips_trust_check_when_interactive(
@@ -896,44 +861,40 @@ def test_on_before_provisioning_skips_trust_check_when_interactive(
 
 
 def test_on_before_provisioning_skips_trust_check_when_git_common_dir_is_none(
-    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """on_before_provisioning should skip trust check when find_git_common_dir returns None."""
-    agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
+    # Create agent with work_dir that is NOT a git repo
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
     )
 
-    with (
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
-            return_value=None,
-        ),
-        patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.check_source_directory_trusted",
-        ) as mock_check,
-    ):
-        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
-
-    mock_check.assert_not_called()
+    # Should succeed without error because find_git_common_dir returns None
+    agent.on_before_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
 
-def test_on_destroy_removes_trust(mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path) -> None:
-    """on_destroy should call remove_claude_trust_for_path with the work_dir."""
-    work_dir = tmp_path / "worktree"
-    work_dir.mkdir()
+def test_on_destroy_removes_trust(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """on_destroy should remove the Claude trust entry for the agent's work_dir."""
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
-    agent, mock_host, _ = make_mock_claude_agent(work_dir, mngr_test_prefix, temp_profile_dir)
+    # Write a mngr-created trust entry for the agent's work_dir
+    _write_mngr_trust_entry(agent.work_dir)
 
-    with patch(
-        "imbue.mngr.agents.default_plugins.claude_agent.remove_claude_trust_for_path",
-        return_value=True,
-    ) as mock_remove:
-        agent.on_destroy(mock_host)
+    # Verify the entry exists before destroy
+    config_path = Path.home() / ".claude.json"
+    config_before = json.loads(config_path.read_text())
+    assert str(agent.work_dir.resolve()) in config_before["projects"]
 
-    mock_remove.assert_called_once_with(work_dir)
+    agent.on_destroy(host)
+
+    # Verify the trust entry was removed
+    config_after = json.loads(config_path.read_text())
+    assert str(agent.work_dir.resolve()) not in config_after.get("projects", {})
 
 
 def test_provision_prompts_for_trust_when_interactive(

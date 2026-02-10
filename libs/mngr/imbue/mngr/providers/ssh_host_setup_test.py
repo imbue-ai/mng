@@ -222,9 +222,7 @@ def _create_test_script(script_path: str, host_data_dir: str, function_call: str
     return "\n".join(lines)
 
 
-def _run_bash_function(
-    script_path: str, host_data_dir: str, function_call: str
-) -> subprocess.CompletedProcess[str]:
+def _run_bash_function(script_path: str, host_data_dir: str, function_call: str) -> subprocess.CompletedProcess[str]:
     """Source the activity_watcher.sh script and run a function in bash."""
     bash_code = _create_test_script(script_path, host_data_dir, function_call)
     return subprocess.run(

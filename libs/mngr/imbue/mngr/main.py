@@ -13,7 +13,9 @@ from imbue.mngr.cli.destroy import destroy
 from imbue.mngr.cli.gc import gc
 from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.message import message
+from imbue.mngr.cli.pair import pair
 from imbue.mngr.cli.pull import pull
+from imbue.mngr.cli.push import push
 from imbue.mngr.cli.start import start
 from imbue.mngr.cli.stop import stop
 from imbue.mngr.plugins import hookspecs
@@ -217,9 +219,11 @@ BUILTIN_COMMANDS: list[click.Command] = [
     list_command,
     connect,
     message,
+    pair,
+    pull,
+    push,
     start,
     stop,
-    pull,
     config,
     gc,
 ]

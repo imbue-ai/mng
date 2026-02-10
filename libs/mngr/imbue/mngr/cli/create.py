@@ -494,6 +494,14 @@ def create(ctx: click.Context, **kwargs) -> None:
         command_class=CreateCliOptions,
     )
 
+    result = _handle_create(mngr_ctx, output_opts, opts)
+    if result is None:
+        return
+    create_result, connection_opts, output_opts, opts, mngr_ctx = result
+    _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
+
+
+def _handle_create(mngr_ctx, output_opts, opts):
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
@@ -642,8 +650,7 @@ def create(ctx: click.Context, **kwargs) -> None:
                     LoggingSuppressor.disable_and_replay(clear_screen=True)
 
             create_result = CreateAgentResult(agent=agent, host=host)
-            _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
-            return
+            return create_result, connection_opts, output_opts, opts, mngr_ctx
 
     # If ensure-clean is set, verify the source work_dir is clean
     if opts.ensure_clean:
@@ -729,7 +736,7 @@ def create(ctx: click.Context, **kwargs) -> None:
         if LoggingSuppressor.is_suppressed():
             LoggingSuppressor.disable_and_replay(clear_screen=True)
 
-    _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
+    return create_result, connection_opts, output_opts, opts, mngr_ctx
 
 
 def _post_create(create_result: CreateAgentResult, connection_opts, output_opts, opts, mngr_ctx):

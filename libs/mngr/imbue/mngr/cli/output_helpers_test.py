@@ -8,8 +8,8 @@ from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
-from imbue.mngr.cli.output_helpers import format_mngr_error_for_cli
 from imbue.mngr.cli.output_helpers import on_error
+from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
@@ -157,33 +157,33 @@ def test_emit_final_json_outputs_json(capsys) -> None:
 
 
 # =============================================================================
-# Tests for format_mngr_error_for_cli
+# Tests for MngrError.format_message
 # =============================================================================
 
 
-def test_format_mngr_error_for_cli_without_help_text() -> None:
-    """format_mngr_error_for_cli should format error message without help text."""
-    error = ValueError("Something went wrong")
-    result = format_mngr_error_for_cli(error, None)
+def test_mngr_error_format_message_without_help_text() -> None:
+    """MngrError.format_message should format error message without help text."""
+    error = MngrError("Something went wrong")
+    result = error.format_message()
     # No "Error:" prefix - Click adds that when displaying MngrError exceptions
     assert result == "Something went wrong"
 
 
-def test_format_mngr_error_for_cli_with_help_text() -> None:
-    """format_mngr_error_for_cli should include help text when provided."""
-    error = ValueError("Agent not found")
-    help_text = "Use 'mngr list' to see available agents."
-    result = format_mngr_error_for_cli(error, help_text)
+def test_mngr_error_format_message_with_help_text() -> None:
+    """MngrError.format_message should include help text when provided."""
+    error = MngrError("Agent not found")
+    error.user_help_text = "Use 'mngr list' to see available agents."
+    result = error.format_message()
     # No "Error:" prefix - Click adds that when displaying MngrError exceptions
     assert "Agent not found" in result
     assert "Use 'mngr list' to see available agents." in result
 
 
-def test_format_mngr_error_for_cli_with_multiline_help_text() -> None:
-    """format_mngr_error_for_cli should handle multiline help text."""
-    error = ValueError("Test error")
-    help_text = "Line 1\nLine 2"
-    result = format_mngr_error_for_cli(error, help_text)
+def test_mngr_error_format_message_with_multiline_help_text() -> None:
+    """MngrError.format_message should handle multiline help text."""
+    error = MngrError("Test error")
+    error.user_help_text = "Line 1\nLine 2"
+    result = error.format_message()
     # No "Error:" prefix - Click adds that when displaying MngrError exceptions
     assert "Test error" in result
     assert "Line 1\nLine 2" in result

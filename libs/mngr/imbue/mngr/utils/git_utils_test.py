@@ -7,6 +7,7 @@ from imbue.mngr.utils.git_utils import _parse_project_name_from_url
 from imbue.mngr.utils.git_utils import derive_project_name_from_path
 from imbue.mngr.utils.git_utils import find_git_common_dir
 from imbue.mngr.utils.git_utils import find_git_worktree_root
+from imbue.mngr.utils.git_utils import is_git_repository
 
 
 def test_github_https_url() -> None:
@@ -116,6 +117,27 @@ def test_derive_from_git_remote_ssh(tmp_path: Path) -> None:
 
     # Should use the remote project name, not the folder name
     assert derive_project_name_from_path(project_dir) == "remote-project"
+
+
+def test_is_git_repository_returns_false_for_nonexistent_path(tmp_path: Path) -> None:
+    """Test that is_git_repository returns False for a non-existent path."""
+    nonexistent = tmp_path / "does_not_exist"
+    assert is_git_repository(nonexistent) is False
+
+
+def test_is_git_repository_returns_false_for_non_git_dir(tmp_path: Path) -> None:
+    """Test that is_git_repository returns False for a non-git directory."""
+    plain_dir = tmp_path / "plain"
+    plain_dir.mkdir()
+    assert is_git_repository(plain_dir) is False
+
+
+def test_is_git_repository_returns_true_for_git_dir(tmp_path: Path, setup_git_config: None) -> None:
+    """Test that is_git_repository returns True for a git directory."""
+    git_dir = tmp_path / "repo"
+    git_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=git_dir, check=True, capture_output=True)
+    assert is_git_repository(git_dir) is True
 
 
 def test_find_git_worktree_root_returns_none_when_not_in_git(tmp_path: Path) -> None:

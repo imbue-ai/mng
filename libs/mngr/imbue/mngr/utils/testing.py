@@ -21,6 +21,7 @@ from loguru import logger
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
+from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
@@ -250,6 +251,55 @@ def init_git_repo(path: Path, initial_commit: bool = True) -> None:
 
 def get_short_random_string() -> str:
     return uuid4().hex[:8]
+
+
+def run_git_command(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run a git command in the given directory.
+
+    Raises an exception if the command fails.
+    """
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise MngrError(f"git {' '.join(args)} failed: {result.stderr}")
+    return result
+
+
+def init_git_repo_with_config(path: Path) -> None:
+    """Initialize a git repository with an initial commit and local git config.
+
+    Creates the directory if it doesn't exist, initializes git, sets local
+    user.email and user.name config, and creates an initial commit with a
+    README.md file.
+
+    Use this variant when you don't have a global .gitconfig (e.g., in
+    subprocess tests without the setup_git_config fixture).
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    run_git_command(path, "init", "-b", "main")
+    run_git_command(path, "config", "user.email", "test@example.com")
+    run_git_command(path, "config", "user.name", "Test User")
+    (path / "README.md").write_text("Initial content")
+    run_git_command(path, "add", "README.md")
+    run_git_command(path, "commit", "-m", "Initial commit")
+
+
+def get_stash_count(path: Path) -> int:
+    """Get the number of stash entries in a git repository."""
+    result = subprocess.run(
+        ["git", "stash", "list"],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return 0
+    lines = result.stdout.strip().split("\n")
+    return len([line for line in lines if line])
 
 
 def setup_claude_trust_config_for_subprocess(
