@@ -22,7 +22,7 @@ from imbue.mngr.main import cli
 
 # Commands categorized by their documentation location
 PRIMARY_COMMANDS = {"connect", "create", "destroy", "list", "pair", "pull", "push"}
-SECONDARY_COMMANDS = {"config", "gc", "message"}
+SECONDARY_COMMANDS = {"ask", "config", "gc", "message"}
 
 
 def fix_sentinel_defaults(content: str) -> str:
