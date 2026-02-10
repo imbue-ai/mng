@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Nuke all Modal resources and local mngr state.
+"""Nuke all Modal resources for this mngr installation.
 
-Use this when mngr state gets out of sync with Modal -- for example, after
-manually editing ~/.mngr/data.json or when <host_id>.json files on the Modal
-volume are outdated and `mngr destroy` no longer works.
+Use this when mngr state gets out of sync with Modal -- for example, when
+<host_id>.json files on the Modal volume are outdated and `mngr destroy`
+no longer works.
 
 This script bypasses mngr entirely and uses the Modal CLI directly.
 
 It will:
   1. Stop all Modal apps in the mngr environment
   2. Delete all Modal volumes in the mngr environment
-  3. Delete ~/.mngr/data.json (the local host's certified data)
 
 Usage:
     uv run python scripts/modal_nuke.py
@@ -25,7 +24,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-DEFAULT_HOST_DIR = Path("~/.mngr")
+DEFAULT_MNGR_DIR = Path("~/.mngr")
 DEFAULT_PREFIX = "mngr-"
 
 
@@ -48,9 +47,9 @@ def _read_user_id(host_dir: Path) -> str | None:
     return None
 
 
-def _detect_environment(host_dir: Path, prefix: str) -> str | None:
+def _detect_environment(mngr_dir: Path, prefix: str) -> str | None:
     """Auto-detect the Modal environment name from the mngr profile."""
-    user_id = _read_user_id(host_dir)
+    user_id = _read_user_id(mngr_dir)
     if user_id:
         return f"{prefix}{user_id}"
     return None
@@ -102,7 +101,8 @@ def _delete_volume(volume_name: str, environment: str) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Nuke all Modal resources and local mngr state. Use when mngr state is out of sync with Modal.",
+        description="Nuke all Modal resources for this mngr installation. "
+        "Use when mngr state is out of sync with Modal.",
     )
     parser.add_argument(
         "--environment",
@@ -110,10 +110,10 @@ def main() -> int:
         help="Modal environment name (auto-detected from ~/.mngr profile if not specified)",
     )
     parser.add_argument(
-        "--host-dir",
+        "--mngr-dir",
         type=Path,
-        default=DEFAULT_HOST_DIR,
-        help=f"Path to mngr host directory (default: {DEFAULT_HOST_DIR})",
+        default=DEFAULT_MNGR_DIR,
+        help=f"Path to mngr directory (default: {DEFAULT_MNGR_DIR})",
     )
     parser.add_argument(
         "--prefix",
@@ -133,10 +133,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    host_dir = args.host_dir.expanduser()
+    mngr_dir = args.mngr_dir.expanduser()
 
     # Auto-detect environment
-    environment = args.environment or _detect_environment(host_dir, args.prefix)
+    environment = args.environment or _detect_environment(mngr_dir, args.prefix)
     if environment is None:
         print(
             "Could not auto-detect Modal environment. Use --environment to specify it explicitly.",
@@ -150,8 +150,6 @@ def main() -> int:
     # Discover resources
     apps = _list_apps(environment)
     volumes = _list_volumes(environment)
-    data_json = host_dir / "data.json"
-    has_data_json = data_json.exists()
 
     # Show what will be nuked
     if apps:
@@ -171,14 +169,9 @@ def main() -> int:
     else:
         print("No volumes found.")
 
-    if has_data_json:
-        print(f"Local file to delete: {data_json}")
-    else:
-        print(f"No local data.json found at {data_json}")
-
     print()
 
-    if not apps and not volumes and not has_data_json:
+    if not apps and not volumes:
         print("Nothing to nuke.")
         return 0
 
@@ -210,15 +203,6 @@ def main() -> int:
             print("done")
         else:
             print("FAILED")
-
-    # Delete data.json
-    if has_data_json:
-        print(f"Deleting {data_json}...", end=" ", flush=True)
-        try:
-            data_json.unlink()
-            print("done")
-        except OSError as e:
-            print(f"FAILED: {e}")
 
     print()
     print("Nuke complete.")
