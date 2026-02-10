@@ -38,12 +38,10 @@ DEFAULT_PREFIX: Final[str] = "mngr-"
 
 
 def _get_app_id(app: Mapping[str, str]) -> str:
-    """Extract app ID from a Modal app dict."""
     return app.get("App ID", app.get("app_id", app.get("id", "unknown")))
 
 
 def _get_volume_name(volume: Mapping[str, str]) -> str:
-    """Extract volume name from a Modal volume dict."""
     return volume.get("Name", volume.get("name", "unknown"))
 
 
@@ -67,7 +65,6 @@ def _read_user_id(mngr_dir: Path) -> str | None:
 
 
 def _detect_environment(mngr_dir: Path, prefix: str) -> str | None:
-    """Auto-detect the Modal environment name from the mngr profile."""
     user_id = _read_user_id(mngr_dir=mngr_dir)
     if user_id:
         return f"{prefix}{user_id}"
@@ -75,7 +72,6 @@ def _detect_environment(mngr_dir: Path, prefix: str) -> str | None:
 
 
 def _run_modal(args: Sequence[str], environment: str | None) -> subprocess.CompletedProcess[str]:
-    """Run a modal CLI command."""
     cmd = ["modal", *args]
     if environment:
         cmd.extend(["-e", environment])
@@ -111,7 +107,6 @@ def _delete_volume(volume_name: str, environment: str) -> tuple[bool, str]:
 
 
 def _parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Nuke all Modal resources for this mngr installation. "
         "Use when mngr state is out of sync with Modal.",
@@ -147,13 +142,11 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _resolve_environment(args: argparse.Namespace) -> str | None:
-    """Resolve the Modal environment from args or auto-detection."""
     mngr_dir = args.mngr_dir.expanduser()
     return args.environment or _detect_environment(mngr_dir, args.prefix)
 
 
 def _display_resources(apps: Sequence[Mapping[str, str]], volumes: Sequence[Mapping[str, str]]) -> None:
-    """Print what will be nuked."""
     if apps:
         print(f"Apps to stop ({len(apps)}):")
         for app in apps:
@@ -173,7 +166,6 @@ def _display_resources(apps: Sequence[Mapping[str, str]], volumes: Sequence[Mapp
 
 
 def _confirm_nuke(is_force: bool) -> bool:
-    """Prompt user for confirmation. Returns True if confirmed."""
     if is_force:
         return True
     response = input("Proceed with nuke? [y/N] ")
@@ -202,7 +194,6 @@ def _nuke_resources(
 
 
 def _execute_nuke(apps: Sequence[Mapping[str, str]], volumes: Sequence[Mapping[str, str]], environment: str) -> int:
-    """Stop apps and delete volumes. Returns the number of failures."""
     app_failures = _nuke_resources(apps, "Stopping app", _get_app_id, _stop_app, environment)
     volume_failures = _nuke_resources(volumes, "Deleting volume", _get_volume_name, _delete_volume, environment)
     return app_failures + volume_failures
