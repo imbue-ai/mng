@@ -867,6 +867,34 @@ def test_on_before_provisioning_validates_trust_for_worktree(
     mock_check.assert_called_once_with(source_git_dir.parent)
 
 
+def test_on_before_provisioning_skips_trust_check_when_interactive(
+    mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
+) -> None:
+    """on_before_provisioning should skip trust check for interactive runs (provision() handles it)."""
+    source_git_dir = tmp_path / "source" / ".git"
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(
+        tmp_path, mngr_test_prefix, temp_profile_dir, is_interactive=True
+    )
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        git=AgentGitOptions(copy_mode=WorkDirCopyMode.WORKTREE),
+    )
+
+    with (
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.find_git_common_dir",
+            return_value=source_git_dir,
+        ),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_agent.check_source_directory_trusted",
+        ) as mock_check,
+    ):
+        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+
+    mock_check.assert_not_called()
+
+
 def test_on_before_provisioning_skips_trust_check_when_git_common_dir_is_none(
     mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
 ) -> None:

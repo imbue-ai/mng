@@ -128,17 +128,11 @@ def check_source_directory_trusted(source_path: Path) -> None:
     Raises ClaudeDirectoryNotTrustedError if the source is not trusted.
     """
     config_path = get_claude_config_path()
-
-    if not config_path.exists():
-        raise ClaudeDirectoryNotTrustedError(str(source_path))
-
     source_path = source_path.resolve()
 
-    content = config_path.read_text()
-    if not content.strip():
+    config = _read_claude_config(config_path)
+    if not config:
         raise ClaudeDirectoryNotTrustedError(str(source_path))
-
-    config = json.loads(content)
 
     # Find the source project config
     projects = config.get("projects", {})
