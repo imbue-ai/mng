@@ -749,3 +749,32 @@ def test_validate_tmux_socket_name_rejects_semicolons() -> None:
     """validate_tmux_socket_name should reject names with semicolons."""
     with pytest.raises(ValidationError, match="tmux_socket_name must contain only"):
         MngrConfig(tmux_socket_name="semi;colon")
+
+
+# =============================================================================
+# Tests for MngrConfig.merge_with tmux_socket_name
+# =============================================================================
+
+
+def test_mngr_config_merge_tmux_socket_name_override_wins(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should use override's tmux_socket_name when base has none."""
+    base = MngrConfig(prefix=mngr_test_prefix)
+    override = MngrConfig(prefix=mngr_test_prefix, tmux_socket_name="override-socket")
+    merged = base.merge_with(override)
+    assert merged.tmux_socket_name == "override-socket"
+
+
+def test_mngr_config_merge_tmux_socket_name_keeps_base_when_override_none(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should keep base's tmux_socket_name when override is None."""
+    base = MngrConfig(prefix=mngr_test_prefix, tmux_socket_name="base-socket")
+    override = MngrConfig(prefix=mngr_test_prefix)
+    merged = base.merge_with(override)
+    assert merged.tmux_socket_name == "base-socket"
+
+
+def test_mngr_config_merge_tmux_socket_name_override_replaces_base(mngr_test_prefix: str) -> None:
+    """MngrConfig.merge_with should use override's tmux_socket_name when both have values."""
+    base = MngrConfig(prefix=mngr_test_prefix, tmux_socket_name="base-socket")
+    override = MngrConfig(prefix=mngr_test_prefix, tmux_socket_name="override-socket")
+    merged = base.merge_with(override)
+    assert merged.tmux_socket_name == "override-socket"

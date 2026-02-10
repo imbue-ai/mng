@@ -17,9 +17,9 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.testing import build_test_tmux_shell_cmd
 from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import get_short_random_string
-from imbue.mngr.utils.tmux import build_test_tmux_shell_cmd
 
 
 def create_test_agent(

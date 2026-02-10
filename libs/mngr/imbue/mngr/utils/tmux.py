@@ -1,4 +1,3 @@
-import os
 import shlex
 
 from imbue.imbue_common.pure import pure
@@ -25,13 +24,3 @@ def build_tmux_args(tmux_socket_name: str | None, *args: str) -> list[str]:
     if tmux_socket_name:
         return ["tmux", "-L", tmux_socket_name, *args]
     return ["tmux", *args]
-
-
-def build_test_tmux_args(*args: str) -> list[str]:
-    """Build tmux args for test context, reading socket from MNGR_TMUX_SOCKET env var."""
-    return build_tmux_args(os.environ.get("MNGR_TMUX_SOCKET"), *args)
-
-
-def build_test_tmux_shell_cmd(subcmd: str) -> str:
-    """Build tmux shell command for test context, reading socket from MNGR_TMUX_SOCKET env var."""
-    return build_tmux_shell_cmd(os.environ.get("MNGR_TMUX_SOCKET"), subcmd)

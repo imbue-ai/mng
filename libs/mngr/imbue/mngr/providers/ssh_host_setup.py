@@ -29,13 +29,30 @@ def get_user_ssh_dir(user: str) -> Path:
 
 
 @pure
+def _build_package_check_snippet(binary: str, package: str, check_cmd: str | None = None) -> str:
+    """Build a shell snippet that checks for a binary and adds its package to the install list.
+
+    If check_cmd is provided, it is used as the existence check (e.g. "test -x /usr/sbin/sshd").
+    Otherwise, "command -v <binary> >/dev/null 2>&1" is used.
+    """
+    check = check_cmd if check_cmd is not None else f"command -v {binary} >/dev/null 2>&1"
+    return (
+        f"if ! {check}; then "
+        f"echo '{WARNING_PREFIX}{package} is not pre-installed in the base image. "
+        f"Installing at runtime. For faster startup, consider using an image with {package} pre-installed.'; "
+        f'PKGS_TO_INSTALL="$PKGS_TO_INSTALL {package}"; '
+        "fi"
+    )
+
+
+@pure
 def build_check_and_install_packages_command(
     mngr_host_dir: str,
 ) -> str:
     """Build a single shell command that checks for and installs required packages.
 
     This command:
-    1. Checks for each required package (sshd, tmux, curl, rsync, git)
+    1. Checks for each required package (sshd, tmux, curl, rsync, git, jq)
     2. Echoes a prefixed warning for each missing package
     3. Installs all missing packages in a single apt-get call
     4. Creates the sshd run directory (/run/sshd)
@@ -46,47 +63,14 @@ def build_check_and_install_packages_command(
 
     Returns a shell command string that can be executed via sh -c.
     """
-    # Build a shell script that does everything in one command
-    # Using semicolons to separate commands so it runs as a single shell invocation
     script_lines = [
-        # Initialize the list of packages to install
         "PKGS_TO_INSTALL=''",
-        # Check for sshd
-        "if ! test -x /usr/sbin/sshd; then "
-        f"echo '{WARNING_PREFIX}openssh-server is not pre-installed in the base image. "
-        "Installing at runtime. For faster startup, consider using an image with openssh-server pre-installed.'; "
-        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL openssh-server"; '
-        "fi",
-        # Check for tmux
-        "if ! command -v tmux >/dev/null 2>&1; then "
-        f"echo '{WARNING_PREFIX}tmux is not pre-installed in the base image. "
-        "Installing at runtime. For faster startup, consider using an image with tmux pre-installed.'; "
-        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL tmux"; '
-        "fi",
-        # Check for curl
-        "if ! command -v curl >/dev/null 2>&1; then "
-        f"echo '{WARNING_PREFIX}curl is not pre-installed in the base image. "
-        "Installing at runtime. For faster startup, consider using an image with curl pre-installed.'; "
-        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL curl"; '
-        "fi",
-        # Check for rsync
-        "if ! command -v rsync >/dev/null 2>&1; then "
-        f"echo '{WARNING_PREFIX}rsync is not pre-installed in the base image. "
-        "Installing at runtime. For faster startup, consider using an image with rsync pre-installed.'; "
-        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL rsync"; '
-        "fi",
-        # Check for git
-        "if ! command -v git >/dev/null 2>&1; then "
-        f"echo '{WARNING_PREFIX}git is not pre-installed in the base image. "
-        "Installing at runtime. For faster startup, consider using an image with git pre-installed.'; "
-        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL git"; '
-        "fi",
-        # Check for jq (required for activity_watcher.sh to read data.json)
-        "if ! command -v jq >/dev/null 2>&1; then "
-        f"echo '{WARNING_PREFIX}jq is not pre-installed in the base image. "
-        "Installing at runtime. For faster startup, consider using an image with jq pre-installed.'; "
-        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL jq"; '
-        "fi",
+        _build_package_check_snippet("sshd", "openssh-server", check_cmd="test -x /usr/sbin/sshd"),
+        _build_package_check_snippet("tmux", "tmux"),
+        _build_package_check_snippet("curl", "curl"),
+        _build_package_check_snippet("rsync", "rsync"),
+        _build_package_check_snippet("git", "git"),
+        _build_package_check_snippet("jq", "jq"),
         # Install missing packages if any
         'if [ -n "$PKGS_TO_INSTALL" ]; then apt-get update -qq && apt-get install -y -qq $PKGS_TO_INSTALL; fi',
         # Create sshd run directory (required for sshd to start)

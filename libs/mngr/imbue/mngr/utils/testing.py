@@ -25,7 +25,19 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
-from imbue.mngr.utils.tmux import build_test_tmux_args
+from imbue.mngr.utils.tmux import build_tmux_args
+from imbue.mngr.utils.tmux import build_tmux_shell_cmd
+
+
+def build_test_tmux_args(*args: str) -> list[str]:
+    """Build tmux args for test context, reading socket from MNGR_TMUX_SOCKET env var."""
+    return build_tmux_args(os.environ.get("MNGR_TMUX_SOCKET"), *args)
+
+
+def build_test_tmux_shell_cmd(subcmd: str) -> str:
+    """Build tmux shell command for test context, reading socket from MNGR_TMUX_SOCKET env var."""
+    return build_tmux_shell_cmd(os.environ.get("MNGR_TMUX_SOCKET"), subcmd)
+
 
 # Prefix used for test environments
 MODAL_TEST_ENV_PREFIX: Final[str] = "mngr_test-"

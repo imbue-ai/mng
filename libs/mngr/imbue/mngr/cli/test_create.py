@@ -13,10 +13,10 @@ from click.testing import CliRunner
 from imbue.mngr.cli.create import create
 from imbue.mngr.conftest import TEST_TMUX_SOCKET_NAME
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.testing import build_test_tmux_args
 from imbue.mngr.utils.testing import capture_tmux_pane_contents
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
-from imbue.mngr.utils.tmux import build_test_tmux_args
 
 
 def test_cli_create_with_echo_command(

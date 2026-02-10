@@ -510,6 +510,88 @@ def test_parse_config_handles_empty_config() -> None:
     assert result.logging is None
 
 
+def test_parse_config_parses_tmux_socket_name() -> None:
+    """_parse_config should parse tmux_socket_name from config dict."""
+    raw = {"tmux_socket_name": "custom-socket"}
+    result = _parse_config(raw)
+    assert result.tmux_socket_name == "custom-socket"
+
+
+# =============================================================================
+# Tests for load_config MNGR_TMUX_SOCKET env var
+# =============================================================================
+
+
+def test_load_config_tmux_socket_env_var_overrides_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """load_config should use MNGR_TMUX_SOCKET env var over config file value."""
+    pm = pluggy.PluginManager("mngr")
+    pm.add_hookspecs(hookspecs)
+    load_all_registries(pm)
+
+    # Write a config file with tmux_socket_name
+    config_dir = tmp_path / ".mngr-test-socket"
+    config_dir.mkdir()
+    config_file = config_dir / "settings.toml"
+    config_file.write_text('tmux_socket_name = "config-socket"\n')
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("MNGR_TMUX_SOCKET", "env-socket")
+    monkeypatch.delenv("MNGR_PREFIX", raising=False)
+    monkeypatch.delenv("MNGR_HOST_DIR", raising=False)
+    monkeypatch.delenv("MNGR_ROOT_NAME", raising=False)
+
+    mngr_ctx = load_config(pm=pm, context_dir=tmp_path)
+    assert mngr_ctx.config.tmux_socket_name == "env-socket"
+
+
+def test_load_config_tmux_socket_uses_config_when_env_unset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """load_config should use config file tmux_socket_name when env var is not set."""
+    pm = pluggy.PluginManager("mngr")
+    pm.add_hookspecs(hookspecs)
+    load_all_registries(pm)
+
+    # Use a unique root name to avoid collisions with the autouse fixture's .mngr dir
+    root_name = "mngr-tmux-test"
+    config_dir = tmp_path / f".{root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_file = config_dir / "settings.toml"
+    config_file.write_text('tmux_socket_name = "config-socket"\n')
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("MNGR_ROOT_NAME", root_name)
+    monkeypatch.delenv("MNGR_PREFIX", raising=False)
+    monkeypatch.delenv("MNGR_HOST_DIR", raising=False)
+    monkeypatch.delenv("MNGR_TMUX_SOCKET", raising=False)
+
+    mngr_ctx = load_config(pm=pm, context_dir=tmp_path)
+    assert mngr_ctx.config.tmux_socket_name == "config-socket"
+
+
+def test_load_config_tmux_socket_none_when_neither_set(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """load_config should leave tmux_socket_name as None when neither env var nor config set."""
+    pm = pluggy.PluginManager("mngr")
+    pm.add_hookspecs(hookspecs)
+    load_all_registries(pm)
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("MNGR_PREFIX", raising=False)
+    monkeypatch.delenv("MNGR_HOST_DIR", raising=False)
+    monkeypatch.delenv("MNGR_ROOT_NAME", raising=False)
+    monkeypatch.delenv("MNGR_TMUX_SOCKET", raising=False)
+
+    mngr_ctx = load_config(pm=pm, context_dir=tmp_path)
+    assert mngr_ctx.config.tmux_socket_name is None
+
+
 # =============================================================================
 # Tests for on_load_config hook
 # =============================================================================

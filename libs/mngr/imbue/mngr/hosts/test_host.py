@@ -49,10 +49,10 @@ from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.ssh.instance import SSHHostConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.testing import build_test_tmux_args
+from imbue.mngr.utils.testing import build_test_tmux_shell_cmd
 from imbue.mngr.utils.testing import generate_ssh_keypair
 from imbue.mngr.utils.testing import local_sshd
-from imbue.mngr.utils.tmux import build_test_tmux_args
-from imbue.mngr.utils.tmux import build_test_tmux_shell_cmd
 
 
 @pytest.fixture

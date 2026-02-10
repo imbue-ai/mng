@@ -9,6 +9,8 @@ import pytest
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
 from imbue.mngr.utils.testing import _parse_test_env_timestamp
+from imbue.mngr.utils.testing import build_test_tmux_args
+from imbue.mngr.utils.testing import build_test_tmux_shell_cmd
 from imbue.mngr.utils.testing import make_mngr_ctx
 
 
@@ -107,3 +109,41 @@ def test_parse_test_env_timestamp_boundary_values() -> None:
     # End of day on December 31st
     result = _parse_test_env_timestamp("mngr_test-2026-12-31-23-59-59")
     assert result == datetime(2026, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+
+
+# =============================================================================
+# build_test_tmux_args (reads from env)
+# =============================================================================
+
+
+def test_build_test_tmux_args_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reads MNGR_TMUX_SOCKET from environment."""
+    monkeypatch.setenv("MNGR_TMUX_SOCKET", "test-socket")
+    result = build_test_tmux_args("has-session", "-t", "foo")
+    assert result == ["tmux", "-L", "test-socket", "has-session", "-t", "foo"]
+
+
+def test_build_test_tmux_args_no_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without env var, produces plain tmux args."""
+    monkeypatch.delenv("MNGR_TMUX_SOCKET", raising=False)
+    result = build_test_tmux_args("list-sessions")
+    assert result == ["tmux", "list-sessions"]
+
+
+# =============================================================================
+# build_test_tmux_shell_cmd (reads from env)
+# =============================================================================
+
+
+def test_build_test_tmux_shell_cmd_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reads MNGR_TMUX_SOCKET from environment."""
+    monkeypatch.setenv("MNGR_TMUX_SOCKET", "test-socket")
+    result = build_test_tmux_shell_cmd("capture-pane -t foo -p")
+    assert result == "tmux -L test-socket capture-pane -t foo -p"
+
+
+def test_build_test_tmux_shell_cmd_no_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without env var, produces plain tmux command."""
+    monkeypatch.delenv("MNGR_TMUX_SOCKET", raising=False)
+    result = build_test_tmux_shell_cmd("send-keys -t foo Enter")
+    assert result == "tmux send-keys -t foo Enter"
