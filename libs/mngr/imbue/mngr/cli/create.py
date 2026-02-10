@@ -484,6 +484,11 @@ def create(ctx: click.Context, **kwargs) -> None:
     \b
     Alias: c
     """
+    create_result, connection_opts, output_opts, opts, mngr_ctx = _handle_create(ctx)
+    _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
+
+
+def _handle_create(ctx: click.Context):
     logger.debug("Started create command")
 
     # Setup command context (config, logging, output options)
@@ -642,8 +647,7 @@ def create(ctx: click.Context, **kwargs) -> None:
                     LoggingSuppressor.disable_and_replay(clear_screen=True)
 
             create_result = CreateAgentResult(agent=agent, host=host)
-            _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
-            return
+            return create_result, connection_opts, output_opts, opts, mngr_ctx
 
     # If ensure-clean is set, verify the source work_dir is clean
     if opts.ensure_clean:
@@ -729,7 +733,7 @@ def create(ctx: click.Context, **kwargs) -> None:
         if LoggingSuppressor.is_suppressed():
             LoggingSuppressor.disable_and_replay(clear_screen=True)
 
-    _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
+    return create_result, connection_opts, output_opts, opts, mngr_ctx
 
 
 def _post_create(create_result: CreateAgentResult, connection_opts, output_opts, opts, mngr_ctx):
