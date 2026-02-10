@@ -160,26 +160,50 @@ PR_CI_PID=$!
 "$SCRIPT_DIR/stop_hook_reviewer.sh" &
 REVIEWER_PID=$!
 
-# Wait for both and collect exit codes
-FAILED=false
+# Poll until either process exits with code 2 (actionable failure) or both finish.
+# Exit code 2 means the agent needs to fix something, so we return immediately
+# to let it start working rather than waiting for the other hook.
+PR_CI_EXIT=""
+REVIEWER_EXIT=""
 
-wait "$PR_CI_PID" && PR_CI_EXIT=0 || PR_CI_EXIT=$?
-if [[ $PR_CI_EXIT -ne 0 ]]; then
-    log_error "PR/CI hook failed (exit code $PR_CI_EXIT)"
-    FAILED=true
-fi
-
-wait "$REVIEWER_PID" && REVIEWER_EXIT=0 || REVIEWER_EXIT=$?
-if [[ $REVIEWER_EXIT -ne 0 ]]; then
-    log_error "Reviewer hook failed (exit code $REVIEWER_EXIT)"
-    FAILED=true
-fi
-
-if [[ "$FAILED" == true ]]; then
-    # Propagate the first non-zero exit code
-    if [[ $PR_CI_EXIT -ne 0 ]]; then
-        exit $PR_CI_EXIT
+while true; do
+    # Check PR/CI process
+    if [[ -z "$PR_CI_EXIT" ]] && ! kill -0 "$PR_CI_PID" 2>/dev/null; then
+        wait "$PR_CI_PID" && PR_CI_EXIT=0 || PR_CI_EXIT=$?
+        if [[ $PR_CI_EXIT -eq 2 ]]; then
+            log_error "PR/CI hook failed (exit code 2)"
+            log_warn "Reviewer hook is still running in the background -- its result will be checked on the next stop."
+            exit 2
+        elif [[ $PR_CI_EXIT -ne 0 ]]; then
+            log_error "PR/CI hook failed (exit code $PR_CI_EXIT)"
+        fi
     fi
+
+    # Check reviewer process
+    if [[ -z "$REVIEWER_EXIT" ]] && ! kill -0 "$REVIEWER_PID" 2>/dev/null; then
+        wait "$REVIEWER_PID" && REVIEWER_EXIT=0 || REVIEWER_EXIT=$?
+        if [[ $REVIEWER_EXIT -eq 2 ]]; then
+            log_error "Reviewer hook failed (exit code 2)"
+            log_warn "PR/CI hook is still running in the background -- its result will be checked on the next stop."
+            exit 2
+        elif [[ $REVIEWER_EXIT -ne 0 ]]; then
+            log_error "Reviewer hook failed (exit code $REVIEWER_EXIT)"
+        fi
+    fi
+
+    # Both finished
+    if [[ -n "$PR_CI_EXIT" && -n "$REVIEWER_EXIT" ]]; then
+        break
+    fi
+
+    sleep 1
+done
+
+# If either had a non-2 failure, propagate it
+if [[ $PR_CI_EXIT -ne 0 ]]; then
+    exit $PR_CI_EXIT
+fi
+if [[ $REVIEWER_EXIT -ne 0 ]]; then
     exit $REVIEWER_EXIT
 fi
 
