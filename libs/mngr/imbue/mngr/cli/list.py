@@ -2,7 +2,9 @@ import re
 import sys
 from collections.abc import Sequence
 from enum import Enum
+from threading import Lock
 from typing import Any
+from typing import Final
 
 import click
 from click_option_group import optgroup
@@ -254,7 +256,39 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             ctx.exit(1)
         return
 
-    # Build iteration parameters for reuse in watch mode
+    # Determine if --sort was explicitly set by the user (vs using the default)
+    sort_source = ctx.get_parameter_source("sort")
+    is_sort_explicit = sort_source is not None and sort_source != click.core.ParameterSource.DEFAULT
+
+    # Use streaming HUMAN output when: HUMAN format, not watch mode, and sort not explicitly set
+    if output_opts.output_format == OutputFormat.HUMAN and not opts.watch and not is_sort_explicit:
+        display_fields = (
+            fields if fields is not None else ["name", "host", "provider", "host.state", "state", "status"]
+        )
+        renderer = _StreamingHumanRenderer()
+        renderer.fields = display_fields
+        renderer.limit = limit
+        renderer.is_tty = sys.stdout.isatty()
+        renderer.start()
+        result = api_list_agents(
+            mngr_ctx=mngr_ctx,
+            include_filters=tuple(include_filters),
+            exclude_filters=tuple(exclude_filters),
+            provider_names=opts.provider if opts.provider else None,
+            error_behavior=error_behavior,
+            on_agent=renderer,
+            is_streaming=True,
+        )
+        renderer.finish()
+
+        # Report errors
+        if result.errors:
+            for error in result.errors:
+                logger.warning("{}: {}", error.exception_type, error.message)
+            ctx.exit(1)
+        return
+
+    # Build iteration parameters for reuse in watch mode (batch path)
     iteration_params = _ListIterationParams(
         mngr_ctx=mngr_ctx,
         output_opts=output_opts,
@@ -294,6 +328,113 @@ class _LimitedJsonlEmitter:
             return
         _emit_jsonl_agent(agent)
         self.count += 1
+
+
+# Fixed minimum column widths for streaming output (left-justified, not truncated)
+_STREAMING_COLUMN_WIDTHS: Final[dict[str, int]] = {
+    "name": 20,
+    "host": 15,
+    "provider": 10,
+    "host.state": 10,
+    "state": 10,
+    "status": 30,
+}
+_DEFAULT_STREAMING_COLUMN_WIDTH: Final[int] = 15
+
+# ANSI escape sequences for terminal control
+_ANSI_ERASE_LINE: Final[str] = "\r\x1b[K"
+_ANSI_DIM_GRAY: Final[str] = "\x1b[38;5;245m"
+_ANSI_RESET: Final[str] = "\x1b[0m"
+
+
+class _StreamingHumanRenderer:
+    """Thread-safe streaming renderer for human-readable list output.
+
+    Writes table rows to stdout as agents arrive from the API. Uses an ANSI status
+    line ("Searching...") that gets replaced by data rows on TTY outputs. On non-TTY
+    outputs (piped), skips status lines and ANSI codes entirely.
+    """
+
+    fields: list[str]
+    limit: int | None
+    is_tty: bool
+    _lock: Lock
+    _count: int
+    _is_header_written: bool
+
+    def start(self) -> None:
+        """Initialize internal state and write the initial status line (TTY only)."""
+        self._lock = Lock()
+        self._count = 0
+        self._is_header_written = False
+
+        if self.is_tty:
+            status = f"{_ANSI_DIM_GRAY}Searching...{_ANSI_RESET}"
+            sys.stdout.write(status)
+            sys.stdout.flush()
+
+    def __call__(self, agent: AgentInfo) -> None:
+        """Handle a single agent result (on_agent callback)."""
+        with self._lock:
+            # Respect limit
+            if self.limit is not None and self._count >= self.limit:
+                return
+
+            if self.is_tty:
+                # Erase the current status line
+                sys.stdout.write(_ANSI_ERASE_LINE)
+
+            # Write header on first agent
+            if not self._is_header_written:
+                header_line = _format_streaming_row(self.fields, is_header=True)
+                sys.stdout.write(header_line + "\n")
+                self._is_header_written = True
+
+            # Write the agent row
+            row_line = _format_streaming_agent_row(agent, self.fields)
+            sys.stdout.write(row_line + "\n")
+            self._count += 1
+
+            if self.is_tty:
+                # Write updated status line
+                remaining = ""
+                if self._count > 0:
+                    remaining = f" ({self._count} found)"
+                status = f"{_ANSI_DIM_GRAY}Searching...{remaining}{_ANSI_RESET}"
+                sys.stdout.write(status)
+
+            sys.stdout.flush()
+
+    def finish(self) -> None:
+        """Clean up the status line after all providers have completed."""
+        with self._lock:
+            if self.is_tty:
+                # Erase the final status line
+                sys.stdout.write(_ANSI_ERASE_LINE)
+                sys.stdout.flush()
+
+            if self._count == 0:
+                logger.info("No agents found")
+
+
+def _format_streaming_row(fields: Sequence[str], is_header: bool) -> str:
+    """Format a single row of streaming output with fixed-width columns."""
+    parts: list[str] = []
+    for field in fields:
+        width = _STREAMING_COLUMN_WIDTHS.get(field, _DEFAULT_STREAMING_COLUMN_WIDTH)
+        value = field.upper().replace(".", "_") if is_header else ""
+        parts.append(value.ljust(width))
+    return "  ".join(parts)
+
+
+def _format_streaming_agent_row(agent: AgentInfo, fields: Sequence[str]) -> str:
+    """Format a single agent as a streaming output row."""
+    parts: list[str] = []
+    for field in fields:
+        width = _STREAMING_COLUMN_WIDTHS.get(field, _DEFAULT_STREAMING_COLUMN_WIDTH)
+        value = _get_field_value(agent, field)
+        parts.append(value.ljust(width))
+    return "  ".join(parts)
 
 
 class _ListIterationParams(BaseModel):

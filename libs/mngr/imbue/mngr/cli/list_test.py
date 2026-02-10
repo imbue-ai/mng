@@ -1,10 +1,17 @@
 """Tests for CLI list command helpers."""
 
+import threading
 from datetime import datetime
 from datetime import timezone
+from io import StringIO
 from pathlib import Path
 
+from loguru import logger
+
 from imbue.mngr.api.list import AgentInfo
+from imbue.mngr.cli.list import _StreamingHumanRenderer
+from imbue.mngr.cli.list import _format_streaming_agent_row
+from imbue.mngr.cli.list import _format_streaming_row
 from imbue.mngr.cli.list import _format_value_as_string
 from imbue.mngr.cli.list import _get_field_value
 from imbue.mngr.cli.list import _get_sortable_value
@@ -531,3 +538,180 @@ def _create_test_agent_with_name(name: str) -> AgentInfo:
         state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
+
+
+# =============================================================================
+# Tests for _format_streaming_row and _format_streaming_agent_row
+# =============================================================================
+
+
+def test_format_streaming_row_header_uses_uppercase_fields() -> None:
+    """_format_streaming_row should produce uppercase, dot-replaced headers."""
+    fields = ["name", "host", "state"]
+    result = _format_streaming_row(fields, is_header=True)
+    assert "NAME" in result
+    assert "HOST" in result
+    assert "STATE" in result
+
+
+def test_format_streaming_agent_row_extracts_field_values() -> None:
+    """_format_streaming_agent_row should extract and format agent field values."""
+    agent = _create_test_agent()
+    fields = ["name", "provider"]
+    result = _format_streaming_agent_row(agent, fields)
+    assert "test-agent" in result
+    assert "local" in result
+
+
+# =============================================================================
+# Tests for _StreamingHumanRenderer
+# =============================================================================
+
+
+def _create_streaming_renderer(
+    fields: list[str],
+    limit: int | None,
+    is_tty: bool,
+) -> _StreamingHumanRenderer:
+    """Create and initialize a streaming renderer for tests."""
+    renderer = _StreamingHumanRenderer()
+    renderer.fields = fields
+    renderer.limit = limit
+    renderer.is_tty = is_tty
+    return renderer
+
+
+def test_streaming_renderer_non_tty_no_ansi_codes(monkeypatch) -> None:
+    """Non-TTY streaming output should contain no ANSI escape codes."""
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
+
+    renderer = _create_streaming_renderer(fields=["name", "state"], limit=None, is_tty=False)
+    renderer.start()
+    renderer(_create_test_agent())
+    renderer.finish()
+
+    output = captured.getvalue()
+    assert "\x1b" not in output
+    assert "test-agent" in output
+    assert "NAME" in output
+
+
+def test_streaming_renderer_tty_includes_status_line(monkeypatch) -> None:
+    """TTY streaming output should include status line with ANSI codes."""
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
+
+    renderer = _create_streaming_renderer(fields=["name"], limit=None, is_tty=True)
+    renderer.start()
+
+    output = captured.getvalue()
+    assert "Searching..." in output
+
+
+def test_streaming_renderer_tty_shows_count_after_agent(monkeypatch) -> None:
+    """TTY streaming should update status line with count after agent is received."""
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
+
+    renderer = _create_streaming_renderer(fields=["name"], limit=None, is_tty=True)
+    renderer.start()
+    renderer(_create_test_agent())
+
+    output = captured.getvalue()
+    assert "(1 found)" in output
+
+
+def test_streaming_renderer_respects_limit(monkeypatch) -> None:
+    """Streaming renderer should stop accepting agents after limit is reached."""
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
+
+    renderer = _create_streaming_renderer(fields=["name"], limit=1, is_tty=False)
+    renderer.start()
+    renderer(_create_test_agent())
+    renderer(_create_test_agent_with_name("second-agent"))
+    renderer.finish()
+
+    output = captured.getvalue()
+    assert "test-agent" in output
+    assert "second-agent" not in output
+
+
+def test_streaming_renderer_finish_no_agents_shows_no_agents_found(monkeypatch) -> None:
+    """Streaming renderer should indicate no agents when finishing with zero results."""
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
+
+    # Capture loguru output to the same StringIO by adding a temporary sink
+    sink_id = logger.add(captured, format="{message}", level="INFO")
+    try:
+        renderer = _create_streaming_renderer(fields=["name"], limit=None, is_tty=False)
+        renderer.start()
+        renderer.finish()
+    finally:
+        logger.remove(sink_id)
+
+    output = captured.getvalue()
+    assert "No agents found" in output
+
+
+def test_streaming_renderer_thread_safety(monkeypatch) -> None:
+    """Streaming renderer should handle concurrent calls without data corruption."""
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
+
+    renderer = _create_streaming_renderer(fields=["name"], limit=None, is_tty=False)
+    renderer.start()
+
+    # Send agents from multiple threads concurrently
+    agent_count = 20
+    threads: list[threading.Thread] = []
+    for idx in range(agent_count):
+        agent = _create_test_agent_with_name(f"agent-{idx}")
+        thread = threading.Thread(target=renderer, args=(agent,))
+        threads.append(thread)
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    renderer.finish()
+
+    output = captured.getvalue()
+    # All agents should appear exactly once (header + 20 agent lines)
+    lines = [line for line in output.strip().split("\n") if line.strip()]
+    # 1 header + 20 agent rows
+    assert len(lines) == agent_count + 1
+
+
+def test_streaming_renderer_custom_fields(monkeypatch) -> None:
+    """Streaming renderer should respect custom field selection."""
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
+
+    renderer = _create_streaming_renderer(fields=["name", "type"], limit=None, is_tty=False)
+    renderer.start()
+    renderer(_create_test_agent())
+    renderer.finish()
+
+    output = captured.getvalue()
+    assert "NAME" in output
+    assert "TYPE" in output
+    assert "claude" in output
+
+
+def test_streaming_renderer_tty_erases_status_on_finish(monkeypatch) -> None:
+    """TTY streaming should erase the status line on finish."""
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
+
+    renderer = _create_streaming_renderer(fields=["name"], limit=None, is_tty=True)
+    renderer.start()
+    renderer(_create_test_agent())
+    renderer.finish()
+
+    output = captured.getvalue()
+    # The final write should end with an erase-line sequence (no trailing status)
+    assert output.endswith("\r\x1b[K")
