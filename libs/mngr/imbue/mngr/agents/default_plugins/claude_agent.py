@@ -403,8 +403,8 @@ class ClaudeAgent(BaseAgent):
 
         For worktree-mode agents, copies the source directory's Claude trust
         config to the new worktree. If the source directory isn't yet trusted,
-        interactive runs prompt the user to add trust; non-interactive runs
-        re-raise the error.
+        interactive runs prompt the user to add trust (re-raising if declined);
+        non-interactive runs re-raise the error.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             git_common_dir = find_git_common_dir(self.work_dir)
