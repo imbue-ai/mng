@@ -129,6 +129,43 @@ class WorkDirCopyMode(UpperCaseStrEnum):
     WORKTREE = auto()
 
 
+class UncommittedChangesMode(UpperCaseStrEnum):
+    """Mode for handling uncommitted changes in the destination during sync operations."""
+
+    STASH = auto()
+    CLOBBER = auto()
+    MERGE = auto()
+    FAIL = auto()
+
+
+class SyncMode(UpperCaseStrEnum):
+    """Direction of sync operation.
+
+    PUSH: local -> agent
+    PULL: agent -> local
+    """
+
+    PUSH = auto()
+    PULL = auto()
+
+
+class SyncDirection(UpperCaseStrEnum):
+    """Direction for file synchronization in pair mode."""
+
+    FORWARD = auto()
+    REVERSE = auto()
+    BOTH = auto()
+
+
+class ConflictMode(UpperCaseStrEnum):
+    """Conflict resolution mode for pair mode sync."""
+
+    NEWER = auto()
+    SOURCE = auto()
+    TARGET = auto()
+    ASK = auto()
+
+
 # === ID Types ===
 
 

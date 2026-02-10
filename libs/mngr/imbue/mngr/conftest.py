@@ -134,8 +134,6 @@ def temp_host_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def tmp_home_dir(tmp_path: Path) -> Generator[Path, None, None]:
-    home_dir = tmp_path / "home"
-    home_dir.mkdir(parents=True, exist_ok=True)
     yield tmp_path
 
 
@@ -177,6 +175,14 @@ def setup_test_mngr_env(
     monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
     monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
+
+    # Unison derives its config directory from $HOME. Since we override HOME
+    # above, unison tries to create its config dir inside tmp_path, which
+    # fails because the expected parent directories don't exist. The UNISON
+    # env var overrides this to a path we control.
+    unison_dir = tmp_home_dir / ".unison"
+    unison_dir.mkdir(exist_ok=True)
+    monkeypatch.setenv("UNISON", str(unison_dir))
 
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.

@@ -2,7 +2,6 @@ from pathlib import Path
 
 from click import ClickException
 
-from imbue.mngr.cli.output_helpers import format_mngr_error_for_cli
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -27,8 +26,9 @@ class MngrError(ClickException, BaseMngrError):
     user_help_text: str | None = None
 
     def format_message(self) -> str:
-        error_message = format_mngr_error_for_cli(self, self.user_help_text)
-        return error_message
+        if self.user_help_text:
+            return str(self) + "  [" + self.user_help_text + "]"
+        return str(self)
 
 
 class UserInputError(MngrError):
@@ -330,3 +330,17 @@ class ConfigStructureError(ConfigError, TypeError):
 
 class UnknownBackendError(ConfigError):
     """Unknown provider backend."""
+
+
+class UnisonNotInstalledError(MngrError):
+    """Raised when unison is not installed but is required for pair mode."""
+
+    user_help_text = (
+        "Install unison to use the pair command. "
+        "On macOS: brew install unison && brew install autozimu/formulas/unison-fsmonitor. "
+        "On Ubuntu/Debian: sudo apt-get install unison. "
+        "On other systems, see: https://www.cis.upenn.edu/~bcpierce/unison/"
+    )
+
+    def __init__(self) -> None:
+        super().__init__("unison is not installed or not found in PATH")

@@ -10,10 +10,11 @@ mngr pull [SOURCE] [DESTINATION] [--source-agent <AGENT>] [--dry-run] [--stop]
 ```
 
 
-Pull files from an agent to local machine.
+Pull files or git commits from an agent to local machine.
 
-Syncs files from an agent's working directory to a local directory.
+Syncs files or git state from an agent's working directory to a local directory.
 Default behavior uses rsync for efficient incremental file transfer.
+Use --sync-mode=git to merge git branches instead of syncing files.
 
 If no source is specified, shows an interactive selector to choose an agent.
 
@@ -22,11 +23,13 @@ Examples:
   mngr pull my-agent ./local-copy
   mngr pull my-agent:src ./local-src
   mngr pull --source-agent my-agent
+  mngr pull my-agent --sync-mode=git
+  mngr pull my-agent --sync-mode=git --target-branch=main
 
 **Usage:**
 
 ```text
-mngr pull [OPTIONS] [SOURCE] [DESTINATION]
+mngr pull [OPTIONS] SOURCE DESTINATION
 ```
 
 ## Arguments
@@ -58,7 +61,7 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | `--dry-run` | boolean | Show what would be transferred without actually transferring | `False` |
 | `--stop` | boolean | Stop the agent after pulling (for state consistency) | `False` |
 | `--delete`, `--no-delete` | boolean | Delete files in destination that don't exist in source | `False` |
-| `--sync-mode` | choice (`files` &#x7C; `state` &#x7C; `full`) | What to sync: files (working directory only), git state [future], or both [future] | `files` |
+| `--sync-mode` | choice (`files` &#x7C; `git` &#x7C; `full`) | What to sync: files (working directory via rsync), git (merge git branches), or full (everything) [future] | `files` |
 | `--exclude` | text | Patterns to exclude from sync [repeatable] [future] | None |
 
 ## Target (for agent-to-agent sync)
@@ -97,13 +100,14 @@ mngr pull [OPTIONS] [SOURCE] [DESTINATION]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--branch` | text | Pull a specific branch [repeatable] [future] | None |
-| `--target-branch` | text | Pull a remote branch into a target branch [future] | None |
+| `--target-branch` | text | Branch to merge into (git mode only) [default: current branch] | None |
 | `--all-branches`, `--all` | boolean | Pull all remote branches [future] | `False` |
 | `--tags` | boolean | Include git tags in sync [future] | `False` |
-| `--force-git` | boolean | Force overwrite local git state (use with caution) [future] | `False` |
+| `--force-git` | boolean | Force overwrite local git state (use with caution) [future]. Without this flag, the command fails if local and remote history have diverged (e.g. after a force-push) and the user must resolve manually. | `False` |
 | `--merge` | boolean | Merge remote changes with local changes [future] | `False` |
 | `--rebase` | boolean | Rebase local changes onto remote changes [future] | `False` |
 | `--uncommitted-source` | choice (`warn` &#x7C; `error`) | Warn or error if source has uncommitted changes [future] | None |
+| `--uncommitted-changes` | choice (`stash` &#x7C; `clobber` &#x7C; `merge` &#x7C; `fail`) | How to handle uncommitted changes in the destination: stash (stash and leave stashed), clobber (overwrite), merge (stash, pull, unstash), fail (error if changes exist) | `fail` |
 
 ## Common
 
@@ -135,6 +139,7 @@ See [multi_target](../generic/multi_target.md) for options controlling behavior 
 - [mngr create](./create.md) - Create a new agent
 - [mngr list](./list.md) - List agents to find one to pull from
 - [mngr connect](./connect.md) - Connect to an agent interactively
+- [mngr push](./push.md) - Push files or git commits to an agent
 
 ## Examples
 
@@ -160,4 +165,10 @@ $ mngr pull my-agent:src ./local-src
 
 ```bash
 $ mngr pull my-agent --dry-run
+```
+
+**Pull git commits**
+
+```bash
+$ mngr pull my-agent --sync-mode=git
 ```
