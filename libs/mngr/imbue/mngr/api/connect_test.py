@@ -101,6 +101,13 @@ def test_build_ssh_activity_wrapper_script_signal_file_uses_session_name() -> No
     assert "'/data/.mngr/signals/mngr-unique-session'" in script
 
 
+def test_build_ssh_activity_wrapper_script_with_tmux_socket_name() -> None:
+    """Test that the wrapper script uses tmux -L when a socket name is provided."""
+    script = _build_ssh_activity_wrapper_script("mngr-my-agent", Path("/home/user/.mngr"), "mngr-test")
+
+    assert "tmux -L mngr-test attach -t 'mngr-my-agent'" in script
+
+
 # =========================================================================
 # Tests for _build_ssh_args
 # =========================================================================
