@@ -164,6 +164,16 @@ def push(ctx: click.Context, **kwargs) -> None:
     if opts.mirror and opts.sync_mode != "git":
         raise UserInputError("--mirror can only be used with --sync-mode=git")
 
+    if opts.rsync_only:
+        if opts.source_branch is not None:
+            raise UserInputError("--source-branch has no effect with --rsync-only")
+        if opts.mirror:
+            raise UserInputError("--mirror has no effect with --rsync-only")
+        if opts.sync_mode == "git":
+            raise NotImplementedError(
+                "--rsync-only with --sync-mode=git is not yet supported; use --sync-mode=files instead"
+            )
+
     # Parse target specification
     agent_identifier: str | None = None
     target_path: str | None = opts.target_path
