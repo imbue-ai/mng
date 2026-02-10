@@ -23,9 +23,10 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from typing import Final
 
-DEFAULT_MNGR_DIR = Path("~/.mngr")
-DEFAULT_PREFIX = "mngr-"
+DEFAULT_MNGR_DIR: Final[Path] = Path("~/.mngr")
+DEFAULT_PREFIX: Final[str] = "mngr-"
 
 
 def _get_app_id(app: dict[str, str]) -> str:
@@ -73,42 +74,29 @@ def _run_modal(args: list[str], environment: str | None = None) -> subprocess.Co
     return subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
 
-def _list_volumes(environment: str) -> list[dict[str, str]]:
-    """List all volumes in the given environment."""
-    result = _run_modal(["volume", "list", "--json"], environment)
+def _list_resources(resource_type: str, environment: str) -> list[dict[str, str]]:
+    """List all resources of the given type (e.g. 'app', 'volume') in the environment."""
+    result = _run_modal([resource_type, "list", "--json"], environment)
     if result.returncode != 0:
-        print(f"Warning: Failed to list volumes: {result.stderr.strip()}", file=sys.stderr)
+        print(f"Warning: Failed to list {resource_type}s: {result.stderr.strip()}", file=sys.stderr)
         return []
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
-        print(f"Warning: Failed to parse volume list JSON: {exc}", file=sys.stderr)
+        print(f"Warning: Failed to parse {resource_type} list JSON: {exc}", file=sys.stderr)
         return []
 
 
-def _list_apps(environment: str) -> list[dict[str, str]]:
-    """List all apps in the given environment."""
-    result = _run_modal(["app", "list", "--json"], environment)
-    if result.returncode != 0:
-        print(f"Warning: Failed to list apps: {result.stderr.strip()}", file=sys.stderr)
-        return []
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        print(f"Warning: Failed to parse app list JSON: {exc}", file=sys.stderr)
-        return []
-
-
-def _stop_app(app_id: str, environment: str) -> bool:
-    """Stop a Modal app."""
+def _stop_app(app_id: str, environment: str) -> tuple[bool, str]:
+    """Stop a Modal app. Returns (success, stderr)."""
     result = _run_modal(["app", "stop", app_id], environment)
-    return result.returncode == 0
+    return result.returncode == 0, result.stderr.strip()
 
 
-def _delete_volume(volume_name: str, environment: str) -> bool:
-    """Delete a Modal volume."""
+def _delete_volume(volume_name: str, environment: str) -> tuple[bool, str]:
+    """Delete a Modal volume. Returns (success, stderr)."""
     result = _run_modal(["volume", "delete", volume_name, "-y"], environment)
-    return result.returncode == 0
+    return result.returncode == 0, result.stderr.strip()
 
 
 def _parse_args() -> argparse.Namespace:
@@ -187,18 +175,20 @@ def _execute_nuke(apps: list[dict[str, str]], volumes: list[dict[str, str]], env
     for app in apps:
         aid = _get_app_id(app)
         print(f"Stopping app {aid}...", end=" ", flush=True)
-        if _stop_app(aid, environment):
+        is_success, stderr = _stop_app(aid, environment)
+        if is_success:
             print("done")
         else:
-            print("FAILED (may already be stopped)")
+            print(f"FAILED: {stderr}" if stderr else "FAILED (may already be stopped)")
 
     for vol in volumes:
         vname = _get_volume_name(vol)
         print(f"Deleting volume {vname}...", end=" ", flush=True)
-        if _delete_volume(vname, environment):
+        is_success, stderr = _delete_volume(vname, environment)
+        if is_success:
             print("done")
         else:
-            print("FAILED")
+            print(f"FAILED: {stderr}" if stderr else "FAILED")
 
 
 def main() -> int:
@@ -215,8 +205,8 @@ def main() -> int:
     print(f"Modal environment: {environment}")
     print()
 
-    apps = _list_apps(environment)
-    volumes = _list_volumes(environment)
+    apps = _list_resources("app", environment)
+    volumes = _list_resources("volume", environment)
 
     has_resources = _display_resources(apps, volumes)
     if not has_resources:
