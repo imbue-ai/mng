@@ -1896,7 +1896,7 @@ def _build_start_agent_shell_command(
     tmux_config_path: Path,
     unset_vars: Sequence[str],
     host_dir: Path,
-    tmux_socket_name: str | None = None,
+    tmux_socket_name: str | None,
 ) -> str:
     """Build a single shell command that starts an agent and its tmux session.
 
@@ -1908,7 +1908,7 @@ def _build_start_agent_shell_command(
     in a subshell so it runs in the background without affecting the chain.
     """
     steps: list[str] = []
-    ts = tmux_socket_name
+    tmux_socket = tmux_socket_name
 
     # Unset environment variables
     for var_name in unset_vars:
@@ -1917,7 +1917,7 @@ def _build_start_agent_shell_command(
     # Create a detached tmux session with env vars sourced
     steps.append(
         build_tmux_shell_cmd(
-            ts,
+            tmux_socket,
             f"-f {shlex.quote(str(tmux_config_path))} new-session -d"
             f" -s {shlex.quote(session_name)}"
             f" -c {shlex.quote(str(agent.work_dir))}"
@@ -1928,13 +1928,15 @@ def _build_start_agent_shell_command(
     # Set the session's default-command so new windows/panes inherit env vars
     steps.append(
         build_tmux_shell_cmd(
-            ts, f"set-option -t {shlex.quote(session_name)} default-command {shlex.quote(env_shell_cmd)}"
+            tmux_socket, f"set-option -t {shlex.quote(session_name)} default-command {shlex.quote(env_shell_cmd)}"
         )
     )
 
     # Send the agent command as literal keys, then Enter to execute
-    steps.append(build_tmux_shell_cmd(ts, f"send-keys -t {shlex.quote(session_name)} -l {shlex.quote(command)}"))
-    steps.append(build_tmux_shell_cmd(ts, f"send-keys -t {shlex.quote(session_name)} Enter"))
+    steps.append(
+        build_tmux_shell_cmd(tmux_socket, f"send-keys -t {shlex.quote(session_name)} -l {shlex.quote(command)}")
+    )
+    steps.append(build_tmux_shell_cmd(tmux_socket, f"send-keys -t {shlex.quote(session_name)} Enter"))
 
     # Create additional windows for each additional command
     for idx, named_cmd in enumerate(additional_commands):
@@ -1943,7 +1945,7 @@ def _build_start_agent_shell_command(
 
         steps.append(
             build_tmux_shell_cmd(
-                ts,
+                tmux_socket,
                 f"new-window -t {shlex.quote(session_name)}"
                 f" -n {shlex.quote(window_name)}"
                 f" -c {shlex.quote(str(agent.work_dir))}"
@@ -1952,14 +1954,14 @@ def _build_start_agent_shell_command(
         )
         steps.append(
             build_tmux_shell_cmd(
-                ts, f"send-keys -t {shlex.quote(window_target)} -l {shlex.quote(str(named_cmd.command))}"
+                tmux_socket, f"send-keys -t {shlex.quote(window_target)} -l {shlex.quote(str(named_cmd.command))}"
             )
         )
-        steps.append(build_tmux_shell_cmd(ts, f"send-keys -t {shlex.quote(window_target)} Enter"))
+        steps.append(build_tmux_shell_cmd(tmux_socket, f"send-keys -t {shlex.quote(window_target)} Enter"))
 
     # If we created additional windows, select the first window (the main agent)
     if additional_commands:
-        steps.append(build_tmux_shell_cmd(ts, f"select-window -t {shlex.quote(session_name + ':0')}"))
+        steps.append(build_tmux_shell_cmd(tmux_socket, f"select-window -t {shlex.quote(session_name + ':0')}"))
 
     # Record START activity for idle detection by writing JSON to the activity file
     # The authoritative activity time is the file's mtime, not the JSON content
@@ -1979,7 +1981,7 @@ def _build_start_agent_shell_command(
     # FIXME: this script really ought to wait for up to X seconds for the PANE_PID to appear (since it can take a little bit)
     process_activity_path = activity_dir / ActivitySource.PROCESS.value.lower()
     list_panes_cmd = build_tmux_shell_cmd(
-        ts, f"list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null"
+        tmux_socket, f"list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null"
     )
     monitor_script = (
         f"PANE_PID=$({list_panes_cmd}"

@@ -23,7 +23,7 @@ SIGNAL_EXIT_CODE_STOP: Final[int] = 11
 def _build_ssh_activity_wrapper_script(
     session_name: str,
     host_dir: Path,
-    tmux_socket_name: str | None = None,
+    tmux_socket_name: str | None,
 ) -> str:
     """Build a shell script that tracks SSH activity while running tmux.
 

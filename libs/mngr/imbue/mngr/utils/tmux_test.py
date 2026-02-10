@@ -30,10 +30,10 @@ def test_build_tmux_shell_cmd_empty_string_socket() -> None:
     assert result == "tmux has-session -t foo"
 
 
-def test_build_tmux_shell_cmd_quotes_socket_with_spaces() -> None:
-    """Socket names with special characters are shell-quoted."""
-    result = build_tmux_shell_cmd("my socket", "list-sessions")
-    assert result == "tmux -L 'my socket' list-sessions"
+def test_build_tmux_shell_cmd_with_hyphenated_socket() -> None:
+    """Socket names with hyphens work correctly."""
+    result = build_tmux_shell_cmd("my-socket", "list-sessions")
+    assert result == "tmux -L my-socket list-sessions"
 
 
 # =============================================================================

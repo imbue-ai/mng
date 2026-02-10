@@ -11,6 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.mngr.cli.create import create
+from imbue.mngr.conftest import TEST_TMUX_SOCKET_NAME
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import capture_tmux_pane_contents
 from imbue.mngr.utils.testing import tmux_session_cleanup
@@ -140,7 +141,9 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
                 obj=plugin_manager,
                 catch_exceptions=False,
             )
-            mock_execvp.assert_called_once_with("tmux", ["tmux", "-L", "mngr-test", "attach", "-t", session_name])
+            mock_execvp.assert_called_once_with(
+                "tmux", ["tmux", "-L", TEST_TMUX_SOCKET_NAME, "attach", "-t", session_name]
+            )
 
 
 def test_no_connect_flag_skips_tmux_attach(

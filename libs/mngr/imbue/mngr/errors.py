@@ -327,6 +327,10 @@ class ConfigParseError(ConfigError):
     """Failed to parse config file."""
 
 
+class ConfigValueError(ConfigError, ValueError):
+    """Invalid configuration value."""
+
+
 class ConfigKeyNotFoundError(ConfigError, KeyError):
     """Configuration key not found."""
 

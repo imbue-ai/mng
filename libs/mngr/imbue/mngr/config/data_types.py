@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any
 from typing import Self
@@ -10,12 +11,14 @@ from uuid import uuid4
 import pluggy
 from pydantic import Field
 from pydantic import GetCoreSchemaHandler
+from pydantic import field_validator
 from pydantic_core import CoreSchema
 from pydantic_core import core_schema
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import ConfigParseError
+from imbue.mngr.errors import ConfigValueError
 from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
@@ -415,6 +418,15 @@ class MngrConfig(FrozenModel):
         default=True,
         description="Set this to False to prevent loading this config in pytest runs",
     )
+
+    @field_validator("tmux_socket_name")
+    @classmethod
+    def validate_tmux_socket_name(cls, v: str | None) -> str | None:
+        if v is not None and not re.fullmatch(r"[a-zA-Z0-9_-]+", v):
+            raise ConfigValueError(
+                f"tmux_socket_name must contain only alphanumeric characters, hyphens, and underscores, got: {v!r}"
+            )
+        return v
 
     def merge_with(self, override: Self) -> Self:
         """Merge this config with an override config.
