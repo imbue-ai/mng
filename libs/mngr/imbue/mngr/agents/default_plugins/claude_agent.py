@@ -15,6 +15,8 @@ from pydantic import Field
 from imbue.imbue_common.logging import log_span
 from imbue.mngr import hookimpl
 from imbue.mngr.agents.base_agent import BaseAgent
+from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
+from imbue.mngr.agents.default_plugins.claude_config import add_claude_trust_for_path
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
@@ -92,6 +94,17 @@ def _prompt_user_for_installation() -> bool:
         "\nClaude is not installed on this machine.\nYou can install it by running:\n  curl -fsSL https://claude.ai/install.sh | bash\n"
     )
     return click.confirm("Would you like to install it now?", default=True)
+
+
+def _prompt_user_for_trust(source_path: Path) -> bool:
+    """Prompt the user to trust a directory for Claude Code."""
+    logger.info(
+        "\nSource directory {} is not yet trusted by Claude Code.\n"
+        "mngr needs to add a trust entry to ~/.claude.json so that Claude Code\n"
+        "can start without showing a trust dialog.\n",
+        source_path,
+    )
+    return click.confirm("Would you like to trust this directory?", default=True)
 
 
 class ClaudeAgent(BaseAgent):
@@ -269,7 +282,8 @@ class ClaudeAgent(BaseAgent):
         happens in provision().
 
         For worktree mode: validates that the source directory is trusted
-        in Claude's config (~/.claude.json).
+        in Claude's config (~/.claude.json). If not trusted and running
+        interactively, prompts the user to add trust.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             if not host.is_local:
@@ -280,7 +294,14 @@ class ClaudeAgent(BaseAgent):
                 )
             git_common_dir = find_git_common_dir(self.work_dir)
             if git_common_dir is not None:
-                check_source_directory_trusted(git_common_dir.parent)
+                source_path = git_common_dir.parent
+                try:
+                    check_source_directory_trusted(source_path)
+                except ClaudeDirectoryNotTrustedError:
+                    if mngr_ctx.is_interactive and _prompt_user_for_trust(source_path):
+                        add_claude_trust_for_path(source_path)
+                    else:
+                        raise
 
         config = self._get_claude_config()
         if not config.check_installation:

@@ -9,6 +9,7 @@ import pytest
 
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import _find_project_config
+from imbue.mngr.agents.default_plugins.claude_config import add_claude_trust_for_path
 from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.agents.default_plugins.claude_config import get_claude_config_backup_path
@@ -197,6 +198,132 @@ def test_check_source_directory_trusted_raises_json_error_for_invalid_json(tmp_p
     with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
         with pytest.raises(json.JSONDecodeError):
             check_source_directory_trusted(source_path)
+
+
+# Tests for add_claude_trust_for_path
+
+
+def test_add_claude_trust_creates_config_when_none_exists(tmp_path: Path) -> None:
+    """Test that add_claude_trust_for_path creates ~/.claude.json if it doesn't exist."""
+    config_file = tmp_path / ".claude.json"
+    source_path = tmp_path / "source"
+    source_path.mkdir()
+
+    with patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file):
+        add_claude_trust_for_path(source_path)
+
+    assert config_file.exists()
+    config = json.loads(config_file.read_text())
+    assert config["projects"][str(source_path)]["hasTrustDialogAccepted"] is True
+
+
+def test_add_claude_trust_adds_entry_to_existing_config(tmp_path: Path) -> None:
+    """Test that add_claude_trust_for_path adds entry to existing config."""
+    config_file = tmp_path / ".claude.json"
+    source_path = tmp_path / "source"
+    source_path.mkdir()
+
+    # Create config with another project
+    config = {"projects": {"/other/project": {"allowedTools": [], "hasTrustDialogAccepted": True}}}
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with (
+        patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_config.get_claude_config_backup_path",
+            return_value=tmp_path / ".claude.json.bak",
+        ),
+    ):
+        add_claude_trust_for_path(source_path)
+
+    updated = json.loads(config_file.read_text())
+    # New entry added
+    assert updated["projects"][str(source_path)]["hasTrustDialogAccepted"] is True
+    # Existing entry preserved
+    assert "/other/project" in updated["projects"]
+
+
+def test_add_claude_trust_is_noop_when_already_trusted(tmp_path: Path) -> None:
+    """Test that add_claude_trust_for_path is a no-op when path is already trusted."""
+    config_file = tmp_path / ".claude.json"
+    backup_file = tmp_path / ".claude.json.bak"
+    source_path = tmp_path / "source"
+    source_path.mkdir()
+
+    # Create config with already-trusted source
+    config = {
+        "projects": {
+            str(source_path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": True},
+        }
+    }
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with (
+        patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_config.get_claude_config_backup_path",
+            return_value=backup_file,
+        ),
+    ):
+        add_claude_trust_for_path(source_path)
+
+    # No backup should be created (no modification)
+    assert not backup_file.exists()
+    # Config should be unchanged
+    updated = json.loads(config_file.read_text())
+    assert updated["projects"][str(source_path)]["allowedTools"] == ["bash"]
+
+
+def test_add_claude_trust_updates_entry_when_trust_is_false(tmp_path: Path) -> None:
+    """Test that add_claude_trust_for_path updates entry when hasTrustDialogAccepted is False."""
+    config_file = tmp_path / ".claude.json"
+    source_path = tmp_path / "source"
+    source_path.mkdir()
+
+    # Create config with untrusted entry that has other fields
+    config = {
+        "projects": {
+            str(source_path): {"allowedTools": ["bash"], "hasTrustDialogAccepted": False},
+        }
+    }
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with (
+        patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_config.get_claude_config_backup_path",
+            return_value=tmp_path / ".claude.json.bak",
+        ),
+    ):
+        add_claude_trust_for_path(source_path)
+
+    updated = json.loads(config_file.read_text())
+    entry = updated["projects"][str(source_path)]
+    # Trust should be set
+    assert entry["hasTrustDialogAccepted"] is True
+    # Other fields preserved
+    assert entry["allowedTools"] == ["bash"]
+
+
+def test_add_claude_trust_handles_empty_config_file(tmp_path: Path) -> None:
+    """Test that add_claude_trust_for_path handles empty config file."""
+    config_file = tmp_path / ".claude.json"
+    source_path = tmp_path / "source"
+    source_path.mkdir()
+
+    config_file.write_text("")
+
+    with (
+        patch("imbue.mngr.agents.default_plugins.claude_config.get_claude_config_path", return_value=config_file),
+        patch(
+            "imbue.mngr.agents.default_plugins.claude_config.get_claude_config_backup_path",
+            return_value=tmp_path / ".claude.json.bak",
+        ),
+    ):
+        add_claude_trust_for_path(source_path)
+
+    config = json.loads(config_file.read_text())
+    assert config["projects"][str(source_path)]["hasTrustDialogAccepted"] is True
 
 
 # Tests for extend_claude_trust_to_worktree
