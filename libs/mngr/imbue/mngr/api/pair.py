@@ -388,8 +388,9 @@ def pair_files(
             "Use --no-require-git to sync without git."
         )
 
-    # Determine and perform git sync
-    if agent_is_git and local_is_git:
+    # Determine and perform git sync (skip when --no-require-git is set,
+    # since the user explicitly opted out of git-based behavior)
+    if is_require_git and agent_is_git and local_is_git:
         git_action = determine_git_sync_actions(agent_path, actual_local_path)
         if git_action is not None and (git_action.agent_is_ahead or git_action.local_is_ahead):
             logger.info(

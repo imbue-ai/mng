@@ -34,6 +34,7 @@ from imbue.mngr.utils.git_utils import find_git_worktree_root
 class PairCliOptions(CommonCliOptions):
     """Options passed from the CLI to the pair command."""
 
+    source_pos: str | None
     source: str | None
     source_agent: str | None
     source_host: str | None
@@ -83,7 +84,7 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
 
 
 @click.command()
-@click.argument("source", default=None, required=False)
+@click.argument("source_pos", default=None, required=False, metavar="SOURCE")
 @optgroup.group("Source Selection")
 @optgroup.option("--source", "source", help="Source specification: AGENT, AGENT:PATH, or PATH")
 @optgroup.option("--source-agent", help="Source agent name or ID")
@@ -154,7 +155,7 @@ def pair(ctx: click.Context, **kwargs) -> None:
     \b
     Examples:
       mngr pair my-agent
-      mngr pair my-agent ./local-dir
+      mngr pair my-agent --target ./local-dir
       mngr pair --source-agent my-agent --target ./local-copy
       mngr pair my-agent --sync-direction=forward
       mngr pair my-agent --conflict=source
@@ -167,21 +168,24 @@ def pair(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("Running pair command")
 
+    # Merge positional and named arguments (named option takes precedence)
+    effective_source = opts.source if opts.source is not None else opts.source_pos
+
     # Parse source specification
     agent_identifier: str | None = None
     source_subpath: str | None = opts.source_path
 
-    if opts.source is not None:
+    if effective_source is not None:
         # Parse source string: AGENT, AGENT:PATH, or PATH
-        if ":" in opts.source:
+        if ":" in effective_source:
             # AGENT:PATH format
-            agent_identifier, source_subpath = opts.source.split(":", 1)
-        elif opts.source.startswith(("/", "./", "~/", "../")):
+            agent_identifier, source_subpath = effective_source.split(":", 1)
+        elif effective_source.startswith(("/", "./", "~/", "../")):
             # PATH format - not supported without agent
             raise UserInputError("Source must include an agent specification")
         else:
             # AGENT format
-            agent_identifier = opts.source
+            agent_identifier = effective_source
 
     # Override with explicit options if provided
     if opts.source_agent is not None:
@@ -282,7 +286,7 @@ state (branches and commits) before starting the continuous file sync.
 Press Ctrl+C to stop the sync.""",
     examples=(
         ("Pair with an agent", "mngr pair my-agent"),
-        ("Pair to specific local directory", "mngr pair my-agent ./local-dir"),
+        ("Pair to specific local directory", "mngr pair my-agent --target ./local-dir"),
         ("One-way sync (source to target)", "mngr pair my-agent --sync-direction=forward"),
         ("Prefer source on conflicts", "mngr pair my-agent --conflict=source"),
         ("Filter to specific host", "mngr pair my-agent --source-host @local"),

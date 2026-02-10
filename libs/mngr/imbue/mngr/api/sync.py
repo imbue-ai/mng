@@ -24,6 +24,7 @@ from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.git_utils import count_commits_between
 from imbue.mngr.utils.git_utils import get_current_branch
 from imbue.mngr.utils.git_utils import get_head_commit
+from imbue.mngr.utils.git_utils import is_ancestor
 from imbue.mngr.utils.git_utils import is_git_repository
 from imbue.mngr.utils.rsync_utils import parse_rsync_output
 
@@ -352,9 +353,19 @@ def sync_files(
     # in-place. This differs from handle_uncommitted_changes with CLOBBER in the git
     # sync path (_sync_git_pull / _sync_git_push), where CLOBBER calls git_reset_hard
     # to discard changes before merging.
+    #
+    # Skip the uncommitted changes check if the destination doesn't exist yet
+    # (e.g. pushing to a new subdirectory) or if the destination isn't a git repo
+    # (e.g. pulling to a plain directory with --sync-mode=files).
     did_stash = False
-    if uncommitted_changes != UncommittedChangesMode.CLOBBER:
+    is_destination_git_repo = destination_path.is_dir() and git_ctx.is_git_repository(destination_path)
+    if uncommitted_changes != UncommittedChangesMode.CLOBBER and is_destination_git_repo:
         did_stash = handle_uncommitted_changes(git_ctx, destination_path, uncommitted_changes)
+
+    # Ensure destination directory exists for push mode subdirectory targets.
+    # For pull mode, rsync will create the destination directory if needed.
+    if mode == SyncMode.PUSH and not destination_path.is_dir():
+        destination_path.mkdir(parents=True, exist_ok=True)
 
     # Build rsync command
     rsync_cmd = ["rsync", "-avz", "--stats", "--exclude=.git"]
@@ -490,9 +501,17 @@ def _sync_git_push(
                     if result.returncode != 0:
                         raise GitSyncError(result.stderr)
 
-                    # Reset working tree to match
+                    # Checkout the source branch and reset working tree to match.
+                    # We use source_branch (not target_branch) so the agent ends
+                    # up on the same branch as the source after a mirror push.
+                    checkout_result = host.execute_command(
+                        f"git checkout -f {source_branch}",
+                        cwd=destination_path,
+                    )
+                    if not checkout_result.success:
+                        raise GitSyncError(f"Failed to checkout branch {source_branch}: {checkout_result.stderr}")
                     reset_result = host.execute_command(
-                        f"git reset --hard {target_branch}",
+                        f"git reset --hard {source_branch}",
                         cwd=destination_path,
                     )
                     if not reset_result.success:
@@ -547,6 +566,16 @@ def _sync_git_push(
                     if hash_result.returncode != 0:
                         raise GitSyncError(f"Failed to resolve FETCH_HEAD: {hash_result.stderr}")
                     fetched_commit = hash_result.stdout.strip()
+
+                    # Check for non-fast-forward push (diverged history)
+                    if pre_fetch_head is not None and pre_fetch_head != fetched_commit:
+                        is_fast_forward = is_ancestor(destination_path, pre_fetch_head, fetched_commit)
+                        if not is_fast_forward:
+                            raise GitSyncError(
+                                f"Cannot push: agent branch '{target_branch}' has diverged from "
+                                f"local branch '{source_branch}'. Use --mirror to force-overwrite "
+                                f"all refs, or pull agent changes first to reconcile."
+                            )
 
                     # Reset the target branch to the fetched commit
                     reset_result = host.execute_command(
@@ -676,19 +705,27 @@ def _sync_git_pull(
                 text=True,
             )
             if result.returncode != 0:
-                # Abort the merge on failure
-                abort_result = subprocess.run(
-                    ["git", "merge", "--abort"],
+                # Check if a merge is actually in progress before trying to abort
+                merge_check = subprocess.run(
+                    ["git", "rev-parse", "--verify", "MERGE_HEAD"],
                     cwd=local_path,
                     capture_output=True,
                     text=True,
                 )
-                if abort_result.returncode != 0:
-                    logger.warning(
-                        "Failed to abort merge in {}: {}. Repository may be in a conflicted state.",
-                        local_path,
-                        abort_result.stderr.strip(),
+                if merge_check.returncode == 0:
+                    # Merge is in progress, abort it
+                    abort_result = subprocess.run(
+                        ["git", "merge", "--abort"],
+                        cwd=local_path,
+                        capture_output=True,
+                        text=True,
                     )
+                    if abort_result.returncode != 0:
+                        logger.warning(
+                            "Failed to abort merge in {}: {}. Repository may be in a conflicted state.",
+                            local_path,
+                            abort_result.stderr.strip(),
+                        )
                 raise GitSyncError(result.stderr)
 
             # Count actual commits merged

@@ -785,3 +785,39 @@ def test_pull_git_raises_on_merge_failure(
             host=ctx.host,
             destination=ctx.local_dir,
         )
+
+
+# =============================================================================
+# Test: Pulling to non-git destination (issue 4)
+# =============================================================================
+
+
+def test_pull_files_to_non_git_directory_succeeds(
+    tmp_path: Path,
+) -> None:
+    """Test that pull_files works when destination is not a git repo.
+
+    When using --sync-mode=files (the default), pulling to a plain directory
+    should work without requiring git. The git uncommitted changes check
+    should be skipped.
+    """
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    (agent_dir / "file.txt").write_text("agent content")
+
+    # Create a plain (non-git) destination directory
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir()
+
+    agent = cast(AgentInterface, FakeAgent(work_dir=agent_dir))
+    host = cast(OnlineHostInterface, FakeHost())
+
+    result = pull_files(
+        agent=agent,
+        host=host,
+        destination=dest_dir,
+        uncommitted_changes=UncommittedChangesMode.FAIL,
+    )
+
+    assert (dest_dir / "file.txt").read_text() == "agent content"
+    assert result.destination_path == dest_dir

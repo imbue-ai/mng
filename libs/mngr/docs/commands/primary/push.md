@@ -25,20 +25,20 @@ Examples:
   mngr push my-agent
   mngr push my-agent ./local-dir
   mngr push my-agent:subdir ./local-src
-  mngr push --target-agent my-agent --source ./local-dir
+  mngr push my-agent --source ./local-dir
   mngr push my-agent --sync-mode=git
   mngr push my-agent --sync-mode=git --mirror
 
 **Usage:**
 
 ```text
-mngr push [OPTIONS] [TARGET] [SOURCE]
+mngr push [OPTIONS] TARGET SOURCE
 ```
 
 ## Arguments
 
-- `TARGET`: The target (optional)
-- `SOURCE`: The source (optional)
+- `TARGET_POS`: The target pos (optional)
+- `SOURCE_POS`: The source pos (optional)
 
 **Options:**
 

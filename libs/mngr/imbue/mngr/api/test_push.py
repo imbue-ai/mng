@@ -771,3 +771,35 @@ def test_push_git_with_remote_host_raises_not_implemented(
             source=remote_git_push_ctx.local_dir,
             uncommitted_changes=UncommittedChangesMode.CLOBBER,
         )
+
+
+# =============================================================================
+# Test: Push to non-existent subdirectory (issue 3)
+# =============================================================================
+
+
+def test_push_files_to_nonexistent_subdir_creates_directory(
+    push_ctx: SyncTestContext,
+) -> None:
+    """Test that push_files auto-creates a non-existent subdirectory target.
+
+    When pushing to agent:subdir and the subdirectory doesn't exist yet,
+    the directory should be created automatically rather than failing with
+    a cryptic git status error.
+    """
+    (push_ctx.local_dir / "file.txt").write_text("local content")
+
+    subdir_path = push_ctx.agent_dir / "new_subdir"
+    assert not subdir_path.exists()
+
+    result = push_files(
+        agent=push_ctx.agent,
+        host=push_ctx.host,
+        source=push_ctx.local_dir,
+        destination_path=subdir_path,
+        uncommitted_changes=UncommittedChangesMode.CLOBBER,
+    )
+
+    assert subdir_path.is_dir()
+    assert (subdir_path / "file.txt").read_text() == "local content"
+    assert result.destination_path == subdir_path

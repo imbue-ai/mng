@@ -31,6 +31,8 @@ class PushCliOptions(CommonCliOptions):
     Inherits common options (output_format, quiet, verbose, etc.) from CommonCliOptions.
     """
 
+    target_pos: str | None
+    source_pos: str | None
     target: str | None
     target_agent: str | None
     target_host: str | None
@@ -48,8 +50,8 @@ class PushCliOptions(CommonCliOptions):
 
 
 @click.command()
-@click.argument("target", default=None, required=False)
-@click.argument("source", default=None, required=False)
+@click.argument("target_pos", default=None, required=False, metavar="TARGET")
+@click.argument("source_pos", default=None, required=False, metavar="SOURCE")
 @optgroup.group("Target Selection")
 @optgroup.option("--target", "target", help="Target specification: AGENT, AGENT:PATH, or PATH")
 @optgroup.option("--target-agent", help="Target agent name or ID")
@@ -130,7 +132,7 @@ def push(ctx: click.Context, **kwargs) -> None:
       mngr push my-agent
       mngr push my-agent ./local-dir
       mngr push my-agent:subdir ./local-src
-      mngr push --target-agent my-agent --source ./local-dir
+      mngr push my-agent --source ./local-dir
       mngr push my-agent --sync-mode=git
       mngr push my-agent --sync-mode=git --mirror
     """
@@ -140,6 +142,10 @@ def push(ctx: click.Context, **kwargs) -> None:
         command_class=PushCliOptions,
     )
     logger.debug("Running push command")
+
+    # Merge positional and named arguments (named option takes precedence)
+    effective_target = opts.target if opts.target is not None else opts.target_pos
+    effective_source = opts.source if opts.source is not None else opts.source_pos
 
     # Check for unsupported options
     if opts.sync_mode == "full":
@@ -162,17 +168,17 @@ def push(ctx: click.Context, **kwargs) -> None:
     agent_identifier: str | None = None
     target_path: str | None = opts.target_path
 
-    if opts.target is not None:
+    if effective_target is not None:
         # Parse target string: AGENT, AGENT:PATH, or PATH
-        if ":" in opts.target:
+        if ":" in effective_target:
             # AGENT:PATH format
-            agent_identifier, target_path = opts.target.split(":", 1)
-        elif opts.target.startswith(("/", "./", "~/", "../")):
+            agent_identifier, target_path = effective_target.split(":", 1)
+        elif effective_target.startswith(("/", "./", "~/", "../")):
             # PATH format - not supported without agent
             raise UserInputError("Target must include an agent specification")
         else:
             # AGENT format
-            agent_identifier = opts.target
+            agent_identifier = effective_target
 
     # Override with explicit options if provided
     if opts.target_agent is not None:
@@ -181,7 +187,7 @@ def push(ctx: click.Context, **kwargs) -> None:
         agent_identifier = opts.target_agent
 
     # Determine source path
-    source_path = Path(opts.source) if opts.source else Path.cwd()
+    source_path = Path(effective_source) if effective_source else Path.cwd()
 
     # Find the agent
     agent: AgentInterface

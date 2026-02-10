@@ -31,6 +31,8 @@ class PullCliOptions(CommonCliOptions):
     Inherits common options (output_format, quiet, verbose, etc.) from CommonCliOptions.
     """
 
+    source_pos: str | None
+    destination_pos: str | None
     source: str | None
     source_agent: str | None
     source_host: str | None
@@ -65,8 +67,8 @@ class PullCliOptions(CommonCliOptions):
 
 
 @click.command()
-@click.argument("source", default=None, required=False)
-@click.argument("destination", default=None, required=False)
+@click.argument("source_pos", default=None, required=False, metavar="SOURCE")
+@click.argument("destination_pos", default=None, required=False, metavar="DESTINATION")
 @optgroup.group("Source Selection")
 @optgroup.option("--source", "source", help="Source specification: AGENT, AGENT:PATH, or PATH")
 @optgroup.option("--source-agent", help="Source agent name or ID")
@@ -197,6 +199,10 @@ def pull(ctx: click.Context, **kwargs) -> None:
     )
     logger.debug("started pull command")
 
+    # Merge positional and named arguments (named option takes precedence)
+    effective_source = opts.source if opts.source is not None else opts.source_pos
+    effective_destination = opts.destination if opts.destination is not None else opts.destination_pos
+
     # Check for unsupported options
     if opts.sync_mode == "full":
         raise NotImplementedError("--sync-mode=full is not implemented yet")
@@ -261,17 +267,17 @@ def pull(ctx: click.Context, **kwargs) -> None:
     agent_identifier: str | None = None
     source_path: str | None = opts.source_path
 
-    if opts.source is not None:
+    if effective_source is not None:
         # Parse source string: AGENT, AGENT:PATH, or PATH
-        if ":" in opts.source:
+        if ":" in effective_source:
             # AGENT:PATH format
-            agent_identifier, source_path = opts.source.split(":", 1)
-        elif opts.source.startswith(("/", "./", "~/", "../")):
+            agent_identifier, source_path = effective_source.split(":", 1)
+        elif effective_source.startswith(("/", "./", "~/", "../")):
             # PATH format - not supported without agent
             raise UserInputError("Source must include an agent specification")
         else:
             # AGENT format
-            agent_identifier = opts.source
+            agent_identifier = effective_source
 
     # Override with explicit options if provided
     if opts.source_agent is not None:
@@ -280,7 +286,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
         agent_identifier = opts.source_agent
 
     # Determine destination
-    destination_path = Path(opts.destination) if opts.destination else Path.cwd()
+    destination_path = Path(effective_destination) if effective_destination else Path.cwd()
 
     # Find the agent
     agent: AgentInterface
