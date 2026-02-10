@@ -1,4 +1,3 @@
-import sys
 from pathlib import Path
 from typing import assert_never
 
@@ -6,12 +5,9 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
-from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
-from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.pair import pair_files
-from imbue.mngr.cli.agent_utils import filter_agents_by_host
+from imbue.mngr.cli.agent_utils import find_agent_for_command
 from imbue.mngr.cli.agent_utils import parse_agent_spec
-from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -22,9 +18,6 @@ from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import MngrError
-from imbue.mngr.errors import UserInputError
-from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import SyncDirection
@@ -185,25 +178,16 @@ def pair(ctx: click.Context, **kwargs) -> None:
         target_path = git_root if git_root is not None else Path.cwd()
 
     # Find the agent
-    agent: AgentInterface
-    host: OnlineHostInterface
-
-    if agent_identifier is not None:
-        agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
-        if opts.source_host is not None:
-            agents_by_host = filter_agents_by_host(agents_by_host, opts.source_host)
-        agent, host = find_and_maybe_start_agent_by_name_or_id(
-            agent_identifier, agents_by_host, mngr_ctx, "pair <agent-id>"
-        )
-    elif not sys.stdin.isatty():
-        raise UserInputError("No agent specified and not running in interactive mode")
-    else:
-        # Interactive agent selection
-        result = select_agent_interactively_with_host(mngr_ctx)
-        if result is None:
-            logger.info("No agent selected")
-            return
-        agent, host = result
+    result = find_agent_for_command(
+        mngr_ctx=mngr_ctx,
+        agent_identifier=agent_identifier,
+        command_usage="pair <agent-id>",
+        host_filter=opts.source_host,
+    )
+    if result is None:
+        logger.info("No agent selected")
+        return
+    agent, host = result
 
     # Only local agents are supported right now
     if not host.is_local:

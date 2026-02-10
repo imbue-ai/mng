@@ -123,7 +123,12 @@ def test_pair_files_raises_when_unison_not_installed_and_mocked(
             host=pair_ctx.host,
             agent_path=pair_ctx.agent_dir,
             local_path=pair_ctx.local_dir,
+            sync_direction=SyncDirection.BOTH,
+            conflict_mode=ConflictMode.NEWER,
             is_require_git=False,
+            uncommitted_changes=UncommittedChangesMode.FAIL,
+            exclude_patterns=(),
+            include_patterns=(),
         ):
             pass
 
@@ -150,7 +155,12 @@ def test_pair_files_raises_when_git_required_but_not_present(
             host=host,
             agent_path=source_dir,
             local_path=target_dir,
+            sync_direction=SyncDirection.BOTH,
+            conflict_mode=ConflictMode.NEWER,
             is_require_git=True,
+            uncommitted_changes=UncommittedChangesMode.FAIL,
+            exclude_patterns=(),
+            include_patterns=(),
         ):
             pass
 
@@ -164,8 +174,12 @@ def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext) -> None:
         host=pair_ctx.host,
         agent_path=pair_ctx.agent_dir,
         local_path=pair_ctx.local_dir,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
         is_require_git=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        exclude_patterns=(),
+        include_patterns=(),
     ) as syncer:
         # Wait for unison to start
         wait_for(
@@ -204,8 +218,12 @@ def test_pair_files_syncs_git_state_before_starting(pair_ctx: SyncTestContext) -
         host=pair_ctx.host,
         agent_path=pair_ctx.agent_dir,
         local_path=pair_ctx.local_dir,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
         is_require_git=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        exclude_patterns=(),
+        include_patterns=(),
     ) as syncer:
         # Git sync should have happened before unison started
         # The file should now exist in target
@@ -233,7 +251,12 @@ def test_pair_files_with_no_git_requirement(tmp_path: Path) -> None:
         host=host,
         agent_path=source_dir,
         local_path=target_dir,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
         is_require_git=False,
+        uncommitted_changes=UncommittedChangesMode.FAIL,
+        exclude_patterns=(),
+        include_patterns=(),
     ) as syncer:
         # Wait for unison to start
         wait_for(

@@ -138,6 +138,17 @@ class UncommittedChangesMode(UpperCaseStrEnum):
     FAIL = auto()
 
 
+class SyncMode(UpperCaseStrEnum):
+    """Direction of sync operation.
+
+    PUSH: local -> agent
+    PULL: agent -> local
+    """
+
+    PUSH = auto()
+    PULL = auto()
+
+
 class SyncDirection(UpperCaseStrEnum):
     """Direction for file synchronization in pair mode."""
 

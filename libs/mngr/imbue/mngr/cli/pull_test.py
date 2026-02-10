@@ -16,7 +16,6 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.sync import SyncFilesResult
-from imbue.mngr.api.sync import SyncMode
 from imbue.mngr.cli.output_helpers import output_sync_files_result
 from imbue.mngr.cli.pull import PullCliOptions
 from imbue.mngr.config.data_types import AgentTypeConfig
@@ -47,6 +46,7 @@ from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
+from imbue.mngr.primitives import SyncMode
 from imbue.mngr.primitives import VolumeId
 
 

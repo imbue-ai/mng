@@ -7,7 +7,6 @@ from abc import abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextlib import nullcontext
-from enum import auto
 from pathlib import Path
 from typing import assert_never
 
@@ -15,14 +14,15 @@ from loguru import logger
 from pydantic import Field
 from pydantic import PrivateAttr
 
-from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.primitives import SyncMode
 from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.git_utils import count_commits_between
 from imbue.mngr.utils.git_utils import get_current_branch
@@ -30,20 +30,6 @@ from imbue.mngr.utils.git_utils import get_head_commit
 from imbue.mngr.utils.git_utils import is_ancestor
 from imbue.mngr.utils.git_utils import is_git_repository
 from imbue.mngr.utils.rsync_utils import parse_rsync_output
-
-# === Enums ===
-
-
-class SyncMode(UpperCaseStrEnum):
-    """Direction of sync operation.
-
-    PUSH: local -> agent
-    PULL: agent -> local
-    """
-
-    PUSH = auto()
-    PULL = auto()
-
 
 # === Error Classes ===
 
@@ -357,15 +343,42 @@ def _stash_guard(
 # === File Sync Functions ===
 
 
+@pure
+def _build_rsync_command(
+    source_path: Path,
+    destination_path: Path,
+    is_dry_run: bool,
+    is_delete: bool,
+) -> list[str]:
+    """Build an rsync command for file synchronization."""
+    rsync_cmd = ["rsync", "-avz", "--stats", "--exclude=.git"]
+
+    if is_dry_run:
+        rsync_cmd.append("--dry-run")
+
+    if is_delete:
+        rsync_cmd.append("--delete")
+
+    # Add trailing slash to source to copy contents, not the directory itself
+    source_str = str(source_path)
+    if not source_str.endswith("/"):
+        source_str += "/"
+
+    rsync_cmd.append(source_str)
+    rsync_cmd.append(str(destination_path))
+
+    return rsync_cmd
+
+
 def sync_files(
     agent: AgentInterface,
     host: OnlineHostInterface,
     mode: SyncMode,
     local_path: Path,
-    remote_path: Path | None = None,
-    dry_run: bool = False,
-    delete: bool = False,
-    uncommitted_changes: UncommittedChangesMode = UncommittedChangesMode.FAIL,
+    remote_path: Path | None,
+    is_dry_run: bool,
+    is_delete: bool,
+    uncommitted_changes: UncommittedChangesMode,
 ) -> SyncFilesResult:
     """Sync files between local and agent using rsync."""
     if not host.is_local:
@@ -402,24 +415,7 @@ def sync_files(
         if mode == SyncMode.PUSH and not destination_path.is_dir():
             destination_path.mkdir(parents=True, exist_ok=True)
 
-        # Build rsync command
-        rsync_cmd = ["rsync", "-avz", "--stats", "--exclude=.git"]
-
-        if dry_run:
-            rsync_cmd.append("--dry-run")
-
-        if delete:
-            rsync_cmd.append("--delete")
-
-        # Add trailing slash to source to copy contents, not the directory itself
-        source_str = str(source_path)
-        if not source_str.endswith("/"):
-            source_str += "/"
-
-        rsync_cmd.append(source_str)
-        rsync_cmd.append(str(destination_path))
-
-        # Execute rsync
+        rsync_cmd = _build_rsync_command(source_path, destination_path, is_dry_run, is_delete)
         cmd_str = shlex.join(rsync_cmd)
         direction = "Pushing" if mode == SyncMode.PUSH else "Pulling"
 
@@ -437,7 +433,7 @@ def sync_files(
         "Sync complete: {} files, {} bytes transferred{}",
         files_transferred,
         bytes_transferred,
-        " (dry run)" if dry_run else "",
+        " (dry run)" if is_dry_run else "",
     )
 
     return SyncFilesResult(
@@ -445,7 +441,7 @@ def sync_files(
         bytes_transferred=bytes_transferred,
         source_path=source_path,
         destination_path=destination_path,
-        is_dry_run=dry_run,
+        is_dry_run=is_dry_run,
         mode=mode,
     )
 
@@ -501,7 +497,7 @@ def _local_git_push_mirror(
     destination_path: Path,
     host: OnlineHostInterface,
     source_branch: str,
-    dry_run: bool,
+    is_dry_run: bool,
 ) -> int:
     """Push via mirror fetch, overwriting all refs in the target.
 
@@ -512,7 +508,7 @@ def _local_git_push_mirror(
 
     pre_fetch_head = get_head_commit(destination_path)
 
-    if dry_run:
+    if is_dry_run:
         # Estimate using pre_fetch_head (the agent's current HEAD). target_branch
         # is a branch name that may not exist locally, but pre_fetch_head is a
         # commit hash valid in both repos since local agents share the same git
@@ -564,7 +560,7 @@ def _local_git_push_branch(
     host: OnlineHostInterface,
     source_branch: str,
     target_branch: str,
-    dry_run: bool,
+    is_dry_run: bool,
 ) -> int:
     """Push a single branch via fetch+reset.
 
@@ -575,7 +571,7 @@ def _local_git_push_branch(
 
     pre_fetch_head = get_head_commit(destination_path)
 
-    if dry_run:
+    if is_dry_run:
         if pre_fetch_head is not None:
             return count_commits_between(local_path, pre_fetch_head, source_branch)
         return 0
@@ -637,9 +633,9 @@ def _sync_git_push(
     local_path: Path,
     source_branch: str,
     target_branch: str,
-    dry_run: bool,
+    is_dry_run: bool,
     uncommitted_changes: UncommittedChangesMode,
-    mirror: bool,
+    is_mirror: bool,
 ) -> SyncGitResult:
     """Push git commits from local to agent repository."""
     destination_path = agent.work_dir
@@ -647,13 +643,13 @@ def _sync_git_push(
 
     with _stash_guard(git_ctx, destination_path, uncommitted_changes):
         if host.is_local:
-            if mirror:
+            if is_mirror:
                 commits_transferred = _local_git_push_mirror(
                     local_path,
                     destination_path,
                     host,
                     source_branch,
-                    dry_run,
+                    is_dry_run,
                 )
             else:
                 commits_transferred = _local_git_push_branch(
@@ -662,7 +658,7 @@ def _sync_git_push(
                     host,
                     source_branch,
                     target_branch,
-                    dry_run,
+                    is_dry_run,
                 )
         else:
             raise NotImplementedError("Pushing to remote hosts is not yet implemented")
@@ -672,7 +668,7 @@ def _sync_git_push(
         target_branch=target_branch,
         source_path=local_path,
         destination_path=destination_path,
-        is_dry_run=dry_run,
+        is_dry_run=is_dry_run,
         commits_transferred=commits_transferred,
         mode=SyncMode.PUSH,
     )
@@ -687,7 +683,7 @@ def _fetch_and_merge(
     source_branch: str,
     target_branch: str,
     original_branch: str,
-    dry_run: bool,
+    is_dry_run: bool,
 ) -> int:
     """Fetch from source repo and merge into target branch.
 
@@ -724,7 +720,7 @@ def _fetch_and_merge(
     commits_to_merge = count_commits_between(local_path, "HEAD", "FETCH_HEAD")
 
     try:
-        if dry_run:
+        if is_dry_run:
             logger.debug(
                 "Dry run: would merge {} commits from {} into {}",
                 commits_to_merge,
@@ -783,7 +779,7 @@ def _sync_git_pull(
     local_path: Path,
     source_branch: str,
     target_branch: str,
-    dry_run: bool,
+    is_dry_run: bool,
     uncommitted_changes: UncommittedChangesMode,
 ) -> SyncGitResult:
     """Pull git commits from agent to local repository."""
@@ -798,7 +794,7 @@ def _sync_git_pull(
             source_branch=source_branch,
             target_branch=target_branch,
             original_branch=original_branch,
-            dry_run=dry_run,
+            is_dry_run=is_dry_run,
         )
 
     return SyncGitResult(
@@ -806,7 +802,7 @@ def _sync_git_pull(
         target_branch=target_branch,
         source_path=source_path,
         destination_path=local_path,
-        is_dry_run=dry_run,
+        is_dry_run=is_dry_run,
         commits_transferred=commits_transferred,
         mode=SyncMode.PULL,
     )
@@ -820,11 +816,11 @@ def sync_git(
     host: OnlineHostInterface,
     mode: SyncMode,
     local_path: Path,
-    source_branch: str | None = None,
-    target_branch: str | None = None,
-    dry_run: bool = False,
-    uncommitted_changes: UncommittedChangesMode = UncommittedChangesMode.FAIL,
-    mirror: bool = False,
+    source_branch: str | None,
+    target_branch: str | None,
+    is_dry_run: bool,
+    uncommitted_changes: UncommittedChangesMode,
+    is_mirror: bool,
 ) -> SyncGitResult:
     """Sync git commits between local and agent."""
     remote_path = agent.work_dir
@@ -855,9 +851,9 @@ def sync_git(
             local_path=local_path,
             source_branch=actual_source_branch,
             target_branch=actual_target_branch,
-            dry_run=dry_run,
+            is_dry_run=is_dry_run,
             uncommitted_changes=uncommitted_changes,
-            mirror=mirror,
+            is_mirror=is_mirror,
         )
     else:
         # Pull: agent -> local
@@ -868,7 +864,7 @@ def sync_git(
             target_branch if target_branch is not None else local_git_ctx.get_current_branch(local_path)
         )
 
-        if mirror:
+        if is_mirror:
             raise NotImplementedError("Mirror mode is only supported for push operations")
 
         return _sync_git_pull(
@@ -877,6 +873,6 @@ def sync_git(
             local_path=local_path,
             source_branch=actual_source_branch,
             target_branch=actual_target_branch,
-            dry_run=dry_run,
+            is_dry_run=is_dry_run,
             uncommitted_changes=uncommitted_changes,
         )

@@ -133,8 +133,6 @@ def temp_host_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def tmp_home_dir(tmp_path: Path) -> Generator[Path, None, None]:
-    home_dir = tmp_path / "home"
-    home_dir.mkdir(parents=True, exist_ok=True)
     yield tmp_path
 
 

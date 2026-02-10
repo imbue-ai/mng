@@ -312,6 +312,7 @@ def sync_git_state(
             destination=local_path,
             source_branch=git_sync_action.agent_branch,
             target_branch=git_sync_action.local_branch,
+            is_dry_run=False,
             uncommitted_changes=uncommitted_changes,
         )
         did_pull = True
@@ -324,7 +325,9 @@ def sync_git_state(
             source=local_path,
             source_branch=git_sync_action.local_branch,
             target_branch=git_sync_action.agent_branch,
+            is_dry_run=False,
             uncommitted_changes=uncommitted_changes,
+            is_mirror=False,
         )
         did_push = True
 
@@ -337,12 +340,12 @@ def pair_files(
     host: OnlineHostInterface,
     agent_path: Path,
     local_path: Path,
-    sync_direction: SyncDirection = SyncDirection.BOTH,
-    conflict_mode: ConflictMode = ConflictMode.NEWER,
-    is_require_git: bool = True,
-    uncommitted_changes: UncommittedChangesMode = UncommittedChangesMode.FAIL,
-    exclude_patterns: tuple[str, ...] = (),
-    include_patterns: tuple[str, ...] = (),
+    sync_direction: SyncDirection,
+    conflict_mode: ConflictMode,
+    is_require_git: bool,
+    uncommitted_changes: UncommittedChangesMode,
+    exclude_patterns: tuple[str, ...],
+    include_patterns: tuple[str, ...],
 ) -> Iterator[UnisonSyncer]:
     """Start continuous file synchronization between agent and local directory.
 

@@ -1,5 +1,8 @@
 """Shared utilities for CLI commands that work with agents."""
 
+import sys
+
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
@@ -16,6 +19,7 @@ from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import OutputFormat
 
 
+@pure
 def _host_matches_filter(host_ref: HostReference, host_filter: str) -> bool:
     """Check if a host reference matches the given filter string.
 
@@ -34,6 +38,7 @@ def _host_matches_filter(host_ref: HostReference, host_filter: str) -> bool:
     return host_ref.host_name == filter_as_name
 
 
+@pure
 def filter_agents_by_host(
     agents_by_host: dict[HostReference, list[AgentReference]],
     host_filter: str,
@@ -72,6 +77,7 @@ def select_agent_interactively_with_host(
     return find_and_maybe_start_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "select")
 
 
+@pure
 def parse_agent_spec(
     spec: str | None,
     explicit_agent: str | None,
@@ -108,6 +114,32 @@ def parse_agent_spec(
         agent_identifier = explicit_agent
 
     return agent_identifier, subpath
+
+
+def find_agent_for_command(
+    mngr_ctx: MngrContext,
+    agent_identifier: str | None,
+    command_usage: str,
+    host_filter: str | None,
+) -> tuple[AgentInterface, OnlineHostInterface] | None:
+    """Find an agent by identifier, or interactively if no identifier given.
+
+    Returns (agent, host) tuple, or None if the user cancelled interactive selection.
+    Raises UserInputError if no agent specified and stdin is not a TTY.
+    """
+    if agent_identifier is not None:
+        agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
+        if host_filter is not None:
+            agents_by_host = filter_agents_by_host(agents_by_host, host_filter)
+        return find_and_maybe_start_agent_by_name_or_id(agent_identifier, agents_by_host, mngr_ctx, command_usage)
+
+    if not sys.stdin.isatty():
+        raise UserInputError("No agent specified and not running in interactive mode")
+
+    result = select_agent_interactively_with_host(mngr_ctx)
+    if result is None:
+        return None
+    return result
 
 
 def stop_agent_after_sync(

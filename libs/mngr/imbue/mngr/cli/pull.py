@@ -1,16 +1,13 @@
-import sys
 from pathlib import Path
 
 import click
 from click_option_group import optgroup
 from loguru import logger
 
-from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
-from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.pull import pull_files
 from imbue.mngr.api.pull import pull_git
+from imbue.mngr.cli.agent_utils import find_agent_for_command
 from imbue.mngr.cli.agent_utils import parse_agent_spec
-from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
 from imbue.mngr.cli.agent_utils import stop_agent_after_sync
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -22,8 +19,6 @@ from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.cli.output_helpers import output_sync_files_result
 from imbue.mngr.cli.output_helpers import output_sync_git_result
 from imbue.mngr.errors import UserInputError
-from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import UncommittedChangesMode
 
 
@@ -277,23 +272,16 @@ def pull(ctx: click.Context, **kwargs) -> None:
     destination_path = Path(effective_destination) if effective_destination else Path.cwd()
 
     # Find the agent
-    agent: AgentInterface
-    host: OnlineHostInterface
-
-    if agent_identifier is not None:
-        agents_by_host, _providers = load_all_agents_grouped_by_host(mngr_ctx)
-        agent, host = find_and_maybe_start_agent_by_name_or_id(
-            agent_identifier, agents_by_host, mngr_ctx, "pull <agent-id> <path>"
-        )
-    elif not sys.stdin.isatty():
-        raise UserInputError("No agent specified and not running in interactive mode")
-    else:
-        # Interactive agent selection
-        result = select_agent_interactively_with_host(mngr_ctx)
-        if result is None:
-            logger.info("No agent selected")
-            return
-        agent, host = result
+    result = find_agent_for_command(
+        mngr_ctx=mngr_ctx,
+        agent_identifier=agent_identifier,
+        command_usage="pull <agent-id> <path>",
+        host_filter=None,
+    )
+    if result is None:
+        logger.info("No agent selected")
+        return
+    agent, host = result
 
     # Only local agents are supported right now
     if not host.is_local:
@@ -319,7 +307,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
             destination=destination_path,
             source_branch=None,
             target_branch=opts.target_branch,
-            dry_run=opts.dry_run,
+            is_dry_run=opts.dry_run,
             uncommitted_changes=uncommitted_changes_mode,
         )
 
@@ -345,8 +333,8 @@ def pull(ctx: click.Context, **kwargs) -> None:
             host=host,
             destination=destination_path,
             source_path=parsed_source_path,
-            dry_run=opts.dry_run,
-            delete=opts.delete,
+            is_dry_run=opts.dry_run,
+            is_delete=opts.delete,
             uncommitted_changes=uncommitted_changes_mode,
         )
 
