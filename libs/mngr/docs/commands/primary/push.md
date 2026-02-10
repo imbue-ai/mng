@@ -32,13 +32,13 @@ Examples:
 **Usage:**
 
 ```text
-mngr push [OPTIONS] [TARGET] [SOURCE]
+mngr push [OPTIONS] TARGET SOURCE
 ```
 
 ## Arguments
 
-- `[TARGET]`: The target (optional)
-- `[SOURCE]`: The source (optional)
+- `TARGET`: The target (optional)
+- `SOURCE`: The source (optional)
 
 **Options:**
 

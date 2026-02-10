@@ -29,13 +29,13 @@ Examples:
 **Usage:**
 
 ```text
-mngr pull [OPTIONS] [SOURCE] [DESTINATION]
+mngr pull [OPTIONS] SOURCE DESTINATION
 ```
 
 ## Arguments
 
-- `[SOURCE]`: The source (optional)
-- `[DESTINATION]`: The destination (optional)
+- `SOURCE`: The source (optional)
+- `DESTINATION`: The destination (optional)
 
 **Options:**
 

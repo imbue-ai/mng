@@ -34,12 +34,12 @@ Examples:
 **Usage:**
 
 ```text
-mngr pair [OPTIONS] [SOURCE]
+mngr pair [OPTIONS] SOURCE
 ```
 
 ## Arguments
 
-- `[SOURCE]`: The source (optional)
+- `SOURCE`: The source (optional)
 
 **Options:**
 

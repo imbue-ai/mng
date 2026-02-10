@@ -67,8 +67,8 @@ class PullCliOptions(CommonCliOptions):
 
 
 @click.command()
-@click.argument("source_pos", default=None, required=False, metavar="[SOURCE]")
-@click.argument("destination_pos", default=None, required=False, metavar="[DESTINATION]")
+@click.argument("source_pos", default=None, required=False, metavar="SOURCE")
+@click.argument("destination_pos", default=None, required=False, metavar="DESTINATION")
 @optgroup.group("Source Selection")
 @optgroup.option("--source", "source", help="Source specification: AGENT, AGENT:PATH, or PATH")
 @optgroup.option("--source-agent", help="Source agent name or ID")

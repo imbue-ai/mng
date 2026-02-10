@@ -50,8 +50,8 @@ class PushCliOptions(CommonCliOptions):
 
 
 @click.command()
-@click.argument("target_pos", default=None, required=False, metavar="[TARGET]")
-@click.argument("source_pos", default=None, required=False, metavar="[SOURCE]")
+@click.argument("target_pos", default=None, required=False, metavar="TARGET")
+@click.argument("source_pos", default=None, required=False, metavar="SOURCE")
 @optgroup.group("Target Selection")
 @optgroup.option("--target", "target", help="Target specification: AGENT, AGENT:PATH, or PATH")
 @optgroup.option("--target-agent", help="Target agent name or ID")
