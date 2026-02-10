@@ -5,9 +5,8 @@ from pathlib import Path
 from pathlib import PurePosixPath
 
 import pytest
-from pydantic import TypeAdapter
-from pydantic import ValidationError
 
+from imbue.mngr.errors import InvalidRelativePathError
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostInfo
@@ -18,33 +17,29 @@ from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
 
-_relative_path_adapter = TypeAdapter(RelativePath)
-
 
 def test_relative_path_accepts_relative_string() -> None:
-    path = _relative_path_adapter.validate_python("some/relative/path.txt")
+    path = RelativePath("some/relative/path.txt")
     assert str(path) == "some/relative/path.txt"
-    assert isinstance(path, RelativePath)
 
 
 def test_relative_path_accepts_relative_path_object() -> None:
-    path = _relative_path_adapter.validate_python(Path("some/relative/path.txt"))
+    path = RelativePath(Path("some/relative/path.txt"))
     assert str(path) == "some/relative/path.txt"
-    assert isinstance(path, RelativePath)
 
 
 def test_relative_path_rejects_absolute_path_string() -> None:
-    with pytest.raises(ValidationError, match="Path must be relative"):
-        _relative_path_adapter.validate_python("/absolute/path.txt")
+    with pytest.raises(InvalidRelativePathError, match="Path must be relative"):
+        RelativePath("/absolute/path.txt")
 
 
 def test_relative_path_rejects_absolute_path_object() -> None:
-    with pytest.raises(ValidationError, match="Path must be relative"):
-        _relative_path_adapter.validate_python(Path("/absolute/path.txt"))
+    with pytest.raises(InvalidRelativePathError, match="Path must be relative"):
+        RelativePath(Path("/absolute/path.txt"))
 
 
 def test_relative_path_is_pure_posix_path() -> None:
-    relative_path = _relative_path_adapter.validate_python("some/path.txt")
+    relative_path = RelativePath("some/path.txt")
     assert isinstance(relative_path, PurePosixPath)
     assert relative_path.parent == PurePosixPath("some")
     assert relative_path.name == "path.txt"
@@ -53,7 +48,7 @@ def test_relative_path_is_pure_posix_path() -> None:
 
 def test_relative_path_works_with_path_division() -> None:
     work_dir = Path("/home/user/work")
-    relative_path = _relative_path_adapter.validate_python(".claude/config.json")
+    relative_path = RelativePath(".claude/config.json")
     result = work_dir / relative_path
     assert result == Path("/home/user/work/.claude/config.json")
 
