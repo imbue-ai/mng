@@ -60,6 +60,24 @@ def assert_home_is_temp_directory() -> None:
         )
 
 
+def assert_tmux_uses_test_socket() -> None:
+    """Assert that MNGR_TMUX_SOCKET is set to a test socket name.
+
+    This safety check prevents tests from accidentally creating tmux sessions
+    on the default (production) tmux server. Should be called from the autouse
+    fixture alongside assert_home_is_temp_directory().
+
+    Raises AssertionError if MNGR_TMUX_SOCKET is not set.
+    """
+    socket_name = os.environ.get("MNGR_TMUX_SOCKET")
+    if not socket_name:
+        raise AssertionError(
+            "MNGR_TMUX_SOCKET is not set. Tests may create tmux sessions on the "
+            "default (production) tmux server! "
+            "Ensure setup_test_mngr_env autouse fixture has run before this call."
+        )
+
+
 def get_subprocess_test_env(
     root_name: str = "mngr-test",
     prefix: str | None = None,

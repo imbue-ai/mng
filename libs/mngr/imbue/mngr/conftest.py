@@ -32,6 +32,7 @@ from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
 from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
 from imbue.mngr.utils.testing import assert_home_is_temp_directory
+from imbue.mngr.utils.testing import assert_tmux_uses_test_socket
 from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import delete_modal_apps_in_environment
 from imbue.mngr.utils.testing import delete_modal_environment
@@ -191,9 +192,10 @@ def setup_test_mngr_env(
     unison_dir.mkdir(exist_ok=True)
     monkeypatch.setenv("UNISON", str(unison_dir))
 
-    # Safety check: verify Path.home() is in a temp directory.
-    # If this fails, tests could accidentally modify the real home directory.
+    # Safety checks: verify test isolation is in effect.
+    # If these fail, tests could accidentally affect production resources.
     assert_home_is_temp_directory()
+    assert_tmux_uses_test_socket()
 
 
 @pytest.fixture
