@@ -276,14 +276,15 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
-        """Validate preconditions before provisioning.
+        """Validate preconditions before provisioning (read-only).
 
-        This method performs read-only validation only. Actual setup
-        happens in provision().
+        This method performs read-only validation only. No writes to
+        disk or interactive prompts -- actual setup happens in provision().
 
-        For worktree mode: validates that the source directory is trusted
-        in Claude's config (~/.claude.json). If not trusted and running
-        interactively, prompts the user to add trust.
+        For worktree mode on non-interactive runs: validates that the
+        source directory is trusted in Claude's config (~/.claude.json)
+        so we fail early with a clear message. Interactive runs skip
+        this check because provision() will prompt the user if needed.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             if not host.is_local:
@@ -292,16 +293,11 @@ class ClaudeAgent(BaseAgent):
                     "Claude trust extension requires local filesystem access. "
                     "Use --copy or --clone instead."
                 )
-            git_common_dir = find_git_common_dir(self.work_dir)
-            if git_common_dir is not None:
-                source_path = git_common_dir.parent
-                try:
+            if not mngr_ctx.is_interactive:
+                git_common_dir = find_git_common_dir(self.work_dir)
+                if git_common_dir is not None:
+                    source_path = git_common_dir.parent
                     check_source_directory_trusted(source_path)
-                except ClaudeDirectoryNotTrustedError:
-                    if mngr_ctx.is_interactive and _prompt_user_for_trust(source_path):
-                        add_claude_trust_for_path(source_path)
-                    else:
-                        raise
 
         config = self._get_claude_config()
         if not config.check_installation:
@@ -408,7 +404,14 @@ class ClaudeAgent(BaseAgent):
             git_common_dir = find_git_common_dir(self.work_dir)
             if git_common_dir is not None:
                 source_path = git_common_dir.parent
-                extend_claude_trust_to_worktree(source_path, self.work_dir)
+                try:
+                    extend_claude_trust_to_worktree(source_path, self.work_dir)
+                except ClaudeDirectoryNotTrustedError:
+                    if mngr_ctx.is_interactive and _prompt_user_for_trust(source_path):
+                        add_claude_trust_for_path(source_path)
+                        extend_claude_trust_to_worktree(source_path, self.work_dir)
+                    else:
+                        raise
 
         config = self._get_claude_config()
 

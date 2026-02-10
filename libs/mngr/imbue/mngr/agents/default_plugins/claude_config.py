@@ -32,8 +32,8 @@ class ClaudeDirectoryNotTrustedError(ConfigError):
         self.source_path = source_path
         super().__init__(
             f"Source directory {source_path} is not trusted by Claude Code. "
-            f"Run Claude Code manually in {source_path} first and accept the trust dialog, "
-            "then try again."
+            f"Either run Claude Code manually in {source_path} and accept the trust dialog, "
+            "or run `mngr create` interactively (without --no-connect) to be prompted."
         )
 
 
@@ -245,11 +245,6 @@ def remove_claude_trust_for_path(path: Path) -> bool:
     Returns True if the entry was removed, False if it didn't exist.
     Does not raise on errors - returns False and logs a warning instead.
     """
-    config_path = get_claude_config_path()
-
-    if not config_path.exists():
-        return False
-
     path = path.resolve()
 
     try:

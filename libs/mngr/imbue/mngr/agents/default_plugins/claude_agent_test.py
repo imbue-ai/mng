@@ -696,7 +696,10 @@ def test_provision_configures_readiness_hooks(
 
 
 def make_mock_claude_agent(
-    work_dir: Path, mngr_test_prefix: str, temp_profile_dir: Path
+    work_dir: Path,
+    mngr_test_prefix: str,
+    temp_profile_dir: Path,
+    is_interactive: bool = False,
 ) -> tuple[ClaudeAgent, Mock, MngrContext]:
     """Create a ClaudeAgent with a mock host for verifying method calls.
 
@@ -712,7 +715,12 @@ def make_mock_claude_agent(
     mock_host = Mock()
     mock_host.execute_command.return_value = Mock(success=True)
     mock_host.read_text_file.side_effect = FileNotFoundError()
-    mngr_ctx = MngrContext(config=MngrConfig(prefix=mngr_test_prefix), pm=pm, profile_dir=temp_profile_dir)
+    mngr_ctx = MngrContext(
+        config=MngrConfig(prefix=mngr_test_prefix),
+        pm=pm,
+        profile_dir=temp_profile_dir,
+        is_interactive=is_interactive,
+    )
     agent = ClaudeAgent.model_construct(
         id=AgentId.generate(),
         name=AgentName("test-agent"),
@@ -900,31 +908,13 @@ def test_on_destroy_removes_trust(mngr_test_prefix: str, tmp_path: Path, temp_pr
     mock_remove.assert_called_once_with(work_dir)
 
 
-def test_on_before_provisioning_prompts_for_trust_when_interactive(
+def test_provision_prompts_for_trust_when_interactive(
     mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
 ) -> None:
-    """on_before_provisioning should prompt and add trust when interactive and source is untrusted."""
+    """provision should prompt and add trust when interactive and source is untrusted."""
     source_git_dir = tmp_path / "source" / ".git"
-    pm = pluggy.PluginManager("mngr")
-    mock_host = Mock()
-    mock_host.execute_command.return_value = Mock(success=True)
-    mock_host.read_text_file.side_effect = FileNotFoundError()
-    mngr_ctx = MngrContext(
-        config=MngrConfig(prefix=mngr_test_prefix),
-        pm=pm,
-        profile_dir=temp_profile_dir,
-        is_interactive=True,
-    )
-    agent = ClaudeAgent.model_construct(
-        id=AgentId.generate(),
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=tmp_path,
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=mngr_ctx,
-        agent_config=ClaudeAgentConfig(check_installation=False),
-        host=mock_host,
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(
+        tmp_path, mngr_test_prefix, temp_profile_dir, is_interactive=True
     )
 
     options = CreateAgentOptions(
@@ -938,9 +928,9 @@ def test_on_before_provisioning_prompts_for_trust_when_interactive(
             return_value=source_git_dir,
         ),
         patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.check_source_directory_trusted",
-            side_effect=ClaudeDirectoryNotTrustedError(str(source_git_dir.parent)),
-        ),
+            "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
+            side_effect=[ClaudeDirectoryNotTrustedError(str(source_git_dir.parent)), None],
+        ) as mock_extend,
         patch(
             "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_trust",
             return_value=True,
@@ -949,16 +939,17 @@ def test_on_before_provisioning_prompts_for_trust_when_interactive(
             "imbue.mngr.agents.default_plugins.claude_agent.add_claude_trust_for_path",
         ) as mock_add_trust,
     ):
-        agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+        agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
 
     mock_prompt.assert_called_once_with(source_git_dir.parent)
     mock_add_trust.assert_called_once_with(source_git_dir.parent)
+    assert mock_extend.call_count == 2
 
 
-def test_on_before_provisioning_raises_when_non_interactive_and_untrusted(
+def test_provision_raises_when_non_interactive_and_untrusted(
     mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
 ) -> None:
-    """on_before_provisioning should raise when non-interactive and source is untrusted."""
+    """provision should raise when non-interactive and source is untrusted."""
     source_git_dir = tmp_path / "source" / ".git"
     agent, mock_host, mngr_ctx = make_mock_claude_agent(tmp_path, mngr_test_prefix, temp_profile_dir)
 
@@ -973,39 +964,21 @@ def test_on_before_provisioning_raises_when_non_interactive_and_untrusted(
             return_value=source_git_dir,
         ),
         patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.check_source_directory_trusted",
+            "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
             side_effect=ClaudeDirectoryNotTrustedError(str(source_git_dir.parent)),
         ),
     ):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
-            agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+            agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
 
 
-def test_on_before_provisioning_raises_when_user_declines_trust(
+def test_provision_raises_when_user_declines_trust(
     mngr_test_prefix: str, tmp_path: Path, temp_profile_dir: Path
 ) -> None:
-    """on_before_provisioning should raise when user declines the trust prompt."""
+    """provision should raise when user declines the trust prompt."""
     source_git_dir = tmp_path / "source" / ".git"
-    pm = pluggy.PluginManager("mngr")
-    mock_host = Mock()
-    mock_host.execute_command.return_value = Mock(success=True)
-    mock_host.read_text_file.side_effect = FileNotFoundError()
-    mngr_ctx = MngrContext(
-        config=MngrConfig(prefix=mngr_test_prefix),
-        pm=pm,
-        profile_dir=temp_profile_dir,
-        is_interactive=True,
-    )
-    agent = ClaudeAgent.model_construct(
-        id=AgentId.generate(),
-        name=AgentName("test-agent"),
-        agent_type=AgentTypeName("claude"),
-        work_dir=tmp_path,
-        create_time=datetime.now(timezone.utc),
-        host_id=HostId.generate(),
-        mngr_ctx=mngr_ctx,
-        agent_config=ClaudeAgentConfig(check_installation=False),
-        host=mock_host,
+    agent, mock_host, mngr_ctx = make_mock_claude_agent(
+        tmp_path, mngr_test_prefix, temp_profile_dir, is_interactive=True
     )
 
     options = CreateAgentOptions(
@@ -1019,7 +992,7 @@ def test_on_before_provisioning_raises_when_user_declines_trust(
             return_value=source_git_dir,
         ),
         patch(
-            "imbue.mngr.agents.default_plugins.claude_agent.check_source_directory_trusted",
+            "imbue.mngr.agents.default_plugins.claude_agent.extend_claude_trust_to_worktree",
             side_effect=ClaudeDirectoryNotTrustedError(str(source_git_dir.parent)),
         ),
         patch(
@@ -1028,4 +1001,4 @@ def test_on_before_provisioning_raises_when_user_declines_trust(
         ),
     ):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
-            agent.on_before_provisioning(host=mock_host, options=options, mngr_ctx=mngr_ctx)
+            agent.provision(host=mock_host, options=options, mngr_ctx=mngr_ctx)
