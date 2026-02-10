@@ -317,6 +317,12 @@ def pull(ctx: click.Context, **kwargs) -> None:
     uncommitted_changes_mode = UncommittedChangesMode(opts.uncommitted_changes.upper())
 
     if opts.sync_mode == "git":
+        if source_path is not None:
+            raise UserInputError(
+                "--sync-mode=git operates on the entire repository; "
+                "subpath specifications (AGENT:PATH or --source-path) are not supported in git mode"
+            )
+
         # Git mode: merge branches
         # source_branch=None means use agent's current branch
         git_result = pull_git(

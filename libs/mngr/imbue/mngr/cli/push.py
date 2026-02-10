@@ -218,6 +218,12 @@ def push(ctx: click.Context, **kwargs) -> None:
     uncommitted_changes_mode = UncommittedChangesMode(opts.uncommitted_changes.upper())
 
     if opts.sync_mode == "git" and not opts.rsync_only:
+        if target_path is not None:
+            raise UserInputError(
+                "--sync-mode=git operates on the entire repository; "
+                "subpath specifications (AGENT:PATH or --target-path) are not supported in git mode"
+            )
+
         # Git mode: push branches
         git_result = push_git(
             agent=agent,
