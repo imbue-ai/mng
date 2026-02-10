@@ -58,16 +58,14 @@ def test_to_update_dict_produces_dict_from_pairs() -> None:
     assert result == {"name": "updated", "count": 42}
 
 
-def test_model_copy_with_to_update_dict_produces_correct_copy() -> None:
-    """Full round-trip: field_ref() + to_update + to_update_dict + model_copy."""
+def test_model_copy_update_produces_correct_copy_for_frozen_model() -> None:
+    """Full round-trip: field_ref() + to_update + model_copy_update on FrozenModel."""
     original = _SampleFrozenModel(name="original", count=1, label="old", tags=("a",))
 
-    updated = original.model_copy(
-        update=to_update_dict(
-            to_update(original.field_ref().name, "updated"),
-            to_update(original.field_ref().count, 99),
-            to_update(original.field_ref().label, None),
-        )
+    updated = original.model_copy_update(
+        to_update(original.field_ref().name, "updated"),
+        to_update(original.field_ref().count, 99),
+        to_update(original.field_ref().label, None),
     )
 
     assert updated.name == "updated"
@@ -76,14 +74,12 @@ def test_model_copy_with_to_update_dict_produces_correct_copy() -> None:
     assert updated.tags == ("a",)
 
 
-def test_model_copy_with_single_field_update() -> None:
+def test_model_copy_update_with_single_field_update() -> None:
     """Updating a single field leaves all others unchanged."""
     original = _SampleFrozenModel(name="test", count=5, label="keep", tags=("x", "y"))
 
-    updated = original.model_copy(
-        update=to_update_dict(
-            to_update(original.field_ref().count, 10),
-        )
+    updated = original.model_copy_update(
+        to_update(original.field_ref().count, 10),
     )
 
     assert updated.name == "test"
@@ -92,15 +88,13 @@ def test_model_copy_with_single_field_update() -> None:
     assert updated.tags == ("x", "y")
 
 
-def test_fields_works_on_mutable_model() -> None:
-    """field_ref() and to_update work identically on MutableModel subclasses."""
+def test_model_copy_update_works_on_mutable_model() -> None:
+    """model_copy_update works identically on MutableModel subclasses."""
     original = _SampleMutableModel(value=1, label="old")
 
-    updated = original.model_copy(
-        update=to_update_dict(
-            to_update(original.field_ref().value, 42),
-            to_update(original.field_ref().label, "new"),
-        )
+    updated = original.model_copy_update(
+        to_update(original.field_ref().value, 42),
+        to_update(original.field_ref().label, "new"),
     )
 
     assert updated.value == 42
@@ -118,3 +112,11 @@ def test_to_update_dict_raises_on_nested_field_path() -> None:
     """to_update_dict rejects dotted paths that pydantic model_copy silently mishandles."""
     with pytest.raises(NestedFieldUpdateError, match="nested.field"):
         to_update_dict(("nested.field", "value"))
+
+
+def test_model_copy_update_raises_on_nested_field_path() -> None:
+    """model_copy_update rejects dotted paths via to_update_dict."""
+    original = _SampleFrozenModel(name="test", count=1)
+
+    with pytest.raises(NestedFieldUpdateError, match="nested.field"):
+        original.model_copy_update(("nested.field", "value"))

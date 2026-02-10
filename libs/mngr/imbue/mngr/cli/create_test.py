@@ -6,7 +6,6 @@ from typing import cast
 import pytest
 
 from imbue.imbue_common.model_update import to_update
-from imbue.imbue_common.model_update import to_update_dict
 from imbue.mngr.cli.create import CreateCliOptions
 from imbue.mngr.cli.create import _parse_host_lifecycle_options
 from imbue.mngr.cli.create import _try_reuse_existing_agent
@@ -35,7 +34,7 @@ from imbue.mngr.providers.local.instance import LocalProviderInstance
 def default_create_cli_opts() -> CreateCliOptions:
     """Baseline CreateCliOptions with sensible defaults for all fields.
 
-    Tests use .model_copy() with to_update_dict() to override only the fields
+    Tests use .model_copy_update() to override only the fields
     relevant to each test case.
     """
     return CreateCliOptions(
@@ -145,10 +144,8 @@ def test_parse_host_lifecycle_options_all_none(default_create_cli_opts: CreateCl
 
 def test_parse_host_lifecycle_options_with_idle_timeout(default_create_cli_opts: CreateCliOptions) -> None:
     """idle_timeout should be passed through directly."""
-    opts = default_create_cli_opts.model_copy(
-        update=to_update_dict(
-            to_update(default_create_cli_opts.field_ref().idle_timeout, 600),
-        )
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().idle_timeout, 600),
     )
 
     result = _parse_host_lifecycle_options(opts)
@@ -160,10 +157,8 @@ def test_parse_host_lifecycle_options_with_idle_timeout(default_create_cli_opts:
 
 def test_parse_host_lifecycle_options_with_idle_mode_lowercase(default_create_cli_opts: CreateCliOptions) -> None:
     """idle_mode should be parsed and uppercased to IdleMode enum."""
-    opts = default_create_cli_opts.model_copy(
-        update=to_update_dict(
-            to_update(default_create_cli_opts.field_ref().idle_mode, "agent"),
-        )
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().idle_mode, "agent"),
     )
 
     result = _parse_host_lifecycle_options(opts)
@@ -175,10 +170,8 @@ def test_parse_host_lifecycle_options_with_idle_mode_lowercase(default_create_cl
 
 def test_parse_host_lifecycle_options_with_idle_mode_uppercase(default_create_cli_opts: CreateCliOptions) -> None:
     """idle_mode should work with uppercase input."""
-    opts = default_create_cli_opts.model_copy(
-        update=to_update_dict(
-            to_update(default_create_cli_opts.field_ref().idle_mode, "SSH"),
-        )
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().idle_mode, "SSH"),
     )
 
     result = _parse_host_lifecycle_options(opts)
@@ -188,10 +181,8 @@ def test_parse_host_lifecycle_options_with_idle_mode_uppercase(default_create_cl
 
 def test_parse_host_lifecycle_options_with_activity_sources_single(default_create_cli_opts: CreateCliOptions) -> None:
     """activity_sources should parse a single source."""
-    opts = default_create_cli_opts.model_copy(
-        update=to_update_dict(
-            to_update(default_create_cli_opts.field_ref().activity_sources, "boot"),
-        )
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().activity_sources, "boot"),
     )
 
     result = _parse_host_lifecycle_options(opts)
@@ -203,10 +194,8 @@ def test_parse_host_lifecycle_options_with_activity_sources_multiple(
     default_create_cli_opts: CreateCliOptions,
 ) -> None:
     """activity_sources should parse comma-separated sources."""
-    opts = default_create_cli_opts.model_copy(
-        update=to_update_dict(
-            to_update(default_create_cli_opts.field_ref().activity_sources, "boot,ssh,agent"),
-        )
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().activity_sources, "boot,ssh,agent"),
     )
 
     result = _parse_host_lifecycle_options(opts)
@@ -218,10 +207,8 @@ def test_parse_host_lifecycle_options_with_activity_sources_whitespace(
     default_create_cli_opts: CreateCliOptions,
 ) -> None:
     """activity_sources should handle whitespace around commas."""
-    opts = default_create_cli_opts.model_copy(
-        update=to_update_dict(
-            to_update(default_create_cli_opts.field_ref().activity_sources, "boot , ssh , agent"),
-        )
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().activity_sources, "boot , ssh , agent"),
     )
 
     result = _parse_host_lifecycle_options(opts)
@@ -231,12 +218,10 @@ def test_parse_host_lifecycle_options_with_activity_sources_whitespace(
 
 def test_parse_host_lifecycle_options_all_provided(default_create_cli_opts: CreateCliOptions) -> None:
     """All options should be correctly parsed when all are provided."""
-    opts = default_create_cli_opts.model_copy(
-        update=to_update_dict(
-            to_update(default_create_cli_opts.field_ref().idle_timeout, 1800),
-            to_update(default_create_cli_opts.field_ref().idle_mode, "disabled"),
-            to_update(default_create_cli_opts.field_ref().activity_sources, "create,process"),
-        )
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().idle_timeout, 1800),
+        to_update(default_create_cli_opts.field_ref().idle_mode, "disabled"),
+        to_update(default_create_cli_opts.field_ref().activity_sources, "create,process"),
     )
 
     result = _parse_host_lifecycle_options(opts)
