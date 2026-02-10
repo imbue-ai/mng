@@ -380,8 +380,6 @@ def gc_logs(
         logger.trace("Skipped logs directory {} (does not exist)", logs_dir)
         return
 
-    logger.trace("Scanned logs directory {}", logs_dir)
-
     for log_file in logs_dir.rglob("*"):
         if not log_file.is_file():
             continue
@@ -431,8 +429,6 @@ def gc_build_cache(
     if not base_cache_dir.exists():
         logger.trace("Skipped build cache directory {} (does not exist)", base_cache_dir)
         return
-
-    logger.trace("Scanned build cache directory {}", base_cache_dir)
 
     for provider_dir in base_cache_dir.iterdir():
         if not provider_dir.is_dir():

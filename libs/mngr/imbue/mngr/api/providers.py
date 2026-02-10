@@ -122,7 +122,6 @@ def get_all_provider_instances(
     provider_filter: set[str] | None = set(provider_names) if provider_names else None
 
     # First, add all configured providers (unless disabled or not enabled)
-    logger.trace("Loaded configured provider instances")
     for name, provider_config in mngr_ctx.config.providers.items():
         seen_names.add(str(name))
         if provider_filter is not None and str(name) not in provider_filter:
@@ -140,7 +139,6 @@ def get_all_provider_instances(
         providers.append(get_provider_instance(name, mngr_ctx))
 
     # Then, add default instances for backends not already configured (unless disabled)
-    logger.trace("Loaded default provider instances for remaining backends")
     for backend_name in list_backends():
         if provider_filter is not None and backend_name not in provider_filter:
             logger.trace("Skipped backend {} (not in provider filter)", backend_name)

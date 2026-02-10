@@ -1134,8 +1134,6 @@ log "=== Shutdown script completed ==="
         self, host_id: HostId, timeout: float = 5.0, poll_interval: float = 1.0
     ) -> modal.Sandbox | None:
         """Find a Modal sandbox by its mngr host_id tag."""
-        logger.trace("Looked up sandbox with host_id={} in env={}", host_id, self.environment_name)
-
         # Check cache first - this avoids eventual consistency issues for recently created sandboxes
         if host_id in self._sandbox_cache_by_id:
             sandbox = self._sandbox_cache_by_id[host_id]
@@ -1173,8 +1171,6 @@ log "=== Shutdown script completed ==="
         after a sandbox is created. This method polls for the sandbox with delays
         to handle this race condition when the sandbox isn't in the cache.
         """
-        logger.trace("Looked up sandbox with name={} in env={}", name, self.environment_name)
-
         # Check cache first - this avoids eventual consistency issues for recently created sandboxes
         if name in self._sandbox_cache_by_name:
             sandbox = self._sandbox_cache_by_name[name]
@@ -1190,13 +1186,13 @@ log "=== Shutdown script completed ==="
         The app_id identifies the app within its environment, so sandboxes created
         in that app's environment will be found via app_id alone.
         """
-        logger.trace("Listed all mngr sandboxes for app={} in env={}", self.app_name, self.environment_name)
         app = self._get_modal_app()
         sandboxes: list[modal.Sandbox] = []
         for sandbox in modal.Sandbox.list(app_id=app.app_id):
             tags = sandbox.get_tags()
             if TAG_HOST_ID in tags:
                 sandboxes.append(sandbox)
+        logger.trace("Listed all mngr sandboxes for app={} in env={}", self.app_name, self.environment_name)
         return sandboxes
 
     def _create_host_from_sandbox(
