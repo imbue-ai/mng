@@ -38,9 +38,9 @@ def _get_volume_name(vol: dict[str, str]) -> str:
     return vol.get("Name", vol.get("name", "unknown"))
 
 
-def _read_user_id(host_dir: Path) -> str | None:
+def _read_user_id(mngr_dir: Path) -> str | None:
     """Read the user_id from the mngr profile directory."""
-    config_path = host_dir / "config.toml"
+    config_path = mngr_dir / "config.toml"
     if not config_path.exists():
         return None
     try:
@@ -49,7 +49,7 @@ def _read_user_id(host_dir: Path) -> str | None:
         profile_id = root_config.get("profile")
         if not profile_id:
             return None
-        user_id_path = host_dir / "profiles" / profile_id / "user_id"
+        user_id_path = mngr_dir / "profiles" / profile_id / "user_id"
         if user_id_path.exists():
             return user_id_path.read_text().strip()
     except (tomllib.TOMLDecodeError, OSError) as exc:
@@ -59,7 +59,7 @@ def _read_user_id(host_dir: Path) -> str | None:
 
 def _detect_environment(mngr_dir: Path, prefix: str) -> str | None:
     """Auto-detect the Modal environment name from the mngr profile."""
-    user_id = _read_user_id(mngr_dir)
+    user_id = _read_user_id(mngr_dir=mngr_dir)
     if user_id:
         return f"{prefix}{user_id}"
     return None
@@ -81,7 +81,8 @@ def _list_volumes(environment: str) -> list[dict[str, str]]:
         return []
     try:
         return json.loads(result.stdout)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        print(f"Warning: Failed to parse volume list JSON: {exc}", file=sys.stderr)
         return []
 
 
@@ -93,7 +94,8 @@ def _list_apps(environment: str) -> list[dict[str, str]]:
         return []
     try:
         return json.loads(result.stdout)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        print(f"Warning: Failed to parse app list JSON: {exc}", file=sys.stderr)
         return []
 
 
