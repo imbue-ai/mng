@@ -30,7 +30,6 @@ from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
-from imbue.imbue_common.model_update import to_update_dict
 from imbue.imbue_common.pure import pure
 from imbue.mngr.agents.agent_registry import resolve_agent_type
 from imbue.mngr.agents.base_agent import BaseAgent
@@ -557,10 +556,8 @@ class Host(BaseHost, OnlineHostInterface):
         certified_data = self.get_certified_data()
         existing_dirs = set(certified_data.generated_work_dirs)
         existing_dirs.add(str(work_dir))
-        updated_data = certified_data.model_copy(
-            update=to_update_dict(
-                to_update(certified_data.field_ref().generated_work_dirs, tuple(sorted(existing_dirs))),
-            )
+        updated_data = certified_data.model_copy_update(
+            to_update(certified_data.field_ref().generated_work_dirs, tuple(sorted(existing_dirs))),
         )
         self.set_certified_data(updated_data)
 
@@ -569,10 +566,8 @@ class Host(BaseHost, OnlineHostInterface):
         certified_data = self.get_certified_data()
         existing_dirs = set(certified_data.generated_work_dirs)
         existing_dirs.discard(str(work_dir))
-        updated_data = certified_data.model_copy(
-            update=to_update_dict(
-                to_update(certified_data.field_ref().generated_work_dirs, tuple(sorted(existing_dirs))),
-            )
+        updated_data = certified_data.model_copy_update(
+            to_update(certified_data.field_ref().generated_work_dirs, tuple(sorted(existing_dirs))),
         )
         self.set_certified_data(updated_data)
 
@@ -587,10 +582,8 @@ class Host(BaseHost, OnlineHostInterface):
         updated_plugin = dict(certified_data.plugin)
         updated_plugin[plugin_name] = data
 
-        updated_data = certified_data.model_copy(
-            update=to_update_dict(
-                to_update(certified_data.field_ref().plugin, updated_plugin),
-            )
+        updated_data = certified_data.model_copy_update(
+            to_update(certified_data.field_ref().plugin, updated_plugin),
         )
         self.set_certified_data(updated_data)
 
