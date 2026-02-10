@@ -57,7 +57,7 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
 _ASK_HELP_METADATA = CommandHelpMetadata(
     name="mngr-ask",
     one_line_description="[future] Chat with mngr for help",
-    synopsis="mngr ask [QUERY...] [--execute]",
+    synopsis="mngr ask [--execute] [QUERY...]",
     description="""[future] Chat directly with mngr for help -- it can create the
 necessary CLI call for pretty much anything you want to do.
 

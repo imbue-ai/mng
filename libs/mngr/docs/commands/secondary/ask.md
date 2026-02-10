@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mngr ask [QUERY...] [--execute]
+mngr ask [--execute] [QUERY...]
 ```
 
 
