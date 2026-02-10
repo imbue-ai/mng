@@ -104,7 +104,7 @@ def _prompt_user_for_trust(source_path: Path) -> bool:
         "can start without showing a trust dialog.\n",
         source_path,
     )
-    return click.confirm("Would you like to trust this directory?", default=True)
+    return click.confirm("Would you like to trust this directory?", default=False)
 
 
 class ClaudeAgent(BaseAgent):
