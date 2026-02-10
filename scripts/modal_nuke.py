@@ -71,7 +71,11 @@ def _run_modal(args: list[str], environment: str | None) -> subprocess.Completed
     cmd = ["modal"] + args
     if environment:
         cmd.extend(["-e", environment])
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except FileNotFoundError:
+        print("modal CLI not found. Install it with: pip install modal", file=sys.stderr)
+        sys.exit(1)
 
 
 def _list_resources(resource_type: str, environment: str) -> list[dict[str, str]] | None:
@@ -173,8 +177,9 @@ def _confirm_nuke(is_force: bool) -> bool:
     return response.lower() in ("y", "yes")
 
 
-def _execute_nuke(apps: list[dict[str, str]], volumes: list[dict[str, str]], environment: str) -> None:
-    """Stop apps and delete volumes."""
+def _execute_nuke(apps: list[dict[str, str]], volumes: list[dict[str, str]], environment: str) -> int:
+    """Stop apps and delete volumes. Returns the number of failures."""
+    failures = 0
     for app in apps:
         aid = _get_app_id(app)
         print(f"Stopping app {aid}...", end=" ", flush=True)
@@ -182,6 +187,7 @@ def _execute_nuke(apps: list[dict[str, str]], volumes: list[dict[str, str]], env
         if is_success:
             print("done")
         else:
+            failures += 1
             print(f"FAILED: {stderr}" if stderr else "FAILED (may already be stopped)")
 
     for vol in volumes:
@@ -191,7 +197,10 @@ def _execute_nuke(apps: list[dict[str, str]], volumes: list[dict[str, str]], env
         if is_success:
             print("done")
         else:
+            failures += 1
             print(f"FAILED: {stderr}" if stderr else "FAILED")
+
+    return failures
 
 
 def main() -> int:
@@ -228,9 +237,12 @@ def main() -> int:
         print("Aborted.")
         return 1
 
-    _execute_nuke(apps, volumes, environment)
+    failures = _execute_nuke(apps, volumes, environment)
 
     print()
+    if failures:
+        print(f"Nuke finished with {failures} failure(s).", file=sys.stderr)
+        return 1
     print("Nuke complete.")
     return 0
 
