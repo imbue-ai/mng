@@ -1284,6 +1284,10 @@ Always use the right log level for your statement:
 
 The purpose of log statements is to tell a story to the reader about what is happening in the program. They help us understand program execution and debug issues.
 
+**Every log statement should start with a verb** (ex: "Saving todo to repository", "Failed to send notification", etc). This makes it much easier to read, and understand what is happening / has happened.
+
+The verbs should be past tense (eg, end with "ed") in normal log statements (which should be placed *after* the event) or active (eg "ing" form) if using `log_span` (which should be placed *before* the event).
+
 **Use `log_span` to wrap actions.** When logging an action that is about to happen, use the `log_span` context manager instead of a bare `logger.debug`. This emits a debug message on entry and a trace message with elapsed time on exit, making it easy to see how long operations take:
 
 ```python
@@ -1304,12 +1308,6 @@ def save_todo_to_repository(
 ```python
 with log_span("Creating agent work directory from source {}", source_path, host=host_name):
     work_dir = host.create_work_dir(source_path)
-```
-
-Use bare `logger.debug` only for observational messages that don't describe an action about to happen (e.g., noting a condition, logging a result after the fact):
-
-```python
-logger.debug("Source and target are the same path, no file transfer needed")
 ```
 
 **Do not log at function entry points.** Since logs are placed at the call site (before calling a function), the function itself should not log its own entry. The caller's log already describes what's about to happen:
