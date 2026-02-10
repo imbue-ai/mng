@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import Field
+from pydantic import ValidationError
 
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import CommandDefaults
@@ -701,3 +702,50 @@ def test_mngr_config_merge_enabled_backends_keeps_base_when_override_empty(mngr_
     )
     merged = base.merge_with(override)
     assert merged.enabled_backends == [ProviderBackendName("local")]
+
+
+# =============================================================================
+# Tests for MngrConfig.validate_tmux_socket_name
+# =============================================================================
+
+
+def test_validate_tmux_socket_name_accepts_none() -> None:
+    """validate_tmux_socket_name should accept None (default tmux server)."""
+    config = MngrConfig(tmux_socket_name=None)
+    assert config.tmux_socket_name is None
+
+
+def test_validate_tmux_socket_name_accepts_alphanumeric_with_hyphens() -> None:
+    """validate_tmux_socket_name should accept alphanumeric names with hyphens."""
+    config = MngrConfig(tmux_socket_name="mngr-test")
+    assert config.tmux_socket_name == "mngr-test"
+
+
+def test_validate_tmux_socket_name_accepts_underscores() -> None:
+    """validate_tmux_socket_name should accept names with underscores."""
+    config = MngrConfig(tmux_socket_name="my_socket")
+    assert config.tmux_socket_name == "my_socket"
+
+
+def test_validate_tmux_socket_name_accepts_pure_alphanumeric() -> None:
+    """validate_tmux_socket_name should accept pure alphanumeric names."""
+    config = MngrConfig(tmux_socket_name="abc123")
+    assert config.tmux_socket_name == "abc123"
+
+
+def test_validate_tmux_socket_name_rejects_spaces() -> None:
+    """validate_tmux_socket_name should reject names with spaces."""
+    with pytest.raises(ValidationError, match="tmux_socket_name must contain only"):
+        MngrConfig(tmux_socket_name="has space")
+
+
+def test_validate_tmux_socket_name_rejects_slashes() -> None:
+    """validate_tmux_socket_name should reject names with slashes."""
+    with pytest.raises(ValidationError, match="tmux_socket_name must contain only"):
+        MngrConfig(tmux_socket_name="path/slash")
+
+
+def test_validate_tmux_socket_name_rejects_semicolons() -> None:
+    """validate_tmux_socket_name should reject names with semicolons."""
+    with pytest.raises(ValidationError, match="tmux_socket_name must contain only"):
+        MngrConfig(tmux_socket_name="semi;colon")

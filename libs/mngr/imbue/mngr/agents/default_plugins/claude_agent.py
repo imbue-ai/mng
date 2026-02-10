@@ -178,6 +178,7 @@ class ClaudeAgent(BaseAgent):
         processing, not idle). Uses a pidfile to prevent duplicate instances for
         the same session.
         """
+        has_session_cmd = self._tmux_cmd(f"has-session -t '{session_name}'")
         parts = [
             "(",
             f"_MNGR_ACT_LOCK=/tmp/mngr_act_{session_name}.pid;",
@@ -187,7 +188,7 @@ class ClaudeAgent(BaseAgent):
             'echo $$ > "$_MNGR_ACT_LOCK";',
             """trap 'rm -f "$_MNGR_ACT_LOCK"' EXIT;""",
             'mkdir -p "$MNGR_AGENT_STATE_DIR/activity";',
-            f"while tmux has-session -t '{session_name}' 2>/dev/null; do",
+            f"while {has_session_cmd} 2>/dev/null; do",
             "if [ -f .claude/active ]; then",
             """printf '{"time": %d, "source": "activity_updater"}'""",
             '"$(($(date +%s) * 1000))" > "$MNGR_AGENT_STATE_DIR/activity/agent";',
@@ -356,7 +357,7 @@ class ClaudeAgent(BaseAgent):
                     f"Add '.claude/settings.local.json' to your .gitignore and try again. (original error: {result.stderr})"
                 )
 
-        hooks_config = build_readiness_hooks_config()
+        hooks_config = build_readiness_hooks_config(self.mngr_ctx.config.tmux_socket_name)
 
         # Read existing settings if present
         existing_settings: dict[str, Any] = {}

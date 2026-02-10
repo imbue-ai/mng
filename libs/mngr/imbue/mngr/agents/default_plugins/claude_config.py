@@ -12,6 +12,7 @@ from loguru import logger
 
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import ConfigError
+from imbue.mngr.utils.tmux import build_tmux_shell_cmd
 
 
 class ClaudeDirectoryNotTrustedError(ConfigError):
@@ -290,7 +291,7 @@ def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, A
 
 
 @pure
-def build_readiness_hooks_config() -> dict[str, Any]:
+def build_readiness_hooks_config(tmux_socket_name: str | None = None) -> dict[str, Any]:
     """Build the hooks configuration for readiness signaling.
 
     These hooks use the MNGR_AGENT_STATE_DIR environment variable to create/remove
@@ -306,7 +307,14 @@ def build_readiness_hooks_config() -> dict[str, Any]:
 
     The tmux wait-for signal on UserPromptSubmit allows instant detection of
     message submission without polling.
+
+    Args:
+        tmux_socket_name: Tmux socket name for -L flag. If None, uses default tmux server.
     """
+    display_cmd = build_tmux_shell_cmd(tmux_socket_name, "display-message -p '#S'")
+    signal_cmd = build_tmux_shell_cmd(tmux_socket_name, f'wait-for -S "mngr-submit-$({display_cmd})"')
+    hook_command = f"{signal_cmd} 2>/dev/null || true"
+
     return {
         "hooks": {
             "SessionStart": [
@@ -328,7 +336,7 @@ def build_readiness_hooks_config() -> dict[str, Any]:
                         },
                         {
                             "type": "command",
-                            "command": "tmux wait-for -S \"mngr-submit-$(tmux display-message -p '#S')\" 2>/dev/null || true",
+                            "command": hook_command,
                         },
                     ]
                 }

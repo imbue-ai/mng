@@ -636,23 +636,12 @@ def _collect_pane_pids(host: Host, session_name: str) -> list[str]:
 
 
 def test_stop_agent_kills_single_pane_processes(
-    temp_host_dir: Path,
+    local_provider: LocalProviderInstance,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
     mngr_test_prefix: str,
 ) -> None:
     """Test that stop_agents kills all processes in a single-pane session."""
-    config = MngrConfig(
-        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
-    )
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-stop-single"))
+    host = local_provider.create_host(HostName("test-stop-single"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -695,23 +684,12 @@ def test_stop_agent_kills_single_pane_processes(
 
 
 def test_stop_agent_kills_multi_pane_processes(
-    temp_host_dir: Path,
+    local_provider: LocalProviderInstance,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
     mngr_test_prefix: str,
 ) -> None:
     """Test that stop_agents kills all processes in a multi-pane session."""
-    config = MngrConfig(
-        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
-    )
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-stop-multi"))
+    host = local_provider.create_host(HostName("test-stop-multi"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -758,23 +736,12 @@ def test_stop_agent_kills_multi_pane_processes(
 
 
 def test_start_agent_creates_process_group(
-    temp_host_dir: Path,
+    local_provider: LocalProviderInstance,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
     mngr_test_prefix: str,
 ) -> None:
     """Test that start_agents creates tmux sessions in their own process group."""
-    config = MngrConfig(
-        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
-    )
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-pgid"))
+    host = local_provider.create_host(HostName("test-pgid"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -816,23 +783,13 @@ def test_start_agent_creates_process_group(
 
 
 def test_start_agent_starts_process_activity_monitor(
+    local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
     mngr_test_prefix: str,
 ) -> None:
     """Test that start_agents launches a process activity monitor that writes PROCESS activity."""
-    config = MngrConfig(
-        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
-    )
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-activity-monitor"))
+    host = local_provider.create_host(HostName("test-activity-monitor"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -876,23 +833,12 @@ def test_start_agent_starts_process_activity_monitor(
 
 
 def test_additional_commands_stored_in_agent_data(
+    local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
-    mngr_test_prefix: str,
 ) -> None:
     """Test that additional_commands are stored in the agent's data.json."""
-    config = MngrConfig(
-        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
-    )
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-additional-cmds-stored"))
+    host = local_provider.create_host(HostName("test-additional-cmds-stored"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -920,23 +866,12 @@ def test_additional_commands_stored_in_agent_data(
 
 
 def test_start_agent_creates_additional_tmux_windows(
-    temp_host_dir: Path,
+    local_provider: LocalProviderInstance,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
     mngr_test_prefix: str,
 ) -> None:
     """Test that start_agents creates additional tmux windows for additional_commands."""
-    config = MngrConfig(
-        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
-    )
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-additional-windows"))
+    host = local_provider.create_host(HostName("test-additional-windows"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -982,23 +917,12 @@ def test_start_agent_creates_additional_tmux_windows(
 
 
 def test_start_agent_additional_windows_run_commands(
-    temp_host_dir: Path,
+    local_provider: LocalProviderInstance,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
     mngr_test_prefix: str,
 ) -> None:
     """Test that additional tmux windows actually run the specified commands."""
-    config = MngrConfig(
-        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
-    )
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-additional-commands"))
+    host = local_provider.create_host(HostName("test-additional-commands"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -1833,11 +1757,9 @@ def test_provision_agent_env_vars_precedence(
 
 
 def test_start_agent_has_access_to_env_vars(
-    temp_host_dir: Path,
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
-    mngr_test_prefix: str,
 ) -> None:
     """Test that started agents have access to environment variables.
 
@@ -1845,17 +1767,9 @@ def test_start_agent_has_access_to_env_vars(
     environment variables defined in the agent's env file. We use a command
     that prints an env var to a file to verify this.
     """
-    config = MngrConfig(
-        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
-    )
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-env-start"))
+    host = local_provider.create_host(HostName("test-env-start"))
     assert isinstance(host, Host)
+    mngr_ctx = temp_mngr_ctx
 
     # Create a marker file path where the agent will write the env var value
     marker_file = temp_work_dir / "env_marker.txt"
@@ -1897,10 +1811,9 @@ def test_start_agent_has_access_to_env_vars(
 
 @pytest.mark.timeout(15)
 def test_new_tmux_window_inherits_env_vars(
-    temp_host_dir: Path,
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
     mngr_test_prefix: str,
 ) -> None:
     """Test that new tmux windows created by the user also have env vars.
@@ -1908,20 +1821,12 @@ def test_new_tmux_window_inherits_env_vars(
     This verifies that the default-command is set on the tmux session so that
     any new window/pane created by the user will automatically source the env files.
     """
-    config = MngrConfig(
-        default_host_dir=temp_host_dir, prefix=mngr_test_prefix, tmux_socket_name=TEST_TMUX_SOCKET_NAME
-    )
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-new-window"))
+    host = local_provider.create_host(HostName("test-new-window"))
     assert isinstance(host, Host)
+    mngr_ctx = temp_mngr_ctx
 
     marker_file = temp_work_dir / "new_window_marker.txt"
-    session_name = f"{config.prefix}new-window-test"
+    session_name = f"{mngr_test_prefix}new-window-test"
 
     options = CreateAgentOptions(
         name=AgentName("new-window-test"),

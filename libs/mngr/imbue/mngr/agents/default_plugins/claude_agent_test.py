@@ -313,6 +313,34 @@ def test_build_activity_updater_command(mngr_test_prefix: str, temp_profile_dir:
     assert "trap" in cmd
 
 
+def test_build_activity_updater_command_with_socket(mngr_test_prefix: str, temp_profile_dir: Path) -> None:
+    """_build_activity_updater_command should use socket-aware tmux command when tmux_socket_name is set."""
+    pm = pluggy.PluginManager("mngr")
+    agent_id = AgentId.generate()
+
+    agent = ClaudeAgent.model_construct(
+        id=agent_id,
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=Path("/tmp/work"),
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mngr_ctx=MngrContext(
+            config=MngrConfig(prefix=mngr_test_prefix, tmux_socket_name="mngr-test"),
+            pm=pm,
+            profile_dir=temp_profile_dir,
+        ),
+        agent_config=ClaudeAgentConfig(),
+        host=Mock(),
+    )
+
+    session_name = f"{mngr_test_prefix}test-agent"
+    cmd = agent._build_activity_updater_command(session_name)
+
+    # Should use -L flag with socket name
+    assert f"tmux -L mngr-test has-session -t '{session_name}'" in cmd
+
+
 def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> None:
     """ClaudeAgentConfig merge should use override cli_args when base is empty."""
     base = ClaudeAgentConfig()
@@ -536,6 +564,28 @@ def test_build_readiness_hooks_config_has_stop_hook() -> None:
     assert hook["type"] == "command"
     assert "touch" in hook["command"]
     assert "MNGR_AGENT_STATE_DIR" in hook["command"]
+
+
+def test_build_readiness_hooks_config_uses_default_tmux_when_no_socket() -> None:
+    """build_readiness_hooks_config should use bare tmux commands when tmux_socket_name is None."""
+    config = build_readiness_hooks_config()
+
+    submit_hooks = config["hooks"]["UserPromptSubmit"][0]["hooks"]
+    signal_hook = submit_hooks[1]
+    # With no socket, should use bare tmux (no -L flag)
+    assert signal_hook["command"].startswith("tmux wait-for")
+    assert "-L" not in signal_hook["command"]
+
+
+def test_build_readiness_hooks_config_uses_socket_aware_tmux() -> None:
+    """build_readiness_hooks_config should use -L flag when tmux_socket_name is set."""
+    config = build_readiness_hooks_config(tmux_socket_name="mngr-test")
+
+    submit_hooks = config["hooks"]["UserPromptSubmit"][0]["hooks"]
+    signal_hook = submit_hooks[1]
+    # With socket, should use tmux -L mngr-test
+    assert "tmux -L mngr-test wait-for" in signal_hook["command"]
+    assert "tmux -L mngr-test display-message" in signal_hook["command"]
 
 
 def test_get_expected_process_name_returns_claude(
