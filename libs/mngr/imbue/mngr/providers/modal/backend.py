@@ -49,6 +49,13 @@ def _ensure_environment_exists(environment_name: str) -> None:
     like apps, volumes, and sandboxes. Since the Modal Python SDK doesn't provide
     an API for managing environments, we use the CLI.
     """
+
+    # first a quick check to make sure we're not naming things incorrectly (and making it hard to clean up these environments)
+    if environment_name.startswith("mngr_") and not environment_name.startswith("mngr_test-"):
+        raise Exception(
+            f"Refusing to create Modal environment with name {environment_name}: test environments should start with 'mngr_test-' and should be explicitly configured using generate_test_environment_name() so that they can be easily identified and cleaned up."
+        )
+
     # Check if the environment exists by listing environments
     try:
         result = subprocess.run(
@@ -61,7 +68,7 @@ def _ensure_environment_exists(environment_name: str) -> None:
             environments = json.loads(result.stdout)
             for env in environments:
                 if env.get("name") == environment_name:
-                    logger.trace("Modal environment already exists: {}", environment_name)
+                    logger.trace("Found existing Modal environment: {}", environment_name)
                     return
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError):
         # If we can't list environments, try to create anyway
@@ -174,7 +181,7 @@ def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
         # Log any captured output for debugging
         captured_output = handle.output_buffer.getvalue()
         if captured_output:
-            logger.trace("Modal output captured ({} chars): {}", len(captured_output), captured_output[:500])
+            logger.trace("Captured Modal output ({} chars): {}", len(captured_output), captured_output[:500])
 
         # Exit the app context first
         try:

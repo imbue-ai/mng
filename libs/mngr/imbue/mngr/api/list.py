@@ -512,8 +512,8 @@ def _process_provider_for_host_listing(
     This function is run in a thread by load_all_agents_grouped_by_host.
     Results are merged into the shared agents_by_host dict under the results_lock.
     """
-    logger.trace("Loading hosts from provider {}", provider.name)
     hosts = provider.list_hosts(include_destroyed=include_destroyed, cg=cg)
+    logger.trace("Loaded hosts from provider {}", provider.name)
 
     # Collect results for this provider
     threads: list[ObservableThread] = []

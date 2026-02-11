@@ -1,6 +1,52 @@
+from datetime import datetime
+from datetime import timezone
+from pathlib import Path
+
 import pytest
 
+from imbue.mngr.api.list import AgentInfo
+from imbue.mngr.cli.connect import ConnectCliOptions
 from imbue.mngr.cli.create import CreateCliOptions
+from imbue.mngr.interfaces.data_types import HostInfo
+from imbue.mngr.interfaces.data_types import SnapshotInfo
+from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import CommandString
+from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostState
+from imbue.mngr.primitives import ProviderInstanceName
+
+
+def make_test_agent_info(
+    name: str = "test-agent",
+    state: AgentLifecycleState = AgentLifecycleState.RUNNING,
+    create_time: datetime | None = None,
+    snapshots: list[SnapshotInfo] | None = None,
+) -> AgentInfo:
+    """Create a real AgentInfo for testing.
+
+    Shared helper used across CLI test files to avoid duplicating AgentInfo
+    construction logic. Accepts optional overrides for commonly varied fields.
+    """
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+        snapshots=snapshots or [],
+        state=HostState.RUNNING,
+    )
+    return AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName(name),
+        type="generic",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/tmp/test"),
+        create_time=create_time or datetime.now(timezone.utc),
+        start_on_boot=False,
+        state=state,
+        host=host_info,
+    )
 
 
 @pytest.fixture
@@ -99,3 +145,50 @@ def default_create_cli_opts() -> CreateCliOptions:
         create_directory=(),
         ready_timeout=10.0,
     )
+
+
+@pytest.fixture
+def default_connect_cli_opts() -> ConnectCliOptions:
+    """Baseline ConnectCliOptions with sensible defaults for all fields.
+
+    Tests use .model_copy_update() with to_update() to override only the fields
+    relevant to each test case.
+    """
+    return ConnectCliOptions(
+        output_format="human",
+        quiet=False,
+        verbose=0,
+        log_file=None,
+        log_commands=None,
+        log_command_output=None,
+        log_env_vars=None,
+        project_context_path=None,
+        plugin=(),
+        disable_plugin=(),
+        agent=None,
+        start=True,
+        reconnect=True,
+        message=None,
+        message_file=None,
+        ready_timeout=10.0,
+        retry=3,
+        retry_delay="5s",
+        attach_command=None,
+        allow_unknown_host=False,
+    )
+
+
+@pytest.fixture
+def intercepted_execvp_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, list[str]]]:
+    """Intercept os.execvp in connect_to_agent and return the captured calls.
+
+    os.execvp replaces the current process, making it impossible to test
+    CLI-level connect flows without interception. This fixture uses pytest
+    monkeypatch to replace it with a simple recorder.
+    """
+    calls: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(
+        "imbue.mngr.api.connect.os.execvp",
+        lambda program, args: calls.append((program, args)),
+    )
+    return calls

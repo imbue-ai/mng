@@ -130,7 +130,7 @@ class EditorSession:
             )
         self._is_started = True
         self._exit_callback = on_exit
-        logger.trace("Editor process started with PID {}", self._process.pid)
+        logger.trace("Started editor process with PID {}", self._process.pid)
 
         # Start monitor thread if callback provided
         if on_exit is not None:
@@ -156,7 +156,7 @@ class EditorSession:
         # Call the callback if we haven't already
         if self._exit_callback is not None and not self._callback_called:
             self._callback_called = True
-            logger.trace("Editor exited, calling exit callback")
+            logger.trace("Detected editor exit, calling exit callback")
             # Call the callback without catching exceptions - let them propagate
             # The callback is expected to handle its own errors
             self._exit_callback()
@@ -177,7 +177,7 @@ class EditorSession:
                 return
 
             self._exit_code = self._process.returncode
-            logger.trace("Editor exited with code {}", self._exit_code)
+            logger.trace("Detected editor exit with code {}", self._exit_code)
 
             # Check exit code
             if self._exit_code != 0:
@@ -278,5 +278,5 @@ class EditorSession:
 
         # Clean up the temp file
         if self.temp_file_path.exists():
-            logger.trace("Cleaning up temp file {}", self.temp_file_path)
             self.temp_file_path.unlink()
+            logger.trace("Cleaned up temp file {}", self.temp_file_path)

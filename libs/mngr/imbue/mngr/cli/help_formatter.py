@@ -122,6 +122,14 @@ def run_pager(text: str, config: MngrConfig | None) -> None:
         _write_to_stdout(text)
         return
 
+    _run_pager_with_subprocess(text, config)
+
+
+def _run_pager_with_subprocess(text: str, config: MngrConfig | None) -> None:
+    """Display text through a pager subprocess.
+
+    Falls back to writing directly to stdout if the pager fails.
+    """
     pager_cmd = get_pager_command(config)
 
     # Set up environment for less to handle ANSI codes and not require explicit quit

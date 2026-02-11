@@ -55,7 +55,7 @@ mngr create --in modal --no-connect --initial-message "just say 'hello'" --idle-
 mngr create example-task --in modal
 
 # you (or your agent) can do whatever bad ideas you want in that container without fear
-mngr command example-task "rm -rf /"
+mngr exec example-task "rm -rf /"
 
 # you can even completely block internet access...
 mngr create --in modal --build-arg "--block-network"
