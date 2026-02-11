@@ -131,7 +131,10 @@ class UnisonSyncer(MutableModel):
         cmd = self._build_unison_command()
         logger.debug("Starting unison with command: {}", " ".join(cmd))
 
-        self._running_process = self.cg.run_process_in_background(cmd)
+        self._running_process = self.cg.run_process_in_background(
+            cmd,
+            on_output=lambda line, is_stdout: logger.debug("unison: {}", line.rstrip()),
+        )
 
         logger.info("Started continuous sync between {} and {}", self.source_path, self.target_path)
 

@@ -33,9 +33,12 @@ def derive_project_name_from_path(cg: ConcurrencyGroup, path: Path) -> str:
     Falls back to the folder name if there is no git repository or the URL structure
     is not recognized.
     """
+    # Try to get the git remote origin URL
     git_project_name = _get_project_name_from_git_remote(cg, path)
     if git_project_name is not None:
         return git_project_name
+
+    # Fallback to the folder name
     return path.resolve().name
 
 
@@ -50,9 +53,12 @@ def _get_project_name_from_git_remote(cg: ConcurrencyGroup, path: Path) -> str |
 
     Returns None if not a git repo or URL format is unknown.
     """
+    # Check if this is a git repository
     git_dir = path / ".git"
     if not git_dir.exists():
         return None
+
+    # Try to get the remote origin URL
     try:
         result = cg.run_process_to_completion(
             ["git", "remote", "get-url", "origin"],
@@ -73,6 +79,7 @@ def _parse_project_name_from_url(url: str) -> str | None:
 
     Returns None if the URL format is not recognized.
     """
+    # Handle SSH-style URLs (e.g., git@github.com:owner/repo.git)
     if "@" in url and ":" in url:
         parts = url.split(":")
         if len(parts) == 2:
@@ -82,6 +89,8 @@ def _parse_project_name_from_url(url: str) -> str | None:
             project_name = path_part.split("/")[-1]
             if project_name:
                 return project_name
+
+    # Handle HTTPS URLs (e.g., https://github.com/owner/repo.git)
     try:
         parsed = urlparse(url)
         if parsed.scheme in ("http", "https"):
