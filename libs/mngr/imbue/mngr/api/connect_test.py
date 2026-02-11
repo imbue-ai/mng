@@ -34,30 +34,35 @@ from imbue.mngr.providers.local.instance import LocalProviderInstance
 
 
 def test_build_ssh_activity_wrapper_script_creates_activity_directory() -> None:
+    """Test that the wrapper script creates the activity directory."""
     script = _build_ssh_activity_wrapper_script("mngr-test-session", Path("/home/user/.mngr"))
 
     assert "mkdir -p '/home/user/.mngr/activity'" in script
 
 
 def test_build_ssh_activity_wrapper_script_writes_to_activity_file() -> None:
+    """Test that the wrapper script writes to the activity/ssh file."""
     script = _build_ssh_activity_wrapper_script("mngr-test-session", Path("/home/user/.mngr"))
 
     assert "'/home/user/.mngr/activity/ssh'" in script
 
 
 def test_build_ssh_activity_wrapper_script_attaches_to_tmux_session() -> None:
+    """Test that the wrapper script attaches to the correct tmux session."""
     script = _build_ssh_activity_wrapper_script("mngr-my-agent", Path("/home/user/.mngr"))
 
     assert "tmux attach -t 'mngr-my-agent'" in script
 
 
 def test_build_ssh_activity_wrapper_script_kills_activity_tracker_on_exit() -> None:
+    """Test that the wrapper script kills the activity tracker when tmux exits."""
     script = _build_ssh_activity_wrapper_script("mngr-test", Path("/tmp/.mngr"))
 
     assert "kill $MNGR_ACTIVITY_PID" in script
 
 
 def test_build_ssh_activity_wrapper_script_writes_json_with_time_and_pid() -> None:
+    """Test that the activity file contains JSON with time and ssh_pid."""
     script = _build_ssh_activity_wrapper_script("mngr-test", Path("/tmp/.mngr"))
 
     # The script should write JSON with time and ssh_pid fields
@@ -67,6 +72,7 @@ def test_build_ssh_activity_wrapper_script_writes_json_with_time_and_pid() -> No
 
 
 def test_build_ssh_activity_wrapper_script_handles_paths_with_spaces() -> None:
+    """Test that the wrapper script handles paths with spaces correctly."""
     script = _build_ssh_activity_wrapper_script("mngr-test", Path("/home/user/my dir/.mngr"))
 
     # Paths should be quoted to handle spaces
@@ -75,6 +81,7 @@ def test_build_ssh_activity_wrapper_script_handles_paths_with_spaces() -> None:
 
 
 def test_build_ssh_activity_wrapper_script_checks_for_signal_file() -> None:
+    """Test that the wrapper script checks for the session-specific signal file."""
     script = _build_ssh_activity_wrapper_script("mngr-my-agent", Path("/home/user/.mngr"))
 
     assert "'/home/user/.mngr/signals/mngr-my-agent'" in script
@@ -82,6 +89,7 @@ def test_build_ssh_activity_wrapper_script_checks_for_signal_file() -> None:
 
 
 def test_build_ssh_activity_wrapper_script_exits_with_destroy_code_on_destroy_signal() -> None:
+    """Test that the wrapper script exits with SIGNAL_EXIT_CODE_DESTROY when signal is 'destroy'."""
     script = _build_ssh_activity_wrapper_script("mngr-test", Path("/tmp/.mngr"))
 
     assert f"exit {SIGNAL_EXIT_CODE_DESTROY}" in script
@@ -89,6 +97,7 @@ def test_build_ssh_activity_wrapper_script_exits_with_destroy_code_on_destroy_si
 
 
 def test_build_ssh_activity_wrapper_script_exits_with_stop_code_on_stop_signal() -> None:
+    """Test that the wrapper script exits with SIGNAL_EXIT_CODE_STOP when signal is 'stop'."""
     script = _build_ssh_activity_wrapper_script("mngr-test", Path("/tmp/.mngr"))
 
     assert f"exit {SIGNAL_EXIT_CODE_STOP}" in script
@@ -96,12 +105,14 @@ def test_build_ssh_activity_wrapper_script_exits_with_stop_code_on_stop_signal()
 
 
 def test_build_ssh_activity_wrapper_script_removes_signal_file_after_reading() -> None:
+    """Test that the wrapper script removes the signal file after reading it."""
     script = _build_ssh_activity_wrapper_script("mngr-test", Path("/tmp/.mngr"))
 
     assert 'rm -f "$SIGNAL_FILE"' in script
 
 
 def test_build_ssh_activity_wrapper_script_signal_file_uses_session_name() -> None:
+    """Test that the signal file path includes the session name for per-session signals."""
     script = _build_ssh_activity_wrapper_script("mngr-unique-session", Path("/data/.mngr"))
 
     assert "'/data/.mngr/signals/mngr-unique-session'" in script
@@ -179,6 +190,7 @@ def test_build_ssh_args_with_known_hosts_file(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
 ) -> None:
+    """Test that _build_ssh_args uses StrictHostKeyChecking=yes with a known_hosts file."""
     host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
@@ -197,6 +209,7 @@ def test_build_ssh_args_with_allow_unknown_host(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
 ) -> None:
+    """Test that _build_ssh_args disables host key checking when allowed."""
     host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file=None)
     opts = ConnectionOptions(is_unknown_host_allowed=True)
 
@@ -210,6 +223,7 @@ def test_build_ssh_args_raises_without_known_hosts_or_allow_unknown(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
 ) -> None:
+    """Test that _build_ssh_args raises MngrError when no known_hosts and not allowing unknown."""
     host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file=None)
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
@@ -221,6 +235,7 @@ def test_build_ssh_args_without_user(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
 ) -> None:
+    """Test that _build_ssh_args omits user@ when ssh_user is None."""
     host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_user=None, ssh_known_hosts_file="/tmp/known_hosts")
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
@@ -235,6 +250,7 @@ def test_build_ssh_args_without_port(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
 ) -> None:
+    """Test that _build_ssh_args omits -p when ssh_port is None."""
     host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_port=None, ssh_known_hosts_file="/tmp/known_hosts")
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
@@ -247,6 +263,7 @@ def test_build_ssh_args_without_key(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
 ) -> None:
+    """Test that _build_ssh_args omits -i when ssh_key is None."""
     host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_key=None, ssh_known_hosts_file="/tmp/known_hosts")
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
@@ -259,6 +276,7 @@ def test_build_ssh_args_known_hosts_dev_null_treated_as_missing(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
 ) -> None:
+    """Test that /dev/null known_hosts is treated as no known_hosts file."""
     host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/dev/null")
     opts = ConnectionOptions(is_unknown_host_allowed=True)
 
@@ -274,6 +292,7 @@ def test_build_ssh_args_known_hosts_dev_null_treated_as_missing(
 
 
 def test_determine_post_disconnect_action_destroy_signal() -> None:
+    """Test that SIGNAL_EXIT_CODE_DESTROY maps to a mngr destroy action."""
     action = _determine_post_disconnect_action(SIGNAL_EXIT_CODE_DESTROY, "mngr-test-agent")
 
     assert action is not None
@@ -283,6 +302,7 @@ def test_determine_post_disconnect_action_destroy_signal() -> None:
 
 
 def test_determine_post_disconnect_action_stop_signal() -> None:
+    """Test that SIGNAL_EXIT_CODE_STOP maps to a mngr stop action."""
     action = _determine_post_disconnect_action(SIGNAL_EXIT_CODE_STOP, "mngr-test-agent")
 
     assert action is not None
@@ -292,18 +312,21 @@ def test_determine_post_disconnect_action_stop_signal() -> None:
 
 
 def test_determine_post_disconnect_action_normal_exit_returns_none() -> None:
+    """Test that a normal exit (code 0) returns no action."""
     action = _determine_post_disconnect_action(0, "mngr-test-agent")
 
     assert action is None
 
 
 def test_determine_post_disconnect_action_unknown_exit_code_returns_none() -> None:
+    """Test that an unexpected exit code returns no action."""
     action = _determine_post_disconnect_action(255, "mngr-test-agent")
 
     assert action is None
 
 
 def test_determine_post_disconnect_action_uses_session_name_in_args() -> None:
+    """Test that the session name is correctly embedded in the action args."""
     action = _determine_post_disconnect_action(SIGNAL_EXIT_CODE_DESTROY, "custom-my-agent")
 
     assert action is not None
@@ -356,6 +379,7 @@ def test_connect_to_agent_remote_destroy_signal(
     temp_mngr_ctx: MngrContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that connect_to_agent exec's into mngr destroy when SSH exits with SIGNAL_EXIT_CODE_DESTROY."""
     result = _run_connect_to_agent(local_provider, temp_mngr_ctx, monkeypatch, SIGNAL_EXIT_CODE_DESTROY)
 
     expected_session = f"{temp_mngr_ctx.config.prefix}test-agent"
@@ -368,6 +392,7 @@ def test_connect_to_agent_remote_stop_signal(
     temp_mngr_ctx: MngrContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that connect_to_agent exec's into mngr stop when SSH exits with SIGNAL_EXIT_CODE_STOP."""
     result = _run_connect_to_agent(local_provider, temp_mngr_ctx, monkeypatch, SIGNAL_EXIT_CODE_STOP)
 
     expected_session = f"{temp_mngr_ctx.config.prefix}test-agent"
@@ -380,6 +405,7 @@ def test_connect_to_agent_remote_normal_exit_no_action(
     temp_mngr_ctx: MngrContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that connect_to_agent does not exec into anything on normal SSH exit (code 0)."""
     result = _run_connect_to_agent(local_provider, temp_mngr_ctx, monkeypatch, ssh_exit_code=0)
 
     assert len(result.execvp_calls) == 0
@@ -390,6 +416,7 @@ def test_connect_to_agent_remote_unknown_exit_code_no_action(
     temp_mngr_ctx: MngrContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that connect_to_agent does not exec into anything on unexpected SSH exit codes."""
     result = _run_connect_to_agent(local_provider, temp_mngr_ctx, monkeypatch, ssh_exit_code=255)
 
     assert len(result.execvp_calls) == 0
@@ -402,6 +429,7 @@ def test_connect_to_agent_remote_uses_correct_session_name(
     plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that connect_to_agent constructs the session name from prefix + agent name."""
     # Use a custom prefix (different from the default fixture prefix) to verify the code
     # reads the prefix from the context rather than using a hardcoded value
     custom_config = MngrConfig(default_host_dir=temp_host_dir, prefix="custom-")
