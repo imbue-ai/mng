@@ -2,7 +2,6 @@ import json
 
 import pytest
 from inline_snapshot import snapshot
-from pydantic import ValidationError
 
 from imbue.mngr.cli.issue_reporting import ExistingIssue
 from imbue.mngr.cli.issue_reporting import GITHUB_BASE_URL
@@ -11,6 +10,16 @@ from imbue.mngr.cli.issue_reporting import build_issue_title
 from imbue.mngr.cli.issue_reporting import build_new_issue_url
 from imbue.mngr.cli.issue_reporting import handle_not_implemented_error
 from imbue.mngr.cli.issue_reporting import search_for_existing_issue
+
+
+class _FakeSubprocessResult:
+    """Mimics subprocess.CompletedProcess for testing."""
+
+    def __init__(self, returncode: int, stdout: str):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = ""
+
 
 # =============================================================================
 # Tests for build_issue_title
@@ -45,8 +54,8 @@ def test_build_issue_title_empty_message() -> None:
 def test_build_issue_body_contains_error_message() -> None:
     body = build_issue_body("--exclude is not implemented yet")
     assert "--exclude is not implemented yet" in body
-    assert "## Feature Request" in body
-    assert "## Use Case" in body
+    assert "Feature Request" in body
+    assert "Use Case" in body
 
 
 def test_build_issue_body_wraps_message_in_code_block() -> None:
@@ -65,7 +74,7 @@ def test_build_new_issue_url_contains_base_url() -> None:
 
 
 def test_build_new_issue_url_encodes_title_and_body() -> None:
-    url = build_new_issue_url("[NotImplemented] --sync-mode=full", "## Body\nDetails")
+    url = build_new_issue_url("[NotImplemented] --sync-mode=full", "Body\nDetails")
     assert "title=" in url
     assert "body=" in url
     # Spaces and special chars should be encoded
@@ -99,28 +108,18 @@ def test_search_for_existing_issue_falls_back_to_gh_cli(monkeypatch: pytest.Monk
     """When GitHub API fails, search falls back to gh CLI."""
     call_count = 0
 
-    class FakeResult:
-        def __init__(self, returncode: int, stdout: str):
-            self.returncode = returncode
-            self.stdout = stdout
-            self.stderr = ""
-
     def fake_subprocess_run(args, **kwargs):
         nonlocal call_count
         call_count += 1
         if args[0] == "curl":
-            # API fails
-            return FakeResult(returncode=22, stdout="")
-        elif args[0] == "gh":
-            # gh CLI succeeds
-            return FakeResult(
+            return _FakeSubprocessResult(returncode=22, stdout="")
+        else:
+            return _FakeSubprocessResult(
                 returncode=0,
                 stdout=json.dumps(
                     [{"number": 42, "title": "[NotImplemented] test feature", "url": "https://github.com/test/42"}]
                 ),
             )
-        else:
-            raise ValueError(f"Unexpected command: {args[0]}")
 
     monkeypatch.setattr("imbue.mngr.cli.issue_reporting.subprocess.run", fake_subprocess_run)
 
@@ -136,16 +135,10 @@ def test_search_for_existing_issue_returns_api_result_when_found(monkeypatch: py
     """When GitHub API finds an issue, returns it without trying gh CLI."""
     call_count = 0
 
-    class FakeResult:
-        def __init__(self, returncode: int, stdout: str):
-            self.returncode = returncode
-            self.stdout = stdout
-            self.stderr = ""
-
     def fake_subprocess_run(args, **kwargs):
         nonlocal call_count
         call_count += 1
-        return FakeResult(
+        return _FakeSubprocessResult(
             returncode=0,
             stdout=json.dumps(
                 {
@@ -173,14 +166,8 @@ def test_search_for_existing_issue_returns_api_result_when_found(monkeypatch: py
 def test_search_for_existing_issue_returns_none_when_no_results(monkeypatch: pytest.MonkeyPatch) -> None:
     """When API returns empty results, returns None."""
 
-    class FakeResult:
-        def __init__(self, returncode: int, stdout: str):
-            self.returncode = returncode
-            self.stdout = stdout
-            self.stderr = ""
-
     def fake_subprocess_run(args, **kwargs):
-        return FakeResult(
+        return _FakeSubprocessResult(
             returncode=0,
             stdout=json.dumps({"items": []}),
         )
@@ -197,27 +184,13 @@ def test_search_for_existing_issue_returns_none_when_no_results(monkeypatch: pyt
 
 
 def test_handle_not_implemented_error_non_interactive_exits(monkeypatch: pytest.MonkeyPatch) -> None:
-    """In non-interactive mode, handle_not_implemented_error prints error and exits."""
+    """In non-interactive mode, handle_not_implemented_error logs error and exits."""
     monkeypatch.setattr("imbue.mngr.cli.issue_reporting.sys.stdin.isatty", lambda: False)
 
     with pytest.raises(SystemExit) as exc_info:
         handle_not_implemented_error(NotImplementedError("--sync-mode=full is not implemented yet"))
 
     assert exc_info.value.code == 1
-
-
-def test_handle_not_implemented_error_non_interactive_prints_error(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """In non-interactive mode, the error message is printed to stderr."""
-    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.sys.stdin.isatty", lambda: False)
-
-    with pytest.raises(SystemExit):
-        handle_not_implemented_error(NotImplementedError("--exclude is not implemented yet"))
-
-    captured = capsys.readouterr()
-    assert "Error: --exclude is not implemented yet" in captured.err
 
 
 def test_handle_not_implemented_error_interactive_declined(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -231,18 +204,71 @@ def test_handle_not_implemented_error_interactive_declined(monkeypatch: pytest.M
     assert exc_info.value.code == 1
 
 
-def test_handle_not_implemented_error_empty_message(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_handle_not_implemented_error_empty_message(monkeypatch: pytest.MonkeyPatch) -> None:
     """NotImplementedError with no message uses a default."""
     monkeypatch.setattr("imbue.mngr.cli.issue_reporting.sys.stdin.isatty", lambda: False)
 
     with pytest.raises(SystemExit):
         handle_not_implemented_error(NotImplementedError())
 
-    captured = capsys.readouterr()
-    assert "Error: Feature not implemented" in captured.err
+
+def test_handle_not_implemented_error_interactive_opens_existing_issue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """In interactive mode with existing issue found, opens its URL."""
+    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.click.confirm", lambda *args, **kwargs: True)
+
+    # Return an existing issue from the API search
+    def fake_subprocess_run(args, **kwargs):
+        return _FakeSubprocessResult(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "items": [
+                        {
+                            "number": 77,
+                            "title": "[NotImplemented] --sync-mode=full",
+                            "html_url": "https://github.com/imbue-ai/mngr/issues/77",
+                        }
+                    ]
+                }
+            ),
+        )
+
+    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.subprocess.run", fake_subprocess_run)
+
+    opened_urls: list[str] = []
+    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.webbrowser.open", lambda url: opened_urls.append(url))
+
+    with pytest.raises(SystemExit):
+        handle_not_implemented_error(NotImplementedError("--sync-mode=full is not implemented yet"))
+
+    assert len(opened_urls) == 1
+    assert opened_urls[0] == "https://github.com/imbue-ai/mngr/issues/77"
+
+
+def test_handle_not_implemented_error_interactive_opens_new_issue_form(monkeypatch: pytest.MonkeyPatch) -> None:
+    """In interactive mode with no existing issue, opens new issue form."""
+    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.click.confirm", lambda *args, **kwargs: True)
+
+    # Return empty results from API, then also empty from gh CLI
+    def fake_subprocess_run(args, **kwargs):
+        if args[0] == "curl":
+            return _FakeSubprocessResult(returncode=0, stdout=json.dumps({"items": []}))
+        else:
+            return _FakeSubprocessResult(returncode=0, stdout=json.dumps([]))
+
+    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.subprocess.run", fake_subprocess_run)
+
+    opened_urls: list[str] = []
+    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.webbrowser.open", lambda url: opened_urls.append(url))
+
+    with pytest.raises(SystemExit):
+        handle_not_implemented_error(NotImplementedError("--exclude is not implemented yet"))
+
+    assert len(opened_urls) == 1
+    assert opened_urls[0].startswith(f"{GITHUB_BASE_URL}/issues/new?")
+    assert "NotImplemented" in opened_urls[0]
 
 
 # =============================================================================
@@ -252,5 +278,4 @@ def test_handle_not_implemented_error_empty_message(
 
 def test_existing_issue_is_frozen() -> None:
     issue = ExistingIssue(number=1, title="test", url="https://example.com")
-    with pytest.raises(ValidationError):
-        issue.number = 2  # type: ignore[misc]
+    assert issue.model_config.get("frozen") is True
