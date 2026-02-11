@@ -326,6 +326,18 @@ def select_agent_interactively(agents: list[AgentInfo]) -> AgentInfo | None:
     return _run_agent_selector(agents)
 
 
+@pure
+def _build_connection_options(opts: ConnectCliOptions) -> ConnectionOptions:
+    """Build ConnectionOptions from CLI options."""
+    return ConnectionOptions(
+        is_reconnect=opts.reconnect,
+        retry_count=opts.retry,
+        retry_delay=opts.retry_delay,
+        attach_command=opts.attach_command,
+        is_unknown_host_allowed=opts.allow_unknown_host,
+    )
+
+
 @click.command()
 @click.argument("agent", default=None, required=False)
 @optgroup.group("General")
@@ -453,13 +465,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
         )
 
     # Build connection options
-    connection_opts = ConnectionOptions(
-        is_reconnect=opts.reconnect,
-        retry_count=opts.retry,
-        retry_delay=opts.retry_delay,
-        attach_command=opts.attach_command,
-        is_unknown_host_allowed=opts.allow_unknown_host,
-    )
+    connection_opts = _build_connection_options(opts)
 
     logger.info("Connecting to agent: {}", agent.name)
     connect_to_agent(agent, host, mngr_ctx, connection_opts)

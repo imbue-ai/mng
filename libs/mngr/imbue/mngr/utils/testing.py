@@ -27,13 +27,21 @@ from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
 
 # Prefix used for test environments
-MODAL_TEST_ENV_PREFIX: Final[str] = "mngr_test-"
+TEST_ENV_PREFIX: Final[str] = "mngr_test-"
 
 # Pattern to match test environment names: mngr_test-YYYY-MM-DD-HH-MM-SS
 # The name may have additional suffixes (like user_id)
-MODAL_TEST_ENV_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"^mngr_test-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})"
-)
+TEST_ENV_PATTERN: Final[re.Pattern[str]] = re.compile(r"^mngr_test-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})")
+
+
+def generate_test_environment_name() -> str:
+    """Generate a test environment name with current UTC timestamp.
+
+    Format: mngr_test-YYYY-MM-DD-HH-MM-SS
+    """
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y-%m-%d-%H-%M-%S")
+    return f"{TEST_ENV_PREFIX}{timestamp}"
 
 
 def assert_home_is_temp_directory() -> None:
@@ -357,7 +365,7 @@ def _parse_test_env_timestamp(env_name: str) -> datetime | None:
     Returns the datetime if the name matches the test environment pattern,
     otherwise returns None.
     """
-    match = MODAL_TEST_ENV_PATTERN.match(env_name)
+    match = TEST_ENV_PATTERN.match(env_name)
     if not match:
         return None
 
@@ -395,7 +403,7 @@ def list_modal_test_environments() -> list[str]:
 
         for env in environments:
             env_name = env.get("name", "")
-            if env_name.startswith(MODAL_TEST_ENV_PREFIX):
+            if env_name.startswith(TEST_ENV_PREFIX):
                 test_envs.append(env_name)
 
         return test_envs

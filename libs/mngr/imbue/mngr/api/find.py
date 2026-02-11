@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 from typing import assert_never
 
@@ -321,6 +322,7 @@ def find_and_maybe_start_agent_by_name_or_id(
     mngr_ctx: MngrContext,
     command_name: str,
     is_start_desired: bool = False,
+    get_provider: Callable[[ProviderInstanceName, MngrContext], BaseProviderInstance] | None = None,
 ) -> tuple[AgentInterface, OnlineHostInterface]:
     """Find an agent by name or ID and return the agent and host interfaces.
 
@@ -330,6 +332,8 @@ def find_and_maybe_start_agent_by_name_or_id(
     Raises AgentNotFoundError if the agent cannot be found by ID.
     Raises UserInputError if the agent cannot be found by name or if multiple agents match.
     """
+    resolve_provider = get_provider if get_provider is not None else get_provider_instance
+
     # Try parsing as an AgentId first
     try:
         agent_id = AgentId(agent_str)
@@ -340,7 +344,7 @@ def find_and_maybe_start_agent_by_name_or_id(
         for host_ref, agent_refs in agents_by_host.items():
             for agent_ref in agent_refs:
                 if agent_ref.agent_id == agent_id:
-                    provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
+                    provider = resolve_provider(host_ref.provider_name, mngr_ctx)
                     host = provider.get_host(host_ref.host_id)
                     online_host, _was_started = ensure_host_started(host, is_start_desired, provider)
                     for agent in online_host.get_agents():
@@ -356,7 +360,7 @@ def find_and_maybe_start_agent_by_name_or_id(
     for host_ref, agent_refs in agents_by_host.items():
         for agent_ref in agent_refs:
             if agent_ref.agent_name == agent_name:
-                provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
+                provider = resolve_provider(host_ref.provider_name, mngr_ctx)
                 host = provider.get_host(host_ref.host_id)
                 online_host, _was_started = ensure_host_started(host, is_start_desired, provider)
                 # Find the specific agent by ID (not name, to avoid duplicates)

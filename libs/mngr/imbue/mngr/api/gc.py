@@ -54,7 +54,7 @@ def gc(
     - Build cache entries
     """
     result = GcResult()
-    logger.trace("GC options: dry_run={} error_behavior={}", dry_run, error_behavior)
+    logger.trace("Configured GC: dry_run={} error_behavior={}", dry_run, error_behavior)
 
     if resource_types.is_work_dirs:
         with log_span("Garbage collecting orphaned work directories"):
@@ -141,10 +141,7 @@ def gc_work_dirs(
     compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
     for provider_instance in providers:
-        logger.trace("Checking provider {} for orphaned work directories", provider_instance.name)
         for host in provider_instance.list_hosts():
-            logger.trace("Checking host {} for orphaned work directories", host.id)
-
             if not isinstance(host, OnlineHostInterface):
                 # Skip offline hosts - can't query them
                 logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
@@ -187,7 +184,6 @@ def gc_machines(
     compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
     for provider in providers:
-        logger.trace("Checking provider {} for idle machines", provider.name)
         try:
             hosts = provider.list_hosts(include_destroyed=False)
 
@@ -256,10 +252,9 @@ def gc_snapshots(
 
     for provider in providers:
         if not provider.supports_snapshots:
-            logger.trace("Skipping provider {} - does not support snapshots", provider.name)
+            logger.trace("Skipped provider {} (does not support snapshots)", provider.name)
             continue
 
-        logger.trace("Checking provider {} for orphaned snapshots", provider.name)
         try:
             hosts = provider.list_hosts(include_destroyed=False)
 
@@ -316,10 +311,9 @@ def gc_volumes(
 
     for provider in providers:
         if not provider.supports_volumes:
-            logger.trace("Skipping provider {} - does not support volumes", provider.name)
+            logger.trace("Skipped provider {} (does not support volumes)", provider.name)
             continue
 
-        logger.trace("Checking provider {} for orphaned volumes", provider.name)
         try:
             # Get all volumes
             all_volumes = provider.list_volumes()
@@ -383,10 +377,8 @@ def gc_logs(
     logs_dir = logs_dir.expanduser()
 
     if not logs_dir.exists():
-        logger.trace("Logs directory {} does not exist, skipping", logs_dir)
+        logger.trace("Skipped logs directory {} (does not exist)", logs_dir)
         return
-
-    logger.trace("Scanning logs directory {}", logs_dir)
 
     for log_file in logs_dir.rglob("*"):
         if not log_file.is_file():
@@ -435,10 +427,8 @@ def gc_build_cache(
     base_cache_dir = mngr_ctx.profile_dir / "providers"
 
     if not base_cache_dir.exists():
-        logger.trace("Build cache directory {} does not exist, skipping", base_cache_dir)
+        logger.trace("Skipped build cache directory {} (does not exist)", base_cache_dir)
         return
-
-    logger.trace("Scanning build cache directory {}", base_cache_dir)
 
     for provider_dir in base_cache_dir.iterdir():
         if not provider_dir.is_dir():

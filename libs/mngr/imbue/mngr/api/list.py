@@ -611,8 +611,8 @@ def _load_agent_refs_from_provider(
     cg: ConcurrencyGroup,
 ) -> dict[HostReference, list[AgentReference]]:
     """Load hosts from a provider and fetch agent references for each host in parallel."""
-    logger.trace("Loading hosts from provider {}", provider.name)
     hosts = provider.list_hosts(include_destroyed=include_destroyed, cg=cg)
+    logger.trace("Loaded hosts from provider {}", provider.name)
 
     threads: list[ObservableThread] = []
     provider_results: dict[HostReference, list[AgentReference]] = {}

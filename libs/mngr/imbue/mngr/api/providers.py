@@ -60,13 +60,13 @@ def get_provider_instance(
     # Check if there's a configured provider instance with this name
     if name in mngr_ctx.config.providers:
         provider_config = mngr_ctx.config.providers[name]
-        logger.trace("Building provider instance {} from config with backend {}", name, provider_config.backend)
         instance = build_provider_instance(
             instance_name=name,
             backend_name=provider_config.backend,
             config=provider_config,
             mngr_ctx=mngr_ctx,
         )
+        logger.trace("Built provider instance {} from config with backend {}", name, provider_config.backend)
         _created_instances.append(instance)
         return instance
 
@@ -75,13 +75,13 @@ def get_provider_instance(
     backend_name = ProviderBackendName(str(name))
     config_class = get_config_class(backend_name)
     default_config = config_class(backend=backend_name)
-    logger.trace("Building provider instance {} using backend name as default", name)
     instance = build_provider_instance(
         instance_name=name,
         backend_name=backend_name,
         config=default_config,
         mngr_ctx=mngr_ctx,
     )
+    logger.trace("Built provider instance {} using backend name as default", name)
     _created_instances.append(instance)
     return instance
 
@@ -122,34 +122,32 @@ def get_all_provider_instances(
     provider_filter: set[str] | None = set(provider_names) if provider_names else None
 
     # First, add all configured providers (unless disabled or not enabled)
-    logger.trace("Loading configured provider instances")
     for name, provider_config in mngr_ctx.config.providers.items():
         seen_names.add(str(name))
         if provider_filter is not None and str(name) not in provider_filter:
-            logger.trace("Skipping provider {} (not in provider filter)", name)
+            logger.trace("Skipped provider {} (not in provider filter)", name)
             continue
         if str(name) in disabled:
-            logger.trace("Skipping disabled provider {}", name)
+            logger.trace("Skipped disabled provider {}", name)
             continue
         if provider_config.is_enabled is False:
-            logger.trace("Skipping provider {} (is_enabled=False)", name)
+            logger.trace("Skipped provider {} (is_enabled=False)", name)
             continue
         if not _is_backend_enabled(str(provider_config.backend), mngr_ctx):
-            logger.trace("Skipping provider {} (backend {} not in enabled_backends)", name, provider_config.backend)
+            logger.trace("Skipped provider {} (backend {} not in enabled_backends)", name, provider_config.backend)
             continue
         providers.append(get_provider_instance(name, mngr_ctx))
 
     # Then, add default instances for backends not already configured (unless disabled)
-    logger.trace("Loading default provider instances for remaining backends")
     for backend_name in list_backends():
         if provider_filter is not None and backend_name not in provider_filter:
-            logger.trace("Skipping backend {} (not in provider filter)", backend_name)
+            logger.trace("Skipped backend {} (not in provider filter)", backend_name)
             continue
         if backend_name in disabled:
-            logger.trace("Skipping disabled backend {}", backend_name)
+            logger.trace("Skipped disabled backend {}", backend_name)
             continue
         if not _is_backend_enabled(backend_name, mngr_ctx):
-            logger.trace("Skipping backend {} (not in enabled_backends)", backend_name)
+            logger.trace("Skipped backend {} (not in enabled_backends)", backend_name)
             continue
         if backend_name not in seen_names:
             provider_name = ProviderInstanceName(backend_name)
