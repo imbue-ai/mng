@@ -143,7 +143,7 @@ def setup_test_mngr_env(
     mngr_test_prefix: str,
     mngr_test_root_name: str,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+) -> Generator[None, None, None]:
     """Set up environment variables for all tests.
 
     This autouse fixture ensures:
@@ -151,9 +151,15 @@ def setup_test_mngr_env(
     - MNGR_HOST_DIR points to tmp_path/.mngr (not ~/.mngr)
     - MNGR_PREFIX uses a unique test ID for isolation
     - MNGR_ROOT_NAME prevents loading project config (.mngr/settings.toml)
+    - TMUX_TMPDIR gives each test its own tmux server for isolation
 
     By setting HOME to tmp_path, tests cannot accidentally read or modify
     files in the real home directory. This protects files like ~/.claude.json.
+
+    By setting TMUX_TMPDIR to a per-test directory, each test gets its own
+    tmux server socket. This prevents contention between parallel xdist workers
+    that would otherwise share the default tmux server and race on session
+    creation/destruction.
     """
     # before we nuke our home directory, we need to load the right token from the real home directory
     modal_toml_path = Path(os.path.expanduser("~/.modal.toml"))
@@ -183,9 +189,27 @@ def setup_test_mngr_env(
     unison_dir.mkdir(exist_ok=True)
     monkeypatch.setenv("UNISON", str(unison_dir))
 
+    # Give each test its own tmux server by setting TMUX_TMPDIR to a
+    # test-specific directory. tmux creates its socket file inside
+    # $TMUX_TMPDIR/tmux-$UID/, so each test gets a completely isolated
+    # server. This prevents xdist workers from racing on the shared
+    # default tmux server.
+    tmux_tmpdir = tmp_home_dir / "tmux"
+    tmux_tmpdir.mkdir()
+    monkeypatch.setenv("TMUX_TMPDIR", str(tmux_tmpdir))
+
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.
     assert_home_is_temp_directory()
+
+    yield
+
+    # Kill the test's isolated tmux server to clean up any leaked sessions
+    # or processes. We pass TMUX_TMPDIR explicitly because monkeypatch may
+    # have already restored the original environment by this point.
+    kill_env = os.environ.copy()
+    kill_env["TMUX_TMPDIR"] = str(tmux_tmpdir)
+    subprocess.run(["tmux", "kill-server"], capture_output=True, env=kill_env)
 
 
 @pytest.fixture
@@ -783,7 +807,11 @@ def session_cleanup() -> Generator[None, None, None]:
             "Tests should clean up spawned processes before completing.\n" + "\n".join(proc_info)
         )
 
-    # 2. Check for leftover tmux sessions from this worker's tests
+    # 2. Check for leftover tmux sessions from this worker's tests.
+    # Note: Each test gets its own tmux server via TMUX_TMPDIR, and the
+    # per-test fixture kills that server on teardown. This check queries
+    # the default tmux server as a fallback safety net -- it would only
+    # catch leaks if a test somehow bypassed the per-test TMUX_TMPDIR.
     leftover_sessions: list[str] = []
     for test_id in _worker_test_ids:
         prefix = f"mngr_{test_id}-"
