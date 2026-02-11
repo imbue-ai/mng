@@ -64,7 +64,7 @@ def select_agent_interactively_with_host(
 
     Returns tuple of (agent, host) or None if user quit without selecting.
     """
-    list_result = list_agents(mngr_ctx)
+    list_result = list_agents(mngr_ctx, is_streaming=False)
     if not list_result.agents:
         raise UserInputError("No agents found")
 
