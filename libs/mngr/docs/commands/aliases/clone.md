@@ -1,34 +1,50 @@
-# mngr clone - CLI Options Reference
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
 
-Create a new agent by cloning an existing one.
+# mngr clone
 
-A convenience wrapper around `mngr create --from-agent <agent>`. The first
-argument is the source agent to clone from. All remaining arguments are
-passed through to the create command.
+**Synopsis:**
 
-## Usage
-
-```
+```text
 mngr clone <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]
 ```
 
-## Examples
+Create a new agent by cloning an existing one.
 
-```bash
-# Clone an agent with auto-generated name
-mngr clone my-agent
+This is a convenience wrapper around `mngr create --from-agent <source>`.
+The first argument is the source agent to clone from. An optional second
+positional argument sets the new agent's name. All remaining arguments are
+passed through to the create command.
 
-# Clone with a specific name
-mngr clone my-agent new-agent
-
-# Clone into a Docker container
-mngr clone my-agent --in docker
-
-# Clone and pass args to the agent
-mngr clone my-agent -- --model opus
-```
 
 ## See Also
 
-- `mngr create --help` - Full create option set
-- `mngr list --help` - List existing agents
+- [mngr create](../primary/create.md) - Create an agent (full option set)
+- [mngr list](../primary/list.md) - List existing agents
+
+
+## Examples
+
+**Clone an agent with auto-generated name**
+
+```bash
+$ mngr clone my-agent
+```
+
+**Clone with a specific name**
+
+```bash
+$ mngr clone my-agent new-agent
+```
+
+**Clone into a Docker container**
+
+```bash
+$ mngr clone my-agent --in docker
+```
+
+**Clone and pass args to the agent**
+
+```bash
+$ mngr clone my-agent -- --model opus
+```

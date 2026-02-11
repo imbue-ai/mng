@@ -1,9 +1,38 @@
+from collections.abc import Sequence
+
 import click
 
 from imbue.mngr.cli.create import create as create_cmd
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
+
+
+def parse_source_and_invoke_create(
+    ctx: click.Context,
+    args: tuple[str, ...],
+    command_name: str,
+) -> str:
+    """Validate args, reject conflicting options, and delegate to the create command.
+
+    Returns the source agent name so callers (e.g. migrate) can use it for
+    follow-up steps.
+    """
+    if len(args) == 0:
+        raise click.UsageError("Missing required argument: SOURCE_AGENT", ctx=ctx)
+
+    source_agent = args[0]
+    remaining = list(args[1:])
+
+    reject_source_agent_options(remaining, ctx)
+
+    create_args = ["--from-agent", source_agent] + remaining
+
+    create_ctx = create_cmd.make_context(command_name, create_args, parent=ctx)
+    with create_ctx:
+        create_cmd.invoke(create_ctx)
+
+    return source_agent
 
 
 @click.command(
@@ -18,32 +47,18 @@ def clone(ctx: click.Context, args: tuple[str, ...]) -> None:
     This is a convenience wrapper around `mngr create --from-agent <source>`.
     All create options are supported.
     """
-    if len(args) == 0:
-        raise click.UsageError("Missing required argument: SOURCE_AGENT", ctx=ctx)
-
-    source_agent = args[0]
-    remaining = list(args[1:])
-
-    # Reject --from-agent / --source-agent in remaining args since the source
-    # is provided positionally
-    _reject_source_agent_options(remaining, ctx)
-
-    # Build the args list for the create command
-    create_args = ["--from-agent", source_agent] + remaining
-
-    # Delegate to the create command
-    create_ctx = create_cmd.make_context("clone", create_args, parent=ctx)
-    with create_ctx:
-        create_cmd.invoke(create_ctx)
+    parse_source_and_invoke_create(ctx, args, command_name="clone")
 
 
-def _reject_source_agent_options(args: list[str], ctx: click.Context) -> None:
+def reject_source_agent_options(args: Sequence[str], ctx: click.Context) -> None:
     """Raise an error if --from-agent or --source-agent appears in args."""
     for arg in args:
+        if arg == "--":
+            break
         # Check exact match and --opt=value forms
         if arg in ("--from-agent", "--source-agent") or arg.startswith(("--from-agent=", "--source-agent=")):
             raise click.UsageError(
-                f"Cannot use {arg.split('=')[0]} with clone. "
+                f"Cannot use {arg.split('=')[0]} with {ctx.info_name}. "
                 "The source agent is specified as the first positional argument.",
                 ctx=ctx,
             )

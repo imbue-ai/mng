@@ -149,8 +149,8 @@ mngr <command> [options]
 - [`start`](docs/commands/primary/start.md): Start a stopped agent
 - [`snapshot`](docs/commands/secondary/snapshot.md) [future]: Create a snapshot of a host's state
 - [`destroy`](docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
-- [`clone`](docs/commands/aliases/clone.md) [future]: Create a copy of an existing agent
-- [`migrate`](docs/commands/aliases/migrate.md) [future]: Move an agent to a different host
+- [`clone`](docs/commands/aliases/clone.md): Create a new agent by cloning an existing one
+- [`migrate`](docs/commands/aliases/migrate.md): Move an agent to a different host
 - [`limit`](docs/commands/secondary/limit.md) [future]: (Re)set resource limits for an agent
 
 ### For moving data in and out:

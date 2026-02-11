@@ -13,7 +13,6 @@ from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundError
-from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import HostLocation
@@ -197,6 +196,8 @@ def resolve_source_location(
     Everything after the first ':' is treated as the path (to handle colons in paths).
     HOST can optionally include .PROVIDER suffix (e.g., myhost.docker).
 
+    If the resolved host is offline, it will be automatically started.
+
     This is useful because it allows the user to specify the source agent / location in a maximally flexible way.
     This is important for making the CLI easy to use in a variety of scenarios.
     """
@@ -226,14 +227,16 @@ def resolve_source_location(
             provider = get_provider_instance(resolved_host.provider_name, mngr_ctx)
             host_interface = provider.get_host(resolved_host.host_id)
 
-    # Ensure host is online for file operations
+    # Ensure host is online for file operations (starts the host if needed)
     if not isinstance(host_interface, OnlineHostInterface):
-        raise HostOfflineError(f"Host '{host_interface.id}' is offline. Start the host first.")
+        online_host, _was_started = ensure_host_started(host_interface, is_start_desired=True, provider=provider)
+    else:
+        online_host = host_interface
 
     # Resolve the final path
     agent_work_dir: Path | None = None
     if resolved_agent is not None:
-        for agent_ref in host_interface.get_agent_references():
+        for agent_ref in online_host.get_agent_references():
             if agent_ref.agent_id == resolved_agent.agent_id:
                 agent_work_dir = agent_ref.work_dir
                 break
@@ -245,7 +248,7 @@ def resolve_source_location(
     )
 
     return HostLocation(
-        host=host_interface,
+        host=online_host,
         path=resolved_path,
     )
 
@@ -274,7 +277,7 @@ def ensure_host_started(
 ) -> tuple[Host, bool]:
     """Ensure the host is online and started.
 
-    If the host is already online, returns it cast to OnlineHostInterface.
+    If the host is already online, returns it directly.
     If offline and start is desired, starts the host and returns the online host.
     If offline and start is not desired, raises UserInputError.
 
