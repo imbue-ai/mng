@@ -4,8 +4,6 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
-from datetime import timezone
 from pathlib import Path
 from typing import Generator
 from typing import NamedTuple
@@ -29,12 +27,12 @@ from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
-from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
 from imbue.mngr.utils.testing import assert_home_is_temp_directory
 from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import delete_modal_apps_in_environment
 from imbue.mngr.utils.testing import delete_modal_environment
 from imbue.mngr.utils.testing import delete_modal_volumes_in_environment
+from imbue.mngr.utils.testing import generate_test_environment_name
 from imbue.mngr.utils.testing import get_subprocess_test_env
 from imbue.mngr.utils.testing import init_git_repo
 
@@ -452,19 +450,6 @@ def register_modal_test_environment(environment_name: str) -> None:
 # =============================================================================
 
 
-def _generate_modal_test_environment_name() -> str:
-    """Generate a Modal test environment name with current UTC timestamp.
-
-    Format: mngr_test-YYYY-MM-DD-HH-MM-SS
-
-    The name uses only digits and hyphens to be compatible with Modal's naming requirements.
-    Uses MODAL_TEST_ENV_PREFIX from testing.py to ensure consistency with cleanup logic.
-    """
-    now = datetime.now(timezone.utc)
-    timestamp = now.strftime("%Y-%m-%d-%H-%M-%S")
-    return f"{MODAL_TEST_ENV_PREFIX}{timestamp}"
-
-
 class ModalSubprocessTestEnv(NamedTuple):
     """Environment configuration for Modal subprocess tests."""
 
@@ -481,7 +466,7 @@ def modal_test_session_env_name() -> str:
     environment name. The name includes a UTC timestamp in the format:
     mngr_test-YYYY-MM-DD-HH-MM-SS
     """
-    return _generate_modal_test_environment_name()
+    return generate_test_environment_name()
 
 
 @pytest.fixture(scope="session")

@@ -62,7 +62,7 @@ from imbue.mngr.providers.modal.instance import TAG_USER_PREFIX
 from imbue.mngr.providers.modal.instance import _build_modal_secrets_from_env
 from imbue.mngr.providers.modal.instance import build_sandbox_tags
 from imbue.mngr.providers.modal.instance import parse_sandbox_tags
-from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
+from imbue.mngr.utils.testing import TEST_ENV_PREFIX
 
 # =============================================================================
 # Unit tests for sandbox tag helper functions
@@ -350,7 +350,7 @@ def modal_mngr_ctx(
     """
     now = datetime.now(timezone.utc)
     timestamp = now.strftime("%Y-%m-%d-%H-%M-%S")
-    prefix = f"{MODAL_TEST_ENV_PREFIX}{timestamp}-"
+    prefix = f"{TEST_ENV_PREFIX}{timestamp}-"
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=prefix)
     return make_mngr_ctx(config, plugin_manager, temp_profile_dir)
 
