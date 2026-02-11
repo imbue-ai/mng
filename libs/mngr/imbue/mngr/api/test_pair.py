@@ -312,7 +312,10 @@ def test_unison_syncer_handles_process_crash(cg: ConcurrencyGroup, tmp_path: Pat
         wait_for(lambda: syncer.is_running, error_message="Syncer did not start within timeout")
         assert syncer.is_running is True
         assert syncer._running_process is not None
-        syncer._running_process.terminate()
+        # Simulate a hard crash by directly setting the shutdown event, bypassing
+        # the syncer's stop() method. This causes the underlying process to be
+        # killed unexpectedly from the syncer's perspective.
+        syncer._running_process._shutdown_event.set()
         wait_for(lambda: not syncer.is_running, error_message="Syncer did not detect process crash")
         assert syncer.is_running is False
     finally:
