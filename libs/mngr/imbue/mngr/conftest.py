@@ -203,7 +203,7 @@ def setup_test_mngr_env(
     # exceeds the limit, tmux silently falls back to the default socket,
     # defeating isolation entirely (and potentially killing production
     # tmux servers during test cleanup).
-    tmux_tmpdir = Path(tempfile.mkdtemp(prefix="mngr-tmux-"))
+    tmux_tmpdir = Path(tempfile.mkdtemp(prefix="mngr-tmux-", dir="/tmp"))
     monkeypatch.setenv("TMUX_TMPDIR", str(tmux_tmpdir))
 
     # Safety check: verify Path.home() is in a temp directory.
@@ -213,8 +213,8 @@ def setup_test_mngr_env(
     yield
 
     # Kill the test's isolated tmux server to clean up any leaked sessions
-    # or processes. We pass TMUX_TMPDIR explicitly because monkeypatch may
-    # have already restored the original environment by this point.
+    # or processes. We set TMUX_TMPDIR explicitly in the env dict to be
+    # robust against fixture teardown ordering changes.
     kill_env = os.environ.copy()
     kill_env["TMUX_TMPDIR"] = str(tmux_tmpdir)
     subprocess.run(["tmux", "kill-server"], capture_output=True, env=kill_env)
