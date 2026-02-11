@@ -1,6 +1,6 @@
+import importlib.resources
 import shlex
 import subprocess
-from pathlib import Path
 from typing import Any
 from typing import assert_never
 
@@ -8,6 +8,7 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
+import imbue.mngr.resources as mngr_resources
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -29,6 +30,13 @@ _EXECUTE_QUERY_PREFIX = (
     "respond with ONLY the valid mngr command, with no markdown formatting, explanation, or extra text. "
     "the output will be executed directly as a shell command: "
 )
+
+
+def _load_ask_context() -> str:
+    """Load the bundled mngr documentation for use as system prompt context."""
+    resource_files = importlib.resources.files(mngr_resources)
+    context_path = resource_files.joinpath("ask_context.md")
+    return context_path.read_text()
 
 
 class AskCliOptions(CommonCliOptions):
@@ -75,11 +83,9 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
     prefix = _EXECUTE_QUERY_PREFIX if opts.execute else _QUERY_PREFIX
     query_string = prefix + " ".join(opts.query)
 
-    cwd = Path(opts.project_context_path) if opts.project_context_path else None
-
     emit_info("Thinking...", output_opts.output_format)
 
-    response = _run_claude_print(query_string, cwd)
+    response = _run_claude_print(query_string)
 
     if opts.execute:
         _execute_response(response=response, output_format=output_opts.output_format)
@@ -87,14 +93,15 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
         _emit_response(response=response, output_format=output_opts.output_format)
 
 
-def _run_claude_print(query_string: str, cwd: Path | None) -> str:
-    """Run claude --print and return the response text."""
+def _run_claude_print(query_string: str) -> str:
+    """Run claude --print with mngr docs as system context and return the response."""
+    system_prompt = _load_ask_context()
+
     result = subprocess.run(
-        ["claude", "--print", query_string],
+        ["claude", "--print", "--system-prompt", system_prompt, "--tools", "", query_string],
         capture_output=True,
         text=True,
         stdin=subprocess.DEVNULL,
-        cwd=cwd,
     )
 
     if result.returncode != 0:

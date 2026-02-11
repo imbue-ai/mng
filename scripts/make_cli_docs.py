@@ -492,6 +492,39 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
         print(f"Updated: {output_file}")
 
 
+def generate_ask_context(base_dir: Path) -> None:
+    """Generate a bundled context file for `mngr ask`.
+
+    Concatenates all generated command docs into a single file that is
+    included in the package resources. This allows `mngr ask` to provide
+    mngr documentation as context to Claude without relying on the user's
+    project directory.
+    """
+    resources_dir = Path(__file__).parent.parent / "libs" / "mngr" / "imbue" / "mngr" / "resources"
+    output_file = resources_dir / "ask_context.md"
+
+    parts: list[str] = []
+    parts.append("# mngr CLI Documentation\n")
+    parts.append("This is the reference documentation for all mngr commands.\n")
+
+    # Collect all generated command docs
+    for category in ("primary", "secondary"):
+        category_dir = base_dir / category
+        if not category_dir.exists():
+            continue
+        for doc_file in sorted(category_dir.glob("*.md")):
+            content = doc_file.read_text().strip()
+            parts.append(content)
+            parts.append("")
+
+    bundled = "\n---\n\n".join(parts)
+
+    existing = output_file.read_text() if output_file.exists() else None
+    if bundled != existing:
+        output_file.write_text(bundled)
+        print(f"Updated: {output_file}")
+
+
 def main() -> None:
     # Base output directory
     base_dir = Path(__file__).parent.parent / "libs" / "mngr" / "docs" / "commands"
@@ -500,6 +533,9 @@ def main() -> None:
     for cmd in BUILTIN_COMMANDS:
         if cmd.name is not None:
             generate_command_doc(cmd.name, base_dir)
+
+    # Generate bundled context for mngr ask
+    generate_ask_context(base_dir)
 
 
 if __name__ == "__main__":
