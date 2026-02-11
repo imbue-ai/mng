@@ -44,5 +44,6 @@ test-timings:
   PYTEST_MAX_DURATION=6000 uv run pytest --override-ini='cov-fail-under=0' --no-cov -n 0 -m "acceptance or not acceptance" --store-durations
 
 # useful for running against a single test, regardless of how it is marked
+# sets MNGR_TEST_LOG_LEVEL=TRACE for maximum visibility when debugging
 test target:
-  PYTEST_MAX_DURATION=600 uv run pytest -sv --override-ini='cov-fail-under=0' --no-cov -n 0 -m "acceptance or not acceptance" "{{target}}"
+  PYTEST_MAX_DURATION=600 MNGR_TEST_LOG_LEVEL=TRACE uv run pytest -sv --override-ini='cov-fail-under=0' --no-cov -n 0 -m "acceptance or not acceptance" "{{target}}"

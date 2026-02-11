@@ -65,6 +65,15 @@ Only after doing all of the above should you begin writing code.
 - Do not add TODO or FIXME unless explicitly asked to do so
 - To reiterate: code correctness and quality is the most important concern when writing code.
 
+# Test logging
+
+Logging is configured for the test suite via a module-level call in `libs/mngr/imbue/mngr/conftest.py`. This sets up loguru with mngr's standard format and registers the custom BUILD level, so log output during tests matches what you see when running mngr normally.
+
+- Default log level during tests: **INFO**
+- Override via the `MNGR_TEST_LOG_LEVEL` environment variable (e.g. `MNGR_TEST_LOG_LEVEL=TRACE uv run pytest`)
+- `just test <path>` automatically sets `MNGR_TEST_LOG_LEVEL=TRACE` for maximum visibility when debugging a single test
+- Third-party noise (e.g. pyinfra warnings) is suppressed
+
 If desired, the user will explicitly instruct you not to commit.
 
 By default, or if instructed to commit:

@@ -1,6 +1,7 @@
 """Shared pytest fixtures for mngr tests."""
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -16,10 +17,12 @@ import psutil
 import pytest
 import toml
 from click.testing import CliRunner
+from loguru import logger
 from urwid.widget.listbox import SimpleFocusListWalker
 
 import imbue.mngr.main
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
+from imbue.mngr.utils.logging import register_build_level
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
@@ -78,6 +81,43 @@ def _remove_deprecated_urwid_module_aliases() -> None:
 # We use SimpleFocusListWalker to ensure urwid is fully loaded first.
 _ = SimpleFocusListWalker
 _remove_deprecated_urwid_module_aliases()
+
+
+def _setup_test_logging() -> None:
+    """Configure logging for the test session.
+
+    Sets up loguru with the format and level used by mngr, registers the custom
+    BUILD log level, and suppresses noisy third-party loggers (e.g. pyinfra).
+
+    The log level defaults to INFO and can be overridden via the
+    MNGR_TEST_LOG_LEVEL environment variable. Valid values are any loguru level
+    name: TRACE, DEBUG, INFO, WARNING, ERROR. When running a single test via
+    "just test <path>", the level is automatically set to TRACE for maximum
+    visibility.
+    """
+    # Register the custom BUILD level so logger.log("BUILD", ...) works in tests
+    register_build_level()
+
+    # Read desired level from env var (set by "just test" or the user)
+    level = os.environ.get("MNGR_TEST_LOG_LEVEL", "INFO").upper()
+
+    # Remove loguru's default handler and add one with our format
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        level=level,
+        format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    )
+
+    # Suppress noisy third-party loggers that use stdlib logging.
+    # pyinfra logs warnings during file upload retries that mngr already handles.
+    pyinfra_logger = logging.getLogger("pyinfra")
+    pyinfra_logger.setLevel(logging.ERROR)
+
+
+# Configure logging once at module load time (before collection begins).
+# This runs once per pytest process (including each xdist worker).
+_setup_test_logging()
 
 
 # Track test IDs used by this worker/process for cleanup verification.
