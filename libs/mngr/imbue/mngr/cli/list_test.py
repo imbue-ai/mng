@@ -12,7 +12,7 @@ from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.cli.list import _StreamingHumanRenderer
 from imbue.mngr.cli.list import _compute_column_widths
 from imbue.mngr.cli.list import _format_streaming_agent_row
-from imbue.mngr.cli.list import _format_streaming_row
+from imbue.mngr.cli.list import _format_streaming_header_row
 from imbue.mngr.cli.list import _format_value_as_string
 from imbue.mngr.cli.list import _get_field_value
 from imbue.mngr.cli.list import _get_sortable_value
@@ -544,15 +544,15 @@ def _create_test_agent_with_name(name: str) -> AgentInfo:
 
 
 # =============================================================================
-# Tests for _format_streaming_row and _format_streaming_agent_row
+# Tests for _format_streaming_header_row and _format_streaming_agent_row
 # =============================================================================
 
 
-def test_format_streaming_row_header_uses_uppercase_fields() -> None:
-    """_format_streaming_row should produce uppercase, dot-replaced headers."""
+def test_format_streaming_header_row_uses_uppercase_fields() -> None:
+    """_format_streaming_header_row should produce uppercase, dot-replaced headers."""
     fields = ["name", "host", "state"]
     widths = _compute_column_widths(fields)
-    result = _format_streaming_row(fields, widths, is_header=True)
+    result = _format_streaming_header_row(fields, widths)
     assert "NAME" in result
     assert "HOST" in result
     assert "STATE" in result

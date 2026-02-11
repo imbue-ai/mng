@@ -132,7 +132,7 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--sort",
     default="create_time",
-    help="Sort by field (supports nested fields like host.name) [default: create_time]",
+    help="Sort by field (supports nested fields like host.name); enables sorted (non-streaming) output [default: create_time]",
 )
 @optgroup.option(
     "--sort-order",
@@ -408,7 +408,7 @@ class _StreamingHumanRenderer(MutableModel):
 
             # Write header on first agent
             if not self._is_header_written:
-                header_line = _format_streaming_row(self.fields, self._column_widths, is_header=True)
+                header_line = _format_streaming_header_row(self.fields, self._column_widths)
                 sys.stdout.write(header_line + "\n")
                 self._is_header_written = True
 
@@ -483,12 +483,12 @@ def _compute_column_widths(fields: Sequence[str]) -> dict[str, int]:
     return width_by_field
 
 
-def _format_streaming_row(fields: Sequence[str], column_widths: dict[str, int], is_header: bool) -> str:
-    """Format a single row of streaming output with computed column widths."""
+def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str, int]) -> str:
+    """Format the header row of streaming output with computed column widths."""
     parts: list[str] = []
     for field in fields:
         width = column_widths.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
-        value = field.upper().replace(".", "_") if is_header else ""
+        value = field.upper().replace(".", "_")
         parts.append(value.ljust(width))
     return _COLUMN_SEPARATOR.join(parts)
 
