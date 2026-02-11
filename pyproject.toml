@@ -35,11 +35,12 @@ dev = [
 timeout_func_only = true
 pythonpath = [
   "apps/*",
-  "libs/*"
+  "libs/*",
 ]
 testpaths = [
   "apps/*",
   "libs/*",
+  "scripts",
 ]
 filterwarnings = [
   # Suppress grpclib warning that occurs during garbage collection when Channel.__del__ is called
