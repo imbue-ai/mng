@@ -246,8 +246,8 @@ class Host(BaseHost, OnlineHostInterface):
                     except (OSError, EOFError, SSHException) as retry_exception:
                         self.provider_instance.on_connection_error(self.id)
                         raise HostConnectionError(
-                            f"Connection was closed while reading file (and our retry failed because {retry_exception})"
-                        ) from e
+                            "Connection was closed while reading file (and our retry failed)"
+                        ) from retry_exception
                     else:
                         self.provider_instance.on_connection_error(self.id)
                         raise HostConnectionError(
@@ -292,8 +292,8 @@ class Host(BaseHost, OnlineHostInterface):
                 except (OSError, EOFError, SSHException) as retry_exception:
                     self.provider_instance.on_connection_error(self.id)
                     raise HostConnectionError(
-                        f"Connection was closed while writing file (and our retry failed because {retry_exception})"
-                    ) from e
+                        "Connection was closed while writing file (and our retry failed)"
+                    ) from retry_exception
                 else:
                     self.provider_instance.on_connection_error(self.id)
                     raise HostConnectionError(
