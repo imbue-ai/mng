@@ -100,12 +100,19 @@ def wait_for_agent_completion(
 
 
 def stop_agent(agent_identifier: str) -> None:
-    """Stop a timed-out agent via mngr stop."""
-    subprocess.run(
+    """Stop a timed-out agent via mngr stop.
+
+    Raises click.ClickException if the stop command fails.
+    """
+    result = subprocess.run(
         ["uv", "run", "mngr", "stop", agent_identifier],
         capture_output=True,
         text=True,
     )
+    if result.returncode != 0:
+        raise click.ClickException(
+            f"Failed to stop agent {agent_identifier} (exit code {result.returncode}).\nstderr: {result.stderr}"
+        )
 
 
 @click.command()
