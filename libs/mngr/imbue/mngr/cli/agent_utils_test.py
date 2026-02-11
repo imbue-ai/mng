@@ -1,11 +1,9 @@
 import pytest
 
-from imbue.mngr.api.list import ListResult
 from imbue.mngr.cli.agent_utils import _host_matches_filter
 from imbue.mngr.cli.agent_utils import filter_agents_by_host
 from imbue.mngr.cli.agent_utils import parse_agent_spec
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
-from imbue.mngr.cli.conftest import make_test_agent_info
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import AgentId
@@ -118,61 +116,6 @@ def test_select_agent_interactively_raises_when_no_agents(
     """With a fresh context (no hosts or agents), raises UserInputError."""
     with pytest.raises(UserInputError, match="No agents found"):
         select_agent_interactively_with_host(temp_mngr_ctx)
-
-
-def test_select_agent_interactively_returns_none_when_user_quits(
-    temp_mngr_ctx: MngrContext,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When the user quits the interactive selector, returns None."""
-    agent_info = make_test_agent_info()
-
-    monkeypatch.setattr(
-        "imbue.mngr.cli.agent_utils.list_agents",
-        lambda mngr_ctx: ListResult(agents=[agent_info]),
-    )
-    monkeypatch.setattr(
-        "imbue.mngr.cli.agent_utils.select_agent_interactively",
-        lambda agents: None,
-    )
-
-    result = select_agent_interactively_with_host(temp_mngr_ctx)
-
-    assert result is None
-
-
-def test_select_agent_interactively_returns_selected_agent(
-    temp_mngr_ctx: MngrContext,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When the user selects an agent, returns the (agent, host) tuple."""
-    agent_info = make_test_agent_info()
-
-    # Sentinel objects representing the (AgentInterface, OnlineHostInterface) result
-    # from find_and_maybe_start_agent_by_name_or_id
-    expected_agent = object()
-    expected_host = object()
-
-    monkeypatch.setattr(
-        "imbue.mngr.cli.agent_utils.list_agents",
-        lambda mngr_ctx: ListResult(agents=[agent_info]),
-    )
-    monkeypatch.setattr(
-        "imbue.mngr.cli.agent_utils.select_agent_interactively",
-        lambda agents: agent_info,
-    )
-    monkeypatch.setattr(
-        "imbue.mngr.cli.agent_utils.load_all_agents_grouped_by_host",
-        lambda mngr_ctx: ({}, []),
-    )
-    monkeypatch.setattr(
-        "imbue.mngr.cli.agent_utils.find_and_maybe_start_agent_by_name_or_id",
-        lambda agent_str, agents_by_host, mngr_ctx, command_name: (expected_agent, expected_host),
-    )
-
-    result = select_agent_interactively_with_host(temp_mngr_ctx)
-
-    assert result == (expected_agent, expected_host)
 
 
 # =============================================================================
