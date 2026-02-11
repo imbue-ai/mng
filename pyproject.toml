@@ -35,11 +35,12 @@ dev = [
 timeout_func_only = true
 pythonpath = [
   "apps/*",
-  "libs/*"
+  "libs/*",
 ]
 testpaths = [
   "apps/*",
   "libs/*",
+  "scripts",
 ]
 filterwarnings = [
   # Suppress grpclib warning that occurs during garbage collection when Channel.__del__ is called
@@ -134,6 +135,8 @@ omit = [
     "libs/imbue_common/imbue/imbue_common/ratchet_testing/ratchets.py",
     # Modal provider requires network access for testing
     "libs/mngr/imbue/mngr/providers/modal/*",
+    # don't bother with anything in scripts
+    "scripts/*",
 ]
 
 [tool.coverage.report]
