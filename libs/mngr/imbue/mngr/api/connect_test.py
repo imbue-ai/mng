@@ -1,19 +1,33 @@
-# FIXME0: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 """Unit tests for the connect API module."""
 
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
-from unittest.mock import MagicMock
-from unittest.mock import patch
+from typing import Any
+from uuid import uuid4
 
 import pytest
+from pyinfra.api import Host as PyinfraHost
+from pyinfra.api import State as PyinfraState
+from pyinfra.api.inventory import Inventory
 
+from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.api.connect import SIGNAL_EXIT_CODE_DESTROY
 from imbue.mngr.api.connect import SIGNAL_EXIT_CODE_STOP
 from imbue.mngr.api.connect import _build_ssh_activity_wrapper_script
 from imbue.mngr.api.connect import _build_ssh_args
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.data_types import ConnectionOptions
+from imbue.mngr.config.data_types import AgentTypeConfig
+from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
+from imbue.mngr.hosts.host import Host
+from imbue.mngr.interfaces.data_types import PyinfraConnector
+from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentTypeName
+from imbue.mngr.primitives import HostId
+from imbue.mngr.providers.local.instance import LocalProviderInstance
 
 
 def test_build_ssh_activity_wrapper_script_creates_activity_directory() -> None:
@@ -106,30 +120,75 @@ def test_build_ssh_activity_wrapper_script_signal_file_uses_session_name() -> No
 # =========================================================================
 
 
-def _make_mock_host(
+def _create_pyinfra_ssh_host(
+    hostname: str,
+    data: dict[str, Any],
+) -> PyinfraHost:
+    """Create a real pyinfra Host with the given SSH connection data."""
+    names_data = ([(hostname, data)], {})
+    inventory = Inventory(names_data)
+    state = PyinfraState(inventory=inventory)
+    pyinfra_host = inventory.get_host(hostname)
+    pyinfra_host.init(state)
+    return pyinfra_host
+
+
+def _make_ssh_host(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
     hostname: str = "example.com",
     ssh_user: str | None = "ubuntu",
     ssh_port: int | None = 22,
     ssh_key: str | None = "/home/user/.ssh/id_rsa",
     ssh_known_hosts_file: str | None = None,
-) -> MagicMock:
-    """Create a mock OnlineHostInterface with pyinfra connector data for SSH tests."""
-    mock_host = MagicMock()
-    mock_pyinfra_host = MagicMock()
-    mock_pyinfra_host.name = hostname
-    mock_pyinfra_host.data.get = lambda key, default=None: {
-        "ssh_user": ssh_user,
-        "ssh_port": ssh_port,
-        "ssh_key": ssh_key,
-        "ssh_known_hosts_file": ssh_known_hosts_file,
-    }.get(key, default)
-    mock_host.connector.host = mock_pyinfra_host
-    return mock_host
+) -> Host:
+    """Create a real Host with an SSH pyinfra connector for testing."""
+    host_data: dict[str, Any] = {}
+    if ssh_user is not None:
+        host_data["ssh_user"] = ssh_user
+    if ssh_port is not None:
+        host_data["ssh_port"] = ssh_port
+    if ssh_key is not None:
+        host_data["ssh_key"] = ssh_key
+    if ssh_known_hosts_file is not None:
+        host_data["ssh_known_hosts_file"] = ssh_known_hosts_file
+
+    pyinfra_host = _create_pyinfra_ssh_host(hostname, host_data)
+    connector = PyinfraConnector(pyinfra_host)
+
+    return Host(
+        id=HostId(f"host-{uuid4().hex}"),
+        connector=connector,
+        provider_instance=local_provider,
+        mngr_ctx=temp_mngr_ctx,
+    )
 
 
-def test_build_ssh_args_with_known_hosts_file() -> None:
+def _make_remote_agent(
+    host: Host,
+    temp_mngr_ctx: MngrContext,
+    agent_name: str = "test-agent",
+) -> BaseAgent:
+    """Create a real BaseAgent on a remote host for testing connect_to_agent."""
+    return BaseAgent(
+        id=AgentId(f"agent-{uuid4().hex}"),
+        name=AgentName(agent_name),
+        agent_type=AgentTypeName("test"),
+        work_dir=Path("/tmp/work"),
+        create_time=datetime.now(timezone.utc),
+        host_id=host.id,
+        mngr_ctx=temp_mngr_ctx,
+        agent_config=AgentTypeConfig(),
+        host=host,
+    )
+
+
+def test_build_ssh_args_with_known_hosts_file(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+) -> None:
     """Test that _build_ssh_args uses StrictHostKeyChecking=yes with a known_hosts file."""
-    host = _make_mock_host(ssh_known_hosts_file="/tmp/known_hosts")
+    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
     args = _build_ssh_args(host, opts)
@@ -143,9 +202,12 @@ def test_build_ssh_args_with_known_hosts_file() -> None:
     assert "ubuntu@example.com" in args
 
 
-def test_build_ssh_args_with_allow_unknown_host() -> None:
+def test_build_ssh_args_with_allow_unknown_host(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+) -> None:
     """Test that _build_ssh_args disables host key checking when allowed."""
-    host = _make_mock_host(ssh_known_hosts_file=None)
+    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file=None)
     opts = ConnectionOptions(is_unknown_host_allowed=True)
 
     args = _build_ssh_args(host, opts)
@@ -154,18 +216,24 @@ def test_build_ssh_args_with_allow_unknown_host() -> None:
     assert "UserKnownHostsFile=/dev/null" in " ".join(args)
 
 
-def test_build_ssh_args_raises_without_known_hosts_or_allow_unknown() -> None:
+def test_build_ssh_args_raises_without_known_hosts_or_allow_unknown(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+) -> None:
     """Test that _build_ssh_args raises MngrError when no known_hosts and not allowing unknown."""
-    host = _make_mock_host(ssh_known_hosts_file=None)
+    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file=None)
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
     with pytest.raises(MngrError, match="known_hosts"):
         _build_ssh_args(host, opts)
 
 
-def test_build_ssh_args_without_user() -> None:
+def test_build_ssh_args_without_user(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+) -> None:
     """Test that _build_ssh_args omits user@ when ssh_user is None."""
-    host = _make_mock_host(ssh_user=None, ssh_known_hosts_file="/tmp/known_hosts")
+    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_user=None, ssh_known_hosts_file="/tmp/known_hosts")
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
     args = _build_ssh_args(host, opts)
@@ -175,9 +243,12 @@ def test_build_ssh_args_without_user() -> None:
     assert not any("@" in arg for arg in args)
 
 
-def test_build_ssh_args_without_port() -> None:
+def test_build_ssh_args_without_port(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+) -> None:
     """Test that _build_ssh_args omits -p when ssh_port is None."""
-    host = _make_mock_host(ssh_port=None, ssh_known_hosts_file="/tmp/known_hosts")
+    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_port=None, ssh_known_hosts_file="/tmp/known_hosts")
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
     args = _build_ssh_args(host, opts)
@@ -185,9 +256,12 @@ def test_build_ssh_args_without_port() -> None:
     assert "-p" not in args
 
 
-def test_build_ssh_args_without_key() -> None:
+def test_build_ssh_args_without_key(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+) -> None:
     """Test that _build_ssh_args omits -i when ssh_key is None."""
-    host = _make_mock_host(ssh_key=None, ssh_known_hosts_file="/tmp/known_hosts")
+    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_key=None, ssh_known_hosts_file="/tmp/known_hosts")
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
     args = _build_ssh_args(host, opts)
@@ -195,9 +269,12 @@ def test_build_ssh_args_without_key() -> None:
     assert "-i" not in args
 
 
-def test_build_ssh_args_known_hosts_dev_null_treated_as_missing() -> None:
+def test_build_ssh_args_known_hosts_dev_null_treated_as_missing(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+) -> None:
     """Test that /dev/null known_hosts is treated as no known_hosts file."""
-    host = _make_mock_host(ssh_known_hosts_file="/dev/null")
+    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/dev/null")
     opts = ConnectionOptions(is_unknown_host_allowed=True)
 
     args = _build_ssh_args(host, opts)
@@ -211,91 +288,102 @@ def test_build_ssh_args_known_hosts_dev_null_treated_as_missing() -> None:
 # =========================================================================
 
 
-def _make_mock_remote_host_and_agent(
-    prefix: str = "mngr-",
-    agent_name: str = "test-agent",
-) -> tuple[MagicMock, MagicMock, MagicMock]:
-    """Create mock agent, host, and mngr_ctx for testing connect_to_agent.
-
-    Returns (agent, host, mngr_ctx).
-    """
-    agent = MagicMock()
-    agent.name = agent_name
-
-    host = _make_mock_host(ssh_known_hosts_file="/tmp/known_hosts")
-    host.is_local = False
-    host.host_dir = Path("/remote/.mngr")
-
-    mngr_ctx = MagicMock()
-    mngr_ctx.config.prefix = prefix
-
-    return agent, host, mngr_ctx
-
-
-@patch("imbue.mngr.api.connect.os.execvp")
-@patch("imbue.mngr.api.connect.subprocess.call")
-def test_connect_to_agent_remote_destroy_signal(mock_call: MagicMock, mock_execvp: MagicMock) -> None:
+def test_connect_to_agent_remote_destroy_signal(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that connect_to_agent exec's into mngr destroy when SSH exits with SIGNAL_EXIT_CODE_DESTROY."""
-    agent, host, mngr_ctx = _make_mock_remote_host_and_agent()
+    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
+    agent = _make_remote_agent(host, temp_mngr_ctx)
     opts = ConnectionOptions(is_unknown_host_allowed=False)
-    mock_call.return_value = SIGNAL_EXIT_CODE_DESTROY
+    expected_session = f"{temp_mngr_ctx.config.prefix}{agent.name}"
 
-    connect_to_agent(agent, host, mngr_ctx, opts)
+    execvp_calls: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr("imbue.mngr.api.connect.subprocess.call", lambda args: SIGNAL_EXIT_CODE_DESTROY)
+    monkeypatch.setattr("imbue.mngr.api.connect.os.execvp", lambda cmd, args: execvp_calls.append((cmd, list(args))))
 
-    mock_call.assert_called_once()
-    mock_execvp.assert_called_once_with("mngr", ["mngr", "destroy", "--session", "mngr-test-agent", "-f"])
+    connect_to_agent(agent, host, temp_mngr_ctx, opts)
+
+    assert len(execvp_calls) == 1
+    assert execvp_calls[0] == ("mngr", ["mngr", "destroy", "--session", expected_session, "-f"])
 
 
-@patch("imbue.mngr.api.connect.os.execvp")
-@patch("imbue.mngr.api.connect.subprocess.call")
-def test_connect_to_agent_remote_stop_signal(mock_call: MagicMock, mock_execvp: MagicMock) -> None:
+def test_connect_to_agent_remote_stop_signal(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that connect_to_agent exec's into mngr stop when SSH exits with SIGNAL_EXIT_CODE_STOP."""
-    agent, host, mngr_ctx = _make_mock_remote_host_and_agent()
+    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
+    agent = _make_remote_agent(host, temp_mngr_ctx)
     opts = ConnectionOptions(is_unknown_host_allowed=False)
-    mock_call.return_value = SIGNAL_EXIT_CODE_STOP
+    expected_session = f"{temp_mngr_ctx.config.prefix}{agent.name}"
 
-    connect_to_agent(agent, host, mngr_ctx, opts)
+    execvp_calls: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr("imbue.mngr.api.connect.subprocess.call", lambda args: SIGNAL_EXIT_CODE_STOP)
+    monkeypatch.setattr("imbue.mngr.api.connect.os.execvp", lambda cmd, args: execvp_calls.append((cmd, list(args))))
 
-    mock_call.assert_called_once()
-    mock_execvp.assert_called_once_with("mngr", ["mngr", "stop", "--session", "mngr-test-agent"])
+    connect_to_agent(agent, host, temp_mngr_ctx, opts)
+
+    assert len(execvp_calls) == 1
+    assert execvp_calls[0] == ("mngr", ["mngr", "stop", "--session", expected_session])
 
 
-@patch("imbue.mngr.api.connect.os.execvp")
-@patch("imbue.mngr.api.connect.subprocess.call")
-def test_connect_to_agent_remote_normal_exit_no_action(mock_call: MagicMock, mock_execvp: MagicMock) -> None:
+def test_connect_to_agent_remote_normal_exit_no_action(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that connect_to_agent does not exec into anything on normal SSH exit (code 0)."""
-    agent, host, mngr_ctx = _make_mock_remote_host_and_agent()
+    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
+    agent = _make_remote_agent(host, temp_mngr_ctx)
     opts = ConnectionOptions(is_unknown_host_allowed=False)
-    mock_call.return_value = 0
 
-    connect_to_agent(agent, host, mngr_ctx, opts)
+    execvp_calls: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr("imbue.mngr.api.connect.subprocess.call", lambda args: 0)
+    monkeypatch.setattr("imbue.mngr.api.connect.os.execvp", lambda cmd, args: execvp_calls.append((cmd, list(args))))
 
-    mock_call.assert_called_once()
-    mock_execvp.assert_not_called()
+    connect_to_agent(agent, host, temp_mngr_ctx, opts)
+
+    assert len(execvp_calls) == 0
 
 
-@patch("imbue.mngr.api.connect.os.execvp")
-@patch("imbue.mngr.api.connect.subprocess.call")
-def test_connect_to_agent_remote_unknown_exit_code_no_action(mock_call: MagicMock, mock_execvp: MagicMock) -> None:
+def test_connect_to_agent_remote_unknown_exit_code_no_action(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that connect_to_agent does not exec into anything on unexpected SSH exit codes."""
-    agent, host, mngr_ctx = _make_mock_remote_host_and_agent()
+    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
+    agent = _make_remote_agent(host, temp_mngr_ctx)
     opts = ConnectionOptions(is_unknown_host_allowed=False)
-    mock_call.return_value = 255
 
-    connect_to_agent(agent, host, mngr_ctx, opts)
+    execvp_calls: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr("imbue.mngr.api.connect.subprocess.call", lambda args: 255)
+    monkeypatch.setattr("imbue.mngr.api.connect.os.execvp", lambda cmd, args: execvp_calls.append((cmd, list(args))))
 
-    mock_call.assert_called_once()
-    mock_execvp.assert_not_called()
+    connect_to_agent(agent, host, temp_mngr_ctx, opts)
+
+    assert len(execvp_calls) == 0
 
 
-@patch("imbue.mngr.api.connect.os.execvp")
-@patch("imbue.mngr.api.connect.subprocess.call")
-def test_connect_to_agent_remote_uses_correct_session_name(mock_call: MagicMock, mock_execvp: MagicMock) -> None:
+def test_connect_to_agent_remote_uses_correct_session_name(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that connect_to_agent constructs the session name from prefix + agent name."""
-    agent, host, mngr_ctx = _make_mock_remote_host_and_agent(prefix="custom-", agent_name="my-agent")
+    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
+    agent = _make_remote_agent(host, temp_mngr_ctx, agent_name="my-agent")
     opts = ConnectionOptions(is_unknown_host_allowed=False)
-    mock_call.return_value = SIGNAL_EXIT_CODE_DESTROY
+    expected_session = f"{temp_mngr_ctx.config.prefix}my-agent"
 
-    connect_to_agent(agent, host, mngr_ctx, opts)
+    execvp_calls: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr("imbue.mngr.api.connect.subprocess.call", lambda args: SIGNAL_EXIT_CODE_DESTROY)
+    monkeypatch.setattr("imbue.mngr.api.connect.os.execvp", lambda cmd, args: execvp_calls.append((cmd, list(args))))
 
-    mock_execvp.assert_called_once_with("mngr", ["mngr", "destroy", "--session", "custom-my-agent", "-f"])
+    connect_to_agent(agent, host, temp_mngr_ctx, opts)
+
+    assert len(execvp_calls) == 1
+    assert execvp_calls[0] == ("mngr", ["mngr", "destroy", "--session", expected_session, "-f"])
