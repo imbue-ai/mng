@@ -37,18 +37,12 @@ def parse_agent_identifier(stdout: str, stderr: str) -> str:
     )
 
 
-def get_agent_state(agent_identifier: str) -> str | None:
-    """Get the lifecycle state of an agent by running mngr list.
+def find_agent_state_in_jsonl(jsonl_output: str, agent_identifier: str) -> str | None:
+    """Parse JSONL output from mngr list to find an agent's state.
 
     Returns the state string (e.g. "WAITING", "RUNNING") or None if not found.
     """
-    result = subprocess.run(
-        ["uv", "run", "mngr", "list", "--provider", "local", "--format", "jsonl"],
-        capture_output=True,
-        text=True,
-    )
-
-    for line in result.stdout.strip().splitlines():
+    for line in jsonl_output.strip().splitlines():
         line = line.strip()
         if not line:
             continue
@@ -65,14 +59,29 @@ def get_agent_state(agent_identifier: str) -> str | None:
     return None
 
 
+def get_agent_state(agent_identifier: str) -> str | None:
+    """Get the lifecycle state of an agent by running mngr list.
+
+    Returns the state string (e.g. "WAITING", "RUNNING") or None if not found.
+    """
+    result = subprocess.run(
+        ["uv", "run", "mngr", "list", "--provider", "local", "--format", "jsonl"],
+        capture_output=True,
+        text=True,
+    )
+
+    return find_agent_state_in_jsonl(result.stdout, agent_identifier)
+
+
 def wait_for_agent_completion(
     agent_identifier: str,
     max_task_time: float,
     poll_interval: float,
 ) -> bool:
-    """Poll mngr list until agent reaches WAITING state or timeout.
+    """Poll mngr list until agent reaches a terminal state or timeout.
 
-    Returns True if the agent completed (reached WAITING), False on timeout.
+    Returns True if the agent completed (WAITING, DONE, STOPPED, or REPLACED),
+    False on timeout.
     """
     start_time = time.time()
 
@@ -83,12 +92,8 @@ def wait_for_agent_completion(
 
         state = get_agent_state(agent_identifier)
 
-        # WAITING means the agent finished its task and is waiting for input
-        if state == "WAITING":
-            return True
-
-        # DONE or STOPPED also indicate completion
-        if state in ("DONE", "STOPPED"):
+        # Any terminal state means the agent is no longer actively running
+        if state in ("WAITING", "DONE", "STOPPED", "REPLACED"):
             return True
 
         time.sleep(poll_interval)
