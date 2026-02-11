@@ -1,7 +1,5 @@
 import platform
 import shutil
-import subprocess
-import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Final
@@ -12,6 +10,8 @@ from loguru import logger
 from pydantic import Field
 from pydantic import PrivateAttr
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.local_process import RunningProcess
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.pull import pull_git
@@ -53,6 +53,7 @@ class GitSyncAction(FrozenModel):
 class UnisonSyncer(MutableModel):
     """Manages a unison process for continuous bidirectional file synchronization."""
 
+    cg: ConcurrencyGroup = Field(frozen=True, description="Concurrency group for managing the unison process")
     source_path: Path = Field(frozen=True, description="Source directory to sync from")
     target_path: Path = Field(frozen=True, description="Target directory to sync to")
     sync_direction: SyncDirection = Field(
@@ -75,9 +76,7 @@ class UnisonSyncer(MutableModel):
         default=(),
         description="Glob patterns to include in sync",
     )
-    _process: subprocess.Popen | None = PrivateAttr(default=None)
-    _stop_event: threading.Event = PrivateAttr(default_factory=threading.Event)
-    _output_thread: threading.Thread | None = PrivateAttr(default=None)
+    _running_process: RunningProcess | None = PrivateAttr(default=None)
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -127,79 +126,36 @@ class UnisonSyncer(MutableModel):
 
         return cmd
 
-    def _read_output(self) -> None:
-        """Read and log output from the unison process."""
-        if self._process is None or self._process.stdout is None:
-            return
-
-        try:
-            for line in iter(self._process.stdout.readline, ""):
-                if self._stop_event.is_set():
-                    break
-                stripped_line = line.rstrip()
-                if stripped_line:
-                    logger.debug("unison: {}", stripped_line)
-        except (OSError, ValueError):
-            # OSError: broken pipe / I/O error when process terminates
-            # ValueError: I/O operation on closed file
-            logger.debug("unison output reader stopped")
-
     def start(self) -> None:
         """Start the unison sync process."""
         cmd = self._build_unison_command()
         logger.debug("Starting unison with command: {}", " ".join(cmd))
 
-        self._process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-
-        # Start a thread to read and log output
-        self._output_thread = threading.Thread(
-            target=self._read_output,
-            daemon=True,
-        )
-        self._output_thread.start()
+        self._running_process = self.cg.run_process_in_background(cmd)
 
         logger.info("Started continuous sync between {} and {}", self.source_path, self.target_path)
 
     def stop(self) -> None:
         """Stop the unison sync process gracefully."""
-        self._stop_event.set()
-
-        if self._process is not None:
+        if self._running_process is not None:
             logger.debug("Stopping unison process")
-            # Send SIGTERM for graceful shutdown
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=5.0)
-            except subprocess.TimeoutExpired:
-                logger.warning("unison did not terminate gracefully, killing")
-                self._process.kill()
-                self._process.wait()
-
-            self._process = None
-
-        if self._output_thread is not None and self._output_thread.is_alive():
-            self._output_thread.join(timeout=1.0)
-            self._output_thread = None
+            self._running_process.terminate()
+            self._running_process = None
 
         logger.info("Stopped continuous sync")
 
     def wait(self) -> int:
         """Wait for the unison process to complete and return the exit code."""
-        if self._process is None:
+        if self._running_process is None:
             return 0
-        return self._process.wait()
+        return self._running_process.wait()
 
     @property
     def is_running(self) -> bool:
         """Check if the unison process is currently running."""
-        if self._process is None:
+        if self._running_process is None:
             return False
-        return self._process.poll() is None
+        return not self._running_process.is_finished()
 
 
 def check_unison_installed() -> bool:
@@ -216,6 +172,7 @@ def check_unison_installed() -> bool:
 
 
 def determine_git_sync_actions(
+    cg: ConcurrencyGroup,
     agent_path: Path,
     local_path: Path,
 ) -> GitSyncAction | None:
@@ -225,14 +182,14 @@ def determine_git_sync_actions(
     local into agent's object store (a read-only side effect on agent's repo)
     to enable ancestry comparison.
     """
-    if not is_git_repository(agent_path) or not is_git_repository(local_path):
+    if not is_git_repository(cg, agent_path) or not is_git_repository(cg, local_path):
         return None
 
-    agent_branch = get_current_branch(agent_path)
-    local_branch = get_current_branch(local_path)
+    agent_branch = get_current_branch(cg, agent_path)
+    local_branch = get_current_branch(cg, local_path)
 
-    agent_commit = get_head_commit(agent_path)
-    local_commit = get_head_commit(local_path)
+    agent_commit = get_head_commit(cg, agent_path)
+    local_commit = get_head_commit(cg, local_path)
 
     if agent_commit is None or local_commit is None:
         return GitSyncAction(
@@ -248,12 +205,11 @@ def determine_git_sync_actions(
 
     # Fetch local refs into agent's object store so we can compare ancestry.
     # This only adds git objects -- it does not modify branches or working tree.
-    fetch_result = subprocess.run(
+    fetch_result = cg.run_process_to_completion(
         ["git", "fetch", str(local_path), local_branch],
         cwd=agent_path,
-        capture_output=True,
-        text=True,
         timeout=_GIT_FETCH_TIMEOUT_SECONDS,
+        is_checked_after=False,
     )
     if fetch_result.returncode != 0:
         logger.warning(
@@ -266,8 +222,8 @@ def determine_git_sync_actions(
         )
 
     # Check ancestry from the agent repo (which now has both sets of objects)
-    agent_ahead = is_ancestor(agent_path, local_commit, agent_commit)
-    local_ahead = is_ancestor(agent_path, agent_commit, local_commit)
+    agent_ahead = is_ancestor(cg, agent_path, local_commit, agent_commit)
+    local_ahead = is_ancestor(cg, agent_path, agent_commit, local_commit)
 
     if agent_ahead and not local_ahead:
         return GitSyncAction(
@@ -291,6 +247,7 @@ def determine_git_sync_actions(
 
 
 def sync_git_state(
+    cg: ConcurrencyGroup,
     agent: AgentInterface,
     host: OnlineHostInterface,
     local_path: Path,
@@ -336,6 +293,7 @@ def sync_git_state(
 
 @contextmanager
 def pair_files(
+    cg: ConcurrencyGroup,
     agent: AgentInterface,
     host: OnlineHostInterface,
     agent_path: Path,
@@ -374,8 +332,8 @@ def pair_files(
         )
 
     # Check git requirements
-    agent_is_git = is_git_repository(agent_path)
-    local_is_git = is_git_repository(local_path)
+    agent_is_git = is_git_repository(cg, agent_path)
+    local_is_git = is_git_repository(cg, local_path)
 
     if is_require_git and not (agent_is_git and local_is_git):
         missing = []
@@ -391,7 +349,7 @@ def pair_files(
     # Determine and perform git sync (skip when --no-require-git is set,
     # since the user explicitly opted out of git-based behavior)
     if is_require_git and agent_is_git and local_is_git:
-        git_action = determine_git_sync_actions(agent_path, local_path)
+        git_action = determine_git_sync_actions(cg, agent_path, local_path)
         if git_action is not None and (git_action.agent_is_ahead or git_action.local_is_ahead):
             logger.info(
                 "Synchronizing git state (agent_ahead={}, local_ahead={})",
@@ -399,6 +357,7 @@ def pair_files(
                 git_action.local_is_ahead,
             )
             sync_git_state(
+                cg=cg,
                 agent=agent,
                 host=host,
                 local_path=local_path,
@@ -408,6 +367,7 @@ def pair_files(
 
     # Create and start the syncer
     syncer = UnisonSyncer(
+        cg=cg,
         source_path=agent_path,
         target_path=local_path,
         sync_direction=sync_direction,

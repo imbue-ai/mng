@@ -1,6 +1,5 @@
 import contextlib
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 from typing import ClassVar
@@ -14,6 +13,8 @@ from tenacity import retry_if_exception_type
 from tenacity import stop_after_attempt
 from tenacity import wait_exponential
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.mngr import hookimpl
@@ -42,7 +43,7 @@ class ModalDeployFailedError(MngrError):
 
 
 # FIXME: this should just be renamed to _create_environment, and we should delete the first check, since it is only called when the env is missing
-def _ensure_environment_exists(environment_name: str) -> None:
+def _ensure_environment_exists(cg: ConcurrencyGroup, environment_name: str) -> None:
     """Ensure a Modal environment exists, creating it if necessary.
 
     Modal environments must be created before they can be used to scope resources
@@ -58,11 +59,10 @@ def _ensure_environment_exists(environment_name: str) -> None:
 
     # Check if the environment exists by listing environments
     try:
-        result = subprocess.run(
+        result = cg.run_process_to_completion(
             ["uv", "run", "modal", "environment", "list", "--json"],
-            capture_output=True,
-            text=True,
             timeout=30,
+            is_checked_after=False,
         )
         if result.returncode == 0:
             environments = json.loads(result.stdout)
@@ -70,28 +70,31 @@ def _ensure_environment_exists(environment_name: str) -> None:
                 if env.get("name") == environment_name:
                     logger.trace("Found existing Modal environment: {}", environment_name)
                     return
-    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError):
+    except (ProcessSetupError, json.JSONDecodeError):
         # If we can't list environments, try to create anyway
         pass
 
     # Environment doesn't exist, create it
     with log_span("Creating Modal environment: {}", environment_name):
         try:
-            result = subprocess.run(
+            result = cg.run_process_to_completion(
                 ["uv", "run", "modal", "environment", "create", environment_name],
-                capture_output=True,
-                text=True,
                 timeout=30,
+                is_checked_after=False,
             )
             if result.returncode == 0:
                 logger.info("Created Modal environment: {}", environment_name)
+            elif result.is_timed_out:
+                raise ModalDeployFailedError("Modal environment create timed out")
             else:
                 raise ModalDeployFailedError(f"Modal environment create returned non-zero: {result.stderr}")
-        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError, ModalDeployFailedError) as e:
+        except (ProcessSetupError, ModalDeployFailedError) as e:
             logger.warning("Failed to create Modal environment via CLI: {}", e)
 
 
-def _lookup_persistent_app_with_env_retry(app_name: str, environment_name: str) -> modal.App:
+def _lookup_persistent_app_with_env_retry(
+    cg: ConcurrencyGroup, app_name: str, environment_name: str
+) -> modal.App:
     """Look up or create a persistent Modal app, retrying if the environment is not found.
 
     On the first NotFoundError, creates the environment and retries with exponential backoff
@@ -102,7 +105,7 @@ def _lookup_persistent_app_with_env_retry(app_name: str, environment_name: str) 
         return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
     except modal.exception.NotFoundError:
         # Ensure the environment exists before retrying
-        _ensure_environment_exists(environment_name)
+        _ensure_environment_exists(cg, environment_name)
         return _lookup_persistent_app_with_retry(app_name, environment_name)
 
 
@@ -118,7 +121,9 @@ def _lookup_persistent_app_with_retry(app_name: str, environment_name: str) -> m
         return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
 
 
-def _enter_ephemeral_app_context_with_env_retry(app: modal.App, environment_name: str) -> Any:
+def _enter_ephemeral_app_context_with_env_retry(
+    cg: ConcurrencyGroup, app: modal.App, environment_name: str
+) -> Any:
     """Enter an ephemeral Modal app's run context, retrying if the environment is not found.
 
     On the first NotFoundError, creates the environment and retries with exponential backoff
@@ -131,7 +136,7 @@ def _enter_ephemeral_app_context_with_env_retry(app: modal.App, environment_name
         return run_context
     except modal.exception.NotFoundError:
         # Ensure the environment exists before retrying
-        _ensure_environment_exists(environment_name)
+        _ensure_environment_exists(cg, environment_name)
         return _enter_ephemeral_app_context_with_retry(app, environment_name)
 
 
@@ -213,7 +218,7 @@ class ModalProviderBackend(ProviderBackendInterface):
 
     @classmethod
     def _get_or_create_app(
-        cls, app_name: str, environment_name: str, is_persistent: bool
+        cls, cg: ConcurrencyGroup, app_name: str, environment_name: str, is_persistent: bool
     ) -> tuple[modal.App, ModalAppContextHandle]:
         """Get or create a Modal app with output capture.
 
@@ -243,7 +248,7 @@ class ModalProviderBackend(ProviderBackendInterface):
             output_buffer, loguru_writer = output_capture_context.__enter__()
 
             if is_persistent:
-                app = _lookup_persistent_app_with_env_retry(app_name, environment_name)
+                app = _lookup_persistent_app_with_env_retry(cg, app_name, environment_name)
                 run_context = None
             else:
                 # Create the Modal app
@@ -251,7 +256,7 @@ class ModalProviderBackend(ProviderBackendInterface):
 
                 # Enter the app.run() context manager manually so we can return the app
                 # while keeping the context active until close() is called
-                run_context = _enter_ephemeral_app_context_with_env_retry(app, environment_name)
+                run_context = _enter_ephemeral_app_context_with_env_retry(cg, app, environment_name)
 
             # Set app metadata on the loguru writer for structured logging
             if loguru_writer is not None:
@@ -419,9 +424,12 @@ Supported build arguments for the modal provider:
             app_name = app_name[:max_app_name_length]
 
         # Create the ModalProviderApp that manages the Modal app and its resources
+        cg = mngr_ctx.concurrency_group
+        if cg is None:
+            raise MngrError("No concurrency group available on MngrContext")
         try:
             app, context_handle = ModalProviderBackend._get_or_create_app(
-                app_name, environment_name, config.is_persistent
+                cg, app_name, environment_name, config.is_persistent
             )
             volume = ModalProviderBackend.get_volume_for_app(app_name)
 
