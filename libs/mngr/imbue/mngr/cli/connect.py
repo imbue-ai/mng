@@ -439,7 +439,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
         )
     elif not sys.stdin.isatty():
         # Default to most recently created agent when running non-interactively
-        list_result = list_agents(mngr_ctx)
+        list_result = list_agents(mngr_ctx, is_streaming=False)
         if not list_result.agents:
             raise UserInputError("No agents found")
 
@@ -451,7 +451,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
             str(most_recent.id), agents_by_host, mngr_ctx, "connect", is_start_desired=opts.start
         )
     else:
-        list_result = list_agents(mngr_ctx)
+        list_result = list_agents(mngr_ctx, is_streaming=False)
         if not list_result.agents:
             raise UserInputError("No agents found")
 
