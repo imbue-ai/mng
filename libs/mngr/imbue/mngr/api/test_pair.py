@@ -457,8 +457,13 @@ def test_unison_syncer_handles_process_crash(cg: ConcurrencyGroup, tmp_path: Pat
         assert syncer.is_running is True
         assert syncer._running_process is not None
 
-        # Kill the unison process forcefully (simulating a crash)
-        syncer._running_process._shutdown_event.set()
+        # Kill the unison process forcefully via SIGKILL (simulating a crash).
+        # Use pkill to find the actual unison process by its unique tmp_path args,
+        # since RunningProcess doesn't expose the underlying PID directly.
+        subprocess.run(
+            ["pkill", "-KILL", "-f", f"unison {source} {target}"],
+            capture_output=True,
+        )
 
         # is_running should eventually become False
         wait_for(
