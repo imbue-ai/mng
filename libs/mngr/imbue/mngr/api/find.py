@@ -226,12 +226,14 @@ def resolve_source_location(
 
     # Ensure host is online for file operations (starts the host if needed)
     if not isinstance(host_interface, OnlineHostInterface):
-        host_interface, _was_started = ensure_host_started(host_interface, is_start_desired=True, provider=provider)
+        online_host, _was_started = ensure_host_started(host_interface, is_start_desired=True, provider=provider)
+    else:
+        online_host = host_interface
 
     # Resolve the final path
     agent_work_dir: Path | None = None
     if resolved_agent is not None:
-        for agent_ref in host_interface.get_agent_references():
+        for agent_ref in online_host.get_agent_references():
             if agent_ref.agent_id == resolved_agent.agent_id:
                 agent_work_dir = agent_ref.work_dir
                 break
@@ -243,7 +245,7 @@ def resolve_source_location(
     )
 
     return HostLocation(
-        host=host_interface,
+        host=online_host,
         path=resolved_path,
     )
 

@@ -40,6 +40,8 @@ def clone(ctx: click.Context, args: tuple[str, ...]) -> None:
 def _reject_source_agent_options(args: list[str], ctx: click.Context) -> None:
     """Raise an error if --from-agent or --source-agent appears in args."""
     for arg in args:
+        if arg == "--":
+            break
         # Check exact match and --opt=value forms
         if arg in ("--from-agent", "--source-agent") or arg.startswith(("--from-agent=", "--source-agent=")):
             raise click.UsageError(
