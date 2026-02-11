@@ -10,6 +10,7 @@ import click
 from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ConcurrencyGroupError
 from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
@@ -94,7 +95,7 @@ def _search_issues_via_github_api(cg: ConcurrencyGroup, search_text: str) -> Exi
             timeout=10,
             is_checked_after=False,
         )
-    except (ProcessSetupError, Exception) as e:
+    except (ProcessSetupError, ConcurrencyGroupError) as e:
         raise IssueSearchError(f"GitHub API request failed: {e}") from e
 
     if result.returncode != 0:
@@ -138,7 +139,7 @@ def _search_issues_via_gh_cli(cg: ConcurrencyGroup, search_text: str) -> Existin
             timeout=10,
             is_checked_after=False,
         )
-    except (ProcessSetupError, Exception) as e:
+    except (ProcessSetupError, ConcurrencyGroupError) as e:
         raise IssueSearchError(f"gh CLI search failed: {e}") from e
 
     if result.returncode != 0:

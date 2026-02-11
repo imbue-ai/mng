@@ -1,5 +1,4 @@
 import subprocess
-from collections.abc import Generator
 from pathlib import Path
 from typing import cast
 
@@ -24,13 +23,6 @@ from imbue.mngr.utils.testing import run_git_command
 def _has_uncommitted_changes_on_host(host: OnlineHostInterface, path: Path) -> bool:
     """Helper to check for uncommitted changes on a remote host using RemoteGitContext."""
     return RemoteGitContext(host=host).has_uncommitted_changes(path)
-
-
-@pytest.fixture
-def cg() -> Generator[ConcurrencyGroup, None, None]:
-    """Create a ConcurrencyGroup for tests."""
-    with ConcurrencyGroup(name="test_push") as group:
-        yield group
 
 
 @pytest.fixture

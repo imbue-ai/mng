@@ -1,10 +1,7 @@
 """Tests for git utilities."""
 
 import subprocess
-from collections.abc import Generator
 from pathlib import Path
-
-import pytest
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.utils.git_utils import _parse_project_name_from_url
@@ -13,13 +10,6 @@ from imbue.mngr.utils.git_utils import find_git_common_dir
 from imbue.mngr.utils.git_utils import find_git_worktree_root
 from imbue.mngr.utils.git_utils import get_git_author_info
 from imbue.mngr.utils.git_utils import is_git_repository
-
-
-@pytest.fixture
-def cg() -> Generator[ConcurrencyGroup, None, None]:
-    """Create a ConcurrencyGroup for tests."""
-    with ConcurrencyGroup(name="test_git_utils") as group:
-        yield group
 
 
 def test_github_https_url() -> None:

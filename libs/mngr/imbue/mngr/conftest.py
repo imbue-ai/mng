@@ -86,6 +86,13 @@ _worker_test_ids: list[str] = []
 
 
 @pytest.fixture
+def cg() -> Generator[ConcurrencyGroup, None, None]:
+    """Provide a ConcurrencyGroup for tests that need to run processes."""
+    with ConcurrencyGroup(name="test") as group:
+        yield group
+
+
+@pytest.fixture
 def mngr_test_id() -> str:
     """Generate a unique test ID for isolation.
 

@@ -1,6 +1,5 @@
 """Unit tests for sync API functions."""
 
-from collections.abc import Generator
 from pathlib import Path
 from typing import cast
 
@@ -189,13 +188,6 @@ def test_git_sync_error_provides_user_help_text() -> None:
 # =============================================================================
 # LocalGitContext tests (using real git repos)
 # =============================================================================
-
-
-@pytest.fixture
-def cg() -> Generator[ConcurrencyGroup, None, None]:
-    """Create a ConcurrencyGroup for tests."""
-    with ConcurrencyGroup(name="test_sync") as group:
-        yield group
 
 
 def test_local_git_context_has_uncommitted_changes_returns_true_when_changes_exist(

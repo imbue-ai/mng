@@ -1,7 +1,6 @@
 """Tests for common_opts module."""
 
 from typing import Any
-from typing import Generator
 
 import click
 import pytest
@@ -17,14 +16,6 @@ from imbue.mngr.config.data_types import CreateTemplate
 from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.errors import UserInputError
-
-
-@pytest.fixture
-def cg() -> Generator[ConcurrencyGroup, None, None]:
-    """Create a ConcurrencyGroup for tests that need to run subprocesses."""
-    group = ConcurrencyGroup(name="test-common-opts")
-    with group:
-        yield group
 
 
 def _make_click_context(

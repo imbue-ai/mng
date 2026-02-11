@@ -1,8 +1,5 @@
 import subprocess
-from collections.abc import Generator
 from pathlib import Path
-
-import pytest
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.pair import GitSyncAction
@@ -13,14 +10,6 @@ from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.mngr.utils.testing import run_git_command
-
-
-@pytest.fixture
-def cg() -> Generator[ConcurrencyGroup, None, None]:
-    """Create a ConcurrencyGroup for tests."""
-    with ConcurrencyGroup(name="test_pair_unit") as group:
-        yield group
-
 
 # =============================================================================
 # Test: check_unison_installed

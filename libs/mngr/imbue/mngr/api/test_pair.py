@@ -1,5 +1,4 @@
 import subprocess
-from collections.abc import Generator
 from pathlib import Path
 from typing import cast
 
@@ -23,13 +22,6 @@ from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.mngr.utils.testing import run_git_command
-
-
-@pytest.fixture
-def cg() -> Generator[ConcurrencyGroup, None, None]:
-    """Create a ConcurrencyGroup for tests."""
-    with ConcurrencyGroup(name="test_pair") as group:
-        yield group
 
 
 @pytest.fixture

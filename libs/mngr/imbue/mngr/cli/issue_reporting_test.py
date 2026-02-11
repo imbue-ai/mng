@@ -1,5 +1,4 @@
 import json
-from collections.abc import Generator
 
 import pytest
 from inline_snapshot import snapshot
@@ -14,13 +13,6 @@ from imbue.mngr.cli.issue_reporting import build_issue_title
 from imbue.mngr.cli.issue_reporting import build_new_issue_url
 from imbue.mngr.cli.issue_reporting import handle_not_implemented_error
 from imbue.mngr.cli.issue_reporting import search_for_existing_issue
-
-
-@pytest.fixture
-def cg() -> Generator[ConcurrencyGroup, None, None]:
-    """Create a ConcurrencyGroup for tests."""
-    with ConcurrencyGroup(name="test_issue_reporting") as group:
-        yield group
 
 
 def _fake_finished_process(returncode: int, stdout: str, command: tuple[str, ...] = ("fake",)) -> FinishedProcess:
