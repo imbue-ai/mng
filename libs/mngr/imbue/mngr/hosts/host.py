@@ -965,26 +965,20 @@ class Host(BaseHost, OnlineHostInterface):
             self._git_push_to_target(source_host, source_path, target_path)
 
             with log_span("Configuring target git repo"):
+                config_commands = [
+                    "git config --bool core.bare false",
+                    f"git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch_name)}",
+                ]
+                if git_author_name:
+                    config_commands.append(f"git config user.name {shlex.quote(git_author_name)}")
+                if git_author_email:
+                    config_commands.append(f"git config user.email {shlex.quote(git_author_email)}")
                 result = self.execute_command(
-                    f"git config --bool core.bare false && git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch_name)}",
+                    " && ".join(config_commands),
                     cwd=target_path,
                 )
                 if not result.success:
                     raise MngrError(f"Failed to configure git repo on target: {result.stderr}")
-
-            if git_author_name or git_author_email:
-                with log_span("Setting git author info on target"):
-                    config_commands: list[str] = []
-                    if git_author_name:
-                        config_commands.append(f"git config user.name {shlex.quote(git_author_name)}")
-                    if git_author_email:
-                        config_commands.append(f"git config user.email {shlex.quote(git_author_email)}")
-                    result = self.execute_command(
-                        " && ".join(config_commands),
-                        cwd=target_path,
-                    )
-                    if not result.success:
-                        logger.warning("Failed to set git author info on target: {}", result.stderr)
 
     # FIXME: we should probably warn if we detect any submodules (eg, .git folders inside of here)
     #  Submodules are *not* supported right now, and we wouldn't want the user thinking they were
