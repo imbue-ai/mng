@@ -1,19 +1,15 @@
-# FIXME0: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 """Unit tests for pull CLI command."""
 
+from collections.abc import Mapping
+from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
-from typing import Mapping
-from typing import Sequence
-from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
 
-from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.sync import SyncFilesResult
 from imbue.mngr.cli.output_helpers import output_sync_files_result
@@ -30,7 +26,6 @@ from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
-from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.main import cli
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
@@ -41,13 +36,13 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostReference
-from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import SyncMode
 from imbue.mngr.primitives import VolumeId
+from imbue.mngr.providers.base_provider import BaseProviderInstance
 
 
 class _TestAgent(AgentInterface):
@@ -211,12 +206,10 @@ class _TestPyinfraConnector:
         return "TestConnector"
 
 
-class _TestProviderInstance(ProviderInstanceInterface):
-    """Minimal ProviderInstanceInterface for testing."""
+class _TestProviderInstance(BaseProviderInstance):
+    """Minimal BaseProviderInstance for testing."""
 
-    @property
-    def is_authorized(self) -> bool:
-        return True
+    _host_by_id: dict[HostId, HostInterface]
 
     @property
     def supports_snapshots(self) -> bool:
@@ -234,30 +227,11 @@ class _TestProviderInstance(ProviderInstanceInterface):
     def supports_mutable_tags(self) -> bool:
         return True
 
-    def list_hosts(self, include_destroyed: bool = False, cg: ConcurrencyGroup | None = None) -> list[HostInterface]:
-        return []
-
     def get_host(self, host: HostId | HostName) -> HostInterface:
-        raise NotImplementedError
-
-    def create_host(
-        self,
-        name: HostName,
-        image: ImageReference | None = None,
-        tags: Mapping[str, str] | None = None,
-        build_args: Sequence[str] | None = None,
-        start_args: Sequence[str] | None = None,
-        lifecycle: HostLifecycleOptions | None = None,
-        known_hosts: Sequence[str] | None = None,
-    ) -> OnlineHostInterface:
-        raise NotImplementedError
-
-    def start_host(
-        self,
-        host: HostInterface | HostId,
-        snapshot_id: SnapshotId | None = None,
-    ) -> OnlineHostInterface:
-        raise NotImplementedError
+        host_by_id: dict[HostId, HostInterface] = getattr(self, "_host_by_id", {})
+        if isinstance(host, HostId) and host in host_by_id:
+            return host_by_id[host]
+        return super().get_host(host)
 
     def stop_host(
         self,
@@ -305,23 +279,11 @@ class _TestProviderInstance(ProviderInstanceInterface):
     def remove_tags_from_host(self, host: HostInterface | HostId, keys: Sequence[str]) -> None:
         pass
 
-    def persist_agent_data(self, host_id: HostId, agent_data: Mapping[str, object]) -> None:
-        pass
-
-    def remove_persisted_agent_data(self, host_id: HostId, agent_id: AgentId) -> None:
-        pass
-
-    def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
-        return []
-
     def list_volumes(self) -> list[VolumeInfo]:
         return []
 
     def delete_volume(self, volume_id: VolumeId) -> None:
         pass
-
-    def rename_host(self, host: HostInterface | HostId, name: HostName) -> HostInterface:
-        raise NotImplementedError
 
     def get_connector(self, host: HostInterface | HostId) -> Any:
         raise NotImplementedError
@@ -538,21 +500,18 @@ def test_find_agent_by_name_or_id_raises_for_multiple_matches(
     test_host1 = _create_test_host(host1_id, "test-host-1", [test_agent1], temp_mngr_ctx, host_dir1)
     test_host2 = _create_test_host(host2_id, "test-host-2", [test_agent2], temp_mngr_ctx, host_dir2)
 
-    # Create a mock provider that returns our test hosts
-    class MockProvider:
-        name = ProviderInstanceName("local")
+    # Create a test provider that returns our test hosts by ID
+    test_provider = _TestProviderInstance.model_construct(
+        name=ProviderInstanceName("local"),
+        host_dir=tmp_path,
+        mngr_ctx=temp_mngr_ctx,
+        _host_by_id={host1_id: test_host1, host2_id: test_host2},
+    )
 
-        def get_host(self, host_id: HostId) -> _TestHost:
-            if host_id == host1_id:
-                return test_host1
-            else:
-                return test_host2
+    def test_get_provider(provider_name: ProviderInstanceName, ctx: MngrContext) -> BaseProviderInstance:
+        return test_provider
 
-    mock_provider = MockProvider()
-
-    def mock_get_provider(provider_name: ProviderInstanceName, ctx: MngrContext) -> MockProvider:
-        return mock_provider
-
-    with patch("imbue.mngr.api.find.get_provider_instance", side_effect=mock_get_provider):
-        with pytest.raises(UserInputError, match="Multiple agents found"):
-            find_and_maybe_start_agent_by_name_or_id("my-agent", agents_by_host, temp_mngr_ctx, "test")
+    with pytest.raises(UserInputError, match="Multiple agents found"):
+        find_and_maybe_start_agent_by_name_or_id(
+            "my-agent", agents_by_host, temp_mngr_ctx, "test", get_provider=test_get_provider
+        )
