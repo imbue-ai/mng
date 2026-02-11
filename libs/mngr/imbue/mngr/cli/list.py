@@ -345,7 +345,7 @@ _DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 15
 # Columns that get extra space when the terminal is wider than the minimum
 _EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "status", "host"}
 _MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {
-    "host": 25,
+    "host": 20,
 }
 _COLUMN_SEPARATOR: Final[str] = "  "
 
