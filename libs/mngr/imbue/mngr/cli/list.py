@@ -1,6 +1,7 @@
 import re
 import shutil
 import sys
+from collections.abc import Mapping
 from collections.abc import Sequence
 from enum import Enum
 from threading import Lock
@@ -184,6 +185,57 @@ def list_command(ctx: click.Context, **kwargs) -> None:
         ctx.exit(1)
 
 
+def _build_list_filters(opts: ListCliOptions) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Build include and exclude filter tuples from CLI options and stdin."""
+    include_filters: list[str] = list(opts.include)
+
+    # Handle stdin input by converting to CEL filters
+    if opts.stdin:
+        stdin_refs = [line.strip() for line in sys.stdin if line.strip()]
+        if stdin_refs:
+            # Create a CEL filter that matches any of the provided refs against
+            # host.name, host.id, name, or id (using dot notation for nested fields)
+            ref_filters: list[str] = []
+            for ref in stdin_refs:
+                ref_filter = f'(name == "{ref}" || id == "{ref}" || host.name == "{ref}" || host.id == "{ref}")'
+                ref_filters.append(ref_filter)
+            # Combine all ref filters with OR
+            combined_filter = " || ".join(ref_filters)
+            include_filters.append(combined_filter)
+
+    # --running: alias for --include 'state == "RUNNING"'
+    # --stopped: alias for --include 'state == "STOPPED"'
+    # --local: alias for --include 'host.provider == "local"'
+    if opts.running:
+        include_filters.append(f'state == "{AgentLifecycleState.RUNNING.value}"')
+    if opts.stopped:
+        include_filters.append(f'state == "{AgentLifecycleState.STOPPED.value}"')
+    if opts.local:
+        include_filters.append('host.provider == "local"')
+
+    # --remote: alias for --exclude 'host.provider == "local"'
+    exclude_filters: list[str] = list(opts.exclude)
+    if opts.remote:
+        exclude_filters.append('host.provider == "local"')
+
+    return (tuple(include_filters), tuple(exclude_filters))
+
+
+def _detect_sort_mode(ctx: click.Context, opts: ListCliOptions) -> tuple[str, bool, bool]:
+    """Detect sort field, reverse flag, and whether sort was explicitly set by the user."""
+    sort_field = opts.sort
+    sort_reverse = opts.sort_order.lower() == "desc"
+
+    # Determine if --sort or --sort-order was explicitly set (vs using the default)
+    sort_source = ctx.get_parameter_source("sort")
+    sort_order_source = ctx.get_parameter_source("sort_order")
+    is_sort_explicit = (sort_source is not None and sort_source != click.core.ParameterSource.DEFAULT) or (
+        sort_order_source is not None and sort_order_source != click.core.ParameterSource.DEFAULT
+    )
+
+    return (sort_field, sort_reverse, is_sort_explicit)
+
+
 def _list_impl(ctx: click.Context, **kwargs) -> None:
     """Implementation of list command (extracted for exception handling)."""
     mngr_ctx, output_opts, opts = setup_command_context(
@@ -199,80 +251,29 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         raise NotImplementedError("Custom format templates not implemented yet")
 
     # Parse fields if provided
-    fields = None
-    if opts.fields:
-        fields = [f.strip() for f in opts.fields.split(",") if f.strip()]
+    fields = [f.strip() for f in opts.fields.split(",") if f.strip()] if opts.fields else None
 
-    # Build list of include filters
-    include_filters = list(opts.include)
-
-    # Handle stdin input by converting to CEL filters
-    if opts.stdin:
-        stdin_refs = [line.strip() for line in sys.stdin if line.strip()]
-        if stdin_refs:
-            # Create a CEL filter that matches any of the provided refs against
-            # host.name, host.id, name, or id (using dot notation for nested fields)
-            ref_filters = []
-            for ref in stdin_refs:
-                ref_filter = f'(name == "{ref}" || id == "{ref}" || host.name == "{ref}" || host.id == "{ref}")'
-                ref_filters.append(ref_filter)
-            # Combine all ref filters with OR
-            combined_filter = " || ".join(ref_filters)
-            include_filters.append(combined_filter)
-
-    # --running: alias for --include 'state == "RUNNING"'
-    # --stopped: alias for --include 'state == "STOPPED"'
-    # --local: alias for --include 'host.provider == "local"'
-    # --remote: alias for --exclude 'host.provider == "local"'
-    if opts.running:
-        include_filters.append(f'state == "{AgentLifecycleState.RUNNING.value}"')
-    if opts.stopped:
-        include_filters.append(f'state == "{AgentLifecycleState.STOPPED.value}"')
-    if opts.local:
-        include_filters.append('host.provider == "local"')
-
-    # Build list of exclude filters
-    exclude_filters = list(opts.exclude)
-    if opts.remote:
-        exclude_filters.append('host.provider == "local"')
-
-    # --sort FIELD: Sort by any available field [default: create_time]
-    # --sort-order ORDER: Sort order (asc, desc) [default: asc]
-    sort_field = opts.sort
-    sort_reverse = opts.sort_order.lower() == "desc"
-
-    # --limit N: Limit number of results returned
-    # NOTE: The limit is applied after fetching results. The full list is still retrieved
-    # from providers and then sliced client-side. For large deployments, this means the
-    # command may still take time proportional to the total number of agents.
-    limit = opts.limit
+    # Build filters from CLI options and stdin
+    include_filters, exclude_filters = _build_list_filters(opts)
+    sort_field, sort_reverse, is_sort_explicit = _detect_sort_mode(ctx, opts)
 
     error_behavior = ErrorBehavior(opts.on_error.upper())
-
-    include_filters_tuple = tuple(include_filters)
-    exclude_filters_tuple = tuple(exclude_filters)
     provider_names = opts.provider if opts.provider else None
+    limit = opts.limit
 
     # Dispatch to the appropriate output path
     if output_opts.output_format == OutputFormat.JSONL:
         _list_jsonl(
             ctx,
             mngr_ctx,
-            include_filters_tuple,
-            exclude_filters_tuple,
+            include_filters,
+            exclude_filters,
             provider_names,
             error_behavior,
             limit,
             is_watch=bool(opts.watch),
         )
         return
-
-    # Determine if --sort or --sort-order was explicitly set by the user (vs using the default)
-    sort_source = ctx.get_parameter_source("sort")
-    sort_order_source = ctx.get_parameter_source("sort_order")
-    is_sort_explicit = (sort_source is not None and sort_source != click.core.ParameterSource.DEFAULT) or (
-        sort_order_source is not None and sort_order_source != click.core.ParameterSource.DEFAULT
-    )
 
     # Streaming mode trades sorted output for faster time-to-first-result: agents display
     # as each provider completes rather than waiting for all providers. Users who need sorted
@@ -286,8 +287,8 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         _list_streaming_human(
             ctx,
             mngr_ctx,
-            include_filters_tuple,
-            exclude_filters_tuple,
+            include_filters,
+            exclude_filters,
             provider_names,
             error_behavior,
             display_fields,
@@ -298,8 +299,8 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     iteration_params = _ListIterationParams(
         mngr_ctx=mngr_ctx,
         output_opts=output_opts,
-        include_filters=include_filters_tuple,
-        exclude_filters=exclude_filters_tuple,
+        include_filters=include_filters,
+        exclude_filters=exclude_filters,
         provider_names=provider_names,
         error_behavior=error_behavior,
         sort_field=sort_field,
@@ -360,7 +361,7 @@ def _list_streaming_human(
     exclude_filters: tuple[str, ...],
     provider_names: tuple[str, ...] | None,
     error_behavior: ErrorBehavior,
-    fields: list[str],
+    fields: Sequence[str],
 ) -> None:
     """Streaming human output path: display agents as each provider completes."""
     renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty())
@@ -430,7 +431,7 @@ class _StreamingHumanRenderer(MutableModel):
     outputs (piped), skips status lines and ANSI codes entirely.
     """
 
-    fields: list[str]
+    fields: Sequence[str]
     is_tty: bool
     _lock: Lock = PrivateAttr(default_factory=Lock)
     _count: int = PrivateAttr(default=0)
@@ -503,23 +504,24 @@ def _compute_column_widths(fields: Sequence[str], terminal_width: int) -> dict[s
     expandable_in_fields = [f for f in fields if f in _EXPANDABLE_COLUMNS]
     if expandable_in_fields and extra_space > 0:
         sorted_expandable = sorted(expandable_in_fields, key=lambda f: _MAX_COLUMN_WIDTHS.get(f, float("inf")))
-        remaining = extra_space
+        distributed_so_far = 0
         for idx, field in enumerate(sorted_expandable):
             fields_left = len(sorted_expandable) - idx
-            per_column = remaining // fields_left
-            extra = 1 if (remaining % fields_left) > 0 else 0
+            budget = extra_space - distributed_so_far
+            per_column = budget // fields_left
+            extra = 1 if (budget % fields_left) > 0 else 0
             bonus = per_column + extra
             max_width = _MAX_COLUMN_WIDTHS.get(field)
             if max_width is not None and width_by_field[field] + bonus > max_width:
                 bonus = max(max_width - width_by_field[field], 0)
             width_by_field[field] = width_by_field[field] + bonus
-            remaining = remaining - bonus
+            distributed_so_far = distributed_so_far + bonus
 
     return width_by_field
 
 
 @pure
-def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str, int]) -> str:
+def _format_streaming_header_row(fields: Sequence[str], column_widths: Mapping[str, int]) -> str:
     """Format the header row of streaming output with computed column widths."""
     parts: list[str] = []
     for field in fields:
@@ -530,7 +532,7 @@ def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str,
 
 
 @pure
-def _format_streaming_agent_row(agent: AgentInfo, fields: Sequence[str], column_widths: dict[str, int]) -> str:
+def _format_streaming_agent_row(agent: AgentInfo, fields: Sequence[str], column_widths: Mapping[str, int]) -> str:
     """Format a single agent as a streaming output row."""
     parts: list[str] = []
     for field in fields:
