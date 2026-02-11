@@ -12,7 +12,6 @@ from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundError
-from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import HostLocation
@@ -225,9 +224,9 @@ def resolve_source_location(
             provider = get_provider_instance(resolved_host.provider_name, mngr_ctx)
             host_interface = provider.get_host(resolved_host.host_id)
 
-    # Ensure host is online for file operations
+    # Ensure host is online for file operations (starts the host if needed)
     if not isinstance(host_interface, OnlineHostInterface):
-        raise HostOfflineError(f"Host '{host_interface.id}' is offline. Start the host first.")
+        host_interface, _was_started = ensure_host_started(host_interface, is_start_desired=True, provider=provider)
 
     # Resolve the final path
     agent_work_dir: Path | None = None
