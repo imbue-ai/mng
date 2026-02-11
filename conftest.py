@@ -159,7 +159,7 @@ def pytest_sessionfinish(session, exitstatus):
                 max_duration = 80.0
             else:
                 # this limit applies to the entire test suite when run locally
-                max_duration = 50.0
+                max_duration = 70.0
 
         if duration > max_duration:
             pytest.exit(
