@@ -26,7 +26,16 @@ from imbue.mngr.primitives import OutputFormat
 
 _QUERY_PREFIX = (
     "answer this question about `mngr`. "
-    "respond with the valid mngr command only, with no markdown formatting or explanation: "
+    "respond concisely with the mngr command(s) and a brief explanation. "
+    "no markdown formatting. "
+    "for example, if asked 'How do I create a container on modal with custom packages installed by default?', "
+    "you might respond:\n"
+    "Simply run:\n"
+    '    mngr create --in modal --build-arg "--dockerfile path/to/Dockerfile"\n\n'
+    "If you don't have a Dockerfile for your project, run:\n"
+    "    mngr bootstrap\n\n"
+    "From the repo where you would like a Dockerfile created.\n\n"
+    "now answer this question: "
 )
 
 _EXECUTE_QUERY_PREFIX = (
