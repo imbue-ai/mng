@@ -29,7 +29,7 @@ def get_user_ssh_dir(user: str) -> Path:
 
 
 @pure
-def _build_package_check_snippet(binary: str, package: str, check_cmd: str | None = None) -> str:
+def _build_package_check_snippet(binary: str, package: str, check_cmd: str | None) -> str:
     """Build a shell snippet that checks for a binary and adds its package to the install list.
 
     If check_cmd is provided, it is used as the existence check (e.g. "test -x /usr/sbin/sshd").
@@ -65,12 +65,12 @@ def build_check_and_install_packages_command(
     """
     script_lines = [
         "PKGS_TO_INSTALL=''",
-        _build_package_check_snippet("sshd", "openssh-server", check_cmd="test -x /usr/sbin/sshd"),
-        _build_package_check_snippet("tmux", "tmux"),
-        _build_package_check_snippet("curl", "curl"),
-        _build_package_check_snippet("rsync", "rsync"),
-        _build_package_check_snippet("git", "git"),
-        _build_package_check_snippet("jq", "jq"),
+        _build_package_check_snippet(binary="sshd", package="openssh-server", check_cmd="test -x /usr/sbin/sshd"),
+        _build_package_check_snippet(binary="tmux", package="tmux", check_cmd=None),
+        _build_package_check_snippet(binary="curl", package="curl", check_cmd=None),
+        _build_package_check_snippet(binary="rsync", package="rsync", check_cmd=None),
+        _build_package_check_snippet(binary="git", package="git", check_cmd=None),
+        _build_package_check_snippet(binary="jq", package="jq", check_cmd=None),
         # Install missing packages if any
         'if [ -n "$PKGS_TO_INSTALL" ]; then apt-get update -qq && apt-get install -y -qq $PKGS_TO_INSTALL; fi',
         # Create sshd run directory (required for sshd to start)
