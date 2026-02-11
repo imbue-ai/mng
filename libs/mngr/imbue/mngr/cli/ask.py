@@ -1,6 +1,8 @@
 import shlex
 import subprocess
 import tempfile
+from abc import ABC
+from abc import abstractmethod
 from typing import Any
 from typing import assert_never
 
@@ -8,6 +10,7 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -30,6 +33,46 @@ _EXECUTE_QUERY_PREFIX = (
     "respond with ONLY the valid mngr command, with no markdown formatting, explanation, or extra text. "
     "the output will be executed directly as a shell command: "
 )
+
+
+class ClaudeBackendInterface(MutableModel, ABC):
+    """Abstraction over the claude --print subprocess for testability."""
+
+    @abstractmethod
+    def query(self, prompt: str, system_prompt: str) -> str:
+        """Send a prompt to claude and return the response text."""
+
+
+class SubprocessClaudeBackend(ClaudeBackendInterface):
+    """Runs claude --print in a subprocess from an empty temp directory."""
+
+    def query(self, prompt: str, system_prompt: str) -> str:
+        with tempfile.TemporaryDirectory(prefix="mngr-ask-") as tmp_dir:
+            try:
+                result = subprocess.run(
+                    ["claude", "--print", "--system-prompt", system_prompt, prompt],
+                    capture_output=True,
+                    text=True,
+                    stdin=subprocess.DEVNULL,
+                    cwd=tmp_dir,
+                )
+            except FileNotFoundError:
+                raise MngrError(
+                    "claude is not installed or not found in PATH. "
+                    "Install Claude Code: https://docs.anthropic.com/en/docs/claude-code/overview"
+                ) from None
+
+        if result.returncode != 0:
+            stderr_msg = result.stderr.strip()
+            stdout_msg = result.stdout.strip()
+            detail = stderr_msg or stdout_msg or "unknown error (no output captured)"
+            raise MngrError(f"claude --print failed (exit code {result.returncode}): {detail}")
+
+        return result.stdout.rstrip("\n")
+
+
+# Module-level backend override for testing. When None, SubprocessClaudeBackend is used.
+_claude_backend: ClaudeBackendInterface | None = None
 
 
 def _build_ask_context() -> str:
@@ -127,44 +170,14 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
 
     emit_info("Thinking...", output_opts.output_format)
 
-    response = _run_claude_print(query_string)
+    backend = _claude_backend or SubprocessClaudeBackend()
+    system_prompt = _build_ask_context()
+    response = backend.query(prompt=query_string, system_prompt=system_prompt)
 
     if opts.execute:
         _execute_response(response=response, output_format=output_opts.output_format)
     else:
         _emit_response(response=response, output_format=output_opts.output_format)
-
-
-def _run_claude_print(query_string: str) -> str:
-    """Run claude --print from an empty temp dir with mngr docs as system prompt.
-
-    Uses a temporary empty directory as cwd so that claude does not pick up
-    any project context (CLAUDE.md, .git, etc.) from the user's working directory.
-    """
-    system_prompt = _build_ask_context()
-
-    with tempfile.TemporaryDirectory(prefix="mngr-ask-") as tmp_dir:
-        try:
-            result = subprocess.run(
-                ["claude", "--print", "--system-prompt", system_prompt, query_string],
-                capture_output=True,
-                text=True,
-                stdin=subprocess.DEVNULL,
-                cwd=tmp_dir,
-            )
-        except FileNotFoundError:
-            raise MngrError(
-                "claude is not installed or not found in PATH. "
-                "Install Claude Code: https://docs.anthropic.com/en/docs/claude-code/overview"
-            ) from None
-
-    if result.returncode != 0:
-        stderr_msg = result.stderr.strip()
-        stdout_msg = result.stdout.strip()
-        detail = stderr_msg or stdout_msg or "unknown error (no output captured)"
-        raise MngrError(f"claude --print failed (exit code {result.returncode}): {detail}")
-
-    return result.stdout.rstrip("\n")
 
 
 def _emit_response(response: str, output_format: OutputFormat) -> None:
@@ -186,7 +199,10 @@ def _execute_response(response: str, output_format: OutputFormat) -> None:
     if not command:
         raise MngrError("claude returned an empty response; nothing to execute")
 
-    args = shlex.split(command)
+    try:
+        args = shlex.split(command)
+    except ValueError as err:
+        raise MngrError(f"claude returned a response that could not be parsed: {command}") from err
     if not args or args[0] != "mngr":
         raise MngrError(f"claude returned a response that is not a valid mngr command: {command}")
 

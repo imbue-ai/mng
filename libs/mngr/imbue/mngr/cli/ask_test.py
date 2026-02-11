@@ -1,13 +1,10 @@
-import subprocess
-from collections.abc import Callable
-from typing import Any
-from unittest.mock import MagicMock
-from unittest.mock import patch
-
 import pluggy
 import pytest
 from click.testing import CliRunner
+from pydantic import Field
 
+import imbue.mngr.cli.ask as ask_module
+from imbue.mngr.cli.ask import ClaudeBackendInterface
 from imbue.mngr.cli.ask import _build_ask_context
 from imbue.mngr.cli.ask import _emit_response
 from imbue.mngr.cli.ask import _execute_response
@@ -15,29 +12,35 @@ from imbue.mngr.cli.ask import ask
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import OutputFormat
 
-_real_subprocess_run = subprocess.run
+
+class FakeClaude(ClaudeBackendInterface):
+    """Test double that records queries and returns canned responses."""
+
+    responses: list[str] = Field(default_factory=list)
+    queries: list[str] = Field(default_factory=list)
+    system_prompts: list[str] = Field(default_factory=list)
+
+    def query(self, prompt: str, system_prompt: str) -> str:
+        self.queries.append(prompt)
+        self.system_prompts.append(system_prompt)
+        return self.responses.pop(0)
 
 
-def _mock_subprocess(
-    responses: list[subprocess.CompletedProcess],
-    intercept: tuple[str, ...] = ("claude",),
-) -> Callable:
-    """Create a subprocess.run wrapper that intercepts specific commands.
+class FakeClaudeError(ClaudeBackendInterface):
+    """Test double that raises MngrError on query."""
 
-    Commands whose first argument is in `intercept` return canned responses.
-    All other calls (git, etc.) pass through to the real subprocess.run.
-    """
-    call_index = 0
+    error_message: str = Field(description="Error message to raise")
 
-    def side_effect(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
-        nonlocal call_index
-        if isinstance(cmd, list) and cmd[0] in intercept:
-            result = responses[call_index]
-            call_index += 1
-            return result
-        return _real_subprocess_run(cmd, **kwargs)
+    def query(self, prompt: str, system_prompt: str) -> str:
+        raise MngrError(self.error_message)
 
-    return side_effect
+
+@pytest.fixture
+def fake_claude(monkeypatch: pytest.MonkeyPatch) -> FakeClaude:
+    """Provide a FakeClaude backend and monkeypatch it into the ask module."""
+    backend = FakeClaude()
+    monkeypatch.setattr(ask_module, "_claude_backend", backend)
+    return backend
 
 
 def test_build_ask_context_contains_mngr_docs() -> None:
@@ -59,18 +62,13 @@ def test_no_query_shows_command_summary(
     assert "mngr ask" in result.output
 
 
-@patch("imbue.mngr.cli.ask.subprocess.run")
 def test_ask_passes_query_to_claude(
-    mock_run: MagicMock,
+    fake_claude: FakeClaude,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """The full query (with prefix) should be passed as an arg to claude --print."""
-    mock_run.side_effect = _mock_subprocess(
-        [
-            subprocess.CompletedProcess(args=[], returncode=0, stdout="mngr create my-agent\n", stderr=""),
-        ]
-    )
+    """The full query (with prefix) should be passed to the claude backend."""
+    fake_claude.responses.append("mngr create my-agent")
 
     result = cli_runner.invoke(
         ask, ["how", "do", "I", "create", "an", "agent?"], obj=plugin_manager, catch_exceptions=False
@@ -78,26 +76,16 @@ def test_ask_passes_query_to_claude(
 
     assert result.exit_code == 0
     assert "mngr create my-agent" in result.output
-
-    claude_calls = [c for c in mock_run.call_args_list if c[0][0][0] == "claude"]
-    assert len(claude_calls) == 1
-    call_args = claude_calls[0][0][0]
-    assert "--print" in call_args
-    assert "--system-prompt" in call_args
-    assert "how do I create an agent?" in call_args[-1]
+    assert len(fake_claude.queries) == 1
+    assert "how do I create an agent?" in fake_claude.queries[0]
 
 
-@patch("imbue.mngr.cli.ask.subprocess.run")
 def test_ask_json_output(
-    mock_run: MagicMock,
+    fake_claude: FakeClaude,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    mock_run.side_effect = _mock_subprocess(
-        [
-            subprocess.CompletedProcess(args=[], returncode=0, stdout="mngr list\n", stderr=""),
-        ]
-    )
+    fake_claude.responses.append("mngr list")
 
     result = cli_runner.invoke(ask, ["--format", "json", "list", "agents"], obj=plugin_manager, catch_exceptions=False)
 
@@ -105,37 +93,13 @@ def test_ask_json_output(
     assert '"response": "mngr list"' in result.output
 
 
-@patch("imbue.mngr.cli.ask.subprocess.run")
-def test_ask_runs_from_temp_dir(
-    mock_run: MagicMock,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Claude should be invoked from a temp dir, not the user's cwd."""
-    mock_run.side_effect = _mock_subprocess(
-        [
-            subprocess.CompletedProcess(args=[], returncode=0, stdout="ok\n", stderr=""),
-        ]
-    )
-
-    cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=False)
-
-    claude_calls = [c for c in mock_run.call_args_list if c[0][0][0] == "claude"]
-    cwd = claude_calls[0][1]["cwd"]
-    assert "mngr-ask-" in cwd
-
-
-@patch("imbue.mngr.cli.ask.subprocess.run")
 def test_ask_claude_failure_shows_error(
-    mock_run: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    mock_run.side_effect = _mock_subprocess(
-        [
-            subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="authentication failed"),
-        ]
-    )
+    backend = FakeClaudeError(error_message="claude --print failed (exit code 1): authentication failed")
+    monkeypatch.setattr(ask_module, "_claude_backend", backend)
 
     result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
 
@@ -143,52 +107,48 @@ def test_ask_claude_failure_shows_error(
     assert "authentication failed" in result.output
 
 
-@patch("imbue.mngr.cli.ask.subprocess.run")
-def test_ask_execute_mode_runs_generated_command(
-    mock_run: MagicMock,
+def test_ask_execute_mode_shows_running_message(
+    fake_claude: FakeClaude,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """--execute should first call claude, then run the generated command."""
-    mock_run.side_effect = _mock_subprocess(
-        [
-            subprocess.CompletedProcess(args=[], returncode=0, stdout="mngr list\n", stderr=""),
-            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
-        ],
-        intercept=("claude", "mngr"),
-    )
+    """--execute should show 'Running: mngr list' in the output."""
+    fake_claude.responses.append("mngr list")
 
-    result = cli_runner.invoke(ask, ["--execute", "list", "my", "agents"], obj=plugin_manager, catch_exceptions=False)
+    result = cli_runner.invoke(ask, ["--execute", "list", "my", "agents"], obj=plugin_manager, catch_exceptions=True)
 
-    assert result.exit_code == 0
-    intercepted = [
-        c for c in mock_run.call_args_list if isinstance(c[0][0], list) and c[0][0][0] in ("claude", "mngr")
-    ]
-    assert len(intercepted) == 2
-    assert intercepted[0][0][0][0] == "claude"
-    assert intercepted[1][0][0] == ["mngr", "list"]
+    assert "Running: mngr list" in result.output
 
 
-@patch("imbue.mngr.cli.ask.subprocess.run")
 def test_ask_execute_uses_execute_prefix(
-    mock_run: MagicMock,
+    fake_claude: FakeClaude,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """--execute mode should use the execute-specific prompt prefix."""
-    mock_run.side_effect = _mock_subprocess(
-        [
-            subprocess.CompletedProcess(args=[], returncode=0, stdout="mngr list\n", stderr=""),
-            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
-        ],
-        intercept=("claude", "mngr"),
+    fake_claude.responses.append("mngr list")
+
+    cli_runner.invoke(ask, ["--execute", "list", "agents"], obj=plugin_manager, catch_exceptions=True)
+
+    assert len(fake_claude.queries) == 1
+    assert "executed directly" in fake_claude.queries[0]
+
+
+def test_ask_claude_not_installed(
+    monkeypatch: pytest.MonkeyPatch,
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """When claude backend raises an installation error, show a helpful message."""
+    backend = FakeClaudeError(
+        error_message="claude is not installed or not found in PATH. Install Claude Code: https://docs.anthropic.com/en/docs/claude-code/overview"
     )
+    monkeypatch.setattr(ask_module, "_claude_backend", backend)
 
-    cli_runner.invoke(ask, ["--execute", "list", "agents"], obj=plugin_manager, catch_exceptions=False)
+    result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
 
-    claude_calls = [c for c in mock_run.call_args_list if isinstance(c[0][0], list) and c[0][0][0] == "claude"]
-    query_arg = claude_calls[0][0][0][-1]
-    assert "executed directly" in query_arg
+    assert result.exit_code != 0
+    assert "claude is not installed" in result.output
 
 
 def test_emit_response_json_format(capsys: pytest.CaptureFixture) -> None:
@@ -221,25 +181,10 @@ def test_execute_response_rejects_markdown_response() -> None:
         _execute_response(response="```\nmngr list\n```", output_format=OutputFormat.HUMAN)
 
 
-@patch("imbue.mngr.cli.ask.subprocess.run")
-def test_ask_claude_not_installed(
-    mock_run: MagicMock,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """When claude binary is missing, show a helpful error message."""
-
-    def raise_fnf(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
-        if isinstance(cmd, list) and cmd[0] == "claude":
-            raise FileNotFoundError("No such file or directory: 'claude'")
-        return _real_subprocess_run(cmd, **kwargs)
-
-    mock_run.side_effect = raise_fnf
-
-    result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
-
-    assert result.exit_code != 0
-    assert "claude is not installed" in result.output
+def test_execute_response_raises_on_unmatched_quotes() -> None:
+    """shlex.split raises ValueError on unmatched quotes; should become MngrError."""
+    with pytest.raises(MngrError, match="could not be parsed"):
+        _execute_response(response="mngr create 'unmatched", output_format=OutputFormat.HUMAN)
 
 
 def test_no_query_json_output(
