@@ -1,4 +1,5 @@
 import click
+from loguru import logger
 
 from imbue.mngr.cli.clone import reject_source_agent_options
 from imbue.mngr.cli.create import create as create_cmd
@@ -40,10 +41,19 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
 
     # Step 2: Destroy the source agent with --force
     destroy_args = [source_agent, "--force"]
-
-    destroy_ctx = destroy_cmd.make_context("migrate-destroy", destroy_args, parent=ctx)
-    with destroy_ctx:
-        destroy_cmd.invoke(destroy_ctx)
+    try:
+        destroy_ctx = destroy_cmd.make_context("migrate-destroy", destroy_args, parent=ctx)
+        with destroy_ctx:
+            destroy_cmd.invoke(destroy_ctx)
+    except (Exception, click.Abort):
+        logger.error(
+            "Clone succeeded but destroy of '{}' failed. "
+            "Please manually destroy the source agent:\n"
+            "  mngr destroy --force {}",
+            source_agent,
+            source_agent,
+        )
+        raise
 
 
 _MIGRATE_HELP_METADATA = CommandHelpMetadata(
