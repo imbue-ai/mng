@@ -1,4 +1,3 @@
-import importlib.resources
 import shlex
 import subprocess
 import tempfile
@@ -9,12 +8,12 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
-import imbue.mngr.resources as mngr_resources
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import get_all_help_metadata
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
@@ -33,11 +32,33 @@ _EXECUTE_QUERY_PREFIX = (
 )
 
 
-def _load_ask_context() -> str:
-    """Load the bundled mngr documentation for use as system prompt context."""
-    resource_files = importlib.resources.files(mngr_resources)
-    context_path = resource_files.joinpath("ask_context.md")
-    return context_path.read_text()
+def _build_ask_context() -> str:
+    """Build system prompt context from the registered help metadata.
+
+    Constructs a documentation string from the in-memory help metadata
+    registry, so no pre-generated files are needed.
+    """
+    parts: list[str] = [
+        "# mngr CLI Documentation",
+        "",
+        "mngr is a tool for managing AI coding agents across different hosts.",
+        "",
+    ]
+
+    for name, metadata in get_all_help_metadata().items():
+        parts.append(f"## mngr {name}")
+        parts.append("")
+        parts.append(f"Synopsis: {metadata.synopsis}")
+        parts.append("")
+        parts.append(metadata.description.strip())
+        parts.append("")
+        if metadata.examples:
+            parts.append("Examples:")
+            for desc, cmd in metadata.examples:
+                parts.append(f"  {desc}: {cmd}")
+            parts.append("")
+
+    return "\n".join(parts)
 
 
 class AskCliOptions(CommonCliOptions):
@@ -100,7 +121,7 @@ def _run_claude_print(query_string: str) -> str:
     Uses a temporary empty directory as cwd so that claude does not pick up
     any project context (CLAUDE.md, .git, etc.) from the user's working directory.
     """
-    system_prompt = _load_ask_context()
+    system_prompt = _build_ask_context()
 
     with tempfile.TemporaryDirectory(prefix="mngr-ask-") as tmp_dir:
         result = subprocess.run(

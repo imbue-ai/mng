@@ -8,9 +8,9 @@ import pluggy
 import pytest
 from click.testing import CliRunner
 
+from imbue.mngr.cli.ask import _build_ask_context
 from imbue.mngr.cli.ask import _emit_response
 from imbue.mngr.cli.ask import _execute_response
-from imbue.mngr.cli.ask import _load_ask_context
 from imbue.mngr.cli.ask import ask
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import OutputFormat
@@ -40,12 +40,12 @@ def _mock_subprocess(
     return side_effect
 
 
-def test_load_ask_context_contains_mngr_docs() -> None:
-    """The bundled ask context should exist and contain mngr command documentation."""
-    context = _load_ask_context()
-    assert len(context) > 1000
+def test_build_ask_context_contains_mngr_docs() -> None:
+    """The generated context should contain mngr command documentation from the registry."""
+    context = _build_ask_context()
+    assert len(context) > 100
     assert "mngr" in context
-    assert "create" in context
+    assert "create" in context.lower()
 
 
 def test_no_query_shows_usage_error(

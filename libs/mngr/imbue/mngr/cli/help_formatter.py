@@ -66,6 +66,11 @@ def get_help_metadata(command_name: str) -> CommandHelpMetadata | None:
     return _help_metadata_registry.get(command_name)
 
 
+def get_all_help_metadata() -> dict[str, CommandHelpMetadata]:
+    """Return a copy of the full help metadata registry."""
+    return dict(_help_metadata_registry)
+
+
 def is_interactive_terminal() -> bool:
     """Check if stdout is an interactive terminal.
 
