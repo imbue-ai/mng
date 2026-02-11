@@ -14,6 +14,7 @@ from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import OutputFormat
 
@@ -62,9 +63,13 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
     if not opts.query:
         raise click.UsageError("No query provided. Pass a question as arguments.", ctx=ctx)
 
-    query_string = "answer this question about `mngr`: " + " ".join(opts.query)
+    query_string = "answer this question about `mngr`. respond with the valid mngr command only: " + " ".join(
+        opts.query
+    )
 
     cwd = Path(opts.project_context_path) if opts.project_context_path else None
+
+    emit_info("Thinking...", output_opts.output_format)
 
     result = subprocess.run(
         ["claude", "--print", query_string],
