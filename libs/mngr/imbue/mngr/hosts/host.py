@@ -246,12 +246,12 @@ class Host(BaseHost, OnlineHostInterface):
                     except Exception as retry_exception:
                         self.provider_instance.on_connection_error(self.id)
                         raise HostConnectionError(
-                            f"Connection was closed while reading file (and our retry failed because {retry_exception})"
-                        ) from e
+                            "Connection was closed while reading file (and our retry failed)"
+                        ) from retry_exception
                     else:
                         self.provider_instance.on_connection_error(self.id)
                         raise HostConnectionError(
-                            f"Connection was closed while reading file (but the retry worked!)"
+                            "Connection was closed while reading file (but the retry worked!)"
                         ) from e
                 else:
                     raise
@@ -292,12 +292,12 @@ class Host(BaseHost, OnlineHostInterface):
                 except Exception as retry_exception:
                     self.provider_instance.on_connection_error(self.id)
                     raise HostConnectionError(
-                        f"Connection was closed while writing file (and our retry failed because {retry_exception})"
-                    ) from e
+                        "Connection was closed while writing file (and our retry failed)"
+                    ) from retry_exception
                 else:
                     self.provider_instance.on_connection_error(self.id)
                     raise HostConnectionError(
-                        f"Connection was closed while writing file (but the retry worked!)"
+                        "Connection was closed while writing file (but the retry worked!)"
                     ) from e
             else:
                 raise
@@ -1944,7 +1944,14 @@ def _build_start_agent_shell_command(
     The command chains critical steps with && so that if any step fails,
     subsequent steps are skipped. The process activity monitor is launched
     in a subshell so it runs in the background without affecting the chain.
+
+    If the tmux session already exists, the command exits early (successfully)
+    since everything has presumably already been set up.
     """
+    # Bail out early if the session already exists (using ; so that a failed
+    # has-session check doesn't break the && chain that follows)
+    guard = f"tmux has-session -t {shlex.quote(session_name)} 2>/dev/null && exit 0"
+
     steps: list[str] = []
 
     # Unset environment variables
@@ -2021,7 +2028,7 @@ def _build_start_agent_shell_command(
     monitor_cmd = f"(nohup bash -c {shlex.quote(monitor_script)} </dev/null >/dev/null 2>&1 &)"
     steps.append(monitor_cmd)
 
-    return " && ".join(steps)
+    return guard + "; " + " && ".join(steps)
 
 
 @pure

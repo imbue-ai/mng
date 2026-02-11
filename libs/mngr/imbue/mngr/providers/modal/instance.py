@@ -1914,7 +1914,11 @@ log "=== Shutdown script completed ==="
 
         # Create the filesystem snapshot
         with log_span("Creating filesystem snapshot", name=str(name)):
-            modal_image = sandbox.snapshot_filesystem()
+            # note that this can sometimes take quite a while kind of randomly, and it's sorta Modal's fault
+            # I've observed > 60-second delays even without tons of files (or large files)
+            # when there are lots of files (or the files are large), it can take even longer
+            # this is just a best-effort compromise between waiting forever and giving up too early - in practice, if it takes more than 5 minutes, something has probably gone pretty wrong
+            modal_image = sandbox.snapshot_filesystem(timeout=120)
         # Use the Modal image ID directly as the snapshot ID
         snapshot_id = SnapshotId(modal_image.object_id)
         created_at = datetime.now(timezone.utc)

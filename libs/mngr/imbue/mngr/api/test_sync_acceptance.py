@@ -29,14 +29,27 @@ def _run_mngr(
     args: list[str],
     env: dict[str, str],
     timeout: int = 60,
+    cwd: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a mngr command via subprocess."""
+    """Run a mngr command via subprocess with Modal disabled.
+
+    These tests only use the local provider, so Modal is disabled to avoid
+    unnecessary initialization (which would fail because the test MNGR_PREFIX
+    doesn't follow the mngr_test-* naming convention required for Modal test
+    environments).
+
+    The --disable-plugin option is per-subcommand, so it's inserted after the
+    subcommand name (first arg).
+    """
+    # Insert --disable-plugin modal after the subcommand name
+    cmd_args = [args[0], "--disable-plugin", "modal", *args[1:]]
     return subprocess.run(
-        ["uv", "run", "mngr", *args],
+        ["uv", "run", "mngr", *cmd_args],
         capture_output=True,
         text=True,
         timeout=timeout,
         env=env,
+        cwd=cwd,
     )
 
 
@@ -75,21 +88,8 @@ def created_agent(
 
     Destroys the agent after the test completes.
     """
-    result = subprocess.run(
-        [
-            "uv",
-            "run",
-            "mngr",
-            "create",
-            agent_name,
-            "bash",
-            "--no-connect",
-            "--project",
-            str(repo_path),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
+    result = _run_mngr(
+        ["create", agent_name, "bash", "--no-connect", "--project", str(repo_path)],
         env=sync_test_env,
         cwd=str(repo_path),
     )
@@ -98,13 +98,7 @@ def created_agent(
     yield agent_name
 
     # Cleanup: destroy the agent
-    subprocess.run(
-        ["uv", "run", "mngr", "destroy", agent_name, "-f"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        env=sync_test_env,
-    )
+    _run_mngr(["destroy", agent_name, "-f"], env=sync_test_env)
 
 
 def _get_agent_work_dir(repo_path: Path, agent_name: str) -> Path:
