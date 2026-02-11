@@ -40,7 +40,7 @@ unstaged=$(git diff --name-only)
 if [ -n "$untracked" ] || [ -n "$staged" ] || [ -n "$unstaged" ]; then
     echo "ERROR: Uncommitted changes detected. All changes must be committed before this hook can run." >&2
     echo "ERROR: Please commit or gitignore all files before stopping." >&2
-    exit 1
+    exit 2
 fi
 
 # Get the current tmux session name
