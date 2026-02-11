@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,17 @@ from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import OutputFormat
 
+_QUERY_PREFIX = (
+    "answer this question about `mngr`. "
+    "respond with the valid mngr command only, with no markdown formatting or explanation: "
+)
+
+_EXECUTE_QUERY_PREFIX = (
+    "answer this question about `mngr`. "
+    "respond with ONLY the valid mngr command, with no markdown formatting, explanation, or extra text. "
+    "the output will be executed directly as a shell command: "
+)
+
 
 class AskCliOptions(CommonCliOptions):
     """Options passed from the CLI to the ask command."""
@@ -32,7 +44,7 @@ class AskCliOptions(CommonCliOptions):
 @optgroup.option(
     "--execute",
     is_flag=True,
-    help="[future] Execute the generated CLI command instead of just printing it",
+    help="Execute the generated CLI command instead of just printing it",
 )
 @add_common_options
 @click.pass_context
@@ -57,20 +69,26 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
     )
     logger.debug("Started ask command")
 
-    if opts.execute:
-        raise NotImplementedError("--execute is not yet implemented")
-
     if not opts.query:
         raise click.UsageError("No query provided. Pass a question as arguments.", ctx=ctx)
 
-    query_string = "answer this question about `mngr`. respond with the valid mngr command only: " + " ".join(
-        opts.query
-    )
+    prefix = _EXECUTE_QUERY_PREFIX if opts.execute else _QUERY_PREFIX
+    query_string = prefix + " ".join(opts.query)
 
     cwd = Path(opts.project_context_path) if opts.project_context_path else None
 
     emit_info("Thinking...", output_opts.output_format)
 
+    response = _run_claude_print(query_string, cwd)
+
+    if opts.execute:
+        _execute_response(response=response, output_format=output_opts.output_format)
+    else:
+        _emit_response(response=response, output_format=output_opts.output_format)
+
+
+def _run_claude_print(query_string: str, cwd: Path | None) -> str:
+    """Run claude --print and return the response text."""
     result = subprocess.run(
         ["claude", "--print", query_string],
         capture_output=True,
@@ -82,13 +100,10 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
     if result.returncode != 0:
         stderr_msg = result.stderr.strip()
         stdout_msg = result.stdout.strip()
-        # claude sometimes writes errors to stdout instead of stderr
         detail = stderr_msg or stdout_msg or "unknown error (no output captured)"
         raise MngrError(f"claude --print failed (exit code {result.returncode}): {detail}")
 
-    response = result.stdout.rstrip("\n")
-
-    _emit_response(response=response, output_format=output_opts.output_format)
+    return result.stdout.rstrip("\n")
 
 
 def _emit_response(response: str, output_format: OutputFormat) -> None:
@@ -102,6 +117,21 @@ def _emit_response(response: str, output_format: OutputFormat) -> None:
             emit_final_json({"event": "response", "response": response})
         case _ as unreachable:
             assert_never(unreachable)
+
+
+def _execute_response(response: str, output_format: OutputFormat) -> None:
+    """Execute the command from claude's response."""
+    command = response.strip()
+    if not command:
+        raise MngrError("claude returned an empty response; nothing to execute")
+
+    emit_info(f"Running: {command}", output_format)
+
+    args = shlex.split(command)
+    result = subprocess.run(args, capture_output=False)
+
+    if result.returncode != 0:
+        raise MngrError(f"command failed (exit code {result.returncode}): {command}")
 
 
 # Register help metadata for git-style help formatting

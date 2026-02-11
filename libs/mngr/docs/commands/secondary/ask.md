@@ -39,7 +39,7 @@ mngr ask [OPTIONS] [QUERY]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--execute` | boolean | [future] Execute the generated CLI command instead of just printing it | `False` |
+| `--execute` | boolean | Execute the generated CLI command instead of just printing it | `False` |
 
 ## Common
 
