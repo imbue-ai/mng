@@ -2,6 +2,7 @@ import click
 import pluggy
 from click_option_group import OptionGroup
 
+from imbue.mngr.cli.clone import clone
 from imbue.mngr.cli.common_opts import TCommand
 from imbue.mngr.cli.common_opts import create_group_title_option
 from imbue.mngr.cli.common_opts import find_last_option_index_in_group
@@ -238,6 +239,10 @@ cli.add_command(destroy, name="rm")
 cli.add_command(message, name="msg")
 cli.add_command(list_command, name="ls")
 cli.add_command(connect, name="conn")
+
+# Add clone as a standalone command (not in BUILTIN_COMMANDS since it uses
+# UNPROCESSED args and delegates to create, which already has plugin options applied)
+cli.add_command(clone)
 
 # Register plugin commands after built-in commands but before applying CLI options.
 # This ordering allows plugins to add CLI options to other plugin commands.

@@ -1,4 +1,5 @@
 import os
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Final
@@ -136,7 +137,11 @@ def connect_to_agent(
 
         # Build wrapper script that tracks SSH activity while running tmux
         wrapper_script = _build_ssh_activity_wrapper_script(session_name, host.host_dir)
-        ssh_args.extend(["-t", "bash", "-c", wrapper_script])
+        # Pass the wrapper as a single remote command string so SSH doesn't
+        # split it into separate words. SSH concatenates multiple remote command
+        # arguments with spaces, which would cause 'bash -c' to only receive
+        # the first word of the script (e.g., 'mkdir') instead of the full script.
+        ssh_args.extend(["-t", "bash -c " + shlex.quote(wrapper_script)])
 
         # Use subprocess.call instead of os.execvp so we can check the exit code
         # and run post-disconnect actions (destroy/stop) triggered by tmux key bindings
