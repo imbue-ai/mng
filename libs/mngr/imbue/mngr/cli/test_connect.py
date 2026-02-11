@@ -6,7 +6,6 @@ from contextlib import contextmanager
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from unittest.mock import patch
 from uuid import uuid4
 
 import pluggy
@@ -37,6 +36,7 @@ from imbue.mngr.cli.connect import select_agent_interactively
 from imbue.mngr.cli.create import create
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.interfaces.data_types import HostInfo
+from imbue.mngr.main import cli
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
@@ -236,18 +236,9 @@ def test_connect_no_start_raises_error_for_stopped_agent(
 # CLI-level integration tests for connect command happy path
 #
 # These tests invoke the connect CLI command end-to-end. Because os.execvp
-# replaces the test process, we intercept it with a simple callable (not
-# MagicMock) to capture the args and verify the full CLI pipeline works.
+# replaces the test process, we intercept it via pytest monkeypatch with a
+# simple callable to capture the args and verify the full CLI pipeline works.
 # =============================================================================
-
-
-def _make_execvp_recorder(calls: list[tuple[str, list[str]]]) -> object:
-    """Create a callable that records os.execvp invocations."""
-
-    def record_execvp(program: str, args: list[str]) -> None:
-        calls.append((program, args))
-
-    return record_execvp
 
 
 def test_connect_cli_invokes_tmux_attach_for_named_agent(
@@ -255,6 +246,7 @@ def test_connect_cli_invokes_tmux_attach_for_named_agent(
     temp_work_dir: Path,
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test the full connect CLI path: argument parsing -> agent resolution -> tmux attach."""
     agent_name = f"test-connect-cli-tmux-{int(time.time())}"
@@ -264,20 +256,78 @@ def test_connect_cli_invokes_tmux_attach_for_named_agent(
     ) as session_name:
         assert tmux_session_exists(session_name)
 
-        # Intercept os.execvp with a simple recorder (not MagicMock)
+        # Intercept os.execvp with a simple recorder via monkeypatch
         execvp_calls: list[tuple[str, list[str]]] = []
-        with patch("imbue.mngr.api.connect.os.execvp", new=_make_execvp_recorder(execvp_calls)):
-            result = cli_runner.invoke(
-                connect,
-                [agent_name],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
-            assert result.exit_code == 0, f"Connect failed with output: {result.output}"
+        monkeypatch.setattr(
+            "imbue.mngr.api.connect.os.execvp",
+            lambda program, args: execvp_calls.append((program, args)),
+        )
 
-            # Verify the CLI resolved the agent and called tmux attach with the right session
-            assert len(execvp_calls) == 1
-            assert execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_name])
+        result = cli_runner.invoke(
+            connect,
+            [agent_name],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"Connect failed with output: {result.output}"
+
+        # Verify the CLI resolved the agent and called tmux attach with the right session
+        assert len(execvp_calls) == 1
+        assert execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_name])
+
+
+def test_connect_via_cli_group(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test calling connect through the main CLI group."""
+    agent_name = f"test-connect-cli-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    try:
+        # First create an agent
+        create_result = cli_runner.invoke(
+            cli,
+            [
+                "create",
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 918273",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0, f"Create failed with: {create_result.output}"
+
+        # Intercept os.execvp via monkeypatch
+        execvp_calls: list[tuple[str, list[str]]] = []
+        monkeypatch.setattr(
+            "imbue.mngr.api.connect.os.execvp",
+            lambda program, args: execvp_calls.append((program, args)),
+        )
+
+        cli_runner.invoke(
+            cli,
+            ["connect", agent_name],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert len(execvp_calls) == 1
+        assert execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_name])
+
+    finally:
+        cleanup_tmux_session(session_name)
 
 
 def test_connect_cli_non_interactive_selects_most_recent_agent(
@@ -285,6 +335,7 @@ def test_connect_cli_non_interactive_selects_most_recent_agent(
     temp_work_dir: Path,
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test the non-interactive code path selects the most recently created agent.
 
@@ -299,21 +350,25 @@ def test_connect_cli_non_interactive_selects_most_recent_agent(
         with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_new, 283746):
             expected_session = f"{mngr_test_prefix}{agent_name_new}"
 
-            # Intercept os.execvp to capture the session name without replacing the process
+            # Intercept os.execvp via monkeypatch
             execvp_calls: list[tuple[str, list[str]]] = []
-            with patch("imbue.mngr.api.connect.os.execvp", new=_make_execvp_recorder(execvp_calls)):
-                cli_runner.invoke(
-                    connect,
-                    [],
-                    obj=plugin_manager,
-                    catch_exceptions=False,
-                    # Providing input="" makes stdin non-tty, triggering the non-interactive path
-                    input="",
-                )
+            monkeypatch.setattr(
+                "imbue.mngr.api.connect.os.execvp",
+                lambda program, args: execvp_calls.append((program, args)),
+            )
 
-                # Verify the CLI selected the most recently created agent
-                assert len(execvp_calls) == 1
-                assert execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", expected_session])
+            cli_runner.invoke(
+                connect,
+                [],
+                obj=plugin_manager,
+                catch_exceptions=False,
+                # Providing input="" makes stdin non-tty, triggering the non-interactive path
+                input="",
+            )
+
+            # Verify the CLI selected the most recently created agent
+            assert len(execvp_calls) == 1
+            assert execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", expected_session])
 
 
 # =============================================================================
