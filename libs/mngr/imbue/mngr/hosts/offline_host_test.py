@@ -360,14 +360,76 @@ def test_get_build_log_returns_none_for_successful_host(offline_host: OfflineHos
     assert log is None
 
 
-def test_get_state_returns_crashed_when_no_stop_reason_regardless_of_snapshot_support(
-    offline_host: OfflineHost,
+@pytest.mark.parametrize(
+    "has_snapshots,expected_state",
+    [
+        (True, HostState.PAUSED),
+        (False, HostState.DESTROYED),
+    ],
+    ids=["with_snapshots_returns_stop_reason", "without_snapshots_returns_destroyed"],
+)
+def test_get_state_checks_snapshots_when_provider_cannot_shutdown(
+    fake_provider: FakeProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    has_snapshots: bool,
+    expected_state: HostState,
 ):
-    """Test that get_state returns CRASHED when stop_reason is None, regardless of provider capabilities."""
-    # The offline_host has no stop_reason set (defaults to None), so get_state
-    # returns CRASHED before ever checking snapshot support.
-    state = offline_host.get_state()
-    assert state == HostState.CRASHED
+    """Test the snapshot-checking path in get_state when supports_shutdown_hosts is False.
+
+    When a provider cannot directly resume hosts (supports_shutdown_hosts=False) but does
+    support snapshots, get_state checks whether snapshots exist to determine if the host
+    can be restored or is effectively destroyed.
+    """
+    host_id = HostId.generate()
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="test-host",
+        stop_reason=HostState.PAUSED.value,
+    )
+    fake_provider.fake_supports_shutdown_hosts = False
+    fake_provider.fake_supports_snapshots = True
+    if has_snapshots:
+        fake_provider.fake_snapshots = [
+            SnapshotInfo(
+                id=SnapshotId("snap-test"),
+                name=SnapshotName("snapshot"),
+                created_at=datetime.now(timezone.utc),
+            )
+        ]
+
+    host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=fake_provider,
+        mngr_ctx=temp_mngr_ctx,
+    )
+
+    state = host.get_state()
+    assert state == expected_state
+
+
+def test_get_state_returns_destroyed_when_no_shutdown_and_no_snapshots_support(
+    fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext
+):
+    """Test that get_state returns DESTROYED when provider can neither shutdown nor snapshot."""
+    host_id = HostId.generate()
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="test-host",
+        stop_reason=HostState.STOPPED.value,
+    )
+    fake_provider.fake_supports_shutdown_hosts = False
+    fake_provider.fake_supports_snapshots = False
+
+    host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=fake_provider,
+        mngr_ctx=temp_mngr_ctx,
+    )
+
+    state = host.get_state()
+    assert state == HostState.DESTROYED
 
 
 def test_failure_reason_takes_precedence_over_snapshot_check(
@@ -410,20 +472,17 @@ def test_failure_reason_takes_precedence_over_snapshot_check(
 def test_get_state_based_on_stop_reason(
     fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext, stop_reason: str | None, expected_state: HostState
 ):
-    """Test that get_state returns the correct state based on stop_reason."""
+    """Test that get_state returns the correct state based on stop_reason.
+
+    When supports_shutdown_hosts is True, get_state returns HostState(stop_reason)
+    directly without checking snapshots. When stop_reason is None, it returns CRASHED.
+    """
     host_id = HostId.generate()
     certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name="test-host",
         stop_reason=stop_reason,
     )
-    fake_provider.fake_snapshots = [
-        SnapshotInfo(
-            id=SnapshotId("snap-test"),
-            name=SnapshotName("snapshot"),
-            created_at=datetime.now(timezone.utc),
-        )
-    ]
     host = OfflineHost(
         id=host_id,
         certified_host_data=certified_data,
