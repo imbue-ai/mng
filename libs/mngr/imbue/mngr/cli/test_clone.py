@@ -47,12 +47,11 @@ def test_clone_creates_agent_from_source(
         assert create_result.exit_code == 0, f"Create source failed with: {create_result.output}"
         assert tmux_session_exists(source_session), f"Expected source session {source_session} to exist"
 
-        # Clone the source agent with an explicit name
+        # Clone the source agent with a positional name (the primary documented usage pattern)
         clone_result = cli_runner.invoke(
             clone,
             [
                 source_name,
-                "--name",
                 clone_name,
                 "--no-connect",
                 "--await-ready",

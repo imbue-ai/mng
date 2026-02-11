@@ -2,9 +2,12 @@
 
 from pathlib import Path
 
+import pytest
+
 from imbue.mngr.api.find import ensure_host_started
 from imbue.mngr.api.find import resolve_source_location
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.interfaces.data_types import CertifiedHostData
@@ -56,8 +59,8 @@ def test_resolve_source_location_resolves_host_and_path(
 ) -> None:
     """Test that resolve_source_location returns a valid HostLocation for a known host.
 
-    Verifies the function resolves a host reference and path to an online host,
-    exercising the auto-start code path for offline source hosts.
+    Verifies the function resolves a host reference and path to an online host
+    with a valid HostLocation.
     """
     host_id = local_provider.host_id
     host_ref = HostReference(
@@ -79,3 +82,20 @@ def test_resolve_source_location_resolves_host_and_path(
 
     assert isinstance(result.host, OnlineHostInterface)
     assert result.path == temp_work_dir
+
+
+def test_ensure_host_started_raises_when_start_not_desired(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Test that ensure_host_started raises UserInputError when offline and start is not desired."""
+    host_id = local_provider.host_id
+    offline_host = OfflineHost(
+        id=host_id,
+        provider_instance=local_provider,
+        mngr_ctx=temp_mngr_ctx,
+        certified_host_data=CertifiedHostData(host_id=str(host_id), host_name="local"),
+    )
+
+    with pytest.raises(UserInputError):
+        ensure_host_started(offline_host, is_start_desired=False, provider=local_provider)

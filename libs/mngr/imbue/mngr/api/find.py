@@ -276,7 +276,7 @@ def ensure_host_started(
 ) -> tuple[Host, bool]:
     """Ensure the host is online and started.
 
-    If the host is already online, returns it cast to OnlineHostInterface.
+    If the host is already online, returns it directly.
     If offline and start is desired, starts the host and returns the online host.
     If offline and start is not desired, raises UserInputError.
 
