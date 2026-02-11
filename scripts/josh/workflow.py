@@ -85,24 +85,23 @@ def wait_for_agent_completion(
     agent_identifier: str,
     max_task_time: float,
     poll_interval: float,
-) -> bool:
+) -> str | None:
     """Poll mngr list until agent reaches a terminal state or timeout.
 
-    Returns True if the agent completed (WAITING, DONE, STOPPED, or REPLACED),
-    False on timeout.
+    Returns the state when the agent is no longer RUNNING, or None if max_task_time is exceeded.
     """
     start_time = time.time()
 
     while True:
         elapsed = time.time() - start_time
         if elapsed >= max_task_time:
-            return False
+            return None
 
         state = get_agent_state(agent_identifier)
 
         # Any terminal state means the agent is no longer actively running
-        if state in ("WAITING", "DONE", "STOPPED", "REPLACED"):
-            return True
+        if state != "RUNNING":
+            return state
 
         time.sleep(poll_interval)
 
@@ -195,19 +194,24 @@ def main(
         click.echo(f"Task {idx}: Waiting for agent {agent_identifier} to complete")
 
         # Poll mngr list until WAITING or timeout
-        is_completed = wait_for_agent_completion(
+        final_state = wait_for_agent_completion(
             agent_identifier=agent_identifier,
             max_task_time=max_task_time,
             poll_interval=poll_interval,
         )
 
-        if is_completed:
+        if final_state in ("WAITING", "DONE"):
             click.echo(f"Task {idx}: Complete")
             last_successful_idx = idx
-            idx += 1
-        else:
+        elif final_state is None:
             click.echo(f"Task {idx}: Timed out, stopping agent and retrying")
             stop_agent(agent_identifier)
+        else:
+            click.echo(f"Task {idx}: Agent entered unexpected state '{final_state}', stopping agent and retrying")
+            stop_agent(agent_identifier)
+
+        # no matter what we increment the index
+        idx += 1
 
 
 if __name__ == "__main__":
