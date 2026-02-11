@@ -1,3 +1,5 @@
+from typing import Any
+
 import click
 import pluggy
 from click_option_group import OptionGroup
@@ -11,6 +13,7 @@ from imbue.mngr.cli.connect import connect
 from imbue.mngr.cli.create import create
 from imbue.mngr.cli.destroy import destroy
 from imbue.mngr.cli.gc import gc
+from imbue.mngr.cli.issue_reporting import handle_not_implemented_error
 from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.pair import pair
@@ -46,6 +49,12 @@ for canonical, aliases in COMMAND_ALIASES.items():
 
 class AliasAwareGroup(click.Group):
     """Custom click.Group that shows aliases inline with commands in --help."""
+
+    def invoke(self, ctx: click.Context) -> Any:
+        try:
+            return super().invoke(ctx)
+        except NotImplementedError as e:
+            handle_not_implemented_error(e)
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Write the command list with aliases shown inline."""
