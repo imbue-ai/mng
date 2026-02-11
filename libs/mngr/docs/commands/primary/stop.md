@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mngr [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-run]
+mngr [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-run] [--snapshot-mode <MODE>] [--graceful/--no-graceful]
 ```
 
 
@@ -48,12 +48,18 @@ mngr stop [OPTIONS] [AGENTS]...
 | `--agent` | text | Agent name or ID to stop (can be specified multiple times) | None |
 | `-a`, `--all`, `--all-agents` | boolean | Stop all running agents | `False` |
 | `--session` | text | Tmux session name to stop (can be specified multiple times). The agent name is extracted by stripping the configured prefix from the session name. | None |
+| `--include` | text | Filter agents to stop by CEL expression (repeatable) [future] | None |
+| `--exclude` | text | Exclude agents matching CEL expression (repeatable) [future] | None |
+| `--stdin` | boolean | Read agent and host names/IDs from stdin, one per line [future] | `False` |
 
 ## Behavior
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--dry-run` | boolean | Show what would be stopped without actually stopping | `False` |
+| `--snapshot-mode` | choice (`auto` &#x7C; `always` &#x7C; `never`) | Control snapshot creation when stopping: auto (snapshot if needed), always, or never [future] | None |
+| `--graceful`, `--no-graceful` | boolean | Wait for agent to reach a clean state before stopping [future] | `True` |
+| `--graceful-timeout` | text | Timeout for graceful stop (e.g., 30s, 5m) [future] | None |
 
 ## Common
 

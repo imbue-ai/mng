@@ -35,6 +35,13 @@ class StopCliOptions(CommonCliOptions):
     stop_all: bool
     dry_run: bool
     sessions: tuple[str, ...]
+    # Planned features (not yet implemented)
+    include: tuple[str, ...]
+    exclude: tuple[str, ...]
+    stdin: bool
+    snapshot_mode: str | None
+    graceful: bool
+    graceful_timeout: str | None
 
 
 def _output(message: str, output_opts: OutputOptions) -> None:
@@ -82,11 +89,43 @@ def _output_result(stopped_agents: list[str], output_opts: OutputOptions) -> Non
     help="Tmux session name to stop (can be specified multiple times). The agent name is extracted by "
     "stripping the configured prefix from the session name.",
 )
+@optgroup.option(
+    "--include",
+    multiple=True,
+    help="Filter agents to stop by CEL expression (repeatable) [future]",
+)
+@optgroup.option(
+    "--exclude",
+    multiple=True,
+    help="Exclude agents matching CEL expression (repeatable) [future]",
+)
+@optgroup.option(
+    "--stdin",
+    is_flag=True,
+    help="Read agent and host names/IDs from stdin, one per line [future]",
+)
 @optgroup.group("Behavior")
 @optgroup.option(
     "--dry-run",
     is_flag=True,
     help="Show what would be stopped without actually stopping",
+)
+@optgroup.option(
+    "--snapshot-mode",
+    type=click.Choice(["auto", "always", "never"], case_sensitive=False),
+    default=None,
+    help="Control snapshot creation when stopping: auto (snapshot if needed), always, or never [future]",
+)
+@optgroup.option(
+    "--graceful/--no-graceful",
+    default=True,
+    help="Wait for agent to reach a clean state before stopping [future]",
+)
+@optgroup.option(
+    "--graceful-timeout",
+    type=str,
+    default=None,
+    help="Timeout for graceful stop (e.g., 30s, 5m) [future]",
 )
 @add_common_options
 @click.pass_context
@@ -117,6 +156,20 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
         command_class=StopCliOptions,
     )
     logger.debug("Started stop command")
+
+    # Check for unsupported [future] options
+    if opts.include:
+        raise NotImplementedError("--include is not implemented yet")
+    if opts.exclude:
+        raise NotImplementedError("--exclude is not implemented yet")
+    if opts.stdin:
+        raise NotImplementedError("--stdin is not implemented yet")
+    if opts.snapshot_mode is not None:
+        raise NotImplementedError("--snapshot-mode is not implemented yet")
+    if not opts.graceful:
+        raise NotImplementedError("--no-graceful is not implemented yet")
+    if opts.graceful_timeout is not None and opts.graceful_timeout != "30s":
+        raise NotImplementedError("--graceful-timeout is not implemented yet")
 
     # Validate input
     agent_identifiers = list(opts.agents) + list(opts.agent_list)
@@ -196,7 +249,7 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
 _STOP_HELP_METADATA = CommandHelpMetadata(
     name="mngr-stop",
     one_line_description="Stop running agent(s)",
-    synopsis="mngr [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-run]",
+    synopsis="mngr [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-run] [--snapshot-mode <MODE>] [--graceful/--no-graceful]",
     description="""Stop one or more running agents.
 
 For remote hosts, this stops the agent's tmux session. The host remains

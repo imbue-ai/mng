@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mngr start [AGENTS...] [--agent <AGENT>] [--all] [--connect] [--dry-run]
+mngr start [AGENTS...] [--agent <AGENT>] [--all] [--host <HOST>] [--connect] [--dry-run] [--snapshot <SNAPSHOT>]
 ```
 
 
@@ -44,6 +44,10 @@ mngr start [OPTIONS] [AGENTS]...
 | ---- | ---- | ----------- | ------- |
 | `--agent` | text | Agent name or ID to start (can be specified multiple times) | None |
 | `-a`, `--all`, `--all-agents` | boolean | Start all stopped agents | `False` |
+| `--host` | text | Host(s) to start all stopped agents on [repeatable] [future] | None |
+| `--include` | text | Filter agents and hosts to start by CEL expression (repeatable) [future] | None |
+| `--exclude` | text | Exclude agents and hosts matching CEL expression (repeatable) [future] | None |
+| `--stdin` | boolean | Read agent and host names/IDs from stdin, one per line [future] | `False` |
 
 ## Behavior
 
@@ -51,6 +55,13 @@ mngr start [OPTIONS] [AGENTS]...
 | ---- | ---- | ----------- | ------- |
 | `--dry-run` | boolean | Show what would be started without actually starting | `False` |
 | `--connect`, `--no-connect` | boolean | Connect to the agent after starting (only valid for single agent) | `False` |
+
+## Snapshot
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--snapshot` | text | Start from a specific snapshot instead of the most recent [future] | None |
+| `--latest` | boolean | Start from the most recent snapshot or state [default] [future] | `True` |
 
 ## Common
 

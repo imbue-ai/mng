@@ -36,6 +36,13 @@ class StartCliOptions(CommonCliOptions):
     start_all: bool
     dry_run: bool
     connect: bool
+    # Planned features (not yet implemented)
+    host: tuple[str, ...]
+    include: tuple[str, ...]
+    exclude: tuple[str, ...]
+    stdin: bool
+    snapshot: str | None
+    latest: bool
 
 
 def _output(message: str, output_opts: OutputOptions) -> None:
@@ -104,6 +111,26 @@ def _send_resume_message_if_configured(agent: AgentInterface, output_opts: Outpu
     is_flag=True,
     help="Start all stopped agents",
 )
+@optgroup.option(
+    "--host",
+    multiple=True,
+    help="Host(s) to start all stopped agents on [repeatable] [future]",
+)
+@optgroup.option(
+    "--include",
+    multiple=True,
+    help="Filter agents and hosts to start by CEL expression (repeatable) [future]",
+)
+@optgroup.option(
+    "--exclude",
+    multiple=True,
+    help="Exclude agents and hosts matching CEL expression (repeatable) [future]",
+)
+@optgroup.option(
+    "--stdin",
+    is_flag=True,
+    help="Read agent and host names/IDs from stdin, one per line [future]",
+)
 @optgroup.group("Behavior")
 @optgroup.option(
     "--dry-run",
@@ -114,6 +141,19 @@ def _send_resume_message_if_configured(agent: AgentInterface, output_opts: Outpu
     "--connect/--no-connect",
     default=False,
     help="Connect to the agent after starting (only valid for single agent)",
+)
+@optgroup.group("Snapshot")
+@optgroup.option(
+    "--snapshot",
+    type=str,
+    default=None,
+    help="Start from a specific snapshot instead of the most recent [future]",
+)
+@optgroup.option(
+    "--latest",
+    is_flag=True,
+    default=True,
+    help="Start from the most recent snapshot or state [default] [future]",
 )
 @add_common_options
 @click.pass_context
@@ -140,6 +180,18 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
         command_class=StartCliOptions,
     )
     logger.debug("Started start command")
+
+    # Check for unsupported [future] options
+    if opts.host:
+        raise NotImplementedError("--host is not implemented yet")
+    if opts.include:
+        raise NotImplementedError("--include is not implemented yet")
+    if opts.exclude:
+        raise NotImplementedError("--exclude is not implemented yet")
+    if opts.stdin:
+        raise NotImplementedError("--stdin is not implemented yet")
+    if opts.snapshot is not None:
+        raise NotImplementedError("--snapshot is not implemented yet")
 
     # Validate input
     agent_identifiers = list(opts.agents) + list(opts.agent_list)
@@ -231,7 +283,7 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
 _START_HELP_METADATA = CommandHelpMetadata(
     name="mngr-start",
     one_line_description="Start stopped agent(s)",
-    synopsis="mngr start [AGENTS...] [--agent <AGENT>] [--all] [--connect] [--dry-run]",
+    synopsis="mngr start [AGENTS...] [--agent <AGENT>] [--all] [--host <HOST>] [--connect] [--dry-run] [--snapshot <SNAPSHOT>]",
     description="""Start one or more stopped agents.
 
 For remote hosts, this restores from the most recent snapshot and starts
