@@ -15,6 +15,7 @@ from click_option_group import OptionGroup
 from click_option_group import optgroup
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import MngrConfig
@@ -357,12 +358,13 @@ def _apply_plugin_option_overrides(
 
 def _run_single_script(script: str, cg: ConcurrencyGroup) -> tuple[str, int, str, str]:
     """Run a single script and return (script, exit_code, stdout, stderr)."""
-    result = cg.run_process_to_completion(
-        ["sh", "-c", script],
-        is_checked_after=False,
-    )
-    # returncode is always set after run_process_to_completion; default to -1 to satisfy the type checker
-    return (script, result.returncode if result.returncode is not None else -1, result.stdout, result.stderr)
+    try:
+        result = cg.run_process_to_completion(
+            ["sh", "-c", script],
+        )
+        return (script, result.returncode if result.returncode is not None else 0, result.stdout, result.stderr)
+    except ProcessError as e:
+        return (script, e.returncode if e.returncode is not None else -1, e.stdout, e.stderr)
 
 
 def _run_pre_command_scripts(config: MngrConfig, command_name: str, cg: ConcurrencyGroup) -> None:

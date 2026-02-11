@@ -25,6 +25,7 @@ from pydantic import ValidationError
 from pyinfra.api.command import StringCommand
 from pyinfra.connectors.util import CommandOutput
 
+from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
@@ -1036,13 +1037,13 @@ class Host(BaseHost, OnlineHostInterface):
                     git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
                     env = {"GIT_SSH_COMMAND": git_ssh_cmd}
                     remote_url = f"ssh://{user}@{hostname}:{port}{source_path}/.git"
-                    result = self.mngr_ctx.cg.run_process_to_completion(
-                        ["git", "clone", "--mirror", remote_url, str(target_path / ".git")],
-                        is_checked_after=False,
-                        env={**os.environ, **env},
-                    )
-                    if result.returncode != 0:
-                        raise MngrError(f"Failed to clone from remote source: {result.stderr}")
+                    try:
+                        self.mngr_ctx.cg.run_process_to_completion(
+                            ["git", "clone", "--mirror", remote_url, str(target_path / ".git")],
+                            env={**os.environ, **env},
+                        )
+                    except ProcessError as e:
+                        raise MngrError(f"Failed to clone from remote source: {e.stderr}") from e
                     return
         else:
             user, hostname, port, key_path = target_ssh_info
@@ -1063,14 +1064,14 @@ class Host(BaseHost, OnlineHostInterface):
                 env["GIT_LFS_SKIP_PUSH"] = "1"
 
                 command_args = ["git", "-C", str(source_path), "push", "--no-verify", "--mirror", git_url]
-                result = self.mngr_ctx.cg.run_process_to_completion(
-                    command_args,
-                    is_checked_after=False,
-                    env={**os.environ, **env} if env else None,
-                )
+                try:
+                    self.mngr_ctx.cg.run_process_to_completion(
+                        command_args,
+                        env={**os.environ, **env} if env else None,
+                    )
+                except ProcessError as e:
+                    raise MngrError(f"Failed to push git repo: {e.stderr}") from e
                 logger.trace("Ran git push --mirror from local source to target: {}", " ".join(command_args))
-                if result.returncode != 0:
-                    raise MngrError(f"Failed to push git repo: {result.stderr}")
         else:
             if target_ssh_info is not None:
                 user, hostname, port, key_path = target_ssh_info
@@ -1100,11 +1101,10 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_unclean = options.git.is_include_unclean if options.git else True
         if is_include_unclean:
             if source_host.is_local:
-                result = self.mngr_ctx.cg.run_process_to_completion(
-                    ["git", "-C", str(source_path), "status", "--porcelain"],
-                    is_checked_after=False,
-                )
-                if result.returncode == 0:
+                try:
+                    result = self.mngr_ctx.cg.run_process_to_completion(
+                        ["git", "-C", str(source_path), "status", "--porcelain"],
+                    )
                     for line in result.stdout.split("\n"):
                         if line:
                             # git status --porcelain format: "XY filename" (2 status chars + space + filename)
@@ -1112,6 +1112,8 @@ class Host(BaseHost, OnlineHostInterface):
                             if " -> " in filename:
                                 filename = filename.split(" -> ")[1]
                             files_to_include.append(filename)
+                except ProcessError:
+                    pass
             else:
                 result = source_host.execute_command("git status --porcelain", cwd=source_path)
                 if result.success:
@@ -1126,14 +1128,15 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_gitignored = options.git.is_include_gitignored if options.git else False
         if is_include_gitignored:
             if source_host.is_local:
-                result = self.mngr_ctx.cg.run_process_to_completion(
-                    ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
-                    is_checked_after=False,
-                )
-                if result.returncode == 0:
+                try:
+                    result = self.mngr_ctx.cg.run_process_to_completion(
+                        ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
+                    )
                     for line in result.stdout.split("\n"):
                         if line:
                             files_to_include.append(line)
+                except ProcessError:
+                    pass
             else:
                 result = source_host.execute_command(
                     "git ls-files --others --ignored --exclude-standard",
@@ -1218,10 +1221,11 @@ class Host(BaseHost, OnlineHostInterface):
             raise NotImplementedError("rsync between two remote hosts is not supported right now")
 
         with log_span("{}", rsync_description):
-            result = self.mngr_ctx.cg.run_process_to_completion(rsync_args, is_checked_after=False)
+            try:
+                self.mngr_ctx.cg.run_process_to_completion(rsync_args)
+            except ProcessError as e:
+                raise MngrError(f"rsync failed: {e.stderr}") from e
             logger.trace("Ran rsync command: {}", " ".join(rsync_args))
-            if result.returncode != 0:
-                raise MngrError(f"rsync failed: {result.stderr}")
 
     def _create_work_dir_as_git_worktree(
         self,
