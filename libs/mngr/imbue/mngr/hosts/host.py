@@ -243,7 +243,7 @@ class Host(BaseHost, OnlineHostInterface):
                             filename_or_io,
                             remote_temp_filename=remote_temp_filename,
                         )
-                    except (OSError, EOFError, SSHException) as retry_exception:
+                    except Exception as retry_exception:
                         self.provider_instance.on_connection_error(self.id)
                         raise HostConnectionError(
                             "Connection was closed while reading file (and our retry failed)"
@@ -289,7 +289,7 @@ class Host(BaseHost, OnlineHostInterface):
                         remote_filename,
                         remote_temp_filename=remote_temp_filename,
                     )
-                except (OSError, EOFError, SSHException) as retry_exception:
+                except Exception as retry_exception:
                     self.provider_instance.on_connection_error(self.id)
                     raise HostConnectionError(
                         "Connection was closed while writing file (and our retry failed)"
