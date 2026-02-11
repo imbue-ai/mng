@@ -485,7 +485,29 @@ def test_build_start_agent_shell_command_uses_and_chaining(
     agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     result = _build_command_with_defaults(agent, temp_host_dir)
 
-    # The result should be a single && chain with at least 7 steps:
-    # new-session, set-option, send-keys, Enter, mkdir, printf, nohup
-    parts = result.split(" && ")
+    # The guard is joined with ";", the rest with "&&"
+    # Split past the guard to check the && chain
+    assert "; " in result
+    after_guard = result.split("; ", 1)[1]
+    parts = after_guard.split(" && ")
     assert len(parts) >= 6
+
+
+def test_build_start_agent_shell_command_bails_if_session_exists(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """The command should start with a guard that exits early if the tmux session already exists."""
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_command_with_defaults(agent, temp_host_dir)
+    session_name = f"mngr-{agent.name}"
+
+    # Guard should be the first part (before the ";")
+    guard, rest = result.split("; ", 1)
+    assert "has-session" in guard
+    assert session_name in guard
+    assert "exit 0" in guard
+
+    # The rest of the command (tmux new-session, etc.) comes after
+    assert "new-session" in rest
