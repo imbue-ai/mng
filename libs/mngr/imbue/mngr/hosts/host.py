@@ -1112,8 +1112,8 @@ class Host(BaseHost, OnlineHostInterface):
                             if " -> " in filename:
                                 filename = filename.split(" -> ")[1]
                             files_to_include.append(filename)
-                except ProcessError:
-                    pass
+                except ProcessError as e:
+                    logger.trace("git status --porcelain failed, skipping unclean files: {}", e)
             else:
                 result = source_host.execute_command("git status --porcelain", cwd=source_path)
                 if result.success:
@@ -1135,8 +1135,8 @@ class Host(BaseHost, OnlineHostInterface):
                     for line in result.stdout.split("\n"):
                         if line:
                             files_to_include.append(line)
-                except ProcessError:
-                    pass
+                except ProcessError as e:
+                    logger.trace("git ls-files failed, skipping gitignored files: {}", e)
             else:
                 result = source_host.execute_command(
                     "git ls-files --others --ignored --exclude-standard",

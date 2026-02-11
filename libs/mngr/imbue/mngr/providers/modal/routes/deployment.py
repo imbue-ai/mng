@@ -10,8 +10,9 @@ from imbue.mngr.errors import MngrError
 
 
 def deploy_function(function: str, app_name: str, environment_name: str | None, cg: ConcurrencyGroup) -> str:
-    """Deploys a Function to Modal with the given app name and returns the URL.
-    Returns None if deployment fails.
+    """Deploy a Function to Modal with the given app name and return the URL.
+
+    Raises MngrError if deployment fails.
     """
     script_path = Path(__file__).parent / f"{function}.py"
 
@@ -33,7 +34,8 @@ def deploy_function(function: str, app_name: str, environment_name: str | None, 
                 },
             )
         except ProcessError as e:
-            raise MngrError(f"Failed to deploy {function} function: {e.stderr}") from e
+            output = (e.stdout + "\n" + e.stderr).strip()
+            raise MngrError(f"Failed to deploy {function} function: {output}") from e
 
         # get the URL out of the resulting Function object
         func = Function.from_name(name=function, app_name=app_name, environment_name=environment_name)
