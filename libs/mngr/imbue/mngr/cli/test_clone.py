@@ -1,7 +1,7 @@
 """Integration tests for the clone CLI command."""
 
-import time
 from pathlib import Path
+from uuid import uuid4
 
 import pluggy
 from click.testing import CliRunner
@@ -20,8 +20,8 @@ def test_clone_creates_agent_from_source(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that clone creates a new agent by delegating to create --from-agent."""
-    source_name = f"test-clone-source-{int(time.time())}"
-    clone_name = f"test-clone-target-{int(time.time())}"
+    source_name = f"test-clone-source-{uuid4().hex}"
+    clone_name = f"test-clone-target-{uuid4().hex}"
     source_session = f"{mngr_test_prefix}{source_name}"
     clone_session = f"{mngr_test_prefix}{clone_name}"
 

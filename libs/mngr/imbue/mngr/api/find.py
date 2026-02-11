@@ -195,6 +195,8 @@ def resolve_source_location(
     Everything after the first ':' is treated as the path (to handle colons in paths).
     HOST can optionally include .PROVIDER suffix (e.g., myhost.docker).
 
+    If the resolved host is offline, it will be automatically started.
+
     This is useful because it allows the user to specify the source agent / location in a maximally flexible way.
     This is important for making the CLI easy to use in a variety of scenarios.
     """
