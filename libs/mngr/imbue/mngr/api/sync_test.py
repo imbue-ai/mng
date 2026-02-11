@@ -1,10 +1,12 @@
 """Unit tests for sync API functions."""
 
+from collections.abc import Generator
 from pathlib import Path
 from typing import cast
 
 import pytest
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.sync import GitSyncError
 from imbue.mngr.api.sync import LocalGitContext
 from imbue.mngr.api.sync import NotAGitRepositoryError
@@ -189,61 +191,74 @@ def test_git_sync_error_provides_user_help_text() -> None:
 # =============================================================================
 
 
+@pytest.fixture
+def cg() -> Generator[ConcurrencyGroup, None, None]:
+    """Create a ConcurrencyGroup for tests."""
+    with ConcurrencyGroup(name="test_sync") as group:
+        yield group
+
+
 def test_local_git_context_has_uncommitted_changes_returns_true_when_changes_exist(
+    cg: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
     init_git_repo_with_config(tmp_path)
     (tmp_path / "dirty.txt").write_text("dirty")
 
-    ctx = LocalGitContext()
+    ctx = LocalGitContext(cg=cg)
     assert ctx.has_uncommitted_changes(tmp_path) is True
 
 
 def test_local_git_context_has_uncommitted_changes_returns_false_when_clean(
+    cg: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
     init_git_repo_with_config(tmp_path)
 
-    ctx = LocalGitContext()
+    ctx = LocalGitContext(cg=cg)
     assert ctx.has_uncommitted_changes(tmp_path) is False
 
 
 def test_local_git_context_has_uncommitted_changes_raises_on_non_git_dir(
+    cg: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
-    ctx = LocalGitContext()
+    ctx = LocalGitContext(cg=cg)
     with pytest.raises(MngrError, match="git status failed"):
         ctx.has_uncommitted_changes(tmp_path)
 
 
 def test_local_git_context_git_stash_returns_true_on_success(
+    cg: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
     init_git_repo_with_config(tmp_path)
     (tmp_path / "README.md").write_text("modified")
 
-    ctx = LocalGitContext()
+    ctx = LocalGitContext(cg=cg)
     result = ctx.git_stash(tmp_path)
     assert result is True
 
 
 def test_local_git_context_git_stash_returns_false_when_no_changes_to_save(
+    cg: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
     init_git_repo_with_config(tmp_path)
 
-    ctx = LocalGitContext()
+    ctx = LocalGitContext(cg=cg)
     result = ctx.git_stash(tmp_path)
     assert result is False
 
 
 def test_local_git_context_git_stash_pop_succeeds(
+    cg: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
     init_git_repo_with_config(tmp_path)
     (tmp_path / "README.md").write_text("modified")
 
-    ctx = LocalGitContext()
+    ctx = LocalGitContext(cg=cg)
     ctx.git_stash(tmp_path)
     ctx.git_stash_pop(tmp_path)
 
@@ -251,23 +266,25 @@ def test_local_git_context_git_stash_pop_succeeds(
 
 
 def test_local_git_context_git_stash_pop_raises_when_no_stash(
+    cg: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
     init_git_repo_with_config(tmp_path)
 
-    ctx = LocalGitContext()
+    ctx = LocalGitContext(cg=cg)
     with pytest.raises(MngrError, match="git stash pop failed"):
         ctx.git_stash_pop(tmp_path)
 
 
 def test_local_git_context_git_reset_hard_succeeds(
+    cg: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
     init_git_repo_with_config(tmp_path)
     (tmp_path / "README.md").write_text("modified")
     (tmp_path / "untracked.txt").write_text("untracked")
 
-    ctx = LocalGitContext()
+    ctx = LocalGitContext(cg=cg)
     ctx.git_reset_hard(tmp_path)
 
     assert (tmp_path / "README.md").read_text() == "Initial content"
@@ -275,27 +292,30 @@ def test_local_git_context_git_reset_hard_succeeds(
 
 
 def test_local_git_context_get_current_branch_returns_branch_name(
+    cg: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
     init_git_repo_with_config(tmp_path)
 
-    ctx = LocalGitContext()
+    ctx = LocalGitContext(cg=cg)
     assert ctx.get_current_branch(tmp_path) == "main"
 
 
 def test_local_git_context_is_git_repository_returns_true_for_git_repo(
+    cg: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
     init_git_repo_with_config(tmp_path)
 
-    ctx = LocalGitContext()
+    ctx = LocalGitContext(cg=cg)
     assert ctx.is_git_repository(tmp_path) is True
 
 
 def test_local_git_context_is_git_repository_returns_false_for_non_git_dir(
+    cg: ConcurrencyGroup,
     tmp_path: Path,
 ) -> None:
-    ctx = LocalGitContext()
+    ctx = LocalGitContext(cg=cg)
     assert ctx.is_git_repository(tmp_path) is False
 
 

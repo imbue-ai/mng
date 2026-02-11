@@ -1,8 +1,11 @@
 import json
+from collections.abc import Generator
 
 import pytest
 from inline_snapshot import snapshot
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.subprocess_utils import FinishedProcess
 from imbue.mngr.cli.issue_reporting import ExistingIssue
 from imbue.mngr.cli.issue_reporting import GITHUB_BASE_URL
 from imbue.mngr.cli.issue_reporting import build_issue_body
@@ -12,13 +15,22 @@ from imbue.mngr.cli.issue_reporting import handle_not_implemented_error
 from imbue.mngr.cli.issue_reporting import search_for_existing_issue
 
 
-class _FakeSubprocessResult:
-    """Mimics subprocess.CompletedProcess for testing."""
+@pytest.fixture
+def cg() -> Generator[ConcurrencyGroup, None, None]:
+    """Create a ConcurrencyGroup for tests."""
+    with ConcurrencyGroup(name="test_issue_reporting") as group:
+        yield group
 
-    def __init__(self, returncode: int, stdout: str):
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = ""
+
+def _fake_finished_process(returncode: int, stdout: str, command: tuple[str, ...] = ("fake",)) -> FinishedProcess:
+    """Create a FinishedProcess for test mocking."""
+    return FinishedProcess(
+        returncode=returncode,
+        stdout=stdout,
+        stderr="",
+        command=command,
+        is_output_already_logged=False,
+    )
 
 
 # =============================================================================
@@ -92,38 +104,42 @@ def test_build_new_issue_url_truncates_long_body() -> None:
 # =============================================================================
 
 
-def test_search_for_existing_issue_returns_none_when_both_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_for_existing_issue_returns_none_when_both_fail(
+    cg: ConcurrencyGroup, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When both GitHub API and gh CLI fail, search returns None."""
+    from imbue.concurrency_group.errors import ProcessSetupError
 
-    def failing_subprocess_run(*args, **kwargs):
-        raise FileNotFoundError("curl not found")
+    def failing_run(*args, **kwargs):
+        raise ProcessSetupError("curl not found")
 
-    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.subprocess.run", failing_subprocess_run)
+    monkeypatch.setattr(ConcurrencyGroup, "run_process_to_completion", failing_run)
 
-    result = search_for_existing_issue("some error")
+    result = search_for_existing_issue(cg, "some error")
     assert result is None
 
 
-def test_search_for_existing_issue_falls_back_to_gh_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_for_existing_issue_falls_back_to_gh_cli(cg: ConcurrencyGroup, monkeypatch: pytest.MonkeyPatch) -> None:
     """When GitHub API fails, search falls back to gh CLI."""
     call_count = 0
 
-    def fake_subprocess_run(args, **kwargs):
+    def fake_run(self, command, **kwargs):
         nonlocal call_count
         call_count += 1
-        if args[0] == "curl":
-            return _FakeSubprocessResult(returncode=22, stdout="")
+        if command[0] == "curl":
+            return _fake_finished_process(returncode=22, stdout="", command=tuple(command))
         else:
-            return _FakeSubprocessResult(
+            return _fake_finished_process(
                 returncode=0,
                 stdout=json.dumps(
                     [{"number": 42, "title": "[NotImplemented] test feature", "url": "https://github.com/test/42"}]
                 ),
+                command=tuple(command),
             )
 
-    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.subprocess.run", fake_subprocess_run)
+    monkeypatch.setattr(ConcurrencyGroup, "run_process_to_completion", fake_run)
 
-    result = search_for_existing_issue("test feature")
+    result = search_for_existing_issue(cg, "test feature")
     assert result is not None
     assert result.number == 42
     assert result.url == "https://github.com/test/42"
@@ -131,14 +147,16 @@ def test_search_for_existing_issue_falls_back_to_gh_cli(monkeypatch: pytest.Monk
     assert call_count == 2
 
 
-def test_search_for_existing_issue_returns_api_result_when_found(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_for_existing_issue_returns_api_result_when_found(
+    cg: ConcurrencyGroup, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When GitHub API finds an issue, returns it without trying gh CLI."""
     call_count = 0
 
-    def fake_subprocess_run(args, **kwargs):
+    def fake_run(self, command, **kwargs):
         nonlocal call_count
         call_count += 1
-        return _FakeSubprocessResult(
+        return _fake_finished_process(
             returncode=0,
             stdout=json.dumps(
                 {
@@ -151,11 +169,12 @@ def test_search_for_existing_issue_returns_api_result_when_found(monkeypatch: py
                     ]
                 }
             ),
+            command=tuple(command),
         )
 
-    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.subprocess.run", fake_subprocess_run)
+    monkeypatch.setattr(ConcurrencyGroup, "run_process_to_completion", fake_run)
 
-    result = search_for_existing_issue("--sync-mode=full")
+    result = search_for_existing_issue(cg, "--sync-mode=full")
     assert result is not None
     assert result.number == 99
     assert result.url == "https://github.com/imbue-ai/mngr/issues/99"
@@ -163,18 +182,21 @@ def test_search_for_existing_issue_returns_api_result_when_found(monkeypatch: py
     assert call_count == 1
 
 
-def test_search_for_existing_issue_returns_none_when_no_results(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_for_existing_issue_returns_none_when_no_results(
+    cg: ConcurrencyGroup, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When API returns empty results, returns None."""
 
-    def fake_subprocess_run(args, **kwargs):
-        return _FakeSubprocessResult(
+    def fake_run(self, command, **kwargs):
+        return _fake_finished_process(
             returncode=0,
             stdout=json.dumps({"items": []}),
+            command=tuple(command),
         )
 
-    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.subprocess.run", fake_subprocess_run)
+    monkeypatch.setattr(ConcurrencyGroup, "run_process_to_completion", fake_run)
 
-    result = search_for_existing_issue("nonexistent feature")
+    result = search_for_existing_issue(cg, "nonexistent feature")
     assert result is None
 
 
@@ -218,8 +240,8 @@ def test_handle_not_implemented_error_interactive_opens_existing_issue(monkeypat
     monkeypatch.setattr("imbue.mngr.cli.issue_reporting.click.confirm", lambda *args, **kwargs: True)
 
     # Return an existing issue from the API search
-    def fake_subprocess_run(args, **kwargs):
-        return _FakeSubprocessResult(
+    def fake_run(self, command, **kwargs):
+        return _fake_finished_process(
             returncode=0,
             stdout=json.dumps(
                 {
@@ -232,9 +254,10 @@ def test_handle_not_implemented_error_interactive_opens_existing_issue(monkeypat
                     ]
                 }
             ),
+            command=tuple(command),
         )
 
-    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.subprocess.run", fake_subprocess_run)
+    monkeypatch.setattr(ConcurrencyGroup, "run_process_to_completion", fake_run)
 
     opened_urls: list[str] = []
     monkeypatch.setattr("imbue.mngr.cli.issue_reporting.webbrowser.open", lambda url: opened_urls.append(url))
@@ -252,13 +275,13 @@ def test_handle_not_implemented_error_interactive_opens_new_issue_form(monkeypat
     monkeypatch.setattr("imbue.mngr.cli.issue_reporting.click.confirm", lambda *args, **kwargs: True)
 
     # Return empty results from API, then also empty from gh CLI
-    def fake_subprocess_run(args, **kwargs):
-        if args[0] == "curl":
-            return _FakeSubprocessResult(returncode=0, stdout=json.dumps({"items": []}))
+    def fake_run(self, command, **kwargs):
+        if command[0] == "curl":
+            return _fake_finished_process(returncode=0, stdout=json.dumps({"items": []}), command=tuple(command))
         else:
-            return _FakeSubprocessResult(returncode=0, stdout=json.dumps([]))
+            return _fake_finished_process(returncode=0, stdout=json.dumps([]), command=tuple(command))
 
-    monkeypatch.setattr("imbue.mngr.cli.issue_reporting.subprocess.run", fake_subprocess_run)
+    monkeypatch.setattr(ConcurrencyGroup, "run_process_to_completion", fake_run)
 
     opened_urls: list[str] = []
     monkeypatch.setattr("imbue.mngr.cli.issue_reporting.webbrowser.open", lambda url: opened_urls.append(url))

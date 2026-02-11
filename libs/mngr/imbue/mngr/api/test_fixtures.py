@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import Field
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.sync import LocalGitContext
@@ -52,6 +53,6 @@ class SyncTestContext(FrozenModel):
     host: Any = Field(description="Test host (FakeHost)")
 
 
-def has_uncommitted_changes(path: Path) -> bool:
+def has_uncommitted_changes(cg: ConcurrencyGroup, path: Path) -> bool:
     """Check for uncommitted changes using LocalGitContext."""
-    return LocalGitContext().has_uncommitted_changes(path)
+    return LocalGitContext(cg=cg).has_uncommitted_changes(path)

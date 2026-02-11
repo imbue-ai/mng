@@ -264,6 +264,7 @@ def sync_git_state(
     if git_sync_action.agent_is_ahead:
         logger.debug("Pulling git state from agent to local")
         pull_git(
+            cg=cg,
             agent=agent,
             host=host,
             destination=local_path,
@@ -277,6 +278,7 @@ def sync_git_state(
     if git_sync_action.local_is_ahead:
         logger.debug("Pushing git state from local to agent")
         push_git(
+            cg=cg,
             agent=agent,
             host=host,
             source=local_path,
