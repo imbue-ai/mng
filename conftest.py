@@ -12,6 +12,11 @@ from uuid import uuid4
 import pytest
 from coverage.exceptions import CoverageException
 
+from imbue.mngr.utils.logging import suppress_warnings
+
+# suppress some pointless warnings from other library's loggers
+suppress_warnings()
+
 # Directory for test output files (slow tests, coverage summaries)
 _TEST_OUTPUTS_DIR: Final[Path] = Path(".claude/tests_outputs")
 
