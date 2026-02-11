@@ -261,8 +261,12 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     sort_source = ctx.get_parameter_source("sort")
     is_sort_explicit = sort_source is not None and sort_source != click.core.ParameterSource.DEFAULT
 
-    # Use streaming HUMAN output when: HUMAN format, not watch mode, and sort not explicitly set
-    if output_opts.output_format == OutputFormat.HUMAN and not opts.watch and not is_sort_explicit:
+    # Streaming mode trades sorted output for faster time-to-first-result: agents display
+    # as each provider completes rather than waiting for all providers. Users who need sorted
+    # output can pass --sort explicitly, which falls back to batch mode. When --limit is set,
+    # batch mode is required to get deterministic results (streaming would show whichever
+    # agents load first, since sorting is skipped).
+    if output_opts.output_format == OutputFormat.HUMAN and not opts.watch and not is_sort_explicit and limit is None:
         display_fields = (
             fields if fields is not None else ["name", "host", "provider", "host.state", "state", "status"]
         )

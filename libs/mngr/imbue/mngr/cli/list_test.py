@@ -5,10 +5,13 @@ from datetime import datetime
 from datetime import timezone
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
+from click.testing import CliRunner
 from loguru import logger
 
 from imbue.mngr.api.list import AgentInfo
+from imbue.mngr.api.list import ListResult
 from imbue.mngr.cli.list import _StreamingHumanRenderer
 from imbue.mngr.cli.list import _format_streaming_agent_row
 from imbue.mngr.cli.list import _format_streaming_row
@@ -17,6 +20,7 @@ from imbue.mngr.cli.list import _get_field_value
 from imbue.mngr.cli.list import _get_sortable_value
 from imbue.mngr.cli.list import _parse_slice_spec
 from imbue.mngr.cli.list import _sort_agents
+from imbue.mngr.cli.list import list_command
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.primitives import AgentId
@@ -715,3 +719,83 @@ def test_streaming_renderer_tty_erases_status_on_finish(monkeypatch) -> None:
     output = captured.getvalue()
     # The final write should end with an erase-line sequence (no trailing status)
     assert output.endswith("\r\x1b[K")
+
+
+# =============================================================================
+# Tests for streaming mode fallback with --limit
+# =============================================================================
+
+
+def test_limit_flag_uses_batch_mode(
+    temp_mngr_ctx,
+    plugin_manager,
+) -> None:
+    """--limit should force batch mode (is_streaming=False) to get deterministic results."""
+    calls: list[dict] = []
+
+    def tracking_list_agents(**kwargs):
+        calls.append(kwargs)
+        return ListResult()
+
+    runner = CliRunner()
+    with patch("imbue.mngr.cli.list.api_list_agents", side_effect=tracking_list_agents):
+        result = runner.invoke(
+            list_command,
+            ["--limit", "5"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert len(calls) == 1
+    assert calls[0]["is_streaming"] is False
+
+
+def test_no_limit_uses_streaming_mode(
+    temp_mngr_ctx,
+    plugin_manager,
+) -> None:
+    """Without --limit (and without --sort/--watch), HUMAN format should use streaming mode."""
+    calls: list[dict] = []
+
+    def tracking_list_agents(**kwargs):
+        calls.append(kwargs)
+        return ListResult()
+
+    runner = CliRunner()
+    with patch("imbue.mngr.cli.list.api_list_agents", side_effect=tracking_list_agents):
+        result = runner.invoke(
+            list_command,
+            [],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert len(calls) == 1
+    assert calls[0]["is_streaming"] is True
+
+
+def test_explicit_sort_uses_batch_mode(
+    temp_mngr_ctx,
+    plugin_manager,
+) -> None:
+    """--sort should force batch mode (is_streaming=False) for sorted output."""
+    calls: list[dict] = []
+
+    def tracking_list_agents(**kwargs):
+        calls.append(kwargs)
+        return ListResult()
+
+    runner = CliRunner()
+    with patch("imbue.mngr.cli.list.api_list_agents", side_effect=tracking_list_agents):
+        result = runner.invoke(
+            list_command,
+            ["--sort", "name"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert len(calls) == 1
+    assert calls[0]["is_streaming"] is False
