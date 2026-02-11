@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.sync import SyncFilesResult
 from imbue.mngr.api.sync import SyncGitResult
 from imbue.mngr.api.sync import sync_files
@@ -13,6 +14,7 @@ from imbue.mngr.primitives import UncommittedChangesMode
 
 
 def push_files(
+    cg: ConcurrencyGroup,
     agent: AgentInterface,
     host: OnlineHostInterface,
     source: Path,
@@ -23,6 +25,7 @@ def push_files(
 ) -> SyncFilesResult:
     """Push files from a local directory to an agent's work directory using rsync."""
     return sync_files(
+        cg=cg,
         agent=agent,
         host=host,
         mode=SyncMode.PUSH,
@@ -35,6 +38,7 @@ def push_files(
 
 
 def push_git(
+    cg: ConcurrencyGroup,
     agent: AgentInterface,
     host: OnlineHostInterface,
     source: Path,
@@ -46,6 +50,7 @@ def push_git(
 ) -> SyncGitResult:
     """Push git commits from a local repository to an agent's repository."""
     return sync_git(
+        cg=cg,
         agent=agent,
         host=host,
         mode=SyncMode.PUSH,

@@ -155,7 +155,7 @@ def test_config_set_creates_config_file(
 ) -> None:
     """Test config set creates a new config file if it doesn't exist."""
     # Monkeypatch find_git_worktree_root to return our tmp_path
-    monkeypatch.setattr(config_module, "find_git_worktree_root", lambda start=None: tmp_path)
+    monkeypatch.setattr(config_module, "find_git_worktree_root", lambda cg, start=None: tmp_path)
 
     result = cli_runner.invoke(
         config,
@@ -182,7 +182,7 @@ def test_config_set_nested_key(
     mngr_test_root_name: str,
 ) -> None:
     """Test config set with a nested key path."""
-    monkeypatch.setattr(config_module, "find_git_worktree_root", lambda start=None: tmp_path)
+    monkeypatch.setattr(config_module, "find_git_worktree_root", lambda cg, start=None: tmp_path)
 
     result = cli_runner.invoke(
         config,
@@ -208,7 +208,7 @@ def test_config_set_parses_boolean_values(
     mngr_test_root_name: str,
 ) -> None:
     """Test config set correctly parses boolean values."""
-    monkeypatch.setattr(config_module, "find_git_worktree_root", lambda start=None: tmp_path)
+    monkeypatch.setattr(config_module, "find_git_worktree_root", lambda cg, start=None: tmp_path)
 
     # Set true value
     result = cli_runner.invoke(
@@ -232,7 +232,7 @@ def test_config_set_parses_integer_values(
     mngr_test_root_name: str,
 ) -> None:
     """Test config set correctly parses integer values."""
-    monkeypatch.setattr(config_module, "find_git_worktree_root", lambda start=None: tmp_path)
+    monkeypatch.setattr(config_module, "find_git_worktree_root", lambda cg, start=None: tmp_path)
 
     result = cli_runner.invoke(
         config,
@@ -255,7 +255,7 @@ def test_config_unset_removes_value(
     mngr_test_root_name: str,
 ) -> None:
     """Test config unset removes an existing value."""
-    monkeypatch.setattr(config_module, "find_git_worktree_root", lambda start=None: tmp_path)
+    monkeypatch.setattr(config_module, "find_git_worktree_root", lambda cg, start=None: tmp_path)
 
     # First set a value (using the test root name)
     config_dir = tmp_path / f".{mngr_test_root_name}"
@@ -288,7 +288,7 @@ def test_config_unset_nonexistent_key_fails(
     mngr_test_root_name: str,
 ) -> None:
     """Test config unset with nonexistent key returns an error."""
-    monkeypatch.setattr(config_module, "find_git_worktree_root", lambda start=None: tmp_path)
+    monkeypatch.setattr(config_module, "find_git_worktree_root", lambda cg, start=None: tmp_path)
 
     # Create an empty config (using the test root name)
     config_dir = tmp_path / f".{mngr_test_root_name}"

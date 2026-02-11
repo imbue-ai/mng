@@ -1,5 +1,4 @@
 import json
-import subprocess
 import sys
 import webbrowser
 from typing import Final
@@ -10,6 +9,8 @@ from urllib.parse import urlencode
 import click
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import BaseMngrError
@@ -82,19 +83,18 @@ def build_new_issue_url(title: str, body: str) -> str:
     return full_url
 
 
-def _search_issues_via_github_api(search_text: str) -> ExistingIssue | None:
+def _search_issues_via_github_api(cg: ConcurrencyGroup, search_text: str) -> ExistingIssue | None:
     """Search for existing issues using the GitHub REST API via curl."""
     query = f"{search_text} repo:{GITHUB_REPO} is:issue"
     url = f"https://api.github.com/search/issues?q={quote(query)}&per_page=1"
 
     try:
-        result = subprocess.run(
+        result = cg.run_process_to_completion(
             ["curl", "-s", "-f", "-H", "Accept: application/vnd.github+json", url],
-            capture_output=True,
-            text=True,
             timeout=10,
+            is_checked_after=False,
         )
-    except (OSError, subprocess.SubprocessError) as e:
+    except (ProcessSetupError, Exception) as e:
         raise IssueSearchError(f"GitHub API request failed: {e}") from e
 
     if result.returncode != 0:
@@ -118,10 +118,10 @@ def _search_issues_via_github_api(search_text: str) -> ExistingIssue | None:
     )
 
 
-def _search_issues_via_gh_cli(search_text: str) -> ExistingIssue | None:
+def _search_issues_via_gh_cli(cg: ConcurrencyGroup, search_text: str) -> ExistingIssue | None:
     """Search for existing issues using the gh CLI (works for private repos)."""
     try:
-        result = subprocess.run(
+        result = cg.run_process_to_completion(
             [
                 "gh",
                 "issue",
@@ -135,11 +135,10 @@ def _search_issues_via_gh_cli(search_text: str) -> ExistingIssue | None:
                 "--limit",
                 "1",
             ],
-            capture_output=True,
-            text=True,
             timeout=10,
+            is_checked_after=False,
         )
-    except (OSError, subprocess.SubprocessError) as e:
+    except (ProcessSetupError, Exception) as e:
         raise IssueSearchError(f"gh CLI search failed: {e}") from e
 
     if result.returncode != 0:
@@ -161,15 +160,15 @@ def _search_issues_via_gh_cli(search_text: str) -> ExistingIssue | None:
     )
 
 
-def search_for_existing_issue(search_text: str) -> ExistingIssue | None:
+def search_for_existing_issue(cg: ConcurrencyGroup, search_text: str) -> ExistingIssue | None:
     """Search for an existing GitHub issue matching the error message."""
     try:
-        return _search_issues_via_github_api(search_text)
+        return _search_issues_via_github_api(cg, search_text)
     except IssueSearchError:
         logger.debug("GitHub API search failed, falling back to gh CLI")
 
     try:
-        return _search_issues_via_gh_cli(search_text)
+        return _search_issues_via_gh_cli(cg, search_text)
     except IssueSearchError:
         logger.debug("gh CLI search also failed")
 
@@ -195,10 +194,11 @@ def handle_not_implemented_error(error: NotImplementedError) -> NoReturn:
     if not click.confirm("\nWould you like to report this as a GitHub issue?", default=True):
         raise SystemExit(1)
 
-    # Search for existing issue
+    # Search for existing issue using a standalone ConcurrencyGroup
     logger.info("Searching for existing issues...")
     title = build_issue_title(error_message)
-    existing = search_for_existing_issue(error_message)
+    with ConcurrencyGroup(name="issue-search") as cg:
+        existing = search_for_existing_issue(cg, error_message)
 
     if existing is not None:
         logger.info("{}", _format_existing_issue_message(existing))

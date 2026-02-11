@@ -17,6 +17,7 @@ from click.testing import CliRunner
 from urwid.widget.listbox import SimpleFocusListWalker
 
 import imbue.mngr.main
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -251,35 +252,46 @@ def make_mngr_ctx(
     profile_dir: Path,
     *,
     is_interactive: bool = False,
+    concurrency_group: ConcurrencyGroup | None = None,
 ) -> MngrContext:
     """Create a MngrContext with the given parameters.
 
     Use this directly in tests that need non-default settings (e.g., interactive mode).
     Most tests should use the temp_mngr_ctx fixture instead.
     """
-    return MngrContext(config=config, pm=pm, profile_dir=profile_dir, is_interactive=is_interactive)
+    return MngrContext(
+        config=config,
+        pm=pm,
+        profile_dir=profile_dir,
+        is_interactive=is_interactive,
+        concurrency_group=concurrency_group,
+    )
 
 
 @pytest.fixture
 def temp_mngr_ctx(
     temp_config: MngrConfig, temp_profile_dir: Path, plugin_manager: pluggy.PluginManager
-) -> MngrContext:
+) -> Generator[MngrContext, None, None]:
     """Create a MngrContext with a temporary host directory.
 
     Use this fixture when calling API functions that need a context.
     """
-    return make_mngr_ctx(temp_config, plugin_manager, temp_profile_dir)
+    cg = ConcurrencyGroup(name="test")
+    with cg:
+        yield make_mngr_ctx(temp_config, plugin_manager, temp_profile_dir, concurrency_group=cg)
 
 
 @pytest.fixture
 def interactive_mngr_ctx(
     temp_config: MngrConfig, temp_profile_dir: Path, plugin_manager: pluggy.PluginManager
-) -> MngrContext:
+) -> Generator[MngrContext, None, None]:
     """Create an interactive MngrContext with a temporary host directory.
 
     Use this fixture when testing code paths that require is_interactive=True.
     """
-    return make_mngr_ctx(temp_config, plugin_manager, temp_profile_dir, is_interactive=True)
+    cg = ConcurrencyGroup(name="test-interactive")
+    with cg:
+        yield make_mngr_ctx(temp_config, plugin_manager, temp_profile_dir, is_interactive=True, concurrency_group=cg)
 
 
 @pytest.fixture

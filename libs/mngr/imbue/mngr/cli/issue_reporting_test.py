@@ -5,6 +5,7 @@ import pytest
 from inline_snapshot import snapshot
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.concurrency_group.subprocess_utils import FinishedProcess
 from imbue.mngr.cli.issue_reporting import ExistingIssue
 from imbue.mngr.cli.issue_reporting import GITHUB_BASE_URL
@@ -108,10 +109,9 @@ def test_search_for_existing_issue_returns_none_when_both_fail(
     cg: ConcurrencyGroup, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """When both GitHub API and gh CLI fail, search returns None."""
-    from imbue.concurrency_group.errors import ProcessSetupError
 
     def failing_run(*args, **kwargs):
-        raise ProcessSetupError("curl not found")
+        raise ProcessSetupError(command=("curl",), stdout="", stderr="curl not found")
 
     monkeypatch.setattr(ConcurrencyGroup, "run_process_to_completion", failing_run)
 

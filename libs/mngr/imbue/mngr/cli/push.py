@@ -212,6 +212,7 @@ def push(ctx: click.Context, **kwargs) -> None:
 
         # Git mode: push branches
         git_result = push_git(
+            cg=mngr_ctx.cg,
             agent=agent,
             host=host,
             source=source_path,
@@ -240,6 +241,7 @@ def push(ctx: click.Context, **kwargs) -> None:
                 parsed_target_path = agent.work_dir / parsed_path
 
         files_result = push_files(
+            cg=mngr_ctx.cg,
             agent=agent,
             host=host,
             source=source_path,

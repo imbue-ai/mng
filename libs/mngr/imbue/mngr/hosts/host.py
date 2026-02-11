@@ -5,7 +5,6 @@ import io
 import json
 import os
 import shlex
-import subprocess
 import tempfile
 import time
 from contextlib import contextmanager
@@ -951,7 +950,7 @@ class Host(BaseHost, OnlineHostInterface):
         if options.git and options.git.base_branch:
             base_branch_name = options.git.base_branch
         elif source_host.is_local:
-            base_branch_name = get_current_git_branch(source_path) or "main"
+            base_branch_name = get_current_git_branch(self.mngr_ctx.cg, source_path) or "main"
         else:
             result = source_host.execute_command(
                 "git rev-parse --abbrev-ref HEAD",
@@ -961,7 +960,7 @@ class Host(BaseHost, OnlineHostInterface):
 
         # Get git author info from source repo
         if source_host.is_local:
-            git_author_name, git_author_email = get_git_author_info(source_path)
+            git_author_name, git_author_email = get_git_author_info(self.mngr_ctx.cg, source_path)
         else:
             name_result = source_host.execute_command("git config user.name", cwd=source_path)
             email_result = source_host.execute_command("git config user.email", cwd=source_path)
@@ -1037,10 +1036,9 @@ class Host(BaseHost, OnlineHostInterface):
                     git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
                     env = {"GIT_SSH_COMMAND": git_ssh_cmd}
                     remote_url = f"ssh://{user}@{hostname}:{port}{source_path}/.git"
-                    result = subprocess.run(
+                    result = self.mngr_ctx.cg.run_process_to_completion(
                         ["git", "clone", "--mirror", remote_url, str(target_path / ".git")],
-                        capture_output=True,
-                        text=True,
+                        is_checked_after=False,
                         env={**os.environ, **env},
                     )
                     if result.returncode != 0:
@@ -1065,10 +1063,9 @@ class Host(BaseHost, OnlineHostInterface):
                 env["GIT_LFS_SKIP_PUSH"] = "1"
 
                 command_args = ["git", "-C", str(source_path), "push", "--no-verify", "--mirror", git_url]
-                result = subprocess.run(
+                result = self.mngr_ctx.cg.run_process_to_completion(
                     command_args,
-                    capture_output=True,
-                    text=True,
+                    is_checked_after=False,
                     env={**os.environ, **env} if env else None,
                 )
                 logger.trace("Ran git push --mirror from local source to target: {}", " ".join(command_args))
@@ -1103,10 +1100,9 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_unclean = options.git.is_include_unclean if options.git else True
         if is_include_unclean:
             if source_host.is_local:
-                result = subprocess.run(
+                result = self.mngr_ctx.cg.run_process_to_completion(
                     ["git", "-C", str(source_path), "status", "--porcelain"],
-                    capture_output=True,
-                    text=True,
+                    is_checked_after=False,
                 )
                 if result.returncode == 0:
                     for line in result.stdout.split("\n"):
@@ -1130,10 +1126,9 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_gitignored = options.git.is_include_gitignored if options.git else False
         if is_include_gitignored:
             if source_host.is_local:
-                result = subprocess.run(
+                result = self.mngr_ctx.cg.run_process_to_completion(
                     ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
-                    capture_output=True,
-                    text=True,
+                    is_checked_after=False,
                 )
                 if result.returncode == 0:
                     for line in result.stdout.split("\n"):
@@ -1223,7 +1218,7 @@ class Host(BaseHost, OnlineHostInterface):
             raise NotImplementedError("rsync between two remote hosts is not supported right now")
 
         with log_span("{}", rsync_description):
-            result = subprocess.run(rsync_args, capture_output=True, text=True)
+            result = self.mngr_ctx.cg.run_process_to_completion(rsync_args, is_checked_after=False)
             logger.trace("Ran rsync command: {}", " ".join(rsync_args))
             if result.returncode != 0:
                 raise MngrError(f"rsync failed: {result.stderr}")

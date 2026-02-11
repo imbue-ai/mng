@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pluggy
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.model_update import to_update
 from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.config.data_types import AgentTypeConfig
@@ -55,6 +56,7 @@ def load_config(
     enabled_plugins: Sequence[str] | None = None,
     disabled_plugins: Sequence[str] | None = None,
     is_interactive: bool = False,
+    concurrency_group: ConcurrencyGroup | None = None,
 ) -> MngrContext:
     """Load and merge configuration from all sources.
 
@@ -108,14 +110,14 @@ def load_config(
             pass
 
     # Load project config from context_dir or auto-discover
-    project_config_path = _find_project_config(context_dir, root_name)
+    project_config_path = _find_project_config(context_dir, root_name, concurrency_group)
     if project_config_path is not None and project_config_path.exists():
         raw_project = _load_toml(project_config_path)
         project_config = _parse_config(raw_project)
         config = config.merge_with(project_config)
 
     # Load local config from context_dir or auto-discover
-    local_config_path = _find_local_config(context_dir, root_name)
+    local_config_path = _find_local_config(context_dir, root_name, concurrency_group)
     if local_config_path is not None and local_config_path.exists():
         raw_local = _load_toml(local_config_path)
         local_config = _parse_config(raw_local)
@@ -195,6 +197,7 @@ def load_config(
         pm=pm,
         is_interactive=is_interactive,
         profile_dir=profile_dir,
+        concurrency_group=concurrency_group,
     )
 
 
@@ -258,23 +261,25 @@ def _get_local_config_name(root_name: str) -> Path:
     return Path(f".{root_name}") / "settings.local.toml"
 
 
-def _find_project_root(start: Path | None = None) -> Path | None:
+def _find_project_root(cg: ConcurrencyGroup | None, start: Path | None = None) -> Path | None:
     """Find the project root by looking for git worktree root."""
-    return find_git_worktree_root(start)
+    if cg is None:
+        return None
+    return find_git_worktree_root(cg, start)
 
 
-def _find_project_config(context_dir: Path | None, root_name: str) -> Path | None:
+def _find_project_config(context_dir: Path | None, root_name: str, cg: ConcurrencyGroup | None) -> Path | None:
     """Find the project config file."""
-    root = context_dir or _find_project_root()
+    root = context_dir or _find_project_root(cg)
     if root is None:
         return None
     config_path = root / _get_project_config_name(root_name)
     return config_path if config_path.exists() else None
 
 
-def _find_local_config(context_dir: Path | None, root_name: str) -> Path | None:
+def _find_local_config(context_dir: Path | None, root_name: str, cg: ConcurrencyGroup | None) -> Path | None:
     """Find the local config file."""
-    root = context_dir or _find_project_root()
+    root = context_dir or _find_project_root(cg)
     if root is None:
         return None
     config_path = root / _get_local_config_name(root_name)

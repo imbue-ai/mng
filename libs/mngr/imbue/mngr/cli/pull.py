@@ -302,6 +302,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
         # Git mode: merge branches
         # source_branch=None means use agent's current branch
         git_result = pull_git(
+            cg=mngr_ctx.cg,
             agent=agent,
             host=host,
             destination=destination_path,
@@ -329,6 +330,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
                 parsed_source_path = agent.work_dir / parsed_path
 
         files_result = pull_files(
+            cg=mngr_ctx.cg,
             agent=agent,
             host=host,
             destination=destination_path,

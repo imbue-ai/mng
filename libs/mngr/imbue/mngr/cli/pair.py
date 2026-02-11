@@ -174,10 +174,7 @@ def pair(ctx: click.Context, **kwargs) -> None:
         target_path = Path(opts.target)
     else:
         # Default to nearest git root, or current directory
-        cg = mngr_ctx.concurrency_group
-        if cg is None:
-            raise MngrError("No concurrency group available on MngrContext")
-        git_root = find_git_worktree_root(cg)
+        git_root = find_git_worktree_root(mngr_ctx.cg) if mngr_ctx.concurrency_group else None
         target_path = git_root if git_root is not None else Path.cwd()
 
     # Find the agent
@@ -215,12 +212,9 @@ def pair(ctx: click.Context, **kwargs) -> None:
     _emit_pair_started(source_path, target_path, output_opts)
 
     # Start the pair sync
-    cg = mngr_ctx.concurrency_group
-    if cg is None:
-        raise MngrError("No concurrency group available on MngrContext")
     try:
         with pair_files(
-            cg=cg,
+            cg=mngr_ctx.cg,
             agent=agent,
             host=host,
             agent_path=source_path,

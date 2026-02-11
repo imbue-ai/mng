@@ -182,7 +182,11 @@ def list_agents(
 
         # Process each host and its agents in parallel
         results_lock = Lock()
-        with ConcurrencyGroup(name="list_agents_process_hosts") as cg:
+        with (
+            mngr_ctx.concurrency_group.make_concurrency_group("list_agents_process_hosts")
+            if mngr_ctx.concurrency_group is not None
+            else ConcurrencyGroup(name="list_agents_process_hosts")
+        ) as cg:
             threads: list[ObservableThread] = []
             for host_ref, agent_refs in agents_by_host.items():
                 # Skip hosts with no agents to process
@@ -578,7 +582,11 @@ def load_all_agents_grouped_by_host(
         logger.trace("Found {} provider instances", len(providers))
 
         # Process all providers in parallel using ConcurrencyGroup
-        with ConcurrencyGroup(name="load_all_agents_grouped_by_host") as cg:
+        with (
+            mngr_ctx.concurrency_group.make_concurrency_group("load_all_agents_grouped_by_host")
+            if mngr_ctx.concurrency_group is not None
+            else ConcurrencyGroup(name="load_all_agents_grouped_by_host")
+        ) as cg:
             threads: list[ObservableThread] = []
             for provider in providers:
                 threads.append(

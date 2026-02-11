@@ -1,5 +1,6 @@
 """Unit tests for the connect API module."""
 
+import subprocess
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -360,9 +361,14 @@ def _run_connect_to_agent(
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
     result = _ConnectTestResult()
+
+    def fake_run_interactive(args, **kwargs):
+        result.subprocess_call_args.append(list(args))
+        return subprocess.CompletedProcess(args=args, returncode=ssh_exit_code)
+
     monkeypatch.setattr(
-        "imbue.mngr.api.connect.subprocess.call",
-        lambda args: (result.subprocess_call_args.append(list(args)), ssh_exit_code)[1],
+        "imbue.mngr.api.connect.run_interactive_subprocess",
+        fake_run_interactive,
     )
     monkeypatch.setattr(
         "imbue.mngr.api.connect.os.execvp",
