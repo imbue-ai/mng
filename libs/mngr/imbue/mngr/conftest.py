@@ -205,6 +205,11 @@ def setup_test_mngr_env(
     # tmux servers during test cleanup).
     tmux_tmpdir = Path(tempfile.mkdtemp(prefix="mngr-tmux-", dir="/tmp"))
     monkeypatch.setenv("TMUX_TMPDIR", str(tmux_tmpdir))
+    # Unset TMUX so tmux commands during the test connect to the isolated
+    # server (via TMUX_TMPDIR) rather than the real server. When TMUX is
+    # set (because we're running inside a tmux session), tmux uses it to
+    # find the current server, overriding TMUX_TMPDIR.
+    monkeypatch.delenv("TMUX", raising=False)
 
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.
@@ -213,16 +218,25 @@ def setup_test_mngr_env(
     yield
 
     # Kill the test's isolated tmux server to clean up any leaked sessions
-    # or processes. We set TMUX_TMPDIR explicitly in the env dict to be
-    # robust against fixture teardown ordering changes.
+    # or processes. We must use -S with the explicit socket path because:
+    # 1. The TMUX env var (set when running inside tmux) tells tmux to
+    #    connect to the CURRENT server, overriding TMUX_TMPDIR entirely.
+    #    Without -S, kill-server would kill the real tmux server.
+    # 2. We also unset TMUX in the env as a belt-and-suspenders measure.
     tmux_tmpdir_str = str(tmux_tmpdir)
     assert tmux_tmpdir_str.startswith("/tmp/mngr-tmux-"), (
         f"TMUX_TMPDIR safety check failed! Expected /tmp/mngr-tmux-* path but got: {tmux_tmpdir_str}. "
         "Refusing to run 'tmux kill-server' to avoid killing the real tmux server."
     )
+    socket_path = Path(tmux_tmpdir_str) / f"tmux-{os.getuid()}" / "default"
     kill_env = os.environ.copy()
+    kill_env.pop("TMUX", None)
     kill_env["TMUX_TMPDIR"] = tmux_tmpdir_str
-    subprocess.run(["tmux", "kill-server"], capture_output=True, env=kill_env)
+    subprocess.run(
+        ["tmux", "-S", str(socket_path), "kill-server"],
+        capture_output=True,
+        env=kill_env,
+    )
 
     # Clean up the tmpdir we created outside of pytest's tmp_path.
     shutil.rmtree(tmux_tmpdir, ignore_errors=True)
