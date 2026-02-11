@@ -63,12 +63,20 @@ def get_agent_state(agent_identifier: str) -> str | None:
     """Get the lifecycle state of an agent by running mngr list.
 
     Returns the state string (e.g. "WAITING", "RUNNING") or None if not found.
+    Logs a warning if mngr list fails.
     """
     result = subprocess.run(
         ["uv", "run", "mngr", "list", "--provider", "local", "--format", "jsonl"],
         capture_output=True,
         text=True,
     )
+
+    if result.returncode != 0:
+        click.echo(
+            f"Warning: mngr list failed (exit code {result.returncode}): {result.stderr.strip()}",
+            err=True,
+        )
+        return None
 
     return find_agent_state_in_jsonl(result.stdout, agent_identifier)
 
@@ -178,6 +186,10 @@ def main(
 
         # Launch command and capture output to parse agent identifier
         result = subprocess.run(command, shell=True, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise click.ClickException(
+                f"Command failed (exit code {result.returncode}): {command}\nstderr: {result.stderr}"
+            )
         agent_identifier = parse_agent_identifier(result.stdout, result.stderr)
 
         click.echo(f"Task {idx}: Waiting for agent {agent_identifier} to complete")
