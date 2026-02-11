@@ -135,6 +135,8 @@ omit = [
     "libs/imbue_common/imbue/imbue_common/ratchet_testing/ratchets.py",
     # Modal provider requires network access for testing
     "libs/mngr/imbue/mngr/providers/modal/*",
+    # don't bother with anything in scripts
+    "scripts/*",
 ]
 
 [tool.coverage.report]
