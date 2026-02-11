@@ -7,7 +7,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     fd-find \
     git \
-    git-lfs \
     jq \
     nano \
     openssh-server \

@@ -1026,10 +1026,6 @@ class Host(BaseHost, OnlineHostInterface):
                     git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
                     env["GIT_SSH_COMMAND"] = git_ssh_cmd
 
-                # don't bother pushing LFS objects - they can be transferred later as needed,
-                # and without this, it can take a ridiculously long time.
-                env["GIT_LFS_SKIP_PUSH"] = "1"
-
                 command_args = ["git", "-C", str(source_path), "push", "--no-verify", "--mirror", git_url]
                 result = subprocess.run(
                     command_args,
