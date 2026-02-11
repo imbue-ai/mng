@@ -144,6 +144,22 @@ class ListResult(MutableModel):
     errors: list[ErrorInfo] = Field(default_factory=list, description="Errors encountered while listing")
 
 
+class _ListAgentsParams(FrozenModel):
+    """Shared parameters for the internal agent listing pipeline.
+
+    Bundles the filter/callback parameters that are threaded through
+    _list_agents_batch, _list_agents_streaming, _process_provider_streaming,
+    _process_host_for_agent_listing, and _assemble_host_info.
+    """
+
+    model_config = {"arbitrary_types_allowed": True}
+    compiled_include_filters: list[Any]
+    compiled_exclude_filters: list[Any]
+    error_behavior: ErrorBehavior
+    on_agent: Callable[[AgentInfo], None] | None
+    on_error: Callable[[ErrorInfo], None] | None
+
+
 @log_call
 def list_agents(
     mngr_ctx: MngrContext,
@@ -176,6 +192,13 @@ def list_agents(
 
     try:
         results_lock = Lock()
+        params = _ListAgentsParams(
+            compiled_include_filters=compiled_include_filters,
+            compiled_exclude_filters=compiled_exclude_filters,
+            error_behavior=error_behavior,
+            on_agent=on_agent,
+            on_error=on_error,
+        )
 
         if is_streaming:
             # Streaming mode: each provider loads hosts, gets agent refs, and processes
@@ -184,11 +207,7 @@ def list_agents(
             _list_agents_streaming(
                 mngr_ctx=mngr_ctx,
                 provider_names=provider_names,
-                compiled_include_filters=compiled_include_filters,
-                compiled_exclude_filters=compiled_exclude_filters,
-                error_behavior=error_behavior,
-                on_agent=on_agent,
-                on_error=on_error,
+                params=params,
                 result=result,
                 results_lock=results_lock,
             )
@@ -197,11 +216,7 @@ def list_agents(
             _list_agents_batch(
                 mngr_ctx=mngr_ctx,
                 provider_names=provider_names,
-                compiled_include_filters=compiled_include_filters,
-                compiled_exclude_filters=compiled_exclude_filters,
-                error_behavior=error_behavior,
-                on_agent=on_agent,
-                on_error=on_error,
+                params=params,
                 result=result,
                 results_lock=results_lock,
             )
@@ -220,11 +235,7 @@ def list_agents(
 def _list_agents_batch(
     mngr_ctx: MngrContext,
     provider_names: tuple[str, ...] | None,
-    compiled_include_filters: list[Any],
-    compiled_exclude_filters: list[Any],
-    error_behavior: ErrorBehavior,
-    on_agent: Callable[[AgentInfo], None] | None,
-    on_error: Callable[[ErrorInfo], None] | None,
+    params: _ListAgentsParams,
     result: ListResult,
     results_lock: Lock,
 ) -> None:
@@ -244,30 +255,19 @@ def _list_agents_batch(
             provider = provider_map.get(host_ref.provider_name)
             if not provider:
                 exception = ProviderInstanceNotFoundError(host_ref.provider_name)
-                if error_behavior == ErrorBehavior.ABORT:
+                if params.error_behavior == ErrorBehavior.ABORT:
                     raise exception
                 error_info = ProviderErrorInfo.build_for_provider(exception, host_ref.provider_name)
                 with results_lock:
                     result.errors.append(error_info)
-                if on_error:
-                    on_error(error_info)
+                if params.on_error:
+                    params.on_error(error_info)
                 continue
 
             threads.append(
                 cg.start_new_thread(
                     target=_process_host_for_agent_listing,
-                    args=(
-                        host_ref,
-                        agent_refs,
-                        provider,
-                        compiled_exclude_filters,
-                        compiled_include_filters,
-                        error_behavior,
-                        on_agent,
-                        on_error,
-                        result,
-                        results_lock,
-                    ),
+                    args=(host_ref, agent_refs, provider, params, result, results_lock),
                     name=f"list_agents_{host_ref.host_id}",
                 )
             )
@@ -278,11 +278,7 @@ def _list_agents_batch(
 def _list_agents_streaming(
     mngr_ctx: MngrContext,
     provider_names: tuple[str, ...] | None,
-    compiled_include_filters: list[Any],
-    compiled_exclude_filters: list[Any],
-    error_behavior: ErrorBehavior,
-    on_agent: Callable[[AgentInfo], None] | None,
-    on_error: Callable[[ErrorInfo], None] | None,
+    params: _ListAgentsParams,
     result: ListResult,
     results_lock: Lock,
 ) -> None:
@@ -300,17 +296,7 @@ def _list_agents_streaming(
                 threads.append(
                     cg.start_new_thread(
                         target=_process_provider_streaming,
-                        args=(
-                            provider,
-                            compiled_include_filters,
-                            compiled_exclude_filters,
-                            error_behavior,
-                            on_agent,
-                            on_error,
-                            result,
-                            results_lock,
-                            cg,
-                        ),
+                        args=(provider, params, result, results_lock, cg),
                         name=f"stream_provider_{provider.name}",
                     )
                 )
@@ -320,11 +306,7 @@ def _list_agents_streaming(
 
 def _process_provider_streaming(
     provider: BaseProviderInstance,
-    compiled_include_filters: list[Any],
-    compiled_exclude_filters: list[Any],
-    error_behavior: ErrorBehavior,
-    on_agent: Callable[[AgentInfo], None] | None,
-    on_error: Callable[[ErrorInfo], None] | None,
+    params: _ListAgentsParams,
     result: ListResult,
     results_lock: Lock,
     cg: ConcurrencyGroup,
@@ -348,18 +330,7 @@ def _process_provider_streaming(
             host_threads.append(
                 cg.start_new_thread(
                     target=_process_host_for_agent_listing,
-                    args=(
-                        host_ref,
-                        agent_refs,
-                        provider,
-                        compiled_exclude_filters,
-                        compiled_include_filters,
-                        error_behavior,
-                        on_agent,
-                        on_error,
-                        result,
-                        results_lock,
-                    ),
+                    args=(host_ref, agent_refs, provider, params, result, results_lock),
                     name=f"list_agents_{host_ref.host_id}",
                 )
             )
@@ -368,13 +339,13 @@ def _process_provider_streaming(
             thread.join()
 
     except MngrError as e:
-        if error_behavior == ErrorBehavior.ABORT:
+        if params.error_behavior == ErrorBehavior.ABORT:
             raise
         error_info = ProviderErrorInfo.build_for_provider(e, provider.name)
         with results_lock:
             result.errors.append(error_info)
-        if on_error:
-            on_error(error_info)
+        if params.on_error:
+            params.on_error(error_info)
 
 
 # retry exactly once if there is a HostConnectionError (hopefully we then simply load the offline version of the host)
@@ -388,11 +359,7 @@ def _assemble_host_info(
     host_ref: HostReference,
     agent_refs: list[AgentReference],
     provider: ProviderInstanceInterface,
-    compiled_exclude_filters: list[Any],
-    compiled_include_filters: list[Any],
-    error_behavior: ErrorBehavior,
-    on_agent: Callable[[AgentInfo], None] | None,
-    on_error: Callable[[ErrorInfo], None] | None,
+    params: _ListAgentsParams,
     result: ListResult,
     results_lock: Lock,
 ) -> None:
@@ -454,13 +421,13 @@ def _assemble_host_info(
 
                 if agent is None:
                     exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
-                    if error_behavior == ErrorBehavior.ABORT:
+                    if params.error_behavior == ErrorBehavior.ABORT:
                         raise exception
                     error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
                     with results_lock:
                         result.errors.append(error_info)
-                    if on_error:
-                        on_error(error_info)
+                    if params.on_error:
+                        params.on_error(error_info)
                     continue
 
                 agent_status = agent.get_reported_status()
@@ -517,34 +484,32 @@ def _assemble_host_info(
                 )
 
             # Apply CEL filters if provided
-            if compiled_include_filters or compiled_exclude_filters:
-                if not _apply_cel_filters(agent_info, compiled_include_filters, compiled_exclude_filters):
+            if params.compiled_include_filters or params.compiled_exclude_filters:
+                if not _apply_cel_filters(
+                    agent_info, params.compiled_include_filters, params.compiled_exclude_filters
+                ):
                     continue
 
             with results_lock:
                 result.agents.append(agent_info)
-            if on_agent:
-                on_agent(agent_info)
+            if params.on_agent:
+                params.on_agent(agent_info)
 
         except MngrError as e:
-            if error_behavior == ErrorBehavior.ABORT:
+            if params.error_behavior == ErrorBehavior.ABORT:
                 raise
             error_info = AgentErrorInfo.build_for_agent(e, agent_ref.agent_id)
             with results_lock:
                 result.errors.append(error_info)
-            if on_error:
-                on_error(error_info)
+            if params.on_error:
+                params.on_error(error_info)
 
 
 def _process_host_for_agent_listing(
     host_ref: HostReference,
     agent_refs: list[AgentReference],
     provider: ProviderInstanceInterface,
-    compiled_exclude_filters: list[Any],
-    compiled_include_filters: list[Any],
-    error_behavior: ErrorBehavior,
-    on_agent: Callable[[AgentInfo], None] | None,
-    on_error: Callable[[ErrorInfo], None] | None,
+    params: _ListAgentsParams,
     result: ListResult,
     results_lock: Lock,
 ) -> None:
@@ -558,23 +523,19 @@ def _process_host_for_agent_listing(
             host_ref,
             agent_refs,
             provider,
-            compiled_exclude_filters,
-            compiled_include_filters,
-            error_behavior,
-            on_agent,
-            on_error,
+            params,
             result,
             results_lock,
         )
 
     except MngrError as e:
-        if error_behavior == ErrorBehavior.ABORT:
+        if params.error_behavior == ErrorBehavior.ABORT:
             raise
         error_info = HostErrorInfo.build_for_host(e, host_ref.host_id)
         with results_lock:
             result.errors.append(error_info)
-        if on_error:
-            on_error(error_info)
+        if params.on_error:
+            params.on_error(error_info)
 
 
 @pure

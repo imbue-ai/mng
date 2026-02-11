@@ -34,7 +34,7 @@ from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
-_DEFAULT_HUMAN_DISPLAY_FIELDS: Final[list[str]] = ["name", "host", "provider", "host.state", "state", "status"]
+_DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = ("name", "host", "provider", "host.state", "state", "status")
 
 
 @pure
@@ -249,28 +249,22 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
 
     error_behavior = ErrorBehavior(opts.on_error.upper())
 
-    # For JSONL format, use streaming callbacks to emit output as agents are found
-    # Watch mode is not supported for JSONL (streaming doesn't work well with refresh)
+    include_filters_tuple = tuple(include_filters)
+    exclude_filters_tuple = tuple(exclude_filters)
+    provider_names = opts.provider if opts.provider else None
+
+    # Dispatch to the appropriate output path
     if output_opts.output_format == OutputFormat.JSONL:
-        if opts.watch:
-            logger.warning("Watch mode is not supported with JSONL format, running once")
-
-        # Use a callback wrapper that limits output count
-        limited_callback = _LimitedJsonlEmitter(limit=limit)
-
-        result = api_list_agents(
-            mngr_ctx=mngr_ctx,
-            include_filters=tuple(include_filters),
-            exclude_filters=tuple(exclude_filters),
-            provider_names=opts.provider if opts.provider else None,
-            error_behavior=error_behavior,
-            on_agent=limited_callback,
-            on_error=_emit_jsonl_error,
-            is_streaming=False,
+        _list_jsonl(
+            ctx,
+            mngr_ctx,
+            include_filters_tuple,
+            exclude_filters_tuple,
+            provider_names,
+            error_behavior,
+            limit,
+            is_watch=bool(opts.watch),
         )
-        # Exit with non-zero code if there were errors (per error_handling.md spec)
-        if result.errors:
-            ctx.exit(1)
         return
 
     # Determine if --sort was explicitly set by the user (vs using the default)
@@ -286,35 +280,24 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         output_opts.output_format, is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit, limit=limit
     ):
         display_fields = fields if fields is not None else list(_DEFAULT_HUMAN_DISPLAY_FIELDS)
-        renderer = _StreamingHumanRenderer(fields=display_fields, is_tty=sys.stdout.isatty())
-        renderer.start()
-        try:
-            result = api_list_agents(
-                mngr_ctx=mngr_ctx,
-                include_filters=tuple(include_filters),
-                exclude_filters=tuple(exclude_filters),
-                provider_names=opts.provider if opts.provider else None,
-                error_behavior=error_behavior,
-                on_agent=renderer,
-                is_streaming=True,
-            )
-        finally:
-            renderer.finish()
-
-        # Report errors
-        if result.errors:
-            for error in result.errors:
-                logger.warning("{}: {}", error.exception_type, error.message)
-            ctx.exit(1)
+        _list_streaming_human(
+            ctx,
+            mngr_ctx,
+            include_filters_tuple,
+            exclude_filters_tuple,
+            provider_names,
+            error_behavior,
+            display_fields,
+        )
         return
 
-    # Build iteration parameters for reuse in watch mode (batch path)
+    # Batch/watch path
     iteration_params = _ListIterationParams(
         mngr_ctx=mngr_ctx,
         output_opts=output_opts,
-        include_filters=tuple(include_filters),
-        exclude_filters=tuple(exclude_filters),
-        provider_names=opts.provider if opts.provider else None,
+        include_filters=include_filters_tuple,
+        exclude_filters=exclude_filters_tuple,
+        provider_names=provider_names,
         error_behavior=error_behavior,
         sort_field=sort_field,
         sort_reverse=sort_reverse,
@@ -322,7 +305,6 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         fields=fields,
     )
 
-    # Watch mode: run list repeatedly at the specified interval
     if opts.watch:
         try:
             run_watch_loop(
@@ -335,6 +317,68 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             return
     else:
         _run_list_iteration(iteration_params, ctx)
+
+
+def _list_jsonl(
+    ctx: click.Context,
+    mngr_ctx: MngrContext,
+    include_filters: tuple[str, ...],
+    exclude_filters: tuple[str, ...],
+    provider_names: tuple[str, ...] | None,
+    error_behavior: ErrorBehavior,
+    limit: int | None,
+    is_watch: bool,
+) -> None:
+    """JSONL output path: stream agents as JSONL lines with optional limit."""
+    if is_watch:
+        logger.warning("Watch mode is not supported with JSONL format, running once")
+
+    limited_callback = _LimitedJsonlEmitter(limit=limit)
+
+    result = api_list_agents(
+        mngr_ctx=mngr_ctx,
+        include_filters=include_filters,
+        exclude_filters=exclude_filters,
+        provider_names=provider_names,
+        error_behavior=error_behavior,
+        on_agent=limited_callback,
+        on_error=_emit_jsonl_error,
+        is_streaming=False,
+    )
+    # Exit with non-zero code if there were errors (per error_handling.md spec)
+    if result.errors:
+        ctx.exit(1)
+
+
+def _list_streaming_human(
+    ctx: click.Context,
+    mngr_ctx: MngrContext,
+    include_filters: tuple[str, ...],
+    exclude_filters: tuple[str, ...],
+    provider_names: tuple[str, ...] | None,
+    error_behavior: ErrorBehavior,
+    fields: list[str],
+) -> None:
+    """Streaming human output path: display agents as each provider completes."""
+    renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty())
+    renderer.start()
+    try:
+        result = api_list_agents(
+            mngr_ctx=mngr_ctx,
+            include_filters=include_filters,
+            exclude_filters=exclude_filters,
+            provider_names=provider_names,
+            error_behavior=error_behavior,
+            on_agent=renderer,
+            is_streaming=True,
+        )
+    finally:
+        renderer.finish()
+
+    if result.errors:
+        for error in result.errors:
+            logger.warning("{}: {}", error.exception_type, error.message)
+        ctx.exit(1)
 
 
 class _LimitedJsonlEmitter(MutableModel):
@@ -438,6 +482,7 @@ class _StreamingHumanRenderer(MutableModel):
                 logger.info("No agents found")
 
 
+@pure
 def _compute_column_widths(fields: Sequence[str]) -> dict[str, int]:
     """Compute column widths sized to the terminal, distributing extra space to expandable columns."""
     terminal_width = shutil.get_terminal_size((120, 24)).columns
@@ -485,6 +530,7 @@ def _compute_column_widths(fields: Sequence[str]) -> dict[str, int]:
     return width_by_field
 
 
+@pure
 def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str, int]) -> str:
     """Format the header row of streaming output with computed column widths."""
     parts: list[str] = []
@@ -495,12 +541,15 @@ def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str,
     return _COLUMN_SEPARATOR.join(parts)
 
 
+@pure
 def _format_streaming_agent_row(agent: AgentInfo, fields: Sequence[str], column_widths: dict[str, int]) -> str:
     """Format a single agent as a streaming output row."""
     parts: list[str] = []
     for field in fields:
         width = column_widths.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
         value = _get_field_value(agent, field)
+        # Values are padded but intentionally not truncated: full values are preferred
+        # over truncated ones, so columns may appear ragged when values exceed the width.
         parts.append(value.ljust(width))
     return _COLUMN_SEPARATOR.join(parts)
 
