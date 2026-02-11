@@ -9,6 +9,7 @@ import pytest
 
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import AgentTypeConfig
+from imbue.mngr.errors import AgentError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import _build_start_agent_shell_command
 from imbue.mngr.interfaces.host import NamedCommand
@@ -240,6 +241,10 @@ def test_get_agent_references_skips_bad_records_but_loads_good_ones(
     assert bad_id not in ref_ids
 
 
+class _OnDestroyError(AgentError):
+    """Test exception for on_destroy failure."""
+
+
 class _OnDestroyTracker(BaseAgent):
     """Test agent that tracks on_destroy calls."""
 
@@ -253,27 +258,30 @@ class _OnDestroyRaiser(BaseAgent):
     """Test agent that raises in on_destroy."""
 
     def on_destroy(self, host: OnlineHostInterface) -> None:
-        raise RuntimeError("cleanup failed")
+        raise _OnDestroyError("cleanup failed")
 
 
-def _create_destroy_test_agent(
+def _create_test_agent(
     host: Host,
-    agents_dir: Path,
-    agent_cls: type[BaseAgent],
+    host_dir: Path,
+    work_dir: Path | None = None,
+    agent_cls: type[BaseAgent] = BaseAgent,
+    name_prefix: str = "test-agent",
 ) -> BaseAgent:
-    """Create a test agent with its state directory for destroy tests."""
+    """Create a minimal test agent with its state directory on disk."""
     agent_id = AgentId.generate()
-    agent_name = AgentName(f"test-destroy-{get_short_random_string()}")
-
+    agent_name = AgentName(f"{name_prefix}-{get_short_random_string()}")
+    resolved_work_dir = work_dir if work_dir is not None else Path("/tmp/work")
     create_time = datetime.now(timezone.utc)
-    agent_dir = agents_dir / str(agent_id)
+
+    agent_dir = host_dir / "agents" / str(agent_id)
     agent_dir.mkdir(parents=True, exist_ok=True)
     data = {
         "id": str(agent_id),
         "name": str(agent_name),
         "type": "test",
         "command": "sleep 1000",
-        "work_dir": "/tmp/work",
+        "work_dir": str(resolved_work_dir),
         "create_time": create_time.isoformat(),
     }
     (agent_dir / "data.json").write_text(json.dumps(data))
@@ -282,7 +290,7 @@ def _create_destroy_test_agent(
         id=agent_id,
         name=agent_name,
         agent_type=AgentTypeName("test"),
-        work_dir=Path("/tmp/work"),
+        work_dir=resolved_work_dir,
         create_time=create_time,
         host_id=host.id,
         host=host,
@@ -297,7 +305,7 @@ def test_destroy_agent_calls_on_destroy(
     """Test that destroy_agent calls agent.on_destroy() before cleanup."""
     host, agents_dir = host_with_agents_dir
 
-    agent = _create_destroy_test_agent(host, agents_dir, _OnDestroyTracker)
+    agent = _create_test_agent(host, agents_dir.parent, agent_cls=_OnDestroyTracker)
     assert isinstance(agent, _OnDestroyTracker)
 
     host.destroy_agent(agent)
@@ -311,11 +319,11 @@ def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
     """Test that destroy_agent still cleans up if agent.on_destroy() raises."""
     host, agents_dir = host_with_agents_dir
 
-    agent = _create_destroy_test_agent(host, agents_dir, _OnDestroyRaiser)
+    agent = _create_test_agent(host, agents_dir.parent, agent_cls=_OnDestroyRaiser)
     agent_dir = agents_dir / str(agent.id)
 
     # Exception propagates, but cleanup still runs
-    with pytest.raises(RuntimeError, match="cleanup failed"):
+    with pytest.raises(_OnDestroyError, match="cleanup failed"):
         host.destroy_agent(agent)
 
     # State directory should still be cleaned up
@@ -325,43 +333,6 @@ def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
 # =========================================================================
 # Tests for _build_start_agent_shell_command
 # =========================================================================
-
-
-def _create_test_agent(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> BaseAgent:
-    """Create a minimal test agent for command building tests."""
-    host = local_provider.create_host(HostName("test"))
-    assert isinstance(host, Host)
-
-    agent_id = AgentId.generate()
-    agent_name = AgentName(f"test-agent-{get_short_random_string()}")
-
-    # Create agent directory and data.json
-    agent_dir = temp_host_dir / "agents" / str(agent_id)
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    data = {
-        "id": str(agent_id),
-        "name": str(agent_name),
-        "type": "test",
-        "command": "sleep 1000",
-        "work_dir": str(temp_work_dir),
-    }
-    (agent_dir / "data.json").write_text(json.dumps(data))
-
-    return BaseAgent(
-        id=agent_id,
-        name=agent_name,
-        agent_type=AgentTypeName("test"),
-        work_dir=temp_work_dir,
-        create_time=datetime.now(timezone.utc),
-        host_id=host.id,
-        host=host,
-        mngr_ctx=local_provider.mngr_ctx,
-        agent_config=AgentTypeConfig(command=CommandString("sleep 1000")),
-    )
 
 
 def _build_command_with_defaults(
@@ -384,12 +355,13 @@ def _build_command_with_defaults(
 
 
 def test_build_start_agent_shell_command_produces_single_command(
-    local_provider: LocalProviderInstance,
+    host_with_agents_dir: tuple[Host, Path],
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
     """The function should produce a single &&-chained shell command."""
-    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    host, _ = host_with_agents_dir
+    agent = _create_test_agent(host, temp_host_dir, work_dir=temp_work_dir)
     result = _build_command_with_defaults(agent, temp_host_dir)
 
     assert isinstance(result, str)
@@ -410,12 +382,13 @@ def test_build_start_agent_shell_command_produces_single_command(
 
 
 def test_build_start_agent_shell_command_includes_unset_vars(
-    local_provider: LocalProviderInstance,
+    host_with_agents_dir: tuple[Host, Path],
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
     """Unset vars should appear at the start of the command chain."""
-    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    host, _ = host_with_agents_dir
+    agent = _create_test_agent(host, temp_host_dir, work_dir=temp_work_dir)
     result = _build_command_with_defaults(agent, temp_host_dir, unset_vars=["FOO_VAR", "BAR_VAR"])
 
     assert "unset FOO_VAR" in result
@@ -428,12 +401,13 @@ def test_build_start_agent_shell_command_includes_unset_vars(
 
 
 def test_build_start_agent_shell_command_includes_additional_windows(
-    local_provider: LocalProviderInstance,
+    host_with_agents_dir: tuple[Host, Path],
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
     """Additional commands should create new tmux windows."""
-    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    host, _ = host_with_agents_dir
+    agent = _create_test_agent(host, temp_host_dir, work_dir=temp_work_dir)
     additional_commands = [
         NamedCommand(command=CommandString("tail -f /var/log/syslog"), window_name="logs"),
         NamedCommand(command=CommandString("htop"), window_name=None),
@@ -454,24 +428,26 @@ def test_build_start_agent_shell_command_includes_additional_windows(
 
 
 def test_build_start_agent_shell_command_no_select_window_without_additional_commands(
-    local_provider: LocalProviderInstance,
+    host_with_agents_dir: tuple[Host, Path],
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
     """select-window should not appear when there are no additional commands."""
-    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    host, _ = host_with_agents_dir
+    agent = _create_test_agent(host, temp_host_dir, work_dir=temp_work_dir)
     result = _build_command_with_defaults(agent, temp_host_dir)
 
     assert "select-window" not in result
 
 
 def test_build_start_agent_shell_command_uses_and_chaining(
-    local_provider: LocalProviderInstance,
+    host_with_agents_dir: tuple[Host, Path],
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
     """All steps should be chained with && for fail-fast behavior."""
-    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    host, _ = host_with_agents_dir
+    agent = _create_test_agent(host, temp_host_dir, work_dir=temp_work_dir)
     result = _build_command_with_defaults(agent, temp_host_dir)
 
     # The result should be a single && chain with at least 7 steps:
