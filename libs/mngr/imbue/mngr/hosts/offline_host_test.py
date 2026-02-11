@@ -110,6 +110,24 @@ class FakeProviderInstance(BaseProviderInstance):
         raise NotImplementedError
 
 
+def _make_offline_host(
+    provider: FakeProviderInstance,
+    mngr_ctx: MngrContext,
+    **certified_data_kwargs: Any,
+) -> OfflineHost:
+    """Create an OfflineHost with the given certified data fields."""
+    host_id = HostId.generate()
+    certified_data_kwargs.setdefault("host_id", str(host_id))
+    certified_data_kwargs.setdefault("host_name", "test-host")
+    certified_data = CertifiedHostData(**certified_data_kwargs)
+    return OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=provider,
+        mngr_ctx=mngr_ctx,
+    )
+
+
 @pytest.fixture
 def fake_provider(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> FakeProviderInstance:
     """Create a FakeProviderInstance with sensible defaults for OfflineHost tests."""
@@ -124,22 +142,15 @@ def fake_provider(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> FakeProvid
 
 @pytest.fixture
 def offline_host(fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext) -> OfflineHost:
-    """Create an OfflineHost instance for testing."""
-    host_id = HostId.generate()
-    certified_data = CertifiedHostData(
-        host_id=str(host_id),
-        host_name="test-host",
+    """Create an OfflineHost with activity config and plugin data for testing."""
+    return _make_offline_host(
+        fake_provider,
+        temp_mngr_ctx,
         idle_mode=IdleMode.SSH,
         idle_timeout_seconds=3600,
         activity_sources=(ActivitySource.SSH, ActivitySource.AGENT),
         image="test-image:latest",
         plugin={"my_plugin": {"key": "value"}},
-    )
-    return OfflineHost(
-        id=host_id,
-        certified_host_data=certified_data,
-        provider_instance=fake_provider,
-        mngr_ctx=temp_mngr_ctx,
     )
 
 
@@ -272,36 +283,18 @@ def test_get_state_returns_crashed_when_no_stop_reason(offline_host: OfflineHost
     assert state == HostState.CRASHED
 
 
-def test_get_state_returns_crashed_when_provider_does_not_support_snapshots_and_no_stop_reason(
-    offline_host: OfflineHost, fake_provider: FakeProviderInstance
-):
-    """Test that get_state returns CRASHED when provider doesn't support snapshots and no stop_reason."""
-    fake_provider.fake_supports_snapshots = False
-
-    state = offline_host.get_state()
-    # No stop_reason means host didn't shut down cleanly
-    assert state == HostState.CRASHED
-
-
 def test_get_state_returns_failed_when_certified_data_has_failure_reason(
     fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext
 ):
     """Test that get_state returns FAILED when certified data has a failure_reason."""
-    host_id = HostId.generate()
-    certified_data = CertifiedHostData(
-        host_id=str(host_id),
-        host_name="failed-host",
+    host = _make_offline_host(
+        fake_provider,
+        temp_mngr_ctx,
         failure_reason="Docker build failed",
         build_log="Step 1/5: RUN apt-get update\nERROR: apt-get failed",
     )
-    failed_host = OfflineHost(
-        id=host_id,
-        certified_host_data=certified_data,
-        provider_instance=fake_provider,
-        mngr_ctx=temp_mngr_ctx,
-    )
 
-    state = failed_host.get_state()
+    state = host.get_state()
     assert state == HostState.FAILED
 
 
@@ -309,21 +302,14 @@ def test_get_failure_reason_returns_reason_when_present(
     fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext
 ):
     """Test that get_failure_reason returns the failure reason from certified data."""
-    host_id = HostId.generate()
-    certified_data = CertifiedHostData(
-        host_id=str(host_id),
-        host_name="failed-host",
+    host = _make_offline_host(
+        fake_provider,
+        temp_mngr_ctx,
         failure_reason="Modal sandbox creation failed",
         build_log="Build log contents",
     )
-    failed_host = OfflineHost(
-        id=host_id,
-        certified_host_data=certified_data,
-        provider_instance=fake_provider,
-        mngr_ctx=temp_mngr_ctx,
-    )
 
-    reason = failed_host.get_failure_reason()
+    reason = host.get_failure_reason()
     assert reason == "Modal sandbox creation failed"
 
 
@@ -335,22 +321,15 @@ def test_get_failure_reason_returns_none_for_successful_host(offline_host: Offli
 
 def test_get_build_log_returns_log_when_present(fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext):
     """Test that get_build_log returns the build log from certified data."""
-    host_id = HostId.generate()
     build_log_content = "Step 1/5: FROM ubuntu:22.04\nStep 2/5: RUN apt-get update\nERROR: network error"
-    certified_data = CertifiedHostData(
-        host_id=str(host_id),
-        host_name="failed-host",
+    host = _make_offline_host(
+        fake_provider,
+        temp_mngr_ctx,
         failure_reason="Build failed",
         build_log=build_log_content,
     )
-    failed_host = OfflineHost(
-        id=host_id,
-        certified_host_data=certified_data,
-        provider_instance=fake_provider,
-        mngr_ctx=temp_mngr_ctx,
-    )
 
-    log = failed_host.get_build_log()
+    log = host.get_build_log()
     assert log == build_log_content
 
 
@@ -380,12 +359,6 @@ def test_get_state_checks_snapshots_when_provider_cannot_shutdown(
     support snapshots, get_state checks whether snapshots exist to determine if the host
     can be restored or is effectively destroyed.
     """
-    host_id = HostId.generate()
-    certified_data = CertifiedHostData(
-        host_id=str(host_id),
-        host_name="test-host",
-        stop_reason=HostState.PAUSED.value,
-    )
     fake_provider.fake_supports_shutdown_hosts = False
     fake_provider.fake_supports_snapshots = True
     if has_snapshots:
@@ -397,12 +370,7 @@ def test_get_state_checks_snapshots_when_provider_cannot_shutdown(
             )
         ]
 
-    host = OfflineHost(
-        id=host_id,
-        certified_host_data=certified_data,
-        provider_instance=fake_provider,
-        mngr_ctx=temp_mngr_ctx,
-    )
+    host = _make_offline_host(fake_provider, temp_mngr_ctx, stop_reason=HostState.PAUSED.value)
 
     state = host.get_state()
     assert state == expected_state
@@ -412,21 +380,10 @@ def test_get_state_returns_destroyed_when_no_shutdown_and_no_snapshots_support(
     fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext
 ):
     """Test that get_state returns DESTROYED when provider can neither shutdown nor snapshot."""
-    host_id = HostId.generate()
-    certified_data = CertifiedHostData(
-        host_id=str(host_id),
-        host_name="test-host",
-        stop_reason=HostState.STOPPED.value,
-    )
     fake_provider.fake_supports_shutdown_hosts = False
     fake_provider.fake_supports_snapshots = False
 
-    host = OfflineHost(
-        id=host_id,
-        certified_host_data=certified_data,
-        provider_instance=fake_provider,
-        mngr_ctx=temp_mngr_ctx,
-    )
+    host = _make_offline_host(fake_provider, temp_mngr_ctx, stop_reason=HostState.STOPPED.value)
 
     state = host.get_state()
     assert state == HostState.DESTROYED
@@ -436,12 +393,6 @@ def test_failure_reason_takes_precedence_over_snapshot_check(
     fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext
 ):
     """Test that FAILED is returned when failure_reason is set, even when snapshots exist."""
-    host_id = HostId.generate()
-    certified_data = CertifiedHostData(
-        host_id=str(host_id),
-        host_name="failed-host",
-        failure_reason="Build failed",
-    )
     fake_provider.fake_snapshots = [
         SnapshotInfo(
             id=SnapshotId("snap-test"),
@@ -449,14 +400,9 @@ def test_failure_reason_takes_precedence_over_snapshot_check(
             created_at=datetime.now(timezone.utc),
         )
     ]
-    failed_host = OfflineHost(
-        id=host_id,
-        certified_host_data=certified_data,
-        provider_instance=fake_provider,
-        mngr_ctx=temp_mngr_ctx,
-    )
+    host = _make_offline_host(fake_provider, temp_mngr_ctx, failure_reason="Build failed")
 
-    state = failed_host.get_state()
+    state = host.get_state()
     assert state == HostState.FAILED
 
 
@@ -477,18 +423,7 @@ def test_get_state_based_on_stop_reason(
     When supports_shutdown_hosts is True, get_state returns HostState(stop_reason)
     directly without checking snapshots. When stop_reason is None, it returns CRASHED.
     """
-    host_id = HostId.generate()
-    certified_data = CertifiedHostData(
-        host_id=str(host_id),
-        host_name="test-host",
-        stop_reason=stop_reason,
-    )
-    host = OfflineHost(
-        id=host_id,
-        certified_host_data=certified_data,
-        provider_instance=fake_provider,
-        mngr_ctx=temp_mngr_ctx,
-    )
+    host = _make_offline_host(fake_provider, temp_mngr_ctx, stop_reason=stop_reason)
 
     state = host.get_state()
     assert state == expected_state
