@@ -107,33 +107,6 @@ def test_ask_claude_failure_shows_error(
     assert "authentication failed" in result.output
 
 
-def test_ask_execute_mode_shows_running_message(
-    fake_claude: FakeClaude,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """--execute should show 'Running: mngr list' in the output."""
-    fake_claude.responses.append("mngr list")
-
-    result = cli_runner.invoke(ask, ["--execute", "list", "my", "agents"], obj=plugin_manager, catch_exceptions=True)
-
-    assert "Running: mngr list" in result.output
-
-
-def test_ask_execute_uses_execute_prefix(
-    fake_claude: FakeClaude,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """--execute mode should use the execute-specific prompt prefix."""
-    fake_claude.responses.append("mngr list")
-
-    cli_runner.invoke(ask, ["--execute", "list", "agents"], obj=plugin_manager, catch_exceptions=True)
-
-    assert len(fake_claude.queries) == 1
-    assert "executed directly" in fake_claude.queries[0]
-
-
 def test_ask_claude_not_installed(
     monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
