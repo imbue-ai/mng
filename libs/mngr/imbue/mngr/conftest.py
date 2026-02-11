@@ -215,8 +215,13 @@ def setup_test_mngr_env(
     # Kill the test's isolated tmux server to clean up any leaked sessions
     # or processes. We set TMUX_TMPDIR explicitly in the env dict to be
     # robust against fixture teardown ordering changes.
+    tmux_tmpdir_str = str(tmux_tmpdir)
+    assert tmux_tmpdir_str.startswith("/tmp/mngr-tmux-"), (
+        f"TMUX_TMPDIR safety check failed! Expected /tmp/mngr-tmux-* path but got: {tmux_tmpdir_str}. "
+        "Refusing to run 'tmux kill-server' to avoid killing the real tmux server."
+    )
     kill_env = os.environ.copy()
-    kill_env["TMUX_TMPDIR"] = str(tmux_tmpdir)
+    kill_env["TMUX_TMPDIR"] = tmux_tmpdir_str
     subprocess.run(["tmux", "kill-server"], capture_output=True, env=kill_env)
 
     # Clean up the tmpdir we created outside of pytest's tmp_path.
