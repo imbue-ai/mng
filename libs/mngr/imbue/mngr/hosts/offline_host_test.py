@@ -3,22 +3,14 @@
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from typing import Any
-from typing import Mapping
-from typing import Sequence
 
 import pytest
-from pydantic import Field
-from pyinfra.api.host import Host as PyinfraHost
 
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
-from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import SnapshotInfo
-from imbue.mngr.interfaces.data_types import VolumeInfo
-from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
@@ -28,116 +20,24 @@ from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
-from imbue.mngr.primitives import VolumeId
-from imbue.mngr.providers.base_provider import BaseProviderInstance
-
-
-class FakeProviderInstance(BaseProviderInstance):
-    """In-memory provider instance for OfflineHost unit tests.
-
-    Provides configurable return values for provider methods that OfflineHost
-    delegates to, without using mocks.
-    """
-
-    fake_supports_snapshots: bool = Field(default=True)
-    fake_supports_shutdown_hosts: bool = Field(default=True)
-    fake_snapshots: list[SnapshotInfo] = Field(default_factory=list)
-    fake_tags: dict[str, str] = Field(default_factory=dict)
-    fake_agent_data: list[dict[str, Any]] = Field(default_factory=list)
-
-    @property
-    def supports_snapshots(self) -> bool:
-        return self.fake_supports_snapshots
-
-    @property
-    def supports_shutdown_hosts(self) -> bool:
-        return self.fake_supports_shutdown_hosts
-
-    @property
-    def supports_volumes(self) -> bool:
-        return False
-
-    @property
-    def supports_mutable_tags(self) -> bool:
-        return True
-
-    def list_snapshots(self, host: HostInterface | HostId) -> list[SnapshotInfo]:
-        return self.fake_snapshots
-
-    def get_host_tags(self, host: HostInterface | HostId) -> dict[str, str]:
-        return self.fake_tags
-
-    def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict]:
-        return self.fake_agent_data
-
-    def stop_host(
-        self, host: HostInterface | HostId, create_snapshot: bool = True, timeout_seconds: float = 60.0
-    ) -> None:
-        raise NotImplementedError
-
-    def destroy_host(self, host: HostInterface | HostId, delete_snapshots: bool = True) -> None:
-        raise NotImplementedError
-
-    def on_connection_error(self, host_id: HostId) -> None:
-        pass
-
-    def get_host_resources(self, host: HostInterface) -> HostResources:
-        raise NotImplementedError
-
-    def create_snapshot(self, host: HostInterface | HostId, name: SnapshotName | None = None) -> SnapshotId:
-        raise NotImplementedError
-
-    def delete_snapshot(self, host: HostInterface | HostId, snapshot_id: SnapshotId) -> None:
-        raise NotImplementedError
-
-    def list_volumes(self) -> list[VolumeInfo]:
-        return []
-
-    def delete_volume(self, volume_id: VolumeId) -> None:
-        raise NotImplementedError
-
-    def set_host_tags(self, host: HostInterface | HostId, tags: Mapping[str, str]) -> None:
-        self.fake_tags = dict(tags)
-
-    def add_tags_to_host(self, host: HostInterface | HostId, tags: Mapping[str, str]) -> None:
-        self.fake_tags.update(tags)
-
-    def remove_tags_from_host(self, host: HostInterface | HostId, keys: Sequence[str]) -> None:
-        for k in keys:
-            self.fake_tags.pop(k, None)
-
-    def get_connector(self, host: HostInterface | HostId) -> PyinfraHost:
-        raise NotImplementedError
-
-
-def _make_offline_host(
-    certified_data: CertifiedHostData,
-    provider: FakeProviderInstance,
-    mngr_ctx: MngrContext,
-) -> OfflineHost:
-    host_id = HostId(certified_data.host_id)
-    return OfflineHost(
-        id=host_id,
-        certified_host_data=certified_data,
-        provider_instance=provider,
-        mngr_ctx=mngr_ctx,
-    )
+from imbue.mngr.providers.mock_provider_test import MockProviderInstance
+from imbue.mngr.providers.mock_provider_test import make_offline_host
 
 
 @pytest.fixture
-def fake_provider(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> FakeProviderInstance:
-    """Create a FakeProviderInstance with sensible defaults for OfflineHost tests."""
-    return FakeProviderInstance(
+def fake_provider(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> MockProviderInstance:
+    """Create a MockProviderInstance with sensible defaults for OfflineHost tests."""
+    return MockProviderInstance(
         name=ProviderInstanceName("test-provider"),
         host_dir=temp_host_dir,
         mngr_ctx=temp_mngr_ctx,
-        fake_supports_snapshots=True,
-        fake_tags={"env": "test"},
+        mock_supports_snapshots=True,
+        mock_tags={"env": "test"},
     )
 
 
 @pytest.fixture
-def offline_host(fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext) -> OfflineHost:
+def offline_host(fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext) -> OfflineHost:
     """Create an OfflineHost instance for testing."""
     host_id = HostId.generate()
     certified_data = CertifiedHostData(
@@ -188,7 +88,7 @@ def test_get_plugin_data_returns_empty_dict_when_missing(offline_host: OfflineHo
     assert data == {}
 
 
-def test_get_snapshots_delegates_to_provider(offline_host: OfflineHost, fake_provider: FakeProviderInstance) -> None:
+def test_get_snapshots_delegates_to_provider(offline_host: OfflineHost, fake_provider: MockProviderInstance) -> None:
     """Test that get_snapshots returns snapshots from the provider."""
     expected_snapshots = [
         SnapshotInfo(
@@ -197,7 +97,7 @@ def test_get_snapshots_delegates_to_provider(offline_host: OfflineHost, fake_pro
             created_at=datetime.now(timezone.utc),
         )
     ]
-    fake_provider.fake_snapshots = expected_snapshots
+    fake_provider.mock_snapshots = expected_snapshots
 
     snapshots = offline_host.get_snapshots()
 
@@ -218,14 +118,14 @@ def test_get_tags_delegates_to_provider(offline_host: OfflineHost) -> None:
 
 
 def test_get_agent_references_returns_refs_from_provider(
-    offline_host: OfflineHost, fake_provider: FakeProviderInstance
+    offline_host: OfflineHost, fake_provider: MockProviderInstance
 ) -> None:
     """Test that get_agent_references loads agent data from provider and populates certified_data."""
     agent_id_1 = AgentId.generate()
     agent_id_2 = AgentId.generate()
     agent_data_1 = {"id": str(agent_id_1), "name": "my-agent", "type": "claude", "permissions": ["read", "write"]}
     agent_data_2 = {"id": str(agent_id_2), "name": "other-agent", "type": "codex"}
-    fake_provider.fake_agent_data = [agent_data_1, agent_data_2]
+    fake_provider.mock_agent_data = [agent_data_1, agent_data_2]
 
     refs = offline_host.get_agent_references()
 
@@ -247,10 +147,10 @@ def test_get_agent_references_returns_refs_from_provider(
 
 
 def test_get_agent_references_returns_empty_list_on_error(
-    offline_host: OfflineHost, fake_provider: FakeProviderInstance
+    offline_host: OfflineHost, fake_provider: MockProviderInstance
 ) -> None:
     """Test that get_agent_references returns empty list when agent data is malformed."""
-    fake_provider.fake_agent_data = [{"invalid_key": "missing id and name"}]
+    fake_provider.mock_agent_data = [{"invalid_key": "missing id and name"}]
 
     refs = offline_host.get_agent_references()
     assert refs == []
@@ -263,12 +163,12 @@ def test_get_permissions_returns_empty_list_when_no_agents(offline_host: Offline
 
 
 def test_get_permissions_returns_permissions_from_agents(
-    offline_host: OfflineHost, fake_provider: FakeProviderInstance
+    offline_host: OfflineHost, fake_provider: MockProviderInstance
 ) -> None:
     """Test that get_permissions returns union of all agent permissions from persisted data."""
     agent_id_1 = AgentId.generate()
     agent_id_2 = AgentId.generate()
-    fake_provider.fake_agent_data = [
+    fake_provider.mock_agent_data = [
         {"id": str(agent_id_1), "name": "agent-1", "permissions": ["read", "write"]},
         {"id": str(agent_id_2), "name": "agent-2", "permissions": ["write", "execute"]},
     ]
@@ -287,10 +187,10 @@ def test_get_state_returns_crashed_when_no_stop_reason(offline_host: OfflineHost
 
 
 def test_get_state_returns_crashed_when_provider_does_not_support_snapshots_and_no_stop_reason(
-    offline_host: OfflineHost, fake_provider: FakeProviderInstance
+    offline_host: OfflineHost, fake_provider: MockProviderInstance
 ) -> None:
     """Test that get_state returns CRASHED when provider doesn't support snapshots and no stop_reason."""
-    fake_provider.fake_supports_snapshots = False
+    fake_provider.mock_supports_snapshots = False
 
     state = offline_host.get_state()
     # No stop_reason means host didn't shut down cleanly
@@ -298,7 +198,7 @@ def test_get_state_returns_crashed_when_provider_does_not_support_snapshots_and_
 
 
 def test_get_state_returns_failed_when_certified_data_has_failure_reason(
-    fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext
+    fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext
 ) -> None:
     """Test that get_state returns FAILED when certified data has a failure_reason."""
     certified_data = CertifiedHostData(
@@ -307,14 +207,14 @@ def test_get_state_returns_failed_when_certified_data_has_failure_reason(
         failure_reason="Docker build failed",
         build_log="Step 1/5: RUN apt-get update\nERROR: apt-get failed",
     )
-    failed_host = _make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
+    failed_host = make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
 
     state = failed_host.get_state()
     assert state == HostState.FAILED
 
 
 def test_get_failure_reason_returns_reason_when_present(
-    fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext
+    fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext
 ) -> None:
     """Test that get_failure_reason returns the failure reason from certified data."""
     certified_data = CertifiedHostData(
@@ -323,7 +223,7 @@ def test_get_failure_reason_returns_reason_when_present(
         failure_reason="Modal sandbox creation failed",
         build_log="Build log contents",
     )
-    failed_host = _make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
+    failed_host = make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
 
     reason = failed_host.get_failure_reason()
     assert reason == "Modal sandbox creation failed"
@@ -336,7 +236,7 @@ def test_get_failure_reason_returns_none_for_successful_host(offline_host: Offli
 
 
 def test_get_build_log_returns_log_when_present(
-    fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext
+    fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext
 ) -> None:
     """Test that get_build_log returns the build log from certified data."""
     build_log_content = "Step 1/5: FROM ubuntu:22.04\nStep 2/5: RUN apt-get update\nERROR: network error"
@@ -346,7 +246,7 @@ def test_get_build_log_returns_log_when_present(
         failure_reason="Build failed",
         build_log=build_log_content,
     )
-    failed_host = _make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
+    failed_host = make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
 
     log = failed_host.get_build_log()
     assert log == build_log_content
@@ -369,7 +269,7 @@ def test_get_state_returns_crashed_when_no_stop_reason_regardless_of_snapshot_su
 
 
 def test_failure_reason_takes_precedence_over_snapshot_check(
-    fake_provider: FakeProviderInstance, temp_mngr_ctx: MngrContext
+    fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext
 ) -> None:
     """Test that FAILED is returned when failure_reason is set, even when snapshots exist."""
     certified_data = CertifiedHostData(
@@ -377,14 +277,14 @@ def test_failure_reason_takes_precedence_over_snapshot_check(
         host_name="failed-host",
         failure_reason="Build failed",
     )
-    fake_provider.fake_snapshots = [
+    fake_provider.mock_snapshots = [
         SnapshotInfo(
             id=SnapshotId("snap-test"),
             name=SnapshotName("should-not-matter"),
             created_at=datetime.now(timezone.utc),
         )
     ]
-    failed_host = _make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
+    failed_host = make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
 
     state = failed_host.get_state()
     assert state == HostState.FAILED
@@ -400,7 +300,7 @@ def test_failure_reason_takes_precedence_over_snapshot_check(
     ids=["paused", "stopped", "crashed_no_stop_reason"],
 )
 def test_get_state_based_on_stop_reason(
-    fake_provider: FakeProviderInstance,
+    fake_provider: MockProviderInstance,
     temp_mngr_ctx: MngrContext,
     stop_reason: str | None,
     expected_state: HostState,
@@ -411,14 +311,14 @@ def test_get_state_based_on_stop_reason(
         host_name="test-host",
         stop_reason=stop_reason,
     )
-    fake_provider.fake_snapshots = [
+    fake_provider.mock_snapshots = [
         SnapshotInfo(
             id=SnapshotId("snap-test"),
             name=SnapshotName("snapshot"),
             created_at=datetime.now(timezone.utc),
         )
     ]
-    host = _make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
+    host = make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
 
     state = host.get_state()
     assert state == expected_state
