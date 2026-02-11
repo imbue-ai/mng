@@ -1,6 +1,7 @@
 import importlib.resources
 import shlex
 import subprocess
+import tempfile
 from typing import Any
 from typing import assert_never
 
@@ -94,15 +95,21 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
 
 
 def _run_claude_print(query_string: str) -> str:
-    """Run claude --print with mngr docs as system context and return the response."""
+    """Run claude --print from an empty temp dir with mngr docs as system prompt.
+
+    Uses a temporary empty directory as cwd so that claude does not pick up
+    any project context (CLAUDE.md, .git, etc.) from the user's working directory.
+    """
     system_prompt = _load_ask_context()
 
-    result = subprocess.run(
-        ["claude", "--print", "--system-prompt", system_prompt, "--tools", "", query_string],
-        capture_output=True,
-        text=True,
-        stdin=subprocess.DEVNULL,
-    )
+    with tempfile.TemporaryDirectory(prefix="mngr-ask-") as tmp_dir:
+        result = subprocess.run(
+            ["claude", "--print", "--system-prompt", system_prompt, query_string],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            cwd=tmp_dir,
+        )
 
     if result.returncode != 0:
         stderr_msg = result.stderr.strip()
