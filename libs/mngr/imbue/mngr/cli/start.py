@@ -150,8 +150,7 @@ def _send_resume_message_if_configured(agent: AgentInterface, output_opts: Outpu
     help="Start from a specific snapshot instead of the most recent [future]",
 )
 @optgroup.option(
-    "--latest",
-    is_flag=True,
+    "--latest/--no-latest",
     default=True,
     help="Start from the most recent snapshot or state [default] [future]",
 )
@@ -164,6 +163,7 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
     the container/instance. For local agents, this starts the agent's tmux
     session.
 
+    \b
     Examples:
 
       mngr start my-agent
@@ -192,6 +192,8 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
         raise NotImplementedError("--stdin is not implemented yet")
     if opts.snapshot is not None:
         raise NotImplementedError("--snapshot is not implemented yet")
+    if not opts.latest:
+        raise NotImplementedError("--no-latest is not implemented yet")
 
     # Validate input
     agent_identifiers = list(opts.agents) + list(opts.agent_list)

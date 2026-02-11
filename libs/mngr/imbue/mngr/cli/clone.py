@@ -41,6 +41,22 @@ def _build_create_args(
     return prefix + remaining + ["--"]
 
 
+def _args_before_dd_count(remaining: list[str], original_argv: list[str]) -> int | None:
+    """Return the number of items in *remaining* that came before ``--``.
+
+    Returns ``None`` when ``--`` was not present in *original_argv*.
+    """
+    if "--" not in original_argv:
+        return None
+
+    dd_index = original_argv.index("--")
+    args_after_dd = len(original_argv) - dd_index - 1
+
+    if args_after_dd > 0 and args_after_dd <= len(remaining):
+        return len(remaining) - args_after_dd
+    return len(remaining)
+
+
 def parse_source_and_invoke_create(
     ctx: click.Context,
     args: tuple[str, ...],
@@ -62,10 +78,12 @@ def parse_source_and_invoke_create(
     source_agent = args[0]
     remaining = list(args[1:])
 
-    _reject_source_agent_options(remaining, ctx)
-
     if original_argv is None:
         original_argv = sys.argv
+
+    before_dd = _args_before_dd_count(remaining, original_argv)
+    _reject_source_agent_options(remaining, ctx, before_dd)
+
     create_args = _build_create_args(source_agent, remaining, original_argv)
 
     create_ctx = create_cmd.make_context(command_name, create_args, parent=ctx)
@@ -90,11 +108,18 @@ def clone(ctx: click.Context, args: tuple[str, ...]) -> None:
     parse_source_and_invoke_create(ctx, args, command_name="clone")
 
 
-def _reject_source_agent_options(args: Sequence[str], ctx: click.Context) -> None:
-    """Raise an error if --from-agent or --source-agent appears in args."""
-    for arg in args:
-        if arg == "--":
-            break
+def _reject_source_agent_options(
+    args: Sequence[str],
+    ctx: click.Context,
+    before_dd: int | None = None,
+) -> None:
+    """Raise an error if --from-agent or --source-agent appears before ``--``.
+
+    *before_dd* is the number of items in *args* that precede the ``--``
+    separator.  When ``None`` (no ``--`` was present), all items are checked.
+    """
+    check = args if before_dd is None else args[:before_dd]
+    for arg in check:
         # Check exact match and --opt=value forms
         if arg in ("--from-agent", "--source-agent") or arg.startswith(("--from-agent=", "--source-agent=")):
             raise click.UsageError(

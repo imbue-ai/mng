@@ -1,9 +1,13 @@
 """Unit tests for the clone CLI command."""
 
+import click
 import pluggy
+import pytest
 from click.testing import CliRunner
 
+from imbue.mngr.cli.clone import _args_before_dd_count
 from imbue.mngr.cli.clone import _build_create_args
+from imbue.mngr.cli.clone import _reject_source_agent_options
 from imbue.mngr.cli.clone import clone
 from imbue.mngr.main import cli
 
@@ -142,3 +146,46 @@ def test_build_create_args_with_double_dash_and_empty_remaining() -> None:
         original_argv=["mngr", "clone", "my-agent", "--"],
     )
     assert result == ["--from-agent", "my-agent", "--"]
+
+
+# --- _args_before_dd_count tests ---
+
+
+def test_args_before_dd_count_no_dd() -> None:
+    """Returns None when -- is not in original_argv."""
+    assert _args_before_dd_count(["--in", "docker"], ["mngr", "clone", "a", "--in", "docker"]) is None
+
+
+def test_args_before_dd_count_with_dd() -> None:
+    """Returns count of args before -- boundary."""
+    count = _args_before_dd_count(
+        ["--in", "docker", "--model", "opus"],
+        ["mngr", "clone", "a", "--in", "docker", "--", "--model", "opus"],
+    )
+    assert count == 2
+
+
+def test_args_before_dd_count_trailing_dd() -> None:
+    """Returns full length when -- has nothing after it."""
+    count = _args_before_dd_count(
+        ["--in", "docker"],
+        ["mngr", "clone", "a", "--in", "docker", "--"],
+    )
+    assert count == 2
+
+
+# --- _reject_source_agent_options with -- boundary tests ---
+
+
+def test_reject_source_agent_options_allows_from_agent_after_dd() -> None:
+    """--from-agent after -- should not be rejected."""
+    ctx = click.Context(clone, info_name="clone")
+    # before_dd=0 means nothing is before --, so --from-agent is after --
+    _reject_source_agent_options(["--from-agent", "x"], ctx, before_dd=0)
+
+
+def test_reject_source_agent_options_rejects_from_agent_before_dd() -> None:
+    """--from-agent before -- should still be rejected."""
+    ctx = click.Context(clone, info_name="clone")
+    with pytest.raises(click.UsageError, match="--from-agent"):
+        _reject_source_agent_options(["--from-agent", "x", "--model", "opus"], ctx, before_dd=2)

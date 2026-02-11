@@ -140,6 +140,7 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
     \b
     Alias: s
 
+    \b
     Examples:
 
       mngr stop my-agent

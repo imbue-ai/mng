@@ -61,7 +61,7 @@ mngr start [OPTIONS] [AGENTS]...
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--snapshot` | text | Start from a specific snapshot instead of the most recent [future] | None |
-| `--latest` | boolean | Start from the most recent snapshot or state [default] [future] | `True` |
+| `--latest`, `--no-latest` | boolean | Start from the most recent snapshot or state [default] [future] | `True` |
 
 ## Common
 

@@ -6,7 +6,6 @@ from imbue.mngr.cli.destroy import destroy as destroy_cmd
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
-from imbue.mngr.errors import MngrError
 
 
 @click.command(
@@ -30,7 +29,7 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
         destroy_ctx = destroy_cmd.make_context("migrate-destroy", destroy_args, parent=ctx)
         with destroy_ctx:
             destroy_cmd.invoke(destroy_ctx)
-    except (MngrError, click.Abort, click.ClickException):
+    except (click.Abort, click.ClickException):
         logger.error(
             "Clone succeeded but destroy of '{}' failed. "
             "Please manually destroy the source agent:\n"
