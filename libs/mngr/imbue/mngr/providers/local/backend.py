@@ -3,6 +3,7 @@ from pathlib import Path
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.errors import ConfigStructureError
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
@@ -48,9 +49,10 @@ class LocalProviderBackend(ProviderBackendInterface):
         mngr_ctx: MngrContext,
     ) -> ProviderInstanceInterface:
         """Build a local provider instance."""
+        if not isinstance(config, LocalProviderConfig):
+            raise ConfigStructureError(f"Expected LocalProviderConfig, got {type(config).__name__}")
         # Get host_dir from typed config, falling back to default
-        # FIXME: we can just assert isinstance here since it should be impossible to get a different type
-        if isinstance(config, LocalProviderConfig) and config.host_dir is not None:
+        if config.host_dir is not None:
             host_dir = config.host_dir
         else:
             host_dir = mngr_ctx.config.default_host_dir

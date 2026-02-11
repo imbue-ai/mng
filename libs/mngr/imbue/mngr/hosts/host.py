@@ -234,8 +234,25 @@ class Host(BaseHost, OnlineHostInterface):
                 if "No such file or directory" in error_msg or "cannot stat" in error_msg:
                     raise FileNotFoundError(f"File not found: {remote_filename}") from e
                 elif "Socket is closed" in str(e):
-                    self.provider_instance.on_connection_error(self.id)
-                    raise HostConnectionError("Connection was closed while reading file") from e
+                    # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
+                    try:
+                        self.connector.host.disconnect()
+                        self._ensure_connected()
+                        _result = self.connector.host.get_file(
+                            remote_filename,
+                            filename_or_io,
+                            remote_temp_filename=remote_temp_filename,
+                        )
+                    except Exception as retry_exception:
+                        self.provider_instance.on_connection_error(self.id)
+                        raise HostConnectionError(
+                            "Connection was closed while reading file (and our retry failed)"
+                        ) from retry_exception
+                    else:
+                        self.provider_instance.on_connection_error(self.id)
+                        raise HostConnectionError(
+                            "Connection was closed while reading file (but the retry worked!)"
+                        ) from e
                 else:
                     raise
         except (EOFError, SSHException) as e:
@@ -263,8 +280,25 @@ class Host(BaseHost, OnlineHostInterface):
             )
         except OSError as e:
             if "Socket is closed" in str(e):
-                self.provider_instance.on_connection_error(self.id)
-                raise HostConnectionError("Connection was closed while writing file") from e
+                # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
+                try:
+                    self.connector.host.disconnect()
+                    self._ensure_connected()
+                    _result = self.connector.host.put_file(
+                        filename_or_io,
+                        remote_filename,
+                        remote_temp_filename=remote_temp_filename,
+                    )
+                except Exception as retry_exception:
+                    self.provider_instance.on_connection_error(self.id)
+                    raise HostConnectionError(
+                        "Connection was closed while writing file (and our retry failed)"
+                    ) from retry_exception
+                else:
+                    self.provider_instance.on_connection_error(self.id)
+                    raise HostConnectionError(
+                        "Connection was closed while writing file (but the retry worked!)"
+                    ) from e
             else:
                 raise
         except (EOFError, SSHException) as e:
@@ -1910,7 +1944,14 @@ def _build_start_agent_shell_command(
     The command chains critical steps with && so that if any step fails,
     subsequent steps are skipped. The process activity monitor is launched
     in a subshell so it runs in the background without affecting the chain.
+
+    If the tmux session already exists, the command exits early (successfully)
+    since everything has presumably already been set up.
     """
+    # Bail out early if the session already exists (using ; so that a failed
+    # has-session check doesn't break the && chain that follows)
+    guard = f"tmux has-session -t {shlex.quote(session_name)} 2>/dev/null && exit 0"
+
     steps: list[str] = []
 
     # Unset environment variables
@@ -1987,7 +2028,7 @@ def _build_start_agent_shell_command(
     monitor_cmd = f"(nohup bash -c {shlex.quote(monitor_script)} </dev/null >/dev/null 2>&1 &)"
     steps.append(monitor_cmd)
 
-    return " && ".join(steps)
+    return guard + "; " + " && ".join(steps)
 
 
 @pure

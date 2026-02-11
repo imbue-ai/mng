@@ -1,16 +1,16 @@
-# FIXME0: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
-import io
 import re
-import sys
-from unittest import mock
+from pathlib import Path
 
 import click
+import pytest
 from click.testing import CliRunner
 from click_option_group import optgroup
 
 from imbue.mngr.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
 from imbue.mngr.cli.create import create
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import _run_pager_with_subprocess
+from imbue.mngr.cli.help_formatter import _write_to_stdout
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import format_git_style_help
 from imbue.mngr.cli.help_formatter import get_help_metadata
@@ -238,65 +238,45 @@ def test_create_command_help_contains_examples() -> None:
     assert "--in docker" in help_output or "--in modal" in help_output
 
 
-def test_run_pager_writes_to_stdout_when_not_interactive() -> None:
-    """Test that run_pager writes directly to stdout when not in a terminal."""
+def test_run_pager_writes_to_stdout_when_not_interactive(capsys: pytest.CaptureFixture[str]) -> None:
+    """run_pager writes directly to stdout when not in an interactive terminal.
+
+    In test environments, is_interactive_terminal() naturally returns False,
+    so no mocking is needed.
+    """
     test_text = "Hello, this is test output"
-
-    # Capture stdout
-    captured_output = io.StringIO()
-    with mock.patch.object(sys, "stdout", captured_output):
-        with mock.patch(
-            "imbue.mngr.cli.help_formatter.is_interactive_terminal",
-            return_value=False,
-        ):
-            run_pager(test_text, None)
-
-    assert test_text in captured_output.getvalue()
+    run_pager(test_text, None)
+    captured = capsys.readouterr()
+    assert test_text in captured.out
 
 
-def test_run_pager_uses_subprocess_when_interactive() -> None:
-    """Test that run_pager uses subprocess pager when in a terminal."""
+def test_run_pager_with_subprocess_pipes_text_to_pager(tmp_path: Path, mngr_test_prefix: str) -> None:
+    """_run_pager_with_subprocess pipes text to the configured pager command."""
     test_text = "Interactive pager test"
+    output_file = tmp_path / "pager_output"
+    config = MngrConfig(prefix=mngr_test_prefix, pager=f"cat > {output_file}")
 
-    with mock.patch(
-        "imbue.mngr.cli.help_formatter.is_interactive_terminal",
-        return_value=True,
-    ):
-        with mock.patch("subprocess.Popen") as mock_popen:
-            mock_process = mock.MagicMock()
-            mock_popen.return_value = mock_process
+    _run_pager_with_subprocess(test_text, config)
 
-            run_pager(test_text, None)
-
-            # Verify popen was called
-            mock_popen.assert_called_once()
-            # Verify communicate was called with the text
-            mock_process.communicate.assert_called_once()
-            call_args = mock_process.communicate.call_args
-            assert test_text.encode("utf-8") in call_args.kwargs.get(
-                "input", call_args.args[0] if call_args.args else b""
-            )
+    assert output_file.read_text() == test_text
 
 
-def test_run_pager_falls_back_on_subprocess_error() -> None:
-    """Test that run_pager falls back to stdout when subprocess fails."""
-    test_text = "Fallback test"
-
-    captured_output = io.StringIO()
-    with mock.patch.object(sys, "stdout", captured_output):
-        with mock.patch(
-            "imbue.mngr.cli.help_formatter.is_interactive_terminal",
-            return_value=True,
-        ):
-            with mock.patch("subprocess.Popen", side_effect=OSError("pager not found")):
-                run_pager(test_text, None)
-
-    # Should have fallen back to stdout
-    assert test_text in captured_output.getvalue()
+def test_write_to_stdout_adds_trailing_newline(capsys: pytest.CaptureFixture[str]) -> None:
+    """_write_to_stdout appends a newline when the text does not end with one."""
+    _write_to_stdout("hello")
+    captured = capsys.readouterr()
+    assert captured.out == "hello\n"
 
 
-def test_show_help_with_pager_formats_and_displays_help() -> None:
-    """Test that show_help_with_pager formats help and passes to pager."""
+def test_write_to_stdout_preserves_existing_trailing_newline(capsys: pytest.CaptureFixture[str]) -> None:
+    """_write_to_stdout does not add a second newline when text already ends with one."""
+    _write_to_stdout("hello\n")
+    captured = capsys.readouterr()
+    assert captured.out == "hello\n"
+
+
+def test_show_help_with_pager_formats_and_displays_help(capsys: pytest.CaptureFixture[str]) -> None:
+    """show_help_with_pager formats help and writes it to stdout."""
 
     @click.command()
     @click.option("--test", help="A test option")
@@ -305,18 +285,34 @@ def test_show_help_with_pager_formats_and_displays_help() -> None:
         pass
 
     ctx = click.Context(test_cmd)
+    show_help_with_pager(ctx, test_cmd, None)
 
-    with mock.patch("imbue.mngr.cli.help_formatter.run_pager") as mock_run_pager:
-        show_help_with_pager(ctx, test_cmd, None)
-
-        # Verify run_pager was called with formatted help text
-        mock_run_pager.assert_called_once()
-        help_text = mock_run_pager.call_args[0][0]
-        assert "--test" in help_text
+    captured = capsys.readouterr()
+    assert "--test" in captured.out
 
 
-def test_help_option_callback_shows_help_and_exits() -> None:
-    """Test that help_option_callback shows help and exits context."""
+def test_help_option_callback_shows_help_and_exits(capsys: pytest.CaptureFixture[str]) -> None:
+    """help_option_callback displays help and exits with code 0."""
+
+    @click.command()
+    @click.option("--test", help="A test option")
+    def test_cmd(test: str | None) -> None:
+        """Test command."""
+        pass
+
+    ctx = click.Context(test_cmd)
+    param = click.Option(["-h", "--help"], is_flag=True)
+
+    with pytest.raises(click.exceptions.Exit) as exc_info:
+        help_option_callback(ctx, param, True)
+
+    assert exc_info.value.exit_code == 0
+    captured = capsys.readouterr()
+    assert "--test" in captured.out
+
+
+def test_help_option_callback_does_nothing_when_value_false(capsys: pytest.CaptureFixture[str]) -> None:
+    """help_option_callback does nothing when value is False."""
 
     @click.command()
     def test_cmd() -> None:
@@ -324,35 +320,18 @@ def test_help_option_callback_shows_help_and_exits() -> None:
         pass
 
     ctx = click.Context(test_cmd)
-    mock_param = mock.MagicMock(spec=click.Parameter)
+    param = click.Option(["-h", "--help"], is_flag=True)
 
-    with mock.patch("imbue.mngr.cli.help_formatter.show_help_with_pager") as mock_show:
-        with mock.patch.object(ctx, "exit") as mock_exit:
-            help_option_callback(ctx, mock_param, True)
+    help_option_callback(ctx, param, False)
 
-            mock_show.assert_called_once()
-            mock_exit.assert_called_once_with(0)
+    captured = capsys.readouterr()
+    assert captured.out == ""
 
 
-def test_help_option_callback_does_nothing_when_value_false() -> None:
-    """Test that help_option_callback does nothing when value is False."""
-
-    @click.command()
-    def test_cmd() -> None:
-        """Test command."""
-        pass
-
-    ctx = click.Context(test_cmd)
-    mock_param = mock.MagicMock(spec=click.Parameter)
-
-    with mock.patch("imbue.mngr.cli.help_formatter.show_help_with_pager") as mock_show:
-        help_option_callback(ctx, mock_param, False)
-
-        mock_show.assert_not_called()
-
-
-def test_help_option_callback_does_nothing_during_resilient_parsing() -> None:
-    """Test that help_option_callback does nothing during resilient parsing."""
+def test_help_option_callback_does_nothing_during_resilient_parsing(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """help_option_callback does nothing during resilient parsing."""
 
     @click.command()
     def test_cmd() -> None:
@@ -361,12 +340,12 @@ def test_help_option_callback_does_nothing_during_resilient_parsing() -> None:
 
     ctx = click.Context(test_cmd)
     ctx.resilient_parsing = True
-    mock_param = mock.MagicMock(spec=click.Parameter)
+    param = click.Option(["-h", "--help"], is_flag=True)
 
-    with mock.patch("imbue.mngr.cli.help_formatter.show_help_with_pager") as mock_show:
-        help_option_callback(ctx, mock_param, True)
+    help_option_callback(ctx, param, True)
 
-        mock_show.assert_not_called()
+    captured = capsys.readouterr()
+    assert captured.out == ""
 
 
 def test_mngr_config_pager_merge_override_wins(mngr_test_prefix: str) -> None:

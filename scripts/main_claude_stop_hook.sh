@@ -120,6 +120,7 @@ fi
 
 if [[ "$IS_INFORMATIONAL_ONLY" == "true" ]]; then
     log_info "No code changes detected compared to $BASE_BRANCH - this is an informational session. Exiting cleanly."
+    notify_user || echo "No notify_user function defined, skipping."
     exit 0
 fi
 

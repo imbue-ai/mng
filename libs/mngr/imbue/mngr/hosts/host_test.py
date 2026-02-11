@@ -1,20 +1,19 @@
-# FIXME0: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 """Unit tests for Host implementation."""
 
 import json
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
 
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import AgentTypeConfig
+from imbue.mngr.errors import AgentError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import _build_start_agent_shell_command
-from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import NamedCommand
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
@@ -22,6 +21,62 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.testing import get_short_random_string
+
+
+class _TestableAgent(BaseAgent):
+    """Test agent with observable on_destroy behavior."""
+
+    on_destroy_called: bool = False
+    on_destroy_should_raise: bool = False
+
+    def on_destroy(self, host: OnlineHostInterface) -> None:
+        self.on_destroy_called = True
+        if self.on_destroy_should_raise:
+            raise AgentError("cleanup failed")
+
+
+def _create_testable_agent(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    *,
+    on_destroy_should_raise: bool = False,
+) -> tuple[_TestableAgent, Host]:
+    """Create a _TestableAgent with proper filesystem setup."""
+    host = local_provider.create_host(HostName("test"))
+    assert isinstance(host, Host)
+
+    agent_id = AgentId.generate()
+    agent_name = AgentName(f"test-agent-{get_short_random_string()}")
+
+    create_time = datetime.now(timezone.utc)
+
+    # Create agent directory and data.json
+    agent_dir = temp_host_dir / "agents" / str(agent_id)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    data = {
+        "id": str(agent_id),
+        "name": str(agent_name),
+        "type": "test",
+        "command": "sleep 1000",
+        "work_dir": str(temp_work_dir),
+        "create_time": create_time.isoformat(),
+    }
+    (agent_dir / "data.json").write_text(json.dumps(data))
+
+    agent = _TestableAgent(
+        id=agent_id,
+        name=agent_name,
+        agent_type=AgentTypeName("test"),
+        work_dir=temp_work_dir,
+        create_time=create_time,
+        host_id=host.id,
+        host=host,
+        mngr_ctx=local_provider.mngr_ctx,
+        agent_config=AgentTypeConfig(command=CommandString("sleep 1000")),
+        on_destroy_should_raise=on_destroy_should_raise,
+    )
+    return agent, host
 
 
 @pytest.fixture
@@ -243,43 +298,36 @@ def test_get_agent_references_skips_bad_records_but_loads_good_ones(
 
 
 def test_destroy_agent_calls_on_destroy(
-    host_with_agents_dir: tuple[Host, Path],
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
 ) -> None:
     """Test that destroy_agent calls agent.on_destroy() before cleanup."""
-    host, agents_dir = host_with_agents_dir
+    agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir)
 
-    agent_id = AgentId.generate()
-    mock_agent = Mock(spec=AgentInterface)
-    mock_agent.id = agent_id
-    mock_agent.name = AgentName("test-agent")
+    agent_dir = temp_host_dir / "agents" / str(agent.id)
+    assert agent_dir.exists()
 
-    # Create agent state directory so _remove_directory has something to clean up
-    agent_dir = agents_dir / str(agent_id)
-    agent_dir.mkdir()
+    host.destroy_agent(agent)
 
-    host.destroy_agent(mock_agent)
-
-    mock_agent.on_destroy.assert_called_once_with(host)
+    assert agent.on_destroy_called
+    assert not agent_dir.exists()
 
 
 def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
-    host_with_agents_dir: tuple[Host, Path],
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
 ) -> None:
     """Test that destroy_agent still cleans up if agent.on_destroy() raises."""
-    host, agents_dir = host_with_agents_dir
+    agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir, on_destroy_should_raise=True)
 
-    agent_id = AgentId.generate()
-    mock_agent = Mock(spec=AgentInterface)
-    mock_agent.id = agent_id
-    mock_agent.name = AgentName("test-agent")
-    mock_agent.on_destroy.side_effect = RuntimeError("cleanup failed")
-
-    agent_dir = agents_dir / str(agent_id)
-    agent_dir.mkdir()
+    agent_dir = temp_host_dir / "agents" / str(agent.id)
+    assert agent_dir.exists()
 
     # Exception propagates, but cleanup still runs
-    with pytest.raises(RuntimeError, match="cleanup failed"):
-        host.destroy_agent(mock_agent)
+    with pytest.raises(AgentError, match="cleanup failed"):
+        host.destroy_agent(agent)
 
     # State directory should still be cleaned up
     assert not agent_dir.exists()
@@ -437,7 +485,29 @@ def test_build_start_agent_shell_command_uses_and_chaining(
     agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     result = _build_command_with_defaults(agent, temp_host_dir)
 
-    # The result should be a single && chain with at least 7 steps:
-    # new-session, set-option, send-keys, Enter, mkdir, printf, nohup
-    parts = result.split(" && ")
+    # The guard is joined with ";", the rest with "&&"
+    # Split past the guard to check the && chain
+    assert "; " in result
+    after_guard = result.split("; ", 1)[1]
+    parts = after_guard.split(" && ")
     assert len(parts) >= 6
+
+
+def test_build_start_agent_shell_command_bails_if_session_exists(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """The command should start with a guard that exits early if the tmux session already exists."""
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_command_with_defaults(agent, temp_host_dir)
+    session_name = f"mngr-{agent.name}"
+
+    # Guard should be the first part (before the ";")
+    guard, rest = result.split("; ", 1)
+    assert "has-session" in guard
+    assert session_name in guard
+    assert "exit 0" in guard
+
+    # The rest of the command (tmux new-session, etc.) comes after
+    assert "new-session" in rest

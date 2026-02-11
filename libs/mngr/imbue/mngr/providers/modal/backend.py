@@ -49,6 +49,13 @@ def _ensure_environment_exists(environment_name: str) -> None:
     like apps, volumes, and sandboxes. Since the Modal Python SDK doesn't provide
     an API for managing environments, we use the CLI.
     """
+
+    # first a quick check to make sure we're not naming things incorrectly (and making it hard to clean up these environments)
+    if environment_name.startswith("mngr_") and not environment_name.startswith("mngr_test-"):
+        raise MngrError(
+            f"Refusing to create Modal environment with name {environment_name}: test environments should start with 'mngr_test-' and should be explicitly configured using generate_test_environment_name() so that they can be easily identified and cleaned up."
+        )
+
     # Check if the environment exists by listing environments
     try:
         result = subprocess.run(
