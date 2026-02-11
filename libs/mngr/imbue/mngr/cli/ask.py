@@ -70,6 +70,7 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
         ["claude", "--print", query_string],
         capture_output=True,
         text=True,
+        stdin=subprocess.DEVNULL,
         cwd=cwd,
     )
 
