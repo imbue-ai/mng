@@ -5,6 +5,7 @@ from typing import Final
 
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
@@ -106,6 +107,24 @@ def _build_ssh_args(
     return ssh_args
 
 
+@pure
+def _determine_post_disconnect_action(
+    exit_code: int,
+    session_name: str,
+) -> tuple[str, list[str]] | None:
+    """Given an SSH exit code, return the post-disconnect action to execute.
+
+    Returns (executable, argv) if an action should be taken, or None if no
+    action is needed (normal exit or unknown exit code).
+    """
+    if exit_code == SIGNAL_EXIT_CODE_DESTROY:
+        return ("mngr", ["mngr", "destroy", "--session", session_name, "-f"])
+    elif exit_code == SIGNAL_EXIT_CODE_STOP:
+        return ("mngr", ["mngr", "stop", "--session", session_name])
+    else:
+        return None
+
+
 def connect_to_agent(
     agent: AgentInterface,
     host: OnlineHostInterface,
@@ -142,11 +161,10 @@ def connect_to_agent(
         # and run post-disconnect actions (destroy/stop) triggered by tmux key bindings
         exit_code = subprocess.call(ssh_args)
 
-        if exit_code == SIGNAL_EXIT_CODE_DESTROY:
-            logger.info("Destroying agent after disconnect: {}", agent.name)
-            os.execvp("mngr", ["mngr", "destroy", "--session", session_name, "-f"])
-        elif exit_code == SIGNAL_EXIT_CODE_STOP:
-            logger.info("Stopping agent after disconnect: {}", agent.name)
-            os.execvp("mngr", ["mngr", "stop", "--session", session_name])
+        action = _determine_post_disconnect_action(exit_code, session_name)
+        if action is not None:
+            executable, argv = action
+            logger.info("Running post-disconnect action: {}", argv)
+            os.execvp(executable, argv)
         else:
             logger.debug("SSH session ended with exit code {} (no post-disconnect action)", exit_code)
