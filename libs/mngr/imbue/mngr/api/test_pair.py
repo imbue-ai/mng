@@ -42,7 +42,8 @@ def pair_ctx(tmp_path: Path) -> SyncTestContext:
     run_git_command(local_dir, "config", "user.email", "test@example.com")
     run_git_command(local_dir, "config", "user.name", "Test User")
     return SyncTestContext(
-        agent_dir=agent_dir, local_dir=local_dir,
+        agent_dir=agent_dir,
+        local_dir=local_dir,
         agent=cast(AgentInterface, FakeAgent(work_dir=agent_dir)),
         host=cast(OnlineHostInterface, FakeHost()),
     )
@@ -56,8 +57,11 @@ def test_sync_git_state_performs_push_when_local_is_ahead(cg: ConcurrencyGroup, 
     assert git_action is not None
     assert git_action.local_is_ahead is True
     git_pull_performed, git_push_performed = sync_git_state(
-        cg=cg, agent=pair_ctx.agent, host=pair_ctx.host,
-        local_path=pair_ctx.local_dir, git_sync_action=git_action,
+        cg=cg,
+        agent=pair_ctx.agent,
+        host=pair_ctx.host,
+        local_path=pair_ctx.local_dir,
+        git_sync_action=git_action,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
     assert git_push_performed is True
@@ -73,8 +77,11 @@ def test_sync_git_state_performs_pull_when_agent_is_ahead(cg: ConcurrencyGroup, 
     assert git_action is not None
     assert git_action.agent_is_ahead is True
     git_pull_performed, git_push_performed = sync_git_state(
-        cg=cg, agent=pair_ctx.agent, host=pair_ctx.host,
-        local_path=pair_ctx.local_dir, git_sync_action=git_action,
+        cg=cg,
+        agent=pair_ctx.agent,
+        host=pair_ctx.host,
+        local_path=pair_ctx.local_dir,
+        git_sync_action=git_action,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
     )
     assert git_pull_performed is True
@@ -82,14 +89,30 @@ def test_sync_git_state_performs_pull_when_agent_is_ahead(cg: ConcurrencyGroup, 
     assert (pair_ctx.local_dir / "agent_file.txt").exists()
 
 
-def test_pair_files_raises_when_unison_not_installed_and_mocked(cg: ConcurrencyGroup, pair_ctx: SyncTestContext, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pair_files_raises_when_unison_not_installed_and_mocked(
+    cg: ConcurrencyGroup, pair_ctx: SyncTestContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr("imbue.mngr.api.pair.check_unison_installed", lambda: False)
     with pytest.raises(UnisonNotInstalledError):
-        with pair_files(cg=cg, agent=pair_ctx.agent, host=pair_ctx.host, agent_path=pair_ctx.agent_dir, local_path=pair_ctx.local_dir, sync_direction=SyncDirection.BOTH, conflict_mode=ConflictMode.NEWER, is_require_git=False, uncommitted_changes=UncommittedChangesMode.FAIL, exclude_patterns=(), include_patterns=()):
+        with pair_files(
+            cg=cg,
+            agent=pair_ctx.agent,
+            host=pair_ctx.host,
+            agent_path=pair_ctx.agent_dir,
+            local_path=pair_ctx.local_dir,
+            sync_direction=SyncDirection.BOTH,
+            conflict_mode=ConflictMode.NEWER,
+            is_require_git=False,
+            uncommitted_changes=UncommittedChangesMode.FAIL,
+            exclude_patterns=(),
+            include_patterns=(),
+        ):
             pass
 
 
-def test_pair_files_raises_when_git_required_but_not_present(cg: ConcurrencyGroup, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pair_files_raises_when_git_required_but_not_present(
+    cg: ConcurrencyGroup, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr("imbue.mngr.api.pair.check_unison_installed", lambda: True)
     source_dir = tmp_path / "source"
     target_dir = tmp_path / "target"
@@ -98,13 +121,37 @@ def test_pair_files_raises_when_git_required_but_not_present(cg: ConcurrencyGrou
     agent = cast(AgentInterface, FakeAgent(work_dir=source_dir))
     host = cast(OnlineHostInterface, FakeHost())
     with pytest.raises(MngrError) as exc_info:
-        with pair_files(cg=cg, agent=agent, host=host, agent_path=source_dir, local_path=target_dir, sync_direction=SyncDirection.BOTH, conflict_mode=ConflictMode.NEWER, is_require_git=True, uncommitted_changes=UncommittedChangesMode.FAIL, exclude_patterns=(), include_patterns=()):
+        with pair_files(
+            cg=cg,
+            agent=agent,
+            host=host,
+            agent_path=source_dir,
+            local_path=target_dir,
+            sync_direction=SyncDirection.BOTH,
+            conflict_mode=ConflictMode.NEWER,
+            is_require_git=True,
+            uncommitted_changes=UncommittedChangesMode.FAIL,
+            exclude_patterns=(),
+            include_patterns=(),
+        ):
             pass
     assert "Git repositories required" in str(exc_info.value)
 
 
 def test_pair_files_starts_and_stops_syncer(cg: ConcurrencyGroup, pair_ctx: SyncTestContext) -> None:
-    with pair_files(cg=cg, agent=pair_ctx.agent, host=pair_ctx.host, agent_path=pair_ctx.agent_dir, local_path=pair_ctx.local_dir, sync_direction=SyncDirection.BOTH, conflict_mode=ConflictMode.NEWER, is_require_git=True, uncommitted_changes=UncommittedChangesMode.CLOBBER, exclude_patterns=(), include_patterns=()) as syncer:
+    with pair_files(
+        cg=cg,
+        agent=pair_ctx.agent,
+        host=pair_ctx.host,
+        agent_path=pair_ctx.agent_dir,
+        local_path=pair_ctx.local_dir,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+        is_require_git=True,
+        uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        exclude_patterns=(),
+        include_patterns=(),
+    ) as syncer:
         wait_for(lambda: syncer.is_running, error_message="Syncer did not start within timeout")
         assert syncer.is_running is True
         syncer.stop()
@@ -117,7 +164,19 @@ def test_pair_files_syncs_git_state_before_starting(cg: ConcurrencyGroup, pair_c
     run_git_command(pair_ctx.agent_dir, "add", "agent_commit.txt")
     run_git_command(pair_ctx.agent_dir, "commit", "-m", "Add agent commit")
     assert not (pair_ctx.local_dir / "agent_commit.txt").exists()
-    with pair_files(cg=cg, agent=pair_ctx.agent, host=pair_ctx.host, agent_path=pair_ctx.agent_dir, local_path=pair_ctx.local_dir, sync_direction=SyncDirection.BOTH, conflict_mode=ConflictMode.NEWER, is_require_git=True, uncommitted_changes=UncommittedChangesMode.CLOBBER, exclude_patterns=(), include_patterns=()) as syncer:
+    with pair_files(
+        cg=cg,
+        agent=pair_ctx.agent,
+        host=pair_ctx.host,
+        agent_path=pair_ctx.agent_dir,
+        local_path=pair_ctx.local_dir,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+        is_require_git=True,
+        uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        exclude_patterns=(),
+        include_patterns=(),
+    ) as syncer:
         assert (pair_ctx.local_dir / "agent_commit.txt").exists()
         syncer.stop()
 
@@ -130,7 +189,19 @@ def test_pair_files_with_no_git_requirement(cg: ConcurrencyGroup, tmp_path: Path
     (source_dir / "test_file.txt").write_text("test content")
     agent = cast(AgentInterface, FakeAgent(work_dir=source_dir))
     host = cast(OnlineHostInterface, FakeHost())
-    with pair_files(cg=cg, agent=agent, host=host, agent_path=source_dir, local_path=target_dir, sync_direction=SyncDirection.BOTH, conflict_mode=ConflictMode.NEWER, is_require_git=False, uncommitted_changes=UncommittedChangesMode.FAIL, exclude_patterns=(), include_patterns=()) as syncer:
+    with pair_files(
+        cg=cg,
+        agent=agent,
+        host=host,
+        agent_path=source_dir,
+        local_path=target_dir,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+        is_require_git=False,
+        uncommitted_changes=UncommittedChangesMode.FAIL,
+        exclude_patterns=(),
+        include_patterns=(),
+    ) as syncer:
         wait_for(lambda: syncer.is_running, error_message="Syncer did not start within timeout")
         assert syncer.is_running is True
         syncer.stop()
@@ -141,7 +212,13 @@ def test_unison_syncer_start_and_stop(cg: ConcurrencyGroup, tmp_path: Path) -> N
     target = tmp_path / "target"
     source.mkdir()
     target.mkdir()
-    syncer = UnisonSyncer(cg=cg, source_path=source, target_path=target, sync_direction=SyncDirection.BOTH, conflict_mode=ConflictMode.NEWER)
+    syncer = UnisonSyncer(
+        cg=cg,
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
     try:
         syncer.start()
         wait_for(lambda: syncer.is_running, error_message="Syncer did not start within timeout")
@@ -158,7 +235,13 @@ def test_unison_syncer_syncs_file_changes(cg: ConcurrencyGroup, tmp_path: Path) 
     source.mkdir()
     target.mkdir()
     (source / "initial.txt").write_text("initial content")
-    syncer = UnisonSyncer(cg=cg, source_path=source, target_path=target, sync_direction=SyncDirection.BOTH, conflict_mode=ConflictMode.NEWER)
+    syncer = UnisonSyncer(
+        cg=cg,
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
     try:
         syncer.start()
         wait_for(lambda: (target / "initial.txt").exists(), error_message="File was not synced within timeout")
@@ -175,7 +258,13 @@ def test_unison_syncer_syncs_symlinks(cg: ConcurrencyGroup, tmp_path: Path) -> N
     target.mkdir()
     (source / "real_file.txt").write_text("real content")
     (source / "link_to_file.txt").symlink_to(source / "real_file.txt")
-    syncer = UnisonSyncer(cg=cg, source_path=source, target_path=target, sync_direction=SyncDirection.BOTH, conflict_mode=ConflictMode.NEWER)
+    syncer = UnisonSyncer(
+        cg=cg,
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
     try:
         syncer.start()
         wait_for(lambda: (target / "link_to_file.txt").exists(), error_message="Symlink was not synced within timeout")
@@ -194,10 +283,18 @@ def test_unison_syncer_syncs_directory_symlinks(cg: ConcurrencyGroup, tmp_path: 
     (source / "real_dir").mkdir()
     (source / "real_dir" / "file.txt").write_text("content in dir")
     (source / "link_to_dir").symlink_to(source / "real_dir")
-    syncer = UnisonSyncer(cg=cg, source_path=source, target_path=target, sync_direction=SyncDirection.BOTH, conflict_mode=ConflictMode.NEWER)
+    syncer = UnisonSyncer(
+        cg=cg,
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
     try:
         syncer.start()
-        wait_for(lambda: (target / "link_to_dir").exists(), error_message="Directory symlink was not synced within timeout")
+        wait_for(
+            lambda: (target / "link_to_dir").exists(), error_message="Directory symlink was not synced within timeout"
+        )
         assert (target / "real_dir").exists()
         assert (target / "real_dir").is_dir()
         assert (target / "link_to_dir").exists()
@@ -211,7 +308,13 @@ def test_unison_syncer_handles_process_crash(cg: ConcurrencyGroup, tmp_path: Pat
     target = tmp_path / "target"
     source.mkdir()
     target.mkdir()
-    syncer = UnisonSyncer(cg=cg, source_path=source, target_path=target, sync_direction=SyncDirection.BOTH, conflict_mode=ConflictMode.NEWER)
+    syncer = UnisonSyncer(
+        cg=cg,
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
     try:
         syncer.start()
         wait_for(lambda: syncer.is_running, error_message="Syncer did not start within timeout")
@@ -238,10 +341,20 @@ def test_unison_syncer_handles_large_files(cg: ConcurrencyGroup, tmp_path: Path)
             chunk = bytes([i % 256] * chunk_size)
             f.write(chunk)
     assert large_file.stat().st_size == total_size
-    syncer = UnisonSyncer(cg=cg, source_path=source, target_path=target, sync_direction=SyncDirection.BOTH, conflict_mode=ConflictMode.NEWER)
+    syncer = UnisonSyncer(
+        cg=cg,
+        source_path=source,
+        target_path=target,
+        sync_direction=SyncDirection.BOTH,
+        conflict_mode=ConflictMode.NEWER,
+    )
     try:
         syncer.start()
-        wait_for(lambda: (target / "large_file.bin").exists() and (target / "large_file.bin").stat().st_size == total_size, timeout=60.0, error_message="Large file was not synced within timeout")
+        wait_for(
+            lambda: (target / "large_file.bin").exists() and (target / "large_file.bin").stat().st_size == total_size,
+            timeout=60.0,
+            error_message="Large file was not synced within timeout",
+        )
         assert (target / "large_file.bin").stat().st_size == total_size
         with open(target / "large_file.bin", "rb") as f:
             first_chunk = f.read(chunk_size)

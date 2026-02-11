@@ -92,9 +92,7 @@ def _ensure_environment_exists(cg: ConcurrencyGroup, environment_name: str) -> N
             logger.warning("Failed to create Modal environment via CLI: {}", e)
 
 
-def _lookup_persistent_app_with_env_retry(
-    cg: ConcurrencyGroup, app_name: str, environment_name: str
-) -> modal.App:
+def _lookup_persistent_app_with_env_retry(cg: ConcurrencyGroup, app_name: str, environment_name: str) -> modal.App:
     """Look up or create a persistent Modal app, retrying if the environment is not found.
 
     On the first NotFoundError, creates the environment and retries with exponential backoff
@@ -121,9 +119,7 @@ def _lookup_persistent_app_with_retry(app_name: str, environment_name: str) -> m
         return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
 
 
-def _enter_ephemeral_app_context_with_env_retry(
-    cg: ConcurrencyGroup, app: modal.App, environment_name: str
-) -> Any:
+def _enter_ephemeral_app_context_with_env_retry(cg: ConcurrencyGroup, app: modal.App, environment_name: str) -> Any:
     """Enter an ephemeral Modal app's run context, retrying if the environment is not found.
 
     On the first NotFoundError, creates the environment and retries with exponential backoff
