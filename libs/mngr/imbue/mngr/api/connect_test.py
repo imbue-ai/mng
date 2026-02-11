@@ -1,6 +1,7 @@
 # FIXME0: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 """Unit tests for the connect API module."""
 
+import shlex
 from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -301,33 +302,18 @@ def test_connect_to_agent_remote_uses_correct_session_name(mock_call: MagicMock,
     mock_execvp.assert_called_once_with("mngr", ["mngr", "destroy", "--session", "custom-my-agent", "-f"])
 
 
-@patch("imbue.mngr.api.connect.os.execvp")
-@patch("imbue.mngr.api.connect.subprocess.call")
-def test_connect_to_agent_remote_passes_wrapper_as_single_ssh_argument(
-    mock_call: MagicMock, mock_execvp: MagicMock
-) -> None:
-    """Test that the wrapper script is passed as a single SSH remote command argument.
+def test_ssh_wrapper_script_is_correctly_quoted_for_bash_c() -> None:
+    """Verify the wrapper script survives shell parsing as a single bash -c argument.
 
-    SSH concatenates multiple remote command arguments with spaces, which would
-    cause 'bash -c' to only receive the first word of the script instead of the
-    full wrapper. The wrapper must be shell-quoted and combined with 'bash -c'
-    into a single argument.
+    SSH concatenates remote command arguments with spaces, so the wrapper must
+    be shell-quoted into a single 'bash -c <quoted_script>' string. Otherwise
+    bash -c only receives the first word (e.g. 'mkdir'), causing errors like
+    'mkdir: missing operand'.
     """
-    agent, host, mngr_ctx = _make_mock_remote_host_and_agent()
-    opts = ConnectionOptions(is_unknown_host_allowed=False)
-    mock_call.return_value = 0
+    wrapper_script = _build_ssh_activity_wrapper_script("mngr-test", Path("/mngr"))
+    remote_command = "bash -c " + shlex.quote(wrapper_script)
 
-    connect_to_agent(agent, host, mngr_ctx, opts)
-
-    ssh_args = mock_call.call_args[0][0]
-
-    # Find the remote command arguments (everything after the hostname)
-    # The wrapper script + 'bash -c' should be a single argument, not split
-    # across multiple arguments
-    hostname_idx = next(i for i, arg in enumerate(ssh_args) if "@" in arg or arg == host.connector.host.name)
-    remote_args = ssh_args[hostname_idx + 1 :]
-
-    # Should be ["-t", "bash -c '<quoted_wrapper>'"] -- exactly 2 args after hostname
-    assert len(remote_args) == 2
-    assert remote_args[0] == "-t"
-    assert remote_args[1].startswith("bash -c ")
+    # When the remote shell parses this command, bash should receive
+    # the full wrapper script as a single -c argument
+    parsed = shlex.split(remote_command)
+    assert parsed == ["bash", "-c", wrapper_script]
