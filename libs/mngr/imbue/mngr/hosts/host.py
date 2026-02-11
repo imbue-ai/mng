@@ -243,15 +243,15 @@ class Host(BaseHost, OnlineHostInterface):
                             filename_or_io,
                             remote_temp_filename=remote_temp_filename,
                         )
-                    except Exception as retry_exception:
+                    except (OSError, EOFError, SSHException) as retry_exception:
                         self.provider_instance.on_connection_error(self.id)
                         raise HostConnectionError(
-                            f"Connection was closed while reading file (and our retry failed)"
+                            "Connection was closed while reading file (and our retry failed)"
                         ) from retry_exception
                     else:
                         self.provider_instance.on_connection_error(self.id)
                         raise HostConnectionError(
-                            f"Connection was closed while reading file (but the retry worked!)"
+                            "Connection was closed while reading file (but the retry worked!)"
                         ) from e
                 else:
                     raise
@@ -289,15 +289,15 @@ class Host(BaseHost, OnlineHostInterface):
                         remote_filename,
                         remote_temp_filename=remote_temp_filename,
                     )
-                except Exception as retry_exception:
+                except (OSError, EOFError, SSHException) as retry_exception:
                     self.provider_instance.on_connection_error(self.id)
                     raise HostConnectionError(
-                        f"Connection was closed while writing file (and our retry failed)"
+                        "Connection was closed while writing file (and our retry failed)"
                     ) from retry_exception
                 else:
                     self.provider_instance.on_connection_error(self.id)
                     raise HostConnectionError(
-                        f"Connection was closed while writing file (but the retry worked!)"
+                        "Connection was closed while writing file (but the retry worked!)"
                     ) from e
             else:
                 raise

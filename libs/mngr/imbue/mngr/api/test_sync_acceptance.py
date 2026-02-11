@@ -46,13 +46,24 @@ def sync_test_env(tmp_path: Path) -> dict[str, str]:
 
     Returns env dict with Claude trust configured for the test repo.
     The test repo path is available as tmp_path / "repo".
+
+    Modal tokens are removed from the subprocess environment because these
+    tests only use the local provider. If Modal tokens are present, mngr will
+    try to initialize the Modal provider (creating a Modal environment), which
+    fails because the test MNGR_PREFIX doesn't follow the mngr_test-* naming
+    convention required for Modal test environments.
     """
     repo = tmp_path / "repo"
     init_git_repo_with_config(repo)
-    return setup_claude_trust_config_for_subprocess(
+    env = setup_claude_trust_config_for_subprocess(
         trusted_paths=[repo],
         root_name="mngr-sync-acceptance-test",
     )
+    # Remove Modal tokens to prevent the subprocess from initializing the Modal
+    # provider. These tests only need the local provider.
+    env.pop("MODAL_TOKEN_ID", None)
+    env.pop("MODAL_TOKEN_SECRET", None)
+    return env
 
 
 @pytest.fixture
