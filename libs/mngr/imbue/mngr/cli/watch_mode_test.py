@@ -33,14 +33,16 @@ def test_run_watch_loop_waits_between_iterations() -> None:
         if len(timestamps) >= 2:
             raise KeyboardInterrupt()
 
+    # Use interval_seconds=2 so we can verify the parameter actually controls wait duration
     with pytest.raises(KeyboardInterrupt):
-        run_watch_loop(iteration_fn, interval_seconds=1)
+        run_watch_loop(iteration_fn, interval_seconds=2)
 
     # Should have at least 2 calls
     assert len(timestamps) >= 2
-    # The gap between iterations should be approximately the interval (1 second)
+    # The gap should reflect the 2-second interval. Asserting >= 1.5 ensures the interval
+    # parameter is actually used (a hardcoded 1s wait would fail this check).
     gap = timestamps[1] - timestamps[0]
-    assert gap >= 0.5, f"Expected gap >= 0.5s, got {gap:.2f}s"
+    assert gap >= 1.5, f"Expected gap >= 1.5s (interval=2), got {gap:.2f}s"
 
 
 def test_run_watch_loop_continues_on_mngr_error_by_default() -> None:
