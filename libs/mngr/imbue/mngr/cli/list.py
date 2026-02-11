@@ -288,16 +288,18 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         display_fields = fields if fields is not None else list(_DEFAULT_HUMAN_DISPLAY_FIELDS)
         renderer = _StreamingHumanRenderer(fields=display_fields, is_tty=sys.stdout.isatty())
         renderer.start()
-        result = api_list_agents(
-            mngr_ctx=mngr_ctx,
-            include_filters=tuple(include_filters),
-            exclude_filters=tuple(exclude_filters),
-            provider_names=opts.provider if opts.provider else None,
-            error_behavior=error_behavior,
-            on_agent=renderer,
-            is_streaming=True,
-        )
-        renderer.finish()
+        try:
+            result = api_list_agents(
+                mngr_ctx=mngr_ctx,
+                include_filters=tuple(include_filters),
+                exclude_filters=tuple(exclude_filters),
+                provider_names=opts.provider if opts.provider else None,
+                error_behavior=error_behavior,
+                on_agent=renderer,
+                is_streaming=True,
+            )
+        finally:
+            renderer.finish()
 
         # Report errors
         if result.errors:
