@@ -14,6 +14,7 @@ from imbue.mngr.cli.destroy import destroy
 from imbue.mngr.cli.gc import gc
 from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.message import message
+from imbue.mngr.cli.migrate import migrate
 from imbue.mngr.cli.pair import pair
 from imbue.mngr.cli.pull import pull
 from imbue.mngr.cli.push import push
@@ -243,6 +244,7 @@ cli.add_command(connect, name="conn")
 # Add clone as a standalone command (not in BUILTIN_COMMANDS since it uses
 # UNPROCESSED args and delegates to create, which already has plugin options applied)
 cli.add_command(clone)
+cli.add_command(migrate)
 
 # Register plugin commands after built-in commands but before applying CLI options.
 # This ordering allows plugins to add CLI options to other plugin commands.
