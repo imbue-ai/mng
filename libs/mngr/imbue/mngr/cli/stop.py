@@ -168,7 +168,7 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
         raise NotImplementedError("--snapshot-mode is not implemented yet")
     if not opts.graceful:
         raise NotImplementedError("--no-graceful is not implemented yet")
-    if opts.graceful_timeout is not None and opts.graceful_timeout != "30s":
+    if opts.graceful_timeout is not None:
         raise NotImplementedError("--graceful-timeout is not implemented yet")
 
     # Validate input
