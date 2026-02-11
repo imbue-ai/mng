@@ -1,12 +1,9 @@
-# FIXME0: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 """Tests for the connect CLI command."""
 
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import MagicMock
-from unittest.mock import patch
 
 import pluggy
 import pytest
@@ -17,9 +14,13 @@ from urwid.widget.listbox import SimpleFocusListWalker
 from urwid.widget.text import Text
 from urwid.widget.wimp import SelectableIcon
 
+from imbue.imbue_common.model_update import to_update
 from imbue.mngr.api.list import AgentInfo
+from imbue.mngr.cli.conftest import make_test_agent_info
 from imbue.mngr.cli.connect import AgentSelectorState
+from imbue.mngr.cli.connect import ConnectCliOptions
 from imbue.mngr.cli.connect import SelectorInputHandler
+from imbue.mngr.cli.connect import _build_connection_options
 from imbue.mngr.cli.connect import _create_selectable_agent_item
 from imbue.mngr.cli.connect import _handle_selector_input
 from imbue.mngr.cli.connect import _refresh_agent_list
@@ -31,6 +32,7 @@ from imbue.mngr.cli.connect import select_agent_interactively
 from imbue.mngr.cli.create import create
 from imbue.mngr.main import cli
 from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.primitives import AgentName
 from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import tmux_session_exists
 
@@ -70,29 +72,58 @@ def _created_agent(
         cleanup_tmux_session(session_name)
 
 
-def test_connect_to_agent_by_name(
+# =============================================================================
+# CLI-level integration tests for connect command
+#
+# These tests invoke the connect CLI command end-to-end. Because os.execvp
+# replaces the test process, we intercept it via the intercepted_execvp_calls
+# fixture (defined in conftest.py) to capture the args and verify the full
+# CLI pipeline works.
+# =============================================================================
+
+
+def test_connect_no_agent_found(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that connecting to a non-existent agent raises an error."""
+    result = cli_runner.invoke(
+        connect,
+        ["nonexistent-agent-xyz123"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+
+
+def test_connect_cli_invokes_tmux_attach_for_named_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
+    intercepted_execvp_calls: list[tuple[str, list[str]]],
 ) -> None:
-    """Test connecting to an existing agent by name."""
-    agent_name = f"test-connect-name-{int(time.time())}"
+    """Test the full connect CLI path: argument parsing -> agent resolution -> tmux attach."""
+    agent_name = f"test-connect-cli-tmux-{int(time.time())}"
 
     with _created_agent(
-        cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name, 827364
+        cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name, 493827
     ) as session_name:
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+        assert tmux_session_exists(session_name)
 
-        with patch("imbue.mngr.api.connect.os.execvp") as mock_execvp:
-            result = cli_runner.invoke(
-                connect,
-                [agent_name],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
-            assert result.exit_code == 0, f"Connect failed with output: {result.output}"
-            mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
+        result = cli_runner.invoke(
+            connect,
+            [agent_name],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"Connect failed with output: {result.output}"
+
+        # Verify the CLI resolved the agent and called tmux attach with the right session
+        assert len(intercepted_execvp_calls) == 1
+        assert intercepted_execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_name])
 
 
 def test_connect_via_cli_group(
@@ -100,6 +131,7 @@ def test_connect_via_cli_group(
     temp_work_dir: Path,
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
+    intercepted_execvp_calls: list[tuple[str, list[str]]],
 ) -> None:
     """Test calling connect through the main CLI group."""
     agent_name = f"test-connect-cli-{int(time.time())}"
@@ -127,35 +159,18 @@ def test_connect_via_cli_group(
         )
         assert create_result.exit_code == 0, f"Create failed with: {create_result.output}"
 
-        # Now test connect via CLI group
-        with patch("imbue.mngr.api.connect.os.execvp") as mock_execvp:
-            cli_runner.invoke(
-                cli,
-                ["connect", agent_name],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
+        cli_runner.invoke(
+            cli,
+            ["connect", agent_name],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
 
-            mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
+        assert len(intercepted_execvp_calls) == 1
+        assert intercepted_execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_name])
 
     finally:
         cleanup_tmux_session(session_name)
-
-
-def test_connect_no_agent_found(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that connecting to a non-existent agent raises an error."""
-    result = cli_runner.invoke(
-        connect,
-        ["nonexistent-agent-xyz123"],
-        obj=plugin_manager,
-    )
-
-    assert result.exit_code != 0
-    assert result.exception is not None
 
 
 def test_connect_start_restarts_stopped_agent(
@@ -163,8 +178,9 @@ def test_connect_start_restarts_stopped_agent(
     temp_work_dir: Path,
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
+    intercepted_execvp_calls: list[tuple[str, list[str]]],
 ) -> None:
-    """Test that --start (default) automatically restarts a stopped agent."""
+    """Test that --start (default) automatically restarts a stopped agent via the CLI."""
     agent_name = f"test-connect-start-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
 
@@ -195,17 +211,17 @@ def test_connect_start_restarts_stopped_agent(
         assert not tmux_session_exists(session_name), f"Expected tmux session {session_name} to be killed"
 
         # Connect with --start (default), which should restart the agent
-        with patch("imbue.mngr.api.connect.os.execvp") as mock_execvp:
-            cli_runner.invoke(
-                connect,
-                [agent_name],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
+        cli_runner.invoke(
+            connect,
+            [agent_name],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
 
-            # Verify the tmux session was recreated before attaching
-            assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to be restarted"
-            mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
+        # Verify the tmux session was recreated before attaching
+        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to be restarted"
+        assert len(intercepted_execvp_calls) == 1
+        assert intercepted_execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_name])
 
     finally:
         cleanup_tmux_session(session_name)
@@ -262,83 +278,99 @@ def test_connect_no_start_raises_error_for_stopped_agent(
         cleanup_tmux_session(session_name)
 
 
-def test_connect_allow_unknown_host_flag_sets_connection_option(
+def test_connect_cli_non_interactive_selects_most_recent_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
+    intercepted_execvp_calls: list[tuple[str, list[str]]],
 ) -> None:
-    """Test that --allow-unknown-host flag properly sets is_unknown_host_allowed in ConnectionOptions."""
-    agent_name = f"test-connect-unknown-host-{int(time.time())}"
+    """Test the non-interactive code path selects the most recently created agent.
 
-    with _created_agent(
-        cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name, 736485
-    ) as session_name:
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+    When stdin is not a tty (simulated by providing input=""), the connect
+    command should detect non-interactive mode, call list_agents, sort by
+    create_time descending, and select the most recently created agent.
+    """
+    agent_name_old = f"test-connect-old-{int(time.time())}"
+    agent_name_new = f"test-connect-new-{int(time.time())}"
 
-        # Patch connect_to_agent to capture the ConnectionOptions
-        with patch("imbue.mngr.cli.connect.connect_to_agent") as mock_connect:
+    with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_old, 192837):
+        with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_new, 283746):
+            expected_session = f"{mngr_test_prefix}{agent_name_new}"
+
             cli_runner.invoke(
                 connect,
-                [agent_name, "--allow-unknown-host"],
+                [],
                 obj=plugin_manager,
                 catch_exceptions=False,
+                # Providing input="" makes stdin non-tty, triggering the non-interactive path
+                input="",
             )
 
-            # Verify connect_to_agent was called with is_unknown_host_allowed=True
-            mock_connect.assert_called_once()
-            connection_opts = mock_connect.call_args[0][3]
-            assert connection_opts.is_unknown_host_allowed is True
+            # Verify the CLI selected the most recently created agent
+            assert len(intercepted_execvp_calls) == 1
+            assert intercepted_execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", expected_session])
 
 
-def test_connect_no_allow_unknown_host_flag_default(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
+# =============================================================================
+# Tests for _build_connection_options (CLI option to ConnectionOptions mapping)
+# =============================================================================
+
+
+def test_build_connection_options_allow_unknown_host_true(
+    default_connect_cli_opts: ConnectCliOptions,
 ) -> None:
-    """Test that is_unknown_host_allowed defaults to False when --allow-unknown-host is not specified."""
-    agent_name = f"test-connect-default-host-{int(time.time())}"
+    """Test that allow_unknown_host=True produces is_unknown_host_allowed=True."""
+    opts = default_connect_cli_opts.model_copy_update(
+        to_update(default_connect_cli_opts.field_ref().allow_unknown_host, True),
+    )
 
-    with _created_agent(
-        cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name, 849263
-    ) as session_name:
-        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
+    connection_opts = _build_connection_options(opts)
 
-        # Patch connect_to_agent to capture the ConnectionOptions
-        with patch("imbue.mngr.cli.connect.connect_to_agent") as mock_connect:
-            cli_runner.invoke(
-                connect,
-                [agent_name],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
-
-            # Verify connect_to_agent was called with is_unknown_host_allowed=False (default)
-            mock_connect.assert_called_once()
-            connection_opts = mock_connect.call_args[0][3]
-            assert connection_opts.is_unknown_host_allowed is False
+    assert connection_opts.is_unknown_host_allowed is True
 
 
-def _make_mock_agent(name: str, state: AgentLifecycleState) -> AgentInfo:
-    """Create a mock AgentInfo for testing."""
-    mock_host = MagicMock()
-    mock_host.name = "local"
+def test_build_connection_options_allow_unknown_host_default(
+    default_connect_cli_opts: ConnectCliOptions,
+) -> None:
+    """Test that is_unknown_host_allowed defaults to False."""
+    connection_opts = _build_connection_options(default_connect_cli_opts)
 
-    agent = MagicMock(spec=AgentInfo)
-    agent.name = name
-    agent.state = state
-    agent.host = mock_host
-    agent.id = f"id-{name}"
-    return agent
+    assert connection_opts.is_unknown_host_allowed is False
+
+
+def test_build_connection_options_maps_all_fields(
+    default_connect_cli_opts: ConnectCliOptions,
+) -> None:
+    """Test that all ConnectCliOptions fields are correctly mapped to ConnectionOptions."""
+    opts = default_connect_cli_opts.model_copy_update(
+        to_update(default_connect_cli_opts.field_ref().reconnect, False),
+        to_update(default_connect_cli_opts.field_ref().retry, 5),
+        to_update(default_connect_cli_opts.field_ref().retry_delay, "10s"),
+        to_update(default_connect_cli_opts.field_ref().attach_command, "bash"),
+        to_update(default_connect_cli_opts.field_ref().allow_unknown_host, True),
+    )
+
+    connection_opts = _build_connection_options(opts)
+
+    assert connection_opts.is_reconnect is False
+    assert connection_opts.retry_count == 5
+    assert connection_opts.retry_delay == "10s"
+    assert connection_opts.attach_command == "bash"
+    assert connection_opts.is_unknown_host_allowed is True
+
+
+# =============================================================================
+# Unit tests for filter_agents
+# =============================================================================
 
 
 def test_filter_agents_no_filters() -> None:
     """Test filter_agents with no filters applied."""
     agents = [
-        _make_mock_agent("alpha", AgentLifecycleState.RUNNING),
-        _make_mock_agent("beta", AgentLifecycleState.STOPPED),
-        _make_mock_agent("gamma", AgentLifecycleState.RUNNING),
+        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_info("beta", AgentLifecycleState.STOPPED),
+        make_test_agent_info("gamma", AgentLifecycleState.RUNNING),
     ]
 
     result = filter_agents(agents, hide_stopped=False, search_query="")
@@ -348,9 +380,9 @@ def test_filter_agents_no_filters() -> None:
 def test_filter_agents_hide_stopped() -> None:
     """Test filter_agents with hide_stopped=True."""
     agents = [
-        _make_mock_agent("alpha", AgentLifecycleState.RUNNING),
-        _make_mock_agent("beta", AgentLifecycleState.STOPPED),
-        _make_mock_agent("gamma", AgentLifecycleState.RUNNING),
+        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_info("beta", AgentLifecycleState.STOPPED),
+        make_test_agent_info("gamma", AgentLifecycleState.RUNNING),
     ]
 
     result = filter_agents(agents, hide_stopped=True, search_query="")
@@ -361,15 +393,15 @@ def test_filter_agents_hide_stopped() -> None:
 def test_filter_agents_search_query() -> None:
     """Test filter_agents with search query."""
     agents = [
-        _make_mock_agent("test-alpha", AgentLifecycleState.RUNNING),
-        _make_mock_agent("test-beta", AgentLifecycleState.RUNNING),
-        _make_mock_agent("other", AgentLifecycleState.RUNNING),
+        make_test_agent_info("test-alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_info("test-beta", AgentLifecycleState.RUNNING),
+        make_test_agent_info("other", AgentLifecycleState.RUNNING),
     ]
 
     # Case-insensitive search
     result = filter_agents(agents, hide_stopped=False, search_query="ALPHA")
     assert len(result) == 1
-    assert result[0].name == "test-alpha"
+    assert result[0].name == AgentName("test-alpha")
 
     # Partial match
     result = filter_agents(agents, hide_stopped=False, search_query="test")
@@ -379,14 +411,19 @@ def test_filter_agents_search_query() -> None:
 def test_filter_agents_combined_filters() -> None:
     """Test filter_agents with both filters applied."""
     agents = [
-        _make_mock_agent("test-alpha", AgentLifecycleState.RUNNING),
-        _make_mock_agent("test-beta", AgentLifecycleState.STOPPED),
-        _make_mock_agent("other", AgentLifecycleState.RUNNING),
+        make_test_agent_info("test-alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_info("test-beta", AgentLifecycleState.STOPPED),
+        make_test_agent_info("other", AgentLifecycleState.RUNNING),
     ]
 
     result = filter_agents(agents, hide_stopped=True, search_query="test")
     assert len(result) == 1
-    assert result[0].name == "test-alpha"
+    assert result[0].name == AgentName("test-alpha")
+
+
+# =============================================================================
+# Unit tests for build_status_text
+# =============================================================================
 
 
 def test_build_status_text_default() -> None:
@@ -408,6 +445,11 @@ def test_build_status_text_hide_stopped() -> None:
     """Test build_status_text with hide_stopped=True."""
     status = build_status_text(search_query="", hide_stopped=True)
     assert "Filter: Hiding stopped" in status
+
+
+# =============================================================================
+# Unit tests for handle_search_key
+# =============================================================================
 
 
 def test_handle_search_key_backspace() -> None:
@@ -465,7 +507,7 @@ def test_handle_search_key_other() -> None:
 
 def test_create_selectable_agent_item_displays_agent_info() -> None:
     """Test that _create_selectable_agent_item creates a selectable widget."""
-    agent = _make_mock_agent("test-agent", AgentLifecycleState.RUNNING)
+    agent = make_test_agent_info("test-agent", AgentLifecycleState.RUNNING)
 
     widget = _create_selectable_agent_item(agent, name_width=20, state_width=10)
 
@@ -478,7 +520,7 @@ def test_create_selectable_agent_item_displays_agent_info() -> None:
 
 def test_create_selectable_agent_item_stopped_state() -> None:
     """Test that _create_selectable_agent_item shows stopped state correctly."""
-    agent = _make_mock_agent("stopped-agent", AgentLifecycleState.STOPPED)
+    agent = make_test_agent_info("stopped-agent", AgentLifecycleState.STOPPED)
 
     widget = _create_selectable_agent_item(agent, name_width=20, state_width=10)
 
@@ -513,8 +555,8 @@ def _create_and_refresh_test_state(agents: list[AgentInfo]) -> AgentSelectorStat
 def test_agent_selector_state_initializes_with_defaults() -> None:
     """Test that AgentSelectorState initializes with correct defaults."""
     agents = [
-        _make_mock_agent("alpha", AgentLifecycleState.RUNNING),
-        _make_mock_agent("beta", AgentLifecycleState.STOPPED),
+        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_info("beta", AgentLifecycleState.STOPPED),
     ]
 
     state = _create_test_selector_state(agents)
@@ -529,9 +571,9 @@ def test_agent_selector_state_initializes_with_defaults() -> None:
 def test_refresh_agent_list_populates_list_walker() -> None:
     """Test that _refresh_agent_list populates the list walker with agents."""
     agents = [
-        _make_mock_agent("alpha", AgentLifecycleState.RUNNING),
-        _make_mock_agent("beta", AgentLifecycleState.RUNNING),
-        _make_mock_agent("gamma", AgentLifecycleState.STOPPED),
+        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_info("beta", AgentLifecycleState.RUNNING),
+        make_test_agent_info("gamma", AgentLifecycleState.STOPPED),
     ]
     state = _create_and_refresh_test_state(agents)
 
@@ -542,8 +584,8 @@ def test_refresh_agent_list_populates_list_walker() -> None:
 def test_refresh_agent_list_applies_hide_stopped_filter() -> None:
     """Test that _refresh_agent_list respects hide_stopped setting."""
     agents = [
-        _make_mock_agent("alpha", AgentLifecycleState.RUNNING),
-        _make_mock_agent("beta", AgentLifecycleState.STOPPED),
+        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_info("beta", AgentLifecycleState.STOPPED),
     ]
     state = _create_test_selector_state(agents)
     state.hide_stopped = True
@@ -552,14 +594,14 @@ def test_refresh_agent_list_applies_hide_stopped_filter() -> None:
 
     assert len(state.list_walker) == 1
     assert len(state.filtered_agents) == 1
-    assert state.filtered_agents[0].name == "alpha"
+    assert state.filtered_agents[0].name == AgentName("alpha")
 
 
 def test_refresh_agent_list_applies_search_filter() -> None:
     """Test that _refresh_agent_list respects search_query setting."""
     agents = [
-        _make_mock_agent("alpha-test", AgentLifecycleState.RUNNING),
-        _make_mock_agent("beta-prod", AgentLifecycleState.RUNNING),
+        make_test_agent_info("alpha-test", AgentLifecycleState.RUNNING),
+        make_test_agent_info("beta-prod", AgentLifecycleState.RUNNING),
     ]
     state = _create_test_selector_state(agents)
     state.search_query = "alpha"
@@ -568,12 +610,12 @@ def test_refresh_agent_list_applies_search_filter() -> None:
 
     assert len(state.list_walker) == 1
     assert len(state.filtered_agents) == 1
-    assert state.filtered_agents[0].name == "alpha-test"
+    assert state.filtered_agents[0].name == AgentName("alpha-test")
 
 
 def test_refresh_agent_list_updates_status_text() -> None:
     """Test that _refresh_agent_list updates the status text widget."""
-    agents = [_make_mock_agent("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
     state = _create_test_selector_state(agents)
     state.search_query = "search-term"
 
@@ -586,8 +628,8 @@ def test_refresh_agent_list_updates_status_text() -> None:
 def test_refresh_agent_list_sets_focus_on_first_item() -> None:
     """Test that _refresh_agent_list sets focus on the first item when items exist."""
     agents = [
-        _make_mock_agent("alpha", AgentLifecycleState.RUNNING),
-        _make_mock_agent("beta", AgentLifecycleState.RUNNING),
+        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_info("beta", AgentLifecycleState.RUNNING),
     ]
     state = _create_and_refresh_test_state(agents)
 
@@ -598,8 +640,8 @@ def test_refresh_agent_list_sets_focus_on_first_item() -> None:
 def test_handle_selector_input_ctrl_r_toggles_hide_stopped() -> None:
     """Test that Ctrl+R toggles the hide_stopped filter."""
     agents = [
-        _make_mock_agent("alpha", AgentLifecycleState.RUNNING),
-        _make_mock_agent("beta", AgentLifecycleState.STOPPED),
+        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_info("beta", AgentLifecycleState.STOPPED),
     ]
     state = _create_and_refresh_test_state(agents)
 
@@ -614,7 +656,7 @@ def test_handle_selector_input_ctrl_r_toggles_hide_stopped() -> None:
 
 def test_handle_selector_input_ctrl_c_clears_search_query() -> None:
     """Test that Ctrl+C clears the search query when not empty."""
-    agents = [_make_mock_agent("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
     state = _create_and_refresh_test_state(agents)
     state.search_query = "test"
 
@@ -625,7 +667,7 @@ def test_handle_selector_input_ctrl_c_clears_search_query() -> None:
 
 def test_handle_selector_input_ctrl_c_double_tap_exits() -> None:
     """Test that double Ctrl+C (within 500ms) raises ExitMainLoop."""
-    agents = [_make_mock_agent("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
     state = _create_and_refresh_test_state(agents)
 
     # First Ctrl-c with empty query records the time
@@ -639,8 +681,8 @@ def test_handle_selector_input_ctrl_c_double_tap_exits() -> None:
 def test_handle_selector_input_enter_selects_focused_agent() -> None:
     """Test that Enter selects the currently focused agent."""
     agents = [
-        _make_mock_agent("alpha", AgentLifecycleState.RUNNING),
-        _make_mock_agent("beta", AgentLifecycleState.RUNNING),
+        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_info("beta", AgentLifecycleState.RUNNING),
     ]
     state = _create_and_refresh_test_state(agents)
 
@@ -648,7 +690,7 @@ def test_handle_selector_input_enter_selects_focused_agent() -> None:
         _handle_selector_input(state, "enter")
 
     assert state.result is not None
-    assert state.result.name == "alpha"
+    assert state.result.name == AgentName("alpha")
 
 
 def test_handle_selector_input_enter_with_empty_list_sets_no_result() -> None:
@@ -664,7 +706,7 @@ def test_handle_selector_input_enter_with_empty_list_sets_no_result() -> None:
 
 def test_handle_selector_input_arrow_keys_pass_through() -> None:
     """Test that arrow keys pass through (return False) for ListBox to handle."""
-    agents = [_make_mock_agent("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
     state = _create_and_refresh_test_state(agents)
 
     # Arrow keys should return False to let ListBox handle them
@@ -677,8 +719,8 @@ def test_handle_selector_input_arrow_keys_pass_through() -> None:
 def test_handle_selector_input_printable_key_updates_search() -> None:
     """Test that printable keys update the search query."""
     agents = [
-        _make_mock_agent("xyz-agent", AgentLifecycleState.RUNNING),
-        _make_mock_agent("foo-agent", AgentLifecycleState.RUNNING),
+        make_test_agent_info("xyz-agent", AgentLifecycleState.RUNNING),
+        make_test_agent_info("foo-agent", AgentLifecycleState.RUNNING),
     ]
     state = _create_and_refresh_test_state(agents)
 
@@ -686,12 +728,12 @@ def test_handle_selector_input_printable_key_updates_search() -> None:
 
     assert state.search_query == "x"
     assert len(state.filtered_agents) == 1
-    assert state.filtered_agents[0].name == "xyz-agent"
+    assert state.filtered_agents[0].name == AgentName("xyz-agent")
 
 
 def test_handle_selector_input_backspace_removes_last_character() -> None:
     """Test that backspace removes the last character from search query."""
-    agents = [_make_mock_agent("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
     state = _create_and_refresh_test_state(agents)
     state.search_query = "alph"
 
@@ -702,7 +744,7 @@ def test_handle_selector_input_backspace_removes_last_character() -> None:
 
 def test_selector_input_handler_calls_handle_selector_input() -> None:
     """Test that SelectorInputHandler delegates to _handle_selector_input."""
-    agents = [_make_mock_agent("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
     state = _create_and_refresh_test_state(agents)
     handler = SelectorInputHandler(state=state)
 
@@ -713,7 +755,7 @@ def test_selector_input_handler_calls_handle_selector_input() -> None:
 
 def test_selector_input_handler_ignores_mouse_events() -> None:
     """Test that SelectorInputHandler returns None for mouse events (tuples)."""
-    agents = [_make_mock_agent("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
     state = _create_and_refresh_test_state(agents)
     handler = SelectorInputHandler(state=state)
 
@@ -730,36 +772,3 @@ def test_select_agent_interactively_returns_none_for_empty_list() -> None:
     result = select_agent_interactively(agents)
 
     assert result is None
-
-
-def test_connect_defaults_to_most_recent_agent_non_interactive(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that connect defaults to most recently created agent in non-interactive mode.
-
-    When stdin is not a tty (non-interactive), the connect command should
-    automatically select the most recently created agent instead of showing
-    an interactive selector.
-    """
-    agent_name_old = f"test-connect-old-{int(time.time())}"
-    agent_name_new = f"test-connect-new-{int(time.time())}"
-
-    with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_old, 192837):
-        with _created_agent(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name_new, 283746):
-            # Simulate non-interactive mode by providing input (makes stdin not a tty)
-            with patch("imbue.mngr.cli.connect.connect_to_agent") as mock_connect:
-                cli_runner.invoke(
-                    connect,
-                    [],
-                    obj=plugin_manager,
-                    catch_exceptions=False,
-                    input="",
-                )
-
-                # Should have connected to the most recently created agent
-                mock_connect.assert_called_once()
-                connected_agent = mock_connect.call_args[0][0]
-                assert str(connected_agent.name) == agent_name_new

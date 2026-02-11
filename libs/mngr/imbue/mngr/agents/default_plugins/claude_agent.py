@@ -15,6 +15,8 @@ from pydantic import Field
 from imbue.imbue_common.logging import log_span
 from imbue.mngr import hookimpl
 from imbue.mngr.agents.base_agent import BaseAgent
+from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
+from imbue.mngr.agents.default_plugins.claude_config import add_claude_trust_for_path
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
@@ -92,6 +94,17 @@ def _prompt_user_for_installation() -> bool:
         "\nClaude is not installed on this machine.\nYou can install it by running:\n  curl -fsSL https://claude.ai/install.sh | bash\n"
     )
     return click.confirm("Would you like to install it now?", default=True)
+
+
+def _prompt_user_for_trust(source_path: Path) -> bool:
+    """Prompt the user to trust a directory for Claude Code."""
+    logger.info(
+        "\nSource directory {} is not yet trusted by Claude Code.\n"
+        "mngr needs to add a trust entry to ~/.claude.json so that Claude Code\n"
+        "can start without showing a trust dialog.\n",
+        source_path,
+    )
+    return click.confirm("Would you like to trust this directory?", default=False)
 
 
 class ClaudeAgent(BaseAgent):
@@ -263,13 +276,15 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
-        """Validate preconditions before provisioning.
+        """Validate preconditions before provisioning (read-only).
 
-        This method performs read-only validation only. Actual setup
-        happens in provision().
+        This method performs read-only validation only. No writes to
+        disk or interactive prompts -- actual setup happens in provision().
 
-        For worktree mode: validates that the source directory is trusted
-        in Claude's config (~/.claude.json).
+        For worktree mode on non-interactive runs: validates that the
+        source directory is trusted in Claude's config (~/.claude.json)
+        so we fail early with a clear message. Interactive runs skip
+        this check because provision() will prompt the user if needed.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             if not host.is_local:
@@ -278,9 +293,11 @@ class ClaudeAgent(BaseAgent):
                     "Claude trust extension requires local filesystem access. "
                     "Use --copy or --clone instead."
                 )
-            git_common_dir = find_git_common_dir(self.work_dir)
-            if git_common_dir is not None:
-                check_source_directory_trusted(git_common_dir.parent)
+            if not mngr_ctx.is_interactive:
+                git_common_dir = find_git_common_dir(self.work_dir)
+                if git_common_dir is not None:
+                    source_path = git_common_dir.parent
+                    check_source_directory_trusted(source_path)
 
         config = self._get_claude_config()
         if not config.check_installation:
@@ -382,12 +399,25 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
-        """Extend trust for worktrees and install Claude if needed."""
+        """Extend trust for worktrees and install Claude if needed.
+
+        For worktree-mode agents, copies the source directory's Claude trust
+        config to the new worktree. If the source directory isn't yet trusted,
+        interactive runs prompt the user to add trust (re-raising if declined);
+        non-interactive runs re-raise the error.
+        """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             git_common_dir = find_git_common_dir(self.work_dir)
             if git_common_dir is not None:
                 source_path = git_common_dir.parent
-                extend_claude_trust_to_worktree(source_path, self.work_dir)
+                try:
+                    extend_claude_trust_to_worktree(source_path, self.work_dir)
+                except ClaudeDirectoryNotTrustedError:
+                    if mngr_ctx.is_interactive and _prompt_user_for_trust(source_path):
+                        add_claude_trust_for_path(source_path)
+                        extend_claude_trust_to_worktree(source_path, self.work_dir)
+                    else:
+                        raise
 
         config = self._get_claude_config()
 
