@@ -4,6 +4,7 @@ import tempfile
 from abc import ABC
 from abc import abstractmethod
 from typing import Any
+from typing import Final
 from typing import assert_never
 
 import click
@@ -24,7 +25,7 @@ from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import OutputFormat
 
-_QUERY_PREFIX = (
+_QUERY_PREFIX: Final[str] = (
     "answer this question about `mngr`. "
     "respond concisely with the mngr command(s) and a brief explanation. "
     "no markdown formatting. "
@@ -38,7 +39,7 @@ _QUERY_PREFIX = (
     "now answer this question: "
 )
 
-_EXECUTE_QUERY_PREFIX = (
+_EXECUTE_QUERY_PREFIX: Final[str] = (
     "answer this question about `mngr`. "
     "respond with ONLY the valid mngr command, with no markdown formatting, explanation, or extra text. "
     "the output will be executed directly as a shell command: "
@@ -233,7 +234,7 @@ def _execute_response(response: str, output_format: OutputFormat) -> None:
 
 
 # Register help metadata for git-style help formatting
-_ASK_HELP_METADATA = CommandHelpMetadata(
+_ASK_HELP_METADATA: Final[CommandHelpMetadata] = CommandHelpMetadata(
     name="mngr-ask",
     one_line_description="Chat with mngr for help",
     synopsis="mngr ask [--execute] QUERY...",

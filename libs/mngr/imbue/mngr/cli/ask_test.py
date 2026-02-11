@@ -93,35 +93,31 @@ def test_ask_json_output(
     assert '"response": "mngr list"' in result.output
 
 
-def test_ask_claude_failure_shows_error(
+@pytest.mark.parametrize(
+    "error_message, expected_substring",
+    [
+        ("claude --print failed (exit code 1): authentication failed", "authentication failed"),
+        (
+            "claude is not installed or not found in PATH. Install Claude Code: https://docs.anthropic.com/en/docs/claude-code/overview",
+            "claude is not installed",
+        ),
+    ],
+)
+def test_ask_claude_error_shows_message(
+    error_message: str,
+    expected_substring: str,
     monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    backend = FakeClaudeError(error_message="claude --print failed (exit code 1): authentication failed")
+    """When the claude backend raises an error, it should be displayed to the user."""
+    backend = FakeClaudeError(error_message=error_message)
     monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
 
     result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
 
     assert result.exit_code != 0
-    assert "authentication failed" in result.output
-
-
-def test_ask_claude_not_installed(
-    monkeypatch: pytest.MonkeyPatch,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """When claude backend raises an installation error, show a helpful message."""
-    backend = FakeClaudeError(
-        error_message="claude is not installed or not found in PATH. Install Claude Code: https://docs.anthropic.com/en/docs/claude-code/overview"
-    )
-    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
-
-    result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
-
-    assert result.exit_code != 0
-    assert "claude is not installed" in result.output
+    assert expected_substring in result.output
 
 
 def test_emit_response_json_format(capsys: pytest.CaptureFixture) -> None:
