@@ -45,11 +45,16 @@ def parse_source_and_invoke_create(
     ctx: click.Context,
     args: tuple[str, ...],
     command_name: str,
+    original_argv: list[str] | None = None,
 ) -> str:
     """Validate args, reject conflicting options, and delegate to the create command.
 
     Returns the source agent name so callers (e.g. migrate) can use it for
     follow-up steps.
+
+    *original_argv* defaults to ``sys.argv`` when ``None``.  Passing an
+    explicit value allows tests (where ``sys.argv`` is not updated by Click's
+    ``CliRunner``) to exercise the ``--`` re-insertion logic.
     """
     if len(args) == 0:
         raise click.UsageError("Missing required argument: SOURCE_AGENT", ctx=ctx)
@@ -57,9 +62,11 @@ def parse_source_and_invoke_create(
     source_agent = args[0]
     remaining = list(args[1:])
 
-    reject_source_agent_options(remaining, ctx)
+    _reject_source_agent_options(remaining, ctx)
 
-    create_args = _build_create_args(source_agent, remaining, sys.argv)
+    if original_argv is None:
+        original_argv = sys.argv
+    create_args = _build_create_args(source_agent, remaining, original_argv)
 
     create_ctx = create_cmd.make_context(command_name, create_args, parent=ctx)
     with create_ctx:
@@ -83,7 +90,7 @@ def clone(ctx: click.Context, args: tuple[str, ...]) -> None:
     parse_source_and_invoke_create(ctx, args, command_name="clone")
 
 
-def reject_source_agent_options(args: Sequence[str], ctx: click.Context) -> None:
+def _reject_source_agent_options(args: Sequence[str], ctx: click.Context) -> None:
     """Raise an error if --from-agent or --source-agent appears in args."""
     for arg in args:
         if arg == "--":
