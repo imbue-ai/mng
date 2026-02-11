@@ -28,7 +28,7 @@ def clone(ctx: click.Context, args: tuple[str, ...]) -> None:
 
     # Reject --from-agent / --source-agent in remaining args since the source
     # is provided positionally
-    _reject_source_agent_options(remaining, ctx)
+    reject_source_agent_options(remaining, ctx)
 
     # Build the args list for the create command
     create_args = ["--from-agent", source_agent] + remaining
@@ -39,7 +39,7 @@ def clone(ctx: click.Context, args: tuple[str, ...]) -> None:
         create_cmd.invoke(create_ctx)
 
 
-def _reject_source_agent_options(args: Sequence[str], ctx: click.Context) -> None:
+def reject_source_agent_options(args: Sequence[str], ctx: click.Context) -> None:
     """Raise an error if --from-agent or --source-agent appears in args."""
     for arg in args:
         if arg == "--":

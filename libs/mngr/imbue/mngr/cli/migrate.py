@@ -1,6 +1,6 @@
 import click
 
-from imbue.mngr.cli.clone import _reject_source_agent_options
+from imbue.mngr.cli.clone import reject_source_agent_options
 from imbue.mngr.cli.create import create as create_cmd
 from imbue.mngr.cli.destroy import destroy as destroy_cmd
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
@@ -29,7 +29,7 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
 
     # Reject --from-agent / --source-agent in remaining args since the source
     # is provided positionally
-    _reject_source_agent_options(remaining, ctx)
+    reject_source_agent_options(remaining, ctx)
 
     # Step 1: Clone via the create command
     create_args = ["--from-agent", source_agent] + remaining

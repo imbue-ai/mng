@@ -87,6 +87,16 @@ def _format_user_message(record: Any) -> str:
     return "{message}\n"
 
 
+def suppress_warnings():
+    # Silence pyinfra's warnings. Pyinfra uses Python's standard logging module
+    # and logs warnings during file upload retries (e.g., when the remote directory
+    # doesn't exist). Mngr already handles these cases gracefully, so the warnings
+    # are noise. We set pyinfra's logger level to ERROR to suppress warnings while
+    # still allowing errors through.
+    pyinfra_logger = logging.getLogger("pyinfra")
+    pyinfra_logger.setLevel(logging.ERROR)
+
+
 def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     """Configure logging based on output options and mngr context.
 
@@ -100,13 +110,8 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     # Remove default handler
     logger.remove()
 
-    # Silence pyinfra's warnings. Pyinfra uses Python's standard logging module
-    # and logs warnings during file upload retries (e.g., when the remote directory
-    # doesn't exist). Mngr already handles these cases gracefully, so the warnings
-    # are noise. We set pyinfra's logger level to ERROR to suppress warnings while
-    # still allowing errors through.
-    pyinfra_logger = logging.getLogger("pyinfra")
-    pyinfra_logger.setLevel(logging.ERROR)
+    # remove warnings
+    suppress_warnings()
 
     # BUILD level is registered at module import time via register_build_level()
 
