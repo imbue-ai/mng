@@ -66,6 +66,7 @@ from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.git_utils import get_current_git_branch
+from imbue.mngr.utils.git_utils import get_git_author_info
 from imbue.mngr.utils.polling import wait_for
 
 
@@ -924,6 +925,19 @@ class Host(BaseHost, OnlineHostInterface):
             )
             base_branch_name = result.stdout.strip() if result.success else "main"
 
+        # Get git author info from source repo
+        if source_host.is_local:
+            git_author_name, git_author_email = get_git_author_info(source_path)
+        else:
+            name_result = source_host.execute_command("git config user.name", cwd=source_path)
+            email_result = source_host.execute_command("git config user.email", cwd=source_path)
+            git_author_name = (
+                name_result.stdout.strip() if name_result.success and name_result.stdout.strip() else None
+            )
+            git_author_email = (
+                email_result.stdout.strip() if email_result.success and email_result.stdout.strip() else None
+            )
+
         with log_span(
             "Transferring git repository",
             source=str(source_path),
@@ -951,8 +965,16 @@ class Host(BaseHost, OnlineHostInterface):
             self._git_push_to_target(source_host, source_path, target_path)
 
             with log_span("Configuring target git repo"):
+                config_commands = [
+                    "git config --bool core.bare false",
+                    f"git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch_name)}",
+                ]
+                if git_author_name:
+                    config_commands.append(f"git config user.name {shlex.quote(git_author_name)}")
+                if git_author_email:
+                    config_commands.append(f"git config user.email {shlex.quote(git_author_email)}")
                 result = self.execute_command(
-                    f"git config --bool core.bare false && git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch_name)}",
+                    " && ".join(config_commands),
                     cwd=target_path,
                 )
                 if not result.success:

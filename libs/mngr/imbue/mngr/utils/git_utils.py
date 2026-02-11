@@ -121,6 +121,31 @@ def _parse_project_name_from_url(url: str) -> str | None:
     return None
 
 
+def _get_git_config_value(path: Path, key: str) -> str | None:
+    """Get a git config value for the repository at the given path.
+
+    Returns None if the key is not configured or an error occurs.
+    """
+    result = subprocess.run(
+        ["git", "config", key],
+        cwd=path,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return None
+
+
+def get_git_author_info(path: Path) -> tuple[str | None, str | None]:
+    """Get the git author name and email for the repository at the given path.
+
+    Returns a tuple of (user_name, user_email). Either or both may be None
+    if not configured.
+    """
+    return _get_git_config_value(path, "user.name"), _get_git_config_value(path, "user.email")
+
+
 def find_git_worktree_root(start: Path | None = None) -> Path | None:
     """Find the git worktree root."""
     cwd = start or Path.cwd()
