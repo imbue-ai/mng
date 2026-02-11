@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import click
 
 from imbue.mngr.cli.create import create as create_cmd
@@ -37,7 +39,7 @@ def clone(ctx: click.Context, args: tuple[str, ...]) -> None:
         create_cmd.invoke(create_ctx)
 
 
-def _reject_source_agent_options(args: list[str], ctx: click.Context) -> None:
+def _reject_source_agent_options(args: Sequence[str], ctx: click.Context) -> None:
     """Raise an error if --from-agent or --source-agent appears in args."""
     for arg in args:
         if arg == "--":
