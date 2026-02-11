@@ -373,11 +373,10 @@ def _parse_test_env_timestamp(env_name: str) -> datetime | None:
     )
 
 
-def list_modal_test_environments() -> list[str]:
-    """List all Modal test environments.
+def _list_all_modal_environments() -> list[str]:
+    """List all Modal environment names.
 
-    Returns a list of environment names that match the test environment pattern
-    (mngr_test-YYYY-MM-DD-HH-MM-SS*).
+    Returns a list of all environment names, or an empty list on failure.
     """
     try:
         result = subprocess.run(
@@ -391,17 +390,36 @@ def list_modal_test_environments() -> list[str]:
             return []
 
         environments = json.loads(result.stdout)
-        test_envs: list[str] = []
-
-        for env in environments:
-            env_name = env.get("name", "")
-            if env_name.startswith(MODAL_TEST_ENV_PREFIX):
-                test_envs.append(env_name)
-
-        return test_envs
+        return [env.get("name", "") for env in environments if env.get("name")]
     except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError) as e:
         logger.warning("Error listing Modal environments: {}", e)
         return []
+
+
+def list_modal_test_environments() -> list[str]:
+    """List all Modal test environments.
+
+    Returns environment names that start with the test environment prefix
+    (mngr_test-). This includes both timestamp-format environments
+    (mngr_test-YYYY-MM-DD-HH-MM-SS*) and any other test environments.
+    """
+    return [name for name in _list_all_modal_environments() if name.startswith(MODAL_TEST_ENV_PREFIX)]
+
+
+def list_modal_orphan_test_environments() -> list[str]:
+    """List Modal test environments that use the mngr_ prefix but not the mngr_test- format.
+
+    These are environments created by tests that used the autouse mngr_test_prefix
+    fixture (mngr_{uuid}-) rather than the timestamp-based prefix. All environments
+    starting with "mngr_" (underscore, not dash) are test artifacts -- real
+    environments use "mngr-" (dash). We exclude mngr_test-* since those are
+    handled separately by find_old_test_environments with age-based filtering.
+    """
+    return [
+        name
+        for name in _list_all_modal_environments()
+        if name.startswith("mngr_") and not name.startswith(MODAL_TEST_ENV_PREFIX)
+    ]
 
 
 def find_old_test_environments(
@@ -511,49 +529,63 @@ def delete_modal_environment(environment_name: str) -> None:
         logger.warning("Failed to delete Modal environment {}: {}", environment_name, e)
 
 
+def _cleanup_environments(env_names: list[str], label: str) -> int:
+    """Clean up a list of Modal environments.
+
+    For each environment:
+    1. Stops all apps
+    2. Deletes all volumes
+    3. Deletes the environment itself
+
+    Robust to concurrent deletion -- failures produce warnings, not errors.
+    Returns the number of environments processed.
+    """
+    if not env_names:
+        return 0
+
+    logger.info("Found {} {} to clean up", len(env_names), label)
+
+    for env_name in env_names:
+        logger.info("Cleaning up {}: {}", label, env_name)
+        delete_modal_apps_in_environment(env_name)
+        delete_modal_volumes_in_environment(env_name)
+        delete_modal_environment(env_name)
+
+    return len(env_names)
+
+
 def cleanup_old_modal_test_environments(
     max_age_hours: float = 1.0,
 ) -> int:
-    """Clean up Modal test environments older than the specified age.
+    """Clean up Modal test environments.
 
-    This function finds all Modal test environments with names matching the pattern
-    mngr_test-YYYY-MM-DD-HH-MM-SS*, parses the timestamp from the name, and deletes
-    those that are older than max_age_hours.
+    This function handles two categories of test environments:
 
-    For each old environment, it:
-    1. Stops all apps in the environment
-    2. Deletes all volumes in the environment
-    3. Deletes the environment itself
+    1. Timestamp-format environments (mngr_test-YYYY-MM-DD-HH-MM-SS*): cleaned
+       up if older than max_age_hours.
 
-    This function is designed to be robust to concurrent deletion. Any failure to
-    delete an environment, app, or volume results in a warning, not an error.
-    This allows the cleanup to continue even if some resources were already deleted
-    by another process.
+    2. Orphan test environments (mngr_* but not mngr_test-*): cleaned up
+       unconditionally. These are created by tests that use the autouse
+       mngr_test_prefix fixture (mngr_{uuid}-). All environments starting with
+       "mngr_" (underscore) are test artifacts -- real environments use "mngr-"
+       (dash).
 
     Returns the number of environments that were processed (attempted deletion).
     """
     max_age = timedelta(hours=max_age_hours)
     old_envs = find_old_test_environments(max_age)
+    orphan_envs = list_modal_orphan_test_environments()
 
-    if not old_envs:
-        logger.info("No old Modal test environments found (older than {} hours)", max_age_hours)
+    total = 0
+
+    if not old_envs and not orphan_envs:
+        logger.info("No Modal test environments found to clean up")
         return 0
 
-    logger.info("Found {} old Modal test environments to clean up", len(old_envs))
+    total += _cleanup_environments(old_envs, "old test environments")
+    total += _cleanup_environments(orphan_envs, "orphan test environments")
 
-    for env_name in old_envs:
-        logger.info("Cleaning up old test environment: {}", env_name)
-
-        # Delete all apps in the environment first
-        delete_modal_apps_in_environment(env_name)
-
-        # Then delete all volumes
-        delete_modal_volumes_in_environment(env_name)
-
-        # Finally delete the environment itself
-        delete_modal_environment(env_name)
-
-    return len(old_envs)
+    return total
 
 
 # =============================================================================
