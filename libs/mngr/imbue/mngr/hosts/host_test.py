@@ -260,9 +260,8 @@ def test_destroy_agent_calls_on_destroy(
     temp_work_dir: Path,
 ) -> None:
     """Test that destroy_agent calls agent.on_destroy() before cleanup."""
-    base_agent, host = _create_test_agent(local_provider, temp_host_dir, temp_work_dir, _TestableAgent)
-    assert isinstance(base_agent, _TestableAgent)
-    agent = base_agent
+    agent, host = _create_test_agent(local_provider, temp_host_dir, temp_work_dir, _TestableAgent)
+    assert isinstance(agent, _TestableAgent)
 
     agent_dir = temp_host_dir / "agents" / str(agent.id)
     assert agent_dir.exists()
@@ -279,11 +278,10 @@ def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
     temp_work_dir: Path,
 ) -> None:
     """Test that destroy_agent still cleans up if agent.on_destroy() raises."""
-    base_agent, host = _create_test_agent(
+    agent, host = _create_test_agent(
         local_provider, temp_host_dir, temp_work_dir, _TestableAgent, on_destroy_should_raise=True
     )
-    assert isinstance(base_agent, _TestableAgent)
-    agent = base_agent
+    assert isinstance(agent, _TestableAgent)
 
     agent_dir = temp_host_dir / "agents" / str(agent.id)
     assert agent_dir.exists()
