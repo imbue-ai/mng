@@ -48,13 +48,15 @@ def test_build_ask_context_contains_mngr_docs() -> None:
     assert "create" in context.lower()
 
 
-def test_no_query_shows_usage_error(
+def test_no_query_shows_command_summary(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    result = cli_runner.invoke(ask, [], obj=plugin_manager, catch_exceptions=True)
-    assert result.exit_code != 0
-    assert "No query provided" in result.output
+    """When no query is provided, shows a summary of available commands."""
+    result = cli_runner.invoke(ask, [], obj=plugin_manager, catch_exceptions=False)
+    assert result.exit_code == 0
+    assert "Available mngr commands" in result.output
+    assert "mngr ask" in result.output
 
 
 @patch("imbue.mngr.cli.ask.subprocess.run")
@@ -205,3 +207,46 @@ def test_emit_response_jsonl_format(capsys: pytest.CaptureFixture) -> None:
 def test_execute_response_raises_on_empty_response() -> None:
     with pytest.raises(MngrError, match="empty response"):
         _execute_response(response="   \n  ", output_format=OutputFormat.HUMAN)
+
+
+def test_execute_response_rejects_non_mngr_command() -> None:
+    """Commands that don't start with 'mngr' should be rejected."""
+    with pytest.raises(MngrError, match="not a valid mngr command"):
+        _execute_response(response="rm -rf /", output_format=OutputFormat.HUMAN)
+
+
+def test_execute_response_rejects_markdown_response() -> None:
+    """Markdown-wrapped responses should be rejected."""
+    with pytest.raises(MngrError, match="not a valid mngr command"):
+        _execute_response(response="```\nmngr list\n```", output_format=OutputFormat.HUMAN)
+
+
+@patch("imbue.mngr.cli.ask.subprocess.run")
+def test_ask_claude_not_installed(
+    mock_run: MagicMock,
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """When claude binary is missing, show a helpful error message."""
+
+    def raise_fnf(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
+        if isinstance(cmd, list) and cmd[0] == "claude":
+            raise FileNotFoundError("No such file or directory: 'claude'")
+        return _real_subprocess_run(cmd, **kwargs)
+
+    mock_run.side_effect = raise_fnf
+
+    result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
+
+    assert result.exit_code != 0
+    assert "claude is not installed" in result.output
+
+
+def test_no_query_json_output(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """No-query with JSON format should emit commands dict."""
+    result = cli_runner.invoke(ask, ["--format", "json"], obj=plugin_manager, catch_exceptions=False)
+    assert result.exit_code == 0
+    assert '"commands"' in result.output

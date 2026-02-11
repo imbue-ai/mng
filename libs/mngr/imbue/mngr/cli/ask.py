@@ -61,6 +61,25 @@ def _build_ask_context() -> str:
     return "\n".join(parts)
 
 
+def _show_command_summary(output_format: OutputFormat) -> None:
+    """Show a summary of available mngr commands."""
+    metadata = get_all_help_metadata()
+    match output_format:
+        case OutputFormat.HUMAN:
+            logger.info("Available mngr commands:\n")
+            for name, meta in metadata.items():
+                logger.info("  mngr {:<12} {}", name, meta.one_line_description)
+            logger.info('\nAsk a question: mngr ask "how do I create an agent?"')
+        case OutputFormat.JSON:
+            commands = {name: meta.one_line_description for name, meta in metadata.items()}
+            emit_final_json({"commands": commands})
+        case OutputFormat.JSONL:
+            commands = {name: meta.one_line_description for name, meta in metadata.items()}
+            emit_final_json({"event": "commands", "commands": commands})
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 class AskCliOptions(CommonCliOptions):
     """Options passed from the CLI to the ask command."""
 
@@ -100,7 +119,8 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
     logger.debug("Started ask command")
 
     if not opts.query:
-        raise click.UsageError("No query provided. Pass a question as arguments.", ctx=ctx)
+        _show_command_summary(output_opts.output_format)
+        return
 
     prefix = _EXECUTE_QUERY_PREFIX if opts.execute else _QUERY_PREFIX
     query_string = prefix + " ".join(opts.query)
@@ -124,13 +144,19 @@ def _run_claude_print(query_string: str) -> str:
     system_prompt = _build_ask_context()
 
     with tempfile.TemporaryDirectory(prefix="mngr-ask-") as tmp_dir:
-        result = subprocess.run(
-            ["claude", "--print", "--system-prompt", system_prompt, query_string],
-            capture_output=True,
-            text=True,
-            stdin=subprocess.DEVNULL,
-            cwd=tmp_dir,
-        )
+        try:
+            result = subprocess.run(
+                ["claude", "--print", "--system-prompt", system_prompt, query_string],
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                cwd=tmp_dir,
+            )
+        except FileNotFoundError:
+            raise MngrError(
+                "claude is not installed or not found in PATH. "
+                "Install Claude Code: https://docs.anthropic.com/en/docs/claude-code/overview"
+            ) from None
 
     if result.returncode != 0:
         stderr_msg = result.stderr.strip()
@@ -160,9 +186,12 @@ def _execute_response(response: str, output_format: OutputFormat) -> None:
     if not command:
         raise MngrError("claude returned an empty response; nothing to execute")
 
+    args = shlex.split(command)
+    if not args or args[0] != "mngr":
+        raise MngrError(f"claude returned a response that is not a valid mngr command: {command}")
+
     emit_info(f"Running: {command}", output_format)
 
-    args = shlex.split(command)
     result = subprocess.run(args, capture_output=False)
 
     if result.returncode != 0:
