@@ -4,8 +4,6 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
-from datetime import timezone
 from pathlib import Path
 from typing import Generator
 from typing import NamedTuple
@@ -29,12 +27,12 @@ from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
-from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
 from imbue.mngr.utils.testing import assert_home_is_temp_directory
 from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import delete_modal_apps_in_environment
 from imbue.mngr.utils.testing import delete_modal_environment
 from imbue.mngr.utils.testing import delete_modal_volumes_in_environment
+from imbue.mngr.utils.testing import generate_test_environment_name
 from imbue.mngr.utils.testing import get_subprocess_test_env
 from imbue.mngr.utils.testing import init_git_repo
 
@@ -476,19 +474,6 @@ def register_modal_test_environment(environment_name: str) -> None:
 # =============================================================================
 
 
-def _generate_modal_test_environment_name() -> str:
-    """Generate a Modal test environment name with current UTC timestamp.
-
-    Format: mngr_test-YYYY-MM-DD-HH-MM-SS
-
-    The name uses only digits and hyphens to be compatible with Modal's naming requirements.
-    Uses MODAL_TEST_ENV_PREFIX from testing.py to ensure consistency with cleanup logic.
-    """
-    now = datetime.now(timezone.utc)
-    timestamp = now.strftime("%Y-%m-%d-%H-%M-%S")
-    return f"{MODAL_TEST_ENV_PREFIX}{timestamp}"
-
-
 class ModalSubprocessTestEnv(NamedTuple):
     """Environment configuration for Modal subprocess tests."""
 
@@ -505,14 +490,14 @@ def modal_test_session_env_name() -> str:
     environment name. The name includes a UTC timestamp in the format:
     mngr_test-YYYY-MM-DD-HH-MM-SS
     """
-    return _generate_modal_test_environment_name()
+    return generate_test_environment_name()
 
 
 @pytest.fixture(scope="session")
 def modal_test_session_host_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Create a session-scoped host directory for Modal tests.
 
-    This ensures all tests in a session share the same user_id file,
+    This ensures all tests in a session share the same host directory,
     which means they share the same Modal environment.
     """
     host_dir = tmp_path_factory.mktemp("modal_session") / "mngr"
@@ -521,9 +506,21 @@ def modal_test_session_host_dir(tmp_path_factory: pytest.TempPathFactory) -> Pat
 
 
 @pytest.fixture(scope="session")
+def modal_test_session_user_id() -> str:
+    """Generate a deterministic user ID for the test session.
+
+    This user ID is shared across all subprocess Modal tests in a session
+    via the MNGR_USER_ID environment variable. By generating it upfront,
+    the cleanup fixture can construct the exact environment name without
+    needing to find the user_id file in the profile directory structure.
+    """
+    return uuid4().hex
+
+
+@pytest.fixture(scope="session")
 def modal_test_session_cleanup(
     modal_test_session_env_name: str,
-    modal_test_session_host_dir: Path,
+    modal_test_session_user_id: str,
 ) -> Generator[None, None, None]:
     """Session-scoped fixture that cleans up the Modal environment at session end.
 
@@ -534,22 +531,18 @@ def modal_test_session_cleanup(
 
     # Clean up Modal environment after the session.
     # The environment name is {prefix}{user_id}, where prefix is based on the timestamp
-    # and user_id is from the shared host_dir.
-    user_id_file = modal_test_session_host_dir / "user_id"
-    if user_id_file.exists():
-        user_id = user_id_file.read_text().strip()
-        # The prefix for session-scoped tests uses the timestamp-based env name
-        prefix = f"{modal_test_session_env_name}-"
-        environment_name = f"{prefix}{user_id}"
+    # and user_id is the session-scoped deterministic ID.
+    prefix = f"{modal_test_session_env_name}-"
+    environment_name = f"{prefix}{modal_test_session_user_id}"
 
-        # Truncate environment_name if needed (Modal has 64 char limit)
-        if len(environment_name) > 64:
-            environment_name = environment_name[:64]
+    # Truncate environment_name if needed (Modal has 64 char limit)
+    if len(environment_name) > 64:
+        environment_name = environment_name[:64]
 
-        # Delete apps, volumes, and environment using functions from testing.py
-        delete_modal_apps_in_environment(environment_name)
-        delete_modal_volumes_in_environment(environment_name)
-        delete_modal_environment(environment_name)
+    # Delete apps, volumes, and environment using functions from testing.py
+    delete_modal_apps_in_environment(environment_name)
+    delete_modal_volumes_in_environment(environment_name)
+    delete_modal_environment(environment_name)
 
 
 @pytest.fixture
@@ -557,13 +550,15 @@ def modal_subprocess_env(
     modal_test_session_env_name: str,
     modal_test_session_host_dir: Path,
     modal_test_session_cleanup: None,
+    modal_test_session_user_id: str,
 ) -> Generator[ModalSubprocessTestEnv, None, None]:
     """Create a subprocess test environment with session-scoped Modal environment.
 
     This fixture:
     1. Uses a session-scoped MNGR_PREFIX based on UTC timestamp (mngr_test-YYYY-MM-DD-HH-MM-SS)
-    2. Uses a session-scoped MNGR_HOST_DIR so all tests share the same user_id file
-    3. Cleans up the Modal environment at the end of the session (not per-test)
+    2. Uses a session-scoped MNGR_HOST_DIR so all tests share the same host directory
+    3. Sets MNGR_USER_ID so all subprocesses use the same deterministic user ID
+    4. Cleans up the Modal environment at the end of the session (not per-test)
 
     Using session-scoped environments reduces the number of environments created
     and makes cleanup easier (environments have timestamps in their names).
@@ -576,6 +571,9 @@ def modal_subprocess_env(
         prefix=prefix,
         host_dir=host_dir,
     )
+    # Set the user ID so all subprocesses use the same deterministic ID.
+    # This ensures the cleanup fixture can construct the exact environment name.
+    env["MNGR_USER_ID"] = modal_test_session_user_id
 
     yield ModalSubprocessTestEnv(env=env, prefix=prefix, host_dir=host_dir)
 
