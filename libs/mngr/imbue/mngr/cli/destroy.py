@@ -317,7 +317,7 @@ def _find_agents_to_destroy(
     matched_identifiers: set[str] = set()
     seen_offline_hosts: set[str] = set()
 
-    for agent_ref in list_agents(mngr_ctx).agents:
+    for agent_ref in list_agents(mngr_ctx, is_streaming=False).agents:
         should_include: bool
         if destroy_all:
             should_include = True
