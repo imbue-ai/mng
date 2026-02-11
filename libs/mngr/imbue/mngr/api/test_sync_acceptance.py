@@ -29,6 +29,7 @@ def _run_mngr(
     args: list[str],
     env: dict[str, str],
     timeout: int = 60,
+    cwd: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a mngr command via subprocess with Modal disabled.
 
@@ -48,6 +49,7 @@ def _run_mngr(
         text=True,
         timeout=timeout,
         env=env,
+        cwd=cwd,
     )
 
 
@@ -89,6 +91,7 @@ def created_agent(
     result = _run_mngr(
         ["create", agent_name, "bash", "--no-connect", "--project", str(repo_path)],
         env=sync_test_env,
+        cwd=str(repo_path),
     )
     assert result.returncode == 0, f"Failed to create agent: {result.stderr}"
 
