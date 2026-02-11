@@ -39,7 +39,7 @@ class FakeClaudeError(ClaudeBackendInterface):
 def fake_claude(monkeypatch: pytest.MonkeyPatch) -> FakeClaude:
     """Provide a FakeClaude backend and monkeypatch it into the ask module."""
     backend = FakeClaude()
-    monkeypatch.setattr(ask_module, "_claude_backend", backend)
+    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
     return backend
 
 
@@ -99,7 +99,7 @@ def test_ask_claude_failure_shows_error(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     backend = FakeClaudeError(error_message="claude --print failed (exit code 1): authentication failed")
-    monkeypatch.setattr(ask_module, "_claude_backend", backend)
+    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
 
     result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
 
@@ -143,7 +143,7 @@ def test_ask_claude_not_installed(
     backend = FakeClaudeError(
         error_message="claude is not installed or not found in PATH. Install Claude Code: https://docs.anthropic.com/en/docs/claude-code/overview"
     )
-    monkeypatch.setattr(ask_module, "_claude_backend", backend)
+    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
 
     result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
 

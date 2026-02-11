@@ -18,6 +18,7 @@ from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import get_all_help_metadata
 from imbue.mngr.cli.help_formatter import register_help_metadata
+from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.errors import MngrError
@@ -55,7 +56,10 @@ class SubprocessClaudeBackend(ClaudeBackendInterface):
                     text=True,
                     stdin=subprocess.DEVNULL,
                     cwd=tmp_dir,
+                    timeout=120,
                 )
+            except subprocess.TimeoutExpired:
+                raise MngrError("claude --print timed out after 120 seconds") from None
             except FileNotFoundError:
                 raise MngrError(
                     "claude is not installed or not found in PATH. "
@@ -69,10 +73,6 @@ class SubprocessClaudeBackend(ClaudeBackendInterface):
             raise MngrError(f"claude --print failed (exit code {result.returncode}): {detail}")
 
         return result.stdout.rstrip("\n")
-
-
-# Module-level backend override for testing. When None, SubprocessClaudeBackend is used.
-_claude_backend: ClaudeBackendInterface | None = None
 
 
 def _build_ask_context() -> str:
@@ -154,6 +154,15 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
 
       mngr ask --execute forward port 8080 to the public internet
     """
+    try:
+        _ask_impl(ctx, **kwargs)
+    except AbortError as e:
+        logger.error("Aborted: {}", e.message)
+        ctx.exit(1)
+
+
+def _ask_impl(ctx: click.Context, **kwargs: Any) -> None:
+    """Implementation of ask command (extracted for exception handling)."""
     _mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="ask",
@@ -170,7 +179,7 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
 
     emit_info("Thinking...", output_opts.output_format)
 
-    backend = _claude_backend or SubprocessClaudeBackend()
+    backend = SubprocessClaudeBackend()
     system_prompt = _build_ask_context()
     response = backend.query(prompt=query_string, system_prompt=system_prompt)
 
