@@ -41,6 +41,9 @@ def pair_ctx(tmp_path: Path) -> SyncTestContext:
     )
 
 
+# Test: sync_git_state
+
+
 def test_sync_git_state_performs_push_when_local_is_ahead(cg: ConcurrencyGroup, pair_ctx: SyncTestContext) -> None:
     (pair_ctx.local_dir / "new_file.txt").write_text("new content")
     run_git_command(pair_ctx.local_dir, "add", "new_file.txt")
@@ -79,6 +82,9 @@ def test_sync_git_state_performs_pull_when_agent_is_ahead(cg: ConcurrencyGroup, 
     assert git_pull_performed is True
     assert git_push_performed is False
     assert (pair_ctx.local_dir / "agent_file.txt").exists()
+
+
+# Test: pair_files context manager
 
 
 def test_pair_files_raises_when_unison_not_installed_and_mocked(
@@ -197,6 +203,9 @@ def test_pair_files_with_no_git_requirement(cg: ConcurrencyGroup, tmp_path: Path
         wait_for(lambda: syncer.is_running, error_message="Syncer did not start within timeout")
         assert syncer.is_running is True
         syncer.stop()
+
+
+# Test: UnisonSyncer with actual unison
 
 
 def test_unison_syncer_start_and_stop(cg: ConcurrencyGroup, tmp_path: Path) -> None:

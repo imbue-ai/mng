@@ -873,10 +873,9 @@ class ModalProviderInstance(BaseProviderInstance):
         if self.config.is_persistent:
             # it's a little sad that we're constantly re-deploying this, but it's a bit too easy to make mistakes otherwise
             #  (eg, we might end up with outdated code at that endpoint, which would be hard to debug)
-            cg = self.mngr_ctx.concurrency_group
-            if cg is None:
-                raise MngrError("No concurrency group available on MngrContext")
-            snapshot_url = deploy_function(cg, "snapshot_and_shutdown", self.app_name, self.environment_name)
+            snapshot_url = deploy_function(
+                self.mngr_ctx.cg, "snapshot_and_shutdown", self.app_name, self.environment_name
+            )
             self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
 
         # Start the activity watcher. We have to start it here because we only created the shutdown script (with the hardcoded sandbox id)

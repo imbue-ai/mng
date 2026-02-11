@@ -420,12 +420,9 @@ Supported build arguments for the modal provider:
             app_name = app_name[:max_app_name_length]
 
         # Create the ModalProviderApp that manages the Modal app and its resources
-        cg = mngr_ctx.concurrency_group
-        if cg is None:
-            raise MngrError("No concurrency group available on MngrContext")
         try:
             app, context_handle = ModalProviderBackend._get_or_create_app(
-                cg, app_name, environment_name, config.is_persistent
+                mngr_ctx.cg, app_name, environment_name, config.is_persistent
             )
             volume = ModalProviderBackend.get_volume_for_app(app_name)
 

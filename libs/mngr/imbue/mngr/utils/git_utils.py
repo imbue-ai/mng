@@ -40,7 +40,16 @@ def derive_project_name_from_path(cg: ConcurrencyGroup, path: Path) -> str:
 
 
 def _get_project_name_from_git_remote(cg: ConcurrencyGroup, path: Path) -> str | None:
-    """Get the project name from the git remote origin URL."""
+    """Get the project name from the git remote origin URL.
+
+    Supports GitHub and GitLab URL formats:
+    - https://github.com/owner/repo.git
+    - git@github.com:owner/repo.git
+    - https://gitlab.com/owner/repo.git
+    - git@gitlab.com:owner/repo.git
+
+    Returns None if not a git repo or URL format is unknown.
+    """
     git_dir = path / ".git"
     if not git_dir.exists():
         return None
@@ -119,7 +128,11 @@ def find_git_worktree_root(cg: ConcurrencyGroup, start: Path | None = None) -> P
 
 
 def is_git_repository(cg: ConcurrencyGroup, path: Path) -> bool:
-    """Check if the given path is inside a git repository."""
+    """Check if the given path is inside a git repository.
+
+    Works from any subdirectory within a git worktree.
+    Returns False if the path does not exist.
+    """
     if not path.exists():
         return False
     try:
@@ -192,7 +205,12 @@ def count_commits_between(cg: ConcurrencyGroup, path: Path, base_ref: str, head_
 
 
 def find_git_common_dir(cg: ConcurrencyGroup, path: Path) -> Path | None:
-    """Find the common .git directory for a repository or worktree."""
+    """Find the common .git directory for a repository or worktree.
+
+    For a regular repository, this returns the .git directory.
+    For a worktree, this returns the main repository's .git directory,
+    not the worktree's .git file.
+    """
     try:
         result = cg.run_process_to_completion(
             ["git", "rev-parse", "--git-common-dir"],
