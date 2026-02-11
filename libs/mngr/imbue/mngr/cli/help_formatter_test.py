@@ -303,9 +303,10 @@ def test_help_option_callback_shows_help_and_exits(capsys: pytest.CaptureFixture
     ctx = click.Context(test_cmd)
     param = click.Option(["-h", "--help"], is_flag=True)
 
-    with pytest.raises(click.exceptions.Exit):
+    with pytest.raises(click.exceptions.Exit) as exc_info:
         help_option_callback(ctx, param, True)
 
+    assert exc_info.value.exit_code == 0
     captured = capsys.readouterr()
     assert "--test" in captured.out
 
