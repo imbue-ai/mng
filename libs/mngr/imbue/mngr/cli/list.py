@@ -1,4 +1,5 @@
 import re
+import shutil
 import sys
 from collections.abc import Sequence
 from enum import Enum
@@ -331,8 +332,8 @@ class _LimitedJsonlEmitter:
         self.count += 1
 
 
-# Fixed minimum column widths for streaming output (left-justified, not truncated)
-_STREAMING_COLUMN_WIDTHS: Final[dict[str, int]] = {
+# Minimum column widths for streaming output (left-justified, not truncated)
+_MIN_COLUMN_WIDTHS: Final[dict[str, int]] = {
     "name": 20,
     "host": 15,
     "provider": 10,
@@ -340,7 +341,10 @@ _STREAMING_COLUMN_WIDTHS: Final[dict[str, int]] = {
     "state": 10,
     "status": 30,
 }
-_DEFAULT_STREAMING_COLUMN_WIDTH: Final[int] = 15
+_DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 15
+# Columns that get extra space when the terminal is wider than the minimum
+_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "status", "host"}
+_COLUMN_SEPARATOR: Final[str] = "  "
 
 # ANSI escape sequences for terminal control
 _ANSI_ERASE_LINE: Final[str] = "\r\x1b[K"
@@ -362,12 +366,14 @@ class _StreamingHumanRenderer:
     _lock: Lock
     _count: int
     _is_header_written: bool
+    _column_widths: dict[str, int]
 
     def start(self) -> None:
         """Initialize internal state and write the initial status line (TTY only)."""
         self._lock = Lock()
         self._count = 0
         self._is_header_written = False
+        self._column_widths = _compute_column_widths(self.fields)
 
         if self.is_tty:
             status = f"{_ANSI_DIM_GRAY}Searching...{_ANSI_RESET}"
@@ -387,12 +393,12 @@ class _StreamingHumanRenderer:
 
             # Write header on first agent
             if not self._is_header_written:
-                header_line = _format_streaming_row(self.fields, is_header=True)
+                header_line = _format_streaming_row(self.fields, self._column_widths, is_header=True)
                 sys.stdout.write(header_line + "\n")
                 self._is_header_written = True
 
             # Write the agent row
-            row_line = _format_streaming_agent_row(agent, self.fields)
+            row_line = _format_streaming_agent_row(agent, self.fields, self._column_widths)
             sys.stdout.write(row_line + "\n")
             self._count += 1
 
@@ -418,24 +424,49 @@ class _StreamingHumanRenderer:
                 logger.info("No agents found")
 
 
-def _format_streaming_row(fields: Sequence[str], is_header: bool) -> str:
-    """Format a single row of streaming output with fixed-width columns."""
+def _compute_column_widths(fields: Sequence[str]) -> dict[str, int]:
+    """Compute column widths sized to the terminal, distributing extra space to expandable columns."""
+    terminal_width = shutil.get_terminal_size((120, 24)).columns
+    separator_total = len(_COLUMN_SEPARATOR) * max(len(fields) - 1, 0)
+
+    # Start with minimum widths
+    width_by_field: dict[str, int] = {}
+    for field in fields:
+        width_by_field[field] = _MIN_COLUMN_WIDTHS.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
+
+    min_total = sum(width_by_field.values()) + separator_total
+    extra_space = max(terminal_width - min_total, 0)
+
+    # Distribute extra space to expandable columns
+    expandable_in_fields = [f for f in fields if f in _EXPANDABLE_COLUMNS]
+    if expandable_in_fields and extra_space > 0:
+        per_column = extra_space // len(expandable_in_fields)
+        remainder = extra_space % len(expandable_in_fields)
+        for idx, field in enumerate(expandable_in_fields):
+            bonus = per_column + (1 if idx < remainder else 0)
+            width_by_field[field] = width_by_field[field] + bonus
+
+    return width_by_field
+
+
+def _format_streaming_row(fields: Sequence[str], column_widths: dict[str, int], is_header: bool) -> str:
+    """Format a single row of streaming output with computed column widths."""
     parts: list[str] = []
     for field in fields:
-        width = _STREAMING_COLUMN_WIDTHS.get(field, _DEFAULT_STREAMING_COLUMN_WIDTH)
+        width = column_widths.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
         value = field.upper().replace(".", "_") if is_header else ""
         parts.append(value.ljust(width))
-    return "  ".join(parts)
+    return _COLUMN_SEPARATOR.join(parts)
 
 
-def _format_streaming_agent_row(agent: AgentInfo, fields: Sequence[str]) -> str:
+def _format_streaming_agent_row(agent: AgentInfo, fields: Sequence[str], column_widths: dict[str, int]) -> str:
     """Format a single agent as a streaming output row."""
     parts: list[str] = []
     for field in fields:
-        width = _STREAMING_COLUMN_WIDTHS.get(field, _DEFAULT_STREAMING_COLUMN_WIDTH)
+        width = column_widths.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
         value = _get_field_value(agent, field)
         parts.append(value.ljust(width))
-    return "  ".join(parts)
+    return _COLUMN_SEPARATOR.join(parts)
 
 
 class _ListIterationParams(BaseModel):

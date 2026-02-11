@@ -10,6 +10,7 @@ from loguru import logger
 
 from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.cli.list import _StreamingHumanRenderer
+from imbue.mngr.cli.list import _compute_column_widths
 from imbue.mngr.cli.list import _format_streaming_agent_row
 from imbue.mngr.cli.list import _format_streaming_row
 from imbue.mngr.cli.list import _format_value_as_string
@@ -548,7 +549,8 @@ def _create_test_agent_with_name(name: str) -> AgentInfo:
 def test_format_streaming_row_header_uses_uppercase_fields() -> None:
     """_format_streaming_row should produce uppercase, dot-replaced headers."""
     fields = ["name", "host", "state"]
-    result = _format_streaming_row(fields, is_header=True)
+    widths = _compute_column_widths(fields)
+    result = _format_streaming_row(fields, widths, is_header=True)
     assert "NAME" in result
     assert "HOST" in result
     assert "STATE" in result
@@ -558,9 +560,27 @@ def test_format_streaming_agent_row_extracts_field_values() -> None:
     """_format_streaming_agent_row should extract and format agent field values."""
     agent = _create_test_agent()
     fields = ["name", "provider"]
-    result = _format_streaming_agent_row(agent, fields)
+    widths = _compute_column_widths(fields)
+    result = _format_streaming_agent_row(agent, fields, widths)
     assert "test-agent" in result
     assert "local" in result
+
+
+def test_compute_column_widths_respects_minimums() -> None:
+    """_compute_column_widths should never go below minimum widths."""
+    fields = ["name", "state"]
+    widths = _compute_column_widths(fields)
+    assert widths["name"] >= 20
+    assert widths["state"] >= 10
+
+
+def test_compute_column_widths_expands_expandable_columns() -> None:
+    """_compute_column_widths should give extra space to expandable columns."""
+    fields = ["name", "state"]
+    widths = _compute_column_widths(fields)
+    # name is expandable, state is not -- name should get all the extra space
+    assert widths["name"] > 20
+    assert widths["state"] == 10
 
 
 # =============================================================================
