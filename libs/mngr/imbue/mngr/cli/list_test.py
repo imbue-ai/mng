@@ -500,7 +500,7 @@ def test_sort_agents_by_name_descending() -> None:
 def test_format_streaming_header_row_uses_uppercase_fields() -> None:
     """_format_streaming_header_row should produce uppercase, dot-replaced headers."""
     fields = ["name", "host", "state"]
-    widths = _compute_column_widths(fields)
+    widths = _compute_column_widths(fields, 120)
     result = _format_streaming_header_row(fields, widths)
     assert "NAME" in result
     assert "HOST" in result
@@ -511,7 +511,7 @@ def test_format_streaming_agent_row_extracts_field_values() -> None:
     """_format_streaming_agent_row should extract and format agent field values."""
     agent = make_test_agent_info()
     fields = ["name", "provider"]
-    widths = _compute_column_widths(fields)
+    widths = _compute_column_widths(fields, 120)
     result = _format_streaming_agent_row(agent, fields, widths)
     assert "test-agent" in result
     assert "local" in result
@@ -520,7 +520,7 @@ def test_format_streaming_agent_row_extracts_field_values() -> None:
 def test_compute_column_widths_respects_minimums() -> None:
     """_compute_column_widths should never go below minimum widths."""
     fields = ["name", "state"]
-    widths = _compute_column_widths(fields)
+    widths = _compute_column_widths(fields, 120)
     assert widths["name"] >= 20
     assert widths["state"] >= 10
 
@@ -528,7 +528,7 @@ def test_compute_column_widths_respects_minimums() -> None:
 def test_compute_column_widths_expands_expandable_columns() -> None:
     """_compute_column_widths should give extra space to expandable columns."""
     fields = ["name", "state"]
-    widths = _compute_column_widths(fields)
+    widths = _compute_column_widths(fields, 120)
     # name is expandable, state is not -- name should get all the extra space
     assert widths["name"] > 20
     assert widths["state"] == 10

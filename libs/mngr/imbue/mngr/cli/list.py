@@ -267,9 +267,12 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         )
         return
 
-    # Determine if --sort was explicitly set by the user (vs using the default)
+    # Determine if --sort or --sort-order was explicitly set by the user (vs using the default)
     sort_source = ctx.get_parameter_source("sort")
-    is_sort_explicit = sort_source is not None and sort_source != click.core.ParameterSource.DEFAULT
+    sort_order_source = ctx.get_parameter_source("sort_order")
+    is_sort_explicit = (sort_source is not None and sort_source != click.core.ParameterSource.DEFAULT) or (
+        sort_order_source is not None and sort_order_source != click.core.ParameterSource.DEFAULT
+    )
 
     # Streaming mode trades sorted output for faster time-to-first-result: agents display
     # as each provider completes rather than waiting for all providers. Users who need sorted
@@ -384,7 +387,6 @@ def _list_streaming_human(
 class _LimitedJsonlEmitter(MutableModel):
     """Callable that emits JSONL output with an optional limit."""
 
-    model_config = {"arbitrary_types_allowed": True}
     limit: int | None
     count: int = 0
     _lock: Lock = PrivateAttr(default_factory=Lock)
@@ -428,7 +430,6 @@ class _StreamingHumanRenderer(MutableModel):
     outputs (piped), skips status lines and ANSI codes entirely.
     """
 
-    model_config = {"arbitrary_types_allowed": True}
     fields: list[str]
     is_tty: bool
     _lock: Lock = PrivateAttr(default_factory=Lock)
@@ -438,7 +439,8 @@ class _StreamingHumanRenderer(MutableModel):
 
     def start(self) -> None:
         """Compute column widths and write the initial status line (TTY only)."""
-        self._column_widths = _compute_column_widths(self.fields)
+        terminal_width = shutil.get_terminal_size((120, 24)).columns
+        self._column_widths = _compute_column_widths(self.fields, terminal_width)
 
         if self.is_tty:
             status = f"{_ANSI_DIM_GRAY}Searching...{_ANSI_RESET}"
@@ -483,9 +485,8 @@ class _StreamingHumanRenderer(MutableModel):
 
 
 @pure
-def _compute_column_widths(fields: Sequence[str]) -> dict[str, int]:
+def _compute_column_widths(fields: Sequence[str], terminal_width: int) -> dict[str, int]:
     """Compute column widths sized to the terminal, distributing extra space to expandable columns."""
-    terminal_width = shutil.get_terminal_size((120, 24)).columns
     separator_total = len(_COLUMN_SEPARATOR) * max(len(fields) - 1, 0)
 
     # Start with minimum widths
@@ -497,35 +498,22 @@ def _compute_column_widths(fields: Sequence[str]) -> dict[str, int]:
     extra_space = max(terminal_width - min_total, 0)
 
     # Distribute extra space to expandable columns, respecting max widths.
-    # Two passes: first distribute evenly, then redistribute any space reclaimed by max caps.
+    # Process columns sorted by tightest max cap first so capped leftovers flow to less
+    # constrained columns in a single pass.
     expandable_in_fields = [f for f in fields if f in _EXPANDABLE_COLUMNS]
     if expandable_in_fields and extra_space > 0:
-        remaining_space = extra_space
-        uncapped_fields = list(expandable_in_fields)
-
-        while remaining_space > 0 and uncapped_fields:
-            per_column = remaining_space // len(uncapped_fields)
-            remainder = remaining_space % len(uncapped_fields)
-            if per_column == 0 and remainder == 0:
-                break
-
-            still_uncapped: list[str] = []
-            space_used = 0
-            for idx, field in enumerate(uncapped_fields):
-                bonus = per_column + (1 if idx < remainder else 0)
-                max_width = _MAX_COLUMN_WIDTHS.get(field)
-                proposed = width_by_field[field] + bonus
-                if max_width is not None and proposed > max_width:
-                    actual_bonus = max(max_width - width_by_field[field], 0)
-                    width_by_field[field] = max_width
-                    space_used += actual_bonus
-                else:
-                    width_by_field[field] = proposed
-                    space_used += bonus
-                    still_uncapped.append(field)
-
-            remaining_space = remaining_space - space_used
-            uncapped_fields = still_uncapped
+        sorted_expandable = sorted(expandable_in_fields, key=lambda f: _MAX_COLUMN_WIDTHS.get(f, float("inf")))
+        remaining = extra_space
+        for idx, field in enumerate(sorted_expandable):
+            fields_left = len(sorted_expandable) - idx
+            per_column = remaining // fields_left
+            extra = 1 if (remaining % fields_left) > 0 else 0
+            bonus = per_column + extra
+            max_width = _MAX_COLUMN_WIDTHS.get(field)
+            if max_width is not None and width_by_field[field] + bonus > max_width:
+                bonus = max(max_width - width_by_field[field], 0)
+            width_by_field[field] = width_by_field[field] + bonus
+            remaining = remaining - bonus
 
     return width_by_field
 
