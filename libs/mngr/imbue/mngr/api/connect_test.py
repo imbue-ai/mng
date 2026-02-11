@@ -281,96 +281,89 @@ def test_build_ssh_args_known_hosts_dev_null_treated_as_missing(temp_mngr_ctx: M
 # =========================================================================
 
 
-def test_connect_to_agent_remote_destroy_signal(
+@pytest.fixture
+def remote_connect_setup(
     temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that connect_to_agent exec's into mngr destroy when SSH exits with SIGNAL_EXIT_CODE_DESTROY."""
+) -> tuple[Host, BaseAgent, ConnectionOptions, MngrContext]:
+    """Common setup for connect_to_agent tests with a remote SSH host."""
     host = _make_ssh_host(temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
     agent = _make_test_agent(host, temp_mngr_ctx, temp_work_dir)
     opts = ConnectionOptions(is_unknown_host_allowed=False)
+    return host, agent, opts, temp_mngr_ctx
 
-    # Track calls to subprocess.call and os.execvp
+
+def _patch_connect_syscalls(
+    monkeypatch: pytest.MonkeyPatch,
+    subprocess_return_code: int,
+) -> tuple[list[list[str]], list[tuple[str, list[str]]]]:
+    """Intercept subprocess.call and os.execvp, returning (call_args, execvp_calls) tracking lists."""
     subprocess_call_args: list[list[str]] = []
     execvp_calls: list[tuple[str, list[str]]] = []
-
     monkeypatch.setattr(
-        subprocess, "call", lambda args: (subprocess_call_args.append(args), SIGNAL_EXIT_CODE_DESTROY)[1]
+        subprocess,
+        "call",
+        lambda args: (subprocess_call_args.append(args), subprocess_return_code)[1],
     )
     monkeypatch.setattr(os, "execvp", lambda cmd, args: execvp_calls.append((cmd, args)))
+    return subprocess_call_args, execvp_calls
 
-    connect_to_agent(agent, host, temp_mngr_ctx, opts)
 
-    expected_session = f"{temp_mngr_ctx.config.prefix}{agent.name}"
+def test_connect_to_agent_remote_destroy_signal(
+    remote_connect_setup: tuple[Host, BaseAgent, ConnectionOptions, MngrContext],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that connect_to_agent exec's into mngr destroy when SSH exits with SIGNAL_EXIT_CODE_DESTROY."""
+    host, agent, opts, mngr_ctx = remote_connect_setup
+    subprocess_call_args, execvp_calls = _patch_connect_syscalls(monkeypatch, SIGNAL_EXIT_CODE_DESTROY)
+
+    connect_to_agent(agent, host, mngr_ctx, opts)
+
+    expected_session = f"{mngr_ctx.config.prefix}{agent.name}"
     assert len(subprocess_call_args) == 1
     assert len(execvp_calls) == 1
     assert execvp_calls[0] == ("mngr", ["mngr", "destroy", "--session", expected_session, "-f"])
 
 
 def test_connect_to_agent_remote_stop_signal(
-    temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
+    remote_connect_setup: tuple[Host, BaseAgent, ConnectionOptions, MngrContext],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that connect_to_agent exec's into mngr stop when SSH exits with SIGNAL_EXIT_CODE_STOP."""
-    host = _make_ssh_host(temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
-    agent = _make_test_agent(host, temp_mngr_ctx, temp_work_dir)
-    opts = ConnectionOptions(is_unknown_host_allowed=False)
+    host, agent, opts, mngr_ctx = remote_connect_setup
+    subprocess_call_args, execvp_calls = _patch_connect_syscalls(monkeypatch, SIGNAL_EXIT_CODE_STOP)
 
-    subprocess_call_args: list[list[str]] = []
-    execvp_calls: list[tuple[str, list[str]]] = []
+    connect_to_agent(agent, host, mngr_ctx, opts)
 
-    monkeypatch.setattr(subprocess, "call", lambda args: (subprocess_call_args.append(args), SIGNAL_EXIT_CODE_STOP)[1])
-    monkeypatch.setattr(os, "execvp", lambda cmd, args: execvp_calls.append((cmd, args)))
-
-    connect_to_agent(agent, host, temp_mngr_ctx, opts)
-
-    expected_session = f"{temp_mngr_ctx.config.prefix}{agent.name}"
+    expected_session = f"{mngr_ctx.config.prefix}{agent.name}"
     assert len(subprocess_call_args) == 1
     assert len(execvp_calls) == 1
     assert execvp_calls[0] == ("mngr", ["mngr", "stop", "--session", expected_session])
 
 
 def test_connect_to_agent_remote_normal_exit_no_action(
-    temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
+    remote_connect_setup: tuple[Host, BaseAgent, ConnectionOptions, MngrContext],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that connect_to_agent does not exec into anything on normal SSH exit (code 0)."""
-    host = _make_ssh_host(temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
-    agent = _make_test_agent(host, temp_mngr_ctx, temp_work_dir)
-    opts = ConnectionOptions(is_unknown_host_allowed=False)
+    host, agent, opts, mngr_ctx = remote_connect_setup
+    subprocess_call_args, execvp_calls = _patch_connect_syscalls(monkeypatch, 0)
 
-    subprocess_call_args: list[list[str]] = []
-    execvp_calls: list[tuple[str, list[str]]] = []
-
-    monkeypatch.setattr(subprocess, "call", lambda args: (subprocess_call_args.append(args), 0)[1])
-    monkeypatch.setattr(os, "execvp", lambda cmd, args: execvp_calls.append((cmd, args)))
-
-    connect_to_agent(agent, host, temp_mngr_ctx, opts)
+    connect_to_agent(agent, host, mngr_ctx, opts)
 
     assert len(subprocess_call_args) == 1
     assert len(execvp_calls) == 0
 
 
 def test_connect_to_agent_remote_unknown_exit_code_no_action(
-    temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
+    remote_connect_setup: tuple[Host, BaseAgent, ConnectionOptions, MngrContext],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that connect_to_agent does not exec into anything on unexpected SSH exit codes."""
-    host = _make_ssh_host(temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
-    agent = _make_test_agent(host, temp_mngr_ctx, temp_work_dir)
-    opts = ConnectionOptions(is_unknown_host_allowed=False)
+    host, agent, opts, mngr_ctx = remote_connect_setup
+    subprocess_call_args, execvp_calls = _patch_connect_syscalls(monkeypatch, 255)
 
-    subprocess_call_args: list[list[str]] = []
-    execvp_calls: list[tuple[str, list[str]]] = []
-
-    monkeypatch.setattr(subprocess, "call", lambda args: (subprocess_call_args.append(args), 255)[1])
-    monkeypatch.setattr(os, "execvp", lambda cmd, args: execvp_calls.append((cmd, args)))
-
-    connect_to_agent(agent, host, temp_mngr_ctx, opts)
+    connect_to_agent(agent, host, mngr_ctx, opts)
 
     assert len(subprocess_call_args) == 1
     assert len(execvp_calls) == 0
@@ -396,11 +389,7 @@ def test_connect_to_agent_remote_uses_correct_session_name(
     host = _make_ssh_host(custom_ctx, ssh_known_hosts_file="/tmp/known_hosts")
     agent = _make_test_agent(host, custom_ctx, temp_work_dir, agent_name=AgentName("my-agent"))
     opts = ConnectionOptions(is_unknown_host_allowed=False)
-
-    execvp_calls: list[tuple[str, list[str]]] = []
-
-    monkeypatch.setattr(subprocess, "call", lambda args: SIGNAL_EXIT_CODE_DESTROY)
-    monkeypatch.setattr(os, "execvp", lambda cmd, args: execvp_calls.append((cmd, args)))
+    _, execvp_calls = _patch_connect_syscalls(monkeypatch, SIGNAL_EXIT_CODE_DESTROY)
 
     connect_to_agent(agent, host, custom_ctx, opts)
 
