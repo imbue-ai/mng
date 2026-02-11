@@ -74,8 +74,11 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
     )
 
     if result.returncode != 0:
-        stderr_msg = result.stderr.strip() if result.stderr else "unknown error"
-        raise MngrError(f"claude --print failed (exit code {result.returncode}): {stderr_msg}")
+        stderr_msg = result.stderr.strip()
+        stdout_msg = result.stdout.strip()
+        # claude sometimes writes errors to stdout instead of stderr
+        detail = stderr_msg or stdout_msg or "unknown error (no output captured)"
+        raise MngrError(f"claude --print failed (exit code {result.returncode}): {detail}")
 
     response = result.stdout.rstrip("\n")
 
