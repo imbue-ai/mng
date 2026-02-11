@@ -11,6 +11,7 @@ from click_option_group import optgroup
 from loguru import logger
 from pydantic import Field
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
@@ -581,7 +582,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
     source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx)
 
     # figure out the project label, in case we need that
-    project_name = _parse_project_name(source_location, opts)
+    project_name = _parse_project_name(source_location, opts, mngr_ctx)
 
     # Parse host lifecycle options (these go on the host, not the agent)
     host_lifecycle = _parse_host_lifecycle_options(opts)
@@ -600,6 +601,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
         initial_message=initial_message,
         resume_message=resume_message_content,
         source_location=source_location,
+        mngr_ctx=mngr_ctx,
     )
 
     # parse the connection options
@@ -850,7 +852,7 @@ def _create_agent_in_background(
         os._exit(1)
 
 
-def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions) -> str:
+def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions, mngr_ctx: MngrContext) -> str:
     if opts.project:
         return opts.project
 
@@ -859,7 +861,7 @@ def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions) -
             "Have to re-implement the below function so that it works via HostInterface calls instead!"
         )
 
-    return derive_project_name_from_path(source_location.path)
+    return derive_project_name_from_path(source_location.path, mngr_ctx.cg)
 
 
 def _try_reuse_existing_agent(
@@ -940,7 +942,7 @@ def _resolve_source_location(
         # easy, source location is on current host
         source_path = opts.source_path
         if source_path is None:
-            git_root = find_git_worktree_root()
+            git_root = find_git_worktree_root(None, mngr_ctx.cg)
             source_path = str(git_root) if git_root is not None else os.getcwd()
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
         source_location = HostLocation(
@@ -1031,13 +1033,13 @@ def _snapshot_if_required(
     return snapshot_name
 
 
-def _get_current_git_branch(source_location: HostLocation) -> str | None:
+def _get_current_git_branch(source_location: HostLocation, mngr_ctx: MngrContext) -> str | None:
     if not source_location.host.is_local:
         raise NotImplementedError(
             "Have to re-implement this function so that it works via HostInterface calls instead!"
         )
 
-    return get_current_git_branch(source_location.path)
+    return get_current_git_branch(source_location.path, mngr_ctx.cg)
 
 
 def _resolve_env_vars(
@@ -1063,10 +1065,9 @@ def _resolve_env_vars(
     return tuple(EnvVar(key=k, value=v) for k, v in merged.items())
 
 
-@pure
-def _is_git_repo(path: Path) -> bool:
+def _is_git_repo(path: Path, cg: ConcurrencyGroup) -> bool:
     """Check if the given path is inside a git repository."""
-    return find_git_worktree_root(path) is not None
+    return find_git_worktree_root(path, cg) is not None
 
 
 @pure
@@ -1084,7 +1085,11 @@ def _was_value_after_double_dash(value: str) -> bool:
 
 
 def _parse_agent_opts(
-    opts: CreateCliOptions, initial_message: str | None, resume_message: str | None, source_location: HostLocation
+    opts: CreateCliOptions,
+    initial_message: str | None,
+    resume_message: str | None,
+    source_location: HostLocation,
+    mngr_ctx: MngrContext,
 ) -> CreateAgentOptions:
     # Get agent name from positional argument or --name flag, otherwise auto-generate
     parsed_agent_name: AgentName
@@ -1117,7 +1122,7 @@ def _parse_agent_opts(
         if is_creating_remote_host:
             copy_mode = WorkDirCopyMode.COPY
         elif source_location.host.is_local:
-            is_git_repo = _is_git_repo(source_location.path)
+            is_git_repo = _is_git_repo(source_location.path, mngr_ctx.cg)
             if is_git_repo:
                 copy_mode = WorkDirCopyMode.WORKTREE
             else:
@@ -1148,7 +1153,7 @@ def _parse_agent_opts(
     else:
         git = AgentGitOptions(
             copy_mode=copy_mode,
-            base_branch=opts.base_branch or _get_current_git_branch(source_location),
+            base_branch=opts.base_branch or _get_current_git_branch(source_location, mngr_ctx),
             is_new_branch=is_new_branch,
             new_branch_name=new_branch if new_branch else None,
             new_branch_prefix=opts.new_branch_prefix,

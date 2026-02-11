@@ -294,7 +294,7 @@ class ClaudeAgent(BaseAgent):
                     "Use --copy or --clone instead."
                 )
             if not mngr_ctx.is_interactive:
-                git_common_dir = find_git_common_dir(self.work_dir)
+                git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.cg)
                 if git_common_dir is not None:
                     source_path = git_common_dir.parent
                     check_source_directory_trusted(source_path)
@@ -407,7 +407,7 @@ class ClaudeAgent(BaseAgent):
         non-interactive runs re-raise the error.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
-            git_common_dir = find_git_common_dir(self.work_dir)
+            git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.cg)
             if git_common_dir is not None:
                 source_path = git_common_dir.parent
                 try:

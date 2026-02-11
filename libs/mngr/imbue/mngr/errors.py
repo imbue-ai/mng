@@ -332,6 +332,10 @@ class UnknownBackendError(ConfigError):
     """Unknown provider backend."""
 
 
+class MissingConcurrencyGroupError(BaseMngrError, RuntimeError):
+    """Raised when a ConcurrencyGroup is required but not available on MngrContext."""
+
+
 class UnisonNotInstalledError(MngrError):
     """Raised when unison is not installed but is required for pair mode."""
 

@@ -1,5 +1,7 @@
 """Unit tests for the connect API module."""
 
+import shlex
+import subprocess
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -360,9 +362,14 @@ def _run_connect_to_agent(
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
     result = _ConnectTestResult()
+
+    def fake_run_interactive(args, **kwargs):
+        result.subprocess_call_args.append(list(args))
+        return subprocess.CompletedProcess(args=args, returncode=ssh_exit_code)
+
     monkeypatch.setattr(
-        "imbue.mngr.api.connect.subprocess.call",
-        lambda args: (result.subprocess_call_args.append(list(args)), ssh_exit_code)[1],
+        "imbue.mngr.api.connect.run_interactive_subprocess",
+        fake_run_interactive,
     )
     monkeypatch.setattr(
         "imbue.mngr.api.connect.os.execvp",
@@ -441,3 +448,20 @@ def test_connect_to_agent_remote_uses_correct_session_name(
 
     assert len(result.execvp_calls) == 1
     assert result.execvp_calls[0] == ("mngr", ["mngr", "destroy", "--session", "custom-my-agent", "-f"])
+
+
+def test_ssh_wrapper_script_is_correctly_quoted_for_bash_c() -> None:
+    """Verify the wrapper script survives shell parsing as a single bash -c argument.
+
+    SSH concatenates remote command arguments with spaces, so the wrapper must
+    be shell-quoted into a single 'bash -c <quoted_script>' string. Otherwise
+    bash -c only receives the first word (e.g. 'mkdir'), causing errors like
+    'mkdir: missing operand'.
+    """
+    wrapper_script = _build_ssh_activity_wrapper_script("mngr-test", Path("/mngr"))
+    remote_command = "bash -c " + shlex.quote(wrapper_script)
+
+    # When the remote shell parses this command, bash should receive
+    # the full wrapper script as a single -c argument
+    parsed = shlex.split(remote_command)
+    assert parsed == ["bash", "-c", wrapper_script]

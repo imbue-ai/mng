@@ -1,5 +1,5 @@
 import os
-import subprocess
+import shlex
 from pathlib import Path
 from typing import Final
 
@@ -11,6 +11,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.utils.interactive_subprocess import run_interactive_subprocess
 
 # Exit codes used by the remote SSH wrapper script to signal post-disconnect actions.
 # These are checked by connect_to_agent after the SSH session ends to determine
@@ -155,11 +156,16 @@ def connect_to_agent(
 
         # Build wrapper script that tracks SSH activity while running tmux
         wrapper_script = _build_ssh_activity_wrapper_script(session_name, host.host_dir)
-        ssh_args.extend(["-t", "bash", "-c", wrapper_script])
+        # Pass the wrapper as a single remote command string so SSH doesn't
+        # split it into separate words. SSH concatenates multiple remote command
+        # arguments with spaces, which would cause 'bash -c' to only receive
+        # the first word of the script (e.g., 'mkdir') instead of the full script.
+        ssh_args.extend(["-t", "bash -c " + shlex.quote(wrapper_script)])
 
-        # Use subprocess.call instead of os.execvp so we can check the exit code
+        # Use run_interactive_subprocess instead of os.execvp so we can check the exit code
         # and run post-disconnect actions (destroy/stop) triggered by tmux key bindings
-        exit_code = subprocess.call(ssh_args)
+        completed = run_interactive_subprocess(ssh_args)
+        exit_code = completed.returncode
 
         action = _determine_post_disconnect_action(exit_code, session_name)
         if action is not None:

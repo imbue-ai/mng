@@ -174,7 +174,7 @@ def pair(ctx: click.Context, **kwargs) -> None:
         target_path = Path(opts.target)
     else:
         # Default to nearest git root, or current directory
-        git_root = find_git_worktree_root()
+        git_root = find_git_worktree_root(None, mngr_ctx.cg)
         target_path = git_root if git_root is not None else Path.cwd()
 
     # Find the agent
@@ -224,6 +224,7 @@ def pair(ctx: click.Context, **kwargs) -> None:
             uncommitted_changes=uncommitted_changes_mode,
             exclude_patterns=opts.exclude,
             include_patterns=opts.include,
+            cg=mngr_ctx.cg,
         ) as syncer:
             emit_info("Sync started. Press Ctrl+C to stop.", output_opts.output_format)
 

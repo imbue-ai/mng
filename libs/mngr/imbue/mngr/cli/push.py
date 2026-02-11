@@ -220,6 +220,7 @@ def push(ctx: click.Context, **kwargs) -> None:
             is_dry_run=opts.dry_run,
             uncommitted_changes=uncommitted_changes_mode,
             is_mirror=opts.mirror,
+            cg=mngr_ctx.cg,
         )
 
         output_sync_git_result(git_result, output_opts.output_format)
@@ -247,6 +248,7 @@ def push(ctx: click.Context, **kwargs) -> None:
             is_dry_run=opts.dry_run,
             is_delete=opts.delete,
             uncommitted_changes=uncommitted_changes_mode,
+            cg=mngr_ctx.cg,
         )
 
         output_sync_files_result(files_result, output_opts.output_format)

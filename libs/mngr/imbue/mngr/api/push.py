@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.sync import SyncFilesResult
 from imbue.mngr.api.sync import SyncGitResult
 from imbue.mngr.api.sync import sync_files
@@ -20,6 +21,7 @@ def push_files(
     is_dry_run: bool,
     is_delete: bool,
     uncommitted_changes: UncommittedChangesMode,
+    cg: ConcurrencyGroup,
 ) -> SyncFilesResult:
     """Push files from a local directory to an agent's work directory using rsync."""
     return sync_files(
@@ -31,6 +33,7 @@ def push_files(
         is_dry_run=is_dry_run,
         is_delete=is_delete,
         uncommitted_changes=uncommitted_changes,
+        cg=cg,
     )
 
 
@@ -43,6 +46,7 @@ def push_git(
     is_dry_run: bool,
     uncommitted_changes: UncommittedChangesMode,
     is_mirror: bool,
+    cg: ConcurrencyGroup,
 ) -> SyncGitResult:
     """Push git commits from a local repository to an agent's repository."""
     return sync_git(
@@ -55,4 +59,5 @@ def push_git(
         is_dry_run=is_dry_run,
         uncommitted_changes=uncommitted_changes,
         is_mirror=is_mirror,
+        cg=cg,
     )

@@ -1,11 +1,10 @@
-import os
-import signal
 import subprocess
 from pathlib import Path
 from typing import cast
 
 import pytest
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.pair import UnisonSyncer
 from imbue.mngr.api.pair import determine_git_sync_actions
 from imbue.mngr.api.pair import pair_files
@@ -54,14 +53,14 @@ def pair_ctx(tmp_path: Path) -> SyncTestContext:
 # =============================================================================
 
 
-def test_sync_git_state_performs_push_when_local_is_ahead(pair_ctx: SyncTestContext) -> None:
+def test_sync_git_state_performs_push_when_local_is_ahead(pair_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that sync_git_state pushes commits from local to agent when local is ahead."""
     # Add a commit to target (local) that needs to be pushed to source (agent)
     (pair_ctx.local_dir / "new_file.txt").write_text("new content")
     run_git_command(pair_ctx.local_dir, "add", "new_file.txt")
     run_git_command(pair_ctx.local_dir, "commit", "-m", "Add new file")
 
-    git_action = determine_git_sync_actions(pair_ctx.agent_dir, pair_ctx.local_dir)
+    git_action = determine_git_sync_actions(pair_ctx.agent_dir, pair_ctx.local_dir, cg)
     assert git_action is not None
     assert git_action.local_is_ahead is True
 
@@ -71,6 +70,7 @@ def test_sync_git_state_performs_push_when_local_is_ahead(pair_ctx: SyncTestCont
         local_path=pair_ctx.local_dir,
         git_sync_action=git_action,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        cg=cg,
     )
 
     assert git_push_performed is True
@@ -79,14 +79,14 @@ def test_sync_git_state_performs_push_when_local_is_ahead(pair_ctx: SyncTestCont
     assert (pair_ctx.agent_dir / "new_file.txt").exists()
 
 
-def test_sync_git_state_performs_pull_when_agent_is_ahead(pair_ctx: SyncTestContext) -> None:
+def test_sync_git_state_performs_pull_when_agent_is_ahead(pair_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that sync_git_state pulls commits from agent to local when agent is ahead."""
     # Add a commit to source (agent) that needs to be pulled to target (local)
     (pair_ctx.agent_dir / "agent_file.txt").write_text("agent content")
     run_git_command(pair_ctx.agent_dir, "add", "agent_file.txt")
     run_git_command(pair_ctx.agent_dir, "commit", "-m", "Add agent file")
 
-    git_action = determine_git_sync_actions(pair_ctx.agent_dir, pair_ctx.local_dir)
+    git_action = determine_git_sync_actions(pair_ctx.agent_dir, pair_ctx.local_dir, cg)
     assert git_action is not None
     assert git_action.agent_is_ahead is True
 
@@ -96,6 +96,7 @@ def test_sync_git_state_performs_pull_when_agent_is_ahead(pair_ctx: SyncTestCont
         local_path=pair_ctx.local_dir,
         git_sync_action=git_action,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        cg=cg,
     )
 
     assert git_pull_performed is True
@@ -112,6 +113,7 @@ def test_sync_git_state_performs_pull_when_agent_is_ahead(pair_ctx: SyncTestCont
 def test_pair_files_raises_when_unison_not_installed_and_mocked(
     pair_ctx: SyncTestContext,
     monkeypatch: pytest.MonkeyPatch,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that pair_files raises UnisonNotInstalledError when unison is not available."""
     # Mock check_unison_installed to return False
@@ -129,6 +131,7 @@ def test_pair_files_raises_when_unison_not_installed_and_mocked(
             uncommitted_changes=UncommittedChangesMode.FAIL,
             exclude_patterns=(),
             include_patterns=(),
+            cg=cg,
         ):
             pass
 
@@ -136,6 +139,7 @@ def test_pair_files_raises_when_unison_not_installed_and_mocked(
 def test_pair_files_raises_when_git_required_but_not_present(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that pair_files raises MngrError when git is required but directories are not repos."""
     # Mock check_unison_installed to return True so we can test the git check
@@ -161,13 +165,14 @@ def test_pair_files_raises_when_git_required_but_not_present(
             uncommitted_changes=UncommittedChangesMode.FAIL,
             exclude_patterns=(),
             include_patterns=(),
+            cg=cg,
         ):
             pass
 
     assert "Git repositories required" in str(exc_info.value)
 
 
-def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext) -> None:
+def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that pair_files properly starts and stops the unison syncer."""
     with pair_files(
         agent=pair_ctx.agent,
@@ -180,6 +185,7 @@ def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext) -> None:
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
         exclude_patterns=(),
         include_patterns=(),
+        cg=cg,
     ) as syncer:
         # Wait for unison to start
         wait_for(
@@ -203,7 +209,7 @@ def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext) -> None:
         assert syncer.is_running is False
 
 
-def test_pair_files_syncs_git_state_before_starting(pair_ctx: SyncTestContext) -> None:
+def test_pair_files_syncs_git_state_before_starting(pair_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that pair_files syncs git state before starting continuous sync."""
     # Add a commit to source (agent) that should be pulled to target
     (pair_ctx.agent_dir / "agent_commit.txt").write_text("agent content")
@@ -224,6 +230,7 @@ def test_pair_files_syncs_git_state_before_starting(pair_ctx: SyncTestContext) -
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
         exclude_patterns=(),
         include_patterns=(),
+        cg=cg,
     ) as syncer:
         # Git sync should have happened before unison started
         # The file should now exist in target
@@ -233,7 +240,7 @@ def test_pair_files_syncs_git_state_before_starting(pair_ctx: SyncTestContext) -
         syncer.stop()
 
 
-def test_pair_files_with_no_git_requirement(tmp_path: Path) -> None:
+def test_pair_files_with_no_git_requirement(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that pair_files works without git when is_require_git=False."""
     source_dir = tmp_path / "source"
     target_dir = tmp_path / "target"
@@ -257,6 +264,7 @@ def test_pair_files_with_no_git_requirement(tmp_path: Path) -> None:
         uncommitted_changes=UncommittedChangesMode.FAIL,
         exclude_patterns=(),
         include_patterns=(),
+        cg=cg,
     ) as syncer:
         # Wait for unison to start
         wait_for(
@@ -275,7 +283,7 @@ def test_pair_files_with_no_git_requirement(tmp_path: Path) -> None:
 # =============================================================================
 
 
-def test_unison_syncer_start_and_stop(tmp_path: Path) -> None:
+def test_unison_syncer_start_and_stop(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer can start and stop unison process."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -287,6 +295,7 @@ def test_unison_syncer_start_and_stop(tmp_path: Path) -> None:
         target_path=target,
         sync_direction=SyncDirection.BOTH,
         conflict_mode=ConflictMode.NEWER,
+        cg=cg,
     )
 
     try:
@@ -311,7 +320,7 @@ def test_unison_syncer_start_and_stop(tmp_path: Path) -> None:
     assert syncer.is_running is False
 
 
-def test_unison_syncer_syncs_file_changes(tmp_path: Path) -> None:
+def test_unison_syncer_syncs_file_changes(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer actually syncs file changes."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -326,6 +335,7 @@ def test_unison_syncer_syncs_file_changes(tmp_path: Path) -> None:
         target_path=target,
         sync_direction=SyncDirection.BOTH,
         conflict_mode=ConflictMode.NEWER,
+        cg=cg,
     )
 
     try:
@@ -344,7 +354,7 @@ def test_unison_syncer_syncs_file_changes(tmp_path: Path) -> None:
         syncer.stop()
 
 
-def test_unison_syncer_syncs_symlinks(tmp_path: Path) -> None:
+def test_unison_syncer_syncs_symlinks(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer correctly syncs symlinks."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -360,6 +370,7 @@ def test_unison_syncer_syncs_symlinks(tmp_path: Path) -> None:
         target_path=target,
         sync_direction=SyncDirection.BOTH,
         conflict_mode=ConflictMode.NEWER,
+        cg=cg,
     )
 
     try:
@@ -381,7 +392,7 @@ def test_unison_syncer_syncs_symlinks(tmp_path: Path) -> None:
         syncer.stop()
 
 
-def test_unison_syncer_syncs_directory_symlinks(tmp_path: Path) -> None:
+def test_unison_syncer_syncs_directory_symlinks(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer correctly syncs directory symlinks."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -398,6 +409,7 @@ def test_unison_syncer_syncs_directory_symlinks(tmp_path: Path) -> None:
         target_path=target,
         sync_direction=SyncDirection.BOTH,
         conflict_mode=ConflictMode.NEWER,
+        cg=cg,
     )
 
     try:
@@ -418,7 +430,7 @@ def test_unison_syncer_syncs_directory_symlinks(tmp_path: Path) -> None:
         syncer.stop()
 
 
-def test_unison_syncer_handles_process_crash(tmp_path: Path) -> None:
+def test_unison_syncer_handles_process_crash(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer handles unison process crash gracefully."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -430,6 +442,7 @@ def test_unison_syncer_handles_process_crash(tmp_path: Path) -> None:
         target_path=target,
         sync_direction=SyncDirection.BOTH,
         conflict_mode=ConflictMode.NEWER,
+        cg=cg,
     )
 
     try:
@@ -442,10 +455,15 @@ def test_unison_syncer_handles_process_crash(tmp_path: Path) -> None:
         )
 
         assert syncer.is_running is True
-        assert syncer._process is not None
+        assert syncer._running_process is not None
 
-        # Kill the unison process forcefully (simulating a crash)
-        os.kill(syncer._process.pid, signal.SIGKILL)
+        # Kill the unison process forcefully via SIGKILL (simulating a crash).
+        # Use pkill to find the actual unison process by its unique tmp_path args,
+        # since RunningProcess doesn't expose the underlying PID directly.
+        subprocess.run(
+            ["pkill", "-KILL", "-f", f"unison {source} {target}"],
+            capture_output=True,
+        )
 
         # is_running should eventually become False
         wait_for(
@@ -460,7 +478,7 @@ def test_unison_syncer_handles_process_crash(tmp_path: Path) -> None:
 
 
 @pytest.mark.release
-def test_unison_syncer_handles_large_files(tmp_path: Path) -> None:
+def test_unison_syncer_handles_large_files(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer correctly syncs large files (50MB)."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -487,6 +505,7 @@ def test_unison_syncer_handles_large_files(tmp_path: Path) -> None:
         target_path=target,
         sync_direction=SyncDirection.BOTH,
         conflict_mode=ConflictMode.NEWER,
+        cg=cg,
     )
 
     try:

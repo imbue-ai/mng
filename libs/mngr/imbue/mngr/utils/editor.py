@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -12,6 +13,7 @@ from loguru import logger
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import UserInputError
+from imbue.mngr.utils.interactive_subprocess import popen_interactive_subprocess
 
 FALLBACK_EDITORS: Final[tuple[str, ...]] = ("vim", "vi", "nano", "notepad")
 
@@ -35,13 +37,7 @@ def get_editor_command() -> str:
 
     # Try to find a fallback editor
     for fallback in FALLBACK_EDITORS:
-        # Check if the editor is available in PATH
-        result = subprocess.run(
-            ["which", fallback],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
+        if shutil.which(fallback) is not None:
             return fallback
 
     # Last resort: just try vim
@@ -122,7 +118,7 @@ class EditorSession:
         with log_span("Starting editor {} with file {}", self.editor_command, self.temp_file_path):
             # Start the editor process
             # The editor inherits the terminal (stdin/stdout/stderr) from parent
-            self._process = subprocess.Popen(
+            self._process = popen_interactive_subprocess(
                 [self.editor_command, str(self.temp_file_path)],
                 stdin=None,
                 stdout=None,

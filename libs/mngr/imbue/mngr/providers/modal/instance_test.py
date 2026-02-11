@@ -28,6 +28,7 @@ import modal.exception
 import pluggy
 import pytest
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.conftest import make_mngr_ctx
@@ -340,6 +341,7 @@ def modal_mngr_ctx(
     temp_host_dir: Path,
     temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
+    cg: ConcurrencyGroup,
 ) -> MngrContext:
     """Create a MngrContext with a timestamp-based prefix for Modal acceptance tests.
 
@@ -352,7 +354,7 @@ def modal_mngr_ctx(
     timestamp = now.strftime("%Y-%m-%d-%H-%M-%S")
     prefix = f"{TEST_ENV_PREFIX}{timestamp}-"
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=prefix)
-    return make_mngr_ctx(config, plugin_manager, temp_profile_dir)
+    return make_mngr_ctx(config, plugin_manager, temp_profile_dir, concurrency_group=cg)
 
 
 def _cleanup_modal_test_resources(app_name: str, volume_name: str, environment_name: str) -> None:

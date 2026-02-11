@@ -15,6 +15,7 @@ import httpx
 import modal
 import pytest
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.conftest import register_modal_test_volume
 from imbue.mngr.primitives import HostState
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
@@ -137,7 +138,8 @@ def deployed_snapshot_function() -> Generator[tuple[str, str], None, None]:
     register_modal_test_volume(volume_name)
 
     try:
-        url = deploy_function("snapshot_and_shutdown", app_name, None)
+        with ConcurrencyGroup(name="test_deploy_snapshot") as cg:
+            url = deploy_function("snapshot_and_shutdown", app_name, None, cg)
         # Warm up the function to avoid cold start timeouts in tests
         _warmup_function(url)
         yield (app_name, url)

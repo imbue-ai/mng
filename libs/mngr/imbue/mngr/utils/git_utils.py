@@ -1,34 +1,32 @@
-import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ConcurrencyGroupError
+from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import MngrError
 
 
-def get_current_git_branch(path: Path | None = None) -> str | None:
+def get_current_git_branch(path: Path | None, cg: ConcurrencyGroup) -> str | None:
     """Get the current git branch name for the repository at the given path.
 
     Returns None if the path is not a git repository or an error occurs.
     """
     try:
         cwd = path or Path.cwd()
-        result = subprocess.run(
+        result = cg.run_process_to_completion(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             cwd=cwd,
-            capture_output=True,
-            text=True,
-            check=True,
         )
-        branch_name = result.stdout.strip()
-        return branch_name
-    except subprocess.CalledProcessError:
+        return result.stdout.strip()
+    except ConcurrencyGroupError:
         return None
 
 
-def derive_project_name_from_path(path: Path) -> str:
+def derive_project_name_from_path(path: Path, cg: ConcurrencyGroup) -> str:
     """Derive a project name from a path.
 
     Attempts to extract the project name from the git remote origin URL if available.
@@ -36,7 +34,7 @@ def derive_project_name_from_path(path: Path) -> str:
     is not recognized.
     """
     # Try to get the git remote origin URL
-    git_project_name = _get_project_name_from_git_remote(path)
+    git_project_name = _get_project_name_from_git_remote(path, cg)
     if git_project_name is not None:
         return git_project_name
 
@@ -44,7 +42,7 @@ def derive_project_name_from_path(path: Path) -> str:
     return path.resolve().name
 
 
-def _get_project_name_from_git_remote(path: Path) -> str | None:
+def _get_project_name_from_git_remote(path: Path, cg: ConcurrencyGroup) -> str | None:
     """Get the project name from the git remote origin URL.
 
     Supports GitHub and GitLab URL formats:
@@ -62,22 +60,16 @@ def _get_project_name_from_git_remote(path: Path) -> str | None:
 
     # Try to get the remote origin URL
     try:
-        result = subprocess.run(
+        result = cg.run_process_to_completion(
             ["git", "remote", "get-url", "origin"],
             cwd=path,
-            capture_output=True,
-            text=True,
             timeout=5,
+            is_checked_after=False,
         )
-
         if result.returncode != 0:
             return None
-
-        origin_url = result.stdout.strip()
-
-        # Parse the URL to extract the project name
-        return _parse_project_name_from_url(origin_url)
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return _parse_project_name_from_url(result.stdout.strip())
+    except ConcurrencyGroupError:
         return None
 
 
@@ -89,14 +81,11 @@ def _parse_project_name_from_url(url: str) -> str | None:
     """
     # Handle SSH-style URLs (e.g., git@github.com:owner/repo.git)
     if "@" in url and ":" in url:
-        # Split on ':' to get the path part
         parts = url.split(":")
         if len(parts) == 2:
             path_part = parts[1]
-            # Remove .git suffix if present
             if path_part.endswith(".git"):
                 path_part = path_part[:-4]
-            # Extract the project name (last component)
             project_name = path_part.split("/")[-1]
             if project_name:
                 return project_name
@@ -104,65 +93,50 @@ def _parse_project_name_from_url(url: str) -> str | None:
     # Handle HTTPS URLs (e.g., https://github.com/owner/repo.git)
     try:
         parsed = urlparse(url)
-        # Only process if it looks like a proper URL with a scheme
         if parsed.scheme in ("http", "https"):
             if parsed.path:
                 path = parsed.path.strip("/")
-                # Remove .git suffix if present
                 if path.endswith(".git"):
                     path = path[:-4]
-                # Extract the project name (last component)
                 project_name = path.split("/")[-1]
                 if project_name:
                     return project_name
     except ValueError:
         pass
-
     return None
 
 
-def _get_git_config_value(path: Path, key: str) -> str | None:
-    """Get a git config value for the repository at the given path.
-
-    Returns None if the key is not configured or an error occurs.
-    """
-    result = subprocess.run(
+def _get_git_config_value(path: Path, key: str, cg: ConcurrencyGroup) -> str | None:
+    """Get a git config value for the repository at the given path."""
+    result = cg.run_process_to_completion(
         ["git", "config", key],
         cwd=path,
-        capture_output=True,
-        text=True,
+        is_checked_after=False,
     )
     if result.returncode == 0 and result.stdout.strip():
         return result.stdout.strip()
     return None
 
 
-def get_git_author_info(path: Path) -> tuple[str | None, str | None]:
-    """Get the git author name and email for the repository at the given path.
-
-    Returns a tuple of (user_name, user_email). Either or both may be None
-    if not configured.
-    """
-    return _get_git_config_value(path, "user.name"), _get_git_config_value(path, "user.email")
+def get_git_author_info(path: Path, cg: ConcurrencyGroup) -> tuple[str | None, str | None]:
+    """Get the git author name and email for the repository at the given path."""
+    return _get_git_config_value(path, "user.name", cg), _get_git_config_value(path, "user.email", cg)
 
 
-def find_git_worktree_root(start: Path | None = None) -> Path | None:
+def find_git_worktree_root(start: Path | None, cg: ConcurrencyGroup) -> Path | None:
     """Find the git worktree root."""
     cwd = start or Path.cwd()
     try:
-        result = subprocess.run(
+        result = cg.run_process_to_completion(
             ["git", "rev-parse", "--show-toplevel"],
             cwd=cwd,
-            capture_output=True,
-            text=True,
-            check=True,
         )
         return Path(result.stdout.strip())
-    except subprocess.CalledProcessError:
+    except ConcurrencyGroupError:
         return None
 
 
-def is_git_repository(path: Path) -> bool:
+def is_git_repository(path: Path, cg: ConcurrencyGroup) -> bool:
     """Check if the given path is inside a git repository.
 
     Works from any subdirectory within a git worktree.
@@ -170,31 +144,28 @@ def is_git_repository(path: Path) -> bool:
     """
     if not path.exists():
         return False
-    result = subprocess.run(
-        ["git", "rev-parse", "--git-dir"],
-        cwd=path,
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
+    try:
+        result = cg.run_process_to_completion(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=path,
+            is_checked_after=False,
+        )
+        return result.returncode == 0
+    except ProcessSetupError:
+        return False
 
 
-def get_current_branch(path: Path) -> str:
+def get_current_branch(path: Path, cg: ConcurrencyGroup) -> str:
     """Get the current branch name for a git repository.
 
     Unlike get_current_git_branch, this function raises an error if the operation
     fails rather than returning None. Also raises if HEAD is detached (no branch),
     since callers need an actual branch name for push/pull operations.
-
-    Raises:
-        MngrError: If the path is not a git repository, the branch cannot be
-            determined, or HEAD is detached.
     """
-    result = subprocess.run(
+    result = cg.run_process_to_completion(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
         cwd=path,
-        capture_output=True,
-        text=True,
+        is_checked_after=False,
     )
     if result.returncode != 0:
         raise MngrError(f"Failed to get current branch: {result.stderr}")
@@ -204,51 +175,37 @@ def get_current_branch(path: Path) -> str:
     return branch
 
 
-def get_head_commit(path: Path) -> str | None:
-    """Get the current HEAD commit hash for a repository.
-
-    Returns None if the path is not a git repository or HEAD cannot be resolved.
-    """
-    result = subprocess.run(
+def get_head_commit(path: Path, cg: ConcurrencyGroup) -> str | None:
+    """Get the current HEAD commit hash for a repository."""
+    result = cg.run_process_to_completion(
         ["git", "rev-parse", "HEAD"],
         cwd=path,
-        capture_output=True,
-        text=True,
+        is_checked_after=False,
     )
     if result.returncode != 0:
         return None
     return result.stdout.strip()
 
 
-def is_ancestor(path: Path, ancestor_commit: str, descendant_commit: str) -> bool:
-    """Check if ancestor_commit is an ancestor of descendant_commit.
-
-    Both commits must be reachable from the repository at path.
-    """
-    result = subprocess.run(
+def is_ancestor(path: Path, ancestor_commit: str, descendant_commit: str, cg: ConcurrencyGroup) -> bool:
+    """Check if ancestor_commit is an ancestor of descendant_commit."""
+    result = cg.run_process_to_completion(
         ["git", "merge-base", "--is-ancestor", ancestor_commit, descendant_commit],
         cwd=path,
-        capture_output=True,
-        text=True,
+        is_checked_after=False,
     )
     return result.returncode == 0
 
 
-def count_commits_between(path: Path, base_ref: str, head_ref: str) -> int:
+def count_commits_between(path: Path, base_ref: str, head_ref: str, cg: ConcurrencyGroup) -> int:
     """Count the number of commits between two refs (base_ref..head_ref)."""
-    result = subprocess.run(
+    result = cg.run_process_to_completion(
         ["git", "rev-list", "--count", f"{base_ref}..{head_ref}"],
         cwd=path,
-        capture_output=True,
-        text=True,
+        is_checked_after=False,
     )
     if result.returncode != 0:
-        logger.debug(
-            "Failed to count commits between {} and {}: {}",
-            base_ref,
-            head_ref,
-            result.stderr.strip(),
-        )
+        logger.debug("Failed to count commits between {} and {}: {}", base_ref, head_ref, result.stderr.strip())
         return 0
     try:
         return int(result.stdout.strip())
@@ -256,7 +213,7 @@ def count_commits_between(path: Path, base_ref: str, head_ref: str) -> int:
         return 0
 
 
-def find_git_common_dir(path: Path) -> Path | None:
+def find_git_common_dir(path: Path, cg: ConcurrencyGroup) -> Path | None:
     """Find the common .git directory for a repository or worktree.
 
     For a regular repository, this returns the .git directory.
@@ -264,16 +221,13 @@ def find_git_common_dir(path: Path) -> Path | None:
     not the worktree's .git file.
     """
     try:
-        result = subprocess.run(
+        result = cg.run_process_to_completion(
             ["git", "rev-parse", "--git-common-dir"],
             cwd=path,
-            capture_output=True,
-            text=True,
-            check=True,
         )
         git_common_dir = Path(result.stdout.strip())
         if not git_common_dir.is_absolute():
             git_common_dir = (path / git_common_dir).resolve()
         return git_common_dir
-    except subprocess.CalledProcessError:
+    except ConcurrencyGroupError:
         return None

@@ -1,20 +1,20 @@
 import os
-import subprocess
 from pathlib import Path
 
 from modal import Function
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 
 
-def deploy_function(function: str, app_name: str, environment_name: str | None) -> str:
+def deploy_function(function: str, app_name: str, environment_name: str | None, cg: ConcurrencyGroup) -> str:
     """Deploys a Function to Modal with the given app name and returns the URL.
     Returns None if deployment fails.
     """
     script_path = Path(__file__).parent / f"{function}.py"
 
     with log_span("Deploying {} function for app: {}", function, app_name):
-        result = subprocess.run(
+        result = cg.run_process_to_completion(
             [
                 "uv",
                 "run",
@@ -23,9 +23,8 @@ def deploy_function(function: str, app_name: str, environment_name: str | None) 
                 *(["--env", environment_name] if environment_name else []),
                 str(script_path),
             ],
-            capture_output=True,
-            text=True,
             timeout=180,
+            is_checked_after=False,
             env={
                 **os.environ,
                 "MNGR_MODAL_APP_NAME": app_name,

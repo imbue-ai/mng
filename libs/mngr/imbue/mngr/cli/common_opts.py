@@ -1,4 +1,3 @@
-import subprocess
 import sys
 import uuid
 from collections.abc import Callable
@@ -15,6 +14,7 @@ from click_option_group import GroupedOption
 from click_option_group import OptionGroup
 from click_option_group import optgroup
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import MngrConfig
@@ -131,6 +131,11 @@ def setup_command_context(
     # First parse options from CLI args to extract common parameters
     initial_opts = command_class(**ctx.params)
 
+    # Create a top-level ConcurrencyGroup for process management
+    cg = ConcurrencyGroup(name=f"mngr-{command_name}")
+    cg.__enter__()
+    ctx.call_on_close(lambda: cg.__exit__(None, None, None))
+
     # Load config
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
     pm = ctx.obj
@@ -147,6 +152,7 @@ def setup_command_context(
         initial_opts.plugin,
         initial_opts.disable_plugin,
         is_interactive=is_interactive,
+        concurrency_group=cg,
     )
 
     # FIXME: actually, we should probably move the construction of this object (and the call to setup_logging) down after the "opts = command_class(**updated_params)" line (so that it can take those settings into consideration)
@@ -180,7 +186,7 @@ def setup_command_context(
     opts = command_class(**updated_params)
 
     # Run pre-command scripts if configured for this command
-    _run_pre_command_scripts(mngr_ctx.config, command_name)
+    _run_pre_command_scripts(mngr_ctx.config, command_name, cg)
 
     return mngr_ctx, output_opts, opts
 
@@ -349,18 +355,17 @@ def _apply_plugin_option_overrides(
     )
 
 
-def _run_single_script(script: str) -> tuple[str, int, str, str]:
+def _run_single_script(script: str, cg: ConcurrencyGroup) -> tuple[str, int, str, str]:
     """Run a single script and return (script, exit_code, stdout, stderr)."""
-    result = subprocess.run(
-        script,
-        shell=True,
-        capture_output=True,
-        text=True,
+    result = cg.run_process_to_completion(
+        ["sh", "-c", script],
+        is_checked_after=False,
     )
-    return (script, result.returncode, result.stdout, result.stderr)
+    # returncode is always set after run_process_to_completion; default to -1 to satisfy the type checker
+    return (script, result.returncode if result.returncode is not None else -1, result.stdout, result.stderr)
 
 
-def _run_pre_command_scripts(config: MngrConfig, command_name: str) -> None:
+def _run_pre_command_scripts(config: MngrConfig, command_name: str, cg: ConcurrencyGroup) -> None:
     """Run pre-command scripts configured for this command.
 
     Scripts are run in parallel and all must succeed (exit code 0).
@@ -373,7 +378,7 @@ def _run_pre_command_scripts(config: MngrConfig, command_name: str) -> None:
     # Run all scripts in parallel
     failures: list[tuple[str, int, str, str]] = []
     with ThreadPoolExecutor() as executor:
-        futures = [executor.submit(_run_single_script, script) for script in scripts]
+        futures = [executor.submit(_run_single_script, script, cg) for script in scripts]
         for future in as_completed(futures):
             script, exit_code, _stdout, stderr = future.result()
             if exit_code != 0:

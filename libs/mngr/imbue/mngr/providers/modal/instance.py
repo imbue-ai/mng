@@ -873,7 +873,9 @@ class ModalProviderInstance(BaseProviderInstance):
         if self.config.is_persistent:
             # it's a little sad that we're constantly re-deploying this, but it's a bit too easy to make mistakes otherwise
             #  (eg, we might end up with outdated code at that endpoint, which would be hard to debug)
-            snapshot_url = deploy_function("snapshot_and_shutdown", self.app_name, self.environment_name)
+            snapshot_url = deploy_function(
+                "snapshot_and_shutdown", self.app_name, self.environment_name, self.mngr_ctx.cg
+            )
             self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
 
         # Start the activity watcher. We have to start it here because we only created the shutdown script (with the hardcoded sandbox id)
