@@ -344,6 +344,9 @@ _MIN_COLUMN_WIDTHS: Final[dict[str, int]] = {
 _DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 15
 # Columns that get extra space when the terminal is wider than the minimum
 _EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "status", "host"}
+_MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {
+    "host": 25,
+}
 _COLUMN_SEPARATOR: Final[str] = "  "
 
 # ANSI escape sequences for terminal control
@@ -437,14 +440,36 @@ def _compute_column_widths(fields: Sequence[str]) -> dict[str, int]:
     min_total = sum(width_by_field.values()) + separator_total
     extra_space = max(terminal_width - min_total, 0)
 
-    # Distribute extra space to expandable columns
+    # Distribute extra space to expandable columns, respecting max widths.
+    # Two passes: first distribute evenly, then redistribute any space reclaimed by max caps.
     expandable_in_fields = [f for f in fields if f in _EXPANDABLE_COLUMNS]
     if expandable_in_fields and extra_space > 0:
-        per_column = extra_space // len(expandable_in_fields)
-        remainder = extra_space % len(expandable_in_fields)
-        for idx, field in enumerate(expandable_in_fields):
-            bonus = per_column + (1 if idx < remainder else 0)
-            width_by_field[field] = width_by_field[field] + bonus
+        remaining_space = extra_space
+        uncapped_fields = list(expandable_in_fields)
+
+        while remaining_space > 0 and uncapped_fields:
+            per_column = remaining_space // len(uncapped_fields)
+            remainder = remaining_space % len(uncapped_fields)
+            if per_column == 0 and remainder == 0:
+                break
+
+            still_uncapped: list[str] = []
+            space_used = 0
+            for idx, field in enumerate(uncapped_fields):
+                bonus = per_column + (1 if idx < remainder else 0)
+                max_width = _MAX_COLUMN_WIDTHS.get(field)
+                proposed = width_by_field[field] + bonus
+                if max_width is not None and proposed > max_width:
+                    actual_bonus = max(max_width - width_by_field[field], 0)
+                    width_by_field[field] = max_width
+                    space_used += actual_bonus
+                else:
+                    width_by_field[field] = proposed
+                    space_used += bonus
+                    still_uncapped.append(field)
+
+            remaining_space = remaining_space - space_used
+            uncapped_fields = still_uncapped
 
     return width_by_field
 
