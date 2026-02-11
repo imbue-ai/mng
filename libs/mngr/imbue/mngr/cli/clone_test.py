@@ -1,11 +1,10 @@
 """Unit tests for the clone CLI command."""
 
-import click
 import pluggy
 from click.testing import CliRunner
 
+from imbue.mngr.cli.clone import _build_create_args
 from imbue.mngr.cli.clone import clone
-from imbue.mngr.cli.clone import reject_source_agent_options
 from imbue.mngr.main import cli
 
 
@@ -67,17 +66,6 @@ def test_clone_rejects_source_agent_option(
     assert "--source-agent" in result.output
 
 
-def test_reject_source_agent_options_respects_double_dash() -> None:
-    """reject_source_agent_options should not scan past -- (end-of-options marker)."""
-    ctx = click.Context(clone)
-
-    # --from-agent after -- should NOT be rejected
-    reject_source_agent_options(["--", "--from-agent", "foo"], ctx=ctx)
-
-    # --source-agent after -- should NOT be rejected
-    reject_source_agent_options(["--", "--source-agent=bar"], ctx=ctx)
-
-
 def test_clone_rejects_from_agent_equals_form(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -92,3 +80,65 @@ def test_clone_rejects_from_agent_equals_form(
 
     assert result.exit_code != 0
     assert "--from-agent" in result.output
+
+
+# --- _build_create_args tests ---
+
+
+def test_build_create_args_without_double_dash() -> None:
+    """Without -- in argv, remaining args are passed through directly."""
+    result = _build_create_args(
+        source_agent="my-agent",
+        remaining=["--in", "docker"],
+        original_argv=["mngr", "clone", "my-agent", "--in", "docker"],
+    )
+    assert result == ["--from-agent", "my-agent", "--in", "docker"]
+
+
+def test_build_create_args_with_double_dash() -> None:
+    """With -- in argv, the separator is re-inserted in create_args."""
+    result = _build_create_args(
+        source_agent="my-agent",
+        remaining=["--model", "opus"],
+        original_argv=["mngr", "clone", "my-agent", "--", "--model", "opus"],
+    )
+    assert result == ["--from-agent", "my-agent", "--", "--model", "opus"]
+
+
+def test_build_create_args_with_create_options_and_double_dash() -> None:
+    """Create options before -- and agent args after -- are split correctly."""
+    result = _build_create_args(
+        source_agent="my-agent",
+        remaining=["new-agent", "--in", "docker", "--model", "opus"],
+        original_argv=[
+            "mngr",
+            "clone",
+            "my-agent",
+            "new-agent",
+            "--in",
+            "docker",
+            "--",
+            "--model",
+            "opus",
+        ],
+    )
+    assert result == [
+        "--from-agent",
+        "my-agent",
+        "new-agent",
+        "--in",
+        "docker",
+        "--",
+        "--model",
+        "opus",
+    ]
+
+
+def test_build_create_args_with_double_dash_and_empty_remaining() -> None:
+    """A trailing -- with no args after it is preserved."""
+    result = _build_create_args(
+        source_agent="my-agent",
+        remaining=[],
+        original_argv=["mngr", "clone", "my-agent", "--"],
+    )
+    assert result == ["--from-agent", "my-agent", "--"]
