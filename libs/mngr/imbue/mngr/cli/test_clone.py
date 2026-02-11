@@ -53,6 +53,8 @@ def test_clone_creates_agent_from_source(
             [
                 source_name,
                 clone_name,
+                "--agent-cmd",
+                "sleep 482917",
                 "--no-connect",
                 "--await-ready",
                 "--no-copy-work-dir",
