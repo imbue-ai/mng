@@ -58,7 +58,7 @@ def reject_source_agent_options(args: Sequence[str], ctx: click.Context) -> None
         # Check exact match and --opt=value forms
         if arg in ("--from-agent", "--source-agent") or arg.startswith(("--from-agent=", "--source-agent=")):
             raise click.UsageError(
-                f"Cannot use {arg.split('=')[0]} with clone. "
+                f"Cannot use {arg.split('=')[0]} with {ctx.info_name}. "
                 "The source agent is specified as the first positional argument.",
                 ctx=ctx,
             )
