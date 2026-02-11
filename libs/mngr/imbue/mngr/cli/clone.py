@@ -1,11 +1,44 @@
+import sys
 from collections.abc import Sequence
 
 import click
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.cli.create import create as create_cmd
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
+
+
+@pure
+def _build_create_args(
+    source_agent: str,
+    remaining: list[str],
+    original_argv: list[str],
+) -> list[str]:
+    """Build the argument list for the create command, re-inserting ``--`` if needed.
+
+    Click's ``UNPROCESSED`` type silently strips the ``--`` end-of-options
+    separator before the args reach the command function.  We inspect
+    *original_argv* (typically ``sys.argv``) to detect whether the user
+    supplied ``--`` and, if so, re-insert it at the correct position so that
+    downstream commands (e.g. ``create``) see it.
+    """
+    prefix = ["--from-agent", source_agent]
+
+    if "--" not in original_argv:
+        return prefix + remaining
+
+    dd_index = original_argv.index("--")
+    args_after_dd = len(original_argv) - dd_index - 1
+
+    if args_after_dd > 0 and args_after_dd <= len(remaining):
+        before_dd = remaining[: len(remaining) - args_after_dd]
+        after_dd = remaining[len(remaining) - args_after_dd :]
+        return prefix + before_dd + ["--"] + after_dd
+
+    # -- was present but nothing came after it
+    return prefix + remaining + ["--"]
 
 
 def parse_source_and_invoke_create(
@@ -26,7 +59,7 @@ def parse_source_and_invoke_create(
 
     reject_source_agent_options(remaining, ctx)
 
-    create_args = ["--from-agent", source_agent] + remaining
+    create_args = _build_create_args(source_agent, remaining, sys.argv)
 
     create_ctx = create_cmd.make_context(command_name, create_args, parent=ctx)
     with create_ctx:
