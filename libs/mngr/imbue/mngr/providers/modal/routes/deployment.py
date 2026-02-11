@@ -7,7 +7,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 
 
-def deploy_function(cg: ConcurrencyGroup, function: str, app_name: str, environment_name: str | None) -> str:
+def deploy_function(function: str, app_name: str, environment_name: str | None, cg: ConcurrencyGroup) -> str:
     """Deploys a Function to Modal with the given app name and returns the URL.
     Returns None if deployment fails.
     """

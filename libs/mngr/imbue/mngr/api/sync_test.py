@@ -191,8 +191,8 @@ def test_git_sync_error_provides_user_help_text() -> None:
 
 
 def test_local_git_context_has_uncommitted_changes_returns_true_when_changes_exist(
-    cg: ConcurrencyGroup,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
     init_git_repo_with_config(tmp_path)
     (tmp_path / "dirty.txt").write_text("dirty")
@@ -202,8 +202,8 @@ def test_local_git_context_has_uncommitted_changes_returns_true_when_changes_exi
 
 
 def test_local_git_context_has_uncommitted_changes_returns_false_when_clean(
-    cg: ConcurrencyGroup,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
     init_git_repo_with_config(tmp_path)
 
@@ -212,8 +212,8 @@ def test_local_git_context_has_uncommitted_changes_returns_false_when_clean(
 
 
 def test_local_git_context_has_uncommitted_changes_raises_on_non_git_dir(
-    cg: ConcurrencyGroup,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
     ctx = LocalGitContext(cg=cg)
     with pytest.raises(MngrError, match="git status failed"):
@@ -221,8 +221,8 @@ def test_local_git_context_has_uncommitted_changes_raises_on_non_git_dir(
 
 
 def test_local_git_context_git_stash_returns_true_on_success(
-    cg: ConcurrencyGroup,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
     init_git_repo_with_config(tmp_path)
     (tmp_path / "README.md").write_text("modified")
@@ -233,8 +233,8 @@ def test_local_git_context_git_stash_returns_true_on_success(
 
 
 def test_local_git_context_git_stash_returns_false_when_no_changes_to_save(
-    cg: ConcurrencyGroup,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
     init_git_repo_with_config(tmp_path)
 
@@ -244,8 +244,8 @@ def test_local_git_context_git_stash_returns_false_when_no_changes_to_save(
 
 
 def test_local_git_context_git_stash_pop_succeeds(
-    cg: ConcurrencyGroup,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
     init_git_repo_with_config(tmp_path)
     (tmp_path / "README.md").write_text("modified")
@@ -258,8 +258,8 @@ def test_local_git_context_git_stash_pop_succeeds(
 
 
 def test_local_git_context_git_stash_pop_raises_when_no_stash(
-    cg: ConcurrencyGroup,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
     init_git_repo_with_config(tmp_path)
 
@@ -269,8 +269,8 @@ def test_local_git_context_git_stash_pop_raises_when_no_stash(
 
 
 def test_local_git_context_git_reset_hard_succeeds(
-    cg: ConcurrencyGroup,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
     init_git_repo_with_config(tmp_path)
     (tmp_path / "README.md").write_text("modified")
@@ -284,8 +284,8 @@ def test_local_git_context_git_reset_hard_succeeds(
 
 
 def test_local_git_context_get_current_branch_returns_branch_name(
-    cg: ConcurrencyGroup,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
     init_git_repo_with_config(tmp_path)
 
@@ -294,8 +294,8 @@ def test_local_git_context_get_current_branch_returns_branch_name(
 
 
 def test_local_git_context_is_git_repository_returns_true_for_git_repo(
-    cg: ConcurrencyGroup,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
     init_git_repo_with_config(tmp_path)
 
@@ -304,8 +304,8 @@ def test_local_git_context_is_git_repository_returns_true_for_git_repo(
 
 
 def test_local_git_context_is_git_repository_returns_false_for_non_git_dir(
-    cg: ConcurrencyGroup,
     tmp_path: Path,
+    cg: ConcurrencyGroup,
 ) -> None:
     ctx = LocalGitContext(cg=cg)
     assert ctx.is_git_repository(tmp_path) is False

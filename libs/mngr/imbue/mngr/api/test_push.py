@@ -46,15 +46,14 @@ def push_ctx(tmp_path: Path) -> SyncTestContext:
 
 
 def test_push_files_fail_mode_with_no_uncommitted_changes_succeeds(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that FAIL mode succeeds when there are no uncommitted changes on target."""
     (push_ctx.local_dir / "file.txt").write_text("host content")
     assert not _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
     result = push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -62,6 +61,7 @@ def test_push_files_fail_mode_with_no_uncommitted_changes_succeeds(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.FAIL,
+        cg=cg,
     )
 
     assert (push_ctx.agent_dir / "file.txt").exists()
@@ -71,8 +71,8 @@ def test_push_files_fail_mode_with_no_uncommitted_changes_succeeds(
 
 
 def test_push_files_fail_mode_with_uncommitted_changes_raises_error(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that FAIL mode raises UncommittedChangesError when changes exist on target."""
     (push_ctx.local_dir / "file.txt").write_text("host content")
@@ -81,7 +81,6 @@ def test_push_files_fail_mode_with_uncommitted_changes_raises_error(
 
     with pytest.raises(UncommittedChangesError) as exc_info:
         push_files(
-            cg=cg,
             agent=push_ctx.agent,
             host=push_ctx.host,
             source=push_ctx.local_dir,
@@ -89,6 +88,7 @@ def test_push_files_fail_mode_with_uncommitted_changes_raises_error(
             is_dry_run=False,
             is_delete=False,
             uncommitted_changes=UncommittedChangesMode.FAIL,
+            cg=cg,
         )
 
     assert exc_info.value.destination == push_ctx.agent_dir
@@ -100,8 +100,8 @@ def test_push_files_fail_mode_with_uncommitted_changes_raises_error(
 
 
 def test_push_files_clobber_mode_overwrites_agent_changes(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that CLOBBER mode overwrites uncommitted changes on the agent."""
     (push_ctx.local_dir / "shared.txt").write_text("host version")
@@ -109,7 +109,6 @@ def test_push_files_clobber_mode_overwrites_agent_changes(
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
     result = push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -117,6 +116,7 @@ def test_push_files_clobber_mode_overwrites_agent_changes(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        cg=cg,
     )
 
     assert (push_ctx.agent_dir / "shared.txt").read_text() == "host version"
@@ -124,8 +124,8 @@ def test_push_files_clobber_mode_overwrites_agent_changes(
 
 
 def test_push_files_clobber_mode_when_only_agent_has_changes(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test CLOBBER mode when only the agent has a modified file."""
     (push_ctx.local_dir / "host_only.txt").write_text("host file")
@@ -133,7 +133,6 @@ def test_push_files_clobber_mode_when_only_agent_has_changes(
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
     push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -141,6 +140,7 @@ def test_push_files_clobber_mode_when_only_agent_has_changes(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        cg=cg,
     )
 
     # rsync doesn't delete by default
@@ -149,8 +149,8 @@ def test_push_files_clobber_mode_when_only_agent_has_changes(
 
 
 def test_push_files_clobber_mode_with_delete_flag_removes_agent_only_files(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test CLOBBER mode with delete=True removes files not in source."""
     (push_ctx.local_dir / "host_file.txt").write_text("host content")
@@ -159,7 +159,6 @@ def test_push_files_clobber_mode_with_delete_flag_removes_agent_only_files(
     run_git_command(push_ctx.agent_dir, "commit", "-m", "Add agent extra file")
 
     push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -167,6 +166,7 @@ def test_push_files_clobber_mode_with_delete_flag_removes_agent_only_files(
         is_dry_run=False,
         is_delete=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        cg=cg,
     )
 
     assert not (push_ctx.agent_dir / "agent_extra.txt").exists()
@@ -179,8 +179,8 @@ def test_push_files_clobber_mode_with_delete_flag_removes_agent_only_files(
 
 
 def test_push_files_stash_mode_stashes_changes_and_leaves_stashed(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that STASH mode stashes uncommitted changes on target and leaves them stashed."""
     (push_ctx.local_dir / "host_file.txt").write_text("host content")
@@ -190,7 +190,6 @@ def test_push_files_stash_mode_stashes_changes_and_leaves_stashed(
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
     push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -198,6 +197,7 @@ def test_push_files_stash_mode_stashes_changes_and_leaves_stashed(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.STASH,
+        cg=cg,
     )
 
     final_stash_count = get_stash_count(push_ctx.agent_dir)
@@ -208,8 +208,8 @@ def test_push_files_stash_mode_stashes_changes_and_leaves_stashed(
 
 
 def test_push_files_stash_mode_stashes_untracked_files(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that STASH mode properly stashes untracked files on target."""
     (push_ctx.local_dir / "host_file.txt").write_text("host content")
@@ -219,7 +219,6 @@ def test_push_files_stash_mode_stashes_untracked_files(
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
     push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -227,6 +226,7 @@ def test_push_files_stash_mode_stashes_untracked_files(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.STASH,
+        cg=cg,
     )
 
     # Untracked file should be stashed with -u flag
@@ -237,8 +237,8 @@ def test_push_files_stash_mode_stashes_untracked_files(
 
 
 def test_push_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that STASH mode does not create a stash when no changes exist on target."""
     (push_ctx.local_dir / "host_file.txt").write_text("host content")
@@ -246,7 +246,6 @@ def test_push_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
     initial_stash_count = get_stash_count(push_ctx.agent_dir)
 
     push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -254,6 +253,7 @@ def test_push_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.STASH,
+        cg=cg,
     )
 
     final_stash_count = get_stash_count(push_ctx.agent_dir)
@@ -267,8 +267,8 @@ def test_push_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
 
 
 def test_push_files_merge_mode_stashes_and_restores_changes(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that MERGE mode stashes changes on target, pushes, then restores changes."""
     (push_ctx.local_dir / "host_file.txt").write_text("host content")
@@ -278,7 +278,6 @@ def test_push_files_merge_mode_stashes_and_restores_changes(
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
     push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -286,6 +285,7 @@ def test_push_files_merge_mode_stashes_and_restores_changes(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.MERGE,
+        cg=cg,
     )
 
     final_stash_count = get_stash_count(push_ctx.agent_dir)
@@ -295,8 +295,8 @@ def test_push_files_merge_mode_stashes_and_restores_changes(
 
 
 def test_push_files_merge_mode_restores_untracked_files(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that MERGE mode properly stashes and restores untracked files on target."""
     (push_ctx.local_dir / "host_file.txt").write_text("host content")
@@ -305,7 +305,6 @@ def test_push_files_merge_mode_restores_untracked_files(
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
     push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -313,6 +312,7 @@ def test_push_files_merge_mode_restores_untracked_files(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.MERGE,
+        cg=cg,
     )
 
     # Stash should be created and popped
@@ -324,8 +324,8 @@ def test_push_files_merge_mode_restores_untracked_files(
 
 
 def test_push_files_merge_mode_when_both_modify_different_files(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test MERGE mode when host and agent modify different files."""
     (push_ctx.local_dir / "host_only.txt").write_text("host content")
@@ -334,7 +334,6 @@ def test_push_files_merge_mode_when_both_modify_different_files(
     assert _has_uncommitted_changes_on_host(push_ctx.host, push_ctx.agent_dir)
 
     push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -342,6 +341,7 @@ def test_push_files_merge_mode_when_both_modify_different_files(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.MERGE,
+        cg=cg,
     )
 
     assert (push_ctx.agent_dir / "host_only.txt").read_text() == "host content"
@@ -351,8 +351,8 @@ def test_push_files_merge_mode_when_both_modify_different_files(
 
 
 def test_push_files_merge_mode_with_no_uncommitted_changes(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that MERGE mode works correctly when there are no uncommitted changes on target."""
     (push_ctx.local_dir / "host_file.txt").write_text("host content")
@@ -360,7 +360,6 @@ def test_push_files_merge_mode_with_no_uncommitted_changes(
     initial_stash_count = get_stash_count(push_ctx.agent_dir)
 
     push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -368,6 +367,7 @@ def test_push_files_merge_mode_with_no_uncommitted_changes(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.MERGE,
+        cg=cg,
     )
 
     final_stash_count = get_stash_count(push_ctx.agent_dir)
@@ -381,8 +381,8 @@ def test_push_files_merge_mode_with_no_uncommitted_changes(
 
 
 def test_push_files_excludes_git_directory(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that push_files excludes the .git directory from rsync."""
     # Make the host directory a git repo too
@@ -401,7 +401,6 @@ def test_push_files_excludes_git_directory(
     ).stdout.strip()
 
     push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -409,6 +408,7 @@ def test_push_files_excludes_git_directory(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        cg=cg,
     )
 
     # The agent's .git directory should be unchanged
@@ -428,15 +428,14 @@ def test_push_files_excludes_git_directory(
 
 
 def test_push_files_dry_run_does_not_modify_files(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that dry_run=True shows what would be transferred without modifying files."""
     (push_ctx.local_dir / "new_file.txt").write_text("host content")
     assert not (push_ctx.agent_dir / "new_file.txt").exists()
 
     result = push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -444,6 +443,7 @@ def test_push_files_dry_run_does_not_modify_files(
         is_dry_run=True,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.FAIL,
+        cg=cg,
     )
 
     assert not (push_ctx.agent_dir / "new_file.txt").exists()
@@ -456,8 +456,8 @@ def test_push_files_dry_run_does_not_modify_files(
 
 
 def test_push_files_with_custom_destination_path(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that push_files can use a custom destination path instead of work_dir."""
     custom_dest = push_ctx.agent_dir / "subdir"
@@ -465,7 +465,6 @@ def test_push_files_with_custom_destination_path(
     (push_ctx.local_dir / "file_from_host.txt").write_text("content from host")
 
     result = push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -473,6 +472,7 @@ def test_push_files_with_custom_destination_path(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.FAIL,
+        cg=cg,
     )
 
     assert (custom_dest / "file_from_host.txt").read_text() == "content from host"
@@ -494,10 +494,10 @@ def test_push_files_with_custom_destination_path(
     ids=["clobber", "stash", "merge"],
 )
 def test_push_files_does_not_modify_host_directory(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
     mode: UncommittedChangesMode,
     modify_tracked_file: bool,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that pushing files NEVER modifies the host (source) directory.
 
@@ -522,7 +522,6 @@ def test_push_files_does_not_modify_host_directory(
         (push_ctx.agent_dir / "agent_uncommitted.txt").write_text("agent uncommitted")
 
     push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -530,6 +529,7 @@ def test_push_files_does_not_modify_host_directory(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=mode,
+        cg=cg,
     )
 
     # Verify host directory is unchanged
@@ -574,7 +574,7 @@ def git_push_ctx(tmp_path: Path) -> SyncTestContext:
     )
 
 
-def test_push_git_basic_push(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext) -> None:
+def test_push_git_basic_push(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test basic git push from host to agent."""
     # Create a new commit on the host
     (git_push_ctx.local_dir / "new_file.txt").write_text("new content")
@@ -582,7 +582,6 @@ def test_push_git_basic_push(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext
     run_git_command(git_push_ctx.local_dir, "commit", "-m", "Add new file")
 
     result = push_git(
-        cg=cg,
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
@@ -591,6 +590,7 @@ def test_push_git_basic_push(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext
         is_dry_run=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
         is_mirror=False,
+        cg=cg,
     )
 
     # The new file should exist on the agent
@@ -601,7 +601,7 @@ def test_push_git_basic_push(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext
     assert result.is_dry_run is False
 
 
-def test_push_git_dry_run(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext) -> None:
+def test_push_git_dry_run(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that dry_run=True does not actually push commits."""
     # Create a new commit on the host
     (git_push_ctx.local_dir / "new_file.txt").write_text("new content")
@@ -609,7 +609,6 @@ def test_push_git_dry_run(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext) -
     run_git_command(git_push_ctx.local_dir, "commit", "-m", "Add new file")
 
     result = push_git(
-        cg=cg,
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
@@ -618,6 +617,7 @@ def test_push_git_dry_run(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext) -
         is_dry_run=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
         is_mirror=False,
+        cg=cg,
     )
 
     # The new file should NOT exist on the agent (dry run)
@@ -625,7 +625,7 @@ def test_push_git_dry_run(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext) -
     assert result.is_dry_run is True
 
 
-def test_push_git_with_stash_mode(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext) -> None:
+def test_push_git_with_stash_mode(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test push_git with STASH mode for uncommitted changes on agent."""
     # Create a new commit on the host
     (git_push_ctx.local_dir / "new_file.txt").write_text("new content from host")
@@ -637,7 +637,6 @@ def test_push_git_with_stash_mode(cg: ConcurrencyGroup, git_push_ctx: SyncTestCo
     initial_stash_count = get_stash_count(git_push_ctx.agent_dir)
 
     push_git(
-        cg=cg,
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
@@ -646,6 +645,7 @@ def test_push_git_with_stash_mode(cg: ConcurrencyGroup, git_push_ctx: SyncTestCo
         is_dry_run=False,
         uncommitted_changes=UncommittedChangesMode.STASH,
         is_mirror=False,
+        cg=cg,
     )
 
     # The push should succeed and changes should be stashed
@@ -654,7 +654,7 @@ def test_push_git_with_stash_mode(cg: ConcurrencyGroup, git_push_ctx: SyncTestCo
     assert (git_push_ctx.agent_dir / "new_file.txt").exists()
 
 
-def test_push_git_with_merge_mode(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext) -> None:
+def test_push_git_with_merge_mode(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test push_git with MERGE mode restores uncommitted changes after push."""
     # Create a new commit on the host
     (git_push_ctx.local_dir / "new_file.txt").write_text("new content from host")
@@ -666,7 +666,6 @@ def test_push_git_with_merge_mode(cg: ConcurrencyGroup, git_push_ctx: SyncTestCo
     initial_stash_count = get_stash_count(git_push_ctx.agent_dir)
 
     push_git(
-        cg=cg,
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
@@ -675,6 +674,7 @@ def test_push_git_with_merge_mode(cg: ConcurrencyGroup, git_push_ctx: SyncTestCo
         is_dry_run=False,
         uncommitted_changes=UncommittedChangesMode.MERGE,
         is_mirror=False,
+        cg=cg,
     )
 
     # The push should succeed and local changes should be restored
@@ -685,7 +685,7 @@ def test_push_git_with_merge_mode(cg: ConcurrencyGroup, git_push_ctx: SyncTestCo
     assert (git_push_ctx.agent_dir / "agent_local_file.txt").read_text() == "agent local content"
 
 
-def test_push_git_does_not_modify_host_directory(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext) -> None:
+def test_push_git_does_not_modify_host_directory(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that push_git NEVER modifies the host (source) directory."""
     # Create a commit on the host
     (git_push_ctx.local_dir / "new_file.txt").write_text("host content")
@@ -703,7 +703,6 @@ def test_push_git_does_not_modify_host_directory(cg: ConcurrencyGroup, git_push_
     ).stdout.strip()
 
     push_git(
-        cg=cg,
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
@@ -712,6 +711,7 @@ def test_push_git_does_not_modify_host_directory(cg: ConcurrencyGroup, git_push_
         is_dry_run=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
         is_mirror=False,
+        cg=cg,
     )
 
     # Verify host directory is unchanged
@@ -734,7 +734,7 @@ def test_push_git_does_not_modify_host_directory(cg: ConcurrencyGroup, git_push_
 # =============================================================================
 
 
-def test_push_git_mirror_mode_dry_run(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext) -> None:
+def test_push_git_mirror_mode_dry_run(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that mirror mode with dry_run=True shows what would be pushed."""
     # Create a new commit on the host
     (git_push_ctx.local_dir / "new_file.txt").write_text("new content")
@@ -742,7 +742,6 @@ def test_push_git_mirror_mode_dry_run(cg: ConcurrencyGroup, git_push_ctx: SyncTe
     run_git_command(git_push_ctx.local_dir, "commit", "-m", "Add new file")
 
     result = push_git(
-        cg=cg,
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
@@ -751,6 +750,7 @@ def test_push_git_mirror_mode_dry_run(cg: ConcurrencyGroup, git_push_ctx: SyncTe
         is_dry_run=True,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
         is_mirror=True,
+        cg=cg,
     )
 
     # The new file should NOT exist on the agent (dry run)
@@ -760,7 +760,7 @@ def test_push_git_mirror_mode_dry_run(cg: ConcurrencyGroup, git_push_ctx: SyncTe
     assert result.commits_transferred >= 0
 
 
-def test_push_git_mirror_mode(cg: ConcurrencyGroup, git_push_ctx: SyncTestContext) -> None:
+def test_push_git_mirror_mode(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that mirror mode pushes all refs to the agent repository."""
     # Create a new commit on the host
     (git_push_ctx.local_dir / "new_file.txt").write_text("new content")
@@ -776,7 +776,6 @@ def test_push_git_mirror_mode(cg: ConcurrencyGroup, git_push_ctx: SyncTestContex
     ).stdout.strip()
 
     result = push_git(
-        cg=cg,
         agent=git_push_ctx.agent,
         host=git_push_ctx.host,
         source=git_push_ctx.local_dir,
@@ -785,6 +784,7 @@ def test_push_git_mirror_mode(cg: ConcurrencyGroup, git_push_ctx: SyncTestContex
         is_dry_run=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
         is_mirror=True,
+        cg=cg,
     )
 
     # Get agent commit after push
@@ -846,8 +846,8 @@ def remote_git_push_ctx(tmp_path: Path) -> SyncTestContext:
 
 
 def test_push_files_with_remote_host_raises_not_implemented(
-    cg: ConcurrencyGroup,
     remote_push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that push_files raises NotImplementedError for remote hosts.
 
@@ -858,7 +858,6 @@ def test_push_files_with_remote_host_raises_not_implemented(
 
     with pytest.raises(NotImplementedError, match="remote hosts"):
         push_files(
-            cg=cg,
             agent=remote_push_ctx.agent,
             host=remote_push_ctx.host,
             source=remote_push_ctx.local_dir,
@@ -866,12 +865,13 @@ def test_push_files_with_remote_host_raises_not_implemented(
             is_dry_run=False,
             is_delete=False,
             uncommitted_changes=UncommittedChangesMode.CLOBBER,
+            cg=cg,
         )
 
 
 def test_push_git_with_remote_host_raises_not_implemented(
-    cg: ConcurrencyGroup,
     remote_git_push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that push_git raises NotImplementedError for remote hosts.
 
@@ -883,7 +883,6 @@ def test_push_git_with_remote_host_raises_not_implemented(
 
     with pytest.raises(NotImplementedError, match="remote hosts is not yet implemented"):
         push_git(
-            cg=cg,
             agent=remote_git_push_ctx.agent,
             host=remote_git_push_ctx.host,
             source=remote_git_push_ctx.local_dir,
@@ -892,6 +891,7 @@ def test_push_git_with_remote_host_raises_not_implemented(
             is_dry_run=False,
             uncommitted_changes=UncommittedChangesMode.CLOBBER,
             is_mirror=False,
+            cg=cg,
         )
 
 
@@ -901,8 +901,8 @@ def test_push_git_with_remote_host_raises_not_implemented(
 
 
 def test_push_files_to_nonexistent_subdir_creates_directory(
-    cg: ConcurrencyGroup,
     push_ctx: SyncTestContext,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Test that push_files auto-creates a non-existent subdirectory target.
 
@@ -916,7 +916,6 @@ def test_push_files_to_nonexistent_subdir_creates_directory(
     assert not subdir_path.exists()
 
     result = push_files(
-        cg=cg,
         agent=push_ctx.agent,
         host=push_ctx.host,
         source=push_ctx.local_dir,
@@ -924,6 +923,7 @@ def test_push_files_to_nonexistent_subdir_creates_directory(
         is_dry_run=False,
         is_delete=False,
         uncommitted_changes=UncommittedChangesMode.CLOBBER,
+        cg=cg,
     )
 
     assert subdir_path.is_dir()

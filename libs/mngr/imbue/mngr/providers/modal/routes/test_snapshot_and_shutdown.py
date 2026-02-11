@@ -139,7 +139,7 @@ def deployed_snapshot_function() -> Generator[tuple[str, str], None, None]:
 
     try:
         with ConcurrencyGroup(name="test_deploy_snapshot") as cg:
-            url = deploy_function(cg, "snapshot_and_shutdown", app_name, None)
+            url = deploy_function("snapshot_and_shutdown", app_name, None, cg)
         # Warm up the function to avoid cold start timeouts in tests
         _warmup_function(url)
         yield (app_name, url)

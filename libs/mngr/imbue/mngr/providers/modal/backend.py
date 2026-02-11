@@ -43,7 +43,7 @@ class ModalDeployFailedError(MngrError):
 
 
 # FIXME: this should just be renamed to _create_environment, and we should delete the first check, since it is only called when the env is missing
-def _ensure_environment_exists(cg: ConcurrencyGroup, environment_name: str) -> None:
+def _ensure_environment_exists(environment_name: str, cg: ConcurrencyGroup) -> None:
     """Ensure a Modal environment exists, creating it if necessary.
 
     Modal environments must be created before they can be used to scope resources
@@ -92,7 +92,7 @@ def _ensure_environment_exists(cg: ConcurrencyGroup, environment_name: str) -> N
             logger.warning("Failed to create Modal environment via CLI: {}", e)
 
 
-def _lookup_persistent_app_with_env_retry(cg: ConcurrencyGroup, app_name: str, environment_name: str) -> modal.App:
+def _lookup_persistent_app_with_env_retry(app_name: str, environment_name: str, cg: ConcurrencyGroup) -> modal.App:
     """Look up or create a persistent Modal app, retrying if the environment is not found.
 
     On the first NotFoundError, creates the environment and retries with exponential backoff
@@ -103,7 +103,7 @@ def _lookup_persistent_app_with_env_retry(cg: ConcurrencyGroup, app_name: str, e
         return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
     except modal.exception.NotFoundError:
         # Ensure the environment exists before retrying
-        _ensure_environment_exists(cg, environment_name)
+        _ensure_environment_exists(environment_name, cg)
         return _lookup_persistent_app_with_retry(app_name, environment_name)
 
 
@@ -119,7 +119,7 @@ def _lookup_persistent_app_with_retry(app_name: str, environment_name: str) -> m
         return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
 
 
-def _enter_ephemeral_app_context_with_env_retry(cg: ConcurrencyGroup, app: modal.App, environment_name: str) -> Any:
+def _enter_ephemeral_app_context_with_env_retry(app: modal.App, environment_name: str, cg: ConcurrencyGroup) -> Any:
     """Enter an ephemeral Modal app's run context, retrying if the environment is not found.
 
     On the first NotFoundError, creates the environment and retries with exponential backoff
@@ -132,7 +132,7 @@ def _enter_ephemeral_app_context_with_env_retry(cg: ConcurrencyGroup, app: modal
         return run_context
     except modal.exception.NotFoundError:
         # Ensure the environment exists before retrying
-        _ensure_environment_exists(cg, environment_name)
+        _ensure_environment_exists(environment_name, cg)
         return _enter_ephemeral_app_context_with_retry(app, environment_name)
 
 
@@ -244,7 +244,7 @@ class ModalProviderBackend(ProviderBackendInterface):
             output_buffer, loguru_writer = output_capture_context.__enter__()
 
             if is_persistent:
-                app = _lookup_persistent_app_with_env_retry(cg, app_name, environment_name)
+                app = _lookup_persistent_app_with_env_retry(app_name, environment_name, cg)
                 run_context = None
             else:
                 # Create the Modal app
@@ -252,7 +252,7 @@ class ModalProviderBackend(ProviderBackendInterface):
 
                 # Enter the app.run() context manager manually so we can return the app
                 # while keeping the context active until close() is called
-                run_context = _enter_ephemeral_app_context_with_env_retry(cg, app, environment_name)
+                run_context = _enter_ephemeral_app_context_with_env_retry(app, environment_name, cg)
 
             # Set app metadata on the loguru writer for structured logging
             if loguru_writer is not None:

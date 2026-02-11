@@ -302,7 +302,6 @@ def pull(ctx: click.Context, **kwargs) -> None:
         # Git mode: merge branches
         # source_branch=None means use agent's current branch
         git_result = pull_git(
-            cg=mngr_ctx.cg,
             agent=agent,
             host=host,
             destination=destination_path,
@@ -310,6 +309,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
             target_branch=opts.target_branch,
             is_dry_run=opts.dry_run,
             uncommitted_changes=uncommitted_changes_mode,
+            cg=mngr_ctx.cg,
         )
 
         output_sync_git_result(git_result, output_opts.output_format)
@@ -330,7 +330,6 @@ def pull(ctx: click.Context, **kwargs) -> None:
                 parsed_source_path = agent.work_dir / parsed_path
 
         files_result = pull_files(
-            cg=mngr_ctx.cg,
             agent=agent,
             host=host,
             destination=destination_path,
@@ -338,6 +337,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
             is_dry_run=opts.dry_run,
             is_delete=opts.delete,
             uncommitted_changes=uncommitted_changes_mode,
+            cg=mngr_ctx.cg,
         )
 
         output_sync_files_result(files_result, output_opts.output_format)

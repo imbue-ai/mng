@@ -212,7 +212,6 @@ def push(ctx: click.Context, **kwargs) -> None:
 
         # Git mode: push branches
         git_result = push_git(
-            cg=mngr_ctx.cg,
             agent=agent,
             host=host,
             source=source_path,
@@ -221,6 +220,7 @@ def push(ctx: click.Context, **kwargs) -> None:
             is_dry_run=opts.dry_run,
             uncommitted_changes=uncommitted_changes_mode,
             is_mirror=opts.mirror,
+            cg=mngr_ctx.cg,
         )
 
         output_sync_git_result(git_result, output_opts.output_format)
@@ -241,7 +241,6 @@ def push(ctx: click.Context, **kwargs) -> None:
                 parsed_target_path = agent.work_dir / parsed_path
 
         files_result = push_files(
-            cg=mngr_ctx.cg,
             agent=agent,
             host=host,
             source=source_path,
@@ -249,6 +248,7 @@ def push(ctx: click.Context, **kwargs) -> None:
             is_dry_run=opts.dry_run,
             is_delete=opts.delete,
             uncommitted_changes=uncommitted_changes_mode,
+            cg=mngr_ctx.cg,
         )
 
         output_sync_files_result(files_result, output_opts.output_format)

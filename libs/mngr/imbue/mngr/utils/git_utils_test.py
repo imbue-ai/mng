@@ -66,15 +66,15 @@ def test_empty_url() -> None:
     assert _parse_project_name_from_url(url) is None
 
 
-def test_derive_from_folder_name_when_no_git(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_derive_from_folder_name_when_no_git(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test deriving project name from folder name when there's no git repo."""
     project_dir = tmp_path / "my-project"
     project_dir.mkdir()
 
-    assert derive_project_name_from_path(cg, project_dir) == "my-project"
+    assert derive_project_name_from_path(project_dir, cg) == "my-project"
 
 
-def test_derive_from_folder_name_when_git_has_no_remote(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_derive_from_folder_name_when_git_has_no_remote(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test deriving project name from folder name when git has no remote."""
     project_dir = tmp_path / "my-project"
     project_dir.mkdir()
@@ -82,10 +82,10 @@ def test_derive_from_folder_name_when_git_has_no_remote(cg: ConcurrencyGroup, tm
     # Initialize git but don't add a remote
     subprocess.run(["git", "init"], cwd=project_dir, check=True, capture_output=True)
 
-    assert derive_project_name_from_path(cg, project_dir) == "my-project"
+    assert derive_project_name_from_path(project_dir, cg) == "my-project"
 
 
-def test_derive_from_git_remote_github(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_derive_from_git_remote_github(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test deriving project name from GitHub git remote."""
     project_dir = tmp_path / "local-folder"
     project_dir.mkdir()
@@ -100,10 +100,10 @@ def test_derive_from_git_remote_github(cg: ConcurrencyGroup, tmp_path: Path) -> 
     )
 
     # Should use the remote project name, not the folder name
-    assert derive_project_name_from_path(cg, project_dir) == "remote-project"
+    assert derive_project_name_from_path(project_dir, cg) == "remote-project"
 
 
-def test_derive_from_git_remote_ssh(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_derive_from_git_remote_ssh(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test deriving project name from SSH git remote."""
     project_dir = tmp_path / "local-folder"
     project_dir.mkdir()
@@ -118,20 +118,20 @@ def test_derive_from_git_remote_ssh(cg: ConcurrencyGroup, tmp_path: Path) -> Non
     )
 
     # Should use the remote project name, not the folder name
-    assert derive_project_name_from_path(cg, project_dir) == "remote-project"
+    assert derive_project_name_from_path(project_dir, cg) == "remote-project"
 
 
-def test_is_git_repository_returns_false_for_nonexistent_path(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_is_git_repository_returns_false_for_nonexistent_path(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that is_git_repository returns False for a non-existent path."""
     nonexistent = tmp_path / "does_not_exist"
-    assert is_git_repository(cg, nonexistent) is False
+    assert is_git_repository(nonexistent, cg) is False
 
 
-def test_is_git_repository_returns_false_for_non_git_dir(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_is_git_repository_returns_false_for_non_git_dir(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that is_git_repository returns False for a non-git directory."""
     plain_dir = tmp_path / "plain"
     plain_dir.mkdir()
-    assert is_git_repository(cg, plain_dir) is False
+    assert is_git_repository(plain_dir, cg) is False
 
 
 def test_is_git_repository_returns_true_for_git_dir(
@@ -141,19 +141,19 @@ def test_is_git_repository_returns_true_for_git_dir(
     git_dir = tmp_path / "repo"
     git_dir.mkdir()
     subprocess.run(["git", "init"], cwd=git_dir, check=True, capture_output=True)
-    assert is_git_repository(cg, git_dir) is True
+    assert is_git_repository(git_dir, cg) is True
 
 
-def test_find_git_worktree_root_returns_none_when_not_in_git(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_find_git_worktree_root_returns_none_when_not_in_git(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that find_git_worktree_root returns None when not in a git repo."""
     non_git_dir = tmp_path / "not-a-repo"
     non_git_dir.mkdir()
 
-    result = find_git_worktree_root(cg, non_git_dir)
+    result = find_git_worktree_root(non_git_dir, cg)
     assert result is None
 
 
-def test_find_git_worktree_root_returns_root_when_in_git(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_find_git_worktree_root_returns_root_when_in_git(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that find_git_worktree_root returns the root when in a git repo."""
     git_dir = tmp_path / "my-repo"
     git_dir.mkdir()
@@ -162,26 +162,26 @@ def test_find_git_worktree_root_returns_root_when_in_git(cg: ConcurrencyGroup, t
     subdir = git_dir / "some" / "nested" / "path"
     subdir.mkdir(parents=True)
 
-    result = find_git_worktree_root(cg, subdir)
+    result = find_git_worktree_root(subdir, cg)
     assert result == git_dir
 
 
-def test_find_git_common_dir_returns_none_when_not_in_git(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_find_git_common_dir_returns_none_when_not_in_git(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that find_git_common_dir returns None when not in a git repo."""
     non_git_dir = tmp_path / "not-a-repo"
     non_git_dir.mkdir()
 
-    result = find_git_common_dir(cg, non_git_dir)
+    result = find_git_common_dir(non_git_dir, cg)
     assert result is None
 
 
-def test_find_git_common_dir_returns_git_dir_for_regular_repo(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_find_git_common_dir_returns_git_dir_for_regular_repo(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that find_git_common_dir returns .git for a regular repository."""
     git_dir = tmp_path / "my-repo"
     git_dir.mkdir()
     subprocess.run(["git", "init"], cwd=git_dir, check=True, capture_output=True)
 
-    result = find_git_common_dir(cg, git_dir)
+    result = find_git_common_dir(git_dir, cg)
     assert result is not None
     assert result == git_dir / ".git"
 
@@ -198,12 +198,12 @@ def test_find_git_common_dir_returns_main_git_from_worktree(
         capture_output=True,
     )
 
-    result = find_git_common_dir(cg, worktree_path)
+    result = find_git_common_dir(worktree_path, cg)
     assert result is not None
     assert result == temp_git_repo / ".git"
 
 
-def test_find_git_common_dir_from_subdirectory(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_find_git_common_dir_from_subdirectory(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that find_git_common_dir works from a subdirectory."""
     git_dir = tmp_path / "my-repo"
     git_dir.mkdir()
@@ -212,33 +212,33 @@ def test_find_git_common_dir_from_subdirectory(cg: ConcurrencyGroup, tmp_path: P
     subdir = git_dir / "some" / "nested" / "path"
     subdir.mkdir(parents=True)
 
-    result = find_git_common_dir(cg, subdir)
+    result = find_git_common_dir(subdir, cg)
     assert result is not None
     assert result == git_dir / ".git"
 
 
-def test_get_git_author_info_returns_configured_values(cg: ConcurrencyGroup, temp_git_repo: Path) -> None:
+def test_get_git_author_info_returns_configured_values(temp_git_repo: Path, cg: ConcurrencyGroup) -> None:
     """Test that get_git_author_info returns name and email from a configured repo."""
-    name, email = get_git_author_info(cg, temp_git_repo)
+    name, email = get_git_author_info(temp_git_repo, cg)
     assert name == "Test User"
     assert email == "test@test.com"
 
 
-def test_get_git_author_info_returns_none_when_not_configured(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_get_git_author_info_returns_none_when_not_configured(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that get_git_author_info returns (None, None) for a repo without author config."""
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
     # HOME is already set to tmp_path by autouse fixture, and no .gitconfig exists
     subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
-    name, email = get_git_author_info(cg, repo_dir)
+    name, email = get_git_author_info(repo_dir, cg)
     assert name is None
     assert email is None
 
 
-def test_get_git_author_info_returns_none_for_non_git_dir(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_get_git_author_info_returns_none_for_non_git_dir(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that get_git_author_info returns (None, None) for a non-git directory."""
     plain_dir = tmp_path / "plain"
     plain_dir.mkdir()
-    name, email = get_git_author_info(cg, plain_dir)
+    name, email = get_git_author_info(plain_dir, cg)
     assert name is None
     assert email is None

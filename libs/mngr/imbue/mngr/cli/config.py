@@ -65,12 +65,12 @@ def _get_config_path(
                 raise ConfigNotFoundError("profile_dir is required for USER scope")
             return profile_dir / "settings.toml"
         case ConfigScope.PROJECT:
-            git_root = find_git_worktree_root(cg) if cg is not None else None
+            git_root = find_git_worktree_root(None, cg) if cg is not None else None
             if git_root is None:
                 raise ConfigNotFoundError("No git repository found for project config")
             return git_root / f".{root_name}" / "settings.toml"
         case ConfigScope.LOCAL:
-            git_root = find_git_worktree_root(cg) if cg is not None else None
+            git_root = find_git_worktree_root(None, cg) if cg is not None else None
             if git_root is None:
                 raise ConfigNotFoundError("No git repository found for local config")
             return git_root / f".{root_name}" / "settings.local.toml"

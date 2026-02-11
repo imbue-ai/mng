@@ -53,6 +53,6 @@ class SyncTestContext(FrozenModel):
     host: Any = Field(description="Test host (FakeHost)")
 
 
-def has_uncommitted_changes(cg: ConcurrencyGroup, path: Path) -> bool:
+def has_uncommitted_changes(path: Path, cg: ConcurrencyGroup) -> bool:
     """Check for uncommitted changes using LocalGitContext."""
     return LocalGitContext(cg=cg).has_uncommitted_changes(path)

@@ -14,7 +14,6 @@ from imbue.mngr.primitives import UncommittedChangesMode
 
 
 def push_files(
-    cg: ConcurrencyGroup,
     agent: AgentInterface,
     host: OnlineHostInterface,
     source: Path,
@@ -22,10 +21,10 @@ def push_files(
     is_dry_run: bool,
     is_delete: bool,
     uncommitted_changes: UncommittedChangesMode,
+    cg: ConcurrencyGroup,
 ) -> SyncFilesResult:
     """Push files from a local directory to an agent's work directory using rsync."""
     return sync_files(
-        cg=cg,
         agent=agent,
         host=host,
         mode=SyncMode.PUSH,
@@ -34,11 +33,11 @@ def push_files(
         is_dry_run=is_dry_run,
         is_delete=is_delete,
         uncommitted_changes=uncommitted_changes,
+        cg=cg,
     )
 
 
 def push_git(
-    cg: ConcurrencyGroup,
     agent: AgentInterface,
     host: OnlineHostInterface,
     source: Path,
@@ -47,10 +46,10 @@ def push_git(
     is_dry_run: bool,
     uncommitted_changes: UncommittedChangesMode,
     is_mirror: bool,
+    cg: ConcurrencyGroup,
 ) -> SyncGitResult:
     """Push git commits from a local repository to an agent's repository."""
     return sync_git(
-        cg=cg,
         agent=agent,
         host=host,
         mode=SyncMode.PUSH,
@@ -60,4 +59,5 @@ def push_git(
         is_dry_run=is_dry_run,
         uncommitted_changes=uncommitted_changes,
         is_mirror=is_mirror,
+        cg=cg,
     )

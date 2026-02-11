@@ -211,10 +211,10 @@ class LocalGitContext(GitContextInterface):
             raise MngrError(f"git clean failed: {result.stderr}")
 
     def get_current_branch(self, path: Path) -> str:
-        return get_current_branch(self.cg, path)
+        return get_current_branch(path, self.cg)
 
     def is_git_repository(self, path: Path) -> bool:
-        return is_git_repository(self.cg, path)
+        return is_git_repository(path, self.cg)
 
 
 class RemoteGitContext(GitContextInterface):
@@ -368,7 +368,6 @@ def _build_rsync_command(
 
 
 def sync_files(
-    cg: ConcurrencyGroup,
     agent: AgentInterface,
     host: OnlineHostInterface,
     mode: SyncMode,
@@ -377,6 +376,7 @@ def sync_files(
     is_dry_run: bool,
     is_delete: bool,
     uncommitted_changes: UncommittedChangesMode,
+    cg: ConcurrencyGroup,
 ) -> SyncFilesResult:
     """Sync files between local and agent using rsync."""
     if not host.is_local:
@@ -447,15 +447,15 @@ def sync_files(
 # === Git Sync Helper Functions ===
 
 
-def _get_head_commit_or_raise(cg: ConcurrencyGroup, path: Path) -> str:
+def _get_head_commit_or_raise(path: Path, cg: ConcurrencyGroup) -> str:
     """Get the current HEAD commit hash, raising on failure."""
-    commit = get_head_commit(cg, path)
+    commit = get_head_commit(path, cg)
     if commit is None:
         raise MngrError(f"Failed to get HEAD commit in {path}")
     return commit
 
 
-def _merge_fetch_head(cg: ConcurrencyGroup, local_path: Path) -> None:
+def _merge_fetch_head(local_path: Path, cg: ConcurrencyGroup) -> None:
     """Merge FETCH_HEAD into the current branch, aborting on conflict."""
     result = cg.run_process_to_completion(
         ["git", "merge", "FETCH_HEAD", "--no-edit"],
@@ -488,12 +488,12 @@ def _merge_fetch_head(cg: ConcurrencyGroup, local_path: Path) -> None:
 
 
 def _local_git_push_mirror(
-    cg: ConcurrencyGroup,
     local_path: Path,
     destination_path: Path,
     host: OnlineHostInterface,
     source_branch: str,
     is_dry_run: bool,
+    cg: ConcurrencyGroup,
 ) -> int:
     """Push via mirror fetch, overwriting all refs in the target.
 
@@ -502,7 +502,7 @@ def _local_git_push_mirror(
     target_git_dir = str(destination_path)
     logger.debug("Performing mirror fetch to {}", target_git_dir)
 
-    pre_fetch_head = get_head_commit(cg, destination_path)
+    pre_fetch_head = get_head_commit(destination_path, cg)
 
     if is_dry_run:
         # Estimate using pre_fetch_head (the agent's current HEAD). target_branch
@@ -510,7 +510,7 @@ def _local_git_push_mirror(
         # commit hash valid in both repos since local agents share the same git
         # object store.
         if pre_fetch_head is not None:
-            return count_commits_between(cg, local_path, pre_fetch_head, source_branch)
+            return count_commits_between(local_path, pre_fetch_head, source_branch, cg)
         return 0
 
     # Fetch all refs from source into target. --update-head-ok is needed because
@@ -543,20 +543,20 @@ def _local_git_push_mirror(
         raise GitSyncError(f"Failed to update working tree: {reset_result.stderr}")
 
     # Count actual commits transferred by comparing pre/post HEAD
-    post_fetch_head = get_head_commit(cg, destination_path)
+    post_fetch_head = get_head_commit(destination_path, cg)
     if pre_fetch_head is not None and post_fetch_head is not None and pre_fetch_head != post_fetch_head:
-        return count_commits_between(cg, destination_path, pre_fetch_head, post_fetch_head)
+        return count_commits_between(destination_path, pre_fetch_head, post_fetch_head, cg)
     return 0
 
 
 def _local_git_push_branch(
-    cg: ConcurrencyGroup,
     local_path: Path,
     destination_path: Path,
     host: OnlineHostInterface,
     source_branch: str,
     target_branch: str,
     is_dry_run: bool,
+    cg: ConcurrencyGroup,
 ) -> int:
     """Push a single branch via fetch+reset.
 
@@ -565,11 +565,11 @@ def _local_git_push_branch(
     target_git_dir = str(destination_path)
     logger.debug("Fetching branch {} into {}", source_branch, target_git_dir)
 
-    pre_fetch_head = get_head_commit(cg, destination_path)
+    pre_fetch_head = get_head_commit(destination_path, cg)
 
     if is_dry_run:
         if pre_fetch_head is not None:
-            return count_commits_between(cg, local_path, pre_fetch_head, source_branch)
+            return count_commits_between(local_path, pre_fetch_head, source_branch, cg)
         return 0
 
     # Fetch from source repo into the target
@@ -591,7 +591,7 @@ def _local_git_push_branch(
 
     # Check for non-fast-forward push (diverged history)
     if pre_fetch_head is not None and pre_fetch_head != fetched_commit:
-        is_fast_forward = is_ancestor(cg, destination_path, pre_fetch_head, fetched_commit)
+        is_fast_forward = is_ancestor(destination_path, pre_fetch_head, fetched_commit, cg)
         if not is_fast_forward:
             raise GitSyncError(
                 f"Cannot push: agent branch '{target_branch}' has diverged from "
@@ -610,7 +610,7 @@ def _local_git_push_branch(
     # Count actual commits transferred
     commits_transferred = 0
     if pre_fetch_head is not None and pre_fetch_head != fetched_commit:
-        commits_transferred = count_commits_between(cg, destination_path, pre_fetch_head, fetched_commit)
+        commits_transferred = count_commits_between(destination_path, pre_fetch_head, fetched_commit, cg)
 
     logger.debug(
         "Git push complete: pushed {} commits from {} to {}",
@@ -622,7 +622,6 @@ def _local_git_push_branch(
 
 
 def _sync_git_push(
-    cg: ConcurrencyGroup,
     agent: AgentInterface,
     host: OnlineHostInterface,
     local_path: Path,
@@ -631,6 +630,7 @@ def _sync_git_push(
     is_dry_run: bool,
     uncommitted_changes: UncommittedChangesMode,
     is_mirror: bool,
+    cg: ConcurrencyGroup,
 ) -> SyncGitResult:
     """Push git commits from local to agent repository."""
     destination_path = agent.work_dir
@@ -640,22 +640,22 @@ def _sync_git_push(
         if host.is_local:
             if is_mirror:
                 commits_transferred = _local_git_push_mirror(
-                    cg,
                     local_path,
                     destination_path,
                     host,
                     source_branch,
                     is_dry_run,
+                    cg,
                 )
             else:
                 commits_transferred = _local_git_push_branch(
-                    cg,
                     local_path,
                     destination_path,
                     host,
                     source_branch,
                     target_branch,
                     is_dry_run,
+                    cg,
                 )
         else:
             raise NotImplementedError("Pushing to remote hosts is not yet implemented")
@@ -675,13 +675,13 @@ def _sync_git_push(
 
 
 def _fetch_and_merge(
-    cg: ConcurrencyGroup,
     local_path: Path,
     source_path: Path,
     source_branch: str,
     target_branch: str,
     original_branch: str,
     is_dry_run: bool,
+    cg: ConcurrencyGroup,
 ) -> int:
     """Fetch from source repo and merge into target branch.
 
@@ -712,8 +712,8 @@ def _fetch_and_merge(
             raise MngrError(f"Failed to checkout target branch: {checkout_result.stderr}")
 
     # Record HEAD after checkout so we count commits on the target branch
-    pre_merge_head = _get_head_commit_or_raise(cg, local_path)
-    commits_to_merge = count_commits_between(cg, local_path, "HEAD", "FETCH_HEAD")
+    pre_merge_head = _get_head_commit_or_raise(local_path, cg)
+    commits_to_merge = count_commits_between(local_path, "HEAD", "FETCH_HEAD", cg)
 
     try:
         if is_dry_run:
@@ -725,10 +725,10 @@ def _fetch_and_merge(
             )
             commits_transferred = commits_to_merge
         else:
-            _merge_fetch_head(cg, local_path)
-            post_merge_head = _get_head_commit_or_raise(cg, local_path)
+            _merge_fetch_head(local_path, cg)
+            post_merge_head = _get_head_commit_or_raise(local_path, cg)
             commits_transferred = (
-                count_commits_between(cg, local_path, pre_merge_head, post_merge_head)
+                count_commits_between(local_path, pre_merge_head, post_merge_head, cg)
                 if pre_merge_head != post_merge_head
                 else 0
             )
@@ -768,7 +768,6 @@ def _fetch_and_merge(
 
 
 def _sync_git_pull(
-    cg: ConcurrencyGroup,
     agent: AgentInterface,
     host: OnlineHostInterface,
     local_path: Path,
@@ -776,21 +775,22 @@ def _sync_git_pull(
     target_branch: str,
     is_dry_run: bool,
     uncommitted_changes: UncommittedChangesMode,
+    cg: ConcurrencyGroup,
 ) -> SyncGitResult:
     """Pull git commits from agent to local repository."""
     source_path = agent.work_dir
     git_ctx = LocalGitContext(cg=cg)
-    original_branch = get_current_branch(cg, local_path)
+    original_branch = get_current_branch(local_path, cg)
 
     with _stash_guard(git_ctx, local_path, uncommitted_changes):
         commits_transferred = _fetch_and_merge(
-            cg=cg,
             local_path=local_path,
             source_path=source_path,
             source_branch=source_branch,
             target_branch=target_branch,
             original_branch=original_branch,
             is_dry_run=is_dry_run,
+            cg=cg,
         )
 
     return SyncGitResult(
@@ -808,7 +808,6 @@ def _sync_git_pull(
 
 
 def sync_git(
-    cg: ConcurrencyGroup,
     agent: AgentInterface,
     host: OnlineHostInterface,
     mode: SyncMode,
@@ -818,6 +817,7 @@ def sync_git(
     is_dry_run: bool,
     uncommitted_changes: UncommittedChangesMode,
     is_mirror: bool,
+    cg: ConcurrencyGroup,
 ) -> SyncGitResult:
     """Sync git commits between local and agent."""
     remote_path = agent.work_dir
@@ -843,7 +843,6 @@ def sync_git(
         )
 
         return _sync_git_push(
-            cg=cg,
             agent=agent,
             host=host,
             local_path=local_path,
@@ -852,6 +851,7 @@ def sync_git(
             is_dry_run=is_dry_run,
             uncommitted_changes=uncommitted_changes,
             is_mirror=is_mirror,
+            cg=cg,
         )
     else:
         # Pull: agent -> local
@@ -866,7 +866,6 @@ def sync_git(
             raise NotImplementedError("Mirror mode is only supported for push operations")
 
         return _sync_git_pull(
-            cg=cg,
             agent=agent,
             host=host,
             local_path=local_path,
@@ -874,4 +873,5 @@ def sync_git(
             target_branch=actual_target_branch,
             is_dry_run=is_dry_run,
             uncommitted_changes=uncommitted_changes,
+            cg=cg,
         )

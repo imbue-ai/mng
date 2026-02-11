@@ -950,7 +950,7 @@ class Host(BaseHost, OnlineHostInterface):
         if options.git and options.git.base_branch:
             base_branch_name = options.git.base_branch
         elif source_host.is_local:
-            base_branch_name = get_current_git_branch(self.mngr_ctx.cg, source_path) or "main"
+            base_branch_name = get_current_git_branch(source_path, self.mngr_ctx.cg) or "main"
         else:
             result = source_host.execute_command(
                 "git rev-parse --abbrev-ref HEAD",
@@ -960,7 +960,7 @@ class Host(BaseHost, OnlineHostInterface):
 
         # Get git author info from source repo
         if source_host.is_local:
-            git_author_name, git_author_email = get_git_author_info(self.mngr_ctx.cg, source_path)
+            git_author_name, git_author_email = get_git_author_info(source_path, self.mngr_ctx.cg)
         else:
             name_result = source_host.execute_command("git config user.name", cwd=source_path)
             email_result = source_host.execute_command("git config user.email", cwd=source_path)

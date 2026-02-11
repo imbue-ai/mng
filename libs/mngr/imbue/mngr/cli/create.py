@@ -861,7 +861,7 @@ def _parse_project_name(mngr_ctx: MngrContext, source_location: HostLocation, op
             "Have to re-implement the below function so that it works via HostInterface calls instead!"
         )
 
-    return derive_project_name_from_path(mngr_ctx.cg, source_location.path)
+    return derive_project_name_from_path(source_location.path, mngr_ctx.cg)
 
 
 def _try_reuse_existing_agent(
@@ -942,7 +942,7 @@ def _resolve_source_location(
         # easy, source location is on current host
         source_path = opts.source_path
         if source_path is None:
-            git_root = find_git_worktree_root(mngr_ctx.cg)
+            git_root = find_git_worktree_root(None, mngr_ctx.cg)
             source_path = str(git_root) if git_root is not None else os.getcwd()
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
         source_location = HostLocation(
@@ -1039,7 +1039,7 @@ def _get_current_git_branch(mngr_ctx: MngrContext, source_location: HostLocation
             "Have to re-implement this function so that it works via HostInterface calls instead!"
         )
 
-    return get_current_git_branch(mngr_ctx.cg, source_location.path)
+    return get_current_git_branch(source_location.path, mngr_ctx.cg)
 
 
 def _resolve_env_vars(
@@ -1065,9 +1065,9 @@ def _resolve_env_vars(
     return tuple(EnvVar(key=k, value=v) for k, v in merged.items())
 
 
-def _is_git_repo(cg: ConcurrencyGroup, path: Path) -> bool:
+def _is_git_repo(path: Path, cg: ConcurrencyGroup) -> bool:
     """Check if the given path is inside a git repository."""
-    return find_git_worktree_root(cg, path) is not None
+    return find_git_worktree_root(path, cg) is not None
 
 
 @pure
@@ -1122,7 +1122,7 @@ def _parse_agent_opts(
         if is_creating_remote_host:
             copy_mode = WorkDirCopyMode.COPY
         elif source_location.host.is_local:
-            is_git_repo = _is_git_repo(mngr_ctx.cg, source_location.path)
+            is_git_repo = _is_git_repo(source_location.path, mngr_ctx.cg)
             if is_git_repo:
                 copy_mode = WorkDirCopyMode.WORKTREE
             else:

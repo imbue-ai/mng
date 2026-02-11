@@ -10,7 +10,7 @@ from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import MngrError
 
 
-def get_current_git_branch(cg: ConcurrencyGroup, path: Path | None = None) -> str | None:
+def get_current_git_branch(path: Path | None, cg: ConcurrencyGroup) -> str | None:
     """Get the current git branch name for the repository at the given path.
 
     Returns None if the path is not a git repository or an error occurs.
@@ -26,7 +26,7 @@ def get_current_git_branch(cg: ConcurrencyGroup, path: Path | None = None) -> st
         return None
 
 
-def derive_project_name_from_path(cg: ConcurrencyGroup, path: Path) -> str:
+def derive_project_name_from_path(path: Path, cg: ConcurrencyGroup) -> str:
     """Derive a project name from a path.
 
     Attempts to extract the project name from the git remote origin URL if available.
@@ -34,7 +34,7 @@ def derive_project_name_from_path(cg: ConcurrencyGroup, path: Path) -> str:
     is not recognized.
     """
     # Try to get the git remote origin URL
-    git_project_name = _get_project_name_from_git_remote(cg, path)
+    git_project_name = _get_project_name_from_git_remote(path, cg)
     if git_project_name is not None:
         return git_project_name
 
@@ -42,7 +42,7 @@ def derive_project_name_from_path(cg: ConcurrencyGroup, path: Path) -> str:
     return path.resolve().name
 
 
-def _get_project_name_from_git_remote(cg: ConcurrencyGroup, path: Path) -> str | None:
+def _get_project_name_from_git_remote(path: Path, cg: ConcurrencyGroup) -> str | None:
     """Get the project name from the git remote origin URL.
 
     Supports GitHub and GitLab URL formats:
@@ -106,7 +106,7 @@ def _parse_project_name_from_url(url: str) -> str | None:
     return None
 
 
-def _get_git_config_value(cg: ConcurrencyGroup, path: Path, key: str) -> str | None:
+def _get_git_config_value(path: Path, key: str, cg: ConcurrencyGroup) -> str | None:
     """Get a git config value for the repository at the given path."""
     result = cg.run_process_to_completion(
         ["git", "config", key],
@@ -118,12 +118,12 @@ def _get_git_config_value(cg: ConcurrencyGroup, path: Path, key: str) -> str | N
     return None
 
 
-def get_git_author_info(cg: ConcurrencyGroup, path: Path) -> tuple[str | None, str | None]:
+def get_git_author_info(path: Path, cg: ConcurrencyGroup) -> tuple[str | None, str | None]:
     """Get the git author name and email for the repository at the given path."""
-    return _get_git_config_value(cg, path, "user.name"), _get_git_config_value(cg, path, "user.email")
+    return _get_git_config_value(path, "user.name", cg), _get_git_config_value(path, "user.email", cg)
 
 
-def find_git_worktree_root(cg: ConcurrencyGroup, start: Path | None = None) -> Path | None:
+def find_git_worktree_root(start: Path | None, cg: ConcurrencyGroup) -> Path | None:
     """Find the git worktree root."""
     cwd = start or Path.cwd()
     try:
@@ -136,7 +136,7 @@ def find_git_worktree_root(cg: ConcurrencyGroup, start: Path | None = None) -> P
         return None
 
 
-def is_git_repository(cg: ConcurrencyGroup, path: Path) -> bool:
+def is_git_repository(path: Path, cg: ConcurrencyGroup) -> bool:
     """Check if the given path is inside a git repository.
 
     Works from any subdirectory within a git worktree.
@@ -155,7 +155,7 @@ def is_git_repository(cg: ConcurrencyGroup, path: Path) -> bool:
         return False
 
 
-def get_current_branch(cg: ConcurrencyGroup, path: Path) -> str:
+def get_current_branch(path: Path, cg: ConcurrencyGroup) -> str:
     """Get the current branch name for a git repository.
 
     Unlike get_current_git_branch, this function raises an error if the operation
@@ -175,7 +175,7 @@ def get_current_branch(cg: ConcurrencyGroup, path: Path) -> str:
     return branch
 
 
-def get_head_commit(cg: ConcurrencyGroup, path: Path) -> str | None:
+def get_head_commit(path: Path, cg: ConcurrencyGroup) -> str | None:
     """Get the current HEAD commit hash for a repository."""
     result = cg.run_process_to_completion(
         ["git", "rev-parse", "HEAD"],
@@ -187,7 +187,7 @@ def get_head_commit(cg: ConcurrencyGroup, path: Path) -> str | None:
     return result.stdout.strip()
 
 
-def is_ancestor(cg: ConcurrencyGroup, path: Path, ancestor_commit: str, descendant_commit: str) -> bool:
+def is_ancestor(path: Path, ancestor_commit: str, descendant_commit: str, cg: ConcurrencyGroup) -> bool:
     """Check if ancestor_commit is an ancestor of descendant_commit."""
     result = cg.run_process_to_completion(
         ["git", "merge-base", "--is-ancestor", ancestor_commit, descendant_commit],
@@ -197,7 +197,7 @@ def is_ancestor(cg: ConcurrencyGroup, path: Path, ancestor_commit: str, descenda
     return result.returncode == 0
 
 
-def count_commits_between(cg: ConcurrencyGroup, path: Path, base_ref: str, head_ref: str) -> int:
+def count_commits_between(path: Path, base_ref: str, head_ref: str, cg: ConcurrencyGroup) -> int:
     """Count the number of commits between two refs (base_ref..head_ref)."""
     result = cg.run_process_to_completion(
         ["git", "rev-list", "--count", f"{base_ref}..{head_ref}"],
@@ -213,7 +213,7 @@ def count_commits_between(cg: ConcurrencyGroup, path: Path, base_ref: str, head_
         return 0
 
 
-def find_git_common_dir(cg: ConcurrencyGroup, path: Path) -> Path | None:
+def find_git_common_dir(path: Path, cg: ConcurrencyGroup) -> Path | None:
     """Find the common .git directory for a repository or worktree.
 
     For a regular repository, this returns the .git directory.

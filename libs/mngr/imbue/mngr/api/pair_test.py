@@ -27,7 +27,7 @@ def test_check_unison_installed_returns_bool() -> None:
 # =============================================================================
 
 
-def test_unison_syncer_builds_basic_command(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_unison_syncer_builds_basic_command(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer builds a valid unison command."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -35,11 +35,11 @@ def test_unison_syncer_builds_basic_command(cg: ConcurrencyGroup, tmp_path: Path
     target.mkdir()
 
     syncer = UnisonSyncer(
-        cg=cg,
         source_path=source,
         target_path=target,
         sync_direction=SyncDirection.BOTH,
         conflict_mode=ConflictMode.NEWER,
+        cg=cg,
     )
 
     cmd = syncer._build_unison_command()
@@ -53,7 +53,7 @@ def test_unison_syncer_builds_basic_command(cg: ConcurrencyGroup, tmp_path: Path
     assert "-batch" in cmd
 
 
-def test_unison_syncer_builds_command_with_forward_direction(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_unison_syncer_builds_command_with_forward_direction(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer adds force flag for forward direction."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -61,11 +61,11 @@ def test_unison_syncer_builds_command_with_forward_direction(cg: ConcurrencyGrou
     target.mkdir()
 
     syncer = UnisonSyncer(
-        cg=cg,
         source_path=source,
         target_path=target,
         sync_direction=SyncDirection.FORWARD,
         conflict_mode=ConflictMode.NEWER,
+        cg=cg,
     )
 
     cmd = syncer._build_unison_command()
@@ -75,7 +75,7 @@ def test_unison_syncer_builds_command_with_forward_direction(cg: ConcurrencyGrou
     assert cmd[force_idx + 1] == str(source)
 
 
-def test_unison_syncer_builds_command_with_reverse_direction(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_unison_syncer_builds_command_with_reverse_direction(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer adds force flag for reverse direction."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -83,11 +83,11 @@ def test_unison_syncer_builds_command_with_reverse_direction(cg: ConcurrencyGrou
     target.mkdir()
 
     syncer = UnisonSyncer(
-        cg=cg,
         source_path=source,
         target_path=target,
         sync_direction=SyncDirection.REVERSE,
         conflict_mode=ConflictMode.NEWER,
+        cg=cg,
     )
 
     cmd = syncer._build_unison_command()
@@ -97,7 +97,7 @@ def test_unison_syncer_builds_command_with_reverse_direction(cg: ConcurrencyGrou
     assert cmd[force_idx + 1] == str(target)
 
 
-def test_unison_syncer_builds_command_with_exclude_patterns(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_unison_syncer_builds_command_with_exclude_patterns(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer adds exclude patterns to command."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -105,12 +105,12 @@ def test_unison_syncer_builds_command_with_exclude_patterns(cg: ConcurrencyGroup
     target.mkdir()
 
     syncer = UnisonSyncer(
-        cg=cg,
         source_path=source,
         target_path=target,
         sync_direction=SyncDirection.BOTH,
         conflict_mode=ConflictMode.NEWER,
         exclude_patterns=("*.pyc", "__pycache__"),
+        cg=cg,
     )
 
     cmd = syncer._build_unison_command()
@@ -121,7 +121,7 @@ def test_unison_syncer_builds_command_with_exclude_patterns(cg: ConcurrencyGroup
     assert "__pycache__" in cmd_str
 
 
-def test_unison_syncer_always_excludes_git_directory(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_unison_syncer_always_excludes_git_directory(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer always excludes .git directory."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -129,11 +129,11 @@ def test_unison_syncer_always_excludes_git_directory(cg: ConcurrencyGroup, tmp_p
     target.mkdir()
 
     syncer = UnisonSyncer(
-        cg=cg,
         source_path=source,
         target_path=target,
         sync_direction=SyncDirection.BOTH,
         conflict_mode=ConflictMode.NEWER,
+        cg=cg,
     )
 
     cmd = syncer._build_unison_command()
@@ -142,7 +142,7 @@ def test_unison_syncer_always_excludes_git_directory(cg: ConcurrencyGroup, tmp_p
     assert ".git" in cmd_str
 
 
-def test_unison_syncer_is_not_running_initially(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_unison_syncer_is_not_running_initially(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer is_running is False before start."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -150,11 +150,11 @@ def test_unison_syncer_is_not_running_initially(cg: ConcurrencyGroup, tmp_path: 
     target.mkdir()
 
     syncer = UnisonSyncer(
-        cg=cg,
         source_path=source,
         target_path=target,
         sync_direction=SyncDirection.BOTH,
         conflict_mode=ConflictMode.NEWER,
+        cg=cg,
     )
 
     assert syncer.is_running is False
@@ -165,43 +165,43 @@ def test_unison_syncer_is_not_running_initially(cg: ConcurrencyGroup, tmp_path: 
 # =============================================================================
 
 
-def test_determine_git_sync_returns_none_for_non_git_directories(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_determine_git_sync_returns_none_for_non_git_directories(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that determine_git_sync_actions returns None for non-git directories."""
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()
     target.mkdir()
 
-    result = determine_git_sync_actions(cg, source, target)
+    result = determine_git_sync_actions(source, target, cg)
 
     assert result is None
 
 
-def test_determine_git_sync_returns_none_when_only_source_is_git(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_determine_git_sync_returns_none_when_only_source_is_git(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that returns None when only source is a git repo."""
     source = tmp_path / "source"
     target = tmp_path / "target"
     init_git_repo_with_config(source)
     target.mkdir()
 
-    result = determine_git_sync_actions(cg, source, target)
+    result = determine_git_sync_actions(source, target, cg)
 
     assert result is None
 
 
-def test_determine_git_sync_returns_none_when_only_target_is_git(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_determine_git_sync_returns_none_when_only_target_is_git(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that returns None when only target is a git repo."""
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()
     init_git_repo_with_config(target)
 
-    result = determine_git_sync_actions(cg, source, target)
+    result = determine_git_sync_actions(source, target, cg)
 
     assert result is None
 
 
-def test_determine_git_sync_returns_no_action_when_both_in_sync(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_determine_git_sync_returns_no_action_when_both_in_sync(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that returns no action needed when repos have same commit."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -216,14 +216,14 @@ def test_determine_git_sync_returns_no_action_when_both_in_sync(cg: ConcurrencyG
         check=True,
     )
 
-    result = determine_git_sync_actions(cg, source, target)
+    result = determine_git_sync_actions(source, target, cg)
 
     assert result is not None
     assert result.agent_is_ahead is False
     assert result.local_is_ahead is False
 
 
-def test_determine_git_sync_detects_source_ahead(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_determine_git_sync_detects_source_ahead(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that detects when source has commits not in target."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -243,14 +243,14 @@ def test_determine_git_sync_detects_source_ahead(cg: ConcurrencyGroup, tmp_path:
     run_git_command(source, "add", "new_file.txt")
     run_git_command(source, "commit", "-m", "Add new file")
 
-    result = determine_git_sync_actions(cg, source, target)
+    result = determine_git_sync_actions(source, target, cg)
 
     assert result is not None
     assert result.agent_is_ahead is True
     assert result.local_is_ahead is False
 
 
-def test_determine_git_sync_detects_target_ahead(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_determine_git_sync_detects_target_ahead(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that detects when target has commits not in source."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -272,14 +272,14 @@ def test_determine_git_sync_detects_target_ahead(cg: ConcurrencyGroup, tmp_path:
     run_git_command(target, "add", "new_file.txt")
     run_git_command(target, "commit", "-m", "Add new file")
 
-    result = determine_git_sync_actions(cg, source, target)
+    result = determine_git_sync_actions(source, target, cg)
 
     assert result is not None
     assert result.agent_is_ahead is False
     assert result.local_is_ahead is True
 
 
-def test_determine_git_sync_detects_both_diverged(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+def test_determine_git_sync_detects_both_diverged(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that detects when both repos have diverged."""
     source = tmp_path / "source"
     target = tmp_path / "target"
@@ -306,7 +306,7 @@ def test_determine_git_sync_detects_both_diverged(cg: ConcurrencyGroup, tmp_path
     run_git_command(target, "add", "target_file.txt")
     run_git_command(target, "commit", "-m", "Add target file")
 
-    result = determine_git_sync_actions(cg, source, target)
+    result = determine_git_sync_actions(source, target, cg)
 
     assert result is not None
     assert result.agent_is_ahead is True

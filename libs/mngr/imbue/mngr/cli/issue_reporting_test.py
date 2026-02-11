@@ -107,11 +107,11 @@ def test_search_for_existing_issue_returns_none_when_both_fail(
 
     monkeypatch.setattr(ConcurrencyGroup, "run_process_to_completion", failing_run)
 
-    result = search_for_existing_issue(cg, "some error")
+    result = search_for_existing_issue("some error", cg)
     assert result is None
 
 
-def test_search_for_existing_issue_falls_back_to_gh_cli(cg: ConcurrencyGroup, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_for_existing_issue_falls_back_to_gh_cli(monkeypatch: pytest.MonkeyPatch, cg: ConcurrencyGroup) -> None:
     """When GitHub API fails, search falls back to gh CLI."""
     call_count = 0
 
@@ -131,7 +131,7 @@ def test_search_for_existing_issue_falls_back_to_gh_cli(cg: ConcurrencyGroup, mo
 
     monkeypatch.setattr(ConcurrencyGroup, "run_process_to_completion", fake_run)
 
-    result = search_for_existing_issue(cg, "test feature")
+    result = search_for_existing_issue("test feature", cg)
     assert result is not None
     assert result.number == 42
     assert result.url == "https://github.com/test/42"
@@ -166,7 +166,7 @@ def test_search_for_existing_issue_returns_api_result_when_found(
 
     monkeypatch.setattr(ConcurrencyGroup, "run_process_to_completion", fake_run)
 
-    result = search_for_existing_issue(cg, "--sync-mode=full")
+    result = search_for_existing_issue("--sync-mode=full", cg)
     assert result is not None
     assert result.number == 99
     assert result.url == "https://github.com/imbue-ai/mngr/issues/99"
@@ -188,7 +188,7 @@ def test_search_for_existing_issue_returns_none_when_no_results(
 
     monkeypatch.setattr(ConcurrencyGroup, "run_process_to_completion", fake_run)
 
-    result = search_for_existing_issue(cg, "nonexistent feature")
+    result = search_for_existing_issue("nonexistent feature", cg)
     assert result is None
 
 

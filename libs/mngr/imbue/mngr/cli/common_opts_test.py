@@ -55,14 +55,14 @@ def test_run_single_script_captures_stderr(cg: ConcurrencyGroup) -> None:
     assert "error" in stderr
 
 
-def test_run_pre_command_scripts_no_scripts(cg: ConcurrencyGroup, mngr_test_prefix: str) -> None:
+def test_run_pre_command_scripts_no_scripts(mngr_test_prefix: str, cg: ConcurrencyGroup) -> None:
     """_run_pre_command_scripts should do nothing if no scripts configured."""
     config = MngrConfig(prefix=mngr_test_prefix, pre_command_scripts={})
     # Should not raise
     _run_pre_command_scripts(config, "create", cg)
 
 
-def test_run_pre_command_scripts_no_scripts_for_command(cg: ConcurrencyGroup, mngr_test_prefix: str) -> None:
+def test_run_pre_command_scripts_no_scripts_for_command(mngr_test_prefix: str, cg: ConcurrencyGroup) -> None:
     """_run_pre_command_scripts should do nothing if no scripts for this command."""
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -72,7 +72,7 @@ def test_run_pre_command_scripts_no_scripts_for_command(cg: ConcurrencyGroup, mn
     _run_pre_command_scripts(config, "create", cg)
 
 
-def test_run_pre_command_scripts_success(cg: ConcurrencyGroup, mngr_test_prefix: str) -> None:
+def test_run_pre_command_scripts_success(mngr_test_prefix: str, cg: ConcurrencyGroup) -> None:
     """_run_pre_command_scripts should succeed when all scripts pass."""
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -82,7 +82,7 @@ def test_run_pre_command_scripts_success(cg: ConcurrencyGroup, mngr_test_prefix:
     _run_pre_command_scripts(config, "create", cg)
 
 
-def test_run_pre_command_scripts_single_failure(cg: ConcurrencyGroup, mngr_test_prefix: str) -> None:
+def test_run_pre_command_scripts_single_failure(mngr_test_prefix: str, cg: ConcurrencyGroup) -> None:
     """_run_pre_command_scripts should raise ClickException when a script fails."""
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -95,7 +95,7 @@ def test_run_pre_command_scripts_single_failure(cg: ConcurrencyGroup, mngr_test_
     assert "Exit code: 1" in str(exc_info.value)
 
 
-def test_run_pre_command_scripts_multiple_failures(cg: ConcurrencyGroup, mngr_test_prefix: str) -> None:
+def test_run_pre_command_scripts_multiple_failures(mngr_test_prefix: str, cg: ConcurrencyGroup) -> None:
     """_run_pre_command_scripts should report all failures."""
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -109,7 +109,7 @@ def test_run_pre_command_scripts_multiple_failures(cg: ConcurrencyGroup, mngr_te
     assert "exit 1" in error_message or "exit 2" in error_message
 
 
-def test_run_pre_command_scripts_partial_failure(cg: ConcurrencyGroup, mngr_test_prefix: str) -> None:
+def test_run_pre_command_scripts_partial_failure(mngr_test_prefix: str, cg: ConcurrencyGroup) -> None:
     """_run_pre_command_scripts should fail even if only one script fails."""
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -120,7 +120,7 @@ def test_run_pre_command_scripts_partial_failure(cg: ConcurrencyGroup, mngr_test
     assert "Exit code: 42" in str(exc_info.value)
 
 
-def test_run_pre_command_scripts_includes_stderr_in_error(cg: ConcurrencyGroup, mngr_test_prefix: str) -> None:
+def test_run_pre_command_scripts_includes_stderr_in_error(mngr_test_prefix: str, cg: ConcurrencyGroup) -> None:
     """_run_pre_command_scripts should include stderr in error message."""
     config = MngrConfig(
         prefix=mngr_test_prefix,

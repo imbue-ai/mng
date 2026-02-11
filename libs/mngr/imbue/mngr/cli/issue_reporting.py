@@ -84,7 +84,7 @@ def build_new_issue_url(title: str, body: str) -> str:
     return full_url
 
 
-def _search_issues_via_github_api(cg: ConcurrencyGroup, search_text: str) -> ExistingIssue | None:
+def _search_issues_via_github_api(search_text: str, cg: ConcurrencyGroup) -> ExistingIssue | None:
     """Search for existing issues using the GitHub REST API via curl."""
     query = f"{search_text} repo:{GITHUB_REPO} is:issue"
     url = f"https://api.github.com/search/issues?q={quote(query)}&per_page=1"
@@ -119,7 +119,7 @@ def _search_issues_via_github_api(cg: ConcurrencyGroup, search_text: str) -> Exi
     )
 
 
-def _search_issues_via_gh_cli(cg: ConcurrencyGroup, search_text: str) -> ExistingIssue | None:
+def _search_issues_via_gh_cli(search_text: str, cg: ConcurrencyGroup) -> ExistingIssue | None:
     """Search for existing issues using the gh CLI (works for private repos)."""
     try:
         result = cg.run_process_to_completion(
@@ -161,15 +161,15 @@ def _search_issues_via_gh_cli(cg: ConcurrencyGroup, search_text: str) -> Existin
     )
 
 
-def search_for_existing_issue(cg: ConcurrencyGroup, search_text: str) -> ExistingIssue | None:
+def search_for_existing_issue(search_text: str, cg: ConcurrencyGroup) -> ExistingIssue | None:
     """Search for an existing GitHub issue matching the error message."""
     try:
-        return _search_issues_via_github_api(cg, search_text)
+        return _search_issues_via_github_api(search_text, cg)
     except IssueSearchError:
         logger.debug("GitHub API search failed, falling back to gh CLI")
 
     try:
-        return _search_issues_via_gh_cli(cg, search_text)
+        return _search_issues_via_gh_cli(search_text, cg)
     except IssueSearchError:
         logger.debug("gh CLI search also failed")
 
@@ -199,7 +199,7 @@ def handle_not_implemented_error(error: NotImplementedError) -> NoReturn:
     logger.info("Searching for existing issues...")
     title = build_issue_title(error_message)
     with ConcurrencyGroup(name="issue-search") as cg:
-        existing = search_for_existing_issue(cg, error_message)
+        existing = search_for_existing_issue(error_message, cg)
 
     if existing is not None:
         logger.info("{}", _format_existing_issue_message(existing))

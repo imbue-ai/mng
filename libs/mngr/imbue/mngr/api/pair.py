@@ -175,9 +175,9 @@ def check_unison_installed() -> bool:
 
 
 def determine_git_sync_actions(
-    cg: ConcurrencyGroup,
     agent_path: Path,
     local_path: Path,
+    cg: ConcurrencyGroup,
 ) -> GitSyncAction | None:
     """Determine what git sync actions are needed between agent and local repos.
 
@@ -185,14 +185,14 @@ def determine_git_sync_actions(
     local into agent's object store (a read-only side effect on agent's repo)
     to enable ancestry comparison.
     """
-    if not is_git_repository(cg, agent_path) or not is_git_repository(cg, local_path):
+    if not is_git_repository(agent_path, cg) or not is_git_repository(local_path, cg):
         return None
 
-    agent_branch = get_current_branch(cg, agent_path)
-    local_branch = get_current_branch(cg, local_path)
+    agent_branch = get_current_branch(agent_path, cg)
+    local_branch = get_current_branch(local_path, cg)
 
-    agent_commit = get_head_commit(cg, agent_path)
-    local_commit = get_head_commit(cg, local_path)
+    agent_commit = get_head_commit(agent_path, cg)
+    local_commit = get_head_commit(local_path, cg)
 
     if agent_commit is None or local_commit is None:
         return GitSyncAction(
@@ -225,8 +225,8 @@ def determine_git_sync_actions(
         )
 
     # Check ancestry from the agent repo (which now has both sets of objects)
-    agent_ahead = is_ancestor(cg, agent_path, local_commit, agent_commit)
-    local_ahead = is_ancestor(cg, agent_path, agent_commit, local_commit)
+    agent_ahead = is_ancestor(agent_path, local_commit, agent_commit, cg)
+    local_ahead = is_ancestor(agent_path, agent_commit, local_commit, cg)
 
     if agent_ahead and not local_ahead:
         return GitSyncAction(
@@ -250,12 +250,12 @@ def determine_git_sync_actions(
 
 
 def sync_git_state(
-    cg: ConcurrencyGroup,
     agent: AgentInterface,
     host: OnlineHostInterface,
     local_path: Path,
     git_sync_action: GitSyncAction,
     uncommitted_changes: UncommittedChangesMode,
+    cg: ConcurrencyGroup,
 ) -> tuple[bool, bool]:
     """Synchronize git state between agent and local paths.
 
@@ -267,7 +267,6 @@ def sync_git_state(
     if git_sync_action.agent_is_ahead:
         logger.debug("Pulling git state from agent to local")
         pull_git(
-            cg=cg,
             agent=agent,
             host=host,
             destination=local_path,
@@ -275,13 +274,13 @@ def sync_git_state(
             target_branch=git_sync_action.local_branch,
             is_dry_run=False,
             uncommitted_changes=uncommitted_changes,
+            cg=cg,
         )
         did_pull = True
 
     if git_sync_action.local_is_ahead:
         logger.debug("Pushing git state from local to agent")
         push_git(
-            cg=cg,
             agent=agent,
             host=host,
             source=local_path,
@@ -290,6 +289,7 @@ def sync_git_state(
             is_dry_run=False,
             uncommitted_changes=uncommitted_changes,
             is_mirror=False,
+            cg=cg,
         )
         did_push = True
 
@@ -298,7 +298,6 @@ def sync_git_state(
 
 @contextmanager
 def pair_files(
-    cg: ConcurrencyGroup,
     agent: AgentInterface,
     host: OnlineHostInterface,
     agent_path: Path,
@@ -309,6 +308,7 @@ def pair_files(
     uncommitted_changes: UncommittedChangesMode,
     exclude_patterns: tuple[str, ...],
     include_patterns: tuple[str, ...],
+    cg: ConcurrencyGroup,
 ) -> Iterator[UnisonSyncer]:
     """Start continuous file synchronization between agent and local directory.
 
@@ -337,8 +337,8 @@ def pair_files(
         )
 
     # Check git requirements
-    agent_is_git = is_git_repository(cg, agent_path)
-    local_is_git = is_git_repository(cg, local_path)
+    agent_is_git = is_git_repository(agent_path, cg)
+    local_is_git = is_git_repository(local_path, cg)
 
     if is_require_git and not (agent_is_git and local_is_git):
         missing = []
@@ -354,7 +354,7 @@ def pair_files(
     # Determine and perform git sync (skip when --no-require-git is set,
     # since the user explicitly opted out of git-based behavior)
     if is_require_git and agent_is_git and local_is_git:
-        git_action = determine_git_sync_actions(cg, agent_path, local_path)
+        git_action = determine_git_sync_actions(agent_path, local_path, cg)
         if git_action is not None and (git_action.agent_is_ahead or git_action.local_is_ahead):
             logger.info(
                 "Synchronizing git state (agent_ahead={}, local_ahead={})",
@@ -362,23 +362,23 @@ def pair_files(
                 git_action.local_is_ahead,
             )
             sync_git_state(
-                cg=cg,
                 agent=agent,
                 host=host,
                 local_path=local_path,
                 git_sync_action=git_action,
                 uncommitted_changes=uncommitted_changes,
+                cg=cg,
             )
 
     # Create and start the syncer
     syncer = UnisonSyncer(
-        cg=cg,
         source_path=agent_path,
         target_path=local_path,
         sync_direction=sync_direction,
         conflict_mode=conflict_mode,
         exclude_patterns=exclude_patterns,
         include_patterns=include_patterns,
+        cg=cg,
     )
 
     try:
