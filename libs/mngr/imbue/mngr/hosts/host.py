@@ -743,7 +743,7 @@ class Host(BaseHost, OnlineHostInterface):
         """Get all agents on this host."""
         agents_dir = self.host_dir / "agents"
         if not self._is_directory(agents_dir):
-            logger.trace("Found no agents directory for host {}", self.id)
+            logger.trace("Failed to find agents directory for host {}", self.id)
             return []
 
         agents: list[AgentInterface] = []
@@ -768,7 +768,7 @@ class Host(BaseHost, OnlineHostInterface):
         """
         agents_dir = self.host_dir / "agents"
         if not self._is_directory(agents_dir):
-            logger.trace("Found no agents directory for host {}", self.id)
+            logger.trace("Failed to find agents directory for host {}", self.id)
             return []
 
         agent_refs: list[AgentReference] = []
@@ -799,7 +799,7 @@ class Host(BaseHost, OnlineHostInterface):
         try:
             content = self.read_text_file(data_path)
         except FileNotFoundError:
-            logger.trace("Found no agent data file at {}", data_path)
+            logger.trace("Failed to find agent data file at {}", data_path)
             return None
 
         data = json.loads(content)

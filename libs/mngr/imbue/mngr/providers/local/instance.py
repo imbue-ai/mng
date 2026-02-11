@@ -253,7 +253,7 @@ class LocalProviderInstance(BaseProviderInstance):
 
         if isinstance(host, HostId):
             if host != host_id:
-                logger.trace("Found no host with id={} (local host id={})", host, host_id)
+                logger.trace("Failed to find host with id={} (local host id={})", host, host_id)
                 raise HostNotFoundError(host)
         # For HostName, we accept "local" or any name since there's only one host
 

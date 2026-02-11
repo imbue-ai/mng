@@ -554,7 +554,7 @@ class ModalProviderInstance(BaseProviderInstance):
                         continue
         except (OSError, IOError, modal.exception.Error) as e:
             # Host directory might not exist yet (no agents persisted)
-            logger.trace("Found no agent records for host {}: {}", host_id, e)
+            logger.trace("Failed to find agent records for host {}: {}", host_id, e)
 
         logger.trace("Listed agent records for host {} from volume", host_id)
         return agent_records

@@ -225,7 +225,7 @@ def _remove_trust_locked(config_path: Path, path: Path) -> bool:
 
     path_str = str(path)
     if path_str not in projects:
-        logger.trace("Found no Claude trust entry for {}", path)
+        logger.trace("Failed to find Claude trust entry for {}", path)
         return False
 
     # Only remove entries created by mngr to avoid removing user-created trust
