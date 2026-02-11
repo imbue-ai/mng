@@ -7,6 +7,7 @@ from imbue.mngr.utils.git_utils import _parse_project_name_from_url
 from imbue.mngr.utils.git_utils import derive_project_name_from_path
 from imbue.mngr.utils.git_utils import find_git_common_dir
 from imbue.mngr.utils.git_utils import find_git_worktree_root
+from imbue.mngr.utils.git_utils import get_git_author_info
 from imbue.mngr.utils.git_utils import is_git_repository
 
 
@@ -209,3 +210,30 @@ def test_find_git_common_dir_from_subdirectory(tmp_path: Path) -> None:
     result = find_git_common_dir(subdir)
     assert result is not None
     assert result == git_dir / ".git"
+
+
+def test_get_git_author_info_returns_configured_values(temp_git_repo: Path) -> None:
+    """Test that get_git_author_info returns name and email from a configured repo."""
+    name, email = get_git_author_info(temp_git_repo)
+    assert name == "Test User"
+    assert email == "test@test.com"
+
+
+def test_get_git_author_info_returns_none_when_not_configured(tmp_path: Path) -> None:
+    """Test that get_git_author_info returns (None, None) for a repo without author config."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    # HOME is already set to tmp_path by autouse fixture, and no .gitconfig exists
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    name, email = get_git_author_info(repo_dir)
+    assert name is None
+    assert email is None
+
+
+def test_get_git_author_info_returns_none_for_non_git_dir(tmp_path: Path) -> None:
+    """Test that get_git_author_info returns (None, None) for a non-git directory."""
+    plain_dir = tmp_path / "plain"
+    plain_dir.mkdir()
+    name, email = get_git_author_info(plain_dir)
+    assert name is None
+    assert email is None

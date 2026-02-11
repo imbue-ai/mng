@@ -66,6 +66,7 @@ from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.git_utils import get_current_git_branch
+from imbue.mngr.utils.git_utils import get_git_author_info
 from imbue.mngr.utils.polling import wait_for
 
 
@@ -128,8 +129,8 @@ class Host(BaseHost, OnlineHostInterface):
         socket state causing "Socket is closed" errors in subsequent operations.
         """
         if self.connector.host.connected:
-            logger.trace("Disconnecting pyinfra host {}", self.id)
             self.connector.host.disconnect()
+            logger.trace("Disconnected pyinfra host {}", self.id)
 
     def _run_shell_command(
         self,
@@ -233,8 +234,25 @@ class Host(BaseHost, OnlineHostInterface):
                 if "No such file or directory" in error_msg or "cannot stat" in error_msg:
                     raise FileNotFoundError(f"File not found: {remote_filename}") from e
                 elif "Socket is closed" in str(e):
-                    self.provider_instance.on_connection_error(self.id)
-                    raise HostConnectionError("Connection was closed while reading file") from e
+                    # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
+                    try:
+                        self.connector.host.disconnect()
+                        self._ensure_connected()
+                        _result = self.connector.host.get_file(
+                            remote_filename,
+                            filename_or_io,
+                            remote_temp_filename=remote_temp_filename,
+                        )
+                    except Exception as retry_exception:
+                        self.provider_instance.on_connection_error(self.id)
+                        raise HostConnectionError(
+                            f"Connection was closed while reading file (and our retry failed because {retry_exception})"
+                        ) from e
+                    else:
+                        self.provider_instance.on_connection_error(self.id)
+                        raise HostConnectionError(
+                            f"Connection was closed while reading file (but the retry worked!)"
+                        ) from e
                 else:
                     raise
         except (EOFError, SSHException) as e:
@@ -262,8 +280,25 @@ class Host(BaseHost, OnlineHostInterface):
             )
         except OSError as e:
             if "Socket is closed" in str(e):
-                self.provider_instance.on_connection_error(self.id)
-                raise HostConnectionError("Connection was closed while writing file") from e
+                # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
+                try:
+                    self.connector.host.disconnect()
+                    self._ensure_connected()
+                    _result = self.connector.host.put_file(
+                        filename_or_io,
+                        remote_filename,
+                        remote_temp_filename=remote_temp_filename,
+                    )
+                except Exception as retry_exception:
+                    self.provider_instance.on_connection_error(self.id)
+                    raise HostConnectionError(
+                        f"Connection was closed while writing file (and our retry failed because {retry_exception})"
+                    ) from e
+                else:
+                    self.provider_instance.on_connection_error(self.id)
+                    raise HostConnectionError(
+                        f"Connection was closed while writing file (but the retry worked!)"
+                    ) from e
             else:
                 raise
         except (EOFError, SSHException) as e:
@@ -284,7 +319,9 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> CommandResult:
         """Execute a command and return the result."""
         with log_span("Executing command on host {}: {}", self.id, command):
-            logger.trace("Command details: user={}, cwd={}, env={}, timeout={}", user, cwd, env, timeout_seconds)
+            logger.trace(
+                "Resolved command parameters: user={}, cwd={}, env={}, timeout={}", user, cwd, env, timeout_seconds
+            )
             success, output = self._run_shell_command(
                 StringCommand(command),
                 _su_user=user,
@@ -460,7 +497,6 @@ class Host(BaseHost, OnlineHostInterface):
         if activity_type != ActivitySource.BOOT:
             raise InvalidActivityTypeError(f"Only BOOT activity can be recorded on host, got: {activity_type}")
 
-        logger.trace("Recording {} activity on host {}", activity_type, self.id)
         activity_path = self.host_dir / "activity" / activity_type.value.lower()
         now = datetime.now(timezone.utc)
         data = {
@@ -468,6 +504,7 @@ class Host(BaseHost, OnlineHostInterface):
             "host_id": str(self.id),
         }
         self.write_text_file(activity_path, json.dumps(data, indent=2))
+        logger.trace("Recorded {} activity on host {}", activity_type, self.id)
 
     def get_reported_activity_content(self, activity_type: ActivitySource) -> str | None:
         """Get the content of the activity file."""
@@ -718,8 +755,8 @@ class Host(BaseHost, OnlineHostInterface):
 
     def set_tags(self, tags: Mapping[str, str]) -> None:
         """Set tags via the provider."""
-        logger.trace("Setting {} tag(s) on host {}", len(tags), self.id)
         self.provider_instance.set_host_tags(self, tags)
+        logger.trace("Set {} tag(s) on host {}", len(tags), self.id)
 
     def add_tags(self, tags: Mapping[str, str]) -> None:
         """Add tags via the provider."""
@@ -739,10 +776,9 @@ class Host(BaseHost, OnlineHostInterface):
 
     def get_agents(self) -> list[AgentInterface]:
         """Get all agents on this host."""
-        logger.trace("Loading agents from host {}", self.id)
         agents_dir = self.host_dir / "agents"
         if not self._is_directory(agents_dir):
-            logger.trace("No agents directory found for host {}", self.id)
+            logger.trace("Failed to find agents directory for host {}", self.id)
             return []
 
         agents: list[AgentInterface] = []
@@ -765,10 +801,9 @@ class Host(BaseHost, OnlineHostInterface):
         Note that we override the base method in order to read more directly from the host,
         since that data is more likely to be up-to-date.
         """
-        logger.trace("Loading agent references from host {}", self.id)
         agents_dir = self.host_dir / "agents"
         if not self._is_directory(agents_dir):
-            logger.trace("No agents directory found for host {}", self.id)
+            logger.trace("Failed to find agents directory for host {}", self.id)
             return []
 
         agent_refs: list[AgentReference] = []
@@ -799,7 +834,7 @@ class Host(BaseHost, OnlineHostInterface):
         try:
             content = self.read_text_file(data_path)
         except FileNotFoundError:
-            logger.trace("Agent data file not found at {}", data_path)
+            logger.trace("Failed to find agent data file at {}", data_path)
             return None
 
         data = json.loads(content)
@@ -924,6 +959,19 @@ class Host(BaseHost, OnlineHostInterface):
             )
             base_branch_name = result.stdout.strip() if result.success else "main"
 
+        # Get git author info from source repo
+        if source_host.is_local:
+            git_author_name, git_author_email = get_git_author_info(source_path)
+        else:
+            name_result = source_host.execute_command("git config user.name", cwd=source_path)
+            email_result = source_host.execute_command("git config user.email", cwd=source_path)
+            git_author_name = (
+                name_result.stdout.strip() if name_result.success and name_result.stdout.strip() else None
+            )
+            git_author_email = (
+                email_result.stdout.strip() if email_result.success and email_result.stdout.strip() else None
+            )
+
         with log_span(
             "Transferring git repository",
             source=str(source_path),
@@ -951,8 +999,16 @@ class Host(BaseHost, OnlineHostInterface):
             self._git_push_to_target(source_host, source_path, target_path)
 
             with log_span("Configuring target git repo"):
+                config_commands = [
+                    "git config --bool core.bare false",
+                    f"git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch_name)}",
+                ]
+                if git_author_name:
+                    config_commands.append(f"git config user.name {shlex.quote(git_author_name)}")
+                if git_author_email:
+                    config_commands.append(f"git config user.email {shlex.quote(git_author_email)}")
                 result = self.execute_command(
-                    f"git config --bool core.bare false && git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch_name)}",
+                    " && ".join(config_commands),
                     cwd=target_path,
                 )
                 if not result.success:
@@ -1009,14 +1065,13 @@ class Host(BaseHost, OnlineHostInterface):
                 env["GIT_LFS_SKIP_PUSH"] = "1"
 
                 command_args = ["git", "-C", str(source_path), "push", "--no-verify", "--mirror", git_url]
-                logger.trace(" ".join(command_args))
-                logger.trace("Running git push --mirror from local source to target with env: {}", env)
                 result = subprocess.run(
                     command_args,
                     capture_output=True,
                     text=True,
                     env={**os.environ, **env} if env else None,
                 )
+                logger.trace("Ran git push --mirror from local source to target: {}", " ".join(command_args))
                 if result.returncode != 0:
                     raise MngrError(f"Failed to push git repo: {result.stderr}")
         else:
@@ -1168,8 +1223,8 @@ class Host(BaseHost, OnlineHostInterface):
             raise NotImplementedError("rsync between two remote hosts is not supported right now")
 
         with log_span("{}", rsync_description):
-            logger.trace(" ".join(rsync_args))
             result = subprocess.run(rsync_args, capture_output=True, text=True)
+            logger.trace("Ran rsync command: {}", " ".join(rsync_args))
             if result.returncode != 0:
                 raise MngrError(f"rsync failed: {result.stderr}")
 
@@ -1430,25 +1485,25 @@ class Host(BaseHost, OnlineHostInterface):
         ):
             # 5. Create directories
             for directory in provisioning.create_directories:
-                logger.trace("Creating directory: {}", directory)
                 self._mkdir(directory)
+                logger.trace("Created directory: {}", directory)
 
             # 6. Upload files (read from local filesystem, write to host)
             for upload_spec in provisioning.upload_files:
-                logger.trace("Uploading file: {} -> {}", upload_spec.local_path, upload_spec.remote_path)
                 # Read from local filesystem (not via host primitives)
                 local_content = upload_spec.local_path.read_bytes()
                 self.write_file(upload_spec.remote_path, local_content)
+                logger.trace("Uploaded file: {} -> {}", upload_spec.local_path, upload_spec.remote_path)
 
             # 7. Append text to files
             for append_spec in provisioning.append_to_files:
-                logger.trace("Appending to file: {}", append_spec.remote_path)
                 self._append_to_file(append_spec.remote_path, append_spec.text)
+                logger.trace("Appended to file: {}", append_spec.remote_path)
 
             # 8. Prepend text to files
             for prepend_spec in provisioning.prepend_to_files:
-                logger.trace("Prepending to file: {}", prepend_spec.remote_path)
                 self._prepend_to_file(prepend_spec.remote_path, prepend_spec.text)
+                logger.trace("Prepended to file: {}", prepend_spec.remote_path)
 
             # 9. Write environment variables to agent env file
             env_vars = self._collect_agent_env_vars(agent, options)
@@ -1459,15 +1514,15 @@ class Host(BaseHost, OnlineHostInterface):
 
             # 10. Run sudo commands (with env vars sourced)
             for cmd in provisioning.sudo_commands:
-                logger.trace("Running sudo command: {}", cmd)
                 result = self._run_sudo_command(source_prefix + cmd)
+                logger.trace("Ran sudo command: {}", cmd)
                 if not result.success:
                     raise MngrError(f"Sudo command failed: {cmd}\nstderr: {result.stderr}")
 
             # 11. Run user commands (with env vars sourced)
             for cmd in provisioning.user_commands:
-                logger.trace("Running user command: {}", cmd)
                 result = self.execute_command(source_prefix + cmd, cwd=agent.work_dir)
+                logger.trace("Ran user command: {}", cmd)
                 if not result.success:
                     raise MngrError(f"User command failed: {cmd}\nstderr: {result.stderr}")
 
@@ -1501,15 +1556,15 @@ class Host(BaseHost, OnlineHostInterface):
         for transfer in transfers:
             if not transfer.local_path.exists():
                 # Optional file doesn't exist, skip it
-                logger.trace("Skipping optional file transfer (file not found): {}", transfer.local_path)
+                logger.trace("Skipped optional file transfer (file not found): {}", transfer.local_path)
                 continue
 
             # Resolve relative remote paths to work_dir
             remote_path = agent.work_dir / transfer.agent_path
 
-            logger.trace("Agent file transfer: {} -> {}", transfer.local_path, remote_path)
             local_content = transfer.local_path.read_bytes()
             self.write_file(remote_path, local_content)
+            logger.trace("Transferred agent file: {} -> {}", transfer.local_path, remote_path)
 
     def _append_to_file(self, path: Path, text: str) -> None:
         """Append text to a file, creating it if it doesn't exist."""
@@ -1854,15 +1909,14 @@ class Host(BaseHost, OnlineHostInterface):
 
     def get_state(self) -> HostState:
         """Get the current state of the host."""
-        logger.trace("Getting state for host {}", self.id)
         if self.is_local:
-            logger.trace("Host {} is local, state=RUNNING", self.id)
+            logger.trace("Determined host {} is local, state=RUNNING", self.id)
             return HostState.RUNNING
 
         try:
             result = self.execute_command("echo ok")
             if result.success:
-                logger.trace("Host {} state=RUNNING (ping successful)", self.id)
+                logger.trace("Determined host {} state=RUNNING (ping successful)", self.id)
                 return HostState.RUNNING
         except (OSError, HostConnectionError):
             pass
