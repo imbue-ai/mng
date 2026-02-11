@@ -2,8 +2,10 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Generator
 from typing import NamedTuple
@@ -192,8 +194,16 @@ def setup_test_mngr_env(
     # $TMUX_TMPDIR/tmux-$UID/, so each test gets a completely isolated
     # server. This prevents xdist workers from racing on the shared
     # default tmux server.
-    tmux_tmpdir = tmp_home_dir / "tmux"
-    tmux_tmpdir.mkdir()
+    #
+    # IMPORTANT: We use /tmp directly instead of pytest's tmp_path because
+    # tmux sockets are Unix domain sockets, which have a ~104-byte path
+    # length limit on macOS. Pytest's tmp_path lives under
+    # /private/var/folders/.../pytest-of-.../... which is already ~80+ bytes,
+    # leaving no room for tmux's tmux-$UID/default suffix. When the path
+    # exceeds the limit, tmux silently falls back to the default socket,
+    # defeating isolation entirely (and potentially killing production
+    # tmux servers during test cleanup).
+    tmux_tmpdir = Path(tempfile.mkdtemp(prefix="mngr-tmux-"))
     monkeypatch.setenv("TMUX_TMPDIR", str(tmux_tmpdir))
 
     # Safety check: verify Path.home() is in a temp directory.
@@ -208,6 +218,9 @@ def setup_test_mngr_env(
     kill_env = os.environ.copy()
     kill_env["TMUX_TMPDIR"] = str(tmux_tmpdir)
     subprocess.run(["tmux", "kill-server"], capture_output=True, env=kill_env)
+
+    # Clean up the tmpdir we created outside of pytest's tmp_path.
+    shutil.rmtree(tmux_tmpdir, ignore_errors=True)
 
 
 @pytest.fixture
