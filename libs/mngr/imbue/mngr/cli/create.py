@@ -582,7 +582,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
     source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx)
 
     # figure out the project label, in case we need that
-    project_name = _parse_project_name(mngr_ctx, source_location, opts)
+    project_name = _parse_project_name(source_location, opts, mngr_ctx)
 
     # Parse host lifecycle options (these go on the host, not the agent)
     host_lifecycle = _parse_host_lifecycle_options(opts)
@@ -852,7 +852,7 @@ def _create_agent_in_background(
         os._exit(1)
 
 
-def _parse_project_name(mngr_ctx: MngrContext, source_location: HostLocation, opts: CreateCliOptions) -> str:
+def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions, mngr_ctx: MngrContext) -> str:
     if opts.project:
         return opts.project
 
@@ -1033,7 +1033,7 @@ def _snapshot_if_required(
     return snapshot_name
 
 
-def _get_current_git_branch(mngr_ctx: MngrContext, source_location: HostLocation) -> str | None:
+def _get_current_git_branch(source_location: HostLocation, mngr_ctx: MngrContext) -> str | None:
     if not source_location.host.is_local:
         raise NotImplementedError(
             "Have to re-implement this function so that it works via HostInterface calls instead!"
@@ -1153,7 +1153,7 @@ def _parse_agent_opts(
     else:
         git = AgentGitOptions(
             copy_mode=copy_mode,
-            base_branch=opts.base_branch or _get_current_git_branch(mngr_ctx, source_location),
+            base_branch=opts.base_branch or _get_current_git_branch(source_location, mngr_ctx),
             is_new_branch=is_new_branch,
             new_branch_name=new_branch if new_branch else None,
             new_branch_prefix=opts.new_branch_prefix,

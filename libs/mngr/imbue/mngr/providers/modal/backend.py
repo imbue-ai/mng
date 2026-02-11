@@ -214,7 +214,7 @@ class ModalProviderBackend(ProviderBackendInterface):
 
     @classmethod
     def _get_or_create_app(
-        cls, cg: ConcurrencyGroup, app_name: str, environment_name: str, is_persistent: bool
+        cls, app_name: str, environment_name: str, is_persistent: bool, cg: ConcurrencyGroup
     ) -> tuple[modal.App, ModalAppContextHandle]:
         """Get or create a Modal app with output capture.
 
@@ -422,7 +422,7 @@ Supported build arguments for the modal provider:
         # Create the ModalProviderApp that manages the Modal app and its resources
         try:
             app, context_handle = ModalProviderBackend._get_or_create_app(
-                mngr_ctx.cg, app_name, environment_name, config.is_persistent
+                app_name, environment_name, config.is_persistent, mngr_ctx.cg
             )
             volume = ModalProviderBackend.get_volume_for_app(app_name)
 
