@@ -1,8 +1,7 @@
 import click
 from loguru import logger
 
-from imbue.mngr.cli.clone import reject_source_agent_options
-from imbue.mngr.cli.create import create as create_cmd
+from imbue.mngr.cli.clone import parse_source_and_invoke_create
 from imbue.mngr.cli.destroy import destroy as destroy_cmd
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
@@ -22,24 +21,9 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
     All create options are supported. The source agent is force-destroyed after
     a successful clone (including running agents).
     """
-    if len(args) == 0:
-        raise click.UsageError("Missing required argument: SOURCE_AGENT", ctx=ctx)
+    source_agent = parse_source_and_invoke_create(ctx, args, command_name="migrate")
 
-    source_agent = args[0]
-    remaining = list(args[1:])
-
-    # Reject --from-agent / --source-agent in remaining args since the source
-    # is provided positionally
-    reject_source_agent_options(remaining, ctx)
-
-    # Step 1: Clone via the create command
-    create_args = ["--from-agent", source_agent] + remaining
-
-    create_ctx = create_cmd.make_context("migrate", create_args, parent=ctx)
-    with create_ctx:
-        create_cmd.invoke(create_ctx)
-
-    # Step 2: Destroy the source agent with --force
+    # Destroy the source agent with --force
     destroy_args = [source_agent, "--force"]
     try:
         destroy_ctx = destroy_cmd.make_context("migrate-destroy", destroy_args, parent=ctx)
