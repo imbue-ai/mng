@@ -1,11 +1,9 @@
-# FIXME0: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 """Unit tests for Host implementation."""
 
 import json
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
 
@@ -13,8 +11,8 @@ from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import _build_start_agent_shell_command
-from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import NamedCommand
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
@@ -242,24 +240,69 @@ def test_get_agent_references_skips_bad_records_but_loads_good_ones(
     assert bad_id not in ref_ids
 
 
+class _OnDestroyTracker(BaseAgent):
+    """Test agent that tracks on_destroy calls."""
+
+    on_destroy_called: bool = False
+
+    def on_destroy(self, host: OnlineHostInterface) -> None:
+        self.on_destroy_called = True
+
+
+class _OnDestroyRaiser(BaseAgent):
+    """Test agent that raises in on_destroy."""
+
+    def on_destroy(self, host: OnlineHostInterface) -> None:
+        raise RuntimeError("cleanup failed")
+
+
+def _create_destroy_test_agent(
+    host: Host,
+    agents_dir: Path,
+    agent_cls: type[BaseAgent],
+) -> BaseAgent:
+    """Create a test agent with its state directory for destroy tests."""
+    agent_id = AgentId.generate()
+    agent_name = AgentName(f"test-destroy-{get_short_random_string()}")
+
+    create_time = datetime.now(timezone.utc)
+    agent_dir = agents_dir / str(agent_id)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    data = {
+        "id": str(agent_id),
+        "name": str(agent_name),
+        "type": "test",
+        "command": "sleep 1000",
+        "work_dir": "/tmp/work",
+        "create_time": create_time.isoformat(),
+    }
+    (agent_dir / "data.json").write_text(json.dumps(data))
+
+    return agent_cls(
+        id=agent_id,
+        name=agent_name,
+        agent_type=AgentTypeName("test"),
+        work_dir=Path("/tmp/work"),
+        create_time=create_time,
+        host_id=host.id,
+        host=host,
+        mngr_ctx=host.mngr_ctx,
+        agent_config=AgentTypeConfig(command=CommandString("sleep 1000")),
+    )
+
+
 def test_destroy_agent_calls_on_destroy(
     host_with_agents_dir: tuple[Host, Path],
 ) -> None:
     """Test that destroy_agent calls agent.on_destroy() before cleanup."""
     host, agents_dir = host_with_agents_dir
 
-    agent_id = AgentId.generate()
-    mock_agent = Mock(spec=AgentInterface)
-    mock_agent.id = agent_id
-    mock_agent.name = AgentName("test-agent")
+    agent = _create_destroy_test_agent(host, agents_dir, _OnDestroyTracker)
+    assert isinstance(agent, _OnDestroyTracker)
 
-    # Create agent state directory so _remove_directory has something to clean up
-    agent_dir = agents_dir / str(agent_id)
-    agent_dir.mkdir()
+    host.destroy_agent(agent)
 
-    host.destroy_agent(mock_agent)
-
-    mock_agent.on_destroy.assert_called_once_with(host)
+    assert agent.on_destroy_called
 
 
 def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
@@ -268,18 +311,12 @@ def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
     """Test that destroy_agent still cleans up if agent.on_destroy() raises."""
     host, agents_dir = host_with_agents_dir
 
-    agent_id = AgentId.generate()
-    mock_agent = Mock(spec=AgentInterface)
-    mock_agent.id = agent_id
-    mock_agent.name = AgentName("test-agent")
-    mock_agent.on_destroy.side_effect = RuntimeError("cleanup failed")
-
-    agent_dir = agents_dir / str(agent_id)
-    agent_dir.mkdir()
+    agent = _create_destroy_test_agent(host, agents_dir, _OnDestroyRaiser)
+    agent_dir = agents_dir / str(agent.id)
 
     # Exception propagates, but cleanup still runs
     with pytest.raises(RuntimeError, match="cleanup failed"):
-        host.destroy_agent(mock_agent)
+        host.destroy_agent(agent)
 
     # State directory should still be cleaned up
     assert not agent_dir.exists()
