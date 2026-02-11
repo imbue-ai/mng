@@ -1,45 +1,115 @@
-# mngr stop - CLI Options Reference
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
 
-Stops the host(s) associated with one or more running agents. The agent(s) can be started again later with `mngr start`.
+# mngr stop
 
-For remote hosts, this creates a snapshot and stops the container/instance to save resources. If multiple agents share the host, all agents on that host are stopped together.
+**Synopsis:**
 
-For local agents, this stops the agent's tmux session. The local host itself cannot be stopped (if you want that, shut down your computer).
-
-**Alias:** `s`
-
-## Usage
-
-```
-mngr stop [[--agent] agent ...]
+```text
+mngr [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-run]
 ```
 
-Agents can be specified as positional arguments for convenience. The following are equivalent:
 
+Stop running agent(s).
+
+For remote hosts, this stops the agent's tmux session. The host remains
+running (use idle detection or explicit host stop for host shutdown).
+
+For local agents, this stops the agent's tmux session.
+
+Alias: s
+
+Examples:
+
+  mngr stop my-agent
+
+  mngr stop agent1 agent2
+
+  mngr stop --agent my-agent
+
+  mngr stop --all
+
+**Usage:**
+
+```text
+mngr stop [OPTIONS] [AGENTS]...
 ```
-mngr stop my-agent
-mngr stop --agent my-agent
-mngr stop my-agent another-agent
-mngr stop --agent my-agent --agent another-agent
-```
 
-## General
+## Arguments
 
-- `--agent AGENT`: Agent(s) to stop. Positional arguments are also accepted as a shorthand. [repeatable]
-- `-a, --all, --all-agents`: Stop all running agents
-- `--include FILTER`: Filter agents to stop by tags, names, types, hosts, etc.
-- `--exclude FILTER`: Exclude agents matching filter from stopping
-- `--stdin`: Read agents and hosts (ids or names) from stdin (one per line)
-- `--dry-run`: Show what would be stopped without actually stopping
+- `AGENTS`: The agents (optional)
 
-## Snapshot Behavior
+**Options:**
 
-- `--snapshot-mode MODE`: Control snapshot creation when stopping [choices: `auto`, `always`, `never`; default: `auto`]
-  - `auto`: Create a snapshot if necessary to save the agent's state
-  - `always`: Always create a snapshot, even if not strictly necessary
-  - `never`: Do not create a snapshot (faster, but state may be lost)
+## Target Selection
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--agent` | text | Agent name or ID to stop (can be specified multiple times) | None |
+| `-a`, `--all`, `--all-agents` | boolean | Stop all running agents | `False` |
+| `--session` | text | Tmux session name to stop (can be specified multiple times). The agent name is extracted by stripping the configured prefix from the session name. | None |
 
 ## Behavior
 
-- `--[no-]graceful`: Wait for agent to reach a clean state (finish processing messages) before stopping [default: graceful]
-- `--graceful-timeout DURATION`: Timeout for graceful stop (e.g., `30s`, `5m`) [default: 30s]
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--dry-run` | boolean | Show what would be stopped without actually stopping | `False` |
+
+## Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## See Also
+
+- [mngr start](./start.md) - Start stopped agents
+- [mngr connect](./connect.md) - Connect to an agent
+- [mngr list](./list.md) - List existing agents
+
+## Examples
+
+**Stop an agent by name**
+
+```bash
+$ mngr stop my-agent
+```
+
+**Stop multiple agents**
+
+```bash
+$ mngr stop agent1 agent2
+```
+
+**Stop all running agents**
+
+```bash
+$ mngr stop --all
+```
+
+**Stop by tmux session name**
+
+```bash
+$ mngr stop --session mngr-my-agent
+```
+
+**Preview what would be stopped**
+
+```bash
+$ mngr stop --all --dry-run
+```
