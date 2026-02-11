@@ -937,6 +937,96 @@ def test_list_agents_populates_idle_mode(
         assert our_agent.idle_mode == IdleMode.IO.value
 
 
+def test_list_agents_streaming_with_callback(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_mngr_ctx: MngrContext,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that list_agents with is_streaming=True delivers agents via on_agent callback."""
+    agent_name = f"test-stream-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    agents_received: list[AgentInfo] = []
+
+    def on_agent(agent: AgentInfo) -> None:
+        agents_received.append(agent)
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 519283",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
+
+        # List with streaming mode and callback
+        result = list_agents(
+            mngr_ctx=temp_mngr_ctx,
+            on_agent=on_agent,
+            is_streaming=True,
+        )
+
+        # Callback should have been called for each agent
+        assert len(agents_received) >= 1
+        assert len(agents_received) == len(result.agents)
+
+        # The agent we created should be in the results
+        agent_names = [a.name for a in agents_received]
+        assert AgentName(agent_name) in agent_names
+
+        # Result object should also be populated
+        result_names = [a.name for a in result.agents]
+        assert AgentName(agent_name) in result_names
+
+
+def test_list_agents_streaming_returns_empty_when_no_agents(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Test that streaming list_agents returns empty result when no agents exist."""
+    agents_received: list[AgentInfo] = []
+
+    def on_agent(agent: AgentInfo) -> None:
+        agents_received.append(agent)
+
+    result = list_agents(
+        mngr_ctx=temp_mngr_ctx,
+        on_agent=on_agent,
+        is_streaming=True,
+    )
+
+    assert result.agents == []
+    assert result.errors == []
+    assert len(agents_received) == 0
+
+
+def test_list_agents_streaming_with_error_behavior_continue(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Test that streaming list_agents with CONTINUE error behavior doesn't raise."""
+    result = list_agents(
+        mngr_ctx=temp_mngr_ctx,
+        error_behavior=ErrorBehavior.CONTINUE,
+        is_streaming=True,
+    )
+
+    assert isinstance(result, ListResult)
+
+
 def test_list_agents_with_provider_names_filter(
     cli_runner: CliRunner,
     temp_work_dir: Path,
