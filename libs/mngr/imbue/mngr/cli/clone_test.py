@@ -4,8 +4,8 @@ import click
 import pluggy
 from click.testing import CliRunner
 
-from imbue.mngr.cli.clone import _reject_source_agent_options
 from imbue.mngr.cli.clone import clone
+from imbue.mngr.cli.clone import reject_source_agent_options
 from imbue.mngr.main import cli
 
 
@@ -68,14 +68,14 @@ def test_clone_rejects_source_agent_option(
 
 
 def test_reject_source_agent_options_respects_double_dash() -> None:
-    """_reject_source_agent_options should not scan past -- (end-of-options marker)."""
+    """reject_source_agent_options should not scan past -- (end-of-options marker)."""
     ctx = click.Context(clone)
 
     # --from-agent after -- should NOT be rejected
-    _reject_source_agent_options(["--", "--from-agent", "foo"], ctx=ctx)
+    reject_source_agent_options(["--", "--from-agent", "foo"], ctx=ctx)
 
     # --source-agent after -- should NOT be rejected
-    _reject_source_agent_options(["--", "--source-agent=bar"], ctx=ctx)
+    reject_source_agent_options(["--", "--source-agent=bar"], ctx=ctx)
 
 
 def test_clone_rejects_from_agent_equals_form(
