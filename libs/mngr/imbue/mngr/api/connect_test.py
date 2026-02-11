@@ -299,3 +299,35 @@ def test_connect_to_agent_remote_uses_correct_session_name(mock_call: MagicMock,
     connect_to_agent(agent, host, mngr_ctx, opts)
 
     mock_execvp.assert_called_once_with("mngr", ["mngr", "destroy", "--session", "custom-my-agent", "-f"])
+
+
+@patch("imbue.mngr.api.connect.os.execvp")
+@patch("imbue.mngr.api.connect.subprocess.call")
+def test_connect_to_agent_remote_passes_wrapper_as_single_ssh_argument(
+    mock_call: MagicMock, mock_execvp: MagicMock
+) -> None:
+    """Test that the wrapper script is passed as a single SSH remote command argument.
+
+    SSH concatenates multiple remote command arguments with spaces, which would
+    cause 'bash -c' to only receive the first word of the script instead of the
+    full wrapper. The wrapper must be shell-quoted and combined with 'bash -c'
+    into a single argument.
+    """
+    agent, host, mngr_ctx = _make_mock_remote_host_and_agent()
+    opts = ConnectionOptions(is_unknown_host_allowed=False)
+    mock_call.return_value = 0
+
+    connect_to_agent(agent, host, mngr_ctx, opts)
+
+    ssh_args = mock_call.call_args[0][0]
+
+    # Find the remote command arguments (everything after the hostname)
+    # The wrapper script + 'bash -c' should be a single argument, not split
+    # across multiple arguments
+    hostname_idx = next(i for i, arg in enumerate(ssh_args) if "@" in arg or arg == host.connector.host.name)
+    remote_args = ssh_args[hostname_idx + 1 :]
+
+    # Should be ["-t", "bash -c '<quoted_wrapper>'"] -- exactly 2 args after hostname
+    assert len(remote_args) == 2
+    assert remote_args[0] == "-t"
+    assert remote_args[1].startswith("bash -c ")
