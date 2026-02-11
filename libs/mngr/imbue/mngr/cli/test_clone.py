@@ -7,8 +7,8 @@ import pluggy
 from click.testing import CliRunner
 
 from imbue.mngr.cli.clone import clone
-from imbue.mngr.cli.create import create
 from imbue.mngr.cli.list import list_command
+from imbue.mngr.utils.testing import create_test_agent_via_cli
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
 
@@ -26,26 +26,7 @@ def test_clone_creates_agent_from_source(
     clone_session = f"{mngr_test_prefix}{clone_name}"
 
     with tmux_session_cleanup(source_session), tmux_session_cleanup(clone_session):
-        # Create a source agent
-        create_result = cli_runner.invoke(
-            create,
-            [
-                "--name",
-                source_name,
-                "--agent-cmd",
-                "sleep 482917",
-                "--source",
-                str(temp_work_dir),
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
-                "--no-ensure-clean",
-            ],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-        assert create_result.exit_code == 0, f"Create source failed with: {create_result.output}"
-        assert tmux_session_exists(source_session), f"Expected source session {source_session} to exist"
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, source_name)
 
         # Clone the source agent with a positional name (the primary documented usage pattern)
         clone_result = cli_runner.invoke(

@@ -16,8 +16,10 @@ from uuid import uuid4
 
 import pluggy
 import pytest
+from click.testing import CliRunner
 from loguru import logger
 
+from imbue.mngr.cli.create import create as create_command
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
@@ -202,6 +204,46 @@ def tmux_session_exists(session_name: str) -> bool:
         capture_output=True,
     )
     return result.returncode == 0
+
+
+def create_test_agent_via_cli(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+    agent_name: str,
+) -> str:
+    """Create a test agent via the CLI and return the session name.
+
+    This encapsulates the common pattern of creating a source agent for
+    integration tests that need an existing agent (e.g., clone, migrate).
+
+    The caller should wrap this call inside a tmux_session_cleanup context
+    manager to ensure the session is cleaned up even if assertions fail.
+    """
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    create_result = cli_runner.invoke(
+        create_command,
+        [
+            "--name",
+            agent_name,
+            "--agent-cmd",
+            "sleep 482917",
+            "--source",
+            str(temp_work_dir),
+            "--no-connect",
+            "--await-ready",
+            "--no-copy-work-dir",
+            "--no-ensure-clean",
+        ],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert create_result.exit_code == 0, f"Create source failed with: {create_result.output}"
+    assert tmux_session_exists(session_name), f"Expected source session {session_name} to exist"
+
+    return session_name
 
 
 def make_local_provider(
