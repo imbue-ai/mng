@@ -1,5 +1,6 @@
 """Unit tests for the connect API module."""
 
+import shlex
 import subprocess
 from datetime import datetime
 from datetime import timezone
@@ -447,3 +448,20 @@ def test_connect_to_agent_remote_uses_correct_session_name(
 
     assert len(result.execvp_calls) == 1
     assert result.execvp_calls[0] == ("mngr", ["mngr", "destroy", "--session", "custom-my-agent", "-f"])
+
+
+def test_ssh_wrapper_script_is_correctly_quoted_for_bash_c() -> None:
+    """Verify the wrapper script survives shell parsing as a single bash -c argument.
+
+    SSH concatenates remote command arguments with spaces, so the wrapper must
+    be shell-quoted into a single 'bash -c <quoted_script>' string. Otherwise
+    bash -c only receives the first word (e.g. 'mkdir'), causing errors like
+    'mkdir: missing operand'.
+    """
+    wrapper_script = _build_ssh_activity_wrapper_script("mngr-test", Path("/mngr"))
+    remote_command = "bash -c " + shlex.quote(wrapper_script)
+
+    # When the remote shell parses this command, bash should receive
+    # the full wrapper script as a single -c argument
+    parsed = shlex.split(remote_command)
+    assert parsed == ["bash", "-c", wrapper_script]
