@@ -57,8 +57,7 @@ def test_resolve_source_location_resolves_host_and_path(
     """Test that resolve_source_location returns a valid HostLocation for a known host.
 
     Verifies the function resolves a host reference and path to an online host,
-    exercising the code path that now calls ensure_host_started instead of
-    raising HostOfflineError.
+    exercising the auto-start code path for offline source hosts.
     """
     host_id = local_provider.host_id
     host_ref = HostReference(
