@@ -13,6 +13,7 @@ from loguru import logger
 from pydantic import BaseModel
 from tabulate import tabulate
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import ErrorInfo
 from imbue.mngr.api.list import list_agents as api_list_agents
@@ -30,6 +31,19 @@ from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
+
+_DEFAULT_HUMAN_DISPLAY_FIELDS: Final[list[str]] = ["name", "host", "provider", "host.state", "state", "status"]
+
+
+@pure
+def _should_use_streaming_mode(
+    output_format: OutputFormat,
+    is_watch: bool,
+    is_sort_explicit: bool,
+    limit: int | None,
+) -> bool:
+    """Determine whether to use streaming mode for list output."""
+    return output_format == OutputFormat.HUMAN and not is_watch and not is_sort_explicit and limit is None
 
 
 class ListCliOptions(CommonCliOptions):
@@ -267,13 +281,12 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     # output can pass --sort explicitly, which falls back to batch mode. When --limit is set,
     # batch mode is required to get deterministic results (streaming would show whichever
     # agents load first, since sorting is skipped).
-    if output_opts.output_format == OutputFormat.HUMAN and not opts.watch and not is_sort_explicit and limit is None:
-        display_fields = (
-            fields if fields is not None else ["name", "host", "provider", "host.state", "state", "status"]
-        )
+    if _should_use_streaming_mode(
+        output_opts.output_format, is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit, limit=limit
+    ):
+        display_fields = fields if fields is not None else list(_DEFAULT_HUMAN_DISPLAY_FIELDS)
         renderer = _StreamingHumanRenderer()
         renderer.fields = display_fields
-        renderer.limit = limit
         renderer.is_tty = sys.stdout.isatty()
         renderer.start()
         result = api_list_agents(
@@ -368,7 +381,6 @@ class _StreamingHumanRenderer:
     """
 
     fields: list[str]
-    limit: int | None
     is_tty: bool
     _lock: Lock
     _count: int
@@ -390,10 +402,6 @@ class _StreamingHumanRenderer:
     def __call__(self, agent: AgentInfo) -> None:
         """Handle a single agent result (on_agent callback)."""
         with self._lock:
-            # Respect limit
-            if self.limit is not None and self._count >= self.limit:
-                return
-
             if self.is_tty:
                 # Erase the current status line
                 sys.stdout.write(_ANSI_ERASE_LINE)
@@ -596,7 +604,7 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
 
     # Default fields if none specified
     if fields is None:
-        fields = ["name", "host", "provider", "host.state", "state", "status"]
+        fields = list(_DEFAULT_HUMAN_DISPLAY_FIELDS)
 
     # Build table data dynamically based on requested fields
     headers = []

@@ -336,27 +336,8 @@ def _process_provider_streaming(
     without waiting for other providers.
     """
     try:
-        # Phase 1: list hosts and get agent refs (same logic as _process_provider_for_host_listing)
-        logger.trace("Streaming: loading hosts from provider {}", provider.name)
-        hosts = provider.list_hosts(include_destroyed=True, cg=cg)
-
-        ref_threads: list[ObservableThread] = []
-        provider_results: dict[HostReference, list[AgentReference]] = {}
-        for host in hosts:
-            host_ref = HostReference(
-                host_id=host.id,
-                host_name=host.get_name(),
-                provider_name=provider.name,
-            )
-            thread = cg.start_new_thread(
-                target=_store_result_from_callable,
-                args=(provider_results, host_ref, lambda x=host: _get_agent_refs_robustly(x, provider)),
-                name="fetch_host_records",
-            )
-            ref_threads.append(thread)
-
-        for thread in ref_threads:
-            thread.join()
+        # Phase 1: list hosts and get agent refs
+        provider_results = _load_agent_refs_from_provider(provider, include_destroyed=True, cg=cg)
 
         # Phase 2: immediately process hosts (fire on_agent for this provider)
         host_threads: list[ObservableThread] = []
@@ -663,22 +644,15 @@ def _apply_cel_filters(
     )
 
 
-def _process_provider_for_host_listing(
+def _load_agent_refs_from_provider(
     provider: BaseProviderInstance,
-    agents_by_host: dict[HostReference, list[AgentReference]],
     include_destroyed: bool,
-    results_lock: Lock,
     cg: ConcurrencyGroup,
-) -> None:
-    """Process a single provider and collect its hosts and agents.
-
-    This function is run in a thread by load_all_agents_grouped_by_host.
-    Results are merged into the shared agents_by_host dict under the results_lock.
-    """
+) -> dict[HostReference, list[AgentReference]]:
+    """Load hosts from a provider and fetch agent references for each host in parallel."""
     logger.trace("Loading hosts from provider {}", provider.name)
     hosts = provider.list_hosts(include_destroyed=include_destroyed, cg=cg)
 
-    # Collect results for this provider
     threads: list[ObservableThread] = []
     provider_results: dict[HostReference, list[AgentReference]] = {}
     for host in hosts:
@@ -696,6 +670,23 @@ def _process_provider_for_host_listing(
 
     for thread in threads:
         thread.join()
+
+    return provider_results
+
+
+def _process_provider_for_host_listing(
+    provider: BaseProviderInstance,
+    agents_by_host: dict[HostReference, list[AgentReference]],
+    include_destroyed: bool,
+    results_lock: Lock,
+    cg: ConcurrencyGroup,
+) -> None:
+    """Process a single provider and collect its hosts and agents.
+
+    This function is run in a thread by load_all_agents_grouped_by_host.
+    Results are merged into the shared agents_by_host dict under the results_lock.
+    """
+    provider_results = _load_agent_refs_from_provider(provider, include_destroyed, cg)
 
     # Merge results into the main dict under lock
     with results_lock:

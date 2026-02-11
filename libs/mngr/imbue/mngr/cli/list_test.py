@@ -5,13 +5,10 @@ from datetime import datetime
 from datetime import timezone
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
 
-from click.testing import CliRunner
 from loguru import logger
 
 from imbue.mngr.api.list import AgentInfo
-from imbue.mngr.api.list import ListResult
 from imbue.mngr.cli.list import _StreamingHumanRenderer
 from imbue.mngr.cli.list import _compute_column_widths
 from imbue.mngr.cli.list import _format_streaming_agent_row
@@ -20,8 +17,8 @@ from imbue.mngr.cli.list import _format_value_as_string
 from imbue.mngr.cli.list import _get_field_value
 from imbue.mngr.cli.list import _get_sortable_value
 from imbue.mngr.cli.list import _parse_slice_spec
+from imbue.mngr.cli.list import _should_use_streaming_mode
 from imbue.mngr.cli.list import _sort_agents
-from imbue.mngr.cli.list import list_command
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.primitives import AgentId
@@ -30,6 +27,7 @@ from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostState
+from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
@@ -594,13 +592,11 @@ def test_compute_column_widths_expands_expandable_columns() -> None:
 
 def _create_streaming_renderer(
     fields: list[str],
-    limit: int | None,
     is_tty: bool,
 ) -> _StreamingHumanRenderer:
     """Create and initialize a streaming renderer for tests."""
     renderer = _StreamingHumanRenderer()
     renderer.fields = fields
-    renderer.limit = limit
     renderer.is_tty = is_tty
     return renderer
 
@@ -610,7 +606,7 @@ def test_streaming_renderer_non_tty_no_ansi_codes(monkeypatch) -> None:
     captured = StringIO()
     monkeypatch.setattr("sys.stdout", captured)
 
-    renderer = _create_streaming_renderer(fields=["name", "state"], limit=None, is_tty=False)
+    renderer = _create_streaming_renderer(fields=["name", "state"], is_tty=False)
     renderer.start()
     renderer(_create_test_agent())
     renderer.finish()
@@ -626,7 +622,7 @@ def test_streaming_renderer_tty_includes_status_line(monkeypatch) -> None:
     captured = StringIO()
     monkeypatch.setattr("sys.stdout", captured)
 
-    renderer = _create_streaming_renderer(fields=["name"], limit=None, is_tty=True)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True)
     renderer.start()
 
     output = captured.getvalue()
@@ -638,28 +634,12 @@ def test_streaming_renderer_tty_shows_count_after_agent(monkeypatch) -> None:
     captured = StringIO()
     monkeypatch.setattr("sys.stdout", captured)
 
-    renderer = _create_streaming_renderer(fields=["name"], limit=None, is_tty=True)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True)
     renderer.start()
     renderer(_create_test_agent())
 
     output = captured.getvalue()
     assert "(1 found)" in output
-
-
-def test_streaming_renderer_respects_limit(monkeypatch) -> None:
-    """Streaming renderer should stop accepting agents after limit is reached."""
-    captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name"], limit=1, is_tty=False)
-    renderer.start()
-    renderer(_create_test_agent())
-    renderer(_create_test_agent_with_name("second-agent"))
-    renderer.finish()
-
-    output = captured.getvalue()
-    assert "test-agent" in output
-    assert "second-agent" not in output
 
 
 def test_streaming_renderer_finish_no_agents_shows_no_agents_found(monkeypatch) -> None:
@@ -670,7 +650,7 @@ def test_streaming_renderer_finish_no_agents_shows_no_agents_found(monkeypatch) 
     # Capture loguru output to the same StringIO by adding a temporary sink
     sink_id = logger.add(captured, format="{message}", level="INFO")
     try:
-        renderer = _create_streaming_renderer(fields=["name"], limit=None, is_tty=False)
+        renderer = _create_streaming_renderer(fields=["name"], is_tty=False)
         renderer.start()
         renderer.finish()
     finally:
@@ -685,7 +665,7 @@ def test_streaming_renderer_thread_safety(monkeypatch) -> None:
     captured = StringIO()
     monkeypatch.setattr("sys.stdout", captured)
 
-    renderer = _create_streaming_renderer(fields=["name"], limit=None, is_tty=False)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=False)
     renderer.start()
 
     # Send agents from multiple threads concurrently
@@ -715,7 +695,7 @@ def test_streaming_renderer_custom_fields(monkeypatch) -> None:
     captured = StringIO()
     monkeypatch.setattr("sys.stdout", captured)
 
-    renderer = _create_streaming_renderer(fields=["name", "type"], limit=None, is_tty=False)
+    renderer = _create_streaming_renderer(fields=["name", "type"], is_tty=False)
     renderer.start()
     renderer(_create_test_agent())
     renderer.finish()
@@ -731,7 +711,7 @@ def test_streaming_renderer_tty_erases_status_on_finish(monkeypatch) -> None:
     captured = StringIO()
     monkeypatch.setattr("sys.stdout", captured)
 
-    renderer = _create_streaming_renderer(fields=["name"], limit=None, is_tty=True)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True)
     renderer.start()
     renderer(_create_test_agent())
     renderer.finish()
@@ -742,80 +722,70 @@ def test_streaming_renderer_tty_erases_status_on_finish(monkeypatch) -> None:
 
 
 # =============================================================================
-# Tests for streaming mode fallback with --limit
+# Tests for _should_use_streaming_mode
 # =============================================================================
 
 
-def test_limit_flag_uses_batch_mode(
-    temp_mngr_ctx,
-    plugin_manager,
-) -> None:
-    """--limit should force batch mode (is_streaming=False) to get deterministic results."""
-    calls: list[dict] = []
-
-    def tracking_list_agents(**kwargs):
-        calls.append(kwargs)
-        return ListResult()
-
-    runner = CliRunner()
-    with patch("imbue.mngr.cli.list.api_list_agents", side_effect=tracking_list_agents):
-        result = runner.invoke(
-            list_command,
-            ["--limit", "5"],
-            obj=plugin_manager,
-            catch_exceptions=False,
+def test_should_use_streaming_mode_default_human() -> None:
+    """Default HUMAN format without watch/sort/limit should use streaming mode."""
+    assert (
+        _should_use_streaming_mode(
+            output_format=OutputFormat.HUMAN,
+            is_watch=False,
+            is_sort_explicit=False,
+            limit=None,
         )
-
-    assert result.exit_code == 0, f"Command failed: {result.output}"
-    assert len(calls) == 1
-    assert calls[0]["is_streaming"] is False
+        is True
+    )
 
 
-def test_no_limit_uses_streaming_mode(
-    temp_mngr_ctx,
-    plugin_manager,
-) -> None:
-    """Without --limit (and without --sort/--watch), HUMAN format should use streaming mode."""
-    calls: list[dict] = []
-
-    def tracking_list_agents(**kwargs):
-        calls.append(kwargs)
-        return ListResult()
-
-    runner = CliRunner()
-    with patch("imbue.mngr.cli.list.api_list_agents", side_effect=tracking_list_agents):
-        result = runner.invoke(
-            list_command,
-            [],
-            obj=plugin_manager,
-            catch_exceptions=False,
+def test_should_use_streaming_mode_with_limit_uses_batch() -> None:
+    """--limit should force batch mode for deterministic results."""
+    assert (
+        _should_use_streaming_mode(
+            output_format=OutputFormat.HUMAN,
+            is_watch=False,
+            is_sort_explicit=False,
+            limit=5,
         )
-
-    assert result.exit_code == 0, f"Command failed: {result.output}"
-    assert len(calls) == 1
-    assert calls[0]["is_streaming"] is True
+        is False
+    )
 
 
-def test_explicit_sort_uses_batch_mode(
-    temp_mngr_ctx,
-    plugin_manager,
-) -> None:
-    """--sort should force batch mode (is_streaming=False) for sorted output."""
-    calls: list[dict] = []
-
-    def tracking_list_agents(**kwargs):
-        calls.append(kwargs)
-        return ListResult()
-
-    runner = CliRunner()
-    with patch("imbue.mngr.cli.list.api_list_agents", side_effect=tracking_list_agents):
-        result = runner.invoke(
-            list_command,
-            ["--sort", "name"],
-            obj=plugin_manager,
-            catch_exceptions=False,
+def test_should_use_streaming_mode_with_explicit_sort_uses_batch() -> None:
+    """--sort should force batch mode for sorted output."""
+    assert (
+        _should_use_streaming_mode(
+            output_format=OutputFormat.HUMAN,
+            is_watch=False,
+            is_sort_explicit=True,
+            limit=None,
         )
+        is False
+    )
 
-    assert result.exit_code == 0, f"Command failed: {result.output}"
-    assert len(calls) == 1
-    assert calls[0]["is_streaming"] is False
+
+def test_should_use_streaming_mode_with_watch_uses_batch() -> None:
+    """--watch should force batch mode."""
+    assert (
+        _should_use_streaming_mode(
+            output_format=OutputFormat.HUMAN,
+            is_watch=True,
+            is_sort_explicit=False,
+            limit=None,
+        )
+        is False
+    )
+
+
+def test_should_use_streaming_mode_json_format_uses_batch() -> None:
+    """JSON format should use batch mode."""
+    assert (
+        _should_use_streaming_mode(
+            output_format=OutputFormat.JSON,
+            is_watch=False,
+            is_sort_explicit=False,
+            limit=None,
+        )
+        is False
+    )
