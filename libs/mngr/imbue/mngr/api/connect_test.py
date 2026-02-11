@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import pluggy
 import pytest
 from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
@@ -19,6 +20,7 @@ from imbue.mngr.api.connect import _build_ssh_args
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.config.data_types import AgentTypeConfig
+from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
 from imbue.mngr.hosts.host import Host
@@ -288,25 +290,52 @@ def test_build_ssh_args_known_hosts_dev_null_treated_as_missing(
 # =========================================================================
 
 
+class _ConnectTestResult:
+    """Captures the results of a connect_to_agent call with intercepted system calls."""
+
+    def __init__(self) -> None:
+        self.execvp_calls: list[tuple[str, list[str]]] = []
+        self.subprocess_call_args: list[list[str]] = []
+
+
+def _run_connect_to_agent(
+    local_provider: LocalProviderInstance,
+    mngr_ctx: MngrContext,
+    monkeypatch: pytest.MonkeyPatch,
+    ssh_exit_code: int,
+    agent_name: str = "test-agent",
+) -> _ConnectTestResult:
+    """Set up and run connect_to_agent with intercepted system calls."""
+    host = _make_ssh_host(local_provider, mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
+    agent = _make_remote_agent(host, mngr_ctx, agent_name=agent_name)
+    opts = ConnectionOptions(is_unknown_host_allowed=False)
+
+    result = _ConnectTestResult()
+    monkeypatch.setattr(
+        "imbue.mngr.api.connect.subprocess.call",
+        lambda args: (result.subprocess_call_args.append(list(args)), ssh_exit_code)[1],
+    )
+    monkeypatch.setattr(
+        "imbue.mngr.api.connect.os.execvp",
+        lambda cmd, args: result.execvp_calls.append((cmd, list(args))),
+    )
+
+    connect_to_agent(agent, host, mngr_ctx, opts)
+
+    return result
+
+
 def test_connect_to_agent_remote_destroy_signal(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that connect_to_agent exec's into mngr destroy when SSH exits with SIGNAL_EXIT_CODE_DESTROY."""
-    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
-    agent = _make_remote_agent(host, temp_mngr_ctx)
-    opts = ConnectionOptions(is_unknown_host_allowed=False)
-    expected_session = f"{temp_mngr_ctx.config.prefix}{agent.name}"
+    result = _run_connect_to_agent(local_provider, temp_mngr_ctx, monkeypatch, SIGNAL_EXIT_CODE_DESTROY)
 
-    execvp_calls: list[tuple[str, list[str]]] = []
-    monkeypatch.setattr("imbue.mngr.api.connect.subprocess.call", lambda args: SIGNAL_EXIT_CODE_DESTROY)
-    monkeypatch.setattr("imbue.mngr.api.connect.os.execvp", lambda cmd, args: execvp_calls.append((cmd, list(args))))
-
-    connect_to_agent(agent, host, temp_mngr_ctx, opts)
-
-    assert len(execvp_calls) == 1
-    assert execvp_calls[0] == ("mngr", ["mngr", "destroy", "--session", expected_session, "-f"])
+    expected_session = f"{temp_mngr_ctx.config.prefix}test-agent"
+    assert len(result.execvp_calls) == 1
+    assert result.execvp_calls[0] == ("mngr", ["mngr", "destroy", "--session", expected_session, "-f"])
 
 
 def test_connect_to_agent_remote_stop_signal(
@@ -315,19 +344,11 @@ def test_connect_to_agent_remote_stop_signal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that connect_to_agent exec's into mngr stop when SSH exits with SIGNAL_EXIT_CODE_STOP."""
-    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
-    agent = _make_remote_agent(host, temp_mngr_ctx)
-    opts = ConnectionOptions(is_unknown_host_allowed=False)
-    expected_session = f"{temp_mngr_ctx.config.prefix}{agent.name}"
+    result = _run_connect_to_agent(local_provider, temp_mngr_ctx, monkeypatch, SIGNAL_EXIT_CODE_STOP)
 
-    execvp_calls: list[tuple[str, list[str]]] = []
-    monkeypatch.setattr("imbue.mngr.api.connect.subprocess.call", lambda args: SIGNAL_EXIT_CODE_STOP)
-    monkeypatch.setattr("imbue.mngr.api.connect.os.execvp", lambda cmd, args: execvp_calls.append((cmd, list(args))))
-
-    connect_to_agent(agent, host, temp_mngr_ctx, opts)
-
-    assert len(execvp_calls) == 1
-    assert execvp_calls[0] == ("mngr", ["mngr", "stop", "--session", expected_session])
+    expected_session = f"{temp_mngr_ctx.config.prefix}test-agent"
+    assert len(result.execvp_calls) == 1
+    assert result.execvp_calls[0] == ("mngr", ["mngr", "stop", "--session", expected_session])
 
 
 def test_connect_to_agent_remote_normal_exit_no_action(
@@ -336,17 +357,9 @@ def test_connect_to_agent_remote_normal_exit_no_action(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that connect_to_agent does not exec into anything on normal SSH exit (code 0)."""
-    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
-    agent = _make_remote_agent(host, temp_mngr_ctx)
-    opts = ConnectionOptions(is_unknown_host_allowed=False)
+    result = _run_connect_to_agent(local_provider, temp_mngr_ctx, monkeypatch, ssh_exit_code=0)
 
-    execvp_calls: list[tuple[str, list[str]]] = []
-    monkeypatch.setattr("imbue.mngr.api.connect.subprocess.call", lambda args: 0)
-    monkeypatch.setattr("imbue.mngr.api.connect.os.execvp", lambda cmd, args: execvp_calls.append((cmd, list(args))))
-
-    connect_to_agent(agent, host, temp_mngr_ctx, opts)
-
-    assert len(execvp_calls) == 0
+    assert len(result.execvp_calls) == 0
 
 
 def test_connect_to_agent_remote_unknown_exit_code_no_action(
@@ -355,35 +368,27 @@ def test_connect_to_agent_remote_unknown_exit_code_no_action(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that connect_to_agent does not exec into anything on unexpected SSH exit codes."""
-    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
-    agent = _make_remote_agent(host, temp_mngr_ctx)
-    opts = ConnectionOptions(is_unknown_host_allowed=False)
+    result = _run_connect_to_agent(local_provider, temp_mngr_ctx, monkeypatch, ssh_exit_code=255)
 
-    execvp_calls: list[tuple[str, list[str]]] = []
-    monkeypatch.setattr("imbue.mngr.api.connect.subprocess.call", lambda args: 255)
-    monkeypatch.setattr("imbue.mngr.api.connect.os.execvp", lambda cmd, args: execvp_calls.append((cmd, list(args))))
-
-    connect_to_agent(agent, host, temp_mngr_ctx, opts)
-
-    assert len(execvp_calls) == 0
+    assert len(result.execvp_calls) == 0
 
 
 def test_connect_to_agent_remote_uses_correct_session_name(
     local_provider: LocalProviderInstance,
-    temp_mngr_ctx: MngrContext,
+    temp_host_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that connect_to_agent constructs the session name from prefix + agent name."""
-    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/tmp/known_hosts")
-    agent = _make_remote_agent(host, temp_mngr_ctx, agent_name="my-agent")
-    opts = ConnectionOptions(is_unknown_host_allowed=False)
-    expected_session = f"{temp_mngr_ctx.config.prefix}my-agent"
+    # Use a custom prefix (different from the default fixture prefix) to verify the code
+    # reads the prefix from the context rather than using a hardcoded value
+    custom_config = MngrConfig(default_host_dir=temp_host_dir, prefix="custom-")
+    custom_ctx = MngrContext(config=custom_config, pm=plugin_manager, profile_dir=temp_profile_dir)
 
-    execvp_calls: list[tuple[str, list[str]]] = []
-    monkeypatch.setattr("imbue.mngr.api.connect.subprocess.call", lambda args: SIGNAL_EXIT_CODE_DESTROY)
-    monkeypatch.setattr("imbue.mngr.api.connect.os.execvp", lambda cmd, args: execvp_calls.append((cmd, list(args))))
+    result = _run_connect_to_agent(
+        local_provider, custom_ctx, monkeypatch, SIGNAL_EXIT_CODE_DESTROY, agent_name="my-agent"
+    )
 
-    connect_to_agent(agent, host, temp_mngr_ctx, opts)
-
-    assert len(execvp_calls) == 1
-    assert execvp_calls[0] == ("mngr", ["mngr", "destroy", "--session", expected_session, "-f"])
+    assert len(result.execvp_calls) == 1
+    assert result.execvp_calls[0] == ("mngr", ["mngr", "destroy", "--session", "custom-my-agent", "-f"])
