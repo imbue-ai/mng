@@ -174,7 +174,7 @@ def pair(ctx: click.Context, **kwargs) -> None:
         target_path = Path(opts.target)
     else:
         # Default to nearest git root, or current directory
-        git_root = find_git_worktree_root(mngr_ctx.cg) if mngr_ctx.concurrency_group else None
+        git_root = find_git_worktree_root(mngr_ctx.cg)
         target_path = git_root if git_root is not None else Path.cwd()
 
     # Find the agent

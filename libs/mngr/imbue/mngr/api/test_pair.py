@@ -45,6 +45,7 @@ def pair_ctx(tmp_path: Path) -> SyncTestContext:
 
 
 def test_sync_git_state_performs_push_when_local_is_ahead(cg: ConcurrencyGroup, pair_ctx: SyncTestContext) -> None:
+    """Test that sync_git_state pushes commits from local to agent when local is ahead."""
     (pair_ctx.local_dir / "new_file.txt").write_text("new content")
     run_git_command(pair_ctx.local_dir, "add", "new_file.txt")
     run_git_command(pair_ctx.local_dir, "commit", "-m", "Add new file")
@@ -65,6 +66,7 @@ def test_sync_git_state_performs_push_when_local_is_ahead(cg: ConcurrencyGroup, 
 
 
 def test_sync_git_state_performs_pull_when_agent_is_ahead(cg: ConcurrencyGroup, pair_ctx: SyncTestContext) -> None:
+    """Test that sync_git_state pulls commits from agent to local when agent is ahead."""
     (pair_ctx.agent_dir / "agent_file.txt").write_text("agent content")
     run_git_command(pair_ctx.agent_dir, "add", "agent_file.txt")
     run_git_command(pair_ctx.agent_dir, "commit", "-m", "Add agent file")
@@ -90,6 +92,7 @@ def test_sync_git_state_performs_pull_when_agent_is_ahead(cg: ConcurrencyGroup, 
 def test_pair_files_raises_when_unison_not_installed_and_mocked(
     cg: ConcurrencyGroup, pair_ctx: SyncTestContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Test that pair_files raises UnisonNotInstalledError when unison is not available."""
     monkeypatch.setattr("imbue.mngr.api.pair.check_unison_installed", lambda: False)
     with pytest.raises(UnisonNotInstalledError):
         with pair_files(
@@ -111,6 +114,7 @@ def test_pair_files_raises_when_unison_not_installed_and_mocked(
 def test_pair_files_raises_when_git_required_but_not_present(
     cg: ConcurrencyGroup, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Test that pair_files raises MngrError when git is required but directories are not repos."""
     monkeypatch.setattr("imbue.mngr.api.pair.check_unison_installed", lambda: True)
     source_dir = tmp_path / "source"
     target_dir = tmp_path / "target"
@@ -137,6 +141,7 @@ def test_pair_files_raises_when_git_required_but_not_present(
 
 
 def test_pair_files_starts_and_stops_syncer(cg: ConcurrencyGroup, pair_ctx: SyncTestContext) -> None:
+    """Test that pair_files properly starts and stops the unison syncer."""
     with pair_files(
         cg=cg,
         agent=pair_ctx.agent,
@@ -158,6 +163,7 @@ def test_pair_files_starts_and_stops_syncer(cg: ConcurrencyGroup, pair_ctx: Sync
 
 
 def test_pair_files_syncs_git_state_before_starting(cg: ConcurrencyGroup, pair_ctx: SyncTestContext) -> None:
+    """Test that pair_files syncs git state before starting continuous sync."""
     (pair_ctx.agent_dir / "agent_commit.txt").write_text("agent content")
     run_git_command(pair_ctx.agent_dir, "add", "agent_commit.txt")
     run_git_command(pair_ctx.agent_dir, "commit", "-m", "Add agent commit")
@@ -180,6 +186,7 @@ def test_pair_files_syncs_git_state_before_starting(cg: ConcurrencyGroup, pair_c
 
 
 def test_pair_files_with_no_git_requirement(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+    """Test that pair_files works without git when is_require_git=False."""
     source_dir = tmp_path / "source"
     target_dir = tmp_path / "target"
     source_dir.mkdir()
@@ -209,6 +216,7 @@ def test_pair_files_with_no_git_requirement(cg: ConcurrencyGroup, tmp_path: Path
 
 
 def test_unison_syncer_start_and_stop(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+    """Test that UnisonSyncer can start and stop unison process."""
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()
@@ -231,6 +239,7 @@ def test_unison_syncer_start_and_stop(cg: ConcurrencyGroup, tmp_path: Path) -> N
 
 
 def test_unison_syncer_syncs_file_changes(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+    """Test that UnisonSyncer actually syncs file changes between directories."""
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()
@@ -253,6 +262,7 @@ def test_unison_syncer_syncs_file_changes(cg: ConcurrencyGroup, tmp_path: Path) 
 
 
 def test_unison_syncer_syncs_symlinks(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+    """Test that UnisonSyncer handles symbolic links."""
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()
@@ -277,6 +287,7 @@ def test_unison_syncer_syncs_symlinks(cg: ConcurrencyGroup, tmp_path: Path) -> N
 
 
 def test_unison_syncer_syncs_directory_symlinks(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+    """Test that UnisonSyncer handles directory symbolic links."""
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()
@@ -305,6 +316,7 @@ def test_unison_syncer_syncs_directory_symlinks(cg: ConcurrencyGroup, tmp_path: 
 
 
 def test_unison_syncer_handles_process_crash(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+    """Test that UnisonSyncer detects when the unison process dies unexpectedly."""
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()
@@ -333,6 +345,7 @@ def test_unison_syncer_handles_process_crash(cg: ConcurrencyGroup, tmp_path: Pat
 
 @pytest.mark.release
 def test_unison_syncer_handles_large_files(cg: ConcurrencyGroup, tmp_path: Path) -> None:
+    """Test that UnisonSyncer handles large files correctly."""
     source = tmp_path / "source"
     target = tmp_path / "target"
     source.mkdir()

@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -36,13 +37,7 @@ def get_editor_command() -> str:
 
     # Try to find a fallback editor
     for fallback in FALLBACK_EDITORS:
-        # Check if the editor is available in PATH
-        result = subprocess.run(
-            ["which", fallback],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
+        if shutil.which(fallback) is not None:
             return fallback
 
     # Last resort: just try vim
