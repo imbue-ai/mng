@@ -62,7 +62,7 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
     if not opts.query:
         raise click.UsageError("No query provided. Pass a question as arguments.", ctx=ctx)
 
-    query_string = " ".join(opts.query)
+    query_string = "answer this question about `mngr`: " + " ".join(opts.query)
 
     cwd = Path(opts.project_context_path) if opts.project_context_path else None
 
