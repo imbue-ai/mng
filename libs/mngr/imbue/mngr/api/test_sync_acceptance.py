@@ -30,9 +30,14 @@ def _run_mngr(
     env: dict[str, str],
     timeout: int = 60,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a mngr command via subprocess."""
+    """Run a mngr command via subprocess.
+
+    Disables the Modal plugin since these tests only use local agents and
+    don't need Modal provider discovery (which would fail with the test
+    MNGR_PREFIX that doesn't match Modal's expected test environment pattern).
+    """
     return subprocess.run(
-        ["uv", "run", "mngr", *args],
+        ["uv", "run", "mngr", *args, "--disable-plugin", "modal"],
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -86,6 +91,8 @@ def created_agent(
             "--no-connect",
             "--project",
             str(repo_path),
+            "--disable-plugin",
+            "modal",
         ],
         capture_output=True,
         text=True,
@@ -99,7 +106,7 @@ def created_agent(
 
     # Cleanup: destroy the agent
     subprocess.run(
-        ["uv", "run", "mngr", "destroy", agent_name, "-f"],
+        ["uv", "run", "mngr", "destroy", agent_name, "-f", "--disable-plugin", "modal"],
         capture_output=True,
         text=True,
         timeout=60,
