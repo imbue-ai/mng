@@ -1,7 +1,6 @@
-# FIXME0: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 """Tests for common_opts module."""
 
-from unittest.mock import MagicMock
+from typing import Any
 
 import click
 import pytest
@@ -16,6 +15,20 @@ from imbue.mngr.config.data_types import CreateTemplate
 from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.errors import UserInputError
+
+
+def _make_click_context(
+    params: dict[str, Any],
+    # Maps param names to their source; defaults to ParameterSource.DEFAULT for all params
+    source_by_param_name: dict[str, ParameterSource] | None = None,
+) -> click.Context:
+    """Create a real click.Context with the given params and parameter sources."""
+    ctx = click.Context(click.Command("test"))
+    ctx.params = params
+    for param_name in params:
+        source = (source_by_param_name or {}).get(param_name, ParameterSource.DEFAULT)
+        ctx.set_parameter_source(param_name, source)
+    return ctx
 
 
 def test_run_single_script_success() -> None:
@@ -119,10 +132,9 @@ def test_run_pre_command_scripts_includes_stderr_in_error(mngr_test_prefix: str)
 
 def test_apply_config_defaults_empty_string_clears_tuple_param(mngr_test_prefix: str) -> None:
     """apply_config_defaults should convert empty string to empty tuple for tuple params."""
-    # Create a mock context with a tuple parameter
-    ctx = MagicMock(spec=click.Context)
-    ctx.params = {"add_command": ("default_cmd",), "other_param": "value"}
-    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
+    ctx = _make_click_context(
+        params={"add_command": ("default_cmd",), "other_param": "value"},
+    )
 
     # Create config with empty string for the tuple param (simulating env var override)
     config = MngrConfig(
@@ -138,10 +150,9 @@ def test_apply_config_defaults_empty_string_clears_tuple_param(mngr_test_prefix:
 
 def test_apply_config_defaults_non_empty_string_replaces_tuple_param(mngr_test_prefix: str) -> None:
     """apply_config_defaults should replace tuple param with config list value."""
-    # Create a mock context with a tuple parameter
-    ctx = MagicMock(spec=click.Context)
-    ctx.params = {"add_command": (), "other_param": "value"}
-    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
+    ctx = _make_click_context(
+        params={"add_command": (), "other_param": "value"},
+    )
 
     # Create config with a list value for the tuple param
     config = MngrConfig(
@@ -157,10 +168,9 @@ def test_apply_config_defaults_non_empty_string_replaces_tuple_param(mngr_test_p
 
 def test_apply_config_defaults_empty_string_does_not_affect_non_tuple_params(mngr_test_prefix: str) -> None:
     """apply_config_defaults should not convert empty string for non-tuple params."""
-    # Create a mock context with a string parameter
-    ctx = MagicMock(spec=click.Context)
-    ctx.params = {"name": "default_name", "other_param": "value"}
-    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
+    ctx = _make_click_context(
+        params={"name": "default_name", "other_param": "value"},
+    )
 
     # Create config with empty string for the string param
     config = MngrConfig(
@@ -179,8 +189,9 @@ def test_apply_config_defaults_empty_string_does_not_affect_non_tuple_params(mng
 
 def test_apply_create_template_no_templates(mngr_test_prefix: str) -> None:
     """apply_create_template should return params unchanged when no templates specified."""
-    ctx = MagicMock(spec=click.Context)
-    ctx.params = {"template": (), "name": "default"}
+    ctx = _make_click_context(
+        params={"template": (), "name": "default"},
+    )
     params = ctx.params.copy()
     config = MngrConfig(prefix=mngr_test_prefix)
 
@@ -191,9 +202,9 @@ def test_apply_create_template_no_templates(mngr_test_prefix: str) -> None:
 
 def test_apply_create_template_single_template(mngr_test_prefix: str) -> None:
     """apply_create_template should apply a single template's values."""
-    ctx = MagicMock(spec=click.Context)
-    ctx.params = {"template": ("mytemplate",), "new_host": None, "name": "default"}
-    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
+    ctx = _make_click_context(
+        params={"template": ("mytemplate",), "new_host": None, "name": "default"},
+    )
 
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -209,14 +220,14 @@ def test_apply_create_template_single_template(mngr_test_prefix: str) -> None:
 
 def test_apply_create_template_multiple_templates_stack(mngr_test_prefix: str) -> None:
     """apply_create_template should stack multiple templates in order."""
-    ctx = MagicMock(spec=click.Context)
-    ctx.params = {
-        "template": ("host-template", "agent-template"),
-        "new_host": None,
-        "agent_type": None,
-        "name": "default",
-    }
-    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
+    ctx = _make_click_context(
+        params={
+            "template": ("host-template", "agent-template"),
+            "new_host": None,
+            "agent_type": None,
+            "name": "default",
+        },
+    )
 
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -234,12 +245,12 @@ def test_apply_create_template_multiple_templates_stack(mngr_test_prefix: str) -
 
 def test_apply_create_template_later_template_overrides_earlier(mngr_test_prefix: str) -> None:
     """apply_create_template should let later templates override earlier ones for the same key."""
-    ctx = MagicMock(spec=click.Context)
-    ctx.params = {
-        "template": ("first", "second"),
-        "new_host": None,
-    }
-    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
+    ctx = _make_click_context(
+        params={
+            "template": ("first", "second"),
+            "new_host": None,
+        },
+    )
 
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -256,18 +267,15 @@ def test_apply_create_template_later_template_overrides_earlier(mngr_test_prefix
 
 def test_apply_create_template_cli_args_override_all_templates(mngr_test_prefix: str) -> None:
     """apply_create_template should not override CLI-specified values even with multiple templates."""
-    ctx = MagicMock(spec=click.Context)
-    ctx.params = {
-        "template": ("first", "second"),
-        "new_host": "local",
-    }
-
-    def mock_get_parameter_source(param_name: str) -> ParameterSource:
-        if param_name == "new_host":
-            return ParameterSource.COMMANDLINE
-        return ParameterSource.DEFAULT
-
-    ctx.get_parameter_source.side_effect = mock_get_parameter_source
+    ctx = _make_click_context(
+        params={
+            "template": ("first", "second"),
+            "new_host": "local",
+        },
+        source_by_param_name={
+            "new_host": ParameterSource.COMMANDLINE,
+        },
+    )
 
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -284,8 +292,9 @@ def test_apply_create_template_cli_args_override_all_templates(mngr_test_prefix:
 
 def test_apply_create_template_unknown_template_raises_error(mngr_test_prefix: str) -> None:
     """apply_create_template should raise UserInputError for unknown template."""
-    ctx = MagicMock(spec=click.Context)
-    ctx.params = {"template": ("nonexistent",)}
+    ctx = _make_click_context(
+        params={"template": ("nonexistent",)},
+    )
 
     config = MngrConfig(
         prefix=mngr_test_prefix,
@@ -300,12 +309,12 @@ def test_apply_create_template_unknown_template_raises_error(mngr_test_prefix: s
 
 def test_apply_create_template_second_template_unknown_raises_error(mngr_test_prefix: str) -> None:
     """apply_create_template should raise UserInputError if any template in the list is unknown."""
-    ctx = MagicMock(spec=click.Context)
-    ctx.params = {
-        "template": ("existing", "nonexistent"),
-        "new_host": None,
-    }
-    ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
+    ctx = _make_click_context(
+        params={
+            "template": ("existing", "nonexistent"),
+            "new_host": None,
+        },
+    )
 
     config = MngrConfig(
         prefix=mngr_test_prefix,
