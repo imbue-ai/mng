@@ -1,7 +1,6 @@
 import pluggy
 import pytest
 from click.testing import CliRunner
-from pydantic import Field
 
 import imbue.mngr.cli.ask as ask_module
 from imbue.mngr.cli.ask import ClaudeBackendInterface
@@ -16,9 +15,9 @@ from imbue.mngr.primitives import OutputFormat
 class FakeClaude(ClaudeBackendInterface):
     """Test double that records queries and returns canned responses."""
 
-    responses: list[str] = Field(default_factory=list)
-    queries: list[str] = Field(default_factory=list)
-    system_prompts: list[str] = Field(default_factory=list)
+    responses: list[str] = []
+    queries: list[str] = []
+    system_prompts: list[str] = []
 
     def query(self, prompt: str, system_prompt: str) -> str:
         self.queries.append(prompt)
@@ -29,7 +28,7 @@ class FakeClaude(ClaudeBackendInterface):
 class FakeClaudeError(ClaudeBackendInterface):
     """Test double that raises MngrError on query."""
 
-    error_message: str = Field(description="Error message to raise")
+    error_message: str
 
     def query(self, prompt: str, system_prompt: str) -> str:
         raise MngrError(self.error_message)
