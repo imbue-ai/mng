@@ -11,8 +11,10 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 from pydantic import BaseModel
+from pydantic import PrivateAttr
 from tabulate import tabulate
 
+from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import ErrorInfo
@@ -254,8 +256,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             logger.warning("Watch mode is not supported with JSONL format, running once")
 
         # Use a callback wrapper that limits output count
-        limited_callback = _LimitedJsonlEmitter()
-        limited_callback.limit = limit
+        limited_callback = _LimitedJsonlEmitter(limit=limit)
 
         result = api_list_agents(
             mngr_ctx=mngr_ctx,
@@ -285,9 +286,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         output_opts.output_format, is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit, limit=limit
     ):
         display_fields = fields if fields is not None else list(_DEFAULT_HUMAN_DISPLAY_FIELDS)
-        renderer = _StreamingHumanRenderer()
-        renderer.fields = display_fields
-        renderer.is_tty = sys.stdout.isatty()
+        renderer = _StreamingHumanRenderer(fields=display_fields, is_tty=sys.stdout.isatty())
         renderer.start()
         result = api_list_agents(
             mngr_ctx=mngr_ctx,
@@ -336,17 +335,20 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         _run_list_iteration(iteration_params, ctx)
 
 
-class _LimitedJsonlEmitter:
-    """Callable class for emitting JSONL output with a limit (avoids inline function)."""
+class _LimitedJsonlEmitter(MutableModel):
+    """Callable that emits JSONL output with an optional limit."""
 
+    model_config = {"arbitrary_types_allowed": True}
     limit: int | None
     count: int = 0
+    _lock: Lock = PrivateAttr(default_factory=Lock)
 
     def __call__(self, agent: AgentInfo) -> None:
-        if self.limit is not None and self.count >= self.limit:
-            return
-        _emit_jsonl_agent(agent)
-        self.count += 1
+        with self._lock:
+            if self.limit is not None and self.count >= self.limit:
+                return
+            _emit_jsonl_agent(agent)
+            self.count += 1
 
 
 # Minimum column widths for streaming output (left-justified, not truncated)
@@ -372,7 +374,7 @@ _ANSI_DIM_GRAY: Final[str] = "\x1b[38;5;245m"
 _ANSI_RESET: Final[str] = "\x1b[0m"
 
 
-class _StreamingHumanRenderer:
+class _StreamingHumanRenderer(MutableModel):
     """Thread-safe streaming renderer for human-readable list output.
 
     Writes table rows to stdout as agents arrive from the API. Uses an ANSI status
@@ -380,18 +382,16 @@ class _StreamingHumanRenderer:
     outputs (piped), skips status lines and ANSI codes entirely.
     """
 
+    model_config = {"arbitrary_types_allowed": True}
     fields: list[str]
     is_tty: bool
-    _lock: Lock
-    _count: int
-    _is_header_written: bool
-    _column_widths: dict[str, int]
+    _lock: Lock = PrivateAttr(default_factory=Lock)
+    _count: int = PrivateAttr(default=0)
+    _is_header_written: bool = PrivateAttr(default=False)
+    _column_widths: dict[str, int] = PrivateAttr(default_factory=dict)
 
     def start(self) -> None:
-        """Initialize internal state and write the initial status line (TTY only)."""
-        self._lock = Lock()
-        self._count = 0
-        self._is_header_written = False
+        """Compute column widths and write the initial status line (TTY only)."""
         self._column_widths = _compute_column_widths(self.fields)
 
         if self.is_tty:
@@ -419,10 +419,7 @@ class _StreamingHumanRenderer:
 
             if self.is_tty:
                 # Write updated status line
-                remaining = ""
-                if self._count > 0:
-                    remaining = f" ({self._count} found)"
-                status = f"{_ANSI_DIM_GRAY}Searching...{remaining}{_ANSI_RESET}"
+                status = f"{_ANSI_DIM_GRAY}Searching... ({self._count} found){_ANSI_RESET}"
                 sys.stdout.write(status)
 
             sys.stdout.flush()

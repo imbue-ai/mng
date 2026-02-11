@@ -595,10 +595,7 @@ def _create_streaming_renderer(
     is_tty: bool,
 ) -> _StreamingHumanRenderer:
     """Create and initialize a streaming renderer for tests."""
-    renderer = _StreamingHumanRenderer()
-    renderer.fields = fields
-    renderer.is_tty = is_tty
-    return renderer
+    return _StreamingHumanRenderer(fields=fields, is_tty=is_tty)
 
 
 def test_streaming_renderer_non_tty_no_ansi_codes(monkeypatch) -> None:
