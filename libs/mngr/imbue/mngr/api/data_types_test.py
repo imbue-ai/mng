@@ -83,7 +83,8 @@ def test_host_lifecycle_options_to_activity_config_uses_cli_values_when_provided
     )
 
     assert config.idle_timeout_seconds == 600
-    assert config.idle_mode == IdleMode.SSH
+    # When explicit activity_sources are provided, idle_mode is derived from them
+    assert config.idle_mode == IdleMode.CUSTOM
     assert config.activity_sources == (ActivitySource.AGENT, ActivitySource.PROCESS)
 
 
