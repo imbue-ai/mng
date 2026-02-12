@@ -1050,7 +1050,7 @@ log "=== Shutdown script completed ==="
         Otherwise, returns False.
         """
         app = self._get_modal_app()
-        # FIXME: put this back--no idea why it wasn't working
+        # TODO: Unfortunately, this has the same error as the lookup by ID. We are waiting on modal to respond before we can fix this--it's a bug on their side
         # for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
         #     result_container.append(sandbox)
         #     return True
@@ -1105,8 +1105,7 @@ log "=== Shutdown script completed ==="
     def _lookup_sandbox_by_name_once(self, name: HostName) -> modal.Sandbox | None:
         """Perform a single lookup of a sandbox by host_name tag."""
         app = self._get_modal_app()
-        # FIXME: this has the same error as the lookup by ID, waiting on modal to fix [attempts=1]
-        #  Cannot fix without live Modal API access to verify if tag-based filtering now works server-side (modal 1.3.1 SDK code looks correct)
+        # TODO: Unfortunately, this has the same error as the lookup by ID. We are waiting on modal to respond before we can fix this--it's a bug on their side
         # for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_NAME: str(name)}):
         #     return sandbox
         # return None

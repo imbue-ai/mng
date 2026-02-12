@@ -143,7 +143,6 @@ def setup_command_context(
     # Load config
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
     pm = ctx.obj
-    # FIXME: stop passing the pm in here--all it's doing is ending up in the MngrContext, which we should assemble at this level instead (ie, load_config should return a MngrConfig, not a MngrContext). We'll need to update all of the tests to account for this as well.
     # Determine if we're running interactively (stdout is a TTY)
     try:
         is_interactive = sys.stdout.isatty()
