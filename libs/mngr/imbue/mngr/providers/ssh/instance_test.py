@@ -95,13 +95,13 @@ def test_list_hosts_returns_all_configured_hosts(temp_mngr_ctx: MngrContext) -> 
         "host2": SSHHostConfig(address="localhost", port=2222),
     }
     provider = make_ssh_provider(temp_mngr_ctx, hosts=hosts)
-    listed_hosts = provider.list_hosts()
+    listed_hosts = provider.list_hosts(cg=provider.mngr_ctx.concurrency_group)
     assert len(listed_hosts) == 2
 
 
 def test_list_hosts_returns_empty_when_no_hosts_configured(temp_mngr_ctx: MngrContext) -> None:
     provider = make_ssh_provider(temp_mngr_ctx, hosts={})
-    hosts = provider.list_hosts()
+    hosts = provider.list_hosts(cg=provider.mngr_ctx.concurrency_group)
     assert hosts == []
 
 

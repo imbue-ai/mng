@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import json
-import re
 import subprocess
 import time
 
@@ -16,7 +15,8 @@ def parse_agent_identifier(stdout: str, stderr: str) -> str:
     """
     # Try parsing JSON from stdout (--format json outputs a single JSON object,
     # --format jsonl outputs one JSON object per line)
-    for line in stdout.strip().splitlines():
+    stdout_lines = stdout.strip().splitlines()
+    for line in stdout_lines:
         line = line.strip()
         if not line:
             continue
@@ -28,9 +28,10 @@ def parse_agent_identifier(stdout: str, stderr: str) -> str:
             continue
 
     # Fallback: scan stderr for "Agent name: <name>" pattern (loguru output)
-    match = re.search(r"Agent name: (\S+)", stderr)
-    if match:
-        return match.group(1)
+    all_lines = stdout_lines + stderr.strip().splitlines()
+    for line in all_lines:
+        if "Agent name:" in line:
+            return line.split("Agent name:", 1)[-1].strip()
 
     raise click.ClickException(
         f"Could not parse agent identifier from command output.\nstdout: {stdout}\nstderr: {stderr}"

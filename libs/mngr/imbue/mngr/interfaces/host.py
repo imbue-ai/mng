@@ -261,6 +261,11 @@ class OnlineHostInterface(HostInterface, ABC):
         """Return the last modification time of the host lock file, or None if not locked."""
         ...
 
+    @abstractmethod
+    def is_lock_held(self) -> bool:
+        """Check whether the host lock is currently held."""
+        ...
+
     # =========================================================================
     # Certified Data
     # =========================================================================

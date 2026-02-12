@@ -179,7 +179,6 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
         command_name="start",
         command_class=StartCliOptions,
     )
-    logger.debug("Started start command")
 
     # Check for unsupported [future] options
     if opts.host:
