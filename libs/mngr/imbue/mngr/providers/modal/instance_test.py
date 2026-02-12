@@ -1980,19 +1980,41 @@ def test_restart_fails_after_hard_kill_without_initial_snapshot(
             real_modal_provider._delete_host_record(host.id)
 
 
-@pytest.mark.release
+# Dockerfile with all packages pre-installed for network-restricted tests.
+# When --offline or restrictive --cidr-allowlist is used, the sandbox cannot
+# apt-get install packages at runtime, so everything must be baked into the image.
+_OFFLINE_DOCKERFILE_CONTENT = """\
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server tmux curl rsync git jq \
+    && rm -rf /var/lib/apt/lists/*
+"""
+
+
+def _write_offline_dockerfile(tmp_path: Path) -> Path:
+    """Write the pre-configured Dockerfile for network-restricted tests."""
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(_OFFLINE_DOCKERFILE_CONTENT)
+    return dockerfile
+
+
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_cidr_allowlist_restricts_network_access(real_modal_provider: ModalProviderInstance) -> None:
+def test_cidr_allowlist_restricts_network_access(real_modal_provider: ModalProviderInstance, tmp_path: Path) -> None:
     """A sandbox created with --cidr-allowlist should block traffic to IPs outside the allowed ranges.
 
     Creates a sandbox allowing only 192.0.2.0/24 (TEST-NET-1, not routable), then
     verifies that an outbound HTTP request to a public IP fails.
+
+    Uses a pre-built image because the sandbox cannot apt-get install packages
+    when outbound network is restricted.
     """
+    dockerfile = _write_offline_dockerfile(tmp_path)
     host = None
     try:
         host = real_modal_provider.create_host(
             HostName("test-cidr"),
-            build_args=["--cidr-allowlist=192.0.2.0/24"],
+            build_args=[f"--dockerfile={dockerfile}", "--cidr-allowlist=192.0.2.0/24"],
         )
 
         # curl to a public IP should fail because it's outside the allowlist
@@ -2007,7 +2029,7 @@ def test_cidr_allowlist_restricts_network_access(real_modal_provider: ModalProvi
             real_modal_provider.destroy_host(host)
 
 
-@pytest.mark.release
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
 def test_cidr_allowlist_allows_traffic_within_range(real_modal_provider: ModalProviderInstance) -> None:
     """A sandbox created with --cidr-allowlist=0.0.0.0/0 should allow all traffic.
@@ -2032,19 +2054,23 @@ def test_cidr_allowlist_allows_traffic_within_range(real_modal_provider: ModalPr
             real_modal_provider.destroy_host(host)
 
 
-@pytest.mark.release
+@pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_offline_blocks_all_network_access(real_modal_provider: ModalProviderInstance) -> None:
+def test_offline_blocks_all_network_access(real_modal_provider: ModalProviderInstance, tmp_path: Path) -> None:
     """A sandbox created with --offline should block all outbound network traffic.
 
     Uses an empty cidr_allowlist under the hood, which Modal interprets as
     'no CIDRs allowed' = block all outbound traffic.
+
+    Uses a pre-built image because the sandbox cannot apt-get install packages
+    when outbound network is blocked.
     """
+    dockerfile = _write_offline_dockerfile(tmp_path)
     host = None
     try:
         host = real_modal_provider.create_host(
             HostName("test-offline"),
-            build_args=["--offline"],
+            build_args=[f"--dockerfile={dockerfile}", "--offline"],
         )
 
         # curl to a public IP should fail because all outbound traffic is blocked

@@ -57,6 +57,25 @@ mngr create my-agent --in modal -b cidr-allowlist=203.0.113.0/24 -b cidr-allowli
 mngr create my-agent --in modal -b offline
 ```
 
+### Restricting Network Access
+
+The `--offline` and `--cidr-allowlist` build arguments restrict outbound network access from the sandbox. When using these options, the sandbox cannot install packages at runtime (e.g., via `apt-get`), so you must provide a pre-configured image that includes all required packages.
+
+At minimum, the image must include `openssh-server`, `tmux`, `curl`, `rsync`, `git`, and `jq`. For example:
+
+```dockerfile
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server tmux curl rsync git jq \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+Then use it with:
+
+```bash
+mngr create my-agent --in modal -b dockerfile=./Dockerfile -b offline
+```
+
 ### Using Secrets During Image Build
 
 The `secret` build argument allows passing environment variables as secrets to the image build process. This is useful for installing private packages or accessing authenticated resources during the Dockerfile build:
