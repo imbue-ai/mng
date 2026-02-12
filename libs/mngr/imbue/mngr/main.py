@@ -18,6 +18,7 @@ from imbue.mngr.cli.issue_reporting import handle_not_implemented_error
 from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.migrate import migrate
+from imbue.mngr.cli.open import open_command
 from imbue.mngr.cli.pair import pair
 from imbue.mngr.cli.pull import pull
 from imbue.mngr.cli.push import push
@@ -230,6 +231,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     list_command,
     connect,
     message,
+    open_command,
     pair,
     pull,
     push,
