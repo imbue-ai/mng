@@ -124,25 +124,29 @@ def _crontab_marker(name: ScheduleName) -> str:
 @pure
 def _build_crontab_command(schedule: ScheduleDefinition, mngr_path: str) -> str:
     """Build the full crontab line for a schedule."""
-    parts = [schedule.cron, shlex.quote(mngr_path), "create"]
+    # Build the mngr create command
+    command_parts = [shlex.quote(mngr_path), "create"]
 
     if schedule.template is not None:
-        parts.extend(["--template", shlex.quote(schedule.template)])
+        command_parts.extend(["--template", shlex.quote(schedule.template)])
 
-    parts.extend(["--no-connect", "--message", shlex.quote(schedule.message)])
+    command_parts.extend(["--no-connect", "--message", shlex.quote(schedule.message)])
 
     for arg in schedule.create_args:
-        parts.append(shlex.quote(arg))
+        command_parts.append(shlex.quote(arg))
 
     # Log output to a schedule-specific log file.
     # Use $HOME instead of ~ because tilde is not expanded in crontab.
     # Quote the filename to prevent shell injection via schedule name.
     log_filename = shlex.quote(f"schedule-{schedule.name}.log")
-    parts.append(f">> $HOME/.mngr/logs/{log_filename} 2>&1")
+    log_dir = "$HOME/.mngr/logs"
+    redirect = f">> {log_dir}/{log_filename} 2>&1"
 
-    parts.append(_crontab_marker(schedule.name))
+    # Ensure the log directory exists before running the command
+    mngr_command = " ".join(command_parts)
+    full_command = f"mkdir -p {log_dir} && {mngr_command} {redirect}"
 
-    return " ".join(parts)
+    return f"{schedule.cron} {full_command} {_crontab_marker(schedule.name)}"
 
 
 def _read_current_crontab(cg: ConcurrencyGroup) -> str:

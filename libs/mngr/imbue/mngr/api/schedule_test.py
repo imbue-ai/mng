@@ -36,7 +36,8 @@ def test_build_crontab_command_with_template() -> None:
         cron="0 * * * *",
     )
     line = _build_crontab_command(schedule, "/usr/local/bin/mngr")
-    assert line.startswith("0 * * * * /usr/local/bin/mngr create")
+    assert line.startswith("0 * * * * mkdir -p")
+    assert "/usr/local/bin/mngr create" in line
     assert "--template my-hook" in line
     assert "--no-connect" in line
     assert shlex.quote("fix flaky tests") in line
@@ -130,6 +131,16 @@ def test_build_crontab_command_quotes_create_args_with_spaces() -> None:
     )
     line = _build_crontab_command(schedule, "/usr/local/bin/mngr")
     assert shlex.quote("my label value") in line
+
+
+def test_build_crontab_command_creates_log_directory() -> None:
+    schedule = make_test_schedule_definition(name="dir-test")
+    line = _build_crontab_command(schedule, "/usr/local/bin/mngr")
+    assert "mkdir -p $HOME/.mngr/logs" in line
+    # The mkdir should come before the main command
+    mkdir_pos = line.index("mkdir -p")
+    mngr_pos = line.index("/usr/local/bin/mngr")
+    assert mkdir_pos < mngr_pos
 
 
 def test_build_crontab_command_uses_home_env_var_for_log_path() -> None:
