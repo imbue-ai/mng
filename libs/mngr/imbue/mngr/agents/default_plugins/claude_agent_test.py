@@ -11,6 +11,7 @@ import pytest
 
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mngr.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
 from imbue.mngr.agents.default_plugins.claude_agent import _has_api_credentials_available
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
@@ -1058,6 +1059,81 @@ def test_has_api_credentials_returns_false_when_no_credentials(credential_check_
 def test_has_api_credentials_returns_false_remote_no_sync() -> None:
     """_has_api_credentials_available returns False for remote host when credentials exist but sync is disabled."""
     config = ClaudeAgentConfig(check_installation=False, sync_claude_credentials=False)
+
+    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
+
+
+# =============================================================================
+# primaryApiKey in ~/.claude.json Tests
+# =============================================================================
+
+
+def _write_claude_json_with_primary_api_key(api_key: str = "sk-ant-test-key") -> None:
+    """Write ~/.claude.json with a primaryApiKey entry."""
+    claude_json_path = Path.home() / ".claude.json"
+    config = {"primaryApiKey": api_key}
+    claude_json_path.write_text(json.dumps(config))
+
+
+def test_claude_json_has_primary_api_key_returns_true_when_key_exists() -> None:
+    """_claude_json_has_primary_api_key returns True when primaryApiKey is set."""
+    _write_claude_json_with_primary_api_key()
+
+    assert _claude_json_has_primary_api_key() is True
+
+
+def test_claude_json_has_primary_api_key_returns_false_when_no_file() -> None:
+    """_claude_json_has_primary_api_key returns False when ~/.claude.json does not exist."""
+    assert _claude_json_has_primary_api_key() is False
+
+
+def test_claude_json_has_primary_api_key_returns_false_when_key_missing() -> None:
+    """_claude_json_has_primary_api_key returns False when primaryApiKey is not in the config."""
+    claude_json_path = Path.home() / ".claude.json"
+    claude_json_path.write_text(json.dumps({"projects": {}}))
+
+    assert _claude_json_has_primary_api_key() is False
+
+
+def test_claude_json_has_primary_api_key_returns_false_when_key_empty() -> None:
+    """_claude_json_has_primary_api_key returns False when primaryApiKey is empty string."""
+    claude_json_path = Path.home() / ".claude.json"
+    claude_json_path.write_text(json.dumps({"primaryApiKey": ""}))
+
+    assert _claude_json_has_primary_api_key() is False
+
+
+def test_claude_json_has_primary_api_key_returns_false_when_invalid_json() -> None:
+    """_claude_json_has_primary_api_key returns False when ~/.claude.json contains invalid JSON."""
+    claude_json_path = Path.home() / ".claude.json"
+    claude_json_path.write_text("not valid json {{{")
+
+    assert _claude_json_has_primary_api_key() is False
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_has_api_credentials_detects_primary_api_key_local(credential_check_host: Host) -> None:
+    """_has_api_credentials_available returns True when primaryApiKey exists in ~/.claude.json on local host."""
+    _write_claude_json_with_primary_api_key()
+    config = ClaudeAgentConfig(check_installation=False)
+
+    assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_has_api_credentials_detects_primary_api_key_remote_with_sync() -> None:
+    """_has_api_credentials_available returns True when primaryApiKey exists and sync_claude_json is enabled."""
+    _write_claude_json_with_primary_api_key()
+    config = ClaudeAgentConfig(check_installation=False, sync_claude_json=True)
+
+    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_has_api_credentials_returns_false_primary_api_key_remote_no_sync() -> None:
+    """_has_api_credentials_available returns False when primaryApiKey exists but sync_claude_json is disabled."""
+    _write_claude_json_with_primary_api_key()
+    config = ClaudeAgentConfig(check_installation=False, sync_claude_json=False)
 
     assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
 

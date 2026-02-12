@@ -108,6 +108,18 @@ def _prompt_user_for_trust(source_path: Path) -> bool:
     return click.confirm("Would you like to trust this directory?", default=False)
 
 
+def _claude_json_has_primary_api_key() -> bool:
+    """Check if ~/.claude.json contains a non-empty primaryApiKey."""
+    claude_json_path = Path.home() / ".claude.json"
+    if not claude_json_path.exists():
+        return False
+    try:
+        config_data = json.loads(claude_json_path.read_text())
+        return bool(config_data.get("primaryApiKey"))
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
 def _has_api_credentials_available(
     host: OnlineHostInterface,
     options: CreateAgentOptions,
@@ -116,7 +128,8 @@ def _has_api_credentials_available(
     """Check whether API credentials appear to be available for Claude Code.
 
     Checks environment variables (process env for local hosts, agent env vars,
-    host env vars) and local credentials file (~/.claude/.credentials.json).
+    host env vars), local credentials file (~/.claude/.credentials.json), and
+    primaryApiKey in ~/.claude.json.
 
     Returns True if any credential source is detected, False otherwise.
     """
@@ -136,6 +149,13 @@ def _has_api_credentials_available(
         if host.is_local:
             return True
         if config.sync_claude_credentials:
+            return True
+
+    # Check for primaryApiKey in ~/.claude.json
+    if _claude_json_has_primary_api_key():
+        if host.is_local:
+            return True
+        if config.sync_claude_json:
             return True
 
     return False
@@ -337,9 +357,6 @@ class ClaudeAgent(BaseAgent):
         if not config.check_installation:
             logger.debug("Skipped claude installation check (check_installation=False)")
             return
-
-        # FIXME: there's one more way that we need to check for--the API key may be part of ~/.claude.json, which may be getting synced
-        #  the key to look for in there is "primaryApiKey" -- if that is set, then we count as authenticated
 
         if not _has_api_credentials_available(host, options, config):
             logger.warning(
