@@ -31,7 +31,7 @@ from imbue.mngr.primitives import VolumeId
 # =============================================================================
 
 
-def testformat_size_bytes() -> None:
+def test_format_size_bytes() -> None:
     """format_size should format small sizes in bytes."""
     assert format_size(0) == "0 B"
     assert format_size(1) == "1 B"
@@ -39,7 +39,7 @@ def testformat_size_bytes() -> None:
     assert format_size(1023) == "1023 B"
 
 
-def testformat_size_kilobytes() -> None:
+def test_format_size_kilobytes() -> None:
     """format_size should format sizes in kilobytes."""
     assert format_size(1024) == "1.0 KB"
     assert format_size(1536) == "1.5 KB"
@@ -47,21 +47,21 @@ def testformat_size_kilobytes() -> None:
     assert format_size(1024 * 1024 - 1) == "1024.0 KB"
 
 
-def testformat_size_megabytes() -> None:
+def test_format_size_megabytes() -> None:
     """format_size should format sizes in megabytes."""
     assert format_size(1024**2) == "1.0 MB"
     assert format_size(int(1.5 * 1024**2)) == "1.5 MB"
     assert format_size(100 * 1024**2) == "100.0 MB"
 
 
-def testformat_size_gigabytes() -> None:
+def test_format_size_gigabytes() -> None:
     """format_size should format sizes in gigabytes with two decimal places."""
     assert format_size(1024**3) == "1.00 GB"
     assert format_size(int(1.5 * 1024**3)) == "1.50 GB"
     assert format_size(10 * 1024**3) == "10.00 GB"
 
 
-def testformat_size_terabytes() -> None:
+def test_format_size_terabytes() -> None:
     """format_size should format sizes in terabytes with two decimal places."""
     assert format_size(1024**4) == "1.00 TB"
     assert format_size(int(2.5 * 1024**4)) == "2.50 TB"
@@ -424,6 +424,6 @@ def test_emit_human_summary_with_all_resource_types() -> None:
         (1024 * 1024 * 1024 * 1024, "1.00 TB"),
     ],
 )
-def testformat_size_parametrized(size_bytes: int, expected: str) -> None:
+def test_format_size_parametrized(size_bytes: int, expected: str) -> None:
     """format_size should format various byte sizes correctly."""
     assert format_size(size_bytes) == expected
