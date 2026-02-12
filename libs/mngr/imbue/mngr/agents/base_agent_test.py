@@ -1,24 +1,15 @@
 """Tests for BaseAgent lifecycle state detection."""
 
 import json
-from datetime import datetime
-from datetime import timezone
 from pathlib import Path
 
 from imbue.mngr.agents.base_agent import BaseAgent
-from imbue.mngr.config.data_types import AgentTypeConfig
-from imbue.mngr.hosts.host import Host
+from imbue.mngr.conftest import create_test_base_agent
 from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
-from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
-from imbue.mngr.primitives import AgentName
-from imbue.mngr.primitives import AgentTypeName
-from imbue.mngr.primitives import CommandString
-from imbue.mngr.primitives import HostName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import cleanup_tmux_session
-from imbue.mngr.utils.testing import get_short_random_string
 
 
 def create_test_agent(
@@ -27,49 +18,7 @@ def create_test_agent(
     temp_work_dir: Path,
 ) -> BaseAgent:
     """Create a test agent for lifecycle state testing with unique name."""
-    host = local_provider.create_host(HostName("test"))
-    assert isinstance(host, Host)
-
-    agent_id = AgentId.generate()
-    # Use unique agent name to avoid conflicts in parallel tests
-    agent_name = AgentName(f"test-agent-{get_short_random_string()}")
-    agent_type = AgentTypeName("test")
-
-    # Create agent directory and data.json
-    agent_dir = temp_host_dir / "agents" / str(agent_id)
-    agent_dir.mkdir(parents=True, exist_ok=True)
-
-    agent_config = AgentTypeConfig(
-        command=CommandString("sleep 1000"),
-    )
-
-    # Create the data.json file with the agent's command
-    data = {
-        "id": str(agent_id),
-        "name": str(agent_name),
-        "type": str(agent_type),
-        "command": "sleep 1000",
-        "work_dir": str(temp_work_dir),
-        "create_time": datetime.now(timezone.utc).isoformat(),
-        "start_on_boot": False,
-    }
-    data_path = agent_dir / "data.json"
-    data_path.write_text(json.dumps(data, indent=2))
-
-    # Use the mngr_ctx from the local_provider (which has profile_dir set)
-    agent = BaseAgent(
-        id=agent_id,
-        name=agent_name,
-        agent_type=agent_type,
-        work_dir=temp_work_dir,
-        create_time=datetime.now(timezone.utc),
-        host_id=host.id,
-        host=host,
-        mngr_ctx=local_provider.mngr_ctx,
-        agent_config=agent_config,
-    )
-
-    return agent
+    return create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
 
 
 def test_lifecycle_state_stopped_when_no_tmux_session(
