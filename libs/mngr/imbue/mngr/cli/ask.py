@@ -131,33 +131,43 @@ class SubprocessClaudeBackend(ClaudeBackendInterface):
 
             assert process.stdout is not None
 
-            # Stream text deltas from stdout
-            is_error = False
-            for line in process.stdout:
-                stripped = line.strip()
-                if not stripped:
-                    continue
+            try:
+                # Stream text deltas from stdout
+                is_error = False
+                for line in process.stdout:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
 
-                # Check for result events that indicate completion status
-                try:
-                    parsed = json.loads(stripped)
-                    if parsed.get("type") == "result" and parsed.get("is_error"):
-                        is_error = True
-                except (json.JSONDecodeError, ValueError):
-                    pass
+                    # Check for result events that indicate completion status
+                    try:
+                        parsed = json.loads(stripped)
+                        if parsed.get("type") == "result" and parsed.get("is_error"):
+                            is_error = True
+                    except (json.JSONDecodeError, ValueError):
+                        pass
 
-                text = _extract_text_delta(stripped)
-                if text is not None:
-                    yield text
+                    text = _extract_text_delta(stripped)
+                    if text is not None:
+                        yield text
 
-            # Wait for process to finish and check exit code
-            process.wait(timeout=_PROCESS_WAIT_TIMEOUT_SECONDS)
+                # Wait for process to finish and check exit code
+                process.wait(timeout=_PROCESS_WAIT_TIMEOUT_SECONDS)
 
-            if is_error or process.returncode != 0:
-                assert process.stderr is not None
-                stderr_content = process.stderr.read().strip()
-                detail = stderr_content or "unknown error (no output captured)"
-                raise MngrError(f"claude failed (exit code {process.returncode}): {detail}")
+                if is_error or process.returncode != 0:
+                    assert process.stderr is not None
+                    stderr_content = process.stderr.read().strip()
+                    detail = stderr_content or "unknown error (no output captured)"
+                    raise MngrError(f"claude failed (exit code {process.returncode}): {detail}")
+            finally:
+                # Ensure the subprocess is cleaned up if the generator exits early
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=_PROCESS_WAIT_TIMEOUT_SECONDS)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
 
 
 def _accumulate_chunks(chunks: Iterator[str]) -> str:
