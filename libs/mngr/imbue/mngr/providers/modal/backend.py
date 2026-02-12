@@ -14,7 +14,7 @@ from tenacity import stop_after_attempt
 from tenacity import wait_exponential
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.concurrency_group.errors import ProcessSetupError
+from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.mngr import hookimpl
@@ -38,10 +38,6 @@ STATE_VOLUME_SUFFIX = "-state"
 MODAL_NAME_MAX_LENGTH = 64
 
 
-class ModalDeployFailedError(MngrError):
-    pass
-
-
 # FIXME: this should just be renamed to _create_environment, and we should delete the first check, since it is only called when the env is missing
 def _ensure_environment_exists(environment_name: str, cg: ConcurrencyGroup) -> None:
     """Ensure a Modal environment exists, creating it if necessary.
@@ -62,33 +58,25 @@ def _ensure_environment_exists(environment_name: str, cg: ConcurrencyGroup) -> N
         result = cg.run_process_to_completion(
             ["uv", "run", "modal", "environment", "list", "--json"],
             timeout=30,
-            is_checked_after=False,
         )
-        if result.returncode == 0:
-            environments = json.loads(result.stdout)
-            for env in environments:
-                if env.get("name") == environment_name:
-                    logger.trace("Found existing Modal environment: {}", environment_name)
-                    return
-    except (ProcessSetupError, json.JSONDecodeError):
+        environments = json.loads(result.stdout)
+        for env in environments:
+            if env.get("name") == environment_name:
+                logger.trace("Found existing Modal environment: {}", environment_name)
+                return
+    except (ProcessError, json.JSONDecodeError):
         # If we can't list environments, try to create anyway
         pass
 
     # Environment doesn't exist, create it
     with log_span("Creating Modal environment: {}", environment_name):
         try:
-            result = cg.run_process_to_completion(
+            cg.run_process_to_completion(
                 ["uv", "run", "modal", "environment", "create", environment_name],
                 timeout=30,
-                is_checked_after=False,
             )
-            if result.returncode == 0:
-                logger.info("Created Modal environment: {}", environment_name)
-            elif result.is_timed_out:
-                raise ModalDeployFailedError("Modal environment create timed out")
-            else:
-                raise ModalDeployFailedError(f"Modal environment create returned non-zero: {result.stderr}")
-        except (ProcessSetupError, ModalDeployFailedError) as e:
+            logger.info("Created Modal environment: {}", environment_name)
+        except ProcessError as e:
             logger.warning("Failed to create Modal environment via CLI: {}", e)
 
 
