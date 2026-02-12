@@ -7,6 +7,8 @@ from pathlib import PurePosixPath
 import pytest
 
 from imbue.mngr.errors import InvalidRelativePathError
+from imbue.mngr.hosts.common import get_activity_sources_for_idle_mode
+from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostInfo
@@ -15,6 +17,7 @@ from imbue.mngr.interfaces.data_types import RelativePath
 from imbue.mngr.interfaces.data_types import SSHInfo
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostState
+from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderInstanceName
 
 
@@ -241,3 +244,50 @@ def test_certified_host_data_backward_compatible_without_prefix() -> None:
     """CertifiedHostData should deserialize from JSON without tmux_session_prefix."""
     data = CertifiedHostData.model_validate({"host_id": "host-123", "host_name": "test-host"})
     assert data.tmux_session_prefix is None
+
+
+# =============================================================================
+# IdleMode derivation consistency tests
+# =============================================================================
+
+
+_IDLE_MODES_WITH_KNOWN_SOURCES = [m for m in IdleMode if m != IdleMode.CUSTOM]
+
+
+@pytest.mark.parametrize("mode", _IDLE_MODES_WITH_KNOWN_SOURCES)
+def test_activity_config_idle_mode_matches_hosts_common_mapping(mode: IdleMode) -> None:
+    """ActivityConfig.idle_mode must agree with get_activity_sources_for_idle_mode.
+
+    The mapping in interfaces/data_types.py and the one in hosts/common.py must
+    stay in sync. This test verifies the round-trip: forward-mapping a mode to
+    its activity sources, then deriving idle_mode from those sources, must
+    return the original mode.
+    """
+    sources = get_activity_sources_for_idle_mode(mode)
+    config = ActivityConfig(idle_timeout_seconds=600, activity_sources=sources)
+    assert config.idle_mode == mode
+
+
+@pytest.mark.parametrize("mode", _IDLE_MODES_WITH_KNOWN_SOURCES)
+def test_certified_host_data_idle_mode_matches_hosts_common_mapping(mode: IdleMode) -> None:
+    """CertifiedHostData.idle_mode must agree with get_activity_sources_for_idle_mode."""
+    sources = get_activity_sources_for_idle_mode(mode)
+    data = CertifiedHostData(
+        host_id="host-sync-test",
+        host_name="sync-test",
+        activity_sources=sources,
+    )
+    assert data.idle_mode == mode
+
+
+def test_certified_host_data_strips_idle_mode_from_old_json() -> None:
+    """Old data.json files containing idle_mode should deserialize without error."""
+    old_json = {
+        "host_id": "host-old",
+        "host_name": "old-host",
+        "idle_mode": "IO",
+        "idle_timeout_seconds": 900,
+    }
+    data = CertifiedHostData.model_validate(old_json)
+    assert data.idle_mode == IdleMode.IO
+    assert data.idle_timeout_seconds == 900

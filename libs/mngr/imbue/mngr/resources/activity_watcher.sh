@@ -25,9 +25,9 @@
 # tmux sessions with that prefix are running. If none are found, the host is shut
 # down with stop_reason=STOPPED (rather than PAUSED) since all agents have exited.
 
-set -e
+set -euo pipefail
 
-HOST_DATA_DIR="$1"
+HOST_DATA_DIR="${1:-}"
 
 if [ -z "$HOST_DATA_DIR" ]; then
     echo "Usage: activity_watcher.sh <host_data_dir>" >&2

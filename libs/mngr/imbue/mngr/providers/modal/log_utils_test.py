@@ -1,6 +1,6 @@
 from io import StringIO
 
-from imbue.mngr.providers.modal.log_utils import _ModalLoguruWriter
+from imbue.mngr.providers.modal.log_utils import ModalLoguruWriter
 from imbue.mngr.providers.modal.log_utils import _create_modal_loguru_writer
 from imbue.mngr.providers.modal.log_utils import _create_multi_writer
 from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
@@ -73,7 +73,7 @@ def test_enable_modal_output_capture_returns_buffer_and_writer() -> None:
     with enable_modal_output_capture(is_logging_to_loguru=True) as (buffer, writer):
         assert isinstance(buffer, StringIO)
         assert writer is not None
-        assert isinstance(writer, _ModalLoguruWriter)
+        assert isinstance(writer, ModalLoguruWriter)
 
 
 def test_enable_modal_output_capture_returns_none_writer_when_disabled() -> None:

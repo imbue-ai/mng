@@ -15,6 +15,7 @@ dependencies = [
     "modal>=1.3.1",
     "pydantic>=2.0",
     "psutil>=5.9",
+    "python-dotenv>=1.0",
     "pyinfra>=3.0",
     "pluggy>=1.5.0",
     "tabulate>=0.9.0",
