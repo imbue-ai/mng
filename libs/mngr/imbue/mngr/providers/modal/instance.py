@@ -241,23 +241,6 @@ class HostRecord(FrozenModel):
     ssh_host_public_key: str | None = Field(default=None, description="SSH host public key for verification")
     config: SandboxConfig | None = Field(default=None, description="Sandbox configuration")
 
-    # FIXME: remove these once we're fully using certified_host_data
-    @property
-    def host_name(self) -> str:
-        return self.certified_host_data.host_name
-
-    @property
-    def host_id(self) -> str:
-        return self.certified_host_data.host_id
-
-    @property
-    def user_tags(self) -> dict[str, str]:
-        return self.certified_host_data.user_tags
-
-    @property
-    def snapshots(self) -> list[SnapshotRecord]:
-        return self.certified_host_data.snapshots
-
 
 class ModalProviderApp(FrozenModel):
     """Encapsulates a Modal app and its associated resources.
@@ -387,7 +370,7 @@ class ModalProviderInstance(BaseProviderInstance):
     def _write_host_record(self, host_record: HostRecord) -> None:
         """Write a host record to the volume."""
         volume = self._get_volume()
-        host_id = HostId(host_record.host_id)
+        host_id = HostId(host_record.certified_host_data.host_id)
         path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
 
@@ -1234,7 +1217,7 @@ log "=== Shutdown script completed ==="
         The certified_host_data is populated with information available from
         the host record.
         """
-        host_id = HostId(host_record.host_id)
+        host_id = HostId(host_record.certified_host_data.host_id)
         return OfflineHost(
             id=host_id,
             certified_host_data=host_record.certified_host_data,
@@ -1442,7 +1425,7 @@ log "=== Shutdown script completed ==="
 
         # Remove from all caches since the sandbox is now terminated
         # Read host record to get the name for cache cleanup (re-read in case it was just updated)
-        host_name = HostName(host_record.host_name) if host_record else None
+        host_name = HostName(host_record.certified_host_data.host_name) if host_record else None
         self._uncache_sandbox(host_id, host_name)
         # Also invalidate host cache so next lookup returns an OfflineHost
         self._uncache_host(host_id)
@@ -1498,14 +1481,16 @@ log "=== Shutdown script completed ==="
             if host_record is None:
                 raise HostNotFoundError(host_id)
 
-            if not host_record.snapshots:
+            if not host_record.certified_host_data.snapshots:
                 raise NoSnapshotsModalMngrError(
                     f"Modal sandbox {host_id} is not running and has no snapshots. "
                     "Cannot restart. Create a new host instead."
                 )
 
             # Use the most recent snapshot (sorted by created_at descending)
-            sorted_snapshots = sorted(host_record.snapshots, key=lambda s: s.created_at, reverse=True)
+            sorted_snapshots = sorted(
+                host_record.certified_host_data.snapshots, key=lambda s: s.created_at, reverse=True
+            )
             snapshot_id = SnapshotId(sorted_snapshots[0].id)
             logger.info("Using most recent snapshot for restart", snapshot_id=str(snapshot_id))
 
@@ -1515,7 +1500,7 @@ log "=== Shutdown script completed ==="
 
         # Find the snapshot in the host record
         snapshot_data: SnapshotRecord | None = None
-        for snap in host_record.snapshots:
+        for snap in host_record.certified_host_data.snapshots:
             if snap.id == str(snapshot_id):
                 snapshot_data = snap
                 break
@@ -1534,8 +1519,8 @@ log "=== Shutdown script completed ==="
                 f"Host {host_id} has no configuration and cannot be started. "
                 "This may indicate the host was never fully created."
             )
-        host_name = HostName(host_record.host_name)
-        user_tags = host_record.user_tags
+        host_name = HostName(host_record.certified_host_data.host_name)
+        user_tags = host_record.certified_host_data.user_tags
 
         # Create the image reference from the snapshot (the id IS the Modal image ID)
         with log_span("Creating sandbox from snapshot image", image_id=modal_image_id):
@@ -1604,7 +1589,7 @@ log "=== Shutdown script completed ==="
         """Remove all caches if we notice a connection to the host fail"""
         host_record = self._host_record_cache_by_id.get(host_id)
         if host_record is not None:
-            host_name = HostName(host_record.host_name)
+            host_name = HostName(host_record.certified_host_data.host_name)
             self._sandbox_cache_by_name.pop(host_name, None)
         self._sandbox_cache_by_id.pop(host_id, None)
         self._host_by_id_cache.pop(host_id, None)
@@ -1654,7 +1639,7 @@ log "=== Shutdown script completed ==="
             # No sandbox or couldn't connect - search host records by name (for stopped hosts)
             if host_obj is None:
                 for host_record in self._list_all_host_records(cg=self.mngr_ctx.concurrency_group):
-                    if host_record.host_name == str(host):
+                    if host_record.certified_host_data.host_name == str(host):
                         host_obj = self._create_host_from_host_record(host_record)
 
         # finally save to the cache and return
@@ -1712,7 +1697,7 @@ log "=== Shutdown script completed ==="
 
         # First, process host records (includes both running and stopped hosts)
         for host_record in all_host_records:
-            host_id = HostId(host_record.host_id)
+            host_id = HostId(host_record.certified_host_data.host_id)
             processed_host_ids.add(host_id)
 
             host_obj: HostInterface | None = None
@@ -1728,7 +1713,7 @@ log "=== Shutdown script completed ==="
                     continue
             if host_id not in running_sandbox_by_host_id or host_obj is None:
                 # Host has no running sandbox - it's stopped, failed, destroyed, or we couldn't connect
-                has_snapshots = len(host_record.snapshots) > 0
+                has_snapshots = len(host_record.certified_host_data.snapshots) > 0
                 is_failed = host_record.certified_host_data.failure_reason is not None
 
                 if is_failed:
@@ -1844,7 +1829,8 @@ log "=== Shutdown script completed ==="
         # Update host record with new snapshot and write to volume
         updated_certified_data = host_record.certified_host_data.model_copy_update(
             to_update(
-                host_record.certified_host_data.field_ref().snapshots, list(host_record.snapshots) + [new_snapshot]
+                host_record.certified_host_data.field_ref().snapshots,
+                list(host_record.certified_host_data.snapshots) + [new_snapshot],
             ),
         )
         self.get_host(host_id).set_certified_data(updated_certified_data)
@@ -1917,7 +1903,7 @@ log "=== Shutdown script completed ==="
 
         # Convert to SnapshotInfo objects, sorted by created_at (newest first)
         snapshots: list[SnapshotInfo] = []
-        sorted_snapshots = sorted(host_record.snapshots, key=lambda s: s.created_at, reverse=True)
+        sorted_snapshots = sorted(host_record.certified_host_data.snapshots, key=lambda s: s.created_at, reverse=True)
         for idx, snap_record in enumerate(sorted_snapshots):
             created_at_str = snap_record.created_at
             created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now(timezone.utc)
@@ -1955,9 +1941,9 @@ log "=== Shutdown script completed ==="
 
             # Find and remove the snapshot
             snapshot_id_str = str(snapshot_id)
-            updated_snapshots = [s for s in host_record.snapshots if s.id != snapshot_id_str]
+            updated_snapshots = [s for s in host_record.certified_host_data.snapshots if s.id != snapshot_id_str]
 
-            if len(updated_snapshots) == len(host_record.snapshots):
+            if len(updated_snapshots) == len(host_record.certified_host_data.snapshots):
                 raise SnapshotNotFoundError(snapshot_id)
 
             # Update host record on volume
@@ -2007,7 +1993,7 @@ log "=== Shutdown script completed ==="
         # Try to read from volume (maybe it's offline)
         host_record = self._read_host_record(host_id)
         if host_record is not None:
-            return dict(host_record.user_tags)
+            return dict(host_record.certified_host_data.user_tags)
 
         raise HostNotFoundError(host_id)
 

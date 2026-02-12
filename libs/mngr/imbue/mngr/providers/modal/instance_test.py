@@ -546,7 +546,7 @@ def test_list_all_host_records_returns_records_from_volume(
         host_records = modal_provider._list_all_host_records(modal_provider.mngr_ctx.concurrency_group)
 
     assert len(host_records) == 1
-    assert host_records[0].host_id == str(host_id)
+    assert host_records[0].certified_host_data.host_id == str(host_id)
 
 
 def test_list_all_host_records_skips_non_json_files(
