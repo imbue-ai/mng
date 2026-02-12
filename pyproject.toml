@@ -55,6 +55,7 @@ addopts = [
   "--cov=imbue.mngr",
   "--cov=imbue.imbue_common",
   "--cov=imbue.mngr_opencode",
+  "--cov=imbue.changelings",
   "--cov-report=term-missing",
   "--cov-report=html",
   "--cov-report=xml",
@@ -192,6 +193,8 @@ type = "layers"
 layers = [
     "imbue.changelings.main",
     "imbue.changelings.cli",
+    "imbue.changelings.config",
+    "imbue.changelings.templates",
     "imbue.changelings.data_types",
     "imbue.changelings.errors",
     "imbue.changelings.primitives",
