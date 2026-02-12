@@ -117,10 +117,9 @@ class _QuietOutputManager(DisabledOutputManager):
     image builds.
     """
 
-    def __init__(self, stdout: _MultiWriter) -> None:
-        self._stdout = stdout
-        self._timestamps: set[float] = set()
-        self._app_page_url: str | None = None
+    _stdout: _MultiWriter
+    _timestamps: set[float]
+    _app_page_url: str | None = None
 
     async def put_log_content(self, log: Any) -> None:
         """Capture build logs, deduplicating by timestamp."""
@@ -132,6 +131,14 @@ class _QuietOutputManager(DisabledOutputManager):
         """Log the app page URL instead of displaying it."""
         logger.debug("Modal app page: {}", app_page_url)
         self._app_page_url = app_page_url
+
+
+def _create_quiet_output_manager(stdout: _MultiWriter) -> _QuietOutputManager:
+    """Create a new quiet output manager with the given stdout writer."""
+    manager = _QuietOutputManager()
+    manager._stdout = stdout
+    manager._timestamps = set()
+    return manager
 
 
 @contextlib.contextmanager
@@ -163,7 +170,7 @@ def enable_modal_output_capture(
 
     with modal.enable_output():
         with log_span("enabling Modal output capture"):
-            output_manager = _QuietOutputManager(stdout=multi_writer)
+            output_manager = _create_quiet_output_manager(stdout=multi_writer)
             OutputManager._set(output_manager)
 
         yield output_buffer, loguru_writer
