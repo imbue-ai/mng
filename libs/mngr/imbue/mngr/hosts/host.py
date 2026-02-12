@@ -708,20 +708,7 @@ class Host(BaseHost, OnlineHostInterface):
             "fi"
         )
         if result.success:
-            output = result.stdout.strip()
-            output_lines = output.split("\n")
-            if len(output_lines) == 2:
-                # macOS: two lines -- boot time and current time
-                boot_time = int(output_lines[0])
-                current_time = int(output_lines[1])
-                return float(current_time - boot_time)
-            elif len(output_lines) == 1 and output:
-                # Linux: single line from /proc/uptime
-                uptime_str = output.split()[0]
-                return float(uptime_str)
-            else:
-                # Unexpected output format
-                return 0.0
+            return _parse_uptime_output(result.stdout)
 
         return 0.0
 
@@ -741,11 +728,7 @@ class Host(BaseHost, OnlineHostInterface):
             "fi"
         )
         if result.success:
-            try:
-                boot_timestamp = int(result.stdout.strip())
-                return datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
-            except (ValueError, OSError):
-                pass
+            return _parse_boot_time_output(result.stdout)
 
         return None
 
@@ -2085,6 +2068,42 @@ def _build_start_agent_shell_command(
     steps.append(monitor_cmd)
 
     return guard + "; " + " && ".join(steps)
+
+
+@pure
+def _parse_uptime_output(stdout: str) -> float:
+    """Parse the output of the cross-platform uptime command.
+
+    Handles two formats:
+    - macOS: two lines (boot timestamp, current timestamp) from sysctl + date
+    - Linux: single line from /proc/uptime (uptime_seconds idle_seconds)
+    """
+    output = stdout.strip()
+    output_lines = output.split("\n")
+    if len(output_lines) == 2:
+        # macOS: two lines -- boot time and current time
+        boot_time = int(output_lines[0])
+        current_time = int(output_lines[1])
+        return float(current_time - boot_time)
+    elif len(output_lines) == 1 and output:
+        # Linux: single line from /proc/uptime
+        uptime_str = output.split()[0]
+        return float(uptime_str)
+    else:
+        return 0.0
+
+
+@pure
+def _parse_boot_time_output(stdout: str) -> datetime | None:
+    """Parse the output of the cross-platform boot time command.
+
+    Both macOS (sysctl) and Linux (btime) produce a single Unix timestamp.
+    """
+    try:
+        boot_timestamp = int(stdout.strip())
+        return datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
+    except (ValueError, OSError):
+        return None
 
 
 @pure
