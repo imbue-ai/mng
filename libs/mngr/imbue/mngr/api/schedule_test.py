@@ -38,6 +38,16 @@ def test_crontab_marker_contains_schedule_name() -> None:
     assert marker == "# mngr-schedule:my-schedule"
 
 
+def test_crontab_marker_for_prefix_name_is_not_substring_of_longer_name() -> None:
+    """Verify that marker for 'foo' does not match as a suffix of 'foobar' marker."""
+    short_marker = _crontab_marker(ScheduleName("foo"))
+    long_marker = _crontab_marker(ScheduleName("foobar"))
+
+    # The short marker should NOT be a suffix of a line ending with the long marker
+    sample_line = f"0 * * * * /usr/bin/mngr create --message test {long_marker}"
+    assert not sample_line.rstrip().endswith(short_marker)
+
+
 def test_build_crontab_command_with_template() -> None:
     schedule = _make_schedule(
         name="hourly-fixer",

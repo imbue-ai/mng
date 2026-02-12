@@ -187,7 +187,7 @@ def _remove_crontab_entry(name: ScheduleName, cg: ConcurrencyGroup) -> None:
         return
     marker = _crontab_marker(name)
     lines = current.splitlines()
-    filtered_lines = [line for line in lines if marker not in line]
+    filtered_lines = [line for line in lines if not line.rstrip().endswith(marker)]
     new_content = "\n".join(filtered_lines)
     if new_content:
         new_content += "\n"
