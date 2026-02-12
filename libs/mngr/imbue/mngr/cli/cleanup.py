@@ -222,7 +222,7 @@ def _cleanup_impl(ctx: click.Context, **kwargs) -> None:
     )
 
     # Output results
-    _emit_result(result, action, output_opts)
+    _emit_result(result, output_opts)
 
 
 @pure
@@ -425,7 +425,6 @@ def _emit_agent_list(
 
 def _emit_result(
     result: CleanupResult,
-    action: CleanupAction,
     output_opts: OutputOptions,
 ) -> None:
     """Output the final result of the cleanup operation."""
