@@ -23,6 +23,7 @@ from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.data_types import ActivityConfig
@@ -585,6 +586,8 @@ def _apply_agent_changes(
                     }
                 )
             break
+    else:
+        raise AgentNotFoundOnHostError(agent_match.agent_id, agent_match.host_id)
 
 
 # Register help metadata for git-style help formatting
