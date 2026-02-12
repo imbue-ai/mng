@@ -59,6 +59,8 @@ def filter_agents_by_host(
 
 def select_agent_interactively_with_host(
     mngr_ctx: MngrContext,
+    start_host_if_needed: bool = False,
+    skip_agent_state_check: bool = False,
 ) -> tuple[AgentInterface, OnlineHostInterface] | None:
     """Show interactive UI to select an agent.
 
@@ -74,7 +76,14 @@ def select_agent_interactively_with_host(
 
     # Find the actual agent and host from the selection
     agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
-    return find_and_maybe_start_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "select")
+    return find_and_maybe_start_agent_by_name_or_id(
+        str(selected.id),
+        agents_by_host,
+        mngr_ctx,
+        "select",
+        start_host_if_needed=start_host_if_needed,
+        skip_agent_state_check=skip_agent_state_check,
+    )
 
 
 @pure
@@ -121,6 +130,8 @@ def find_agent_for_command(
     agent_identifier: str | None,
     command_usage: str,
     host_filter: str | None,
+    start_host_if_needed: bool = False,
+    skip_agent_state_check: bool = False,
 ) -> tuple[AgentInterface, OnlineHostInterface] | None:
     """Find an agent by identifier, or interactively if no identifier given.
 
@@ -131,12 +142,23 @@ def find_agent_for_command(
         agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
         if host_filter is not None:
             agents_by_host = filter_agents_by_host(agents_by_host, host_filter)
-        return find_and_maybe_start_agent_by_name_or_id(agent_identifier, agents_by_host, mngr_ctx, command_usage)
+        return find_and_maybe_start_agent_by_name_or_id(
+            agent_identifier,
+            agents_by_host,
+            mngr_ctx,
+            command_usage,
+            start_host_if_needed=start_host_if_needed,
+            skip_agent_state_check=skip_agent_state_check,
+        )
 
     if not sys.stdin.isatty():
         raise UserInputError("No agent specified and not running in interactive mode")
 
-    result = select_agent_interactively_with_host(mngr_ctx)
+    result = select_agent_interactively_with_host(
+        mngr_ctx,
+        start_host_if_needed=start_host_if_needed,
+        skip_agent_state_check=skip_agent_state_check,
+    )
     if result is None:
         return None
     return result

@@ -210,12 +210,14 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
     else:
         agent_identifier = None
 
-    # Find the agent
+    # Find the agent (start the host if needed, but don't require the agent to be running)
     result = find_agent_for_command(
         mngr_ctx=mngr_ctx,
         agent_identifier=agent_identifier,
         command_usage="provision",
         host_filter=None,
+        start_host_if_needed=True,
+        skip_agent_state_check=True,
     )
     if result is None:
         logger.info("No agent selected")
