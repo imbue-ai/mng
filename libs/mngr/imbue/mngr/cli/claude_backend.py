@@ -182,6 +182,7 @@ def _run_claude_process(cmd: Sequence[str], cwd: Path) -> Iterator[str]:
                 process.wait()
 
 
+@pure
 def accumulate_chunks(chunks: Iterator[str]) -> str:
     """Accumulate all chunks from an iterator into a single string."""
     parts: list[str] = []
