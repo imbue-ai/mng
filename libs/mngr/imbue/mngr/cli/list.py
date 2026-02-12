@@ -739,7 +739,6 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
     logger.info("\n" + table)
 
 
-@pure
 def _emit_template_output(agents: list[AgentInfo], template: str) -> None:
     """Emit template-formatted output, one line per agent."""
     for agent in agents:
