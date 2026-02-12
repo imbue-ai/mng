@@ -938,6 +938,8 @@ All agent fields from the "Available Fields" section can be used in filter expre
   - `host.ssh.user` - SSH username
   - `host.ssh.key_path` - Path to SSH private key
 - `host.snapshots` - List of available snapshots
+- `host.is_locked` - Whether the host is currently locked for an operation
+- `host.locked_time` - When the host was locked
 - `host.plugin.$PLUGIN_NAME.*` - Host plugin fields (e.g., `host.plugin.aws.iam_user`)
 
 **Notes:**
@@ -959,7 +961,6 @@ All agent fields from the "Available Fields" section can be used in filter expre
 
 
 # FIXME: Remaining host fields that need additional infrastructure:
-# - host.is_locked, host.locked_time - Lock status (needs lock file inspection logic)
 # - host.plugin.$PLUGIN_NAME.* - Plugin-defined fields (requires plugin field evaluation)
 
 register_help_metadata("list", _LIST_HELP_METADATA)

@@ -392,6 +392,8 @@ def _assemble_host_info(
     ssh_info: SSHInfo | None = None
 
     # Host is the implementation of OnlineHostInterface, ie, this host is online
+    is_locked: bool | None = None
+    locked_time: datetime | None = None
     if isinstance(host, Host):
         ssh_connection = host._get_ssh_connection_info()
         if ssh_connection is not None:
@@ -406,6 +408,8 @@ def _assemble_host_info(
         boot_time = host.get_boot_time()
         uptime_seconds = host.get_uptime_seconds()
         resource = host.get_provider_resources()
+        locked_time = host.get_reported_lock_time()
+        is_locked = locked_time is not None
     else:
         boot_time = None
         uptime_seconds = None
@@ -424,6 +428,8 @@ def _assemble_host_info(
         resource=resource,
         ssh=ssh_info,
         snapshots=host.get_snapshots(),
+        is_locked=is_locked,
+        locked_time=locked_time,
         failure_reason=host.get_failure_reason(),
         build_log=host.get_build_log(),
     )
