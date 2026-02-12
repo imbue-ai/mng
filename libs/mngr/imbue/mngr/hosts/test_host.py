@@ -608,11 +608,16 @@ def test_get_boot_time_and_uptime_are_consistent(host_with_temp_dir: tuple[Host,
 # =============================================================================
 
 
-def test_get_idle_seconds_no_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
-    """Test idle seconds is infinity when no activity has been recorded."""
+def test_get_idle_seconds_with_boot_activity(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test idle seconds includes BOOT activity recorded at host creation.
+
+    Since hosts now automatically record BOOT activity when created,
+    idle seconds should not be infinity.
+    """
     host, _ = host_with_temp_dir
     idle = host.get_idle_seconds()
-    assert idle == float("inf")
+    # BOOT activity is recorded at host creation, so idle should be finite
+    assert 0 <= idle < 10
 
 
 def test_get_idle_seconds_after_boot_activity(host_with_temp_dir: tuple[Host, Path]) -> None:

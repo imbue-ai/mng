@@ -25,6 +25,7 @@ from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ImageReference
@@ -183,6 +184,11 @@ class LocalProviderInstance(BaseProviderInstance):
         with log_span("Creating local host (provider={})", self.name):
             host = self._create_host(name, tags)
 
+        # FIXME: should probably remove this--there is no boot time for local host
+        #  (there's another instance below, remove that as well)
+        # Record BOOT activity for idle detection
+        host.record_activity(ActivitySource.BOOT)
+
         return host
 
     def stop_host(
@@ -209,6 +215,9 @@ class LocalProviderInstance(BaseProviderInstance):
         is always running.
         """
         local_host = self._create_host(HostName("local"))
+
+        # Record BOOT activity for idle detection
+        local_host.record_activity(ActivitySource.BOOT)
 
         return local_host
 
