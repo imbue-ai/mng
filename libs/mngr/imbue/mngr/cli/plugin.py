@@ -240,14 +240,13 @@ def _plugin_list_impl(ctx: click.Context, **kwargs: Any) -> None:
         command_class=PluginCliOptions,
     )
 
-    plugins = _gather_plugin_info(mngr_ctx)
+    all_plugins = _gather_plugin_info(mngr_ctx)
 
     # Filter to active plugins if requested
-    if opts.is_active:
-        plugins = [p for p in plugins if p.is_enabled]
+    filtered_plugins = [p for p in all_plugins if p.is_enabled] if opts.is_active else all_plugins
 
     fields = _parse_fields(opts.fields)
-    _emit_plugin_list(plugins, output_opts, fields)
+    _emit_plugin_list(filtered_plugins, output_opts, fields)
 
 
 @plugin.command(name="add")
