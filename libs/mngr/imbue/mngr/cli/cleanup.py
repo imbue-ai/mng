@@ -392,8 +392,8 @@ def _emit_agent_list(
     """Output the list of agents that will be acted on."""
     if output_opts.output_format != OutputFormat.HUMAN:
         return
-    action_verb = "destroy" if action == CleanupAction.DESTROY else "stop"
-    logger.info("\nThe following {} agent(s) will be {}ed:", len(agents), action_verb)
+    action_past_tense = "destroyed" if action == CleanupAction.DESTROY else "stopped"
+    logger.info("\nThe following {} agent(s) will be {}:", len(agents), action_past_tense)
     for agent in agents:
         logger.info("  - {} (provider={})", agent.name, agent.host.provider_name)
     logger.info("")
