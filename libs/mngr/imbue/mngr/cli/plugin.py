@@ -1,4 +1,5 @@
 from typing import Any
+from typing import Final
 from typing import assert_never
 
 import click
@@ -22,7 +23,7 @@ from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import PluginName
 
 # Default fields to display
-DEFAULT_FIELDS: tuple[str, ...] = ("name", "version", "description", "enabled")
+DEFAULT_FIELDS: Final[tuple[str, ...]] = ("name", "version", "description", "enabled")
 
 
 class PluginCliOptions(CommonCliOptions):
