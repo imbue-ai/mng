@@ -1,5 +1,3 @@
-"""Unit tests for the snapshot CLI command."""
-
 from datetime import datetime
 from datetime import timezone
 from unittest.mock import MagicMock
