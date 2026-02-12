@@ -4,6 +4,7 @@ import pytest
 
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.api.providers import get_provider_instance
+from imbue.mngr.api.providers import get_selected_providers
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import UnknownBackendError
@@ -184,3 +185,39 @@ def test_get_all_provider_instances_provider_names_with_configured_provider(
     provider_names = [str(p.name) for p in providers_local]
     assert "local" in provider_names
     assert "my-filtered-local" not in provider_names
+
+
+def test_get_selected_providers_returns_all_when_all_providers_flag(temp_mngr_ctx: MngrContext) -> None:
+    """get_selected_providers should return all providers when is_all_providers is True."""
+    providers = get_selected_providers(
+        mngr_ctx=temp_mngr_ctx,
+        is_all_providers=True,
+        provider_names=(),
+    )
+
+    provider_names = [str(p.name) for p in providers]
+    assert "local" in provider_names
+
+
+def test_get_selected_providers_returns_named_providers(temp_mngr_ctx: MngrContext) -> None:
+    """get_selected_providers should return only named providers when names are given."""
+    providers = get_selected_providers(
+        mngr_ctx=temp_mngr_ctx,
+        is_all_providers=False,
+        provider_names=("local",),
+    )
+
+    assert len(providers) == 1
+    assert str(providers[0].name) == "local"
+
+
+def test_get_selected_providers_returns_all_when_no_names_and_not_all(temp_mngr_ctx: MngrContext) -> None:
+    """get_selected_providers should return all providers when no names given and not all_providers."""
+    providers = get_selected_providers(
+        mngr_ctx=temp_mngr_ctx,
+        is_all_providers=False,
+        provider_names=(),
+    )
+
+    provider_names = [str(p.name) for p in providers]
+    assert "local" in provider_names
