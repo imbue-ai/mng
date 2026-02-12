@@ -4,8 +4,10 @@ import json
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from typing import NamedTuple
 
+from pydantic import Field
+
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.api.exec import ExecResult
 from imbue.mngr.api.exec import exec_command_on_agent
@@ -23,11 +25,11 @@ from imbue.mngr.utils.testing import get_short_random_string
 _AGENT_COMMAND = "sleep 98761"
 
 
-class RunningTestAgent(NamedTuple):
+class RunningTestAgent(FrozenModel):
     """A test agent with a running tmux session."""
 
-    agent: BaseAgent
-    session_name: str
+    agent: BaseAgent = Field(description="The test agent instance")
+    session_name: str = Field(description="Name of the tmux session running this agent")
 
 
 def _create_running_test_agent(
