@@ -185,7 +185,10 @@ class SandboxConfig(HostConfig):
         default_factory=tuple,
         description="Environment variable names to pass as secrets during image build",
     )
-    cidr_allowlist: tuple[str, ...] = ()
+    cidr_allowlist: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="CIDR ranges to restrict network access to",
+    )
 
 
 class HostRecord(FrozenModel):
