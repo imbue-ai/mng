@@ -1,6 +1,8 @@
 """Tests for the changeling run command."""
 
 import sys
+from collections.abc import Callable
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -255,59 +257,69 @@ def test_build_command_modal_includes_extra_mngr_args() -> None:
 # -- _write_secrets_env_file tests --
 
 
+@pytest.fixture
+def write_secrets_env_file() -> Generator[Callable[[ChangelingDefinition], Path], None, None]:
+    """Fixture that wraps _write_secrets_env_file with automatic cleanup."""
+    created_files: list[Path] = []
+
+    def _create(changeling: ChangelingDefinition) -> Path:
+        env_file = _write_secrets_env_file(changeling)
+        created_files.append(env_file)
+        return env_file
+
+    yield _create
+
+    for file_path in created_files:
+        file_path.unlink(missing_ok=True)
+
+
 def test_write_secrets_env_file_writes_secrets_from_environment(
     monkeypatch: pytest.MonkeyPatch,
+    write_secrets_env_file: Callable[[ChangelingDefinition], Path],
 ) -> None:
     """Secrets present in the environment should be written as KEY=VALUE lines."""
     monkeypatch.setenv("TEST_SECRET_A", "value_a")
     monkeypatch.setenv("TEST_SECRET_B", "value_b")
     changeling = _make_changeling(secrets=("TEST_SECRET_A", "TEST_SECRET_B"))
 
-    env_file = _write_secrets_env_file(changeling)
-    try:
-        content = env_file.read_text()
-        assert "TEST_SECRET_A=value_a\n" in content
-        assert "TEST_SECRET_B=value_b\n" in content
-    finally:
-        env_file.unlink()
+    env_file = write_secrets_env_file(changeling)
+    content = env_file.read_text()
+    assert "TEST_SECRET_A=value_a\n" in content
+    assert "TEST_SECRET_B=value_b\n" in content
 
 
 def test_write_secrets_env_file_skips_missing_secrets(
     monkeypatch: pytest.MonkeyPatch,
+    write_secrets_env_file: Callable[[ChangelingDefinition], Path],
 ) -> None:
     """Secrets not present in the environment should be skipped."""
     monkeypatch.setenv("TEST_SECRET_PRESENT", "here")
     monkeypatch.delenv("TEST_SECRET_MISSING", raising=False)
     changeling = _make_changeling(secrets=("TEST_SECRET_PRESENT", "TEST_SECRET_MISSING"))
 
-    env_file = _write_secrets_env_file(changeling)
-    try:
-        content = env_file.read_text()
-        assert "TEST_SECRET_PRESENT=here\n" in content
-        assert "TEST_SECRET_MISSING" not in content
-    finally:
-        env_file.unlink()
+    env_file = write_secrets_env_file(changeling)
+    content = env_file.read_text()
+    assert "TEST_SECRET_PRESENT=here\n" in content
+    assert "TEST_SECRET_MISSING" not in content
 
 
-def test_write_secrets_env_file_creates_file_with_restricted_permissions() -> None:
+def test_write_secrets_env_file_creates_file_with_restricted_permissions(
+    write_secrets_env_file: Callable[[ChangelingDefinition], Path],
+) -> None:
     """The env file should have 0o600 permissions (owner read/write only)."""
     changeling = _make_changeling(secrets=())
 
-    env_file = _write_secrets_env_file(changeling)
-    try:
-        permissions = oct(env_file.stat().st_mode & 0o777)
-        assert permissions == oct(0o600)
-    finally:
-        env_file.unlink()
+    env_file = write_secrets_env_file(changeling)
+    permissions = oct(env_file.stat().st_mode & 0o777)
+    assert permissions == oct(0o600)
 
 
-def test_write_secrets_env_file_produces_empty_file_when_no_secrets() -> None:
+def test_write_secrets_env_file_produces_empty_file_when_no_secrets(
+    write_secrets_env_file: Callable[[ChangelingDefinition], Path],
+) -> None:
     """An empty secrets tuple should produce an empty env file."""
     changeling = _make_changeling(secrets=())
 
-    env_file = _write_secrets_env_file(changeling)
-    try:
-        content = env_file.read_text()
-        assert content == ""
-    finally:
-        env_file.unlink()
+    env_file = write_secrets_env_file(changeling)
+    content = env_file.read_text()
+    assert content == ""
