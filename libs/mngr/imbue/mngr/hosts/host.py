@@ -1214,11 +1214,57 @@ class Host(BaseHost, OnlineHostInterface):
             rsync_args.extend([f"{user}@{hostname}:{source_path_str}", target_path_str])
             rsync_description = f"rsync: remote to local {user}@{hostname}:{port}"
         else:
-            # FIXME: we could implement this, but would need to support a few options:
-            #  1. slow, safe: sync locally, then sync to target
-            #  2. fast, safe: rsync directly between two remote hosts (requires both hosts to have SSH access to each other)
-            #  3. fast, unsafe: forward SSH auth from source to target (requires SSH agent forwarding), then sync between them
-            raise NotImplementedError("rsync between two remote hosts is not supported right now")
+            # Remote to remote: sync via local temp directory as intermediary
+            source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
+            assert source_ssh_info is not None
+            target_ssh_info = self._get_ssh_connection_info()
+            assert target_ssh_info is not None
+
+            src_user, src_hostname, src_port, src_key_path = source_ssh_info
+            tgt_user, tgt_hostname, tgt_port, tgt_key_path = target_ssh_info
+
+            with tempfile.TemporaryDirectory(prefix="mngr-rsync-") as temp_dir:
+                temp_path_str = temp_dir.rstrip("/") + "/"
+
+                with log_span(
+                    "rsync: remote-to-remote via local intermediary ({}@{}:{} -> {}@{}:{})",
+                    src_user,
+                    src_hostname,
+                    src_port,
+                    tgt_user,
+                    tgt_hostname,
+                    tgt_port,
+                ):
+                    # Step 1: pull from source remote to local temp
+                    pull_args = list(rsync_args)
+                    pull_args.extend(
+                        ["-e", f"ssh -i {shlex.quote(str(src_key_path))} -p {src_port} -o StrictHostKeyChecking=no"]
+                    )
+                    pull_args.extend([f"{src_user}@{src_hostname}:{source_path_str}", temp_path_str])
+                    try:
+                        self.mngr_ctx.concurrency_group.run_process_to_completion(pull_args)
+                    except ProcessError as e:
+                        raise MngrError(f"rsync failed (pull from source): {e.stderr}") from e
+                    logger.trace("Ran rsync pull command: {}", " ".join(pull_args))
+
+                    # Step 2: push from local temp to target remote
+                    # Rebuild base args without files_from since the temp dir already contains only the desired files
+                    push_args = ["rsync", "-rlpt"]
+                    if exclude_git:
+                        push_args.extend(["--exclude", ".git"])
+                    if extra_args:
+                        push_args.extend(shlex.split(extra_args))
+                    push_args.extend(
+                        ["-e", f"ssh -i {shlex.quote(str(tgt_key_path))} -p {tgt_port} -o StrictHostKeyChecking=no"]
+                    )
+                    push_args.extend([temp_path_str, f"{tgt_user}@{tgt_hostname}:{target_path_str}"])
+                    try:
+                        self.mngr_ctx.concurrency_group.run_process_to_completion(push_args)
+                    except ProcessError as e:
+                        raise MngrError(f"rsync failed (push to target): {e.stderr}") from e
+                    logger.trace("Ran rsync push command: {}", " ".join(push_args))
+
+            return
 
         with log_span("{}", rsync_description):
             try:

@@ -2179,6 +2179,136 @@ def test_rsync_files_remote_files_from_handling(
         assert "rsync_files_from_" not in result.stdout
 
 
+@pytest.mark.acceptance
+@pytest.mark.timeout(60)
+def test_rsync_files_remote_to_remote(
+    host_with_temp_dir: tuple[Host, Path],
+    temp_mngr_ctx: MngrContext,
+    tmp_path: Path,
+) -> None:
+    """Test rsync between two remote hosts via local intermediary.
+
+    Uses a single local sshd to simulate two different remote hosts.
+    The source SSH host syncs to a local temp dir, then syncs to the target SSH host.
+    """
+    _local_host, temp_dir = host_with_temp_dir
+
+    # Create source files
+    source_path = tmp_path / "source_r2r"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("content1")
+    (source_path / "file2.txt").write_text("content2")
+    (source_path / "subdir").mkdir()
+    (source_path / "subdir" / "nested.txt").write_text("nested content")
+
+    target_path = tmp_path / "target_r2r"
+    target_path.mkdir()
+
+    private_key, public_key = generate_ssh_keypair(tmp_path)
+    public_key_content = public_key.read_text()
+
+    with local_sshd(public_key_content, tmp_path) as (port, _host_key):
+        current_user = os.environ.get("USER", "root")
+        ssh_config = SSHHostConfig(
+            address="127.0.0.1",
+            port=port,
+            user=current_user,
+            key_file=private_key,
+        )
+
+        # Create two SSH host instances pointing to the same sshd
+        source_provider = SSHProviderInstance(
+            name=ProviderInstanceName("ssh-source"),
+            host_dir=temp_dir,
+            mngr_ctx=temp_mngr_ctx,
+            hosts={"source-host": ssh_config},
+        )
+        target_provider = SSHProviderInstance(
+            name=ProviderInstanceName("ssh-target"),
+            host_dir=temp_dir,
+            mngr_ctx=temp_mngr_ctx,
+            hosts={"target-host": ssh_config},
+        )
+
+        source_host = source_provider.get_host(HostName("source-host"))
+        target_host = target_provider.get_host(HostName("target-host"))
+
+        assert not source_host.is_local
+        assert not target_host.is_local
+
+        # Call _rsync_files with both hosts remote
+        target_host._rsync_files(
+            source_host=source_host,
+            source_path=source_path,
+            target_path=target_path,
+        )
+
+        # Verify files were transferred
+        assert (target_path / "file1.txt").read_text() == "content1"
+        assert (target_path / "file2.txt").read_text() == "content2"
+        assert (target_path / "subdir" / "nested.txt").read_text() == "nested content"
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(60)
+def test_rsync_files_remote_to_remote_with_files_from(
+    host_with_temp_dir: tuple[Host, Path],
+    temp_mngr_ctx: MngrContext,
+    tmp_path: Path,
+) -> None:
+    """Test rsync between two remote hosts with files_from filtering."""
+    _local_host, temp_dir = host_with_temp_dir
+
+    source_path = tmp_path / "source_r2r_ff"
+    source_path.mkdir()
+    (source_path / "include_me.txt").write_text("included")
+    (source_path / "exclude_me.txt").write_text("excluded")
+
+    target_path = tmp_path / "target_r2r_ff"
+    target_path.mkdir()
+
+    files_from_path = tmp_path / "files_from_r2r.txt"
+    files_from_path.write_text("include_me.txt\n")
+
+    private_key, public_key = generate_ssh_keypair(tmp_path)
+    public_key_content = public_key.read_text()
+
+    with local_sshd(public_key_content, tmp_path) as (port, _host_key):
+        current_user = os.environ.get("USER", "root")
+        ssh_config = SSHHostConfig(
+            address="127.0.0.1",
+            port=port,
+            user=current_user,
+            key_file=private_key,
+        )
+
+        source_provider = SSHProviderInstance(
+            name=ProviderInstanceName("ssh-src-ff"),
+            host_dir=temp_dir,
+            mngr_ctx=temp_mngr_ctx,
+            hosts={"source-ff": ssh_config},
+        )
+        target_provider = SSHProviderInstance(
+            name=ProviderInstanceName("ssh-tgt-ff"),
+            host_dir=temp_dir,
+            mngr_ctx=temp_mngr_ctx,
+            hosts={"target-ff": ssh_config},
+        )
+
+        source_host = source_provider.get_host(HostName("source-ff"))
+        target_host = target_provider.get_host(HostName("target-ff"))
+
+        target_host._rsync_files(
+            source_host=source_host,
+            source_path=source_path,
+            target_path=target_path,
+            files_from=files_from_path,
+        )
+
+        assert (target_path / "include_me.txt").read_text() == "included"
+        assert not (target_path / "exclude_me.txt").exists()
+
+
 def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that rsync without --delete preserves existing files in target.
 
