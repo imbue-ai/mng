@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import Any
 from typing import assert_never
@@ -12,12 +11,12 @@ from imbue.mngr.cli.agent_utils import find_agent_for_command
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.env_utils import resolve_env_vars
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
-from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.host import AgentEnvironmentOptions
@@ -44,27 +43,6 @@ class ProvisionCliOptions(CommonCliOptions):
     agent_env: tuple[str, ...]
     agent_env_file: tuple[str, ...]
     pass_agent_env: tuple[str, ...]
-
-
-def _resolve_env_vars(
-    pass_env_var_names: tuple[str, ...],
-    explicit_env_var_strings: tuple[str, ...],
-) -> tuple[EnvVar, ...]:
-    """Resolve and merge environment variables.
-
-    Resolves pass_env_var_names from os.environ and merges with explicit_env_var_strings.
-    Explicit env vars take precedence over pass-through values.
-    """
-    merged: dict[str, str] = {}
-    for var_name in pass_env_var_names:
-        if var_name in os.environ:
-            merged[var_name] = os.environ[var_name]
-
-    for env_str in explicit_env_var_strings:
-        env_var = EnvVar.from_string(env_str)
-        merged[env_var.key] = env_var.value
-
-    return tuple(EnvVar(key=k, value=v) for k, v in merged.items())
 
 
 def _output_result(agent_name: str, output_opts: OutputOptions) -> None:
@@ -229,7 +207,7 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
     )
 
     # Parse environment options
-    env_vars = _resolve_env_vars(opts.pass_agent_env, opts.agent_env)
+    env_vars = resolve_env_vars(opts.pass_agent_env, opts.agent_env)
     env_files = tuple(Path(f) for f in opts.agent_env_file)
 
     environment = AgentEnvironmentOptions(
