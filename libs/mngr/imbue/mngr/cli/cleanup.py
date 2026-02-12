@@ -204,7 +204,13 @@ def _cleanup_impl(ctx: click.Context, **kwargs) -> None:
             raise click.Abort()
 
     # Execute the cleanup action
-    action_label = "Destroying" if action == CleanupAction.DESTROY else "Stopping"
+    match action:
+        case CleanupAction.DESTROY:
+            action_label = "Destroying"
+        case CleanupAction.STOP:
+            action_label = "Stopping"
+        case _ as unreachable:
+            assert_never(unreachable)
     emit_info(f"{action_label} {len(selected_agents)} agent(s)...", output_opts.output_format)
 
     result = execute_cleanup(
@@ -270,7 +276,13 @@ def _run_interactive_selection(
     action: CleanupAction,
 ) -> list[AgentInfo]:
     """Show a numbered list of agents and let the user select which to act on."""
-    action_verb = "destroy" if action == CleanupAction.DESTROY else "stop"
+    match action:
+        case CleanupAction.DESTROY:
+            action_verb = "destroy"
+        case CleanupAction.STOP:
+            action_verb = "stop"
+        case _ as unreachable:
+            assert_never(unreachable)
     logger.info("\nFound {} agent(s). Select which to {}:\n", len(agents), action_verb)
 
     for idx, agent in enumerate(agents, start=1):
@@ -352,7 +364,13 @@ def _emit_dry_run_output(
     output_opts: OutputOptions,
 ) -> None:
     """Output what would happen in a dry run."""
-    action_verb = "Would destroy" if action == CleanupAction.DESTROY else "Would stop"
+    match action:
+        case CleanupAction.DESTROY:
+            action_verb = "Would destroy"
+        case CleanupAction.STOP:
+            action_verb = "Would stop"
+        case _ as unreachable:
+            assert_never(unreachable)
     agent_data = [
         {
             "name": str(agent.name),
@@ -392,7 +410,13 @@ def _emit_agent_list(
     """Output the list of agents that will be acted on."""
     if output_opts.output_format != OutputFormat.HUMAN:
         return
-    action_past_tense = "destroyed" if action == CleanupAction.DESTROY else "stopped"
+    match action:
+        case CleanupAction.DESTROY:
+            action_past_tense = "destroyed"
+        case CleanupAction.STOP:
+            action_past_tense = "stopped"
+        case _ as unreachable:
+            assert_never(unreachable)
     logger.info("\nThe following {} agent(s) will be {}:", len(agents), action_past_tense)
     for agent in agents:
         logger.info("  - {} (provider={})", agent.name, agent.host.provider_name)
