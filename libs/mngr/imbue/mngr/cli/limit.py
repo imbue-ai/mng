@@ -459,7 +459,7 @@ def limit(ctx: click.Context, **kwargs: Any) -> None:
     changes = []
     agents_by_host = group_agents_by_host(target_agents)
     updated_host_ids: set[str] = set()
-    permissions_changed = False
+    has_permission_changes = bool(opts.grant or opts.revoke)
 
     for host_key, agent_list in agents_by_host.items():
         host_id_str, _ = host_key.split(":", 1)
@@ -491,15 +491,13 @@ def limit(ctx: click.Context, **kwargs: Any) -> None:
                             output_opts=output_opts,
                             changes=changes,
                         )
-                        if opts.grant or opts.revoke:
-                            permissions_changed = True
 
             case HostInterface():
                 raise HostOfflineError(f"Host '{host_id_str}' is offline. Cannot configure agents on offline hosts.")
             case _ as unreachable:
                 assert_never(unreachable)
 
-    if permissions_changed:
+    if has_permission_changes:
         _output("Restart required for permission changes to take effect.", output_opts)
 
     _output_result(changes, output_opts)
