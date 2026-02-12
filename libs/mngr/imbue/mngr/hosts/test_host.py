@@ -366,6 +366,55 @@ def test_acquire_and_release_lock(host_with_temp_dir: tuple[Host, Path]) -> None
         assert lock_time is not None
 
 
+def test_is_lock_held_returns_false_when_no_lock_file(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that is_lock_held returns False when the lock file does not exist."""
+    host, temp_dir = host_with_temp_dir
+    lock_path = temp_dir / "host_lock"
+    assert not lock_path.exists()
+    assert host.is_lock_held() is False
+
+
+def test_is_lock_held_returns_false_after_lock_released(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that is_lock_held returns False after a lock has been acquired and released.
+
+    On local hosts the lock file persists after flock release, so this verifies
+    that is_lock_held correctly distinguishes 'file exists' from 'lock held'.
+    """
+    host, temp_dir = host_with_temp_dir
+    with host.lock_cooperatively(timeout_seconds=5.0):
+        pass
+    # Lock file still exists after release
+    assert (temp_dir / "host_lock").exists()
+    # But is_lock_held correctly reports it is not held
+    assert host.is_lock_held() is False
+
+
+def test_is_lock_held_returns_true_while_lock_held(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that is_lock_held returns True while another process holds the lock."""
+    host, temp_dir = host_with_temp_dir
+    lock_path = temp_dir / "host_lock"
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+
+    def hold_lock():
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            lock_held.set()
+            release_lock.wait()
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+    thread = threading.Thread(target=hold_lock)
+    thread.start()
+    lock_held.wait()
+
+    try:
+        assert host.is_lock_held() is True
+    finally:
+        release_lock.set()
+        thread.join()
+
+
 def test_lock_timeout(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that lock times out when held by another process."""
     host, temp_dir = host_with_temp_dir
