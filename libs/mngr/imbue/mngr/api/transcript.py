@@ -6,14 +6,12 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.logging import log_span
+from imbue.mngr.api.find import resolve_agent_reference
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.host import OnlineHostInterface
-from imbue.mngr.primitives import AgentReference
-from imbue.mngr.primitives import HostReference
 
 
 class TranscriptResult(FrozenModel):
@@ -48,7 +46,14 @@ def get_agent_transcript(
     provider_map = {provider.name: provider for provider in providers}
 
     # Find the matching agent by name or ID
-    matched_host_ref, matched_agent_ref = _find_agent_by_identifier(agents_by_host, agent_identifier)
+    with log_span("Resolving agent reference for {}", agent_identifier):
+        resolved = resolve_agent_reference(
+            agent_identifier=agent_identifier,
+            resolved_host=None,
+            agents_by_host=agents_by_host,
+        )
+    assert resolved is not None, "resolve_agent_reference should not return None for non-None identifier"
+    matched_host_ref, matched_agent_ref = resolved
 
     agent_name = str(matched_agent_ref.agent_name)
 
@@ -77,19 +82,6 @@ def get_agent_transcript(
         content=content,
         session_file_path=session_file_path,
     )
-
-
-def _find_agent_by_identifier(
-    agents_by_host: dict[HostReference, list[AgentReference]],
-    agent_identifier: str,
-) -> tuple[HostReference, AgentReference]:
-    """Find an agent by name or ID across all hosts."""
-    for host_ref, agent_refs in agents_by_host.items():
-        for agent_ref in agent_refs:
-            if str(agent_ref.agent_name) == agent_identifier or str(agent_ref.agent_id) == agent_identifier:
-                return host_ref, agent_ref
-
-    raise AgentNotFoundError(agent_identifier)
 
 
 def _find_session_file(
