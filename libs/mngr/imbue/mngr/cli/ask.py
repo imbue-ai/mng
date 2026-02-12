@@ -29,20 +29,147 @@ _QUERY_PREFIX: Final[str] = (
     "answer this question about `mngr`. "
     "respond concisely with the mngr command(s) and a brief explanation. "
     "no markdown formatting. "
-    "for example, if asked 'How do I create a container on modal with custom packages installed by default?', "
-    "you might respond:\n"
-    "Simply run:\n"
-    '    mngr create --in modal --build-arg "--dockerfile path/to/Dockerfile"\n\n'
+    "here are some example questions and ideal responses:\n\n"
+    #
+    "user: How do I create a container on modal with custom packages installed by default?\n"
+    "response: Simply run:\n"
+    '    mngr create --in modal --build-arg "--dockerfile path/to/Dockerfile"\n'
     "If you don't have a Dockerfile for your project, run:\n"
-    "    mngr bootstrap\n\n"
-    "From the repo where you would like a Dockerfile created.\n\n"
-    "now answer this question: "
+    "    mngr bootstrap\n"
+    "from the repo where you would like a Dockerfile created.\n\n"
+    #
+    "user: How do I spin up 5 agents on the cloud?\n"
+    "response: mngr create -n 5 --in modal\n\n"
+    #
+    "user: How do I run multiple agents on the same cloud machine to save costs?\n"
+    "response: Create them on a shared host:\n"
+    "    mngr create agent-1 --in modal --host shared-host\n"
+    "    mngr create agent-2 --in modal --host shared-host\n\n"
+    #
+    "user: How do I launch an agent with a task without connecting to it?\n"
+    'response: mngr create --no-connect -m "fix all failing tests and commit"\n\n'
+    #
+    "user: How do I send the same message to all my running agents?\n"
+    'response: mngr message --all -m "rebase on main and resolve any conflicts"\n\n'
+    #
+    "user: How do I send a long task description from a file to an agent?\n"
+    "response: Pipe it from stdin:\n"
+    "    cat spec.md | mngr message my-agent\n\n"
+    #
+    "user: How do I continuously sync files between my machine and a remote agent?\n"
+    "response: mngr pair my-agent\n\n"
+    #
+    "user: How do I pull an agent's git commits back to my local repo?\n"
+    "response: mngr pull my-agent --sync-mode git\n\n"
+    #
+    "user: How do I push my local changes to a running agent?\n"
+    "response: mngr push my-agent\n\n"
+    #
+    "user: How do I clone an existing agent to try something risky?\n"
+    "response: mngr clone my-agent experiment\n\n"
+    #
+    "user: How do I see what agents would be stopped without actually stopping them?\n"
+    "response: mngr stop --all --dry-run\n\n"
+    #
+    "user: How do I destroy all my agents?\n"
+    "response: mngr destroy --all --force\n\n"
+    #
+    "user: How do I create an agent with environment secrets and GitHub SSH access?\n"
+    "response: mngr create --env-file .env.secrets --known-host github.com\n\n"
+    #
+    "user: How do I create an agent from a saved template?\n"
+    "response: mngr create --template gpu-heavy\n\n"
+    #
+    "user: How do I run a test watcher alongside my agent?\n"
+    "response: Use --add-command to open an extra tmux window:\n"
+    '    mngr create --add-command "watch -n5 pytest"\n\n'
+    #
+    "user: How do I get a list of running agent names as JSON?\n"
+    "response: mngr list --running --format json\n\n"
+    #
+    "user: How do I watch agent status in real time?\n"
+    "response: mngr list --watch 5\n\n"
+    #
+    "user: How do I message only agents with a specific tag?\n"
+    "response: Use a CEL filter:\n"
+    '    mngr message --include \'tags.feature == "auth"\' -m "run the auth test suite"\n\n'
+    #
+    "user: How do I launch 3 independent tasks in parallel on the cloud?\n"
+    "response: Run multiple creates with --no-connect:\n"
+    '    mngr create --in modal --no-connect -m "implement dark mode"\n'
+    '    mngr create --in modal --no-connect -m "add i18n support"\n'
+    '    mngr create --in modal --no-connect -m "optimize database queries"\n\n'
+    #
+    "user: How do I launch an agent on Modal?\n"
+    "response: mngr create --in modal\n\n"
+    #
+    "user: How do I launch an agent locally?\n"
+    "response: mngr create --in local\n\n"
+    #
+    "user: How do I create an agent with a specific name?\n"
+    "response: mngr create my-task\n\n"
+    #
+    "user: How do I use codex instead of claude?\n"
+    "response: mngr create my-task codex\n\n"
+    #
+    "user: How do I pass arguments to the underlying agent, like choosing a model?\n"
+    "response: Use -- to separate mngr args from agent args:\n"
+    "    mngr create -- --model opus\n\n"
+    #
+    "user: How do I connect to an existing agent?\n"
+    "response: mngr connect my-agent\n\n"
+    #
+    "user: How do I see all my agents?\n"
+    "response: mngr list\n\n"
+    #
+    "user: How do I see only running agents?\n"
+    "response: mngr list --running\n\n"
+    #
+    "user: How do I stop a specific agent?\n"
+    "response: mngr stop my-agent\n\n"
+    #
+    "user: How do I stop all running agents?\n"
+    "response: mngr stop --all\n\n"
+    #
+    "now answer this user's question:\n"
+    "user: "
 )
 
 _EXECUTE_QUERY_PREFIX: Final[str] = (
     "answer this question about `mngr`. "
     "respond with ONLY the valid mngr command, with no markdown formatting, explanation, or extra text. "
-    "the output will be executed directly as a shell command: "
+    "the output will be executed directly as a shell command. "
+    "here are some example questions and ideal responses:\n\n"
+    #
+    "user: spin up 5 agents on the cloud\n"
+    "response: mngr create -n 5 --in modal\n\n"
+    #
+    "user: send all agents a message to rebase on main\n"
+    'response: mngr message --all -m "rebase on main and resolve any conflicts"\n\n'
+    #
+    "user: stop all running agents\n"
+    "response: mngr stop --all\n\n"
+    #
+    "user: destroy everything\n"
+    "response: mngr destroy --all --force\n\n"
+    #
+    "user: create a cloud agent that immediately starts fixing tests\n"
+    'response: mngr create --in modal --no-connect -m "fix all failing tests and commit"\n\n'
+    #
+    "user: list running agents as json\n"
+    "response: mngr list --running --format json\n\n"
+    #
+    "user: clone my-agent into a new agent called experiment\n"
+    "response: mngr clone my-agent experiment\n\n"
+    #
+    "user: pull git commits from my-agent\n"
+    "response: mngr pull my-agent --sync-mode git\n\n"
+    #
+    "user: create a local agent with opus\n"
+    "response: mngr create --in local -- --model opus\n\n"
+    #
+    "now respond with ONLY the mngr command for this request:\n"
+    "user: "
 )
 
 
