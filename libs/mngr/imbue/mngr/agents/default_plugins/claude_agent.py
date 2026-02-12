@@ -338,6 +338,9 @@ class ClaudeAgent(BaseAgent):
             logger.debug("Skipped claude installation check (check_installation=False)")
             return
 
+        # FIXME: there's one more way that we need to check for--the API key may be part of ~/.claude.json, which may be getting synced
+        #  the key to look for in there is "primaryApiKey" -- if that is set, then we count as authenticated
+
         if not _has_api_credentials_available(host, options, config):
             logger.warning(
                 "No API credentials detected for Claude Code. The agent may fail to start.\n"
