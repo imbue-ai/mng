@@ -179,9 +179,8 @@ def _write_crontab(content: str, cg: ConcurrencyGroup) -> None:
 def _add_crontab_entry(line: str, cg: ConcurrencyGroup) -> None:
     """Add a line to the user's crontab."""
     current = _read_current_crontab(cg)
-    if current and not current.endswith("\n"):
-        current += "\n"
-    new_content = current + line + "\n"
+    current_with_newline = current + "\n" if current and not current.endswith("\n") else current
+    new_content = current_with_newline + line + "\n"
     _write_crontab(new_content, cg)
 
 
@@ -193,10 +192,9 @@ def _remove_crontab_entry(name: ScheduleName, cg: ConcurrencyGroup) -> None:
     marker = _crontab_marker(name)
     lines = current.splitlines()
     filtered_lines = [line for line in lines if not line.rstrip().endswith(marker)]
-    new_content = "\n".join(filtered_lines)
-    if new_content:
-        new_content += "\n"
-    _write_crontab(new_content, cg)
+    joined_content = "\n".join(filtered_lines)
+    final_content = joined_content + "\n" if joined_content else joined_content
+    _write_crontab(final_content, cg)
 
 
 # === Public API Functions ===
@@ -255,17 +253,13 @@ def remove_schedule(
     schedules_path = _get_schedules_path(mngr_ctx)
     schedules = _load_schedules(schedules_path)
 
-    # Find and remove the schedule
-    found = False
-    remaining: list[ScheduleDefinition] = []
-    for schedule in schedules:
-        if schedule.name == name:
-            found = True
-        else:
-            remaining.append(schedule)
-
-    if not found:
+    # Verify the schedule exists
+    is_found = any(schedule.name == name for schedule in schedules)
+    if not is_found:
         raise ScheduleNotFoundError(str(name))
+
+    # Filter out the schedule to remove
+    remaining = [schedule for schedule in schedules if schedule.name != name]
 
     # Save updated schedules
     _save_schedules(schedules_path, remaining)
