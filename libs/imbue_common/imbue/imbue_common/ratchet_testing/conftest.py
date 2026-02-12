@@ -1,17 +1,28 @@
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 
 @pytest.fixture
-def git_repo(tmp_path: Path) -> Path:
-    """Create a temporary git repository with user config set.
+def git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """Create a temporary git repository isolated from host git config.
 
     Returns the repo directory path. The repo has git init and local
     user.email/user.name configured, but no initial commit -- tests
     create their own files and commits.
+
+    HOME is redirected to a temp directory so that the host's global
+    gitconfig (e.g. commit.gpgsign) does not leak into tests.
     """
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    # Clear any XDG override so git doesn't find config elsewhere.
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+
     repo_dir = tmp_path / "test_repo"
     repo_dir.mkdir()
     subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
@@ -27,10 +38,4 @@ def git_repo(tmp_path: Path) -> Path:
         check=True,
         capture_output=True,
     )
-    subprocess.run(
-        ["git", "config", "commit.gpgsign", "false"],
-        cwd=repo_dir,
-        check=True,
-        capture_output=True,
-    )
-    return repo_dir
+    yield repo_dir
