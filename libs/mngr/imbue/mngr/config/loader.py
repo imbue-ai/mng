@@ -17,6 +17,7 @@ from imbue.mngr.config.data_types import CreateTemplate
 from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import LoggingConfig
 from imbue.mngr.config.data_types import MngrConfig
+from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.data_types import ProviderInstanceConfig
@@ -55,7 +56,8 @@ def load_config(
     context_dir: Path | None = None,
     enabled_plugins: Sequence[str] | None = None,
     disabled_plugins: Sequence[str] | None = None,
-) -> tuple[MngrConfig, Path]:
+    is_interactive: bool = False,
+) -> MngrContext:
     """Load and merge configuration from all sources.
 
     Precedence (lowest to highest):
@@ -71,9 +73,7 @@ def load_config(
 
     Explicit MNGR_PREFIX/MNGR_HOST_DIR values override MNGR_ROOT_NAME-derived defaults.
 
-    Returns a tuple of (MngrConfig, profile_dir). The caller is responsible for
-    assembling the MngrContext from these plus any runtime parameters (plugin manager,
-    concurrency group, is_interactive, etc.).
+    Returns MngrContext containing both the final MngrConfig and a reference to the plugin manager.
     """
 
     # Read MNGR_ROOT_NAME early to use for config file discovery
@@ -191,7 +191,14 @@ def load_config(
                 "Running mngr within pytest is not allowed by the current configuration. This can happen when tests are poorly written, and load the .mngr/settings.toml file from the root of the mngr project"
             )
 
-    return final_config, profile_dir
+    # Return MngrContext containing both config and plugin manager
+    return MngrContext(
+        config=final_config,
+        pm=pm,
+        is_interactive=is_interactive,
+        profile_dir=profile_dir,
+        concurrency_group=concurrency_group,
+    )
 
 
 def get_or_create_profile_dir(base_dir: Path) -> Path:

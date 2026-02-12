@@ -542,7 +542,7 @@ def test_on_load_config_hook_is_called(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.delenv("MNGR_ROOT_NAME", raising=False)
 
     # Call load_config
-    load_config(pm=pm, concurrency_group=cg, context_dir=tmp_path)
+    load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
 
     # Verify hook was called
     assert hook_called, "on_load_config hook was not called"
@@ -573,10 +573,10 @@ def test_on_load_config_hook_can_modify_config(
     monkeypatch.delenv("MNGR_ROOT_NAME", raising=False)
 
     # Call load_config
-    config, _profile_dir = load_config(pm=pm, concurrency_group=cg, context_dir=tmp_path)
+    mngr_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
 
     # Verify the config was modified
-    assert config.prefix == "modified-by-plugin-"
+    assert mngr_ctx.config.prefix == "modified-by-plugin-"
 
 
 def test_on_load_config_hook_can_add_new_fields(
@@ -605,11 +605,11 @@ def test_on_load_config_hook_can_add_new_fields(
     monkeypatch.delenv("MNGR_ROOT_NAME", raising=False)
 
     # Call load_config
-    config, _profile_dir = load_config(pm=pm, concurrency_group=cg, context_dir=tmp_path)
+    mngr_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
 
     # Verify the agent type was added
-    assert AgentTypeName("custom-agent") in config.agent_types
-    assert config.agent_types[AgentTypeName("custom-agent")].cli_args == "--custom"
+    assert AgentTypeName("custom-agent") in mngr_ctx.config.agent_types
+    assert mngr_ctx.config.agent_types[AgentTypeName("custom-agent")].cli_args == "--custom"
 
 
 # =============================================================================
