@@ -2005,11 +2005,18 @@ def _build_start_agent_shell_command(
     steps.append(activity_printf_cmd)
 
     # Build the process activity monitor script (runs in the background)
-    # FIXME: this script really ought to wait for up to X seconds for the PANE_PID to appear (since it can take a little bit)
+    # Wait up to 10 seconds for the PANE_PID to appear (tmux can take a moment to start)
+    max_wait_seconds = 10
+    tmux_list_panes_cmd = f"tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null | head -n 1"
     process_activity_path = activity_dir / ActivitySource.PROCESS.value.lower()
     monitor_script = (
-        f"PANE_PID=$(tmux list-panes -t {shlex.quote(session_name)}"
-        " -F '#{pane_pid}' 2>/dev/null | head -n 1); "
+        f"PANE_PID=$({tmux_list_panes_cmd}); "
+        f"TRIES=0; "
+        f'while [ -z "$PANE_PID" ] && [ "$TRIES" -lt {max_wait_seconds} ]; do '
+        f"sleep 1; "
+        f"TRIES=$((TRIES + 1)); "
+        f"PANE_PID=$({tmux_list_panes_cmd}); "
+        f"done; "
         'if [ -z "$PANE_PID" ]; then exit 0; fi; '
         f"ACTIVITY_PATH={shlex.quote(str(process_activity_path))}; "
         f"AGENT_ID={shlex.quote(str(agent.id))}; "
