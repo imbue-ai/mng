@@ -467,13 +467,10 @@ _CLEANUP_HELP_METADATA = CommandHelpMetadata(
     one_line_description="Destroy or stop agents and hosts to free up resources",
     synopsis="mngr [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURATION] "
     "[--provider PROVIDER] [--agent-type TYPE] [--tag TAG] [-f|--force|--yes] [--dry-run]",
-    description="""Destroy or stop agents and hosts in order to free up resources.
+    description="""Destroy or stop agents and hosts to free up resources.
 
-When running in a pty, defaults to providing an interactive interface for
-reviewing running agents and hosts and selecting which ones to destroy or stop.
-
-When running in a non-interactive setting (or if --yes is provided), will
-destroy all selected agents/hosts without prompting.
+When running interactively, provides an interactive interface for reviewing
+and selecting agents. Use --yes to skip confirmation prompts.
 
 Convenience filters like --older-than and --idle-for are translated into CEL
 expressions internally, so they can be combined with --include and --exclude
