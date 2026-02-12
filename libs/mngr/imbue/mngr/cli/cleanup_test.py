@@ -1,48 +1,14 @@
 """Unit tests for cleanup CLI helpers."""
 
-from datetime import datetime
-from datetime import timezone
-from pathlib import Path
-
 import pluggy
 from click.testing import CliRunner
 
-from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.cli.cleanup import CleanupCliOptions
 from imbue.mngr.cli.cleanup import _build_cel_filters_from_options
 from imbue.mngr.cli.cleanup import _parse_selection
 from imbue.mngr.cli.cleanup import cleanup
-from imbue.mngr.interfaces.data_types import HostInfo
-from imbue.mngr.primitives import AgentId
-from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.cli.conftest import make_test_agent_info
 from imbue.mngr.primitives import AgentName
-from imbue.mngr.primitives import CommandString
-from imbue.mngr.primitives import HostId
-from imbue.mngr.primitives import ProviderInstanceName
-
-# =============================================================================
-# Helper for creating test AgentInfo objects
-# =============================================================================
-
-
-def _make_agent_info(name: str = "test-agent") -> AgentInfo:
-    """Create a minimal AgentInfo for testing."""
-    return AgentInfo(
-        id=AgentId.generate(),
-        name=AgentName(name),
-        type="claude",
-        command=CommandString("claude"),
-        work_dir=Path("/work"),
-        create_time=datetime.now(timezone.utc),
-        start_on_boot=False,
-        state=AgentLifecycleState.RUNNING,
-        host=HostInfo(
-            id=HostId.generate(),
-            name="test-host",
-            provider_name=ProviderInstanceName("local"),
-        ),
-    )
-
 
 # =============================================================================
 # Tests for _build_cel_filters_from_options
@@ -166,30 +132,30 @@ def test_build_cel_filters_combined() -> None:
 
 
 def test_parse_selection_none() -> None:
-    agents = [_make_agent_info("a"), _make_agent_info("b")]
+    agents = [make_test_agent_info("a"), make_test_agent_info("b")]
     assert _parse_selection("none", agents) == []
 
 
 def test_parse_selection_empty() -> None:
-    agents = [_make_agent_info("a")]
+    agents = [make_test_agent_info("a")]
     assert _parse_selection("", agents) == []
 
 
 def test_parse_selection_all() -> None:
-    agents = [_make_agent_info("a"), _make_agent_info("b")]
+    agents = [make_test_agent_info("a"), make_test_agent_info("b")]
     result = _parse_selection("all", agents)
     assert len(result) == 2
 
 
 def test_parse_selection_single_number() -> None:
-    agents = [_make_agent_info("a"), _make_agent_info("b"), _make_agent_info("c")]
+    agents = [make_test_agent_info("a"), make_test_agent_info("b"), make_test_agent_info("c")]
     result = _parse_selection("2", agents)
     assert len(result) == 1
     assert result[0].name == AgentName("b")
 
 
 def test_parse_selection_comma_separated() -> None:
-    agents = [_make_agent_info("a"), _make_agent_info("b"), _make_agent_info("c")]
+    agents = [make_test_agent_info("a"), make_test_agent_info("b"), make_test_agent_info("c")]
     result = _parse_selection("1,3", agents)
     assert len(result) == 2
     assert result[0].name == AgentName("a")
@@ -197,25 +163,25 @@ def test_parse_selection_comma_separated() -> None:
 
 
 def test_parse_selection_range() -> None:
-    agents = [_make_agent_info("a"), _make_agent_info("b"), _make_agent_info("c")]
+    agents = [make_test_agent_info("a"), make_test_agent_info("b"), make_test_agent_info("c")]
     result = _parse_selection("1-3", agents)
     assert len(result) == 3
 
 
 def test_parse_selection_mixed() -> None:
-    agents = [_make_agent_info(f"agent-{i}") for i in range(5)]
+    agents = [make_test_agent_info(f"agent-{i}") for i in range(5)]
     result = _parse_selection("1,3-5", agents)
     assert len(result) == 4
 
 
 def test_parse_selection_out_of_range_ignored() -> None:
-    agents = [_make_agent_info("a"), _make_agent_info("b")]
+    agents = [make_test_agent_info("a"), make_test_agent_info("b")]
     result = _parse_selection("1,5,10", agents)
     assert len(result) == 1
 
 
 def test_parse_selection_invalid_input_ignored() -> None:
-    agents = [_make_agent_info("a")]
+    agents = [make_test_agent_info("a")]
     result = _parse_selection("abc", agents)
     assert result == []
 
