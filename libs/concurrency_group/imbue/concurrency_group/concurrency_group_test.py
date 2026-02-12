@@ -285,7 +285,7 @@ def test_error_from_nested_group_in_another_thread_gets_properly_propagated() ->
 
 
 def _create_two_nested_concurrency_groups_that_expect_parent_failure(
-    concurrency_group: ConcurrencyGroup, closure: dict
+    concurrency_group: ConcurrencyGroup, closure: dict, setup_done_event: Event
 ) -> None:
     with pytest.raises(ConcurrencyExceptionGroup) as exception_info:
         with concurrency_group.make_concurrency_group(name="middle") as cg_middle:
@@ -294,6 +294,7 @@ def _create_two_nested_concurrency_groups_that_expect_parent_failure(
                     thread = cg_inner.start_new_thread(
                         target=lambda: closure.update({"i": _small_sleep_and_return_1()})
                     )
+                    setup_done_event.set()
                     thread.join()
             except ConcurrencyExceptionGroup as exception_info:
                 assert len(exception_info.exceptions) == 1
@@ -307,19 +308,18 @@ def _create_two_nested_concurrency_groups_that_expect_parent_failure(
                 closure["i"] += 1
 
 
-# FIXME: This test is flaky under xdist parallel execution. The exit_timeout_seconds=0.0001
-# (100 microseconds) is too short and creates race conditions - the test expects precise timing
-# behavior that isn't reliable under system load. Consider increasing the timeout to 0.1s or more.
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
 def test_parent_failures_propagate_recursively() -> None:
     closure: dict[str, Any] = {"i": 0}
+    setup_done_event = Event()
     outer_thread: ObservableThread | None = None
     with pytest.raises(ConcurrencyExceptionGroup) as exception_info:
-        with ConcurrencyGroup(name="outer", exit_timeout_seconds=0.0001) as cg_outer:
+        with ConcurrencyGroup(name="outer", exit_timeout_seconds=TINY_SLEEP) as cg_outer:
             outer_thread = cg_outer.start_new_thread(
-                target=_create_two_nested_concurrency_groups_that_expect_parent_failure, args=(cg_outer, closure)
+                target=_create_two_nested_concurrency_groups_that_expect_parent_failure,
+                args=(cg_outer, closure, setup_done_event),
             )
-            wait_interval(0.001)
+            setup_done_event.wait(timeout=SMALL_SLEEP)
     assert outer_thread is not None
     outer_thread.join()
     assert closure["i"] == 2

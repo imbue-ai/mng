@@ -43,9 +43,8 @@ def offline_host(fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext
     certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name="test-host",
-        idle_mode=IdleMode.SSH,
         idle_timeout_seconds=3600,
-        activity_sources=(ActivitySource.SSH, ActivitySource.AGENT),
+        activity_sources=(ActivitySource.SSH, ActivitySource.CREATE, ActivitySource.START, ActivitySource.BOOT),
         image="test-image:latest",
         plugin={"my_plugin": {"key": "value"}},
     )
@@ -64,7 +63,12 @@ def test_get_activity_config_returns_config_from_certified_data(offline_host: Of
     assert isinstance(config, ActivityConfig)
     assert config.idle_mode == IdleMode.SSH
     assert config.idle_timeout_seconds == 3600
-    assert config.activity_sources == (ActivitySource.SSH, ActivitySource.AGENT)
+    assert config.activity_sources == (
+        ActivitySource.SSH,
+        ActivitySource.CREATE,
+        ActivitySource.START,
+        ActivitySource.BOOT,
+    )
 
 
 def test_get_all_certified_data_returns_stored_data(offline_host: OfflineHost) -> None:
