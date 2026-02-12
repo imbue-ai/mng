@@ -17,6 +17,9 @@ def open_agent_url(
     agent: AgentInterface,
     is_wait: bool,
     is_active: bool,
+    # Injectable for testing; production callers should omit these
+    stop_event: threading.Event | None = None,
+    activity_interval_seconds: float = _ACTIVITY_INTERVAL_SECONDS,
 ) -> None:
     """Open an agent's URL in the default web browser.
 
@@ -36,28 +39,34 @@ def open_agent_url(
 
     logger.info("Waiting (press Ctrl+C to exit)...")
 
-    stop_event = threading.Event()
+    resolved_stop_event = stop_event if stop_event is not None else threading.Event()
 
     if is_active:
         activity_thread = threading.Thread(
             target=_record_activity_loop,
-            args=(agent, stop_event),
+            args=(agent, resolved_stop_event),
+            kwargs={"activity_interval_seconds": activity_interval_seconds},
             daemon=True,
         )
         activity_thread.start()
 
     try:
-        while not stop_event.wait(timeout=1.0):
+        while not resolved_stop_event.wait(timeout=1.0):
             pass
     except KeyboardInterrupt:
         logger.info("Exiting")
     finally:
-        stop_event.set()
+        resolved_stop_event.set()
 
 
-def _record_activity_loop(agent: AgentInterface, stop_event: threading.Event) -> None:
+def _record_activity_loop(
+    agent: AgentInterface,
+    stop_event: threading.Event,
+    # Injectable interval for testing; production callers should omit this
+    activity_interval_seconds: float = _ACTIVITY_INTERVAL_SECONDS,
+) -> None:
     """Periodically record user activity until stop_event is set."""
-    while not stop_event.wait(timeout=_ACTIVITY_INTERVAL_SECONDS):
+    while not stop_event.wait(timeout=activity_interval_seconds):
         try:
             agent.record_activity(ActivitySource.USER)
             logger.debug("Recorded user activity for agent {}", agent.name)
