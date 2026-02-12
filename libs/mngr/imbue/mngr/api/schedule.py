@@ -107,7 +107,6 @@ def _save_schedules(path: Path, schedules: list[ScheduleDefinition]) -> None:
         tomlkit.dump(doc, f)
 
 
-@pure
 def _get_mngr_executable_path() -> str:
     """Discover the mngr executable path."""
     which_result = shutil.which("mngr")
