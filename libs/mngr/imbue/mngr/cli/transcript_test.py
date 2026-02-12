@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from imbue.mngr.api.transcript import TranscriptResult
@@ -27,7 +29,7 @@ def test_emit_raw_output_writes_content_to_stdout(capsys: pytest.CaptureFixture)
     result = TranscriptResult(
         agent_name="test-agent",
         content='{"type":"user"}\n{"type":"assistant"}\n',
-        session_file_path="/path/to/session.jsonl",
+        session_file_path=Path("/path/to/session.jsonl"),
     )
 
     _emit_raw_output(result)
@@ -40,7 +42,7 @@ def test_emit_raw_output_adds_trailing_newline_if_missing(capsys: pytest.Capture
     result = TranscriptResult(
         agent_name="test-agent",
         content='{"type":"user"}',
-        session_file_path="/path/to/session.jsonl",
+        session_file_path=Path("/path/to/session.jsonl"),
     )
 
     _emit_raw_output(result)
@@ -53,7 +55,7 @@ def test_emit_json_output_includes_all_fields(capsys: pytest.CaptureFixture) -> 
     result = TranscriptResult(
         agent_name="test-agent",
         content='{"type":"user"}\n',
-        session_file_path="/path/to/session.jsonl",
+        session_file_path=Path("/path/to/session.jsonl"),
     )
 
     _emit_json_output(result)

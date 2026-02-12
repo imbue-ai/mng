@@ -21,7 +21,7 @@ def test_transcript_result_stores_expected_fields() -> None:
     result = TranscriptResult(
         agent_name="test-agent",
         content='{"type":"user","message":"hello"}\n',
-        session_file_path="/home/user/.claude/projects/foo/abc123.jsonl",
+        session_file_path=Path("/home/user/.claude/projects/foo/abc123.jsonl"),
     )
     assert result.agent_name == "test-agent"
     assert result.content == '{"type":"user","message":"hello"}\n'
