@@ -352,14 +352,15 @@ def build_readiness_hooks_config() -> dict[str, Any]:
                     ]
                 }
             ],
-            "Stop": [
+            "Notification": [
                 {
+                    "matcher": "idle_prompt",
                     "hooks": [
                         {
                             "type": "command",
                             "command": 'touch "$MNGR_AGENT_STATE_DIR/waiting"',
                         }
-                    ]
+                    ],
                 }
             ],
         }
