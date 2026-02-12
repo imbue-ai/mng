@@ -135,7 +135,7 @@ def _build_crontab_command(schedule: ScheduleDefinition, mngr_path: str) -> str:
 
     # Log output to a schedule-specific log file
     log_path = f"~/.mngr/logs/schedule-{schedule.name}.log"
-    parts.append(f"2>&1 >> {log_path}")
+    parts.append(f">> {log_path} 2>&1")
 
     parts.append(_crontab_marker(schedule.name))
 
