@@ -55,14 +55,9 @@ def _find_agent_without_starting(
 
     for host_ref, agent_refs in agents_by_host.items():
         for agent_ref in agent_refs:
-            is_match = False
-            if agent_id is not None and agent_ref.agent_id == agent_id:
-                is_match = True
-            elif agent_id is None and agent_ref.agent_name == AgentName(agent_identifier):
-                is_match = True
-            else:
-                pass
-
+            is_match = (agent_id is not None and agent_ref.agent_id == agent_id) or (
+                agent_id is None and agent_ref.agent_name == AgentName(agent_identifier)
+            )
             if is_match:
                 provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                 host = provider.get_host(host_ref.host_id)
