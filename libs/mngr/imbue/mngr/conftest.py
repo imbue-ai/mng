@@ -26,7 +26,6 @@ from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
-from imbue.mngr.hosts.host import Host
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
@@ -334,7 +333,6 @@ def create_test_base_agent(
     a reported URL file.
     """
     host = local_provider.create_host(HostName("test"))
-    assert isinstance(host, Host)
 
     agent_id = AgentId(f"agent-{uuid4().hex}")
     agent_name = AgentName(f"test-agent-{uuid4().hex[:8]}")
