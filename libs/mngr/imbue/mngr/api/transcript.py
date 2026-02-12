@@ -12,6 +12,7 @@ from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
+from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.interfaces.host import OnlineHostInterface
 
 
@@ -62,7 +63,7 @@ def get_agent_transcript(
     # Get the provider and host
     provider = provider_map.get(matched_host_ref.provider_name)
     if not provider:
-        raise MngrError(f"Provider '{matched_host_ref.provider_name}' not found")
+        raise ProviderInstanceNotFoundError(matched_host_ref.provider_name)
 
     host_interface = provider.get_host(matched_host_ref.host_id)
 
