@@ -15,6 +15,7 @@ from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.utils.error_handling import handle_error_with_behavior
 
 
 class EnforceAction(FrozenModel):
@@ -72,7 +73,7 @@ def enforce(
         except MngrError as e:
             error_msg = f"Failed to list hosts for provider {provider.name}: {e}"
             result.errors.append(error_msg)
-            _handle_error(error_msg, error_behavior, exc=e)
+            handle_error_with_behavior(error_msg, error_behavior, exc=e)
             continue
 
         for host in hosts:
@@ -93,7 +94,7 @@ def enforce(
             except MngrError as e:
                 error_msg = f"Failed to enforce host {host.id}: {e}"
                 result.errors.append(error_msg)
-                _handle_error(error_msg, error_behavior, exc=e)
+                handle_error_with_behavior(error_msg, error_behavior, exc=e)
 
     return result
 
@@ -310,17 +311,3 @@ def _check_stopping_host(
     )
     result.actions.append(action)
     result.timeout_violations = result.timeout_violations + 1
-
-
-def _handle_error(error_msg: str, error_behavior: ErrorBehavior, exc: Exception | None = None) -> None:
-    """Handle an error according to the specified error behavior."""
-    if error_behavior == ErrorBehavior.ABORT:
-        if exc:
-            raise exc
-        raise MngrError(error_msg)
-    else:
-        # CONTINUE - log the error
-        if exc:
-            logger.exception(exc)
-        else:
-            logger.error(error_msg)

@@ -27,6 +27,7 @@ from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
+from imbue.mngr.utils.error_handling import handle_error_with_behavior
 
 
 @log_call
@@ -169,7 +170,7 @@ def gc_work_dirs(
                     except MngrError as e:
                         error_msg = f"Failed to clean {work_dir_info.path}: {e}"
                         result.errors.append(error_msg)
-                        _handle_error(error_msg, error_behavior, exc=e)
+                        handle_error_with_behavior(error_msg, error_behavior, exc=e)
 
 
 def gc_machines(
@@ -231,12 +232,12 @@ def gc_machines(
                 except MngrError as e:
                     error_msg = f"Failed to check/destroy host {host.id}: {e}"
                     result.errors.append(error_msg)
-                    _handle_error(error_msg, error_behavior, exc=e)
+                    handle_error_with_behavior(error_msg, error_behavior, exc=e)
 
         except MngrError as e:
             error_msg = f"Failed to list hosts for provider {provider.name}: {e}"
             result.errors.append(error_msg)
-            _handle_error(error_msg, error_behavior, exc=e)
+            handle_error_with_behavior(error_msg, error_behavior, exc=e)
 
 
 def gc_snapshots(
@@ -290,12 +291,12 @@ def gc_snapshots(
                 except MngrError as e:
                     error_msg = f"Failed to cleanup snapshots for host {host.id}: {e}"
                     result.errors.append(error_msg)
-                    _handle_error(error_msg, error_behavior, exc=e)
+                    handle_error_with_behavior(error_msg, error_behavior, exc=e)
 
         except MngrError as e:
             error_msg = f"Failed to process snapshots for provider {provider.name}: {e}"
             result.errors.append(error_msg)
-            _handle_error(error_msg, error_behavior, exc=e)
+            handle_error_with_behavior(error_msg, error_behavior, exc=e)
 
 
 def gc_volumes(
@@ -348,12 +349,12 @@ def gc_volumes(
                 except MngrError as e:
                     error_msg = f"Failed to delete volume {volume.name}: {e}"
                     result.errors.append(error_msg)
-                    _handle_error(error_msg, error_behavior, exc=e)
+                    handle_error_with_behavior(error_msg, error_behavior, exc=e)
 
         except MngrError as e:
             error_msg = f"Failed to process volumes for provider {provider.name}: {e}"
             result.errors.append(error_msg)
-            _handle_error(error_msg, error_behavior, exc=e)
+            handle_error_with_behavior(error_msg, error_behavior, exc=e)
 
 
 def gc_logs(
@@ -408,7 +409,7 @@ def gc_logs(
         except MngrError as e:
             error_msg = f"Failed to delete log {log_file}: {e}"
             result.errors.append(error_msg)
-            _handle_error(error_msg, error_behavior, exc=e)
+            handle_error_with_behavior(error_msg, error_behavior, exc=e)
 
 
 def gc_build_cache(
@@ -473,7 +474,7 @@ def gc_build_cache(
             except MngrError as e:
                 error_msg = f"Failed to delete cache entry {cache_entry}: {e}"
                 result.errors.append(error_msg)
-                _handle_error(error_msg, error_behavior, exc=e)
+                handle_error_with_behavior(error_msg, error_behavior, exc=e)
 
 
 def _get_orphaned_work_dirs(host: OnlineHostInterface, provider_name: ProviderInstanceName) -> list[WorkDirInfo]:
@@ -645,17 +646,3 @@ def _apply_cel_filters(
         exclude_filters=exclude_filters,
         error_context_description=str(context),
     )
-
-
-def _handle_error(error_msg: str, error_behavior: ErrorBehavior, exc: Exception | None = None) -> None:
-    """Handle an error according to the specified error behavior."""
-    if error_behavior == ErrorBehavior.ABORT:
-        if exc:
-            raise exc
-        raise MngrError(error_msg)
-    else:
-        # CONTINUE - just log the error
-        if exc:
-            logger.exception(exc)
-        else:
-            logger.error(error_msg)
