@@ -951,7 +951,7 @@ class Host(BaseHost, OnlineHostInterface):
         if options.git and options.git.base_branch:
             base_branch_name = options.git.base_branch
         elif source_host.is_local:
-            base_branch_name = get_current_git_branch(source_path, self.mngr_ctx.cg) or "main"
+            base_branch_name = get_current_git_branch(source_path, self.mngr_ctx.concurrency_group) or "main"
         else:
             result = source_host.execute_command(
                 "git rev-parse --abbrev-ref HEAD",
@@ -961,7 +961,7 @@ class Host(BaseHost, OnlineHostInterface):
 
         # Get git author info from source repo
         if source_host.is_local:
-            git_author_name, git_author_email = get_git_author_info(source_path, self.mngr_ctx.cg)
+            git_author_name, git_author_email = get_git_author_info(source_path, self.mngr_ctx.concurrency_group)
         else:
             name_result = source_host.execute_command("git config user.name", cwd=source_path)
             email_result = source_host.execute_command("git config user.email", cwd=source_path)
@@ -1038,7 +1038,7 @@ class Host(BaseHost, OnlineHostInterface):
                     env = {"GIT_SSH_COMMAND": git_ssh_cmd}
                     remote_url = f"ssh://{user}@{hostname}:{port}{source_path}/.git"
                     try:
-                        self.mngr_ctx.cg.run_process_to_completion(
+                        self.mngr_ctx.concurrency_group.run_process_to_completion(
                             ["git", "clone", "--mirror", remote_url, str(target_path / ".git")],
                             env={**os.environ, **env},
                         )
@@ -1065,7 +1065,7 @@ class Host(BaseHost, OnlineHostInterface):
 
                 command_args = ["git", "-C", str(source_path), "push", "--no-verify", "--mirror", git_url]
                 try:
-                    self.mngr_ctx.cg.run_process_to_completion(
+                    self.mngr_ctx.concurrency_group.run_process_to_completion(
                         command_args,
                         env={**os.environ, **env} if env else None,
                     )
@@ -1102,7 +1102,7 @@ class Host(BaseHost, OnlineHostInterface):
         if is_include_unclean:
             if source_host.is_local:
                 try:
-                    result = self.mngr_ctx.cg.run_process_to_completion(
+                    result = self.mngr_ctx.concurrency_group.run_process_to_completion(
                         ["git", "-C", str(source_path), "status", "--porcelain"],
                     )
                     for line in result.stdout.split("\n"):
@@ -1129,7 +1129,7 @@ class Host(BaseHost, OnlineHostInterface):
         if is_include_gitignored:
             if source_host.is_local:
                 try:
-                    result = self.mngr_ctx.cg.run_process_to_completion(
+                    result = self.mngr_ctx.concurrency_group.run_process_to_completion(
                         ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
                     )
                     for line in result.stdout.split("\n"):
@@ -1222,7 +1222,7 @@ class Host(BaseHost, OnlineHostInterface):
 
         with log_span("{}", rsync_description):
             try:
-                self.mngr_ctx.cg.run_process_to_completion(rsync_args)
+                self.mngr_ctx.concurrency_group.run_process_to_completion(rsync_args)
             except ProcessError as e:
                 raise MngrError(f"rsync failed: {e.stderr}") from e
             logger.trace("Ran rsync command: {}", " ".join(rsync_args))

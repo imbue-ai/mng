@@ -17,7 +17,6 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import ConfigParseError
-from imbue.mngr.errors import MissingConcurrencyGroupError
 from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
@@ -565,24 +564,10 @@ class MngrContext(FrozenModel):
     profile_dir: Path = Field(
         description="Profile-specific directory for user data (user_id, providers, settings)",
     )
-    concurrency_group: ConcurrencyGroup | None = Field(
-        default=None,
+    concurrency_group: ConcurrencyGroup = Field(
+        default_factory=lambda: ConcurrencyGroup(name="default"),
         description="Top-level concurrency group for managing spawned processes",
     )
-
-    @property
-    def cg(self) -> ConcurrencyGroup:
-        """Return the concurrency group, raising if it is None.
-
-        Use this property when the concurrency group is required (e.g., when
-        running subprocesses). The concurrency group is always set when running
-        via the CLI, but may be None in tests that don't set it up.
-        """
-        if self.concurrency_group is None:
-            raise MissingConcurrencyGroupError(
-                "MngrContext.concurrency_group is None; a ConcurrencyGroup is required for this operation"
-            )
-        return self.concurrency_group
 
     def get_profile_user_id(self) -> str:
         return get_or_create_user_id(self.profile_dir)

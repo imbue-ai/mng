@@ -192,13 +192,15 @@ def load_config(
             )
 
     # Return MngrContext containing both config and plugin manager
-    return MngrContext(
-        config=final_config,
-        pm=pm,
-        is_interactive=is_interactive,
-        profile_dir=profile_dir,
-        concurrency_group=concurrency_group,
-    )
+    mngr_ctx_kwargs: dict[str, Any] = {
+        "config": final_config,
+        "pm": pm,
+        "is_interactive": is_interactive,
+        "profile_dir": profile_dir,
+    }
+    if concurrency_group is not None:
+        mngr_ctx_kwargs["concurrency_group"] = concurrency_group
+    return MngrContext(**mngr_ctx_kwargs)
 
 
 def get_or_create_profile_dir(base_dir: Path) -> Path:
