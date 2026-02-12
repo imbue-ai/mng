@@ -1,7 +1,6 @@
 """Unit tests for port forwarding data types."""
 
 import pytest
-from pydantic import SecretStr
 
 from imbue.imbue_common.primitives import PositiveInt
 from imbue.mngr.plugins.port_forwarding.data_types import ForwardedService
@@ -20,13 +19,13 @@ def test_forwarded_service_name_accepts_valid() -> None:
 
 
 def test_port_forwarding_config_has_defaults() -> None:
-    config = PortForwardingConfig(
-        frps_token=SecretStr("token"),
-        auth_token=SecretStr("auth"),
-    )
+    config = PortForwardingConfig()
     assert config.frps_bind_port == 7000
     assert config.vhost_http_port == 8080
     assert config.domain_suffix == "mngr.localhost"
+    assert config.frps_token is None
+    assert config.auth_token is None
+    assert config.enabled is True
 
 
 def test_forwarded_service_is_frozen() -> None:

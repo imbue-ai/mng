@@ -2,11 +2,11 @@ from collections.abc import Sequence
 
 from imbue.imbue_common.pure import pure
 from imbue.mngr.plugins.port_forwarding.data_types import ForwardedService
-from imbue.mngr.plugins.port_forwarding.data_types import PortForwardingConfig
+from imbue.mngr.plugins.port_forwarding.data_types import ResolvedPortForwardingConfig
 
 
 @pure
-def generate_frps_config(config: PortForwardingConfig) -> str:
+def generate_frps_config(config: ResolvedPortForwardingConfig) -> str:
     """Generate the frps.toml configuration file content."""
     return (
         f"bindPort = {config.frps_bind_port}\n"

@@ -8,6 +8,7 @@ from imbue.imbue_common.pure import pure
 
 AUTH_TOKEN_BYTES: Final[int] = 32
 AUTH_TOKEN_FILE_NAME: Final[str] = "auth_token"
+FRPS_TOKEN_FILE_NAME: Final[str] = "frps_token"
 AUTH_COOKIE_NAME: Final[str] = "mngr_auth"
 
 
@@ -16,9 +17,9 @@ def generate_auth_token() -> SecretStr:
     return SecretStr(secrets.token_urlsafe(AUTH_TOKEN_BYTES))
 
 
-def read_or_create_auth_token(config_dir: Path) -> SecretStr:
-    """Read the auth token from disk, or create one if it doesn't exist."""
-    token_path = config_dir / AUTH_TOKEN_FILE_NAME
+def _read_or_create_token(config_dir: Path, filename: str) -> SecretStr:
+    """Read a token from disk, or create and persist one if it doesn't exist."""
+    token_path = config_dir / filename
     if token_path.exists():
         token_value = token_path.read_text().strip()
         if token_value:
@@ -29,6 +30,16 @@ def read_or_create_auth_token(config_dir: Path) -> SecretStr:
     token_path.write_text(token.get_secret_value())
     token_path.chmod(0o600)
     return token
+
+
+def read_or_create_auth_token(config_dir: Path) -> SecretStr:
+    """Read the auth token from disk, or create one if it doesn't exist."""
+    return _read_or_create_token(config_dir, AUTH_TOKEN_FILE_NAME)
+
+
+def read_or_create_frps_token(config_dir: Path) -> SecretStr:
+    """Read the frps token from disk, or create one if it doesn't exist."""
+    return _read_or_create_token(config_dir, FRPS_TOKEN_FILE_NAME)
 
 
 @pure
