@@ -36,7 +36,6 @@ from imbue.mngr.utils.testing import create_test_agent_via_cli
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
 
-
 # =============================================================================
 # CLI-level integration tests for connect command
 #
