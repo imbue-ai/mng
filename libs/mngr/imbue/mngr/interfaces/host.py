@@ -378,6 +378,11 @@ class OnlineHostInterface(HostInterface, ABC):
     # =========================================================================
 
     @abstractmethod
+    def get_agent_env_path(self, agent: AgentInterface) -> Path:
+        """Get the path to the agent's environment file."""
+        ...
+
+    @abstractmethod
     def get_agents(self) -> list[AgentInterface]:
         """Return a list of all agents running on this host."""
         ...
