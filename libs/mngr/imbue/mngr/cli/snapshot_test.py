@@ -38,11 +38,11 @@ class _FakeSnapshotProvider:
         self,
         *,
         is_snapshot_supported: bool = True,
-        create_return: SnapshotId = SnapshotId("snap-fake"),
+        create_return: SnapshotId | None = None,
         list_return: Sequence[SnapshotInfo] = (),
     ) -> None:
         self.supports_snapshots = is_snapshot_supported
-        self._create_return = create_return
+        self._create_return = create_return if create_return is not None else SnapshotId("snap-fake")
         self._list_return = list(list_return)
         self.create_snapshot_calls: list[tuple[HostId, SnapshotName | None]] = []
         self.delete_snapshot_calls: list[tuple[HostId, SnapshotId]] = []
