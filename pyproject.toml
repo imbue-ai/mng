@@ -192,7 +192,9 @@ type = "layers"
 layers = [
     "imbue.changelings.main",
     "imbue.changelings.cli",
+    "imbue.changelings.deploy",
     "imbue.changelings.config",
+    "imbue.changelings.mngr_commands",
     "imbue.changelings.data_types",
     "imbue.changelings.errors",
     "imbue.changelings.primitives",
