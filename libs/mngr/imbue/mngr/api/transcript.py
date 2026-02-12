@@ -1,5 +1,4 @@
 from pathlib import Path
-from uuid import UUID
 
 from loguru import logger
 from pydantic import Field
@@ -72,9 +71,14 @@ def get_agent_transcript(
     if not isinstance(host_interface, OnlineHostInterface):
         raise MngrError(f"Host '{matched_host_ref.host_id}' is offline. Cannot read transcript.")
 
-    # Find the JSONL session file on the host
-    agent_uuid = matched_agent_ref.agent_id.get_uuid()
-    session_file_path = _find_session_file(host_interface, agent_uuid, agent_name)
+    # Find the JSONL session file on the host.
+    # First try the tracked session ID (written by Claude Code's SessionStart hook),
+    # then fall back to the agent's UUID (used as --session-id on first launch).
+    agent_id = matched_agent_ref.agent_id
+    agent_state_dir = host_interface.host_dir / "agents" / str(agent_id)
+    session_id = _read_tracked_session_id(host_interface, agent_state_dir, agent_name)
+    search_id = session_id if session_id else str(agent_id.get_uuid())
+    session_file_path = _find_session_file(host_interface, search_id, agent_name)
 
     # Read the transcript content
     with log_span("Reading transcript file for agent {}", agent_name):
@@ -87,24 +91,44 @@ def get_agent_transcript(
     )
 
 
+def _read_tracked_session_id(
+    host: OnlineHostInterface,
+    agent_state_dir: Path,
+    agent_name: str,
+) -> str | None:
+    """Read the tracked session ID from the agent's state directory.
+
+    Returns the session ID string if the file exists and is non-empty, else None.
+    """
+    session_id_path = agent_state_dir / "claude_session_id"
+    try:
+        content = host.read_text_file(session_id_path).strip()
+        if content:
+            logger.debug("Found tracked session ID for agent {}: {}", agent_name, content)
+            return content
+    except FileNotFoundError:
+        logger.debug("No tracked session ID file for agent {}", agent_name)
+    return None
+
+
 def _find_session_file(
     host: OnlineHostInterface,
-    agent_uuid: UUID,
+    search_id: str,
     agent_name: str,
 ) -> Path:
     """Find the Claude Code session JSONL file on the host."""
-    find_command = f"find ~/.claude/projects/ -name '{agent_uuid}.jsonl' -type f 2>/dev/null | head -1"
+    find_command = f"find ~/.claude/projects/ -name '{search_id}.jsonl' -type f 2>/dev/null | head -1"
 
     with log_span("Searching for session file for agent {}", agent_name):
         result = host.execute_command(find_command)
 
     if not result.success:
-        logger.debug("Find command failed for agent {} (uuid={}): {}", agent_name, agent_uuid, result.stderr)
+        logger.debug("Find command failed for agent {} (id={}): {}", agent_name, search_id, result.stderr)
         raise TranscriptNotFoundError(agent_name)
 
     session_path = result.stdout.strip()
     if not session_path:
-        logger.debug("No session file found for agent {} (uuid={})", agent_name, agent_uuid)
+        logger.debug("No session file found for agent {} (id={})", agent_name, search_id)
         raise TranscriptNotFoundError(agent_name)
 
     logger.debug("Found session file for agent {}: {}", agent_name, session_path)
