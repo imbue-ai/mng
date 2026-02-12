@@ -4,6 +4,7 @@ from datetime import timezone
 from pathlib import Path
 
 import pytest
+from pydantic import Field
 
 from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.cli.claude_backend import ClaudeBackendInterface
@@ -24,9 +25,9 @@ from imbue.mngr.primitives import ProviderInstanceName
 class FakeClaudeBackend(ClaudeBackendInterface):
     """Test double that records queries and returns canned responses."""
 
-    responses: list[str] = []
-    queries: list[str] = []
-    system_prompts: list[str] = []
+    responses: list[str] = Field(default_factory=list)
+    queries: list[str] = Field(default_factory=list)
+    system_prompts: list[str] = Field(default_factory=list)
 
     def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
         self.queries.append(prompt)
