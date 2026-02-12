@@ -2,6 +2,7 @@
 
 import shlex
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -12,12 +13,14 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.sync import LocalGitContext
 from imbue.mngr.interfaces.data_types import CommandResult
+from imbue.mngr.primitives import AgentName
 
 
 class FakeAgent(FrozenModel):
-    """Minimal test double for AgentInterface -- only implements work_dir."""
+    """Minimal test double for AgentInterface -- only implements work_dir and name."""
 
     work_dir: Path = Field(description="Working directory for this agent")
+    name: AgentName = Field(default=AgentName("fake-agent"), description="Agent name")
 
 
 class FakeHost(MutableModel):
@@ -28,9 +31,16 @@ class FakeHost(MutableModel):
     def execute_command(
         self,
         command: str,
+        user: str | None = None,
         cwd: Path | None = None,
+        env: Mapping[str, str] | None = None,
+        timeout_seconds: float | None = None,
     ) -> CommandResult:
-        """Execute a command locally and return the result."""
+        """Execute a command locally and return the result.
+
+        The user, env, and timeout_seconds parameters are accepted for interface
+        compatibility but are not applied to the subprocess call.
+        """
         result = subprocess.run(
             shlex.split(command),
             capture_output=True,
