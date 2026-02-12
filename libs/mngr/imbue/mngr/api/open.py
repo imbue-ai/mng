@@ -5,6 +5,7 @@ from typing import Final
 
 from loguru import logger
 
+from imbue.mngr.errors import BaseMngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.primitives import ActivitySource
@@ -61,5 +62,5 @@ def _record_activity_loop(agent: AgentInterface, stop_event: threading.Event) ->
         try:
             agent.record_activity(ActivitySource.USER)
             logger.debug("Recorded user activity for agent {}", agent.name)
-        except Exception:
+        except (OSError, BaseMngrError):
             logger.debug("Failed to record activity for agent {}", agent.name)
