@@ -173,16 +173,16 @@ def _bootstrap_impl(ctx: click.Context, **kwargs: Any) -> None:
         raise MngrError("Claude returned an empty response; no Dockerfile was generated")
 
     # Strip any markdown fences that Claude might have included despite instructions
-    dockerfile_content = _strip_non_dockerfile_content(dockerfile_content)
+    stripped_dockerfile_content = _strip_non_dockerfile_content(dockerfile_content)
 
     if opts.dry_run:
         _output_dry_run(
-            dockerfile_content=dockerfile_content,
+            dockerfile_content=stripped_dockerfile_content,
             output_format=output_opts.output_format,
         )
     else:
         _write_dockerfile(
-            dockerfile_content=dockerfile_content,
+            dockerfile_content=stripped_dockerfile_content,
             output_path=output_path,
             output_format=output_opts.output_format,
         )
