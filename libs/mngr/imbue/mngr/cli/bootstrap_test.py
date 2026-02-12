@@ -110,6 +110,12 @@ def test_strip_non_dockerfile_content_removes_preamble() -> None:
     assert _strip_non_dockerfile_content(content) == "FROM python:3.11\nRUN echo hello"
 
 
+def test_strip_non_dockerfile_content_returns_empty_when_no_from() -> None:
+    """Content without a FROM instruction should return empty string."""
+    content = "I'm sorry, I cannot generate a Dockerfile for this project."
+    assert _strip_non_dockerfile_content(content) == ""
+
+
 # =============================================================================
 # CLI integration tests
 # =============================================================================

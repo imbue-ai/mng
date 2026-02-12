@@ -197,7 +197,8 @@ def _strip_non_dockerfile_content(content: str) -> str:
 
     Claude sometimes includes explanation text before the actual Dockerfile
     content, even when instructed not to. This extracts just the Dockerfile
-    by finding the first FROM instruction.
+    by finding the first FROM instruction. Returns empty string if no FROM
+    instruction is found.
     """
     # Strip markdown fences
     lines = content.strip().splitlines()
@@ -209,8 +210,8 @@ def _strip_non_dockerfile_content(content: str) -> str:
         if line.strip().upper().startswith("FROM "):
             return "\n".join(lines[idx:]).strip()
 
-    # No FROM found -- return the content as-is and let the caller decide
-    return "\n".join(lines).strip()
+    # No FROM found -- return empty so the caller raises an appropriate error
+    return ""
 
 
 def _output_dry_run(
