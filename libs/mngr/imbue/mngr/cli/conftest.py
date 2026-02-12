@@ -1,12 +1,16 @@
+from collections.abc import Iterator
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 
 import pytest
+from pydantic import Field
 
 from imbue.mngr.api.list import AgentInfo
+from imbue.mngr.cli.claude_backend import ClaudeBackendInterface
 from imbue.mngr.cli.connect import ConnectCliOptions
 from imbue.mngr.cli.create import CreateCliOptions
+from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.primitives import AgentId
@@ -16,6 +20,28 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
+
+
+class FakeClaudeBackend(ClaudeBackendInterface):
+    """Test double that records queries and returns canned responses."""
+
+    responses: list[str] = Field(default_factory=list)
+    queries: list[str] = Field(default_factory=list)
+    system_prompts: list[str] = Field(default_factory=list)
+
+    def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
+        self.queries.append(prompt)
+        self.system_prompts.append(system_prompt)
+        yield self.responses.pop(0)
+
+
+class FakeClaudeBackendError(ClaudeBackendInterface):
+    """Test double that raises MngrError on query."""
+
+    error_message: str
+
+    def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
+        raise MngrError(self.error_message)
 
 
 def make_test_agent_info(
