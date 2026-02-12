@@ -10,6 +10,7 @@ from imbue.mngr.api.message import send_message_to_agents
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.completion import complete_agent_name
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
@@ -45,7 +46,7 @@ class MessageCliOptions(CommonCliOptions):
 
 
 @click.command(name="message")
-@click.argument("agents", nargs=-1, required=False)
+@click.argument("agents", nargs=-1, required=False, shell_complete=complete_agent_name)
 @optgroup.group("Target Selection")
 @optgroup.option(
     "--agent",
