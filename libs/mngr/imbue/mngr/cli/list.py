@@ -737,6 +737,7 @@ def _get_sortable_value(agent: AgentInfo, field: str) -> Any:
         field = field_aliases[field]
 
     # Handle nested fields (e.g., "host.name")
+    # Also supports dict key access for plugin fields (e.g., "host.plugin.aws.iam_user")
     parts = field.split(".")
     value: Any = agent
 
@@ -746,6 +747,8 @@ def _get_sortable_value(agent: AgentInfo, field: str) -> Any:
             base_part = part.split("[")[0]
             if hasattr(value, base_part):
                 value = getattr(value, base_part)
+            elif isinstance(value, dict) and base_part in value:
+                value = value[base_part]
             else:
                 return None
         return value
@@ -793,6 +796,7 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
         field = field_aliases[field]
 
     # Handle nested fields (e.g., "host.name") with optional bracket notation
+    # Also supports dict key access for plugin fields (e.g., "host.plugin.aws.iam_user")
     parts = field.split(".")
     value: Any = agent
 
@@ -807,9 +811,11 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
             # bracket_spec may be None if no brackets present in the part
             bracket_spec = match.group(2)
 
-            # Get the field value
+            # Get the field value: try object attribute first, then dict key
             if hasattr(value, field_name):
                 value = getattr(value, field_name)
+            elif isinstance(value, dict) and field_name in value:
+                value = value[field_name]
             else:
                 return ""
 
@@ -938,6 +944,8 @@ All agent fields from the "Available Fields" section can be used in filter expre
   - `host.ssh.user` - SSH username
   - `host.ssh.key_path` - Path to SSH private key
 - `host.snapshots` - List of available snapshots
+- `host.is_locked` - Whether the host is currently locked for an operation
+- `host.locked_time` - When the host was locked
 - `host.plugin.$PLUGIN_NAME.*` - Host plugin fields (e.g., `host.plugin.aws.iam_user`)
 
 **Notes:**
@@ -957,10 +965,6 @@ All agent fields from the "Available Fields" section can be used in filter expre
     ),
 )
 
-
-# FIXME: Remaining host fields that need additional infrastructure:
-# - host.is_locked, host.locked_time - Lock status (needs lock file inspection logic)
-# - host.plugin.$PLUGIN_NAME.* - Plugin-defined fields (requires plugin field evaluation)
 
 register_help_metadata("list", _LIST_HELP_METADATA)
 # Also register under alias for consistent help output

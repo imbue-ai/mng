@@ -237,7 +237,7 @@ def test_connect_no_start_raises_error_for_stopped_agent(
         assert result.exit_code != 0
         assert result.exception is not None
         assert "stopped" in str(result.output).lower()
-        assert "--no-start" in str(result.output)
+        assert "automatic starting is disabled" in str(result.output)
 
     finally:
         cleanup_tmux_session(session_name)
