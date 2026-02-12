@@ -1934,3 +1934,30 @@ def test_restart_fails_after_hard_kill_without_initial_snapshot(
         # Host record still exists on the volume, so clean up
         if host:
             real_modal_provider._delete_host_record(host.id)
+
+
+@pytest.mark.release
+@pytest.mark.timeout(180)
+def test_cidr_allowlist_restricts_network_access(real_modal_provider: ModalProviderInstance) -> None:
+    """A sandbox created with --cidr-allowlist should block traffic to IPs outside the allowed ranges.
+
+    Creates a sandbox allowing only 192.0.2.0/24 (TEST-NET-1, not routable), then
+    verifies that an outbound HTTP request to a public IP fails.
+    """
+    host = None
+    try:
+        host = real_modal_provider.create_host(
+            HostName("test-cidr"),
+            build_args=["--cidr-allowlist=192.0.2.0/24"],
+        )
+
+        # curl to a public IP should fail because it's outside the allowlist
+        result = host.execute_command(
+            "curl -s --max-time 5 -o /dev/null -w '%{http_code}' https://example.com || echo 'blocked'"
+        )
+        assert result.success
+        assert "blocked" in result.stdout
+
+    finally:
+        if host:
+            real_modal_provider.destroy_host(host)
