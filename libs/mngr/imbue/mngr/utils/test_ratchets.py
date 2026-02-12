@@ -674,7 +674,7 @@ def test_prevent_test_container_classes() -> None:
     all_chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
     chunks = tuple(c for c in all_chunks if _is_test_file(c.file_path))
 
-    assert len(chunks) <= snapshot(15), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="test container classes",
         rule_description=(
             "Do not use Test* or *Test classes in test files. Tests should be top-level functions, "
