@@ -577,28 +577,35 @@ def test_prevent_assert_isinstance_usage() -> None:
     )
 
 
+def _is_test_file(file_path: Path) -> bool:
+    return file_path.name.endswith("_test.py") or file_path.name.startswith("test_")
+
+
 def test_prevent_direct_subprocess_usage() -> None:
-    """Prevent direct usage of subprocess and os.exec* process-spawning functions.
+    """Prevent direct usage of subprocess and os process-spawning functions.
 
     All subprocess execution should go through ConcurrencyGroup's run_process_to_completion
     to ensure proper process lifecycle management and cleanup. The only exceptions are
     interactive_subprocess.py (for terminal-interactive processes that bypass ConcurrencyGroup
-    by design), testing utilities, and os.execvp in connect.py (which replaces the current
-    process rather than spawning a child).
+    by design), and os.execvp in connect.py (which replaces the current process rather than
+    spawning a child).
+
+    Test files are excluded from this check.
     """
     pattern = RegexPattern(
-        r"\bimport\s+subprocess\b"
-        r"|\bfrom\s+subprocess\s+import\b"
+        r"\bfrom\s+subprocess\s+import\b"
         r"|\bsubprocess\.(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)\b"
-        r"|\bos\.(exec\w+|system|popen)\b",
+        r"|\bos\.(exec\w+|spawn\w+|fork\w*|system|popen)\b"
+        r"|\bfrom\s+os\s+import\b.*\b(exec\w+|spawn\w+|fork\w*|system|popen)\b",
     )
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    all_chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = tuple(c for c in all_chunks if not _is_test_file(c.file_path))
 
-    assert len(chunks) <= snapshot(152), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(41), format_ratchet_failure_message(
         rule_name="direct subprocess/os.exec usage",
         rule_description=(
             "Do not use subprocess.Popen, subprocess.run, subprocess.call, subprocess.check_call, "
-            "subprocess.check_output, os.exec*, os.system, or os.popen directly. "
+            "subprocess.check_output, os.exec*, os.spawn*, os.fork*, os.system, or os.popen directly. "
             "Instead, use run_process_to_completion from ConcurrencyGroup and ensure a ConcurrencyGroup "
             "is passed down to the call site. This ensures all spawned processes get cleaned up properly. "
             "See libs/concurrency_group/ for details."
