@@ -957,37 +957,8 @@ def test_parse_build_args_secrets_with_other_args(modal_provider: ModalProviderI
 
 
 # =============================================================================
-# Build args: --block-network and --cidr-allowlist
+# Build args: --cidr-allowlist
 # =============================================================================
-
-
-def test_parse_build_args_block_network_default_is_false(modal_provider: ModalProviderInstance) -> None:
-    """block_network should default to False."""
-    config = modal_provider._parse_build_args([])
-    assert config.block_network is False
-
-    config = modal_provider._parse_build_args(["cpu=2"])
-    assert config.block_network is False
-
-
-def test_parse_build_args_block_network_flag(modal_provider: ModalProviderInstance) -> None:
-    """--block-network flag should set block_network to True."""
-    config = modal_provider._parse_build_args(["--block-network"])
-    assert config.block_network is True
-
-
-def test_parse_build_args_block_network_key_value_format(modal_provider: ModalProviderInstance) -> None:
-    """block-network as key=value format (without value) should set to True."""
-    config = modal_provider._parse_build_args(["--block-network"])
-    assert config.block_network is True
-
-
-def test_parse_build_args_block_network_with_other_args(modal_provider: ModalProviderInstance) -> None:
-    """--block-network should work alongside other build args."""
-    config = modal_provider._parse_build_args(["cpu=2", "--block-network", "memory=4"])
-    assert config.block_network is True
-    assert config.cpu == 2.0
-    assert config.memory == 4.0
 
 
 def test_parse_build_args_cidr_allowlist_default_is_empty(modal_provider: ModalProviderInstance) -> None:
@@ -1026,18 +997,6 @@ def test_parse_build_args_cidr_allowlist_space_format(modal_provider: ModalProvi
     """Should parse --cidr-allowlist CIDR format (two separate args)."""
     config = modal_provider._parse_build_args(["--cidr-allowlist", "192.168.0.0/16"])
     assert config.cidr_allowlist == ("192.168.0.0/16",)
-
-
-def test_parse_build_args_cidr_allowlist_with_block_network(modal_provider: ModalProviderInstance) -> None:
-    """Should parse --cidr-allowlist alongside --block-network."""
-    config = modal_provider._parse_build_args(
-        [
-            "--block-network",
-            "--cidr-allowlist=203.0.113.0/24",
-        ]
-    )
-    assert config.block_network is True
-    assert config.cidr_allowlist == ("203.0.113.0/24",)
 
 
 def test_parse_build_args_cidr_allowlist_with_other_args(modal_provider: ModalProviderInstance) -> None:

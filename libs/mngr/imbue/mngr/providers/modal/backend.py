@@ -378,9 +378,8 @@ Supported build arguments for the modal provider:
   --secret VAR          Pass an environment variable as a secret to the image build. The value of
                         VAR is read from your current environment and made available during Dockerfile
                         RUN commands via --mount=type=secret,id=VAR. Can be specified multiple times.
-  --block-network       Block all network access from the sandbox. Default: off
-  --cidr-allowlist CIDR Allow network access only to the specified CIDR range (e.g., 203.0.113.0/24).
-                        Implies --block-network. Can be specified multiple times.
+  --cidr-allowlist CIDR Restrict network access to the specified CIDR range (e.g., 203.0.113.0/24).
+                        Can be specified multiple times.
 """
 
     @staticmethod
