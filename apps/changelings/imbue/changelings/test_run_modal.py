@@ -1,21 +1,20 @@
-"""Release test for running a changeling on Modal.
-
-This test verifies the end-to-end flow of running a code-guardian changeling
-on Modal. It is marked as a release test and skipped by default because it
-requires Modal credentials, a valid ANTHROPIC_API_KEY, and network access.
-
-To run this test manually, first remove the @pytest.mark.skip decorator, then:
-
-    just test apps/changelings/imbue/changelings/test_run_modal.py::test_run_code_guardian_changeling_on_modal
-"""
+# Release test for running a changeling on Modal.
+#
+# This test verifies the end-to-end flow of running a code-guardian changeling
+# on Modal. It is marked as a release test and skipped by default because it
+# requires Modal credentials, a valid ANTHROPIC_API_KEY, and network access.
+#
+# To run this test manually, first remove the @pytest.mark.skip decorator, then:
+#
+#     just test apps/changelings/imbue/changelings/test_run_modal.py::test_run_code_guardian_changeling_on_modal
 
 import subprocess
 
 import pytest
 
-from imbue.changelings.cli.run import _write_secrets_env_file
-from imbue.changelings.cli.run import build_mngr_create_command
 from imbue.changelings.data_types import ChangelingDefinition
+from imbue.changelings.mngr_commands import build_mngr_create_command
+from imbue.changelings.mngr_commands import write_secrets_env_file
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import ChangelingTemplateName
 from imbue.mngr.conftest import ModalSubprocessTestEnv
@@ -42,7 +41,7 @@ def test_run_code_guardian_changeling_on_modal(
     )
 
     # Write secrets to a temp env file (same flow as _run_changeling_on_modal)
-    env_file_path = _write_secrets_env_file(changeling)
+    env_file_path = write_secrets_env_file(changeling)
     try:
         # Build the command using the same function that `changeling run` uses,
         # then replace the python invocation with `uv run mngr` for subprocess use

@@ -30,3 +30,9 @@ class ChangelingDeployError(ChangelingError):
     """Raised when deploying a changeling to Modal fails."""
 
     ...
+
+
+class ChangelingRunError(ChangelingError, RuntimeError):
+    """Raised when a changeling fails to run (nonzero exit code from mngr create)."""
+
+    ...

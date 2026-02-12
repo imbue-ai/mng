@@ -1,20 +1,19 @@
-"""Modal app for running a changeling on a cron schedule.
-
-This file is deployed via `modal deploy` and runs as a cron-scheduled Modal
-Function. The module-level code handles deploy-time configuration (reading
-env vars, building the image). The runtime function uses shared logic from
-the changelings package to build and execute the mngr create command.
-
-The image includes the full repository with all packages installed via
-`uv sync --all-packages`, so changelings and mngr are both available.
-
-Required environment variables at deploy time:
-- CHANGELING_MODAL_APP_NAME: The Modal app name (e.g., "changeling-code-guardian")
-- CHANGELING_CONFIG_JSON: JSON-encoded changeling definition
-- CHANGELING_CRON_SCHEDULE: Cron schedule expression (e.g., "0 3 * * *")
-- CHANGELING_REPO_ROOT: Absolute path to the repository root
-- CHANGELING_SECRET_NAME: Name of the Modal Secret containing API keys
-"""
+# Modal app for running a changeling on a cron schedule.
+#
+# This file is deployed via `modal deploy` and runs as a cron-scheduled Modal
+# Function. The module-level code handles deploy-time configuration (reading
+# env vars, building the image). The runtime function uses shared logic from
+# the changelings package to build and execute the mngr create command.
+#
+# The image includes the full repository with all packages installed via
+# `uv sync --all-packages`, so changelings and mngr are both available.
+#
+# Required environment variables at deploy time:
+# - CHANGELING_MODAL_APP_NAME: The Modal app name (e.g., "changeling-code-guardian")
+# - CHANGELING_CONFIG_JSON: JSON-encoded changeling definition
+# - CHANGELING_CRON_SCHEDULE: Cron schedule expression (e.g., "0 3 * * *")
+# - CHANGELING_REPO_ROOT: Absolute path to the repository root
+# - CHANGELING_SECRET_NAME: Name of the Modal Secret containing API keys
 
 import os
 import subprocess
@@ -22,9 +21,13 @@ from pathlib import Path
 
 import modal
 
+from imbue.changelings.errors import ChangelingError
 
-class _ConfigurationError(RuntimeError):
+
+class _ConfigurationError(ChangelingError, RuntimeError):
     """Raised when required configuration is missing at deploy time."""
+
+    ...
 
 
 # --- Deploy-time configuration ---
@@ -113,20 +116,21 @@ def run_changeling() -> None:
     3. Writes secrets to a temporary env file and builds the mngr command
     4. Runs the command and cleans up
     """
-    from imbue.changelings.cli.run import _write_secrets_env_file
     from imbue.changelings.data_types import ChangelingDefinition
     from imbue.changelings.deploy.deploy import build_cron_mngr_command
+    from imbue.changelings.errors import ChangelingRunError
+    from imbue.changelings.mngr_commands import write_secrets_env_file
 
     changeling = ChangelingDefinition.model_validate_json(_CONFIG_JSON)
 
     if not changeling.is_enabled:
         return
 
-    env_file_path = _write_secrets_env_file(changeling)
+    env_file_path = write_secrets_env_file(changeling)
     try:
         cmd = build_cron_mngr_command(changeling, env_file_path)
         result = subprocess.run(cmd, cwd="/repo")
         if result.returncode != 0:
-            raise RuntimeError(f"Changeling '{changeling.name}' failed with exit code {result.returncode}")
+            raise ChangelingRunError(f"Changeling '{changeling.name}' failed with exit code {result.returncode}")
     finally:
         env_file_path.unlink(missing_ok=True)

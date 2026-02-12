@@ -1,13 +1,12 @@
-"""Release test for deploying a changeling to Modal.
-
-This test verifies the end-to-end flow of deploying a code-guardian changeling
-as a cron-scheduled Modal Function. It is marked as a release test and skipped
-by default because it requires Modal credentials and network access.
-
-To run this test manually, first remove the @pytest.mark.skip decorator, then:
-
-    just test apps/changelings/imbue/changelings/test_deploy_modal.py::test_deploy_code_guardian_changeling_to_modal
-"""
+# Release test for deploying a changeling to Modal.
+#
+# This test verifies the end-to-end flow of deploying a code-guardian changeling
+# as a cron-scheduled Modal Function. It is marked as a release test and skipped
+# by default because it requires Modal credentials and network access.
+#
+# To run this test manually, first remove the @pytest.mark.skip decorator, then:
+#
+#     just test apps/changelings/imbue/changelings/test_deploy_modal.py::test_deploy_code_guardian_changeling_to_modal
 
 import subprocess
 
