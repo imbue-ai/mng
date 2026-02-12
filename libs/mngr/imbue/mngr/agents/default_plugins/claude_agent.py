@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 from collections.abc import Sequence
 from pathlib import Path
@@ -105,6 +106,38 @@ def _prompt_user_for_trust(source_path: Path) -> bool:
         source_path,
     )
     return click.confirm("Would you like to trust this directory?", default=False)
+
+
+def _has_api_credentials_available(
+    host: OnlineHostInterface,
+    options: CreateAgentOptions,
+    config: ClaudeAgentConfig,
+) -> bool:
+    """Check whether API credentials appear to be available for Claude Code.
+
+    Checks environment variables (process env, agent env vars, host env vars)
+    and local credentials file (~/.claude/.credentials.json).
+
+    Returns True if any credential source is detected, False otherwise.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return True
+
+    for env_var in options.environment.env_vars:
+        if env_var.key == "ANTHROPIC_API_KEY":
+            return True
+
+    if host.get_env_var("ANTHROPIC_API_KEY"):
+        return True
+
+    credentials_path = Path.home() / ".claude" / ".credentials.json"
+    if credentials_path.exists():
+        if host.is_local:
+            return True
+        if config.sync_claude_credentials:
+            return True
+
+    return False
 
 
 class ClaudeAgent(BaseAgent):
@@ -315,7 +348,13 @@ class ClaudeAgent(BaseAgent):
             logger.debug("Skipped claude installation check (check_installation=False)")
             return
 
-        # FIXME: check that we either have an API key in the env, or that it is configured locally and credentials will be synced
+        if not _has_api_credentials_available(host, options, config):
+            logger.warning(
+                "No API credentials detected for Claude Code. The agent may fail to start.\n"
+                "Provide credentials via one of:\n"
+                "  - Set ANTHROPIC_API_KEY environment variable (use --pass-env ANTHROPIC_API_KEY)\n"
+                "  - Run 'claude login' to create ~/.claude/.credentials.json"
+            )
 
     def get_provision_file_transfers(
         self,
