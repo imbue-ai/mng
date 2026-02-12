@@ -71,13 +71,7 @@ def exec_command(ctx: click.Context, **kwargs: Any) -> None:
     to stderr.
 
     \b
-    Examples:
-
-      mngr exec my-agent "echo hello"
-
-      mngr exec my-agent "ls -la" --cwd /tmp
-
-      mngr exec my-agent "whoami" --user root
+    Alias: x
     """
     mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,

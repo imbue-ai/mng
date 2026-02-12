@@ -16,13 +16,7 @@ Runs COMMAND on the host where AGENT is running, defaulting to the
 agent's work_dir. The command's stdout is printed to stdout and stderr
 to stderr.
 
-Examples:
-
-  mngr exec my-agent "echo hello"
-
-  mngr exec my-agent "ls -la" --cwd /tmp
-
-  mngr exec my-agent "whoami" --user root
+Alias: x
 
 **Usage:**
 
