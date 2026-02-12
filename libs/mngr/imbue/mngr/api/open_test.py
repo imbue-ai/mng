@@ -37,7 +37,7 @@ def _make_interrupting_event(interrupt_after_count: int = 2) -> threading.Event:
         # Brief wait to allow other threads to run
         return original_wait(timeout=0.01)
 
-    setattr(event, "wait", interrupting_wait)
+    event.wait = interrupting_wait  # ty: ignore[invalid-assignment]
     return event
 
 
