@@ -31,7 +31,7 @@ def _create_stopped_agent(
         options=CreateAgentOptions(
             name=AgentName(agent_name),
             agent_type=AgentTypeName("generic"),
-            command=CommandString("sleep 999999"),
+            command=CommandString("sleep 847293"),
         ),
     )
     return host
