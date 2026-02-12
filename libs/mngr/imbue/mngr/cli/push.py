@@ -138,7 +138,6 @@ def push(ctx: click.Context, **kwargs) -> None:
         command_name="push",
         command_class=PushCliOptions,
     )
-    logger.debug("Running push command")
 
     # Merge positional and named arguments (named option takes precedence)
     effective_target = opts.target if opts.target is not None else opts.target_pos

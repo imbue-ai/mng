@@ -174,8 +174,7 @@ def setup_command_context(
     # Set up logging (needs mngr_ctx)
     setup_logging(output_opts, mngr_ctx)
 
-    # Enter a log span for the command lifetime - replaces individual
-    # logger.debug("Started ...") calls in each command function
+    # Enter a log span for the command lifetime
     span = log_span("Started {} command", command_name)
     span.__enter__()
     ctx.call_on_close(lambda: span.__exit__(None, None, None))

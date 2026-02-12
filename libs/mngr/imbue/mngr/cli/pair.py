@@ -156,7 +156,6 @@ def pair(ctx: click.Context, **kwargs) -> None:
         command_name="pair",
         command_class=PairCliOptions,
     )
-    logger.debug("Running pair command")
 
     # Merge positional and named arguments (named option takes precedence)
     effective_source = opts.source if opts.source is not None else opts.source_pos

@@ -194,7 +194,6 @@ def pull(ctx: click.Context, **kwargs) -> None:
         command_name="pull",
         command_class=PullCliOptions,
     )
-    logger.debug("started pull command")
 
     # Merge positional and named arguments (named option takes precedence)
     effective_source = opts.source if opts.source is not None else opts.source_pos
