@@ -2,8 +2,6 @@
 
 Rename an agent.
 
-If an in-progress rename failed, will attempt to finish it.
-
 ## Usage
 
 ```
@@ -43,4 +41,3 @@ mngr mv my-agent new-name
 
 - Git branch names are not renamed. You may want to rename them manually.
 - The tmux session is renamed if the agent is currently running.
-- If a previous rename was interrupted (e.g., data.json was updated but the tmux session was not renamed), re-running the command will attempt to complete it.

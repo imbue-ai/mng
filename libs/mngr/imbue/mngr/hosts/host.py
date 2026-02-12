@@ -1594,11 +1594,7 @@ class Host(BaseHost, OnlineHostInterface):
         )
 
     def rename_agent(self, agent: AgentInterface, new_name: AgentName) -> AgentInterface:
-        """Rename an agent and return the updated agent object.
-
-        The operation is idempotent: if data.json already has the new name,
-        we skip the data update and just ensure the tmux session name is correct.
-        """
+        """Rename an agent and return the updated agent object."""
         with log_span("Renaming agent", agent_id=str(agent.id), old_name=str(agent.name), new_name=str(new_name)):
             old_name = agent.name
             data_path = self.host_dir / "agents" / str(agent.id) / "data.json"
@@ -1606,11 +1602,9 @@ class Host(BaseHost, OnlineHostInterface):
             # Read and update data.json
             content = self.read_text_file(data_path)
             data = json.loads(content)
-            is_data_already_updated = data.get("name") == str(new_name)
-            if not is_data_already_updated:
-                data["name"] = str(new_name)
-                self.write_text_file(data_path, json.dumps(data, indent=2))
-                self.provider_instance.persist_agent_data(self.id, data)
+            data["name"] = str(new_name)
+            self.write_text_file(data_path, json.dumps(data, indent=2))
+            self.provider_instance.persist_agent_data(self.id, data)
 
             # Rename the tmux session if the agent is running
             old_session_name = f"{self.mngr_ctx.config.prefix}{old_name}"
