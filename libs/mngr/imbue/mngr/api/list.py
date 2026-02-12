@@ -416,6 +416,7 @@ def _assemble_host_info(
         resource = None
 
     # make the host data
+    host_plugin_data = host.get_certified_data().plugin
     host_info = HostInfo(
         id=host.id,
         name=str(host.get_name()),
@@ -430,6 +431,7 @@ def _assemble_host_info(
         snapshots=host.get_snapshots(),
         is_locked=is_locked,
         locked_time=locked_time,
+        plugin=host_plugin_data,
         failure_reason=host.get_failure_reason(),
         build_log=host.get_build_log(),
     )

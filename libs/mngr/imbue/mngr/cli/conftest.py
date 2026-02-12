@@ -23,6 +23,7 @@ def make_test_agent_info(
     state: AgentLifecycleState = AgentLifecycleState.RUNNING,
     create_time: datetime | None = None,
     snapshots: list[SnapshotInfo] | None = None,
+    host_plugin: dict | None = None,
 ) -> AgentInfo:
     """Create a real AgentInfo for testing.
 
@@ -35,6 +36,7 @@ def make_test_agent_info(
         provider_name=ProviderInstanceName("local"),
         snapshots=snapshots or [],
         state=HostState.RUNNING,
+        plugin=host_plugin or {},
     )
     return AgentInfo(
         id=AgentId.generate(),
