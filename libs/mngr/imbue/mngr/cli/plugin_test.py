@@ -4,13 +4,17 @@ import json
 from pathlib import Path
 
 import pluggy
+from loguru import logger
 
+from imbue.mngr.cli.config import ConfigScope
 from imbue.mngr.cli.plugin import PluginInfo
 from imbue.mngr.cli.plugin import _emit_plugin_list
+from imbue.mngr.cli.plugin import _emit_plugin_toggle_result
 from imbue.mngr.cli.plugin import _gather_plugin_info
 from imbue.mngr.cli.plugin import _get_field_value
 from imbue.mngr.cli.plugin import _is_plugin_enabled
 from imbue.mngr.cli.plugin import _parse_fields
+from imbue.mngr.cli.plugin import _validate_plugin_name_is_known
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -313,3 +317,102 @@ def test_gather_plugin_info_skips_internal_plugins() -> None:
 def _fake_profile_dir() -> Path:
     """Return a fake profile directory path for testing."""
     return Path("/tmp/fake-mngr-profile")
+
+
+# =============================================================================
+# Tests for _validate_plugin_name_is_known
+# =============================================================================
+
+
+def test_validate_plugin_name_is_known_no_warning_for_known() -> None:
+    """_validate_plugin_name_is_known should not warn for a known plugin."""
+    pm = pluggy.PluginManager("mngr")
+    pm.add_hookspecs(hookspecs)
+
+    class MyPlugin:
+        pass
+
+    pm.register(MyPlugin(), name="known-plugin")
+
+    mngr_ctx = MngrContext(
+        config=MngrConfig(),
+        pm=pm,
+        profile_dir=_fake_profile_dir(),
+    )
+
+    warnings: list[str] = []
+    sink_id = logger.add(lambda msg: warnings.append(str(msg)), level="WARNING")
+    try:
+        _validate_plugin_name_is_known("known-plugin", mngr_ctx)
+    finally:
+        logger.remove(sink_id)
+
+    assert not any("not currently registered" in w for w in warnings)
+
+
+def test_validate_plugin_name_is_known_warns_for_unknown() -> None:
+    """_validate_plugin_name_is_known should warn for an unknown plugin."""
+    pm = pluggy.PluginManager("mngr")
+    pm.add_hookspecs(hookspecs)
+
+    mngr_ctx = MngrContext(
+        config=MngrConfig(),
+        pm=pm,
+        profile_dir=_fake_profile_dir(),
+    )
+
+    warnings: list[str] = []
+    sink_id = logger.add(lambda msg: warnings.append(str(msg)), level="WARNING")
+    try:
+        _validate_plugin_name_is_known("nonexistent-plugin", mngr_ctx)
+    finally:
+        logger.remove(sink_id)
+
+    assert any("not currently registered" in w for w in warnings)
+
+
+# =============================================================================
+# Tests for _emit_plugin_toggle_result
+# =============================================================================
+
+
+def test_emit_plugin_toggle_result_json_enable(capsys) -> None:
+    """_emit_plugin_toggle_result should output valid JSON for enable."""
+    output_opts = OutputOptions(output_format=OutputFormat.JSON)
+    config_path = Path("/tmp/test/.mngr/settings.toml")
+
+    _emit_plugin_toggle_result("modal", True, ConfigScope.PROJECT, config_path, output_opts)
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out.strip())
+    assert data["plugin"] == "modal"
+    assert data["enabled"] is True
+    assert data["scope"] == "project"
+    assert data["path"] == str(config_path)
+
+
+def test_emit_plugin_toggle_result_json_disable(capsys) -> None:
+    """_emit_plugin_toggle_result should output valid JSON for disable."""
+    output_opts = OutputOptions(output_format=OutputFormat.JSON)
+    config_path = Path("/tmp/test/.mngr/settings.toml")
+
+    _emit_plugin_toggle_result("modal", False, ConfigScope.PROJECT, config_path, output_opts)
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out.strip())
+    assert data["plugin"] == "modal"
+    assert data["enabled"] is False
+
+
+def test_emit_plugin_toggle_result_jsonl_has_event_type(capsys) -> None:
+    """_emit_plugin_toggle_result with JSONL should include event type."""
+    output_opts = OutputOptions(output_format=OutputFormat.JSONL)
+    config_path = Path("/tmp/test/.mngr/settings.toml")
+
+    _emit_plugin_toggle_result("modal", True, ConfigScope.PROJECT, config_path, output_opts)
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out.strip())
+    assert data["event"] == "plugin_toggled"
+    assert data["plugin"] == "modal"
+    assert data["enabled"] is True

@@ -15,8 +15,9 @@ mngr plugin remove <name>     # Uninstall a plugin [future]
 Plugins can be enabled/disabled without uninstalling:
 
 ```bash
-# Disable permanently via config
-mngr config set plugins.modal.enabled false
+mngr plugin enable modal             # Enable a plugin
+mngr plugin disable modal            # Disable a plugin
+mngr plugin disable modal --scope user  # Disable at user scope
 
 # Or disable for a single command
 mngr create --disable-plugin modal ...

@@ -148,7 +148,18 @@ mngr plugin remove [OPTIONS] NAME
 
 ## mngr plugin enable
 
-Enable a plugin. [future]
+Enable a plugin.
+
+Sets plugins.<name>.enabled = true in the configuration file at the
+specified scope.
+
+Examples:
+
+  mngr plugin enable modal
+
+  mngr plugin enable modal --scope user
+
+  mngr plugin enable modal --format json
 
 **Usage:**
 
@@ -173,9 +184,26 @@ mngr plugin enable [OPTIONS] NAME
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
+
 ## mngr plugin disable
 
-Disable a plugin. [future]
+Disable a plugin.
+
+Sets plugins.<name>.enabled = false in the configuration file at the
+specified scope.
+
+Examples:
+
+  mngr plugin disable modal
+
+  mngr plugin disable modal --scope user
+
+  mngr plugin disable modal --format json
 
 **Usage:**
 
@@ -199,6 +227,12 @@ mngr plugin disable [OPTIONS] NAME
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml) | `project` |
 
 ## See Also
 
@@ -228,4 +262,16 @@ $ mngr plugin list --format json
 
 ```bash
 $ mngr plugin list --fields name,enabled
+```
+
+**Enable a plugin**
+
+```bash
+$ mngr plugin enable modal
+```
+
+**Disable a plugin**
+
+```bash
+$ mngr plugin disable modal --scope user
 ```

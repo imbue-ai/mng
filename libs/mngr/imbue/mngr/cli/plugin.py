@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 from typing import Any
 from typing import Final
 from typing import assert_never
@@ -12,6 +14,11 @@ from imbue.imbue_common.pure import pure
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.config import ConfigScope
+from imbue.mngr.cli.config import get_config_path
+from imbue.mngr.cli.config import load_config_file_tomlkit
+from imbue.mngr.cli.config import save_config_file
+from imbue.mngr.cli.config import set_nested_value
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
@@ -35,8 +42,10 @@ class PluginCliOptions(CommonCliOptions):
     For that information, see the click.option() and click.argument() decorators on the plugin() function itself.
     """
 
-    is_active: bool
-    fields: str | None
+    is_active: bool = False
+    fields: str | None = None
+    name: str | None = None
+    scope: str | None = None
 
 
 class PluginInfo(FrozenModel):
@@ -272,20 +281,147 @@ def plugin_remove(ctx: click.Context, name: str, **kwargs: Any) -> None:
 
 @plugin.command(name="enable")
 @click.argument("name")
+@click.option(
+    "--scope",
+    type=click.Choice(["user", "project", "local"], case_sensitive=False),
+    default="project",
+    show_default=True,
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
+)
 @add_common_options
 @click.pass_context
-def plugin_enable(ctx: click.Context, name: str, **kwargs: Any) -> None:
-    """Enable a plugin. [future]"""
-    raise NotImplementedError("'mngr plugin enable' is not yet implemented")
+def plugin_enable(ctx: click.Context, **kwargs: Any) -> None:
+    """Enable a plugin.
+
+    Sets plugins.<name>.enabled = true in the configuration file at the
+    specified scope.
+
+    Examples:
+
+      mngr plugin enable modal
+
+      mngr plugin enable modal --scope user
+
+      mngr plugin enable modal --format json
+    """
+    try:
+        _plugin_enable_impl(ctx, **kwargs)
+    except AbortError as e:
+        logger.error("Aborted: {}", e.message)
+        ctx.exit(1)
 
 
 @plugin.command(name="disable")
 @click.argument("name")
+@click.option(
+    "--scope",
+    type=click.Choice(["user", "project", "local"], case_sensitive=False),
+    default="project",
+    show_default=True,
+    help="Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml)",
+)
 @add_common_options
 @click.pass_context
-def plugin_disable(ctx: click.Context, name: str, **kwargs: Any) -> None:
-    """Disable a plugin. [future]"""
-    raise NotImplementedError("'mngr plugin disable' is not yet implemented")
+def plugin_disable(ctx: click.Context, **kwargs: Any) -> None:
+    """Disable a plugin.
+
+    Sets plugins.<name>.enabled = false in the configuration file at the
+    specified scope.
+
+    Examples:
+
+      mngr plugin disable modal
+
+      mngr plugin disable modal --scope user
+
+      mngr plugin disable modal --format json
+    """
+    try:
+        _plugin_disable_impl(ctx, **kwargs)
+    except AbortError as e:
+        logger.error("Aborted: {}", e.message)
+        ctx.exit(1)
+
+
+def _plugin_enable_impl(ctx: click.Context, **kwargs: Any) -> None:
+    """Implementation of plugin enable command."""
+    _plugin_set_enabled_impl(ctx, is_enabled=True)
+
+
+def _plugin_disable_impl(ctx: click.Context, **kwargs: Any) -> None:
+    """Implementation of plugin disable command."""
+    _plugin_set_enabled_impl(ctx, is_enabled=False)
+
+
+def _plugin_set_enabled_impl(ctx: click.Context, *, is_enabled: bool) -> None:
+    """Shared implementation for plugin enable/disable commands."""
+    mngr_ctx, output_opts, opts = setup_command_context(
+        ctx=ctx,
+        command_name="plugin",
+        command_class=PluginCliOptions,
+    )
+
+    name = opts.name
+    if name is None:
+        raise AbortError("Plugin name is required")
+
+    _validate_plugin_name_is_known(name, mngr_ctx)
+
+    root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
+    scope = ConfigScope((opts.scope or "project").upper())
+    config_path = get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
+
+    doc = load_config_file_tomlkit(config_path)
+    set_nested_value(doc, f"plugins.{name}.enabled", is_enabled)
+    save_config_file(config_path, doc)
+
+    _emit_plugin_toggle_result(name, is_enabled, scope, config_path, output_opts)
+
+
+def _validate_plugin_name_is_known(name: str, mngr_ctx: MngrContext) -> None:
+    """Warn if the plugin name is not registered with the plugin manager.
+
+    This is a soft validation: the user may be pre-configuring a plugin
+    before installing it.
+    """
+    known_names = {n for n, _ in mngr_ctx.pm.list_name_plugin() if n is not None}
+    if name not in known_names:
+        logger.warning("Plugin '{}' is not currently registered; setting will apply when it is installed", name)
+
+
+def _emit_plugin_toggle_result(
+    name: str,
+    is_enabled: bool,
+    scope: ConfigScope,
+    config_path: Path,
+    output_opts: OutputOptions,
+) -> None:
+    """Emit the result of a plugin enable/disable operation."""
+    match output_opts.output_format:
+        case OutputFormat.HUMAN:
+            action = "Enabled" if is_enabled else "Disabled"
+            logger.info("{} plugin '{}' in {} ({})", action, name, scope.value.lower(), config_path)
+        case OutputFormat.JSON:
+            emit_final_json(
+                {
+                    "plugin": name,
+                    "enabled": is_enabled,
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
+        case OutputFormat.JSONL:
+            emit_final_json(
+                {
+                    "event": "plugin_toggled",
+                    "plugin": name,
+                    "enabled": is_enabled,
+                    "scope": scope.value.lower(),
+                    "path": str(config_path),
+                }
+            )
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 # Register help metadata for git-style help formatting
@@ -296,17 +432,15 @@ _PLUGIN_HELP_METADATA = CommandHelpMetadata(
     description="""Manage available and active plugins.
 
 View, enable, and disable plugins registered with mngr. Plugins provide
-agent types, provider backends, CLI commands, and lifecycle hooks.
-
-Currently, only the `list` subcommand is fully implemented. The `add`,
-`remove`, `enable`, and `disable` subcommands are placeholders for future
-functionality.""",
+agent types, provider backends, CLI commands, and lifecycle hooks.""",
     aliases=("plug",),
     examples=(
         ("List all plugins", "mngr plugin list"),
         ("List only active plugins", "mngr plugin list --active"),
         ("List plugins as JSON", "mngr plugin list --format json"),
         ("Show specific fields", "mngr plugin list --fields name,enabled"),
+        ("Enable a plugin", "mngr plugin enable modal"),
+        ("Disable a plugin", "mngr plugin disable modal --scope user"),
     ),
     see_also=(("config", "Manage mngr configuration"),),
 )
