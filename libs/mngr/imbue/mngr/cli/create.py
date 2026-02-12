@@ -964,7 +964,13 @@ def _resolve_source_location(
         # more complicated, have to figure out where the source is coming from
         agents_by_host = agent_and_host_loader()
         source_location = resolve_source_location(
-            opts.source, opts.source_agent, opts.source_host, opts.source_path, agents_by_host, mngr_ctx
+            opts.source,
+            opts.source_agent,
+            opts.source_host,
+            opts.source_path,
+            agents_by_host,
+            mngr_ctx,
+            is_start_desired=is_start_desired,
         )
     return source_location
 
