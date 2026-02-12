@@ -10,7 +10,6 @@ from imbue.changelings.config import get_default_config_path
 from imbue.changelings.config import load_config
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.errors import ChangelingConfigError
-from imbue.changelings.errors import ChangelingNotFoundError
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.templates import get_template_message
 from imbue.imbue_common.pure import pure
@@ -90,7 +89,7 @@ def run(name: str, local: bool, config_path: str | None) -> None:
 
     changeling_name = ChangelingName(name)
     if changeling_name not in config.changeling_by_name:
-        raise ChangelingNotFoundError(changeling_name)
+        raise click.ClickException(f"Changeling '{name}' not found.")
 
     definition = config.changeling_by_name[changeling_name]
 

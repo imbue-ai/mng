@@ -9,5 +9,5 @@ import click
     help="Show what would be deployed without actually deploying",
 )
 def update(name: str | None, dry_run: bool) -> None:
-    """Just an alias for `changeling add --update`"""
+    """Modify an existing changeling's configuration and redeploy."""
     raise NotImplementedError("changeling update is not yet implemented")

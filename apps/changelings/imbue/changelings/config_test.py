@@ -8,8 +8,8 @@ from imbue.changelings.config import add_changeling
 from imbue.changelings.config import load_config
 from imbue.changelings.config import remove_changeling
 from imbue.changelings.config import save_config
+from imbue.changelings.conftest import make_test_definition as _make_definition
 from imbue.changelings.data_types import ChangelingConfig
-from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.errors import ChangelingAlreadyExistsError
 from imbue.changelings.errors import ChangelingConfigError
 from imbue.changelings.errors import ChangelingNotFoundError
@@ -17,22 +17,6 @@ from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import ChangelingTemplateName
 from imbue.changelings.primitives import CronSchedule
 from imbue.changelings.primitives import GitRepoUrl
-
-
-def _make_definition(
-    name: str = "test-fairy",
-    template: str = "fixme-fairy",
-    schedule: str = "0 3 * * *",
-    repo: str = "git@github.com:org/repo.git",
-    **kwargs: object,
-) -> ChangelingDefinition:
-    return ChangelingDefinition(
-        name=ChangelingName(name),
-        template=ChangelingTemplateName(template),
-        schedule=CronSchedule(schedule),
-        repo=GitRepoUrl(repo),
-        **kwargs,  # type: ignore[arg-type]
-    )
 
 
 class TestAddChangeling:

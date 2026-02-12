@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import click
 
@@ -41,8 +42,6 @@ def list_command(show_all: bool, output_format: str, config_path: str | None) ->
 
       changeling list --format json
     """
-    from pathlib import Path
-
     config_file = Path(config_path) if config_path else get_default_config_path()
 
     try:

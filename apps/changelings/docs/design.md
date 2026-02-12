@@ -31,7 +31,7 @@ Modal Cron trigger
   --> Modal function starts in a fresh container
   --> Puts the secrets into the .env file
   --> Creates a sandbox for this "run" of this changeling by calling:
-        mngr create <agent-name> <agent-type> --in modal --no-connect --tag CREATOR=changeling --base-branch main --new-branch changelings/<name>-<date> --env-file .env
+        mngr create <agent-name> <agent-type> --in modal --no-connect --tag CREATOR=changeling --base-branch main --new-branch changeling/<name>-<date> --env-file .env
   --> Modal function exits, sandbox torn down
 
 Modal agent sandbox:
@@ -61,30 +61,29 @@ Changeling definitions are stored in `~/.changelings/config.toml`. This is a sin
 This file should **not** be checked into source control!  (since it is user-dependent).  In the future we may also want to mirror this file into a Modal volume (to make it easier for the user to share this config across machines), but for now it only lives locally.
 
 ```toml
-# which mngr profile to use. Doesn't need to be set, defaults to the default mngr profile.
-mngr_profile = "changelings"
-
 # the name of the entry is the unique identifier for this changeling. Runs will use this name.
 [changelings.fixme-fairy]
-# defaults to the name of the changeling if not specified. This will be passed through to mngr
-agent_type = "fixme-fairy"
-# defaults to "0 0 * * *" (every night at 3AM in the user's local time) if not specified
+# required: which built-in template to use
+template = "fixme-fairy"
+# required: the cron schedule for when this changeling runs
 schedule = "0 3 * * *"
+# required: the git repository URL to operate on
+repo = "git@github.com:org/repo.git"
 # defaults to "main" if not specified
 branch = "main"
+# defaults to "claude" if not specified
+agent_type = "claude"
 # defaults to true
-enabled = true
-# if you want to specify extra secrets, use this to forward the value of those env vars to the agent
-# (these are forwarded by default, and if you change this setting, you'll probably want to continue including them) 
-secrets = ["GITHUB_TOKEN", "ANTHROPIC_API_KEY"]
-# other mngr arguments can optionally be specified as well, like:
-template = "my-template"
-initial_message = "This is a custom message for the agent, overriding the template default"
-build_args = ["--no-cache"]
-# etc.
+is_enabled = true
+# optional: override the template's default message
+message = "This is a custom message for the agent, overriding the template default"
+# optional: additional arguments to pass to mngr create
+extra_mngr_args = "--timeout 300"
+# optional: environment variables to set for the agent
+[changelings.fixme-fairy.env_vars]
+GITHUB_TOKEN = "my-token"
+ANTHROPIC_API_KEY = "my-key"
 ```
-
-Because all config variables have defaults, you *should* be able to *just* specify the name, and as long as that is a valid "agent type" in `mngr`, everything should "Just Work".
 
 # Auth and secrets
 

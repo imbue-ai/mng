@@ -10,24 +10,18 @@ Wake up to high-quality PRs that improve your code-base!
 
 ```bash
 # Create a changeling that fixes FIXMEs every night at 3am
-changeling add fixme-fairy --schedule "0 3 * * *"
+changeling add fixme-fairy \
+  --template fixme-fairy \
+  --repo git@github.com:org/repo.git \
+  --schedule "0 3 * * *"
 
-# Or test it immediately
-changeling run fixme-fairy
+# Test it locally
+changeling run fixme-fairy --local
 
 # See what's registered
 changeling list
 
-# Check run history
-changeling status nightly-fixmes
-
-# Update the schedule and settings for a changeling
-changeling update fixme-fairy --schedule "0 4 * * *" --settings '{"max_fixes_per_run": 5}'
-
-# Remove a changeling
-changeling remove fixme-fairy
-
-# Or see the help for more options!
+# See the help for more options
 changeling --help
 ```
 

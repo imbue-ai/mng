@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import click
 
 from imbue.changelings.config import add_changeling
@@ -80,8 +82,6 @@ def add(
 
       changeling add test-bot --template test-troll --repo git@github.com:org/repo.git --schedule "0 4 * * 1"
     """
-    from pathlib import Path
-
     config_file = Path(config_path) if config_path else get_default_config_path()
 
     template_name = ChangelingTemplateName(template)

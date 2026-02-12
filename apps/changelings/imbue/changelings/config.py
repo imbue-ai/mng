@@ -1,6 +1,5 @@
 from pathlib import Path
 from typing import Any
-from typing import Final
 
 import tomlkit
 
@@ -11,9 +10,6 @@ from imbue.changelings.errors import ChangelingConfigError
 from imbue.changelings.errors import ChangelingNotFoundError
 from imbue.changelings.primitives import ChangelingName
 from imbue.imbue_common.pure import pure
-
-DEFAULT_CONFIG_DIR: Final[Path] = Path.home() / ".changelings"
-DEFAULT_CONFIG_PATH: Final[Path] = DEFAULT_CONFIG_DIR / "config.toml"
 
 
 def get_default_config_path() -> Path:

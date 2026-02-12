@@ -26,7 +26,8 @@ apps/changelings/
       errors.py                  # Exception hierarchy
       primitives.py              # Domain-specific types
       data_types.py              # Frozen models (ChangelingDefinition, etc.)
-      config.py                  # Config read/write (TOML persistence) [future]
+      config.py                  # Config read/write (TOML persistence)
+      templates.py               # Built-in template definitions and messages
       cli/
         __init__.py
         add.py                   # changeling add
@@ -35,38 +36,40 @@ apps/changelings/
         update.py                # changeling update
         run.py                   # changeling run
         status.py                # changeling status
-      deploy/                    # Modal deployment logic
+      deploy/                    # Modal deployment logic [future]
 ```
 
 ## Sequencing / implementation plan
 
-### Phase 1: Foundation (current)
+### Phase 1: Foundation (complete)
 
 - Project structure, CLI skeleton, data types, README, specs
-- All commands raise `NotImplementedError`
 
-### Phase 2: Config management
+### Phase 2: Config management (complete)
 
-- Implement config read/write (`config.py`)
+- Config read/write (`config.py`) with TOML persistence
+- `changeling add` registers changelings to config
+- `changeling list` displays registered changelings
 
-### Phase 3: Local execution
+### Phase 3: Local execution (complete)
 
-- Implement `changeling run` (runs mngr create locally)
-- Allow end-to-end testing of the agent flow without Modal
+- `changeling run --local` runs mngr create locally via subprocess
+- Built-in template messages for all 9 changeling types (`templates.py`)
+- End-to-end local testing of the agent flow without Modal
 
 ### Phase 4: Modal execution
 
-- Implement `changeling run` where we run on Modal
+- Implement `changeling run` without `--local` (runs on Modal)
 
-### Phase 4: Modal deployment
+### Phase 5: Modal deployment
 
-- Implement `changeling add` to create the scheduled Modal Function for a given changeling definition (see how we deploy a modal function in `mngr` for reference)
+- Implement `changeling add` to also create the scheduled Modal Function for a given changeling definition (see how we deploy a modal function in `mngr` for reference)
 
-### Phase 4: Management commands
-- 
-- Implement `changeling list`
+### Phase 6: Management commands
+
 - Implement `changeling status` (basically just calls `mngr list` for the configured profile and filters down to those agents that were created by `changelings`)
 
-### Phase 5: Polish
+### Phase 7: Polish
 
-- Implement `changeling remove` (just removes the Modal App), `changeling update` (just an alias for `changeling add --update`)
+- Implement `changeling remove` (removes from config and undeploys the Modal App)
+- Implement `changeling update` (modify an existing changeling's config and redeploy)
