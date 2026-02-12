@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 
-from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.conftest import create_test_base_agent
 from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mngr.primitives import AgentLifecycleState
@@ -12,22 +11,13 @@ from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import cleanup_tmux_session
 
 
-def create_test_agent(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> BaseAgent:
-    """Create a test agent for lifecycle state testing with unique name."""
-    return create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
-
-
 def test_lifecycle_state_stopped_when_no_tmux_session(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
     """Test that agent is STOPPED when there is no tmux session."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     state = test_agent.get_lifecycle_state()
     assert state == AgentLifecycleState.STOPPED
 
@@ -38,7 +28,7 @@ def test_lifecycle_state_running_when_expected_process_exists(
     temp_work_dir: Path,
 ) -> None:
     """Test that agent is RUNNING when tmux session exists with expected process."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session and run the expected command
@@ -65,7 +55,7 @@ def test_lifecycle_state_replaced_when_different_process_exists(
     temp_work_dir: Path,
 ) -> None:
     """Test that agent is REPLACED when tmux session exists with different process."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session with a different command (cat waits for input indefinitely)
@@ -93,7 +83,7 @@ def test_lifecycle_state_done_when_no_process_in_pane(
     temp_work_dir: Path,
 ) -> None:
     """Test that agent is DONE when tmux session exists but no process is running."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session, then manually stop the process inside it
@@ -122,7 +112,7 @@ def test_get_reported_status_returns_none_when_no_status_files(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_reported_status returns None when no status files exist."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     status = test_agent.get_reported_status()
     assert status is None
 
@@ -133,7 +123,7 @@ def test_get_reported_status_returns_status_with_markdown_only(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_reported_status returns AgentStatus with markdown content."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = temp_host_dir / "agents" / str(test_agent.id)
     status_dir = agent_dir / "status"
     status_dir.mkdir(parents=True, exist_ok=True)
@@ -154,7 +144,7 @@ def test_get_reported_status_returns_status_with_html_and_markdown(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_reported_status returns AgentStatus with both markdown and html."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = temp_host_dir / "agents" / str(test_agent.id)
     status_dir = agent_dir / "status"
     status_dir.mkdir(parents=True, exist_ok=True)
@@ -177,7 +167,7 @@ def test_lifecycle_state_waiting_when_waiting_file_exists(
     temp_work_dir: Path,
 ) -> None:
     """Test that agent is WAITING when tmux session exists with expected process and waiting file exists."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session and run the expected command
@@ -208,7 +198,7 @@ def test_lifecycle_state_running_when_waiting_file_removed(
     temp_work_dir: Path,
 ) -> None:
     """Test that agent transitions from WAITING to RUNNING when waiting file is removed."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session and run the expected command
@@ -248,7 +238,7 @@ def test_get_initial_message_returns_none_when_not_set(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_initial_message returns None when not set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.get_initial_message() is None
 
 
@@ -258,7 +248,7 @@ def test_get_initial_message_returns_message_when_set(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_initial_message returns the message when set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = temp_host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
@@ -276,7 +266,7 @@ def test_get_resume_message_returns_none_when_not_set(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_resume_message returns None when not set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.get_resume_message() is None
 
 
@@ -286,7 +276,7 @@ def test_get_resume_message_returns_message_when_set(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_resume_message returns the message when set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = temp_host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
@@ -304,7 +294,7 @@ def test_get_ready_timeout_seconds_returns_default_when_not_set(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_ready_timeout_seconds returns default when not set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.get_ready_timeout_seconds() == DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 
 
@@ -314,7 +304,7 @@ def test_get_ready_timeout_seconds_returns_value_when_set(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_ready_timeout_seconds returns the value when set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = temp_host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
@@ -332,8 +322,8 @@ def test_get_expected_process_name_uses_command_basename(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_expected_process_name returns the command basename."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    # Default command is "sleep 1000" based on create_test_agent
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
+    # Default command is "sleep 1000" based on create_test_base_agent
     assert test_agent.get_expected_process_name() == "sleep"
 
 
@@ -343,7 +333,7 @@ def test_uses_marker_based_send_message_returns_false_by_default(
     temp_work_dir: Path,
 ) -> None:
     """Test that uses_marker_based_send_message returns False by default."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.uses_marker_based_send_message() is False
 
 
@@ -353,7 +343,7 @@ def test_get_tui_ready_indicator_returns_none_by_default(
     temp_work_dir: Path,
 ) -> None:
     """Test that get_tui_ready_indicator returns None by default."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.get_tui_ready_indicator() is None
 
 
@@ -363,7 +353,7 @@ def test_send_backspace_with_noop_sends_keys_to_tmux(
     temp_work_dir: Path,
 ) -> None:
     """Test that _send_backspace_with_noop sends backspaces and noop keys to tmux session."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session with some text
@@ -414,7 +404,7 @@ def test_send_enter_and_wait_for_signal_returns_true_when_signal_received(
     temp_work_dir: Path,
 ) -> None:
     """Test that _send_enter_and_wait_for_signal returns True when tmux wait-for signal is received."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
     wait_channel = f"mngr-submit-{session_name}"
 
@@ -448,7 +438,7 @@ def test_send_enter_and_wait_for_signal_returns_false_on_timeout(
     temp_work_dir: Path,
 ) -> None:
     """Test that _send_enter_and_wait_for_signal returns False when signal times out."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
     # Use a unique channel that won't be signaled
     wait_channel = f"mngr-submit-never-signaled-{session_name}"
