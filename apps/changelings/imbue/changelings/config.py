@@ -6,6 +6,7 @@ from tomlkit.exceptions import TOMLKitError
 from imbue.changelings.data_types import ChangelingConfig
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
+from imbue.changelings.data_types import DEFAULT_SECRETS
 from imbue.changelings.errors import ChangelingAlreadyExistsError
 from imbue.changelings.errors import ChangelingConfigError
 from imbue.changelings.errors import ChangelingNotFoundError
@@ -118,6 +119,10 @@ def _parse_config(raw: dict) -> ChangelingConfig:
         if "repo" in definition_data and definition_data["repo"] is not None:
             definition_data["repo"] = GitRepoUrl(definition_data["repo"])
 
+        # Parse list fields
+        if "secrets" in definition_data:
+            definition_data["secrets"] = tuple(definition_data["secrets"])
+
         # Map TOML field names to model field names
         if "enabled" in definition_data:
             definition_data["is_enabled"] = definition_data.pop("enabled")
@@ -144,6 +149,8 @@ def _serialize_config(config: ChangelingConfig) -> dict:
             entry.add("repo", str(definition.repo))
         if definition.initial_message != DEFAULT_INITIAL_MESSAGE:
             entry.add("initial_message", definition.initial_message)
+        if definition.secrets != DEFAULT_SECRETS:
+            entry.add("secrets", list(definition.secrets))
         if definition.extra_mngr_args:
             entry.add("extra_mngr_args", definition.extra_mngr_args)
         if definition.env_vars:

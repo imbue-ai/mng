@@ -10,6 +10,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 
 DEFAULT_SCHEDULE: Final[str] = "0 3 * * *"
 DEFAULT_INITIAL_MESSAGE: Final[str] = "Please use your primary skill"
+DEFAULT_SECRETS: Final[tuple[str, ...]] = ("GITHUB_TOKEN", "ANTHROPIC_API_KEY")
 
 
 class ChangelingDefinition(FrozenModel):
@@ -31,6 +32,10 @@ class ChangelingDefinition(FrozenModel):
     )
     agent_type: str = Field(default="claude", description="The mngr agent type to use")
     extra_mngr_args: str = Field(default="", description="Additional arguments to pass to mngr create")
+    secrets: tuple[str, ...] = Field(
+        default=DEFAULT_SECRETS,
+        description="Environment variable names to forward from the local shell to the agent (e.g., API keys, tokens)",
+    )
     env_vars: dict[str, str] = Field(default_factory=dict, description="Environment variables to set for the agent")
     is_enabled: bool = Field(default=True, description="Whether this changeling is currently active")
 

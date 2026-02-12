@@ -31,17 +31,19 @@ def run(name: str, local: bool) -> None:
 
       changeling run my-fairy --local
     """
-    if not local:
-        raise NotImplementedError("Remote (Modal) execution is not yet implemented. Use --local for now.")
-
     changeling = get_changeling(ChangelingName(name))
-    _run_local(changeling)
+
+    if local:
+        _run_changeling(changeling, is_modal=False)
+    else:
+        _run_changeling(changeling, is_modal=True)
 
 
-def _run_local(changeling: ChangelingDefinition) -> None:
-    """Run a changeling locally by invoking mngr create."""
-    cmd = build_mngr_create_command(changeling)
-    logger.info("Running changeling '{}' locally", changeling.name)
+def _run_changeling(changeling: ChangelingDefinition, is_modal: bool) -> None:
+    """Run a changeling by invoking mngr create."""
+    cmd = build_mngr_create_command(changeling, is_modal=is_modal)
+    execution_mode = "on Modal" if is_modal else "locally"
+    logger.info("Running changeling '{}' {}", changeling.name, execution_mode)
     logger.debug("Command: {}", " ".join(cmd))
 
     result = subprocess.run(cmd)
@@ -52,11 +54,15 @@ def _run_local(changeling: ChangelingDefinition) -> None:
     logger.info("Changeling '{}' completed successfully", changeling.name)
 
 
-def build_mngr_create_command(changeling: ChangelingDefinition) -> list[str]:
+def build_mngr_create_command(
+    changeling: ChangelingDefinition,
+    is_modal: bool,
+) -> list[str]:
     """Build the mngr create command for a changeling.
 
     Constructs the full argument list for invoking mngr create based on
-    the changeling definition.
+    the changeling definition. When is_modal is True, the command targets
+    Modal as the host provider and forwards configured secrets.
     """
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
     agent_name = f"{changeling.name}-{now_str}"
@@ -84,9 +90,15 @@ def build_mngr_create_command(changeling: ChangelingDefinition) -> list[str]:
         changeling.initial_message,
     ]
 
-    # Pass environment variables
+    # When running on Modal, specify the provider and forward secrets
+    if is_modal:
+        cmd.extend(["--in", "modal"])
+        for secret_name in changeling.secrets:
+            cmd.extend(["--pass-host-env", secret_name])
+
+    # Pass explicit environment variables
     for key, value in changeling.env_vars.items():
-        cmd.extend(["--env", f"{key}={value}"])
+        cmd.extend(["--host-env", f"{key}={value}"])
 
     # Append any extra mngr args
     if changeling.extra_mngr_args:
