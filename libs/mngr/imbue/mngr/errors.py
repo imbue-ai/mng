@@ -332,10 +332,6 @@ class UnknownBackendError(ConfigError):
     """Unknown provider backend."""
 
 
-class MissingConcurrencyGroupError(BaseMngrError, RuntimeError):
-    """Raised when a ConcurrencyGroup is required but not available on MngrContext."""
-
-
 class ScheduleError(MngrError):
     """Base class for schedule-related errors."""
 

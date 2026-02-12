@@ -214,6 +214,7 @@ def create_test_agent_via_cli(
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
     agent_name: str,
+    agent_cmd: str = "sleep 482917",
 ) -> str:
     """Create a test agent via the CLI and return the session name.
 
@@ -231,7 +232,7 @@ def create_test_agent_via_cli(
             "--name",
             agent_name,
             "--agent-cmd",
-            "sleep 482917",
+            agent_cmd,
             "--source",
             str(temp_work_dir),
             "--no-connect",

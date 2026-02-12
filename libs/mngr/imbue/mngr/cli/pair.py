@@ -156,7 +156,6 @@ def pair(ctx: click.Context, **kwargs) -> None:
         command_name="pair",
         command_class=PairCliOptions,
     )
-    logger.debug("Running pair command")
 
     # Merge positional and named arguments (named option takes precedence)
     effective_source = opts.source if opts.source is not None else opts.source_pos
@@ -174,7 +173,7 @@ def pair(ctx: click.Context, **kwargs) -> None:
         target_path = Path(opts.target)
     else:
         # Default to nearest git root, or current directory
-        git_root = find_git_worktree_root(None, mngr_ctx.cg)
+        git_root = find_git_worktree_root(None, mngr_ctx.concurrency_group)
         target_path = git_root if git_root is not None else Path.cwd()
 
     # Find the agent
@@ -224,7 +223,7 @@ def pair(ctx: click.Context, **kwargs) -> None:
             uncommitted_changes=uncommitted_changes_mode,
             exclude_patterns=opts.exclude,
             include_patterns=opts.include,
-            cg=mngr_ctx.cg,
+            cg=mngr_ctx.concurrency_group,
         ) as syncer:
             emit_info("Sync started. Press Ctrl+C to stop.", output_opts.output_format)
 

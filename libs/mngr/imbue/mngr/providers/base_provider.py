@@ -19,11 +19,6 @@ class BaseProviderInstance(ProviderInstanceInterface):
     Useful because it communicates that the concrete Host class (not HostInterface) is returned from these methods.
     """
 
-    @property
-    def is_authorized(self) -> bool:
-        """Default implementation returns True - providers that need auth should override."""
-        return True
-
     def create_host(
         self,
         name: HostName,
@@ -51,8 +46,8 @@ class BaseProviderInstance(ProviderInstanceInterface):
 
     def list_hosts(
         self,
+        cg: ConcurrencyGroup,
         include_destroyed: bool = False,
-        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         raise NotImplementedError()
 

@@ -7,6 +7,7 @@ import click
 import pluggy
 import pytest
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.config.data_types import CommandDefaults
 from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import LoggingConfig
@@ -515,7 +516,7 @@ def test_parse_config_handles_empty_config() -> None:
 # =============================================================================
 
 
-def test_on_load_config_hook_is_called(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_on_load_config_hook_is_called(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that the on_load_config hook is called during load_config."""
     # Track whether hook was called
     hook_called = False
@@ -541,7 +542,7 @@ def test_on_load_config_hook_is_called(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.delenv("MNGR_ROOT_NAME", raising=False)
 
     # Call load_config
-    load_config(pm=pm, context_dir=tmp_path)
+    load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
 
     # Verify hook was called
     assert hook_called, "on_load_config hook was not called"
@@ -549,8 +550,7 @@ def test_on_load_config_hook_is_called(monkeypatch: pytest.MonkeyPatch, tmp_path
 
 
 def test_on_load_config_hook_can_modify_config(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cg: ConcurrencyGroup
 ) -> None:
     """Test that on_load_config hook can modify the config dict."""
 
@@ -573,15 +573,14 @@ def test_on_load_config_hook_can_modify_config(
     monkeypatch.delenv("MNGR_ROOT_NAME", raising=False)
 
     # Call load_config
-    mngr_ctx = load_config(pm=pm, context_dir=tmp_path)
+    mngr_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
 
     # Verify the config was modified
     assert mngr_ctx.config.prefix == "modified-by-plugin-"
 
 
 def test_on_load_config_hook_can_add_new_fields(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cg: ConcurrencyGroup
 ) -> None:
     """Test that on_load_config hook can add new config fields."""
 
@@ -606,7 +605,7 @@ def test_on_load_config_hook_can_add_new_fields(
     monkeypatch.delenv("MNGR_ROOT_NAME", raising=False)
 
     # Call load_config
-    mngr_ctx = load_config(pm=pm, context_dir=tmp_path)
+    mngr_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
 
     # Verify the agent type was added
     assert AgentTypeName("custom-agent") in mngr_ctx.config.agent_types

@@ -11,6 +11,7 @@ from pydantic import Field
 from pydantic import PrivateAttr
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessError
 from imbue.concurrency_group.local_process import RunningProcess
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
@@ -208,16 +209,16 @@ def determine_git_sync_actions(
 
     # Fetch local refs into agent's object store so we can compare ancestry.
     # This only adds git objects -- it does not modify branches or working tree.
-    fetch_result = cg.run_process_to_completion(
-        ["git", "fetch", str(local_path), local_branch],
-        cwd=agent_path,
-        timeout=_GIT_FETCH_TIMEOUT_SECONDS,
-        is_checked_after=False,
-    )
-    if fetch_result.returncode != 0:
+    try:
+        cg.run_process_to_completion(
+            ["git", "fetch", str(local_path), local_branch],
+            cwd=agent_path,
+            timeout=_GIT_FETCH_TIMEOUT_SECONDS,
+        )
+    except ProcessError as e:
         logger.warning(
             "Failed to fetch from local for git sync comparison: {}",
-            fetch_result.stderr.strip(),
+            e.stderr.strip(),
         )
         return GitSyncAction(
             agent_branch=agent_branch,
