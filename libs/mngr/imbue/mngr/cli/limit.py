@@ -164,6 +164,34 @@ def _has_any_setting(opts: LimitCliOptions) -> bool:
     return _has_host_level_settings(opts) or _has_agent_level_settings(opts)
 
 
+def _resolve_host_identifiers(
+    host_identifiers: tuple[str, ...],
+    mngr_ctx: MngrContext,
+) -> set[HostId]:
+    """Resolve host identifiers (names or IDs) to a set of HostIds."""
+    result = list_agents(mngr_ctx, is_streaming=False)
+    all_hosts: list[HostReference] = []
+    seen_host_ids: set[str] = set()
+    for agent_info in result.agents:
+        host_ref_key = str(agent_info.host.id)
+        if host_ref_key not in seen_host_ids:
+            seen_host_ids.add(host_ref_key)
+            all_hosts.append(
+                HostReference(
+                    host_id=agent_info.host.id,
+                    host_name=HostName(agent_info.host.name),
+                    provider_name=agent_info.host.provider_name,
+                )
+            )
+
+    resolved_ids: set[HostId] = set()
+    for host_identifier in host_identifiers:
+        resolved_host = resolve_host_reference(host_identifier, all_hosts)
+        if resolved_host is not None:
+            resolved_ids.add(resolved_host.host_id)
+    return resolved_ids
+
+
 @click.command(name="limit")
 @click.argument("agents", nargs=-1, required=False)
 @optgroup.group("Target Selection")
@@ -374,8 +402,8 @@ def limit(ctx: click.Context, **kwargs: Any) -> None:
 
     # If --host is also specified, filter agents to those on the specified hosts
     if has_hosts:
-        host_set = set(opts.hosts)
-        agents = [a for a in agents if str(a.host_id) in host_set]
+        resolved_host_ids = _resolve_host_identifiers(opts.hosts, mngr_ctx)
+        agents = [a for a in agents if a.host_id in resolved_host_ids]
         if not agents:
             _output("No agents found on the specified host(s)", output_opts)
             return
