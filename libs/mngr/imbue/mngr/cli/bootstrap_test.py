@@ -301,6 +301,28 @@ def test_bootstrap_empty_response_shows_error(
     assert "empty response" in result.output
 
 
+def test_bootstrap_empty_fences_response_shows_error(
+    fake_claude: FakeClaudeBackend,
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    tmp_path: Path,
+) -> None:
+    """A response with only empty markdown fences should produce a clear error."""
+    fake_claude.responses.append("```dockerfile\n```")
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    result = cli_runner.invoke(
+        bootstrap,
+        ["--project-dir", str(project_dir)],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code != 0
+    assert "did not contain valid Dockerfile content" in result.output
+
+
 def test_bootstrap_creates_mngr_directory(
     fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,

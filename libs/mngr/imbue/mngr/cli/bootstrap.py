@@ -175,6 +175,9 @@ def _bootstrap_impl(ctx: click.Context, **kwargs: Any) -> None:
     # Strip any markdown fences that Claude might have included despite instructions
     stripped_dockerfile_content = _strip_non_dockerfile_content(dockerfile_content)
 
+    if not stripped_dockerfile_content:
+        raise MngrError("Claude's response did not contain valid Dockerfile content (no FROM instruction found)")
+
     if opts.dry_run:
         _output_dry_run(
             dockerfile_content=stripped_dockerfile_content,
