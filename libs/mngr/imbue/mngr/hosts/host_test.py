@@ -511,3 +511,18 @@ def test_build_start_agent_shell_command_bails_if_session_exists(
 
     # The rest of the command (tmux new-session, etc.) comes after
     assert "new-session" in rest
+
+
+def test_build_start_agent_shell_command_monitor_retries_pane_pid(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """The process monitor should retry getting the pane PID instead of exiting immediately."""
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_command_with_defaults(agent, temp_host_dir)
+
+    # The monitor script should contain retry loop elements
+    assert "TRIES=0" in result
+    assert "TRIES=$((TRIES + 1))" in result
+    assert "sleep 1" in result
