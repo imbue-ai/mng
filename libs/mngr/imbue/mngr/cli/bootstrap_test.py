@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Final
 
 import pluggy
 import pytest
@@ -13,7 +14,7 @@ from imbue.mngr.cli.bootstrap import bootstrap
 from imbue.mngr.cli.conftest import FakeClaudeBackend
 from imbue.mngr.cli.conftest import FakeClaudeBackendError
 
-_FAKE_DOCKERFILE: str = "FROM python:3.11-slim\nRUN apt-get update\n"
+_FAKE_DOCKERFILE: Final[str] = "FROM python:3.11-slim\nRUN apt-get update\n"
 
 
 @pytest.fixture
