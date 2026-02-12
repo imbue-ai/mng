@@ -508,9 +508,9 @@ def _apply_host_only_changes(
     all_hosts: list[HostReference],
     opts: LimitCliOptions,
     output_opts: OutputOptions,
-    mngr_ctx: MngrContext,
     dry_run: bool,
     changes: list[dict[str, Any]],
+    mngr_ctx: MngrContext,
 ) -> None:
     """Apply host-level changes when targeting hosts directly (no agents)."""
     resolved_host = resolve_host_reference(host_identifier, all_hosts)
