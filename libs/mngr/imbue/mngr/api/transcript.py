@@ -96,6 +96,10 @@ def _find_session_file(
     with log_span("Searching for session file for agent {}", agent_name):
         result = host.execute_command(find_command)
 
+    if not result.success:
+        logger.debug("Find command failed for agent {} (uuid={}): {}", agent_name, agent_uuid, result.stderr)
+        raise TranscriptNotFoundError(agent_name)
+
     session_path = result.stdout.strip()
     if not session_path:
         logger.debug("No session file found for agent {} (uuid={})", agent_name, agent_uuid)
