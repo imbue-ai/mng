@@ -132,6 +132,19 @@ class Host(BaseHost, OnlineHostInterface):
             self.connector.host.disconnect()
             logger.trace("Disconnected pyinfra host {}", self.id)
 
+    @contextmanager
+    def _notify_on_connection_error(self) -> Iterator[None]:
+        """Context manager that calls on_connection_error when HostConnectionError is raised.
+
+        Wraps operations that may raise HostConnectionError. When one is raised, this
+        notifies the provider instance before re-raising the exception.
+        """
+        try:
+            yield
+        except HostConnectionError:
+            self.provider_instance.on_connection_error(self.id)
+            raise
+
     def _run_shell_command(
         self,
         command: StringCommand,
@@ -168,43 +181,39 @@ class Host(BaseHost, OnlineHostInterface):
 
         Prefer using execute_command() instead whenever possible.
         """
-        try:
-            self._ensure_connected()
-            return self.connector.host.run_shell_command(
-                command,
-                _timeout=_timeout,
-                _success_exit_codes=_success_exit_codes,
-                _env=_env,
-                _chdir=_chdir,
-                _shell_executable=_shell_executable,
-                _su_user=_su_user,
-                _use_su_login=_use_su_login,
-                _su_shell=_su_shell,
-                _preserve_su_env=_preserve_su_env,
-                _sudo=_sudo,
-                _sudo_user=_sudo_user,
-                _use_sudo_login=_use_sudo_login,
-                _sudo_password=_sudo_password,
-                _sudo_askpass_path=_sudo_askpass_path,
-                _preserve_sudo_env=_preserve_sudo_env,
-                _doas=_doas,
-                _doas_user=_doas_user,
-                _retries=_retries,
-                _retry_delay=_retry_delay,
-                _retry_until=_retry_until,
-            )
-        except OSError as e:
-            if "Socket is closed" in str(e):
-                # FIXME: these two lines are duplicated everywhere (on_connection_error and raise HostConnectionError)
-                #  Please instead refactor this so that we simply raise, and each of these 3 methods that are raising have
-                #  a decorator that handles the calling of on_connection_error automatically
-                self.provider_instance.on_connection_error(self.id)
-                raise HostConnectionError("Connection was closed while running command") from e
-            else:
-                raise
-        except (EOFError, SSHException) as e:
-            self.provider_instance.on_connection_error(self.id)
-            raise HostConnectionError("Could not execute command due to connection error") from e
+        with self._notify_on_connection_error():
+            try:
+                self._ensure_connected()
+                return self.connector.host.run_shell_command(
+                    command,
+                    _timeout=_timeout,
+                    _success_exit_codes=_success_exit_codes,
+                    _env=_env,
+                    _chdir=_chdir,
+                    _shell_executable=_shell_executable,
+                    _su_user=_su_user,
+                    _use_su_login=_use_su_login,
+                    _su_shell=_su_shell,
+                    _preserve_su_env=_preserve_su_env,
+                    _sudo=_sudo,
+                    _sudo_user=_sudo_user,
+                    _use_sudo_login=_use_sudo_login,
+                    _sudo_password=_sudo_password,
+                    _sudo_askpass_path=_sudo_askpass_path,
+                    _preserve_sudo_env=_preserve_sudo_env,
+                    _doas=_doas,
+                    _doas_user=_doas_user,
+                    _retries=_retries,
+                    _retry_delay=_retry_delay,
+                    _retry_until=_retry_until,
+                )
+            except OSError as e:
+                if "Socket is closed" in str(e):
+                    raise HostConnectionError("Connection was closed while running command") from e
+                else:
+                    raise
+            except (EOFError, SSHException) as e:
+                raise HostConnectionError("Could not execute command due to connection error") from e
 
     def _get_file(
         self,
@@ -220,44 +229,42 @@ class Host(BaseHost, OnlineHostInterface):
 
         Raises FileNotFoundError if the remote file does not exist.
         """
-        try:
-            self._ensure_connected()
+        with self._notify_on_connection_error():
             try:
-                return self.connector.host.get_file(
-                    remote_filename,
-                    filename_or_io,
-                    remote_temp_filename=remote_temp_filename,
-                )
-            except OSError as e:
-                # pyinfra raises OSError for missing files - convert to FileNotFoundError
-                error_msg = str(e)
-                if "No such file or directory" in error_msg or "cannot stat" in error_msg:
-                    raise FileNotFoundError(f"File not found: {remote_filename}") from e
-                elif "Socket is closed" in str(e):
-                    # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
-                    try:
-                        self.connector.host.disconnect()
-                        self._ensure_connected()
-                        _result = self.connector.host.get_file(
-                            remote_filename,
-                            filename_or_io,
-                            remote_temp_filename=remote_temp_filename,
-                        )
-                    except Exception as retry_exception:
-                        self.provider_instance.on_connection_error(self.id)
-                        raise HostConnectionError(
-                            "Connection was closed while reading file (and our retry failed)"
-                        ) from retry_exception
+                self._ensure_connected()
+                try:
+                    return self.connector.host.get_file(
+                        remote_filename,
+                        filename_or_io,
+                        remote_temp_filename=remote_temp_filename,
+                    )
+                except OSError as e:
+                    # pyinfra raises OSError for missing files - convert to FileNotFoundError
+                    error_msg = str(e)
+                    if "No such file or directory" in error_msg or "cannot stat" in error_msg:
+                        raise FileNotFoundError(f"File not found: {remote_filename}") from e
+                    elif "Socket is closed" in str(e):
+                        # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
+                        try:
+                            self.connector.host.disconnect()
+                            self._ensure_connected()
+                            _result = self.connector.host.get_file(
+                                remote_filename,
+                                filename_or_io,
+                                remote_temp_filename=remote_temp_filename,
+                            )
+                        except Exception as retry_exception:
+                            raise HostConnectionError(
+                                "Connection was closed while reading file (and our retry failed)"
+                            ) from retry_exception
+                        else:
+                            raise HostConnectionError(
+                                "Connection was closed while reading file (but the retry worked!)"
+                            ) from e
                     else:
-                        self.provider_instance.on_connection_error(self.id)
-                        raise HostConnectionError(
-                            "Connection was closed while reading file (but the retry worked!)"
-                        ) from e
-                else:
-                    raise
-        except (EOFError, SSHException) as e:
-            self.provider_instance.on_connection_error(self.id)
-            raise HostConnectionError("Could not read file due to connection error") from e
+                        raise
+            except (EOFError, SSHException) as e:
+                raise HostConnectionError("Could not read file due to connection error") from e
 
     def _put_file(
         self,
@@ -271,39 +278,37 @@ class Host(BaseHost, OnlineHostInterface):
 
         Prefer using write_file() or write_text_file() instead whenever possible.
         """
-        try:
-            self._ensure_connected()
-            return self.connector.host.put_file(
-                filename_or_io,
-                remote_filename,
-                remote_temp_filename=remote_temp_filename,
-            )
-        except OSError as e:
-            if "Socket is closed" in str(e):
-                # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
-                try:
-                    self.connector.host.disconnect()
-                    self._ensure_connected()
-                    _result = self.connector.host.put_file(
-                        filename_or_io,
-                        remote_filename,
-                        remote_temp_filename=remote_temp_filename,
-                    )
-                except Exception as retry_exception:
-                    self.provider_instance.on_connection_error(self.id)
-                    raise HostConnectionError(
-                        "Connection was closed while writing file (and our retry failed)"
-                    ) from retry_exception
+        with self._notify_on_connection_error():
+            try:
+                self._ensure_connected()
+                return self.connector.host.put_file(
+                    filename_or_io,
+                    remote_filename,
+                    remote_temp_filename=remote_temp_filename,
+                )
+            except OSError as e:
+                if "Socket is closed" in str(e):
+                    # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
+                    try:
+                        self.connector.host.disconnect()
+                        self._ensure_connected()
+                        _result = self.connector.host.put_file(
+                            filename_or_io,
+                            remote_filename,
+                            remote_temp_filename=remote_temp_filename,
+                        )
+                    except Exception as retry_exception:
+                        raise HostConnectionError(
+                            "Connection was closed while writing file (and our retry failed)"
+                        ) from retry_exception
+                    else:
+                        raise HostConnectionError(
+                            "Connection was closed while writing file (but the retry worked!)"
+                        ) from e
                 else:
-                    self.provider_instance.on_connection_error(self.id)
-                    raise HostConnectionError(
-                        "Connection was closed while writing file (but the retry worked!)"
-                    ) from e
-            else:
-                raise
-        except (EOFError, SSHException) as e:
-            self.provider_instance.on_connection_error(self.id)
-            raise HostConnectionError("Could not write file due to connection error") from e
+                    raise
+            except (EOFError, SSHException) as e:
+                raise HostConnectionError("Could not write file due to connection error") from e
 
     # =========================================================================
     # Convenience methods (built on core primitives)
