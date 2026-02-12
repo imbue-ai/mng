@@ -13,6 +13,7 @@ import subprocess
 
 import pytest
 
+from imbue.changelings.cli.run import _write_secrets_env_file
 from imbue.changelings.cli.run import build_mngr_create_command
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.primitives import ChangelingName
@@ -40,19 +41,26 @@ def test_run_code_guardian_changeling_on_modal(
         agent_type="code-guardian",
     )
 
-    # Build the command using the same function that `changeling run` uses,
-    # then replace the python invocation with `uv run mngr` for subprocess use
-    cmd = build_mngr_create_command(changeling, is_modal=True)
-    subprocess_cmd = ["uv", "run", "mngr"] + cmd[3:]
+    # Write secrets to a temp env file (same flow as _run_changeling_on_modal)
+    env_file_path = _write_secrets_env_file(changeling)
+    try:
+        # Build the command using the same function that `changeling run` uses,
+        # then replace the python invocation with `uv run mngr` for subprocess use
+        cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
+        subprocess_cmd = ["uv", "run", "mngr"] + cmd[3:]
 
-    result = subprocess.run(
-        subprocess_cmd,
-        capture_output=True,
-        text=True,
-        timeout=600,
-        env=modal_subprocess_env.env,
-    )
+        result = subprocess.run(
+            subprocess_cmd,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            env=modal_subprocess_env.env,
+        )
 
-    assert result.returncode == 0, (
-        f"mngr create on Modal failed with code {result.returncode}.\nstdout: {result.stdout}\nstderr: {result.stderr}"
-    )
+        assert result.returncode == 0, (
+            f"mngr create on Modal failed with code {result.returncode}.\n"
+            f"stdout: {result.stdout}\n"
+            f"stderr: {result.stderr}"
+        )
+    finally:
+        env_file_path.unlink(missing_ok=True)

@@ -1,7 +1,11 @@
 """Tests for the changeling run command."""
 
 import sys
+from pathlib import Path
 
+import pytest
+
+from imbue.changelings.cli.run import _write_secrets_env_file
 from imbue.changelings.cli.run import build_mngr_create_command
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
@@ -171,12 +175,12 @@ def test_build_command_local_does_not_include_modal_flag() -> None:
     assert "modal" not in cmd
 
 
-def test_build_command_local_does_not_include_pass_host_env() -> None:
-    """Local execution should not forward secrets via --pass-host-env."""
+def test_build_command_local_does_not_include_host_env_file() -> None:
+    """Local execution should not include --host-env-file."""
     changeling = _make_changeling()
     cmd = build_mngr_create_command(changeling, is_modal=False)
 
-    assert "--pass-host-env" not in cmd
+    assert "--host-env-file" not in cmd
 
 
 # -- Modal execution tests (is_modal=True) --
@@ -191,34 +195,27 @@ def test_build_command_modal_includes_in_modal_flag() -> None:
     assert cmd[in_idx + 1] == "modal"
 
 
-def test_build_command_modal_forwards_default_secrets() -> None:
-    """Modal execution should forward default secrets via --pass-host-env."""
+def test_build_command_modal_includes_env_file_path() -> None:
+    """Modal execution should include --host-env-file when a path is provided."""
     changeling = _make_changeling()
-    cmd = build_mngr_create_command(changeling, is_modal=True)
+    env_file = Path("/tmp/test-secrets.env")
+    cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file)
 
-    # Default secrets are GITHUB_TOKEN and ANTHROPIC_API_KEY
-    pass_host_env_indices = [i for i, arg in enumerate(cmd) if arg == "--pass-host-env"]
-    assert len(pass_host_env_indices) == 2
-
-    forwarded_secrets = {cmd[i + 1] for i in pass_host_env_indices}
-    assert forwarded_secrets == {"GITHUB_TOKEN", "ANTHROPIC_API_KEY"}
+    file_idx = cmd.index("--host-env-file")
+    assert cmd[file_idx + 1] == str(env_file)
 
 
-def test_build_command_modal_forwards_custom_secrets() -> None:
-    """Modal execution should forward custom secrets via --pass-host-env."""
-    changeling = _make_changeling(secrets=("MY_SECRET", "OTHER_KEY"))
-    cmd = build_mngr_create_command(changeling, is_modal=True)
+def test_build_command_modal_omits_env_file_when_none() -> None:
+    """Modal execution should not include --host-env-file when no path is given."""
+    changeling = _make_changeling()
+    cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=None)
 
-    pass_host_env_indices = [i for i, arg in enumerate(cmd) if arg == "--pass-host-env"]
-    assert len(pass_host_env_indices) == 2
-
-    forwarded_secrets = {cmd[i + 1] for i in pass_host_env_indices}
-    assert forwarded_secrets == {"MY_SECRET", "OTHER_KEY"}
+    assert "--host-env-file" not in cmd
 
 
-def test_build_command_modal_forwards_no_secrets_when_empty() -> None:
-    """Modal execution with no secrets should not include --pass-host-env."""
-    changeling = _make_changeling(secrets=())
+def test_build_command_modal_does_not_include_pass_host_env() -> None:
+    """Modal execution should not use --pass-host-env (secrets go via env file)."""
+    changeling = _make_changeling()
     cmd = build_mngr_create_command(changeling, is_modal=True)
 
     assert "--pass-host-env" not in cmd
@@ -253,3 +250,64 @@ def test_build_command_modal_includes_extra_mngr_args() -> None:
     assert "a10g" in cmd
     assert "--timeout" in cmd
     assert "600" in cmd
+
+
+# -- _write_secrets_env_file tests --
+
+
+def test_write_secrets_env_file_writes_secrets_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Secrets present in the environment should be written as KEY=VALUE lines."""
+    monkeypatch.setenv("TEST_SECRET_A", "value_a")
+    monkeypatch.setenv("TEST_SECRET_B", "value_b")
+    changeling = _make_changeling(secrets=("TEST_SECRET_A", "TEST_SECRET_B"))
+
+    env_file = _write_secrets_env_file(changeling)
+    try:
+        content = env_file.read_text()
+        assert "TEST_SECRET_A=value_a\n" in content
+        assert "TEST_SECRET_B=value_b\n" in content
+    finally:
+        env_file.unlink()
+
+
+def test_write_secrets_env_file_skips_missing_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Secrets not present in the environment should be skipped."""
+    monkeypatch.setenv("TEST_SECRET_PRESENT", "here")
+    monkeypatch.delenv("TEST_SECRET_MISSING", raising=False)
+    changeling = _make_changeling(secrets=("TEST_SECRET_PRESENT", "TEST_SECRET_MISSING"))
+
+    env_file = _write_secrets_env_file(changeling)
+    try:
+        content = env_file.read_text()
+        assert "TEST_SECRET_PRESENT=here\n" in content
+        assert "TEST_SECRET_MISSING" not in content
+    finally:
+        env_file.unlink()
+
+
+def test_write_secrets_env_file_creates_file_with_restricted_permissions() -> None:
+    """The env file should have 0o600 permissions (owner read/write only)."""
+    changeling = _make_changeling(secrets=())
+
+    env_file = _write_secrets_env_file(changeling)
+    try:
+        permissions = oct(env_file.stat().st_mode & 0o777)
+        assert permissions == oct(0o600)
+    finally:
+        env_file.unlink()
+
+
+def test_write_secrets_env_file_produces_empty_file_when_no_secrets() -> None:
+    """An empty secrets tuple should produce an empty env file."""
+    changeling = _make_changeling(secrets=())
+
+    env_file = _write_secrets_env_file(changeling)
+    try:
+        content = env_file.read_text()
+        assert content == ""
+    finally:
+        env_file.unlink()
