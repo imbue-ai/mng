@@ -7,12 +7,12 @@ from click.testing import CliRunner
 
 import imbue.mngr.cli.bootstrap as bootstrap_module
 from imbue.mngr.cli.bootstrap import _build_system_prompt
-from imbue.mngr.cli.bootstrap import _collect_project_context
 from imbue.mngr.cli.bootstrap import _get_default_dockerfile
 from imbue.mngr.cli.bootstrap import _resolve_output_path
 from imbue.mngr.cli.bootstrap import _strip_markdown_fences
 from imbue.mngr.cli.bootstrap import bootstrap
 from imbue.mngr.cli.claude_backend import ClaudeBackendInterface
+from imbue.mngr.errors import MngrError
 
 
 class FakeClaude(ClaudeBackendInterface):
@@ -34,8 +34,6 @@ class FakeClaudeError(ClaudeBackendInterface):
     error_message: str
 
     def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
-        from imbue.mngr.errors import MngrError
-
         raise MngrError(self.error_message)
 
 
@@ -46,69 +44,8 @@ _FAKE_DOCKERFILE: str = "FROM python:3.11-slim\nRUN apt-get update\n"
 def fake_claude(monkeypatch: pytest.MonkeyPatch) -> FakeClaude:
     """Provide a FakeClaude backend and monkeypatch it into the bootstrap module."""
     backend = FakeClaude()
-    monkeypatch.setattr(bootstrap_module, "SubprocessClaudeBackend", lambda: backend)
+    monkeypatch.setattr(bootstrap_module, "SubprocessClaudeBackend", lambda **_kwargs: backend)
     return backend
-
-
-# =============================================================================
-# _collect_project_context tests
-# =============================================================================
-
-
-def test_collect_project_context_python_project(tmp_path: Path) -> None:
-    """Should include pyproject.toml content in the context."""
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text('[project]\nname = "my-project"\n')
-    (tmp_path / "src").mkdir()
-    (tmp_path / "README.md").write_text("# My Project")
-
-    context = _collect_project_context(tmp_path)
-
-    assert "pyproject.toml" in context
-    assert "my-project" in context
-    assert "src/" in context
-    assert "README.md" in context
-
-
-def test_collect_project_context_node_project(tmp_path: Path) -> None:
-    """Should include package.json content in the context."""
-    package_json = tmp_path / "package.json"
-    package_json.write_text('{"name": "my-node-app", "version": "1.0.0"}')
-
-    context = _collect_project_context(tmp_path)
-
-    assert "package.json" in context
-    assert "my-node-app" in context
-
-
-def test_collect_project_context_empty_directory(tmp_path: Path) -> None:
-    """An empty directory should produce context with no dependency files."""
-    context = _collect_project_context(tmp_path)
-
-    assert "Root directory listing" in context
-    assert "(none found)" in context
-
-
-def test_collect_project_context_includes_existing_dockerfile(tmp_path: Path) -> None:
-    """Should include existing Dockerfile content in the context."""
-    dockerfile = tmp_path / "Dockerfile"
-    dockerfile.write_text("FROM ubuntu:22.04\nRUN echo hello\n")
-
-    context = _collect_project_context(tmp_path)
-
-    assert "Existing Dockerfile" in context
-    assert "FROM ubuntu:22.04" in context
-
-
-def test_collect_project_context_truncates_large_files(tmp_path: Path) -> None:
-    """Files exceeding the max size should be truncated."""
-    large_content = "x = 1\n" * 500
-    pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(large_content)
-
-    context = _collect_project_context(tmp_path)
-
-    assert "truncated" in context
 
 
 # =============================================================================
@@ -134,6 +71,16 @@ def test_build_system_prompt_contains_reference_dockerfile() -> None:
     prompt = _build_system_prompt(default_dockerfile)
 
     assert default_dockerfile in prompt
+
+
+def test_build_system_prompt_instructs_agentic_exploration() -> None:
+    """The system prompt should instruct Claude to use Read/Glob/Grep tools."""
+    prompt = _build_system_prompt("FROM python:3.11-slim\n")
+
+    assert "Read" in prompt
+    assert "Glob" in prompt
+    assert "Grep" in prompt
+    assert "explore" in prompt.lower()
 
 
 # =============================================================================
@@ -195,7 +142,6 @@ def test_bootstrap_writes_dockerfile(
     fake_claude.responses.append(_FAKE_DOCKERFILE)
     project_dir = tmp_path / "project"
     project_dir.mkdir()
-    (project_dir / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
     result = cli_runner.invoke(
         bootstrap,
@@ -335,7 +281,7 @@ def test_bootstrap_claude_error_shows_message(
 ) -> None:
     """When Claude fails, the error should be displayed to the user."""
     backend = FakeClaudeError(error_message="claude failed (exit code 1): auth error")
-    monkeypatch.setattr(bootstrap_module, "SubprocessClaudeBackend", lambda: backend)
+    monkeypatch.setattr(bootstrap_module, "SubprocessClaudeBackend", lambda **_kwargs: backend)
     project_dir = tmp_path / "project"
     project_dir.mkdir()
 

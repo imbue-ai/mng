@@ -1,4 +1,5 @@
 import importlib.resources
+import sys
 from pathlib import Path
 from typing import Any
 from typing import Final
@@ -10,7 +11,6 @@ from loguru import logger
 
 from imbue.imbue_common.pure import pure
 from imbue.mngr import resources
-from imbue.mngr.cli.claude_backend import ClaudeBackendInterface
 from imbue.mngr.cli.claude_backend import SubprocessClaudeBackend
 from imbue.mngr.cli.claude_backend import accumulate_chunks
 from imbue.mngr.cli.common_opts import CommonCliOptions
@@ -25,23 +25,14 @@ from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import OutputFormat
 
-# Dependency files to look for when analyzing a project
-_DEPENDENCY_FILE_NAMES: Final[tuple[str, ...]] = (
-    "pyproject.toml",
-    "requirements.txt",
-    "package.json",
-    "Cargo.toml",
-    "go.mod",
-    "Gemfile",
-    "pom.xml",
-    "build.gradle",
-    ".tool-versions",
-    ".nvmrc",
-    ".python-version",
-)
+# Read-only tools for agentic project exploration
+_BOOTSTRAP_ALLOWED_TOOLS: Final[tuple[str, ...]] = ("Read", "Glob", "Grep")
 
-_MAX_FILE_CHARS: Final[int] = 2000
-_MAX_FILE_LINES: Final[int] = 100
+_USER_PROMPT: Final[str] = (
+    "Generate a Dockerfile for the project in the current directory. "
+    "Explore the project structure and dependencies first, then output "
+    "ONLY the raw Dockerfile content."
+)
 
 
 def _get_default_dockerfile() -> str:
@@ -59,92 +50,32 @@ def _resolve_output_path(project_dir: Path, override: str | None) -> Path:
 
 
 @pure
-def _truncate_file_content(content: str) -> str:
-    """Truncate file content to the first ~100 lines and ~2000 chars."""
-    lines = content.splitlines(keepends=True)
-    truncated_lines = lines[:_MAX_FILE_LINES]
-    result = "".join(truncated_lines)
-    if len(result) > _MAX_FILE_CHARS:
-        result = result[:_MAX_FILE_CHARS] + "\n... (truncated)"
-    elif len(lines) > _MAX_FILE_LINES:
-        result = result + "\n... (truncated)"
-    return result
-
-
-def _collect_project_context(project_path: Path) -> str:
-    """Scan the project directory and collect relevant context for Dockerfile generation."""
-    parts: list[str] = []
-
-    # Root directory listing (1 level)
-    parts.append("## Root directory listing")
-    try:
-        entries = sorted(project_path.iterdir())
-        for entry in entries:
-            suffix = "/" if entry.is_dir() else ""
-            parts.append(f"  {entry.name}{suffix}")
-    except OSError:
-        parts.append("  (unable to list directory)")
-    parts.append("")
-
-    # Dependency and config files
-    parts.append("## Dependency and config files found")
-    found_any_dependency_file = False
-    for file_name in _DEPENDENCY_FILE_NAMES:
-        file_path = project_path / file_name
-        if file_path.is_file():
-            found_any_dependency_file = True
-            try:
-                content = file_path.read_text()
-                truncated = _truncate_file_content(content)
-                parts.append(f"### {file_name}")
-                parts.append("```")
-                parts.append(truncated)
-                parts.append("```")
-                parts.append("")
-            except OSError:
-                parts.append(f"### {file_name}")
-                parts.append("(unable to read)")
-                parts.append("")
-
-    if not found_any_dependency_file:
-        parts.append("  (none found)")
-        parts.append("")
-
-    # Existing Dockerfile / .dockerignore
-    for docker_file_name in ("Dockerfile", ".dockerignore"):
-        docker_file_path = project_path / docker_file_name
-        if docker_file_path.is_file():
-            parts.append(f"## Existing {docker_file_name}")
-            try:
-                content = docker_file_path.read_text()
-                truncated = _truncate_file_content(content)
-                parts.append("```")
-                parts.append(truncated)
-                parts.append("```")
-                parts.append("")
-            except OSError:
-                parts.append("(unable to read)")
-                parts.append("")
-
-    return "\n".join(parts)
-
-
-@pure
 def _build_system_prompt(default_dockerfile: str) -> str:
     """Build the system prompt for Dockerfile generation."""
     return f"""You are a Dockerfile generator for the mngr tool.
 
-Your job is to generate a Dockerfile that:
-1. Is based on an appropriate base image for the project's language/framework
-2. Includes ALL of the following mngr-required system packages and tools (these are mandatory):
-   - openssh-server, tmux, git, git-lfs, ripgrep, fd-find, rsync, tini, curl, wget, jq, nano, bash, build-essential, unison
+You have access to Read, Glob, and Grep tools. Use them to explore the project
+in the current directory before generating the Dockerfile.
+
+Start by exploring:
+- Root directory listing to understand the project structure
+- Dependency files (pyproject.toml, package.json, Cargo.toml, go.mod, etc.)
+- Any existing Dockerfile or .dockerignore
+- Build configuration files
+
+Then generate a Dockerfile that:
+1. Uses an appropriate base image for the project's language/framework
+2. Includes ALL of the following mngr-required system packages (mandatory):
+   openssh-server, tmux, git, git-lfs, ripgrep, fd-find, rsync, tini, curl, wget, jq, nano, bash, build-essential, unison
 3. Installs GitHub CLI (gh) using the official Debian/Ubuntu package repository
 4. Installs uv (Python package manager) using: curl -LsSf https://astral.sh/uv/install.sh | sh
 5. Installs Claude Code using: curl -fsSL https://claude.ai/install.sh | bash
 6. Detects and supports the project's language/framework (install appropriate runtimes, etc.)
 7. Does NOT include COPY, WORKDIR, or CMD instructions for the project code (mngr handles this)
 
-Here is the reference Dockerfile that mngr uses by default (for Python projects). Use it as a guide for the required tool installation steps, but adapt the base image and language-specific setup to match the project:
+Here is the reference Dockerfile that mngr uses by default (for Python projects).
+Use it as a guide for the required tool installation steps, but adapt the base
+image and language-specific setup to match the actual project:
 
 ```dockerfile
 {default_dockerfile}
@@ -224,26 +155,18 @@ def _bootstrap_impl(ctx: click.Context, **kwargs: Any) -> None:
     if not opts.dry_run and output_path.exists() and not opts.force:
         raise MngrError(f"Dockerfile already exists at {output_path}. Use --force to overwrite.")
 
-    # Collect project context
-    emit_info("Analyzing project...", output_opts.output_format)
-    project_context = _collect_project_context(project_dir)
-
     # Build system prompt with the default Dockerfile as reference
     default_dockerfile = _get_default_dockerfile()
     system_prompt = _build_system_prompt(default_dockerfile)
 
-    # Build the user prompt
-    user_prompt = (
-        f"Generate a Dockerfile for the following project:\n\n"
-        f"{project_context}\n\n"
-        f"Remember: return ONLY the raw Dockerfile content, no markdown, no explanation."
-    )
-
     emit_info("Generating Dockerfile...", output_opts.output_format)
 
-    # Query Claude
-    backend: ClaudeBackendInterface = SubprocessClaudeBackend()
-    chunks = backend.query(prompt=user_prompt, system_prompt=system_prompt)
+    # Query Claude with read-only tools so it can explore the project
+    backend = SubprocessClaudeBackend(
+        allowed_tools=_BOOTSTRAP_ALLOWED_TOOLS,
+        working_directory=project_dir,
+    )
+    chunks = backend.query(prompt=_USER_PROMPT, system_prompt=system_prompt)
     dockerfile_content = accumulate_chunks(chunks).strip()
 
     if not dockerfile_content:
@@ -282,7 +205,8 @@ def _output_dry_run(
     match output_format:
         case OutputFormat.HUMAN:
             logger.info("Generated Dockerfile:\n")
-            print(dockerfile_content)
+            sys.stdout.write(dockerfile_content + "\n")
+            sys.stdout.flush()
         case OutputFormat.JSON:
             emit_final_json({"dockerfile": dockerfile_content})
         case OutputFormat.JSONL:
@@ -337,8 +261,8 @@ setup detected from the project.
 Use the generated Dockerfile with:
     mngr create --in modal --build-arg "--dockerfile .mngr/Dockerfile"
 
-The AI analyzes dependency files (pyproject.toml, package.json, etc.) and
-project structure to generate an appropriate Dockerfile.""",
+The AI explores the project using read-only file access to understand
+the language, framework, and dependencies before generating the Dockerfile.""",
     examples=(
         ("Generate a Dockerfile", "mngr bootstrap"),
         ("Preview without writing", "mngr bootstrap --dry-run"),

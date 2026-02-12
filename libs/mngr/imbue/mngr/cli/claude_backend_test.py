@@ -1,5 +1,6 @@
 import json
 
+from imbue.mngr.cli.claude_backend import _build_claude_command
 from imbue.mngr.cli.claude_backend import _extract_text_delta
 from imbue.mngr.cli.claude_backend import accumulate_chunks
 
@@ -62,3 +63,19 @@ def test_accumulate_chunks_returns_empty_for_no_chunks() -> None:
     """accumulate_chunks with empty iterator should return empty string."""
     chunks = iter([])
     assert accumulate_chunks(chunks) == ""
+
+
+def test_build_claude_command_no_tools_disables_all() -> None:
+    """When no tools are allowed, --tools "" should be passed."""
+    cmd = _build_claude_command(prompt="hello", system_prompt="sys", allowed_tools=())
+    assert "--tools" in cmd
+    assert "" in cmd
+    assert "--allowedTools" not in cmd
+
+
+def test_build_claude_command_with_allowed_tools() -> None:
+    """When tools are specified, --allowedTools should be passed instead of --tools."""
+    cmd = _build_claude_command(prompt="hello", system_prompt="sys", allowed_tools=("Read", "Glob", "Grep"))
+    assert "--allowedTools" in cmd
+    assert "Read,Glob,Grep" in cmd
+    assert "--tools" not in cmd
