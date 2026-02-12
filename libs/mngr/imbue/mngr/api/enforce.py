@@ -186,6 +186,11 @@ def _check_idle_host(
     activity_config = host.get_activity_config()
     idle_timeout_seconds = activity_config.idle_timeout_seconds
 
+    # Pass the configured activity_sources so enforce checks the same sources
+    # as the in-host activity_watcher.sh. Without this, get_idle_seconds()
+    # defaults to ALL sources including PROCESS, which is updated every 5s by
+    # a background monitor while the tmux pane is alive -- making enforce
+    # unable to detect idle on any host with a running process.
     try:
         idle_seconds = host.get_idle_seconds(activity_sources=activity_config.activity_sources)
     except HostOfflineError:

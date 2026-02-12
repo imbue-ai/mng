@@ -1886,8 +1886,12 @@ class Host(BaseHost, OnlineHostInterface):
         activity files (like CREATE, START, AGENT). Returns the time since
         the most recent activity from any monitored source.
 
-        If activity_sources is provided, only those sources are checked.
-        Otherwise all sources are checked (for backwards compatibility).
+        Callers should pass activity_sources to match the host's configured
+        sources (from ActivityConfig). Without it, ALL sources are checked
+        including PROCESS, which is updated every 5s by a background monitor
+        while the tmux pane process is alive. Checking PROCESS without
+        filtering would make idle detection impossible on any host with a
+        running process.
         """
         sources_to_check = activity_sources if activity_sources is not None else tuple(ActivitySource)
         latest_activity: datetime | None = None
