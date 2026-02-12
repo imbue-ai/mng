@@ -81,10 +81,13 @@ def schedule_add(ctx: click.Context, message: str, create_args: tuple[str, ...],
         command_class=ScheduleCliOptions,
     )
 
+    assert opts.name is not None
+    assert opts.cron is not None
+
     result = add_schedule(
-        name=ScheduleName(opts.name),  # type: ignore[arg-type]  # validated by click required=True
+        name=ScheduleName(opts.name),
         message=message,
-        cron=opts.cron,  # type: ignore[arg-type]  # validated by click required=True
+        cron=opts.cron,
         template=opts.template,
         create_args=create_args,
         mngr_ctx=mngr_ctx,

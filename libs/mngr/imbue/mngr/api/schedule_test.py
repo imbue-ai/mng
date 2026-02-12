@@ -132,4 +132,4 @@ def test_save_and_load_with_create_args(tmp_path: Path) -> None:
 def test_schedule_definition_is_frozen() -> None:
     schedule = _make_schedule()
     with pytest.raises(ValidationError):
-        schedule.name = ScheduleName("changed")  # type: ignore[misc]
+        schedule.name = ScheduleName("changed")
