@@ -16,6 +16,7 @@ import socket
 import tempfile
 import time
 from collections.abc import Callable
+from concurrent.futures import Future
 from datetime import datetime
 from datetime import timezone
 from functools import wraps
@@ -46,7 +47,7 @@ from pyinfra.connectors.sshuserclient.client import get_host_keys
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.concurrency_group.thread_utils import ObservableThread
+from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
@@ -494,10 +495,8 @@ class ModalProviderInstance(BaseProviderInstance):
         """
         volume = self._get_volume()
 
-        with cg.make_concurrency_group(name="modal_list_all_host_records") as list_cg:
-            host_records_by_id: dict[HostId, HostRecord] = {}
-            threads: list[ObservableThread] = []
-
+        futures: list[Future[HostRecord | None]] = []
+        with ConcurrencyGroupExecutor(parent_cg=cg, name="modal_list_all_host_records", max_workers=32) as executor:
             # List files at the root of the volume
             for entry in volume.listdir("/"):
                 filename = entry.path
@@ -506,17 +505,9 @@ class ModalProviderInstance(BaseProviderInstance):
                     # Remove .json suffix (and any leading / if present)
                     host_id_str = filename.lstrip("/")[:-5]
                     host_id = HostId(host_id_str)
-                    thread = list_cg.start_new_thread(
-                        target=_store_result_from_callable,
-                        args=(host_records_by_id, host_id, lambda x=host_id: self._read_host_record(x)),
-                        name="fetch_host_records",
-                    )
-                    threads.append(thread)
+                    futures.append(executor.submit(self._read_host_record, host_id))
 
-            for thread in threads:
-                thread.join()
-
-        result = list(host_records_by_id.values())
+        result = [record for future in futures if (record := future.result()) is not None]
         logger.trace("Listed all host records from volume")
         return result
 
