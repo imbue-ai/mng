@@ -32,6 +32,9 @@ class ProvisionCliOptions(CommonCliOptions):
     agent: str | None
     agent_option: str | None
     host: str | None
+    # Behavior options
+    bootstrap: str | None
+    destroy_on_fail: bool
     # Provisioning options
     user_command: tuple[str, ...]
     sudo_command: tuple[str, ...]
@@ -70,6 +73,19 @@ def _output_result(agent_name: str, output_opts: OutputOptions) -> None:
 @optgroup.option(
     "--host",
     help="Filter by host name or ID [future]",
+)
+@optgroup.group("Behavior")
+@optgroup.option(
+    "--bootstrap",
+    type=click.Choice(["yes", "warn", "no"], case_sensitive=False),
+    default=None,
+    help="Auto-install missing required tools: yes, warn (install with warning), or no [default: warn on remote, no on local] [future]",
+)
+@optgroup.option(
+    "--destroy-on-fail/--no-destroy-on-fail",
+    "destroy_on_fail",
+    default=False,
+    help="Destroy the host if provisioning fails [future]",
 )
 @optgroup.group("Agent Provisioning")
 @optgroup.option(
@@ -138,7 +154,9 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
 
     This re-runs the provisioning steps (plugin lifecycle hooks, file transfers,
     user commands, env vars) on an agent that has already been created. Useful for
-    syncing config, auth, and installing additional packages.
+    syncing config, auth, and installing additional packages. Most provisioning
+    steps are specified via plugins, but custom steps can also be defined using the
+    options below.
 
     The agent's existing environment variables are preserved. New env vars from
     --env, --env-file, and --pass-env override existing ones with the same key.
@@ -147,6 +165,10 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
     Provisioning steps are designed to be idempotent. Note that provisioning a
     running agent may cause brief disruption if config files are overwritten
     while the agent is actively reading them.
+
+    Provisioning is done per agent, but changes are visible to other agents on the
+    same host. Be careful to avoid conflicts when provisioning multiple agents on
+    the same host.
 
     \b
     Alias: prov
@@ -172,6 +194,10 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
     # Check for unsupported [future] options
     if opts.host is not None:
         raise NotImplementedError("--host is not implemented yet")
+    if opts.bootstrap is not None:
+        raise NotImplementedError("--bootstrap is not implemented yet")
+    if opts.destroy_on_fail:
+        raise NotImplementedError("--destroy-on-fail is not implemented yet")
 
     # Resolve agent identifier from positional argument or --agent option
     agent_identifier: str | None
@@ -238,7 +264,9 @@ _PROVISION_HELP_METADATA = CommandHelpMetadata(
 
 This re-runs the provisioning steps (plugin lifecycle hooks, file transfers,
 user commands, env vars) on an agent that has already been created. Useful for
-syncing configuration, authentication, and installing additional packages.
+syncing configuration, authentication, and installing additional packages. Most
+provisioning steps are specified via plugins, but custom steps can also be
+defined using the options below.
 
 The agent's existing environment variables are preserved. New env vars from
 --env, --env-file, and --pass-env override existing ones with the same key.
@@ -247,7 +275,11 @@ The command runs regardless of whether the agent is running or stopped.
 Provisioning steps are designed to be idempotent. Note that provisioning a
 running agent may cause brief disruption if config files are overwritten
 while the agent is actively reading them. Consider stopping the agent first
-if that is a concern.""",
+if that is a concern.
+
+Provisioning is done per agent, but changes are visible to other agents on the
+same host. Be careful to avoid conflicts when provisioning multiple agents on
+the same host.""",
     aliases=("prov",),
     arguments_description="- `AGENT`: Agent name or ID to provision",
     examples=(

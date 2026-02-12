@@ -14,7 +14,9 @@ Re-run provisioning on an existing agent.
 
 This re-runs the provisioning steps (plugin lifecycle hooks, file transfers,
 user commands, env vars) on an agent that has already been created. Useful for
-syncing config, auth, and installing additional packages.
+syncing config, auth, and installing additional packages. Most provisioning
+steps are specified via plugins, but custom steps can also be defined using the
+options below.
 
 The agent's existing environment variables are preserved. New env vars from
 --env, --env-file, and --pass-env override existing ones with the same key.
@@ -23,6 +25,10 @@ The command runs regardless of whether the agent is running or stopped.
 Provisioning steps are designed to be idempotent. Note that provisioning a
 running agent may cause brief disruption if config files are overwritten
 while the agent is actively reading them.
+
+Provisioning is done per agent, but changes are visible to other agents on the
+same host. Be careful to avoid conflicts when provisioning multiple agents on
+the same host.
 
 Alias: prov
 
@@ -54,6 +60,13 @@ mngr provision [OPTIONS] [AGENT]
 | ---- | ---- | ----------- | ------- |
 | `--agent` | text | Agent name or ID to provision (alternative to positional argument) | None |
 | `--host` | text | Filter by host name or ID [future] | None |
+
+## Behavior
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--bootstrap` | choice (`yes` &#x7C; `warn` &#x7C; `no`) | Auto-install missing required tools: yes, warn (install with warning), or no [default: warn on remote, no on local] [future] | None |
+| `--destroy-on-fail`, `--no-destroy-on-fail` | boolean | Destroy the host if provisioning fails [future] | `False` |
 
 ## Agent Provisioning
 
