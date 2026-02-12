@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from typing import NamedTuple
 
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.api.exec import ExecResult
@@ -19,13 +20,23 @@ from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import get_short_random_string
 
+_AGENT_COMMAND = "sleep 98761"
 
-def _create_test_agent(
+
+class RunningTestAgent(NamedTuple):
+    """A test agent with a running tmux session."""
+
+    agent: BaseAgent
+    session_name: str
+
+
+def _create_running_test_agent(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
     work_dir: Path,
-) -> BaseAgent:
-    """Create a real test agent on the local provider."""
+    mngr_test_prefix: str,
+) -> RunningTestAgent:
+    """Create a real test agent with a running tmux session on the local provider."""
     host = local_provider.get_host(HostName("local"))
 
     agent_id = AgentId.generate()
@@ -38,7 +49,7 @@ def _create_test_agent(
         "id": str(agent_id),
         "name": str(agent_name),
         "type": "generic",
-        "command": "sleep 100000",
+        "command": _AGENT_COMMAND,
         "work_dir": str(work_dir),
         "create_time": datetime.now(timezone.utc).isoformat(),
         "permissions": [],
@@ -46,19 +57,25 @@ def _create_test_agent(
     }
     (agent_dir / "data.json").write_text(json.dumps(data, indent=2))
 
-    agent_config = AgentTypeConfig(command=CommandString("sleep 100000"))
-
-    return BaseAgent(
+    agent = BaseAgent(
         id=agent_id,
         host_id=host.id,
         name=agent_name,
         agent_type=AgentTypeName("generic"),
-        agent_config=agent_config,
+        agent_config=AgentTypeConfig(command=CommandString(_AGENT_COMMAND)),
         work_dir=work_dir,
         create_time=datetime.now(timezone.utc),
         host=host,
         mngr_ctx=temp_mngr_ctx,
     )
+
+    session_name = f"{mngr_test_prefix}{agent_name}"
+    host.execute_command(
+        f"tmux new-session -d -s '{session_name}' '{_AGENT_COMMAND}'",
+        timeout_seconds=5.0,
+    )
+
+    return RunningTestAgent(agent=agent, session_name=session_name)
 
 
 def test_exec_result_fields() -> None:
@@ -94,27 +111,20 @@ def test_exec_command_on_agent_runs_command(
     mngr_test_prefix: str,
 ) -> None:
     """Test exec_command_on_agent runs a command on a real local agent."""
-    agent = _create_test_agent(local_provider, temp_mngr_ctx, temp_work_dir)
-    session_name = f"{mngr_test_prefix}{agent.name}"
-
-    # Start tmux session so the agent is discoverable as "running"
-    agent.get_host().execute_command(
-        f"tmux new-session -d -s '{session_name}' 'sleep 100000'",
-        timeout_seconds=5.0,
-    )
+    running = _create_running_test_agent(local_provider, temp_mngr_ctx, temp_work_dir, mngr_test_prefix)
 
     try:
         result = exec_command_on_agent(
             mngr_ctx=temp_mngr_ctx,
-            agent_str=str(agent.name),
+            agent_str=str(running.agent.name),
             command="echo hello",
         )
 
-        assert result.agent_name == str(agent.name)
+        assert result.agent_name == str(running.agent.name)
         assert "hello" in result.stdout
         assert result.success is True
     finally:
-        cleanup_tmux_session(session_name)
+        cleanup_tmux_session(running.session_name)
 
 
 def test_exec_command_on_agent_uses_custom_cwd(
@@ -125,23 +135,16 @@ def test_exec_command_on_agent_uses_custom_cwd(
     mngr_test_prefix: str,
 ) -> None:
     """Test that --cwd overrides the agent's work_dir."""
-    agent = _create_test_agent(local_provider, temp_mngr_ctx, temp_work_dir)
-    session_name = f"{mngr_test_prefix}{agent.name}"
+    running = _create_running_test_agent(local_provider, temp_mngr_ctx, temp_work_dir, mngr_test_prefix)
 
-    # Create a marker file in a different directory
     custom_dir = tmp_path / "custom_cwd"
     custom_dir.mkdir()
     (custom_dir / "marker.txt").write_text("found")
 
-    agent.get_host().execute_command(
-        f"tmux new-session -d -s '{session_name}' 'sleep 100000'",
-        timeout_seconds=5.0,
-    )
-
     try:
         result = exec_command_on_agent(
             mngr_ctx=temp_mngr_ctx,
-            agent_str=str(agent.name),
+            agent_str=str(running.agent.name),
             command="cat marker.txt",
             cwd=str(custom_dir),
         )
@@ -149,7 +152,7 @@ def test_exec_command_on_agent_uses_custom_cwd(
         assert result.stdout == "found"
         assert result.success is True
     finally:
-        cleanup_tmux_session(session_name)
+        cleanup_tmux_session(running.session_name)
 
 
 def test_exec_command_on_agent_returns_failure(
@@ -159,21 +162,15 @@ def test_exec_command_on_agent_returns_failure(
     mngr_test_prefix: str,
 ) -> None:
     """Test that a failing command returns success=False."""
-    agent = _create_test_agent(local_provider, temp_mngr_ctx, temp_work_dir)
-    session_name = f"{mngr_test_prefix}{agent.name}"
-
-    agent.get_host().execute_command(
-        f"tmux new-session -d -s '{session_name}' 'sleep 100000'",
-        timeout_seconds=5.0,
-    )
+    running = _create_running_test_agent(local_provider, temp_mngr_ctx, temp_work_dir, mngr_test_prefix)
 
     try:
         result = exec_command_on_agent(
             mngr_ctx=temp_mngr_ctx,
-            agent_str=str(agent.name),
+            agent_str=str(running.agent.name),
             command="false",
         )
 
         assert result.success is False
     finally:
-        cleanup_tmux_session(session_name)
+        cleanup_tmux_session(running.session_name)
