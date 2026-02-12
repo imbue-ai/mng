@@ -25,7 +25,6 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import HostOfflineError
-from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
@@ -216,13 +215,18 @@ def _resolve_host_identifiers(
     host_identifiers: tuple[str, ...],
     mngr_ctx: MngrContext,
 ) -> set[HostId]:
-    """Resolve host identifiers (names or IDs) to a set of HostIds."""
+    """Resolve host identifiers (names or IDs) to a set of HostIds.
+
+    Raises UserInputError if any host identifier cannot be resolved.
+    """
     all_hosts = _build_host_references(mngr_ctx)
     resolved_ids: set[HostId] = set()
     for host_identifier in host_identifiers:
+        # resolve_host_reference raises UserInputError for unresolvable identifiers;
+        # it only returns None when host_identifier is None, which cannot happen here
         resolved_host = resolve_host_reference(host_identifier, all_hosts)
-        if resolved_host is not None:
-            resolved_ids.add(resolved_host.host_id)
+        assert resolved_host is not None
+        resolved_ids.add(resolved_host.host_id)
     return resolved_ids
 
 
@@ -513,10 +517,14 @@ def _apply_host_only_changes(
     changes: list[dict[str, Any]],
     mngr_ctx: MngrContext,
 ) -> None:
-    """Apply host-level changes when targeting hosts directly (no agents)."""
+    """Apply host-level changes when targeting hosts directly (no agents).
+
+    Raises UserInputError if the host identifier cannot be resolved.
+    """
+    # resolve_host_reference raises UserInputError for unresolvable identifiers;
+    # it only returns None when host_identifier is None, which cannot happen here
     resolved_host = resolve_host_reference(host_identifier, all_hosts)
-    if resolved_host is None:
-        raise UserInputError(f"Could not find host: {host_identifier}")
+    assert resolved_host is not None
 
     if dry_run:
         _output(f"Would update activity config for host {resolved_host.host_id}", output_opts)
