@@ -1063,18 +1063,11 @@ log "=== Shutdown script completed ==="
         """Perform a single lookup of a sandbox by host_id tag.
 
         This is a helper for _find_sandbox_by_host_id that does not retry.
-        If the sandbox is found, it is appended to result_container and True is returned.
-        Otherwise, returns False.
+        Uses server-side tag filtering for efficient lookup.
         """
         app = self._get_modal_app()
-        # FIXME: put this back--no idea why it wasn't working
-        # for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
-        #     result_container.append(sandbox)
-        #     return True
-        # return False
-        for sandbox in modal.Sandbox.list(app_id=app.app_id):
-            if sandbox.get_tags().get(TAG_HOST_ID) == str(host_id):
-                return sandbox
+        for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
+            return sandbox
         return None
 
     def _cache_sandbox(self, host_id: HostId, name: HostName, sandbox: modal.Sandbox) -> None:
