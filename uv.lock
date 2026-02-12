@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -1691,6 +1691,7 @@ dependencies = [
     { name = "psutil" },
     { name = "pydantic" },
     { name = "pyinfra" },
+    { name = "python-dotenv" },
     { name = "tabulate" },
     { name = "tomlkit" },
     { name = "urwid" },
@@ -1711,6 +1712,7 @@ requires-dist = [
     { name = "psutil", specifier = ">=5.9" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pyinfra", specifier = ">=3.0" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "tabulate", specifier = ">=0.9.0" },
     { name = "tomlkit", specifier = ">=0.12.0" },
     { name = "urwid", specifier = ">=2.2.0" },
