@@ -1,50 +1,18 @@
 from pathlib import Path
-from uuid import uuid4
-
-import pluggy
-import pytest
 
 from imbue.mngr.api.create import CreateAgentOptions
 from imbue.mngr.api.message import MessageResult
 from imbue.mngr.api.message import _agent_to_cel_context
 from imbue.mngr.api.message import send_message_to_agents
-from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostName
-from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
-
-
-@pytest.fixture
-def temp_host_dir(tmp_path: Path) -> Path:
-    host_dir = tmp_path / "mngr"
-    host_dir.mkdir(parents=True, exist_ok=True)
-    return host_dir
-
-
-@pytest.fixture
-def temp_work_dir(tmp_path: Path) -> Path:
-    work_dir = tmp_path / "work_dir"
-    work_dir.mkdir(parents=True, exist_ok=True)
-    return work_dir
-
-
-@pytest.fixture
-def temp_profile_dir(temp_host_dir: Path) -> Path:
-    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return profile_dir
-
-
-@pytest.fixture
-def mngr_test_prefix() -> str:
-    return f"mngr_{uuid4().hex}-"
 
 
 def test_message_result_initializes_with_empty_lists() -> None:
@@ -69,21 +37,11 @@ def test_message_result_can_add_failed_agent() -> None:
 
 
 def test_agent_to_cel_context_returns_expected_fields(
-    temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
-    mngr_test_prefix: str,
+    local_provider: LocalProviderInstance,
 ) -> None:
     """Test that _agent_to_cel_context returns the expected fields."""
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-cel-context"))
+    host = local_provider.create_host(HostName("test-cel-context"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -100,24 +58,17 @@ def test_agent_to_cel_context_returns_expected_fields(
     assert context["id"] == str(agent.id)
     assert context["name"] == "cel-test-agent"
     assert context["type"] == "generic"
-    assert context["state"] == "stopped"
+    assert context["state"] == AgentLifecycleState.STOPPED.value
     assert context["host"]["provider"] == "local"
     assert context["host"]["id"] == str(agent.host_id)
 
 
 def test_send_message_to_agents_returns_empty_result_when_no_agents_match(
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
-    mngr_test_prefix: str,
+    temp_mngr_ctx: MngrContext,
 ) -> None:
     """Test that send_message returns empty result when no agents match filters."""
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-
     result = send_message_to_agents(
-        mngr_ctx=mngr_ctx,
+        mngr_ctx=temp_mngr_ctx,
         message_content="Hello",
         include_filters=('name == "nonexistent-agent"',),
         all_agents=False,
@@ -128,21 +79,12 @@ def test_send_message_to_agents_returns_empty_result_when_no_agents_match(
 
 
 def test_send_message_to_agents_calls_success_callback(
-    temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
-    mngr_test_prefix: str,
+    temp_mngr_ctx: MngrContext,
+    local_provider: LocalProviderInstance,
 ) -> None:
     """Test that send_message calls the success callback when message is sent."""
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-message"))
+    host = local_provider.create_host(HostName("test-message"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -161,7 +103,7 @@ def test_send_message_to_agents_calls_success_callback(
     error_agents: list[tuple[str, str]] = []
 
     result = send_message_to_agents(
-        mngr_ctx=mngr_ctx,
+        mngr_ctx=temp_mngr_ctx,
         message_content="Hello from test",
         all_agents=True,
         on_success=lambda name: success_agents.append(name),
@@ -176,21 +118,12 @@ def test_send_message_to_agents_calls_success_callback(
 
 
 def test_send_message_to_agents_fails_for_stopped_agent(
-    temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
-    mngr_test_prefix: str,
+    temp_mngr_ctx: MngrContext,
+    local_provider: LocalProviderInstance,
 ) -> None:
     """Test that sending message to stopped agent fails."""
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-stopped"))
+    host = local_provider.create_host(HostName("test-stopped"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -205,7 +138,7 @@ def test_send_message_to_agents_fails_for_stopped_agent(
     # Don't start the agent - it should be stopped
 
     result = send_message_to_agents(
-        mngr_ctx=mngr_ctx,
+        mngr_ctx=temp_mngr_ctx,
         message_content="Hello",
         all_agents=True,
         error_behavior=ErrorBehavior.CONTINUE,
@@ -221,21 +154,12 @@ def test_send_message_to_agents_fails_for_stopped_agent(
 
 
 def test_send_message_to_agents_with_include_filter(
-    temp_host_dir: Path,
     temp_work_dir: Path,
-    temp_profile_dir: Path,
-    plugin_manager: pluggy.PluginManager,
-    mngr_test_prefix: str,
+    temp_mngr_ctx: MngrContext,
+    local_provider: LocalProviderInstance,
 ) -> None:
     """Test that send_message respects include filters."""
-    config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
-    mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
-    provider = LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mngr_ctx=mngr_ctx,
-    )
-    host = provider.create_host(HostName("test-filter"))
+    host = local_provider.create_host(HostName("test-filter"))
     assert isinstance(host, Host)
 
     # Create two agents
@@ -261,7 +185,7 @@ def test_send_message_to_agents_with_include_filter(
 
     # Send message only to agent1 using filter
     result = send_message_to_agents(
-        mngr_ctx=mngr_ctx,
+        mngr_ctx=temp_mngr_ctx,
         message_content="Hello filtered",
         include_filters=('name == "filter-test-1"',),
         all_agents=False,

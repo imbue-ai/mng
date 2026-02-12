@@ -1,6 +1,6 @@
 # Permissions
 
-Agents have a list of "permissions" that control both what they are allowed to do and what information they have access to.
+Agents have a list of "permissions" that control both what they are allowed to do and what information they have access to [future].
 
 This list is a simple list of strings. The valid strings are entirely defined by plugins.
 
@@ -19,4 +19,4 @@ The first part of the permission string is the plugin name (e.g., `github`, `ant
 
 ## Available Permissions
 
-Run [`limit --help`](../commands/secondary/limit.md) for the full list of available permissions.
+Run [`limit --help`](../commands/secondary/limit.md) [future] for the full list of available permissions.

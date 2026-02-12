@@ -1,4 +1,3 @@
-import time
 from typing import Any
 from typing import assert_never
 
@@ -6,6 +5,7 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.find import ensure_host_started
@@ -25,6 +25,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import OutputFormat
+from imbue.mngr.utils.polling import poll_until
 
 
 class StartCliOptions(CommonCliOptions):
@@ -35,6 +36,13 @@ class StartCliOptions(CommonCliOptions):
     start_all: bool
     dry_run: bool
     connect: bool
+    # Planned features (not yet implemented)
+    host: tuple[str, ...]
+    include: tuple[str, ...]
+    exclude: tuple[str, ...]
+    stdin: bool
+    snapshot: str | None
+    latest: bool
 
 
 def _output(message: str, output_opts: OutputOptions) -> None:
@@ -58,22 +66,32 @@ def _output_result(started_agents: list[str], output_opts: OutputOptions) -> Non
             assert_never(unreachable)
 
 
-def _send_resume_message_if_configured(
-    agent: AgentInterface, output_opts: OutputOptions, host_start_time: float
-) -> None:
+def _send_resume_message_if_configured(agent: AgentInterface, output_opts: OutputOptions) -> None:
     """Send the resume message to an agent if one is configured."""
     resume_message = agent.get_resume_message()
     if resume_message is None:
         return
 
-    message_delay = agent.get_message_delay_seconds()
     _output(f"Sending resume message to {agent.name}...", output_opts)
-    logger.debug("Waiting {}s before sending resume message", message_delay)
-    time_to_sleep = host_start_time + message_delay - time.monotonic()
-    if time_to_sleep > 0:
-        time.sleep(message_delay)
+    # Wait for the agent to signal readiness via the WAITING lifecycle state.
+    # Agents like Claude configure hooks that create a 'waiting' file when ready.
+    # If the timeout expires (agent doesn't support hooks or is slow), proceed anyway.
+    timeout = agent.get_ready_timeout_seconds()
+    with log_span("Waiting for agent to become ready before sending resume message"):
+        is_ready = poll_until(
+            lambda: agent.get_lifecycle_state() == AgentLifecycleState.WAITING,
+            timeout=timeout,
+            poll_interval=0.2,
+        )
+    if is_ready:
+        logger.debug("Signaled agent readiness via WAITING state")
+    else:
+        logger.debug(
+            "Failed to reach WAITING state within {}s, proceeding anyway",
+            timeout,
+        )
     agent.send_message(resume_message)
-    logger.debug("Resume message sent to agent {}", agent.name)
+    logger.debug("Sent resume message to agent {}", agent.name)
 
 
 @click.command(name="start")
@@ -93,6 +111,26 @@ def _send_resume_message_if_configured(
     is_flag=True,
     help="Start all stopped agents",
 )
+@optgroup.option(
+    "--host",
+    multiple=True,
+    help="Host(s) to start all stopped agents on [repeatable] [future]",
+)
+@optgroup.option(
+    "--include",
+    multiple=True,
+    help="Filter agents and hosts to start by CEL expression (repeatable) [future]",
+)
+@optgroup.option(
+    "--exclude",
+    multiple=True,
+    help="Exclude agents and hosts matching CEL expression (repeatable) [future]",
+)
+@optgroup.option(
+    "--stdin",
+    is_flag=True,
+    help="Read agent and host names/IDs from stdin, one per line [future]",
+)
 @optgroup.group("Behavior")
 @optgroup.option(
     "--dry-run",
@@ -104,6 +142,18 @@ def _send_resume_message_if_configured(
     default=False,
     help="Connect to the agent after starting (only valid for single agent)",
 )
+@optgroup.group("Snapshot")
+@optgroup.option(
+    "--snapshot",
+    type=str,
+    default=None,
+    help="Start from a specific snapshot instead of the most recent [future]",
+)
+@optgroup.option(
+    "--latest/--no-latest",
+    default=True,
+    help="Start from the most recent snapshot or state [default] [future]",
+)
 @add_common_options
 @click.pass_context
 def start(ctx: click.Context, **kwargs: Any) -> None:
@@ -113,6 +163,7 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
     the container/instance. For local agents, this starts the agent's tmux
     session.
 
+    \b
     Examples:
 
       mngr start my-agent
@@ -128,7 +179,21 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
         command_name="start",
         command_class=StartCliOptions,
     )
-    logger.debug("Running start command")
+    logger.debug("Started start command")
+
+    # Check for unsupported [future] options
+    if opts.host:
+        raise NotImplementedError("--host is not implemented yet")
+    if opts.include:
+        raise NotImplementedError("--include is not implemented yet")
+    if opts.exclude:
+        raise NotImplementedError("--exclude is not implemented yet")
+    if opts.stdin:
+        raise NotImplementedError("--stdin is not implemented yet")
+    if opts.snapshot is not None:
+        raise NotImplementedError("--snapshot is not implemented yet")
+    if not opts.latest:
+        raise NotImplementedError("--no-latest is not implemented yet")
 
     # Validate input
     agent_identifiers = list(opts.agents) + list(opts.agent_list)
@@ -178,11 +243,7 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
         host = provider.get_host(HostId(host_id_str))
 
         # Ensure host is started (always start since this is the start command)
-        online_host, was_started = ensure_host_started(host, is_start_desired=True, provider=provider)
-        if was_started:
-            host_start_time = time.monotonic()
-        else:
-            host_start_time = time.monotonic() - online_host.get_uptime_seconds()
+        online_host, _ = ensure_host_started(host, is_start_desired=True, provider=provider)
 
         # Start each agent on this host
         agent_ids_to_start = [match.agent_id for match in agent_list]
@@ -196,7 +257,7 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
             for agent in online_host.get_agents():
                 if agent.id == match.agent_id:
                     # Send resume message if configured
-                    _send_resume_message_if_configured(agent, output_opts, host_start_time)
+                    _send_resume_message_if_configured(agent, output_opts)
 
                     # Track for potential connect
                     if opts.connect:
@@ -224,7 +285,7 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
 _START_HELP_METADATA = CommandHelpMetadata(
     name="mngr-start",
     one_line_description="Start stopped agent(s)",
-    synopsis="mngr start [AGENTS...] [--agent <AGENT>] [--all] [--connect] [--dry-run]",
+    synopsis="mngr start [AGENTS...] [--agent <AGENT>] [--all] [--host <HOST>] [--connect] [--dry-run] [--snapshot <SNAPSHOT>]",
     description="""Start one or more stopped agents.
 
 For remote hosts, this restores from the most recent snapshot and starts

@@ -5,7 +5,6 @@ import io
 import json
 import os
 import shlex
-import subprocess
 import tempfile
 import time
 from contextlib import contextmanager
@@ -26,11 +25,13 @@ from pydantic import ValidationError
 from pyinfra.api.command import StringCommand
 from pyinfra.connectors.util import CommandOutput
 
+from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
-from imbue.mngr.agents.agent_registry import get_agent_class
-from imbue.mngr.agents.agent_registry import get_agent_config_class
+from imbue.mngr.agents.agent_registry import resolve_agent_type
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
@@ -65,6 +66,17 @@ from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import WorkDirCopyMode
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.git_utils import get_current_git_branch
+from imbue.mngr.utils.git_utils import get_git_author_info
+from imbue.mngr.utils.polling import wait_for
+
+
+def _try_acquire_flock(lock_file: io.TextIOWrapper) -> bool:
+    """Try to acquire an exclusive flock without blocking. Returns True if acquired."""
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except BlockingIOError:
+        return False
 
 
 class HostLocation(FrozenModel):
@@ -117,8 +129,8 @@ class Host(BaseHost, OnlineHostInterface):
         socket state causing "Socket is closed" errors in subsequent operations.
         """
         if self.connector.host.connected:
-            logger.trace("Disconnecting pyinfra host {}", self.id)
             self.connector.host.disconnect()
+            logger.trace("Disconnected pyinfra host {}", self.id)
 
     def _run_shell_command(
         self,
@@ -222,8 +234,25 @@ class Host(BaseHost, OnlineHostInterface):
                 if "No such file or directory" in error_msg or "cannot stat" in error_msg:
                     raise FileNotFoundError(f"File not found: {remote_filename}") from e
                 elif "Socket is closed" in str(e):
-                    self.provider_instance.on_connection_error(self.id)
-                    raise HostConnectionError("Connection was closed while reading file") from e
+                    # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
+                    try:
+                        self.connector.host.disconnect()
+                        self._ensure_connected()
+                        _result = self.connector.host.get_file(
+                            remote_filename,
+                            filename_or_io,
+                            remote_temp_filename=remote_temp_filename,
+                        )
+                    except Exception as retry_exception:
+                        self.provider_instance.on_connection_error(self.id)
+                        raise HostConnectionError(
+                            "Connection was closed while reading file (and our retry failed)"
+                        ) from retry_exception
+                    else:
+                        self.provider_instance.on_connection_error(self.id)
+                        raise HostConnectionError(
+                            "Connection was closed while reading file (but the retry worked!)"
+                        ) from e
                 else:
                     raise
         except (EOFError, SSHException) as e:
@@ -251,8 +280,25 @@ class Host(BaseHost, OnlineHostInterface):
             )
         except OSError as e:
             if "Socket is closed" in str(e):
-                self.provider_instance.on_connection_error(self.id)
-                raise HostConnectionError("Connection was closed while writing file") from e
+                # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
+                try:
+                    self.connector.host.disconnect()
+                    self._ensure_connected()
+                    _result = self.connector.host.put_file(
+                        filename_or_io,
+                        remote_filename,
+                        remote_temp_filename=remote_temp_filename,
+                    )
+                except Exception as retry_exception:
+                    self.provider_instance.on_connection_error(self.id)
+                    raise HostConnectionError(
+                        "Connection was closed while writing file (and our retry failed)"
+                    ) from retry_exception
+                else:
+                    self.provider_instance.on_connection_error(self.id)
+                    raise HostConnectionError(
+                        "Connection was closed while writing file (but the retry worked!)"
+                    ) from e
             else:
                 raise
         except (EOFError, SSHException) as e:
@@ -272,20 +318,22 @@ class Host(BaseHost, OnlineHostInterface):
         timeout_seconds: float | None = None,
     ) -> CommandResult:
         """Execute a command and return the result."""
-        logger.debug("Executing command on host {}: {}", self.id, command)
-        logger.trace("Command details: user={}, cwd={}, env={}, timeout={}", user, cwd, env, timeout_seconds)
-        success, output = self._run_shell_command(
-            StringCommand(command),
-            _su_user=user,
-            _chdir=str(cwd) if cwd else None,
-            _env=dict(env) if env else None,
-            _timeout=int(timeout_seconds) if timeout_seconds else None,
-        )
-        return CommandResult(
-            stdout=output.stdout,
-            stderr=output.stderr,
-            success=success,
-        )
+        with log_span("Executing command on host {}: {}", self.id, command):
+            logger.trace(
+                "Resolved command parameters: user={}, cwd={}, env={}, timeout={}", user, cwd, env, timeout_seconds
+            )
+            success, output = self._run_shell_command(
+                StringCommand(command),
+                _su_user=user,
+                _chdir=str(cwd) if cwd else None,
+                _env=dict(env) if env else None,
+                _timeout=int(timeout_seconds) if timeout_seconds else None,
+            )
+            return CommandResult(
+                stdout=output.stdout,
+                stderr=output.stderr,
+                success=success,
+            )
 
     def read_file(self, path: Path) -> bytes:
         """Read a file and return its contents as bytes.
@@ -449,7 +497,6 @@ class Host(BaseHost, OnlineHostInterface):
         if activity_type != ActivitySource.BOOT:
             raise InvalidActivityTypeError(f"Only BOOT activity can be recorded on host, got: {activity_type}")
 
-        logger.trace("Recording {} activity on host {}", activity_type, self.id)
         activity_path = self.host_dir / "activity" / activity_type.value.lower()
         now = datetime.now(timezone.utc)
         data = {
@@ -457,6 +504,7 @@ class Host(BaseHost, OnlineHostInterface):
             "host_id": str(self.id),
         }
         self.write_text_file(activity_path, json.dumps(data, indent=2))
+        logger.trace("Recorded {} activity on host {}", activity_type, self.id)
 
     def get_reported_activity_content(self, activity_type: ActivitySource) -> str | None:
         """Get the content of the activity file."""
@@ -488,30 +536,25 @@ class Host(BaseHost, OnlineHostInterface):
 
         lock_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        start_time = time.time()
-        elapsed_time = 0.0
-
-        logger.debug("Acquiring host lock at {}", lock_file_path)
         lock_file = open(str(lock_file_path), "w")
         try:
-            while elapsed_time <= timeout_seconds:
+            with log_span("acquiring host lock at {}", lock_file_path):
                 try:
-                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    logger.trace("Lock acquired after {:.2f}s", time.time() - start_time)
-                    break
-                except BlockingIOError:
-                    time.sleep(0.1)
-                    elapsed_time = time.time() - start_time
-            else:
-                raise LockNotHeldError(f"Failed to acquire lock within {timeout_seconds}s")
-
+                    wait_for(
+                        lambda: _try_acquire_flock(lock_file),
+                        timeout=timeout_seconds,
+                        poll_interval=0.1,
+                        error_message=f"Failed to acquire lock within {timeout_seconds}s",
+                    )
+                except TimeoutError as e:
+                    raise LockNotHeldError(str(e)) from e
             yield
         finally:
-            logger.trace("Releasing host lock")
             try:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
             finally:
                 lock_file.close()
+            logger.trace("Released host lock")
 
     def get_reported_lock_time(self) -> datetime | None:
         """Get the mtime of the lock file."""
@@ -550,7 +593,9 @@ class Host(BaseHost, OnlineHostInterface):
         certified_data = self.get_certified_data()
         existing_dirs = set(certified_data.generated_work_dirs)
         existing_dirs.add(str(work_dir))
-        updated_data = certified_data.model_copy(update={"generated_work_dirs": tuple(sorted(existing_dirs))})
+        updated_data = certified_data.model_copy_update(
+            to_update(certified_data.field_ref().generated_work_dirs, tuple(sorted(existing_dirs))),
+        )
         self.set_certified_data(updated_data)
 
     def _remove_generated_work_dir(self, work_dir: Path) -> None:
@@ -558,7 +603,9 @@ class Host(BaseHost, OnlineHostInterface):
         certified_data = self.get_certified_data()
         existing_dirs = set(certified_data.generated_work_dirs)
         existing_dirs.discard(str(work_dir))
-        updated_data = certified_data.model_copy(update={"generated_work_dirs": tuple(sorted(existing_dirs))})
+        updated_data = certified_data.model_copy_update(
+            to_update(certified_data.field_ref().generated_work_dirs, tuple(sorted(existing_dirs))),
+        )
         self.set_certified_data(updated_data)
 
     def _is_generated_work_dir(self, work_dir: Path) -> bool:
@@ -572,7 +619,9 @@ class Host(BaseHost, OnlineHostInterface):
         updated_plugin = dict(certified_data.plugin)
         updated_plugin[plugin_name] = data
 
-        updated_data = certified_data.model_copy(update={"plugin": updated_plugin})
+        updated_data = certified_data.model_copy_update(
+            to_update(certified_data.field_ref().plugin, updated_plugin),
+        )
         self.set_certified_data(updated_data)
 
     # =========================================================================
@@ -706,8 +755,8 @@ class Host(BaseHost, OnlineHostInterface):
 
     def set_tags(self, tags: Mapping[str, str]) -> None:
         """Set tags via the provider."""
-        logger.trace("Setting {} tag(s) on host {}", len(tags), self.id)
         self.provider_instance.set_host_tags(self, tags)
+        logger.trace("Set {} tag(s) on host {}", len(tags), self.id)
 
     def add_tags(self, tags: Mapping[str, str]) -> None:
         """Add tags via the provider."""
@@ -727,10 +776,9 @@ class Host(BaseHost, OnlineHostInterface):
 
     def get_agents(self) -> list[AgentInterface]:
         """Get all agents on this host."""
-        logger.trace("Loading agents from host {}", self.id)
         agents_dir = self.host_dir / "agents"
         if not self._is_directory(agents_dir):
-            logger.trace("No agents directory found for host {}", self.id)
+            logger.trace("Failed to find agents directory for host {}", self.id)
             return []
 
         agents: list[AgentInterface] = []
@@ -753,10 +801,9 @@ class Host(BaseHost, OnlineHostInterface):
         Note that we override the base method in order to read more directly from the host,
         since that data is more likely to be up-to-date.
         """
-        logger.trace("Loading agent references from host {}", self.id)
         agents_dir = self.host_dir / "agents"
         if not self._is_directory(agents_dir):
-            logger.trace("No agents directory found for host {}", self.id)
+            logger.trace("Failed to find agents directory for host {}", self.id)
             return []
 
         agent_refs: list[AgentReference] = []
@@ -787,21 +834,16 @@ class Host(BaseHost, OnlineHostInterface):
         try:
             content = self.read_text_file(data_path)
         except FileNotFoundError:
-            logger.trace("Agent data file not found at {}", data_path)
+            logger.trace("Failed to find agent data file at {}", data_path)
             return None
 
         data = json.loads(content)
         logger.trace("Loaded agent {} from {}", data.get("name"), agent_dir)
 
         agent_type = AgentTypeName(data["type"])
-        agent_class = get_agent_class(str(agent_type))
-        config_class = get_agent_config_class(str(agent_type))
+        resolved = resolve_agent_type(agent_type, self.mngr_ctx.config)
 
-        agent_config = self.mngr_ctx.config.agent_types.get(agent_type)
-        if agent_config is None:
-            agent_config = config_class()
-
-        return cast(type[BaseAgent], agent_class)(
+        return cast(type[BaseAgent], resolved.agent_class)(
             id=AgentId(data["id"]),
             name=AgentName(data["name"]),
             agent_type=agent_type,
@@ -810,7 +852,7 @@ class Host(BaseHost, OnlineHostInterface):
             host_id=self.id,
             host=self,
             mngr_ctx=self.mngr_ctx,
-            agent_config=agent_config,
+            agent_config=resolved.agent_config,
         )
 
     def create_agent_work_dir(
@@ -821,13 +863,13 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> Path:
         """Create the work_dir directory for a new agent."""
         copy_mode = options.git.copy_mode if options.git else WorkDirCopyMode.COPY
-        logger.debug("Creating agent work directory", copy_mode=str(copy_mode))
-        if copy_mode == WorkDirCopyMode.WORKTREE:
-            return self._create_work_dir_as_git_worktree(host, path, options)
-        elif copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE):
-            return self._create_work_dir_as_copy(host, path, options)
-        else:
-            raise SwitchError(f"Unsupported work dir copy mode: {copy_mode}")
+        with log_span("Creating agent work directory", copy_mode=str(copy_mode)):
+            if copy_mode == WorkDirCopyMode.WORKTREE:
+                return self._create_work_dir_as_git_worktree(host, path, options)
+            elif copy_mode in (WorkDirCopyMode.COPY, WorkDirCopyMode.CLONE):
+                return self._create_work_dir_as_copy(host, path, options)
+            else:
+                raise SwitchError(f"Unsupported work dir copy mode: {copy_mode}")
 
     def _create_work_dir_as_copy(
         self,
@@ -856,7 +898,7 @@ class Host(BaseHost, OnlineHostInterface):
 
         # If source and target are same path on same host, nothing to transfer
         if source_is_same_host and source_path == target_path:
-            logger.debug("Source and target are the same path, no file transfer needed")
+            logger.debug("Skipped file transfer: source and target are the same path")
             return target_path
 
         # Check if source has a .git directory
@@ -909,7 +951,7 @@ class Host(BaseHost, OnlineHostInterface):
         if options.git and options.git.base_branch:
             base_branch_name = options.git.base_branch
         elif source_host.is_local:
-            base_branch_name = get_current_git_branch(source_path) or "main"
+            base_branch_name = get_current_git_branch(source_path, self.mngr_ctx.cg) or "main"
         else:
             result = source_host.execute_command(
                 "git rev-parse --abbrev-ref HEAD",
@@ -917,41 +959,63 @@ class Host(BaseHost, OnlineHostInterface):
             )
             base_branch_name = result.stdout.strip() if result.success else "main"
 
-        logger.debug(
+        # Get git author info from source repo
+        if source_host.is_local:
+            git_author_name, git_author_email = get_git_author_info(source_path, self.mngr_ctx.cg)
+        else:
+            name_result = source_host.execute_command("git config user.name", cwd=source_path)
+            email_result = source_host.execute_command("git config user.email", cwd=source_path)
+            git_author_name = (
+                name_result.stdout.strip() if name_result.success and name_result.stdout.strip() else None
+            )
+            git_author_email = (
+                email_result.stdout.strip() if email_result.success and email_result.stdout.strip() else None
+            )
+
+        with log_span(
             "Transferring git repository",
             source=str(source_path),
             target=str(target_path),
             base_branch=base_branch_name,
             new_branch=new_branch_name,
-        )
+        ):
+            # Check if target already has a .git directory
+            if self.is_local:
+                target_has_git = (target_path / ".git").exists()
+            else:
+                result = self.execute_command(f"test -d {shlex.quote(str(target_path / '.git'))}")
+                target_has_git = result.success
 
-        # Check if target already has a .git directory
-        if self.is_local:
-            target_has_git = (target_path / ".git").exists()
-        else:
-            result = self.execute_command(f"test -d {shlex.quote(str(target_path / '.git'))}")
-            target_has_git = result.success
+            if target_has_git:
+                logger.trace("Skipped git repo initialization: target already has .git")
+            else:
+                with log_span("Initializing bare git repo on target"):
+                    result = self.execute_command(
+                        f"git init --bare {shlex.quote(str(target_path / '.git'))} && git config --global --add safe.directory {target_path}"
+                    )
+                    if not result.success:
+                        raise MngrError(f"Failed to initialize git repo on target: {result.stderr}")
 
-        if target_has_git:
-            logger.debug("Target already has .git")
-        else:
-            logger.debug("Initializing bare git repo on target")
-            result = self.execute_command(
-                f"git init --bare {shlex.quote(str(target_path / '.git'))} && git config --global --add safe.directory {target_path}"
-            )
-            if not result.success:
-                raise MngrError(f"Failed to initialize git repo on target: {result.stderr}")
+            self._git_push_to_target(source_host, source_path, target_path)
 
-        self._git_push_to_target(source_host, source_path, target_path)
+            with log_span("Configuring target git repo"):
+                config_commands = [
+                    "git config --bool core.bare false",
+                    f"git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch_name)}",
+                ]
+                if git_author_name:
+                    config_commands.append(f"git config user.name {shlex.quote(git_author_name)}")
+                if git_author_email:
+                    config_commands.append(f"git config user.email {shlex.quote(git_author_email)}")
+                result = self.execute_command(
+                    " && ".join(config_commands),
+                    cwd=target_path,
+                )
+                if not result.success:
+                    raise MngrError(f"Failed to configure git repo on target: {result.stderr}")
 
-        logger.debug("Configuring target git repo")
-        result = self.execute_command(
-            f"git config --bool core.bare false && git checkout -B {shlex.quote(new_branch_name)} {shlex.quote(base_branch_name)}",
-            cwd=target_path,
-        )
-        if not result.success:
-            raise MngrError(f"Failed to configure git repo on target: {result.stderr}")
-
+    # FIXME: we should probably warn if we detect any submodules (eg, .git folders inside of here)
+    #  Submodules are *not* supported right now, and we wouldn't want the user thinking they were
     def _git_push_to_target(
         self,
         source_host: OnlineHostInterface,
@@ -969,19 +1033,18 @@ class Host(BaseHost, OnlineHostInterface):
                 if source_ssh_info is None:
                     raise MngrError("Cannot determine SSH connection info for remote source host")
                 user, hostname, port, key_path = source_ssh_info
-                logger.debug("Fetching from remote source to local target")
-                git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
-                env = {"GIT_SSH_COMMAND": git_ssh_cmd}
-                remote_url = f"ssh://{user}@{hostname}:{port}{source_path}/.git"
-                result = subprocess.run(
-                    ["git", "clone", "--mirror", remote_url, str(target_path / ".git")],
-                    capture_output=True,
-                    text=True,
-                    env={**os.environ, **env},
-                )
-                if result.returncode != 0:
-                    raise MngrError(f"Failed to clone from remote source: {result.stderr}")
-                return
+                with log_span("Fetching from remote source to local target"):
+                    git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
+                    env = {"GIT_SSH_COMMAND": git_ssh_cmd}
+                    remote_url = f"ssh://{user}@{hostname}:{port}{source_path}/.git"
+                    try:
+                        self.mngr_ctx.cg.run_process_to_completion(
+                            ["git", "clone", "--mirror", remote_url, str(target_path / ".git")],
+                            env={**os.environ, **env},
+                        )
+                    except ProcessError as e:
+                        raise MngrError(f"Failed to clone from remote source: {e.stderr}") from e
+                    return
         else:
             user, hostname, port, key_path = target_ssh_info
             git_url = f"ssh://{user}@{hostname}:{port}{target_path}/.git"
@@ -989,28 +1052,26 @@ class Host(BaseHost, OnlineHostInterface):
         # FIXME: this whole block is a bit duplicated. Refactor to do the same thing, but assemble the args a bit more coherently
         #  For example, the reason we need --no-verify is to skip any hooks, since they can sometimes fail
         if source_host.is_local:
-            logger.debug("Pushing git repo to target: {}", git_url)
-            env: dict[str, str] = {}
-            if target_ssh_info is not None:
-                user, hostname, port, key_path = target_ssh_info
-                git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
-                env["GIT_SSH_COMMAND"] = git_ssh_cmd
+            with log_span("Pushing git repo to target: {}", git_url):
+                env: dict[str, str] = {}
+                if target_ssh_info is not None:
+                    user, hostname, port, key_path = target_ssh_info
+                    git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
+                    env["GIT_SSH_COMMAND"] = git_ssh_cmd
 
-            # don't bother pushing LFS objects - they can be transferred later as needed,
-            # and without this, it can take a ridiculously long time.
-            env["GIT_LFS_SKIP_PUSH"] = "1"
+                # don't bother pushing LFS objects - they can be transferred later as needed,
+                # and without this, it can take a ridiculously long time.
+                env["GIT_LFS_SKIP_PUSH"] = "1"
 
-            command_args = ["git", "-C", str(source_path), "push", "--no-verify", "--mirror", git_url]
-            logger.trace(" ".join(command_args))
-            logger.trace("Running git push --mirror from local source to target with env: {}", env)
-            result = subprocess.run(
-                command_args,
-                capture_output=True,
-                text=True,
-                env={**os.environ, **env} if env else None,
-            )
-            if result.returncode != 0:
-                raise MngrError(f"Failed to push git repo: {result.stderr}")
+                command_args = ["git", "-C", str(source_path), "push", "--no-verify", "--mirror", git_url]
+                try:
+                    self.mngr_ctx.cg.run_process_to_completion(
+                        command_args,
+                        env={**os.environ, **env} if env else None,
+                    )
+                except ProcessError as e:
+                    raise MngrError(f"Failed to push git repo: {e.stderr}") from e
+                logger.trace("Ran git push --mirror from local source to target: {}", " ".join(command_args))
         else:
             if target_ssh_info is not None:
                 user, hostname, port, key_path = target_ssh_info
@@ -1040,12 +1101,10 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_unclean = options.git.is_include_unclean if options.git else True
         if is_include_unclean:
             if source_host.is_local:
-                result = subprocess.run(
-                    ["git", "-C", str(source_path), "status", "--porcelain"],
-                    capture_output=True,
-                    text=True,
-                )
-                if result.returncode == 0:
+                try:
+                    result = self.mngr_ctx.cg.run_process_to_completion(
+                        ["git", "-C", str(source_path), "status", "--porcelain"],
+                    )
                     for line in result.stdout.split("\n"):
                         if line:
                             # git status --porcelain format: "XY filename" (2 status chars + space + filename)
@@ -1053,6 +1112,8 @@ class Host(BaseHost, OnlineHostInterface):
                             if " -> " in filename:
                                 filename = filename.split(" -> ")[1]
                             files_to_include.append(filename)
+                except ProcessError as e:
+                    logger.trace("git status --porcelain failed, skipping unclean files: {}", e)
             else:
                 result = source_host.execute_command("git status --porcelain", cwd=source_path)
                 if result.success:
@@ -1067,15 +1128,15 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_gitignored = options.git.is_include_gitignored if options.git else False
         if is_include_gitignored:
             if source_host.is_local:
-                result = subprocess.run(
-                    ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
-                    capture_output=True,
-                    text=True,
-                )
-                if result.returncode == 0:
+                try:
+                    result = self.mngr_ctx.cg.run_process_to_completion(
+                        ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
+                    )
                     for line in result.stdout.split("\n"):
                         if line:
                             files_to_include.append(line)
+                except ProcessError as e:
+                    logger.trace("git ls-files failed, skipping gitignored files: {}", e)
             else:
                 result = source_host.execute_command(
                     "git ls-files --others --ignored --exclude-standard",
@@ -1089,21 +1150,20 @@ class Host(BaseHost, OnlineHostInterface):
         files_to_include = list(set(files_to_include))
 
         if not files_to_include:
-            logger.debug("No extra files to transfer")
+            logger.debug("Skipped extra file transfer: no files to transfer")
             return
 
-        logger.debug("Transferring extra files", count=len(files_to_include))
+        with log_span("Transferring extra files", count=len(files_to_include)):
+            # Write files to a temp file to avoid command line length limits
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+                files_from_path = Path(f.name)
+                for file_path in files_to_include:
+                    f.write(file_path + "\n")
 
-        # Write files to a temp file to avoid command line length limits
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            files_from_path = Path(f.name)
-            for file_path in files_to_include:
-                f.write(file_path + "\n")
-
-        try:
-            self._rsync_files(source_host, source_path, target_path, files_from=files_from_path, exclude_git=True)
-        finally:
-            files_from_path.unlink(missing_ok=True)
+            try:
+                self._rsync_files(source_host, source_path, target_path, files_from=files_from_path, exclude_git=True)
+            finally:
+                files_from_path.unlink(missing_ok=True)
 
     def _rsync_files(
         self,
@@ -1135,24 +1195,24 @@ class Host(BaseHost, OnlineHostInterface):
 
         if source_host.is_local and self.is_local:
             # Local to local
-            logger.debug("rsync: local to local")
             rsync_args.extend([source_path_str, target_path_str])
+            rsync_description = "rsync: local to local"
         elif source_host.is_local and not self.is_local:
             # Local to remote
             target_ssh_info = self._get_ssh_connection_info()
             assert target_ssh_info is not None
             user, hostname, port, key_path = target_ssh_info
-            logger.debug("rsync: local to remote {}@{}:{}", user, hostname, port)
             rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
             rsync_args.extend([source_path_str, f"{user}@{hostname}:{target_path_str}"])
+            rsync_description = f"rsync: local to remote {user}@{hostname}:{port}"
         elif not source_host.is_local and self.is_local:
             # Remote to local
             source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
             assert source_ssh_info is not None
             user, hostname, port, key_path = source_ssh_info
-            logger.debug("rsync: remote to local {}@{}:{}", user, hostname, port)
             rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
             rsync_args.extend([f"{user}@{hostname}:{source_path_str}", target_path_str])
+            rsync_description = f"rsync: remote to local {user}@{hostname}:{port}"
         else:
             # FIXME: we could implement this, but would need to support a few options:
             #  1. slow, safe: sync locally, then sync to target
@@ -1160,10 +1220,12 @@ class Host(BaseHost, OnlineHostInterface):
             #  3. fast, unsafe: forward SSH auth from source to target (requires SSH agent forwarding), then sync between them
             raise NotImplementedError("rsync between two remote hosts is not supported right now")
 
-        logger.trace(" ".join(rsync_args))
-        result = subprocess.run(rsync_args, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise MngrError(f"rsync failed: {result.stderr}")
+        with log_span("{}", rsync_description):
+            try:
+                self.mngr_ctx.cg.run_process_to_completion(rsync_args)
+            except ProcessError as e:
+                raise MngrError(f"rsync failed: {e.stderr}") from e
+            logger.trace("Ran rsync command: {}", " ".join(rsync_args))
 
     def _create_work_dir_as_git_worktree(
         self,
@@ -1171,33 +1233,36 @@ class Host(BaseHost, OnlineHostInterface):
         source_path: Path,
         options: CreateAgentOptions,
     ) -> Path:
-        """Create a work_dir using git worktree."""
+        """Create a work_dir using git worktree.
+
+        Worktrees are placed at ~/.mngr/worktrees/<agent-id>/ by default.
+        """
         if host.id != self.id:
             raise UserInputError("Worktree mode only works when source is on the same host")
 
         agent_id = AgentId.generate()
-        work_dir_path = options.target_path
-        if work_dir_path is None:
-            work_dir_path = self.host_dir / "worktrees" / str(agent_id)
 
-        self._mkdir(work_dir_path.parent)
+        if options.target_path is not None:
+            work_dir_path = options.target_path
+        else:
+            work_dir_path = self.host_dir / "worktrees" / str(agent_id)
 
         branch_name = self._determine_branch_name(options)
 
-        logger.debug("Creating git worktree", path=str(work_dir_path), branch=branch_name)
-        cmd = f"git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
+        with log_span("Creating git worktree", path=str(work_dir_path), branch=branch_name):
+            cmd = f"mkdir -p {work_dir_path.parent} && git -C {shlex.quote(str(source_path))} worktree add {shlex.quote(str(work_dir_path))} -b {shlex.quote(branch_name)}"
 
-        if options.git and options.git.base_branch:
-            cmd += f" {shlex.quote(options.git.base_branch)}"
+            if options.git and options.git.base_branch:
+                cmd += f" {shlex.quote(options.git.base_branch)}"
 
-        result = self.execute_command(cmd)
-        if not result.success:
-            raise MngrError(f"Failed to create git worktree: {result.stderr}")
+            result = self.execute_command(cmd)
+            if not result.success:
+                raise MngrError(f"Failed to create git worktree: {result.stderr}")
 
-        # Track generated work directories at the host level
-        self._add_generated_work_dir(work_dir_path)
+            # Track generated work directories at the host level
+            self._add_generated_work_dir(work_dir_path)
 
-        return work_dir_path
+            return work_dir_path
 
     def _determine_branch_name(self, options: CreateAgentOptions) -> str:
         """Determine the branch name for a new work_dir."""
@@ -1219,71 +1284,66 @@ class Host(BaseHost, OnlineHostInterface):
         agent_id = AgentId.generate()
         agent_name = options.name or AgentName(f"agent-{str(agent_id)}")
         agent_type = options.agent_type or AgentTypeName("claude")
-        logger.debug(
+        with log_span(
             "Creating agent state",
             agent_id=str(agent_id),
             agent_name=str(agent_name),
             agent_type=str(agent_type),
-        )
+        ):
+            resolved = resolve_agent_type(agent_type, self.mngr_ctx.config)
 
-        agent_class = get_agent_class(str(agent_type))
-        config_class = get_agent_config_class(str(agent_type))
+            state_dir = self.host_dir / "agents" / str(agent_id)
+            self._mkdirs([state_dir, state_dir / "logs", state_dir / "events"])
 
-        agent_config = self.mngr_ctx.config.agent_types.get(agent_type)
-        if agent_config is None:
-            agent_config = config_class()
+            create_time = datetime.now(timezone.utc)
 
-        state_dir = self.host_dir / "agents" / str(agent_id)
-        self._mkdirs([state_dir, state_dir / "logs", state_dir / "events"])
+            agent = cast(type[BaseAgent], resolved.agent_class)(
+                id=agent_id,
+                name=agent_name,
+                agent_type=agent_type,
+                work_dir=work_dir_path,
+                create_time=create_time,
+                host_id=self.id,
+                host=self,
+                mngr_ctx=self.mngr_ctx,
+                agent_config=resolved.agent_config,
+            )
 
-        create_time = datetime.now(timezone.utc)
+            command = agent.assemble_command(
+                host=self,
+                agent_args=options.agent_args,
+                command_override=options.command,
+            )
+            command_str = str(command)
 
-        agent = cast(type[BaseAgent], agent_class)(
-            id=agent_id,
-            name=agent_name,
-            agent_type=agent_type,
-            work_dir=work_dir_path,
-            create_time=create_time,
-            host_id=self.id,
-            host=self,
-            mngr_ctx=self.mngr_ctx,
-            agent_config=agent_config,
-        )
+            data = {
+                "id": str(agent_id),
+                "name": str(agent_name),
+                "type": str(agent_type),
+                "work_dir": str(work_dir_path),
+                "create_time": create_time.isoformat(),
+                "command": command_str,
+                "additional_commands": [
+                    {"command": str(cmd.command), "window_name": cmd.window_name}
+                    for cmd in options.additional_commands
+                ],
+                "initial_message": options.initial_message,
+                "resume_message": options.resume_message,
+                "ready_timeout_seconds": options.ready_timeout_seconds,
+                "permissions": [],
+                "start_on_boot": False,
+            }
 
-        command = agent.assemble_command(
-            host=self,
-            agent_args=options.agent_args,
-            command_override=options.command,
-        )
-        command_str = str(command)
+            data_path = state_dir / "data.json"
+            self.write_text_file(data_path, json.dumps(data, indent=2))
 
-        data = {
-            "id": str(agent_id),
-            "name": str(agent_name),
-            "type": str(agent_type),
-            "work_dir": str(work_dir_path),
-            "create_time": create_time.isoformat(),
-            "command": command_str,
-            "additional_commands": [
-                {"command": str(cmd.command), "window_name": cmd.window_name} for cmd in options.additional_commands
-            ],
-            "initial_message": options.initial_message,
-            "resume_message": options.resume_message,
-            "message_delay_seconds": options.message_delay_seconds,
-            "permissions": [],
-            "start_on_boot": False,
-        }
+            # Persist agent data to external storage (e.g., Modal volume)
+            self.provider_instance.persist_agent_data(self.id, data)
 
-        data_path = state_dir / "data.json"
-        self.write_text_file(data_path, json.dumps(data, indent=2))
+            # Record CREATE activity for idle detection
+            agent.record_activity(ActivitySource.CREATE)
 
-        # Persist agent data to external storage (e.g., Modal volume)
-        self.provider_instance.persist_agent_data(self.id, data)
-
-        # Record CREATE activity for idle detection
-        agent.record_activity(ActivitySource.CREATE)
-
-        return agent
+            return agent
 
     def _get_agent_state_dir(self, agent: AgentInterface) -> Path:
         """Get the state directory for an agent."""
@@ -1308,7 +1368,8 @@ class Host(BaseHost, OnlineHostInterface):
 
         Later sources override earlier ones.
 
-        Note: pass_env_vars is handled at the CLI level before this is called.
+        Note: pass_env_vars is resolved at the CLI level before this is called,
+        and merged into env_vars with explicit env_vars taking precedence.
         """
         env_vars: dict[str, str] = {}
 
@@ -1394,22 +1455,24 @@ class Host(BaseHost, OnlineHostInterface):
         12. Call agent.on_after_provisioning() (finalization)
         """
         # 1. Call pre-provisioning validation on agent
-        logger.debug("Calling on_before_provisioning for agent {}", agent.name)
-        agent.on_before_provisioning(host=self, options=options, mngr_ctx=mngr_ctx)
+        with log_span("Calling on_before_provisioning for agent {}", agent.name):
+            agent.on_before_provisioning(host=self, options=options, mngr_ctx=mngr_ctx)
 
         # 2. Collect file transfers from agent
-        logger.debug("Collecting file transfers for agent {}", agent.name)
-        all_file_transfers = list(agent.get_provision_file_transfers(host=self, options=options, mngr_ctx=mngr_ctx))
+        with log_span("Collecting file transfers for agent {}", agent.name):
+            all_file_transfers = list(
+                agent.get_provision_file_transfers(host=self, options=options, mngr_ctx=mngr_ctx)
+            )
 
         # 3. Validate required files exist and execute transfers
         self._execute_agent_file_transfers(agent, all_file_transfers)
 
         # 4. Call agent.provision() for agent-type-specific provisioning
-        logger.debug("Calling provision for agent {}", agent.name)
-        agent.provision(host=self, options=options, mngr_ctx=mngr_ctx)
+        with log_span("Calling provision for agent {}", agent.name):
+            agent.provision(host=self, options=options, mngr_ctx=mngr_ctx)
 
         provisioning = options.provisioning
-        logger.debug(
+        with log_span(
             "Applying user provisioning commands",
             agent_name=str(agent.name),
             dirs=len(provisioning.create_directories),
@@ -1418,54 +1481,53 @@ class Host(BaseHost, OnlineHostInterface):
             prepends=len(provisioning.prepend_to_files),
             sudo_cmds=len(provisioning.sudo_commands),
             user_cmds=len(provisioning.user_commands),
-        )
+        ):
+            # 5. Create directories
+            for directory in provisioning.create_directories:
+                self._mkdir(directory)
+                logger.trace("Created directory: {}", directory)
 
-        # 5. Create directories
-        for directory in provisioning.create_directories:
-            logger.trace("Creating directory: {}", directory)
-            self._mkdir(directory)
+            # 6. Upload files (read from local filesystem, write to host)
+            for upload_spec in provisioning.upload_files:
+                # Read from local filesystem (not via host primitives)
+                local_content = upload_spec.local_path.read_bytes()
+                self.write_file(upload_spec.remote_path, local_content)
+                logger.trace("Uploaded file: {} -> {}", upload_spec.local_path, upload_spec.remote_path)
 
-        # 6. Upload files (read from local filesystem, write to host)
-        for upload_spec in provisioning.upload_files:
-            logger.trace("Uploading file: {} -> {}", upload_spec.local_path, upload_spec.remote_path)
-            # Read from local filesystem (not via host primitives)
-            local_content = upload_spec.local_path.read_bytes()
-            self.write_file(upload_spec.remote_path, local_content)
+            # 7. Append text to files
+            for append_spec in provisioning.append_to_files:
+                self._append_to_file(append_spec.remote_path, append_spec.text)
+                logger.trace("Appended to file: {}", append_spec.remote_path)
 
-        # 7. Append text to files
-        for append_spec in provisioning.append_to_files:
-            logger.trace("Appending to file: {}", append_spec.remote_path)
-            self._append_to_file(append_spec.remote_path, append_spec.text)
+            # 8. Prepend text to files
+            for prepend_spec in provisioning.prepend_to_files:
+                self._prepend_to_file(prepend_spec.remote_path, prepend_spec.text)
+                logger.trace("Prepended to file: {}", prepend_spec.remote_path)
 
-        # 8. Prepend text to files
-        for prepend_spec in provisioning.prepend_to_files:
-            logger.trace("Prepending to file: {}", prepend_spec.remote_path)
-            self._prepend_to_file(prepend_spec.remote_path, prepend_spec.text)
+            # 9. Write environment variables to agent env file
+            env_vars = self._collect_agent_env_vars(agent, options)
+            self._write_agent_env_file(agent, env_vars)
 
-        # 9. Write environment variables to agent env file
-        env_vars = self._collect_agent_env_vars(agent, options)
-        self._write_agent_env_file(agent, env_vars)
+            # Build the source prefix for commands (sources host env, then agent env)
+            source_prefix = self._build_source_env_prefix(agent)
 
-        # Build the source prefix for commands (sources host env, then agent env)
-        source_prefix = self._build_source_env_prefix(agent)
+            # 10. Run sudo commands (with env vars sourced)
+            for cmd in provisioning.sudo_commands:
+                result = self._run_sudo_command(source_prefix + cmd)
+                logger.trace("Ran sudo command: {}", cmd)
+                if not result.success:
+                    raise MngrError(f"Sudo command failed: {cmd}\nstderr: {result.stderr}")
 
-        # 10. Run sudo commands (with env vars sourced)
-        for cmd in provisioning.sudo_commands:
-            logger.trace("Running sudo command: {}", cmd)
-            result = self._run_sudo_command(source_prefix + cmd)
-            if not result.success:
-                raise MngrError(f"Sudo command failed: {cmd}\nstderr: {result.stderr}")
-
-        # 11. Run user commands (with env vars sourced)
-        for cmd in provisioning.user_commands:
-            logger.trace("Running user command: {}", cmd)
-            result = self.execute_command(source_prefix + cmd, cwd=agent.work_dir)
-            if not result.success:
-                raise MngrError(f"User command failed: {cmd}\nstderr: {result.stderr}")
+            # 11. Run user commands (with env vars sourced)
+            for cmd in provisioning.user_commands:
+                result = self.execute_command(source_prefix + cmd, cwd=agent.work_dir)
+                logger.trace("Ran user command: {}", cmd)
+                if not result.success:
+                    raise MngrError(f"User command failed: {cmd}\nstderr: {result.stderr}")
 
         # 12. Call post-provisioning on agent
-        logger.debug("Calling on_after_provisioning for agent {}", agent.name)
-        agent.on_after_provisioning(host=self, options=options, mngr_ctx=mngr_ctx)
+        with log_span("Calling on_after_provisioning for agent {}", agent.name):
+            agent.on_after_provisioning(host=self, options=options, mngr_ctx=mngr_ctx)
 
     def _execute_agent_file_transfers(
         self,
@@ -1493,15 +1555,15 @@ class Host(BaseHost, OnlineHostInterface):
         for transfer in transfers:
             if not transfer.local_path.exists():
                 # Optional file doesn't exist, skip it
-                logger.trace("Skipping optional file transfer (file not found): {}", transfer.local_path)
+                logger.trace("Skipped optional file transfer (file not found): {}", transfer.local_path)
                 continue
 
             # Resolve relative remote paths to work_dir
             remote_path = agent.work_dir / transfer.agent_path
 
-            logger.trace("Agent file transfer: {} -> {}", transfer.local_path, remote_path)
             local_content = transfer.local_path.read_bytes()
             self.write_file(remote_path, local_content)
+            logger.trace("Transferred agent file: {} -> {}", transfer.local_path, remote_path)
 
     def _append_to_file(self, path: Path, text: str) -> None:
         """Append text to a file, creating it if it doesn't exist."""
@@ -1533,13 +1595,16 @@ class Host(BaseHost, OnlineHostInterface):
 
     def destroy_agent(self, agent: AgentInterface) -> None:
         """Destroy an agent and clean up its resources."""
-        logger.debug("Destroying agent", agent_id=str(agent.id), agent_name=str(agent.name))
-        self.stop_agents([agent.id])
-        state_dir = self.host_dir / "agents" / str(agent.id)
-        self._remove_directory(state_dir)
+        with log_span("Destroying agent", agent_id=str(agent.id), agent_name=str(agent.name)):
+            try:
+                agent.on_destroy(self)
+            finally:
+                self.stop_agents([agent.id])
+                state_dir = self.host_dir / "agents" / str(agent.id)
+                self._remove_directory(state_dir)
 
-        # Remove persisted agent data from external storage (e.g., Modal volume)
-        self.provider_instance.remove_persisted_agent_data(self.id, agent.id)
+                # Remove persisted agent data from external storage (e.g., Modal volume)
+                self.provider_instance.remove_persisted_agent_data(self.id, agent.id)
 
     def _build_env_shell_command(self, agent: AgentInterface) -> str:
         """Build a shell command that sources env files and then execs bash.
@@ -1566,12 +1631,18 @@ class Host(BaseHost, OnlineHostInterface):
         The config:
         1. Sources the user's default tmux config if it exists (~/.tmux.conf)
         2. Adds a Ctrl-q binding that detaches and destroys the current agent
-        3. Adds a Ctrl-s binding that detaches and stops the current agent
+        3. Adds a Ctrl-t binding that detaches and stops the current agent
 
         This uses the tmux session_name format variable in the commands,
         which expands to the current session name at runtime. This approach
         works correctly even when multiple agents share a tmux server, because
         each session's binding correctly references its own session name.
+
+        For local hosts, the bindings directly exec into `mngr destroy`/`mngr stop`
+        via `tmux detach-client -E`. For remote hosts, the bindings write a signal
+        file (containing "destroy" or "stop") and detach normally. The SSH wrapper
+        script checks for these signal files after tmux exits and returns an exit
+        code that the local mngr process uses to run the appropriate command.
 
         Returns the path to the created config file.
         """
@@ -1587,17 +1658,43 @@ class Host(BaseHost, OnlineHostInterface):
             "# Source user's default tmux config if it exists",
             "if-shell 'test -f ~/.tmux.conf' 'source-file ~/.tmux.conf'",
             "",
-            "# Ctrl-q: Detach and destroy the agent whose session this is",
-            """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'""",
-            "",
-            "# Ctrl-@: Detach and stop the agent whose session this is",
-            """bind -n C-@ run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
-            "",
-            # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
-            "# Automatically signal claude to tell it to resize on client attach",
-            """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'""",
-            "",
         ]
+
+        if self.is_local:
+            # Local hosts: detach and exec into mngr destroy/stop directly
+            lines.extend(
+                [
+                    "# Ctrl-q: Detach and destroy the agent whose session this is",
+                    """bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr destroy --session $SESSION -f"'""",
+                    "",
+                    "# Ctrl-t: Detach and stop the agent whose session this is",
+                    """bind -n C-t run-shell 'SESSION=$(tmux display-message -p "#{session_name}"); tmux detach-client -E "mngr stop --session $SESSION"'""",
+                ]
+            )
+        else:
+            # Remote hosts: write a signal file and detach. The SSH wrapper script
+            # reads the signal file after tmux exits and returns an exit code that
+            # the local mngr process uses to run the appropriate command.
+            signals_dir = self.host_dir / "signals"
+            lines.extend(
+                [
+                    "# Ctrl-q: Write destroy signal and detach (handled by local mngr after SSH exits)",
+                    f"""bind -n C-q run-shell 'SESSION=$(tmux display-message -p "#{{session_name}}"); mkdir -p {shlex.quote(str(signals_dir))}; echo destroy > {shlex.quote(str(signals_dir))}/"$SESSION"; tmux detach-client'""",
+                    "",
+                    "# Ctrl-t: Write stop signal and detach (handled by local mngr after SSH exits)",
+                    f"""bind -n C-t run-shell 'SESSION=$(tmux display-message -p "#{{session_name}}"); mkdir -p {shlex.quote(str(signals_dir))}; echo stop > {shlex.quote(str(signals_dir))}/"$SESSION"; tmux detach-client'""",
+                ]
+            )
+
+        lines.extend(
+            [
+                "",
+                # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
+                "# Automatically signal claude to tell it to resize on client attach",
+                """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'""",
+                "",
+            ]
+        )
         config_content = "\n".join(lines)
 
         self.write_text_file(config_path, config_content)
@@ -1621,163 +1718,42 @@ class Host(BaseHost, OnlineHostInterface):
         A custom tmux config is used that:
         - Sources the user's default ~/.tmux.conf if it exists
         - Adds a Ctrl-q binding to detach and destroy the current agent
-        - Adds a Ctrl-@ binding to detach and halt (stop) the current agent
+        - Adds a Ctrl-t binding to detach and halt (stop) the current agent
+
+        All tmux commands, activity recording, and process monitor launch for
+        each agent are batched into a single shell command to minimize network
+        and process round trips (important for remote hosts).
         """
-        logger.debug("Starting {} agent(s)", len(agent_ids))
+        with log_span("Starting {} agent(s)", len(agent_ids)):
+            # Create the host-level tmux config (shared by all agents on this host)
+            # This avoids the issue where per-agent configs would overwrite each other's
+            # Ctrl-q bindings since tmux key bindings are server-wide
+            tmux_config_path = self._create_host_tmux_config()
 
-        # Create the host-level tmux config (shared by all agents on this host)
-        # This avoids the issue where per-agent configs would overwrite each other's
-        # Ctrl-q bindings since tmux key bindings are server-wide
-        tmux_config_path = self._create_host_tmux_config()
+            for agent_id in agent_ids:
+                agent = self._get_agent_by_id(agent_id)
+                if agent is None:
+                    raise AgentNotFoundOnHostError(agent_id, self.id)
 
-        for agent_id in agent_ids:
-            agent = self._get_agent_by_id(agent_id)
-            if agent is None:
-                raise AgentNotFoundOnHostError(agent_id, self.id)
+                command = self._get_agent_command(agent)
+                additional_commands = self._get_agent_additional_commands(agent)
 
-            command = self._get_agent_command(agent)
-            additional_commands = self._get_agent_additional_commands(agent)
-
-            session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
-            logger.debug("Starting agent {} in tmux session {}", agent.name, session_name)
-
-            # Build a shell command that sources env files and execs bash
-            # This ensures the tmux session's shell has the env vars set
-            env_shell_cmd = self._build_env_shell_command(agent)
-
-            # Build unset environment variable arguments
-            unset_env_args = ""
-            for var_name in self.mngr_ctx.config.unset_vars:
-                unset_env_args += f"unset {shlex.quote(var_name)} && "
-
-            # Create a tmux session with a shell that has env vars sourced
-            # The shell-command argument makes tmux start with our custom bash
-            # that sources the env files before becoming an interactive shell
-            # The -f flag specifies our custom tmux config with the exit hotkey binding
-            # Note: env_shell_cmd must be quoted so it's passed as a single argument to tmux
-            # The -d flag creates a detached session; tmux returns after the session is created
-            result = self.execute_command(
-                f"{unset_env_args}tmux -f {shlex.quote(str(tmux_config_path))} new-session -d -s '{session_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
-            )
-            if not result.success:
-                raise AgentStartError(str(agent.name), f"tmux new-session failed: {result.stderr}")
-
-            # Set the session's default-command so any new window/pane created
-            # by the user will automatically source the env files
-            # Note: env_shell_cmd needs to be quoted as a single argument for tmux
-            result = self.execute_command(
-                f"tmux set-option -t '{session_name}' default-command {shlex.quote(env_shell_cmd)}"
-            )
-            if not result.success:
-                raise AgentStartError(str(agent.name), f"tmux set-option failed: {result.stderr}")
-
-            # Send the command as literal keys (tmux will handle escaping)
-            # Using -l flag to send literal characters
-            result = self.execute_command(f"tmux send-keys -t '{session_name}' -l {shlex.quote(command)}")
-            if not result.success:
-                raise AgentStartError(str(agent.name), f"tmux send-keys failed: {result.stderr}")
-
-            # Send Enter to execute the command
-            result = self.execute_command(f"tmux send-keys -t '{session_name}' Enter")
-            if not result.success:
-                raise AgentStartError(str(agent.name), f"tmux send-keys Enter failed: {result.stderr}")
-
-            # Create additional windows for each additional command
-            for idx, named_cmd in enumerate(additional_commands):
-                window_name = named_cmd.window_name if named_cmd.window_name else f"cmd-{idx + 1}"
-                logger.debug(
-                    "Creating additional tmux window {} for command: {}",
-                    window_name,
-                    named_cmd.command,
-                )
-
-                # Create a new window with a shell that has env vars sourced
-                # Note: env_shell_cmd must be quoted so it's passed as a single argument to tmux
-                result = self.execute_command(
-                    f"tmux new-window -t '{session_name}' -n '{window_name}' -c '{agent.work_dir}' {shlex.quote(env_shell_cmd)}"
-                )
-                if not result.success:
-                    raise AgentStartError(
-                        str(agent.name), f"tmux new-window failed for {window_name}: {result.stderr}"
+                session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
+                with log_span("Starting agent {} in tmux session {}", agent.name, session_name):
+                    # Build and execute a single combined shell command for this agent
+                    combined_command = _build_start_agent_shell_command(
+                        agent=agent,
+                        session_name=session_name,
+                        command=command,
+                        additional_commands=additional_commands,
+                        env_shell_cmd=self._build_env_shell_command(agent),
+                        tmux_config_path=tmux_config_path,
+                        unset_vars=self.mngr_ctx.config.unset_vars,
+                        host_dir=self.host_dir,
                     )
-
-                # Send the additional command as literal keys
-                result = self.execute_command(
-                    f"tmux send-keys -t '{session_name}:{window_name}' -l {shlex.quote(str(named_cmd.command))}"
-                )
-                if not result.success:
-                    raise AgentStartError(str(agent.name), f"tmux send-keys failed for {window_name}: {result.stderr}")
-
-                # Send Enter to execute the command
-                result = self.execute_command(f"tmux send-keys -t '{session_name}:{window_name}' Enter")
-                if not result.success:
-                    raise AgentStartError(
-                        str(agent.name), f"tmux send-keys Enter failed for {window_name}: {result.stderr}"
-                    )
-
-            # If we created additional windows, select the first window (the main agent)
-            if additional_commands:
-                result = self.execute_command(f"tmux select-window -t '{session_name}:0'")
-                if not result.success:
-                    raise AgentStartError(str(agent.name), f"tmux select-window failed: {result.stderr}")
-
-            # Record START activity for idle detection
-            agent.record_activity(ActivitySource.START)
-
-            # Start background process activity monitor
-            self._start_process_activity_monitor(agent, session_name)
-
-    def _start_process_activity_monitor(self, agent: AgentInterface, session_name: str) -> None:
-        """Start a background process that writes PROCESS activity while the agent is alive.
-
-        This launches a detached bash script on the host that:
-        1. Gets the tmux pane PID for the agent's session
-        2. Loops while that PID is alive, writing PROCESS activity every ~5 seconds
-        3. Exits when the pane process exits
-
-        The activity file contains JSON with:
-        - time: milliseconds since Unix epoch (int)
-        - pane_pid: the tmux pane PID being monitored (for debugging)
-        - agent_id: the agent's ID (for debugging)
-
-        Note: The authoritative activity time is the file's mtime, not the JSON content.
-        """
-        activity_path = self.host_dir / "agents" / str(agent.id) / "activity" / ActivitySource.PROCESS.value.lower()
-        agent_id = str(agent.id)
-
-        # Build a bash script that monitors the process and writes activity
-        # We use nohup and redirect output to /dev/null to fully detach
-        # The script:
-        # 1. Gets the pane PID using tmux list-panes
-        # 2. While the PID exists, write activity JSON and sleep
-        # 3. Uses date +%s for seconds since epoch, multiply by 1000 for milliseconds
-        # FIXME: this script really ought to wait for up to X seconds for the PANE_PID to appear (since it can take a little bit)
-        monitor_script = f"""
-PANE_PID=$(tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null | head -n 1)
-if [ -z "$PANE_PID" ]; then
-    exit 0
-fi
-ACTIVITY_PATH={shlex.quote(str(activity_path))}
-AGENT_ID={shlex.quote(agent_id)}
-mkdir -p "$(dirname "$ACTIVITY_PATH")"
-while kill -0 "$PANE_PID" 2>/dev/null; do
-    TIME_MS=$(($(date +%s) * 1000))
-    printf '{{\\n  "time": %d,\\n  "pane_pid": %s,\\n  "agent_id": "%s"\\n}}\\n' "$TIME_MS" "$PANE_PID" "$AGENT_ID" > "$ACTIVITY_PATH"
-    sleep 5
-done
-"""
-        # Run the script in the background, fully detached
-        # nohup ensures it survives if the parent shell exits
-        # Redirect all output to /dev/null and background with &
-        cmd = f"nohup bash -c {shlex.quote(monitor_script)} </dev/null >/dev/null 2>&1 &"
-
-        result = self.execute_command(cmd)
-        if not result.success:
-            logger.warning(
-                "Failed to start process activity monitor for agent {}: {}",
-                agent.name,
-                result.stderr,
-            )
+                    result = self.execute_command(combined_command)
+                    if not result.success:
+                        raise AgentStartError(str(agent.name), result.stderr)
 
     def _get_all_descendant_pids(self, parent_pid: str) -> list[str]:
         """Recursively get all descendant PIDs of a given parent PID."""
@@ -1795,70 +1771,62 @@ done
 
         return descendant_pids
 
+    def _collect_session_pids(self, session_name: str) -> list[str]:
+        """Collect all pane PIDs and their descendants for a tmux session.
+
+        Uses -s flag to list panes across ALL windows in the session, not just the
+        current window. This is important for sessions with additional command windows.
+        """
+        all_pids: list[str] = []
+        result = self.execute_command(f"tmux list-panes -s -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true")
+        if result.success and result.stdout.strip():
+            for pane_pid in result.stdout.strip().split("\n"):
+                if pane_pid:
+                    all_pids.append(pane_pid)
+                    all_pids.extend(self._get_all_descendant_pids(pane_pid))
+        return all_pids
+
     def stop_agents(self, agent_ids: Sequence[AgentId], timeout_seconds: float = 5.0) -> None:
         """Stop agents by killing all processes in their tmux sessions.
 
         This ensures all processes in all panes are terminated by:
-        1. Getting all PIDs (panes + descendants) and their process groups BEFORE sending ctrl-c
-        2. Sending ctrl-c to allow graceful shutdown
-        3. Sending SIGTERM to all process groups
-        4. Sending SIGKILL to all process groups if processes remain
-        5. Finally killing the tmux session itself
+        1. Getting all PIDs (panes + descendants)
+        2. Sending SIGTERM to each individual process
+        3. Waiting briefly, then sending SIGKILL to any survivors
+        4. Finally killing the tmux session itself
         """
-        logger.debug("Stopping {} agent(s) with timeout={}s", len(agent_ids), timeout_seconds)
-        all_pids: list[str] = []
-        process_groups: set[str] = set()
+        with log_span("Stopping {} agent(s) with timeout={}s", len(agent_ids), timeout_seconds):
+            all_pids: list[str] = []
 
-        current_agents: list[AgentInterface] = []
+            current_agents: list[AgentInterface] = []
 
-        for agent_id in agent_ids:
-            agent = self._get_agent_by_id(agent_id)
-            if agent is None:
-                continue
+            for agent_id in agent_ids:
+                agent = self._get_agent_by_id(agent_id)
+                if agent is None:
+                    continue
 
-            current_agents.append(agent)
+                current_agents.append(agent)
+                session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
+                all_pids.extend(self._collect_session_pids(session_name))
 
-            session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
+            if all_pids:
+                pid_list = " ".join(all_pids)
 
-            # Get all pane PIDs and their descendants BEFORE sending ctrl-c
-            result = self.execute_command(
-                f"tmux list-panes -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null || true"
-            )
-
-            if result.success and result.stdout.strip():
-                pane_pids = result.stdout.strip().split("\n")
-                for pane_pid in pane_pids:
-                    if pane_pid:
-                        # Add the pane PID
-                        all_pids.append(pane_pid)
-                        # Recursively get all descendant PIDs
-                        descendant_pids = self._get_all_descendant_pids(pane_pid)
-                        all_pids.extend(descendant_pids)
-
-                # Get process group IDs for all pane PIDs (should be all the same...)
-                for pid in pane_pids:
-                    result_pgid = self.execute_command(f"ps -o pgid= -p {pid} 2>/dev/null || true")
-                    if result_pgid.success and result_pgid.stdout.strip():
-                        pgid = result_pgid.stdout.strip()
-                        process_groups.add(pgid)
-                        # Send SIGTERM. Use negative PGID to signal the entire process group
-                        self.execute_command(f"kill -TERM -- -{pgid} 2>/dev/null || true")
-
-        # Force kill any remaining processes with SIGKILL, waiting until timeout
-        deadline = time.monotonic() + timeout_seconds
-        for pid in all_pids:
-            time_left = deadline - time.monotonic()
-            if time_left > 0:
+                # Send SIGTERM to all processes at once, then wait briefly and SIGKILL survivors.
+                # This is done in a single shell command to avoid the issue where one non-responsive
+                # process (e.g., interactive bash which ignores SIGTERM) would consume the entire
+                # timeout budget in a serial loop, preventing SIGKILL from reaching other processes.
+                grace_seconds = min(1.0, timeout_seconds)
                 self.execute_command(
-                    f"kill -TERM {pid} 2>/dev/null && timeout {time_left} tail --pid={pid} -f /dev/null || kill -KILL {pid} 2>/dev/null || true"
+                    f"for p in {pid_list}; do kill -TERM $p 2>/dev/null; done; "
+                    f"sleep {grace_seconds}; "
+                    f"for p in {pid_list}; do kill -KILL $p 2>/dev/null; done; true"
                 )
-            else:
-                self.execute_command(f"kill -KILL {pid} 2>/dev/null || true")
 
-        # Finally kill the tmux sessions themselves
-        for agent in current_agents:
-            session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
-            self.execute_command(f"tmux kill-session -t '{session_name}' 2>/dev/null || true")
+            # Finally kill the tmux sessions themselves
+            for agent in current_agents:
+                session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
+                self.execute_command(f"tmux kill-session -t '{session_name}' 2>/dev/null || true")
 
     def _get_agent_by_id(self, agent_id: AgentId) -> AgentInterface | None:
         """Get an agent by ID."""
@@ -1940,21 +1908,126 @@ done
 
     def get_state(self) -> HostState:
         """Get the current state of the host."""
-        logger.trace("Getting state for host {}", self.id)
         if self.is_local:
-            logger.trace("Host {} is local, state=RUNNING", self.id)
+            logger.trace("Determined host {} is local, state=RUNNING", self.id)
             return HostState.RUNNING
 
         try:
             result = self.execute_command("echo ok")
             if result.success:
-                logger.trace("Host {} state=RUNNING (ping successful)", self.id)
+                logger.trace("Determined host {} state=RUNNING (ping successful)", self.id)
                 return HostState.RUNNING
         except (OSError, HostConnectionError):
             pass
 
         # otherwise use the offline logic
         return super().get_state()
+
+
+@pure
+def _build_start_agent_shell_command(
+    agent: AgentInterface,
+    session_name: str,
+    command: str,
+    additional_commands: Sequence[NamedCommand],
+    env_shell_cmd: str,
+    tmux_config_path: Path,
+    unset_vars: Sequence[str],
+    host_dir: Path,
+) -> str:
+    """Build a single shell command that starts an agent and its tmux session.
+
+    Combines all tmux operations, activity recording, and process monitor
+    launch into one command to minimize network round trips for remote hosts.
+
+    The command chains critical steps with && so that if any step fails,
+    subsequent steps are skipped. The process activity monitor is launched
+    in a subshell so it runs in the background without affecting the chain.
+
+    If the tmux session already exists, the command exits early (successfully)
+    since everything has presumably already been set up.
+    """
+    # Bail out early if the session already exists (using ; so that a failed
+    # has-session check doesn't break the && chain that follows)
+    guard = f"tmux has-session -t {shlex.quote(session_name)} 2>/dev/null && exit 0"
+
+    steps: list[str] = []
+
+    # Unset environment variables
+    for var_name in unset_vars:
+        steps.append(f"unset {shlex.quote(var_name)}")
+
+    # Create a detached tmux session with env vars sourced
+    steps.append(
+        f"tmux -f {shlex.quote(str(tmux_config_path))} new-session -d"
+        f" -s {shlex.quote(session_name)}"
+        f" -c {shlex.quote(str(agent.work_dir))}"
+        f" {shlex.quote(env_shell_cmd)}"
+    )
+
+    # Set the session's default-command so new windows/panes inherit env vars
+    steps.append(f"tmux set-option -t {shlex.quote(session_name)} default-command {shlex.quote(env_shell_cmd)}")
+
+    # Send the agent command as literal keys, then Enter to execute
+    steps.append(f"tmux send-keys -t {shlex.quote(session_name)} -l {shlex.quote(command)}")
+    steps.append(f"tmux send-keys -t {shlex.quote(session_name)} Enter")
+
+    # Create additional windows for each additional command
+    for idx, named_cmd in enumerate(additional_commands):
+        window_name = named_cmd.window_name if named_cmd.window_name else f"cmd-{idx + 1}"
+        window_target = f"{session_name}:{window_name}"
+
+        steps.append(
+            f"tmux new-window -t {shlex.quote(session_name)}"
+            f" -n {shlex.quote(window_name)}"
+            f" -c {shlex.quote(str(agent.work_dir))}"
+            f" {shlex.quote(env_shell_cmd)}"
+        )
+        steps.append(f"tmux send-keys -t {shlex.quote(window_target)} -l {shlex.quote(str(named_cmd.command))}")
+        steps.append(f"tmux send-keys -t {shlex.quote(window_target)} Enter")
+
+    # If we created additional windows, select the first window (the main agent)
+    if additional_commands:
+        steps.append(f"tmux select-window -t {shlex.quote(session_name + ':0')}")
+
+    # Record START activity for idle detection by writing JSON to the activity file
+    # The authoritative activity time is the file's mtime, not the JSON content
+    activity_dir = host_dir / "agents" / str(agent.id) / "activity"
+    activity_path = activity_dir / ActivitySource.START.value.lower()
+    steps.append(f"mkdir -p {shlex.quote(str(activity_dir))}")
+    activity_printf_cmd = (
+        'printf \'{"time": %s, "agent_id": "%s", "agent_name": "%s"}\\n\''
+        f' "$(($(date +%s) * 1000))"'
+        f" {shlex.quote(str(agent.id))}"
+        f" {shlex.quote(str(agent.name))}"
+        f" > {shlex.quote(str(activity_path))}"
+    )
+    steps.append(activity_printf_cmd)
+
+    # Build the process activity monitor script (runs in the background)
+    # FIXME: this script really ought to wait for up to X seconds for the PANE_PID to appear (since it can take a little bit)
+    process_activity_path = activity_dir / ActivitySource.PROCESS.value.lower()
+    monitor_script = (
+        f"PANE_PID=$(tmux list-panes -t {shlex.quote(session_name)}"
+        " -F '#{pane_pid}' 2>/dev/null | head -n 1); "
+        'if [ -z "$PANE_PID" ]; then exit 0; fi; '
+        f"ACTIVITY_PATH={shlex.quote(str(process_activity_path))}; "
+        f"AGENT_ID={shlex.quote(str(agent.id))}; "
+        'mkdir -p "$(dirname "$ACTIVITY_PATH")"; '
+        'while kill -0 "$PANE_PID" 2>/dev/null; do '
+        "TIME_MS=$(($(date +%s) * 1000)); "
+        'printf \'{\\n  "time": %d,\\n  "pane_pid": %s,\\n  "agent_id": "%s"\\n}\\n\''
+        ' "$TIME_MS" "$PANE_PID" "$AGENT_ID" > "$ACTIVITY_PATH"; '
+        "sleep 5; "
+        "done"
+    )
+
+    # Launch the monitor in a subshell so the & only backgrounds the nohup,
+    # not the entire && chain
+    monitor_cmd = f"(nohup bash -c {shlex.quote(monitor_script)} </dev/null >/dev/null 2>&1 &)"
+    steps.append(monitor_cmd)
+
+    return guard + "; " + " && ".join(steps)
 
 
 @pure

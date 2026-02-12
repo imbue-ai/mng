@@ -1,4 +1,4 @@
-# mngr rename - CLI Options Reference
+# mngr rename [future] - CLI Options Reference
 
 Rename an agent or host.
 

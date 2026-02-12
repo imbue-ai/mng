@@ -11,7 +11,7 @@ mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] 
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
-    [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot]
+    [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot] [--reuse|--no-reuse]
     [--] [<AGENT_ARGS>...]
 ```
 
@@ -42,7 +42,7 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `-t`, `--template` | text | Use a named template from create_templates config | None |
+| `-t`, `--template` | text | Use a named template from create_templates config [repeatable, stacks in order] | None |
 | `-n`, `--name` | text | Agent name (alternative to positional argument) [default: auto-generated] | None |
 | `--name-style` | choice (`english` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `animals` &#x7C; `scientists` &#x7C; `demons`) | Auto-generated name style | `english` |
 | `--agent-type` | text | Which type of agent to run [default: claude] | None |
@@ -67,6 +67,7 @@ By default, `mngr create` uses the "local" host. Use these options to change tha
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
+| `--reuse`, `--no-reuse` | boolean | Reuse existing agent with the same name if it exists (idempotent create) | `False` |
 | `--connect`, `--no-connect` | boolean | Connect to the agent after creation [default: connect] | `True` |
 | `--await-ready`, `--no-await-ready` | boolean | Wait until agent is ready before returning [default: no-await-ready if --no-connect] | None |
 | `--await-agent-stopped`, `--no-await-agent-stopped` | boolean | Wait until agent has completely finished running before exiting. Useful for testing and scripting. First waits for agent to become ready, then waits for it to stop. [default: no-await-agent-stopped] | None |
@@ -173,7 +174,7 @@ See [connect options](./connect.md) for full details (only applies if `--connect
 | `--edit-message` | boolean | Open an editor to compose the initial message (uses $EDITOR). Editor runs in parallel with agent creation. If --message or --message-file is provided, their content is used as initial editor content. | `False` |
 | `--resume-message` | text | Message to send when the agent is started (resumed) after being stopped | None |
 | `--resume-message-file` | path | File containing resume message to send on start | None |
-| `--message-delay` | float | Seconds to wait before sending initial message | `1.0` |
+| `--ready-timeout` | float | Timeout in seconds to wait for agent readiness before sending initial message | `10.0` |
 | `--retry` | integer | Number of connection retries | `3` |
 | `--retry-delay` | text | Delay between retries (e.g., 5s, 1m) | `5s` |
 | `--attach-command` | text | Command to run instead of attaching to main session | None |
@@ -235,6 +236,12 @@ $ mngr create my-agent --in modal
 $ mngr create my-agent --template modal
 ```
 
+**Stack multiple templates**
+
+```bash
+$ mngr create my-agent -t modal -t codex
+```
+
 **Create a codex agent instead of claude**
 
 ```bash
@@ -275,4 +282,10 @@ $ mngr create my-agent --no-connect
 
 ```bash
 $ mngr create my-agent -c server="npm run dev"
+```
+
+**Reuse existing agent or create if not found**
+
+```bash
+$ mngr create my-agent --reuse
 ```

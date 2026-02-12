@@ -16,6 +16,8 @@ from tenacity import wait_exponential
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.thread_utils import ObservableThread
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_call
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.providers import get_all_provider_instances
@@ -29,6 +31,7 @@ from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
@@ -38,12 +41,10 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostReference
-from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
-from imbue.mngr.utils.logging import log_call
 
 
 class AgentInfo(FrozenModel):
@@ -60,7 +61,7 @@ class AgentInfo(FrozenModel):
     create_time: datetime = Field(description="Creation timestamp")
     start_on_boot: bool = Field(description="Whether agent starts on host boot")
 
-    lifecycle_state: AgentLifecycleState = Field(description="Lifecycle state (stopped/running/replaced/done)")
+    state: AgentLifecycleState = Field(description="Agent lifecycle state (STOPPED/RUNNING/WAITING/REPLACED/DONE)")
     status: AgentStatus | None = Field(default=None, description="Current status (reported)")
     url: str | None = Field(default=None, description="Agent URL (reported)")
     start_time: datetime | None = Field(default=None, description="Last start time (reported)")
@@ -74,18 +75,6 @@ class AgentInfo(FrozenModel):
     host: HostInfo = Field(description="Host information")
 
     plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-specific fields")
-
-    @property
-    def combined_state(self) -> str:
-        lifecycle_state = self.lifecycle_state
-        if lifecycle_state is None or lifecycle_state == AgentLifecycleState.STOPPED:
-            host_state = self.host.state
-            if host_state is not None:
-                return host_state
-            else:
-                return HostState.DESTROYED.value.lower()
-        else:
-            return lifecycle_state.value.lower()
 
 
 class ErrorInfo(FrozenModel):
@@ -155,9 +144,28 @@ class ListResult(MutableModel):
     errors: list[ErrorInfo] = Field(default_factory=list, description="Errors encountered while listing")
 
 
+class _ListAgentsParams(FrozenModel):
+    """Shared parameters for the internal agent listing pipeline.
+
+    Bundles the filter/callback parameters that are threaded through
+    _list_agents_batch, _list_agents_streaming, _process_provider_streaming,
+    _process_host_for_agent_listing, and _assemble_host_info.
+    """
+
+    model_config = {"arbitrary_types_allowed": True}
+    compiled_include_filters: list[Any]
+    compiled_exclude_filters: list[Any]
+    error_behavior: ErrorBehavior
+    on_agent: Callable[[AgentInfo], None] | None
+    on_error: Callable[[ErrorInfo], None] | None
+
+
 @log_call
 def list_agents(
     mngr_ctx: MngrContext,
+    # When True, each provider streams results as soon as it finishes loading
+    # (on_agent fires immediately per provider, without waiting for all providers)
+    is_streaming: bool,
     # CEL expressions - only include agents matching these
     include_filters: tuple[str, ...] = (),
     # CEL expressions - exclude agents matching these
@@ -179,60 +187,39 @@ def list_agents(
     compiled_include_filters: list[Any] = []
     compiled_exclude_filters: list[Any] = []
     if include_filters or exclude_filters:
-        logger.debug("Compiling CEL filters")
-        compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
-        logger.trace(
-            "Compiled {} include and {} exclude filters", len(compiled_include_filters), len(compiled_exclude_filters)
-        )
+        with log_span("Compiling CEL filters", include_filters=include_filters, exclude_filters=exclude_filters):
+            compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
     try:
-        # Load all agents grouped by host
-        logger.debug("Loading agents from all providers")
-        agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx, provider_names, include_destroyed=True)
-        provider_map = {provider.name: provider for provider in providers}
-        logger.trace("Found {} hosts with agents", len(agents_by_host))
+        results_lock = Lock()
+        params = _ListAgentsParams(
+            compiled_include_filters=compiled_include_filters,
+            compiled_exclude_filters=compiled_exclude_filters,
+            error_behavior=error_behavior,
+            on_agent=on_agent,
+            on_error=on_error,
+        )
 
-        # FIXME: parallelize the processing of this data by using a ConcurrencyGroup
-        #  See the example (load_all_agents_grouped_by_host) for how to use it
-        #  Remember that you need to join all of the threads that you create
-
-        # Process each host and its agents
-        for host_ref, agent_refs in agents_by_host.items():
-            # Skip hosts with no agents to process
-            if not agent_refs:
-                continue
-
-            try:
-                provider = provider_map.get(host_ref.provider_name)
-                if not provider:
-                    exception = ProviderInstanceNotFoundError(host_ref.provider_name)
-                    if error_behavior == ErrorBehavior.ABORT:
-                        raise exception
-                    error_info = ProviderErrorInfo.build_for_provider(exception, host_ref.provider_name)
-                    result.errors.append(error_info)
-                    if on_error:
-                        on_error(error_info)
-                    continue
-
-                _assemble_host_info(
-                    host_ref,
-                    agent_refs,
-                    provider,
-                    compiled_exclude_filters,
-                    compiled_include_filters,
-                    error_behavior,
-                    on_agent,
-                    on_error,
-                    result,
-                )
-
-            except MngrError as e:
-                if error_behavior == ErrorBehavior.ABORT:
-                    raise
-                error_info = HostErrorInfo.build_for_host(e, host_ref.host_id)
-                result.errors.append(error_info)
-                if on_error:
-                    on_error(error_info)
+        if is_streaming:
+            # Streaming mode: each provider loads hosts, gets agent refs, and processes
+            # hosts immediately -- so fast providers fire on_agent callbacks while slow
+            # providers are still loading
+            _list_agents_streaming(
+                mngr_ctx=mngr_ctx,
+                provider_names=provider_names,
+                params=params,
+                result=result,
+                results_lock=results_lock,
+            )
+        else:
+            # Batch mode: load all agents first, then process
+            _list_agents_batch(
+                mngr_ctx=mngr_ctx,
+                provider_names=provider_names,
+                params=params,
+                result=result,
+                results_lock=results_lock,
+            )
 
     except MngrError as e:
         if error_behavior == ErrorBehavior.ABORT:
@@ -245,6 +232,130 @@ def list_agents(
     return result
 
 
+def _list_agents_batch(
+    mngr_ctx: MngrContext,
+    provider_names: tuple[str, ...] | None,
+    params: _ListAgentsParams,
+    result: ListResult,
+    results_lock: Lock,
+) -> None:
+    """Batch mode: load all agents from all providers, then process hosts."""
+    with log_span("Loading agents from all providers"):
+        agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx, provider_names, include_destroyed=True)
+    provider_map = {provider.name: provider for provider in providers}
+    logger.trace("Found {} hosts with agents", len(agents_by_host))
+
+    # Process each host and its agents in parallel
+    with (
+        mngr_ctx.concurrency_group.make_concurrency_group("list_agents_process_hosts")
+        if mngr_ctx.concurrency_group is not None
+        else ConcurrencyGroup(name="list_agents_process_hosts")
+    ) as cg:
+        threads: list[ObservableThread] = []
+        for host_ref, agent_refs in agents_by_host.items():
+            if not agent_refs:
+                continue
+
+            provider = provider_map.get(host_ref.provider_name)
+            if not provider:
+                exception = ProviderInstanceNotFoundError(host_ref.provider_name)
+                if params.error_behavior == ErrorBehavior.ABORT:
+                    raise exception
+                error_info = ProviderErrorInfo.build_for_provider(exception, host_ref.provider_name)
+                with results_lock:
+                    result.errors.append(error_info)
+                if params.on_error:
+                    params.on_error(error_info)
+                continue
+
+            threads.append(
+                cg.start_new_thread(
+                    target=_process_host_for_agent_listing,
+                    args=(host_ref, agent_refs, provider, params, result, results_lock),
+                    name=f"list_agents_{host_ref.host_id}",
+                )
+            )
+        for thread in threads:
+            thread.join()
+
+
+def _list_agents_streaming(
+    mngr_ctx: MngrContext,
+    provider_names: tuple[str, ...] | None,
+    params: _ListAgentsParams,
+    result: ListResult,
+    results_lock: Lock,
+) -> None:
+    """Streaming mode: each provider loads and processes hosts independently.
+
+    Fast providers fire on_agent callbacks while slow providers are still loading.
+    """
+    with log_span("Loading agents from all providers (streaming)"):
+        providers = get_all_provider_instances(mngr_ctx, provider_names)
+        logger.trace("Found {} provider instances", len(providers))
+
+        with (
+            mngr_ctx.concurrency_group.make_concurrency_group("list_agents_streaming")
+            if mngr_ctx.concurrency_group is not None
+            else ConcurrencyGroup(name="list_agents_streaming")
+        ) as cg:
+            threads: list[ObservableThread] = []
+            for provider in providers:
+                threads.append(
+                    cg.start_new_thread(
+                        target=_process_provider_streaming,
+                        args=(provider, params, result, results_lock, cg),
+                        name=f"stream_provider_{provider.name}",
+                    )
+                )
+            for thread in threads:
+                thread.join()
+
+
+def _process_provider_streaming(
+    provider: BaseProviderInstance,
+    params: _ListAgentsParams,
+    result: ListResult,
+    results_lock: Lock,
+    cg: ConcurrencyGroup,
+) -> None:
+    """Load hosts from a single provider, get agent refs, and immediately process them.
+
+    This is the streaming counterpart to the batch approach. Each provider independently
+    loads hosts, fetches agent references, then processes hosts -- firing on_agent callbacks
+    without waiting for other providers.
+    """
+    try:
+        # Phase 1: list hosts and get agent refs
+        provider_results = _load_agent_refs_from_provider(provider, include_destroyed=True, cg=cg)
+
+        # Phase 2: immediately process hosts (fire on_agent for this provider)
+        host_threads: list[ObservableThread] = []
+        for host_ref, agent_refs in provider_results.items():
+            if not agent_refs:
+                continue
+
+            host_threads.append(
+                cg.start_new_thread(
+                    target=_process_host_for_agent_listing,
+                    args=(host_ref, agent_refs, provider, params, result, results_lock),
+                    name=f"list_agents_{host_ref.host_id}",
+                )
+            )
+
+        for thread in host_threads:
+            thread.join()
+
+    except MngrError as e:
+        if params.error_behavior == ErrorBehavior.ABORT:
+            raise
+        error_info = ProviderErrorInfo.build_for_provider(e, provider.name)
+        with results_lock:
+            result.errors.append(error_info)
+        if params.on_error:
+            params.on_error(error_info)
+
+
 # retry exactly once if there is a HostConnectionError (hopefully we then simply load the offline version of the host)
 @retry(
     retry=retry_if_exception_type(HostConnectionError),
@@ -253,16 +364,13 @@ def list_agents(
     reraise=True,
 )
 def _assemble_host_info(
-    host_ref,
-    agent_refs,
-    provider,
-    compiled_exclude_filters,
-    compiled_include_filters,
-    error_behavior,
-    on_agent,
-    on_error,
-    result,
-):
+    host_ref: HostReference,
+    agent_refs: list[AgentReference],
+    provider: ProviderInstanceInterface,
+    params: _ListAgentsParams,
+    result: ListResult,
+    results_lock: Lock,
+) -> None:
     # get the host
     host = provider.get_host(host_ref.host_id)
 
@@ -294,7 +402,7 @@ def _assemble_host_info(
         id=host.id,
         name=str(host.get_name()),
         provider_name=host_ref.provider_name,
-        state=host.get_state().value.lower(),
+        state=host.get_state(),
         image=host.get_image(),
         tags=host.get_tags(),
         boot_time=boot_time,
@@ -321,12 +429,13 @@ def _assemble_host_info(
 
                 if agent is None:
                     exception = AgentNotFoundOnHostError(agent_ref.agent_id, host_ref.host_id)
-                    if error_behavior == ErrorBehavior.ABORT:
+                    if params.error_behavior == ErrorBehavior.ABORT:
                         raise exception
                     error_info = AgentErrorInfo.build_for_agent(exception, agent_ref.agent_id)
-                    result.errors.append(error_info)
-                    if on_error:
-                        on_error(error_info)
+                    with results_lock:
+                        result.errors.append(error_info)
+                    if params.on_error:
+                        params.on_error(error_info)
                     continue
 
                 agent_status = agent.get_reported_status()
@@ -342,7 +451,7 @@ def _assemble_host_info(
                     work_dir=agent.work_dir,
                     create_time=agent.create_time,
                     start_on_boot=agent.get_is_start_on_boot(),
-                    lifecycle_state=agent.get_lifecycle_state(),
+                    state=agent.get_lifecycle_state(),
                     status=agent_status,
                     url=agent.get_reported_url(),
                     start_time=agent.get_reported_start_time(),
@@ -351,13 +460,13 @@ def _assemble_host_info(
                     agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
                     ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
                     idle_seconds=None,
-                    idle_mode=activity_config.idle_mode.value.lower(),
+                    idle_mode=activity_config.idle_mode.value,
                     host=host_info,
                     plugin={},
                 )
             # if this host is offline, or if we failed to get the online host (ex: because it went offline)
             if agents is None or agent_info is None:
-                # Use the certified_data from the agent_ref directly
+                # Use certified_data from the agent_ref directly
                 # agent_ref already has all the data we need from host.get_agent_references()
                 create_time = agent_ref.create_time or datetime(1970, 1, 1, tzinfo=timezone.utc)
                 agent_info = AgentInfo(
@@ -368,7 +477,7 @@ def _assemble_host_info(
                     work_dir=agent_ref.work_dir or Path("/"),
                     create_time=create_time,
                     start_on_boot=agent_ref.start_on_boot,
-                    lifecycle_state=AgentLifecycleState.STOPPED,
+                    state=AgentLifecycleState.STOPPED,
                     status=None,
                     url=None,
                     start_time=None,
@@ -383,21 +492,58 @@ def _assemble_host_info(
                 )
 
             # Apply CEL filters if provided
-            if compiled_include_filters or compiled_exclude_filters:
-                if not _apply_cel_filters(agent_info, compiled_include_filters, compiled_exclude_filters):
+            if params.compiled_include_filters or params.compiled_exclude_filters:
+                if not _apply_cel_filters(
+                    agent_info, params.compiled_include_filters, params.compiled_exclude_filters
+                ):
                     continue
 
-            result.agents.append(agent_info)
-            if on_agent:
-                on_agent(agent_info)
+            with results_lock:
+                result.agents.append(agent_info)
+            if params.on_agent:
+                params.on_agent(agent_info)
 
         except MngrError as e:
-            if error_behavior == ErrorBehavior.ABORT:
+            if params.error_behavior == ErrorBehavior.ABORT:
                 raise
             error_info = AgentErrorInfo.build_for_agent(e, agent_ref.agent_id)
+            with results_lock:
+                result.errors.append(error_info)
+            if params.on_error:
+                params.on_error(error_info)
+
+
+def _process_host_for_agent_listing(
+    host_ref: HostReference,
+    agent_refs: list[AgentReference],
+    provider: ProviderInstanceInterface,
+    params: _ListAgentsParams,
+    result: ListResult,
+    results_lock: Lock,
+) -> None:
+    """Process a single host and collect its agents.
+
+    This function is run in a thread by list_agents.
+    Results are merged into the shared result object under the results_lock.
+    """
+    try:
+        _assemble_host_info(
+            host_ref,
+            agent_refs,
+            provider,
+            params,
+            result,
+            results_lock,
+        )
+
+    except MngrError as e:
+        if params.error_behavior == ErrorBehavior.ABORT:
+            raise
+        error_info = HostErrorInfo.build_for_host(e, host_ref.host_id)
+        with results_lock:
             result.errors.append(error_info)
-            if on_error:
-                on_error(error_info)
+        if params.on_error:
+            params.on_error(error_info)
 
 
 @pure
@@ -439,13 +585,6 @@ def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
         if latest_activity:
             result["idle"] = (datetime.now(timezone.utc) - latest_activity).total_seconds()
 
-    # Flatten lifecycle_state value
-    if result.get("lifecycle_state"):
-        if isinstance(result["lifecycle_state"], dict):
-            result["state"] = result["lifecycle_state"].get("value", "").lower()
-        else:
-            result["state"] = str(result["lifecycle_state"]).lower()
-
     # Normalize host.provider_name to host.provider for consistency
     if result.get("host") and isinstance(result["host"], dict):
         host = result["host"]
@@ -474,6 +613,37 @@ def _apply_cel_filters(
     )
 
 
+def _load_agent_refs_from_provider(
+    provider: BaseProviderInstance,
+    include_destroyed: bool,
+    cg: ConcurrencyGroup,
+) -> dict[HostReference, list[AgentReference]]:
+    """Load hosts from a provider and fetch agent references for each host in parallel."""
+    logger.trace("Loading hosts from provider {}", provider.name)
+    hosts = provider.list_hosts(include_destroyed=include_destroyed, cg=cg)
+    logger.trace("Loaded hosts from provider {}", provider.name)
+
+    threads: list[ObservableThread] = []
+    provider_results: dict[HostReference, list[AgentReference]] = {}
+    for host in hosts:
+        host_ref = HostReference(
+            host_id=host.id,
+            host_name=host.get_name(),
+            provider_name=provider.name,
+        )
+        thread = cg.start_new_thread(
+            target=_store_result_from_callable,
+            args=(provider_results, host_ref, lambda x=host: _get_agent_refs_robustly(x, provider)),
+            name="fetch_host_records",
+        )
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()
+
+    return provider_results
+
+
 def _process_provider_for_host_listing(
     provider: BaseProviderInstance,
     agents_by_host: dict[HostReference, list[AgentReference]],
@@ -486,28 +656,33 @@ def _process_provider_for_host_listing(
     This function is run in a thread by load_all_agents_grouped_by_host.
     Results are merged into the shared agents_by_host dict under the results_lock.
     """
-    logger.trace("Loading hosts from provider {}", provider.name)
-    hosts = provider.list_hosts(include_destroyed=include_destroyed, cg=cg)
-
-    # Collect results for this provider
-    provider_results: dict[HostReference, list[AgentReference]] = {}
-    for host in hosts:
-        host_ref = HostReference(
-            host_id=host.id,
-            host_name=host.get_name(),
-            provider_name=provider.name,
-        )
-        try:
-            agent_refs = host.get_agent_references()
-        # retry once when there is a host connection error (the second time we'll probably end up
-        except HostConnectionError:
-            offline_host = provider.get_host(host.id)
-            agent_refs = offline_host.get_agent_references()
-        provider_results[host_ref] = agent_refs
+    provider_results = _load_agent_refs_from_provider(provider, include_destroyed, cg)
 
     # Merge results into the main dict under lock
     with results_lock:
         agents_by_host.update(provider_results)
+
+
+def _store_result_from_callable(
+    result_dict: dict[str, Any],
+    key: str,
+    callable_fn: Callable[[], Any],
+) -> None:
+    """Helper function for storing callable results in a thread-safe manner.
+
+    Used by list_hosts to run parallel fetches with ConcurrencyGroup.
+    """
+    result_dict[key] = callable_fn()
+
+
+# retries via offline info if the host connection errors out
+def _get_agent_refs_robustly(host, provider):
+    try:
+        return host.get_agent_references()
+    # retry once when there is a host connection error (the second time we'll probably end up
+    except HostConnectionError:
+        offline_host = provider.get_host(host.id)
+        return offline_host.get_agent_references()
 
 
 @log_call
@@ -522,22 +697,26 @@ def load_all_agents_grouped_by_host(
     agents_by_host: dict[HostReference, list[AgentReference]] = {}
     results_lock = Lock()
 
-    logger.debug("Loading all agents from all providers")
-    providers = get_all_provider_instances(mngr_ctx, provider_names)
-    logger.trace("Found {} provider instances", len(providers))
+    with log_span("Loading all agents from all providers"):
+        providers = get_all_provider_instances(mngr_ctx, provider_names)
+        logger.trace("Found {} provider instances", len(providers))
 
-    # Process all providers in parallel using ConcurrencyGroup
-    with ConcurrencyGroup(name="load_all_agents_grouped_by_host") as cg:
-        threads: list[ObservableThread] = []
-        for provider in providers:
-            threads.append(
-                cg.start_new_thread(
-                    target=_process_provider_for_host_listing,
-                    args=(provider, agents_by_host, include_destroyed, results_lock, cg),
-                    name=f"load_hosts_{provider.name}",
+        # Process all providers in parallel using ConcurrencyGroup
+        with (
+            mngr_ctx.concurrency_group.make_concurrency_group("load_all_agents_grouped_by_host")
+            if mngr_ctx.concurrency_group is not None
+            else ConcurrencyGroup(name="load_all_agents_grouped_by_host")
+        ) as cg:
+            threads: list[ObservableThread] = []
+            for provider in providers:
+                threads.append(
+                    cg.start_new_thread(
+                        target=_process_provider_for_host_listing,
+                        args=(provider, agents_by_host, include_destroyed, results_lock, cg),
+                        name=f"load_hosts_{provider.name}",
+                    )
                 )
-            )
-        for thread in threads:
-            thread.join()
+            for thread in threads:
+                thread.join()
 
-    return (agents_by_host, providers)
+        return (agents_by_host, providers)

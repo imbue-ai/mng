@@ -11,7 +11,9 @@ from click_option_group import optgroup
 from loguru import logger
 from pydantic import Field
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.create import create as api_create
@@ -22,6 +24,8 @@ from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.api.data_types import NewHostBuildOptions
 from imbue.mngr.api.data_types import NewHostOptions
 from imbue.mngr.api.data_types import SourceLocation
+from imbue.mngr.api.find import ensure_agent_started
+from imbue.mngr.api.find import ensure_host_started
 from imbue.mngr.api.find import get_host_from_list_by_id
 from imbue.mngr.api.find import get_unique_host_from_list_by_name
 from imbue.mngr.api.find import resolve_source_location
@@ -51,6 +55,7 @@ from imbue.mngr.interfaces.host import AgentLifecycleOptions
 from imbue.mngr.interfaces.host import AgentPermissionsOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
+from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mngr.interfaces.host import FileModificationSpec
 from imbue.mngr.interfaces.host import NamedCommand
 from imbue.mngr.interfaces.host import OnlineHostInterface
@@ -130,8 +135,9 @@ class CreateCliOptions(CommonCliOptions):
     positional_name: str | None
     positional_agent_type: str | None
     agent_args: tuple[str, ...]
-    template: str | None
+    template: tuple[str, ...]
     agent_type: str | None
+    reuse: bool
     connect: bool
     await_ready: bool | None
     await_agent_stopped: bool | None
@@ -202,7 +208,7 @@ class CreateCliOptions(CommonCliOptions):
     append_to_file: tuple[str, ...]
     prepend_to_file: tuple[str, ...]
     create_directory: tuple[str, ...]
-    message_delay: float
+    ready_timeout: float
 
 
 @click.command()
@@ -210,7 +216,12 @@ class CreateCliOptions(CommonCliOptions):
 @click.argument("positional_agent_type", default=None, required=False)
 @click.argument("agent_args", nargs=-1, type=click.UNPROCESSED)
 @optgroup.group("Agent Options")
-@optgroup.option("-t", "--template", help="Use a named template from create_templates config")
+@optgroup.option(
+    "-t",
+    "--template",
+    multiple=True,
+    help="Use a named template from create_templates config [repeatable, stacks in order]",
+)
 @optgroup.option("-n", "--name", help="Agent name (alternative to positional argument) [default: auto-generated]")
 @optgroup.option(
     "--name-style",
@@ -259,6 +270,12 @@ class CreateCliOptions(CommonCliOptions):
     help="Auto-generated host name style",
 )
 @optgroup.group("Behavior")
+@optgroup.option(
+    "--reuse/--no-reuse",
+    default=False,
+    show_default=True,
+    help="Reuse existing agent with the same name if it exists (idempotent create)",
+)
 @optgroup.option("--connect/--no-connect", default=True, help="Connect to the agent after creation [default: connect]")
 @optgroup.option(
     "--await-ready/--no-await-ready",
@@ -448,11 +465,11 @@ class CreateCliOptions(CommonCliOptions):
     "--resume-message-file", type=click.Path(exists=True), help="File containing resume message to send on start"
 )
 @optgroup.option(
-    "--message-delay",
+    "--ready-timeout",
     type=float,
-    default=1.0,
+    default=DEFAULT_AGENT_READY_TIMEOUT_SECONDS,
     show_default=True,
-    help="Seconds to wait before sending initial message",
+    help="Timeout in seconds to wait for agent readiness before sending initial message",
 )
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries (e.g., 5s, 1m)")
@@ -468,6 +485,8 @@ def create(ctx: click.Context, **kwargs) -> None:
     \b
     Alias: c
     """
+    logger.debug("Started create command")
+
     # Setup command context (config, logging, output options)
     # This loads the config, applies defaults, and creates the final options
     mngr_ctx, output_opts, opts = setup_command_context(
@@ -475,8 +494,15 @@ def create(ctx: click.Context, **kwargs) -> None:
         command_name="create",
         command_class=CreateCliOptions,
     )
-    logger.debug("Running create command")
 
+    result = _handle_create(mngr_ctx, output_opts, opts)
+    if result is None:
+        return
+    create_result, connection_opts, output_opts, opts, mngr_ctx = result
+    _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
+
+
+def _handle_create(mngr_ctx, output_opts, opts):
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
@@ -556,7 +582,7 @@ def create(ctx: click.Context, **kwargs) -> None:
     source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx)
 
     # figure out the project label, in case we need that
-    project_name = _parse_project_name(source_location, opts)
+    project_name = _parse_project_name(source_location, opts, mngr_ctx)
 
     # Parse host lifecycle options (these go on the host, not the agent)
     host_lifecycle = _parse_host_lifecycle_options(opts)
@@ -575,6 +601,7 @@ def create(ctx: click.Context, **kwargs) -> None:
         initial_message=initial_message,
         resume_message=resume_message_content,
         source_location=source_location,
+        mngr_ctx=mngr_ctx,
     )
 
     # parse the connection options
@@ -588,6 +615,44 @@ def create(ctx: click.Context, **kwargs) -> None:
     )
 
     # at this point, all options are parsed, and we can actually start the executing the command
+
+    # If --reuse is set, try to find and reuse an existing agent with the same name
+    if opts.reuse and agent_opts.name is not None:
+        reuse_result = _try_reuse_existing_agent(
+            agent_name=agent_opts.name,
+            provider_name=ProviderInstanceName(opts.new_host) if opts.new_host else None,
+            target_host_ref=target_host if isinstance(target_host, HostReference) else None,
+            mngr_ctx=mngr_ctx,
+            agent_and_host_loader=agent_and_host_loader,
+        )
+        if reuse_result is not None:
+            agent, host = reuse_result
+            logger.info("Reusing existing agent: {}", agent.name)
+
+            # Handle --edit-message if editor session was started,
+            # or send initial message directly if --message/--message-file was provided
+            try:
+                if editor_session is not None:
+                    _handle_editor_message(
+                        editor_session=editor_session,
+                        agent=agent,
+                    )
+                elif initial_message is not None:
+                    # Send initial message directly (from --message or --message-file)
+                    logger.info("Sending message to agent")
+                    agent.send_message(initial_message)
+                else:
+                    pass
+            finally:
+                # Clean up editor session on success or failure
+                if editor_session is not None and not editor_session.is_finished():
+                    editor_session.cleanup()
+                # Ensure logging suppression is disabled on any exit path
+                if LoggingSuppressor.is_suppressed():
+                    LoggingSuppressor.disable_and_replay(clear_screen=True)
+
+            create_result = CreateAgentResult(agent=agent, host=host)
+            return create_result, connection_opts, output_opts, opts, mngr_ctx
 
     # If ensure-clean is set, verify the source work_dir is clean
     if opts.ensure_clean:
@@ -673,6 +738,10 @@ def create(ctx: click.Context, **kwargs) -> None:
         if LoggingSuppressor.is_suppressed():
             LoggingSuppressor.disable_and_replay(clear_screen=True)
 
+    return create_result, connection_opts, output_opts, opts, mngr_ctx
+
+
+def _post_create(create_result: CreateAgentResult, connection_opts, output_opts, opts, mngr_ctx):
     # If --await-agent-stopped is set, wait for the agent to finish running
     if opts.await_agent_stopped:
         _await_agent_stopped(create_result.agent)
@@ -681,7 +750,7 @@ def create(ctx: click.Context, **kwargs) -> None:
     if opts.connect:
         connect_to_agent(create_result.agent, create_result.host, mngr_ctx, connection_opts)
 
-    # Output result
+    # output the result
     _output_result(create_result, output_opts)
 
 
@@ -711,8 +780,8 @@ def _handle_editor_message(
     the callback has already restored logging.
     """
     try:
-        logger.debug("Waiting for editor to finish...")
-        edited_message = editor_session.wait_for_result()
+        with log_span("Waiting for editor to finish..."):
+            edited_message = editor_session.wait_for_result()
 
         # By this point, the on_exit callback has already restored logging
         # (it's called as soon as the editor process exits)
@@ -783,7 +852,7 @@ def _create_agent_in_background(
         os._exit(1)
 
 
-def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions) -> str:
+def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions, mngr_ctx: MngrContext) -> str:
     if opts.project:
         return opts.project
 
@@ -792,7 +861,75 @@ def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions) -
             "Have to re-implement the below function so that it works via HostInterface calls instead!"
         )
 
-    return derive_project_name_from_path(source_location.path)
+    return derive_project_name_from_path(source_location.path, mngr_ctx.cg)
+
+
+def _try_reuse_existing_agent(
+    agent_name: AgentName,
+    provider_name: ProviderInstanceName | None,
+    target_host_ref: HostReference | None,
+    mngr_ctx: MngrContext,
+    agent_and_host_loader: Callable[[], dict[HostReference, list[AgentReference]]],
+) -> tuple[AgentInterface, OnlineHostInterface] | None:
+    """Try to find and start an existing agent with the given name.
+
+    Searches for an agent matching the name, scoped by provider and host if specified.
+    If found, ensures the agent is started and returns it along with its host.
+    If not found, returns None so the caller can proceed with creating a new agent.
+    """
+    agents_by_host = agent_and_host_loader()
+
+    matching_agents: list[tuple[HostReference, AgentReference]] = []
+
+    for host_ref, agent_refs in agents_by_host.items():
+        # Skip hosts that don't match the provider filter (if specified)
+        if provider_name is not None and host_ref.provider_name != provider_name:
+            continue
+
+        # Skip hosts that don't match the target host filter (if specified)
+        if target_host_ref is not None and host_ref.host_id != target_host_ref.host_id:
+            continue
+
+        for agent_ref in agent_refs:
+            if agent_ref.agent_name == agent_name:
+                matching_agents.append((host_ref, agent_ref))
+
+    if len(matching_agents) == 0:
+        logger.debug("Failed to find existing agent with name: {}", agent_name)
+        return None
+
+    if len(matching_agents) > 1:
+        raise UserInputError(
+            f"Multiple agents found with name '{agent_name}', using the first one. Specify --host to target a specific host."
+        )
+
+    host_ref, agent_ref = matching_agents[0]
+    logger.debug("Found existing agent {} on host {}", agent_ref.agent_id, host_ref.host_name)
+
+    # Get the provider and host
+    provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
+    host = provider.get_host(host_ref.host_id)
+
+    # Ensure the host is started
+    online_host, _was_started = ensure_host_started(host, is_start_desired=True, provider=provider)
+
+    # Find the agent interface on the online host
+    agent: AgentInterface | None = None
+    for a in online_host.get_agents():
+        if a.id == agent_ref.agent_id:
+            agent = a
+            break
+
+    if agent is None:
+        # Agent not found on online host - this could happen if the host came online
+        # but the agent data is stale. Return None to create a new agent.
+        logger.warning("Agent {} not found on host after starting, will create new agent", agent_name)
+        return None
+
+    # Ensure the agent is started (reusing shared logic from find.py)
+    ensure_agent_started(agent, online_host, is_start_desired=True)
+
+    return agent, online_host
 
 
 def _resolve_source_location(
@@ -805,7 +942,7 @@ def _resolve_source_location(
         # easy, source location is on current host
         source_path = opts.source_path
         if source_path is None:
-            git_root = find_git_worktree_root()
+            git_root = find_git_worktree_root(None, mngr_ctx.cg)
             source_path = str(git_root) if git_root is not None else os.getcwd()
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
         source_location = HostLocation(
@@ -896,19 +1033,41 @@ def _snapshot_if_required(
     return snapshot_name
 
 
-def _get_current_git_branch(source_location: HostLocation) -> str | None:
+def _get_current_git_branch(source_location: HostLocation, mngr_ctx: MngrContext) -> str | None:
     if not source_location.host.is_local:
         raise NotImplementedError(
             "Have to re-implement this function so that it works via HostInterface calls instead!"
         )
 
-    return get_current_git_branch(source_location.path)
+    return get_current_git_branch(source_location.path, mngr_ctx.cg)
 
 
-@pure
-def _is_git_repo(path: Path) -> bool:
+def _resolve_env_vars(
+    pass_env_var_names: tuple[str, ...],
+    explicit_env_var_strings: tuple[str, ...],
+) -> tuple[EnvVar, ...]:
+    """Resolve and merge environment variables.
+
+    Resolves pass_env_var_names from os.environ and merges with explicit_env_var_strings.
+    Explicit env vars take precedence over pass-through values.
+    """
+    # Start with pass-through env vars from current shell
+    merged: dict[str, str] = {}
+    for var_name in pass_env_var_names:
+        if var_name in os.environ:
+            merged[var_name] = os.environ[var_name]
+
+    # Explicit env vars override pass-through values
+    for env_str in explicit_env_var_strings:
+        env_var = EnvVar.from_string(env_str)
+        merged[env_var.key] = env_var.value
+
+    return tuple(EnvVar(key=k, value=v) for k, v in merged.items())
+
+
+def _is_git_repo(path: Path, cg: ConcurrencyGroup) -> bool:
     """Check if the given path is inside a git repository."""
-    return find_git_worktree_root(path) is not None
+    return find_git_worktree_root(path, cg) is not None
 
 
 @pure
@@ -926,7 +1085,11 @@ def _was_value_after_double_dash(value: str) -> bool:
 
 
 def _parse_agent_opts(
-    opts: CreateCliOptions, initial_message: str | None, resume_message: str | None, source_location: HostLocation
+    opts: CreateCliOptions,
+    initial_message: str | None,
+    resume_message: str | None,
+    source_location: HostLocation,
+    mngr_ctx: MngrContext,
 ) -> CreateAgentOptions:
     # Get agent name from positional argument or --name flag, otherwise auto-generate
     parsed_agent_name: AgentName
@@ -959,7 +1122,7 @@ def _parse_agent_opts(
         if is_creating_remote_host:
             copy_mode = WorkDirCopyMode.COPY
         elif source_location.host.is_local:
-            is_git_repo = _is_git_repo(source_location.path)
+            is_git_repo = _is_git_repo(source_location.path, mngr_ctx.cg)
             if is_git_repo:
                 copy_mode = WorkDirCopyMode.WORKTREE
             else:
@@ -990,7 +1153,7 @@ def _parse_agent_opts(
     else:
         git = AgentGitOptions(
             copy_mode=copy_mode,
-            base_branch=opts.base_branch or _get_current_git_branch(source_location),
+            base_branch=opts.base_branch or _get_current_git_branch(source_location, mngr_ctx),
             is_new_branch=is_new_branch,
             new_branch_name=new_branch if new_branch else None,
             new_branch_prefix=opts.new_branch_prefix,
@@ -1008,13 +1171,12 @@ def _parse_agent_opts(
     )
 
     # Parse environment options
-    env_vars = tuple(EnvVar.from_string(e) for e in opts.agent_env)
+    env_vars = _resolve_env_vars(opts.pass_agent_env, opts.agent_env)
     env_files = tuple(Path(f) for f in opts.agent_env_file)
 
     environment = AgentEnvironmentOptions(
         env_vars=env_vars,
         env_files=env_files,
-        pass_env_vars=opts.pass_agent_env,
     )
 
     # Parse agent lifecycle options
@@ -1091,7 +1253,7 @@ def _parse_agent_opts(
         is_copy_immediate=should_copy,
         initial_message=initial_message,
         resume_message=resume_message,
-        message_delay_seconds=opts.message_delay,
+        ready_timeout_seconds=opts.ready_timeout,
         data_options=data_options,
         git=git,
         environment=environment,
@@ -1164,7 +1326,7 @@ def _parse_target_host(
         tags = tags_dict
 
         # Parse host environment
-        host_env_vars = tuple(EnvVar.from_string(e) for e in opts.host_env)
+        host_env_vars = _resolve_env_vars(opts.pass_host_env, opts.host_env)
         host_env_files = tuple(Path(f) for f in opts.host_env_file)
 
         # Combine build args from both individual (-b) and bulk (--build-args) options
@@ -1194,7 +1356,6 @@ def _parse_target_host(
             environment=HostEnvironmentOptions(
                 env_vars=host_env_vars,
                 env_files=host_env_files,
-                pass_env_vars=opts.pass_host_env,
                 known_hosts=opts.known_host,
             ),
             lifecycle=lifecycle,
@@ -1241,7 +1402,7 @@ def _ensure_clean_work_dir(location: HostLocation) -> None:
     result = location.host.execute_command("git status --porcelain", cwd=location.path)
     if not result.success:
         # Not a git repo or git command failed, skip the check
-        logger.debug("Could not check git status: {}", result.stderr)
+        logger.debug("Failed to check git status: {}", result.stderr)
         return
 
     if result.stdout.strip():
@@ -1283,7 +1444,7 @@ def _await_agent_stopped(
             poll_interval=poll_interval_seconds,
             error_message=f"Timeout waiting for agent {agent.name} to stop after {timeout_seconds} seconds",
         )
-        logger.debug("Agent {} has stopped", agent.name)
+        logger.debug("Stopped agent {}", agent.name)
     except TimeoutError as e:
         raise click.ClickException(str(e)) from e
 
@@ -1323,7 +1484,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
-    [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot]
+    [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot] [--reuse|--no-reuse]
     [--] [<AGENT_ARGS>...]""",
     aliases=("c",),
     arguments_description="""- `NAME`: Name for the agent (auto-generated if not provided)
@@ -1351,6 +1512,7 @@ the working directory is copied to the remote host.""",
         ("Create an agent in a Docker container", "mngr create my-agent --in docker"),
         ("Create an agent in a Modal sandbox", "mngr create my-agent --in modal"),
         ("Create using a named template", "mngr create my-agent --template modal"),
+        ("Stack multiple templates", "mngr create my-agent -t modal -t codex"),
         ("Create a codex agent instead of claude", "mngr create my-agent codex"),
         ("Pass arguments to the agent", "mngr create my-agent -- --model opus"),
         ("Create on an existing host", "mngr create my-agent --host my-dev-box"),
@@ -1358,6 +1520,7 @@ the working directory is copied to the remote host.""",
         ("Run directly in-place (no worktree)", "mngr create my-agent --in-place"),
         ("Create without connecting", "mngr create my-agent --no-connect"),
         ("Add extra tmux windows", 'mngr create my-agent -c server="npm run dev"'),
+        ("Reuse existing agent or create if not found", "mngr create my-agent --reuse"),
     ),
     see_also=(
         ("connect", "Connect to an existing agent"),

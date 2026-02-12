@@ -36,9 +36,11 @@ from tenacity import wait_exponential
 from typing import Final
 from collections.abc import Mapping
 from collections.abc import Sequence
+from imbue.imbue_common.model_update import to_update
 from abc import ABC
 from abc import abstractmethod
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.imbue_common.logging import log_span
 from loguru import logger
 from imbue.imbue_common.logging import setup_logging
 import tomllib
@@ -473,7 +475,9 @@ def archive_todos_completed_before(
             todos_to_keep.append(todo)
 
     # Build the result
-    updated_list = todo_list.model_copy(update={"todos": tuple(todos_to_keep)})
+    updated_list = todo_list.model_copy_update(
+        to_update(todo_list.field_ref().todos, tuple(todos_to_keep)),
+    )
     return ArchiveCompletedTodosResult(
         updated_list=updated_list,
         archived_todos=tuple(todos_to_archive),
@@ -560,10 +564,14 @@ def find_todos_with_any_tag(
 
 
 # === Example block 28 ===
+
+
 @pure
 def add_tag_to_todo(todo_item: TodoItem, tag_to_add: Tag) -> TodoItem:
     updated_tags = todo_item.tags + (tag_to_add,)
-    return todo_item.model_copy(update={"tags": updated_tags})
+    return todo_item.model_copy_update(
+        to_update(todo_item.field_ref().tags, updated_tags),
+    )
 
 
 # === Example block 29 ===
@@ -626,7 +634,9 @@ class TodoReminder(FrozenModel):
     is_sent: bool = Field(default=False, description="Whether sent")
 
     def with_marked_as_sent(self) -> "TodoReminder":
-        return self.model_copy(update={"is_sent": True})
+        return self.model_copy_update(
+            to_update(self.field_ref().is_sent, True),
+        )
 
 
 # === Example block 32 ===
@@ -838,8 +848,8 @@ class TodoArchive(FrozenModel):
         return len(self.archived_todos)
 
     def with_added_item(self, todo_to_archive: TodoItem) -> "TodoArchive":
-        return self.model_copy(
-            update={"archived_todos": self.archived_todos + (todo_to_archive,)}
+        return self.model_copy_update(
+            to_update(self.field_ref().archived_todos, self.archived_todos + (todo_to_archive,)),
         )
 
 
@@ -882,17 +892,25 @@ MAX_TODO_TITLE_LENGTH: Final[int] = 200
 # === Example block 44 ===
 
 
+
 def save_todo_to_repository(
-    todo_repository: TodoRepositoryInterface,
-    todo_item: TodoItem,
+        todo_repository: TodoRepositoryInterface,
+        todo_item: TodoItem,
 ) -> None:
-    # Log BEFORE the action
-    logger.debug("Saving todo to repository")
-    todo_repository.save_todo(todo_item)
-    logger.trace("Saved todo id={} title={}", todo_item.todo_id, todo_item.title)
+    with log_span("Saving todo to repository"):
+        todo_repository.save_todo(todo_item)
 
 
 # === Example block 45 ===
+with log_span("Creating agent work directory from source {}", source_path, host=host_name):
+    work_dir = host.create_work_dir(source_path)
+
+
+# === Example block 46 ===
+logger.debug("Source and target are the same path, no file transfer needed")
+
+
+# === Example block 47 ===
 
 
 # In CLI code - info is appropriate
@@ -901,15 +919,14 @@ def cli_create_todo(title: str) -> None:
     logger.info("Created todo (ID={})", todo.todo_id)
 
 
-# In library/API code - use debug instead
+# In library/API code - use log_span for actions
 def create_todo(title: str) -> TodoItem:
-    logger.debug("Creating todo item")
-    todo = TodoItem(title=title)
-    logger.trace("Created todo id={} title={}", todo.todo_id, todo.title)
+    with log_span("Creating todo item"):
+        todo = TodoItem(title=title)
     return todo
 
 
-# === Example block 46 ===
+# === Example block 48 ===
 
 
 class TodoStorageError(TodoAppError):
@@ -929,7 +946,7 @@ class TodoNotificationService(MutableModel):
             raise
 
 
-# === Example block 47 ===
+# === Example block 49 ===
 
 
 def main() -> None:
@@ -938,7 +955,7 @@ def main() -> None:
 
 
 
-# === Example block 48 ===
+# === Example block 50 ===
 
 
 
@@ -991,7 +1008,7 @@ def load_todo_app_configuration() -> TodoAppConfiguration:
     return TodoAppConfiguration.model_validate(raw_config)
 
 
-# === Example block 49 ===
+# === Example block 51 ===
 
 
 
@@ -1044,7 +1061,7 @@ def list_todos(
     run_list_todos(arguments)
 
 
-# === Example block 50 ===
+# === Example block 52 ===
 
 
 def test_format_todo_for_display_shows_checkbox_and_title() -> None:
@@ -1071,7 +1088,7 @@ def test_format_todo_for_display_shows_completed_marker_when_done() -> None:
     assert formatted_output == snapshot("[x] Send email")
 
 
-# === Example block 51 ===
+# === Example block 53 ===
 
 
 
@@ -1111,7 +1128,7 @@ def test_export_large_todo_dataset_to_json_produces_expected_output() -> None:
     )
 
 
-# === Example block 52 ===
+# === Example block 54 ===
 def test_add_todo_to_list_appends_todo_to_end_of_list() -> None:
     todo_list = TodoList(list_id=TodoListId.generate(), todos=())
     new_todo = create_test_todo(title="New task")
@@ -1122,7 +1139,7 @@ def test_add_todo_to_list_appends_todo_to_end_of_list() -> None:
     assert updated_list.todos[0] == new_todo
 
 
-# === Example block 53 ===
+# === Example block 55 ===
 
 
 
@@ -1165,7 +1182,7 @@ def test_sync_todo_list_to_remote_server_handles_response_correctly(
     assert sync_response.synced_count == snapshot(1)
 
 
-# === Example block 54 ===
+# === Example block 56 ===
 
 
 @pytest.mark.acceptance
@@ -1175,7 +1192,7 @@ def test_sync_todos_to_remote_server_succeeds_with_valid_credentials() -> None:
     ...
 
 
-# === Example block 55 ===
+# === Example block 57 ===
 
 
 @pytest.mark.release
@@ -1185,7 +1202,7 @@ def test_full_end_to_end_workflow_with_all_providers() -> None:
     ...
 
 
-# === Example block 56 ===
+# === Example block 58 ===
 
 
 class TodoSyncError(TodoAppError):

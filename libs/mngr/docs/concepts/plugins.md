@@ -7,9 +7,9 @@ Plugins extend `mngr` with new agent types, providers, commands, and behaviors. 
 Only install plugins from sources you trust. Built-in plugins are maintained as part of mngr itself.
 
 ```bash
-mngr plugin list              # Show installed plugins
-mngr plugin add <name>        # Install a plugin (pip/uv install)
-mngr plugin remove <name>     # Uninstall a plugin
+mngr plugin list              # Show installed plugins [future]
+mngr plugin add <name>        # Install a plugin (pip/uv install) [future]
+mngr plugin remove <name>     # Uninstall a plugin [future]
 ```
 
 Plugins can be enabled/disabled without uninstalling:
@@ -34,11 +34,11 @@ Called at various points in the execution of any `mngr` command:
 |----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `on_post_install`          | Runs after the plugin is installed or upgraded. Good for setup tasks like prompting the user or downloading models.                                     |
 | `on_load_config`           | Runs when loading the global config. Receives the current config dict and can modify it before use.                                                     |
-| `on_validate_permissions`  | Runs when validating permissions. Should ensure that the correct environment variables and files are accessible.                                        |
+| `on_validate_permissions`  | Runs when validating permissions. Should ensure that the correct environment variables and files are accessible. [future]                               |
 | `on_startup`               | Runs when `mngr` starts up. Good for registering other callbacks. See [the `mngr` API](./api.md) for more details on registration hooks.                |
 | `on_before_<command>`      | Runs before any command executes. One hook per command. Receives the parsed args. Can modify args or abort execution.                                   |
 | `on_after_<command>`       | Runs after any command completes. One hook per command. Receives the args and result. Useful for logging, cleanup, or post-processing.                  |
-| `process_command_args`     | Called after argument parsing. Receives the command name and parsed args. Use this to validate or transform extended arguments before the command runs. |
+| `override_command_options` | Called after argument parsing. Receives the command name and parsed args. Use this to validate or transform extended arguments before the command runs.|
 | `on_before_custom_command` | Runs for custom commands defined by plugins. Receives the command name and parsed args. Can modify args or abort execution.                             |
 | `on_after_custom_command`  | Runs after custom commands defined by plugins complete. Receives the command name, args, and result. Useful for logging, cleanup, or post-processing.   |
 | `on_error`                 | Runs if any command raises an exception. Receives the args and exception. Good for custom error handling or reporting.                                  |
@@ -46,7 +46,7 @@ Called at various points in the execution of any `mngr` command:
 
 Some commands expose additional hooks for finer-grained control. See the documentation of each command for details.
 
-### Host lifecycle Hooks
+### Host lifecycle Hooks [future]
 
 Except for `on_host_collected` (which is called by any command that observes a host), these are mostly called during `mngr create` and `mngr destroy` operations:
 
@@ -76,7 +76,7 @@ Note that we cannot have callbacks for most host lifecycle events because they c
 - `$MNGR_HOST_DIR/hooks/post_services/`: runs after services have been started. Blocks agent startup until complete.
 - `$MNGR_HOST_DIR/hooks/stop/`: runs when the host is stopped. Blocks stopping until complete.
 
-### Agent lifecycle Hooks
+### Agent lifecycle Hooks [future]
 
 These hooks can be used to customize behavior when interacting with individual agents:
 
@@ -104,11 +104,11 @@ Agent provisioning is handled through methods on the agent class itself, not hoo
 
 To customize provisioning for a new agent type, subclass `BaseAgent` and override these methods. The `ClaudeAgent` class demonstrates this pattern.
 
-If you want to run scripts *whenever* an agent is started (not just the first time), you can put a script in the following hook directory:
+If you want to run scripts *whenever* an agent is started (not just the first time), you can put a script in the following hook directory [future]:
 
 - `$MNGR_AGENT_STATE_DIR/hooks/start/`: runs after an agent is started. Does not block in any way.
 
-### Field Hooks
+### Field Hooks [future]
 
 Called when collecting data for hosts and agents. These allow plugins to compute additional attributes:
 
@@ -129,10 +129,10 @@ Called when collecting data for hosts and agents. These allow plugins to compute
 And for the basic provider backends:
 
 - **local-provider**: Local host backend
-- **docker-provider**: Docker-based host backend
+- **docker-provider** [future]: Docker-based host backend
 - **modal-provider**: Modal cloud host backend
 
-Utility plugins for additional features:
+Utility plugins [future] for additional features:
 
 - **[local_port_forwarding_via_frp_and_nginx](../core_plugins/local_port_forwarding_via_frp_and_nginx.md)**: Expose services via frp and nginx
 - **[default_url_for_cli_agents_via_ttyd](../core_plugins/default_url_for_cli_agents_via_ttyd.md)**: Web terminal access via ttyd

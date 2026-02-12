@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -9,8 +10,10 @@ from typing import Final
 
 from loguru import logger
 
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import UserInputError
+from imbue.mngr.utils.interactive_subprocess import popen_interactive_subprocess
 
 FALLBACK_EDITORS: Final[tuple[str, ...]] = ("vim", "vi", "nano", "notepad")
 
@@ -34,13 +37,7 @@ def get_editor_command() -> str:
 
     # Try to find a fallback editor
     for fallback in FALLBACK_EDITORS:
-        # Check if the editor is available in PATH
-        result = subprocess.run(
-            ["which", fallback],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
+        if shutil.which(fallback) is not None:
             return fallback
 
     # Last resort: just try vim
@@ -87,7 +84,7 @@ class EditorSession:
         os.close(temp_fd)
 
         editor_command = get_editor_command()
-        logger.debug("Using editor: {}", editor_command)
+        logger.debug("Got editor command: {}", editor_command)
 
         # Create instance using object.__new__ and set attributes directly
         instance = object.__new__(cls)
@@ -118,19 +115,18 @@ class EditorSession:
         if self._is_started:
             raise UserInputError("Editor session already started")
 
-        logger.debug("Starting editor {} with file {}", self.editor_command, self.temp_file_path)
-
-        # Start the editor process
-        # The editor inherits the terminal (stdin/stdout/stderr) from parent
-        self._process = subprocess.Popen(
-            [self.editor_command, str(self.temp_file_path)],
-            stdin=None,
-            stdout=None,
-            stderr=None,
-        )
+        with log_span("Starting editor {} with file {}", self.editor_command, self.temp_file_path):
+            # Start the editor process
+            # The editor inherits the terminal (stdin/stdout/stderr) from parent
+            self._process = popen_interactive_subprocess(
+                [self.editor_command, str(self.temp_file_path)],
+                stdin=None,
+                stdout=None,
+                stderr=None,
+            )
         self._is_started = True
         self._exit_callback = on_exit
-        logger.trace("Editor process started with PID {}", self._process.pid)
+        logger.trace("Started editor process with PID {}", self._process.pid)
 
         # Start monitor thread if callback provided
         if on_exit is not None:
@@ -156,7 +152,7 @@ class EditorSession:
         # Call the callback if we haven't already
         if self._exit_callback is not None and not self._callback_called:
             self._callback_called = True
-            logger.trace("Editor exited, calling exit callback")
+            logger.trace("Detected editor exit, calling exit callback")
             # Call the callback without catching exceptions - let them propagate
             # The callback is expected to handle its own errors
             self._exit_callback()
@@ -177,7 +173,7 @@ class EditorSession:
                 return
 
             self._exit_code = self._process.returncode
-            logger.trace("Editor exited with code {}", self._exit_code)
+            logger.trace("Detected editor exit with code {}", self._exit_code)
 
             # Check exit code
             if self._exit_code != 0:
@@ -238,26 +234,25 @@ class EditorSession:
         if self._result_ready.is_set():
             return self._result_content
 
-        logger.debug("Waiting for editor to finish...")
+        with log_span("Waiting for editor to finish..."):
+            # Wait for the editor process to complete
+            try:
+                self._process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                logger.warning("Editor timeout expired, terminating")
+                self._process.terminate()
+                self._process.wait()
+                self._exit_code = -1
+                self._is_finished = True
+                self._result_ready.set()
+                return None
 
-        # Wait for the editor process to complete
-        try:
-            self._process.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            logger.warning("Editor timeout expired, terminating")
-            self._process.terminate()
-            self._process.wait()
-            self._exit_code = -1
-            self._is_finished = True
-            self._result_ready.set()
-            return None
+            # Read result if not already done by monitor thread
+            # This also handles the case where no monitor thread was started
+            self._read_result()
 
-        # Read result if not already done by monitor thread
-        # This also handles the case where no monitor thread was started
-        self._read_result()
-
-        # Wait for the result to be fully ready (handles race with monitor thread)
-        self._result_ready.wait(timeout=1.0)
+            # Wait for the result to be fully ready (handles race with monitor thread)
+            self._result_ready.wait(timeout=1.0)
 
         return self._result_content
 
@@ -268,16 +263,16 @@ class EditorSession:
         """
         # Terminate the editor process if it's still running
         if self._process is not None and self._process.poll() is None:
-            logger.debug("Terminating editor process")
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=1.0)
-            except subprocess.TimeoutExpired:
-                logger.warning("Editor process did not terminate gracefully, killing")
-                self._process.kill()
-                self._process.wait()
+            with log_span("Terminating editor process"):
+                self._process.terminate()
+                try:
+                    self._process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    logger.warning("Editor process did not terminate gracefully, killing")
+                    self._process.kill()
+                    self._process.wait()
 
         # Clean up the temp file
         if self.temp_file_path.exists():
-            logger.trace("Cleaning up temp file {}", self.temp_file_path)
             self.temp_file_path.unlink()
+            logger.trace("Cleaned up temp file {}", self.temp_file_path)

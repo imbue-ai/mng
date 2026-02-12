@@ -13,6 +13,7 @@ import click
 import tomlkit
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -27,6 +28,7 @@ from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigStructureError
 from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.utils.git_utils import find_git_worktree_root
+from imbue.mngr.utils.interactive_subprocess import run_interactive_subprocess
 
 
 class ConfigScope(UpperCaseStrEnum):
@@ -52,7 +54,9 @@ class ConfigCliOptions(CommonCliOptions):
     value: str | None = None
 
 
-def _get_config_path(scope: ConfigScope, root_name: str = "mngr", profile_dir: Path | None = None) -> Path:
+def _get_config_path(
+    scope: ConfigScope, root_name: str = "mngr", profile_dir: Path | None = None, cg: ConcurrencyGroup | None = None
+) -> Path:
     """Get the config file path for the given scope. The profile_dir is required for USER scope."""
     match scope:
         case ConfigScope.USER:
@@ -61,12 +65,12 @@ def _get_config_path(scope: ConfigScope, root_name: str = "mngr", profile_dir: P
                 raise ConfigNotFoundError("profile_dir is required for USER scope")
             return profile_dir / "settings.toml"
         case ConfigScope.PROJECT:
-            git_root = find_git_worktree_root()
+            git_root = find_git_worktree_root(None, cg) if cg is not None else None
             if git_root is None:
                 raise ConfigNotFoundError("No git repository found for project config")
             return git_root / f".{root_name}" / "settings.toml"
         case ConfigScope.LOCAL:
-            git_root = find_git_worktree_root()
+            git_root = find_git_worktree_root(None, cg) if cg is not None else None
             if git_root is None:
                 raise ConfigNotFoundError("No git repository found for local config")
             return git_root / f".{root_name}" / "settings.local.toml"
@@ -261,7 +265,7 @@ def _config_list_impl(ctx: click.Context, **kwargs: Any) -> None:
     if opts.scope:
         # List config from specific scope
         scope = ConfigScope(opts.scope.upper())
-        config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
+        config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
         config_data = _load_config_file(config_path)
         _emit_config_list(config_data, output_opts, scope, config_path)
     else:
@@ -351,7 +355,7 @@ def _config_get_impl(ctx: click.Context, key: str, **kwargs: Any) -> None:
     if opts.scope:
         # Get from specific scope
         scope = ConfigScope(opts.scope.upper())
-        config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
+        config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
         config_data = _load_config_file(config_path)
     else:
         # Get from merged config
@@ -437,7 +441,7 @@ def _config_set_impl(ctx: click.Context, key: str, value: str, **kwargs: Any) ->
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
     scope = ConfigScope((opts.scope or "project").upper())
-    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
+    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
 
     # Load existing config
     doc = _load_config_file_tomlkit(config_path)
@@ -528,7 +532,7 @@ def _config_unset_impl(ctx: click.Context, key: str, **kwargs: Any) -> None:
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
     scope = ConfigScope((opts.scope or "project").upper())
-    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
+    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
 
     if not config_path.exists():
         _emit_key_not_found(key, output_opts)
@@ -621,7 +625,7 @@ def _config_edit_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
     scope = ConfigScope((opts.scope or "project").upper())
-    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
+    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
 
     # Create the config file if it doesn't exist
     if not config_path.exists():
@@ -641,7 +645,7 @@ def _config_edit_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     # Open the editor
     try:
-        subprocess.run([editor, str(config_path)], check=True)
+        run_interactive_subprocess([editor, str(config_path)], check=True)
     except subprocess.CalledProcessError as e:
         logger.error("Editor exited with error: {}", e.returncode)
         ctx.exit(e.returncode)
@@ -746,7 +750,7 @@ def _config_path_impl(ctx: click.Context, **kwargs: Any) -> None:
         # Show specific scope
         scope = ConfigScope(opts.scope.upper())
         try:
-            config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
+            config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
             _emit_single_path(scope, config_path, output_opts)
         except ConfigNotFoundError as e:
             match output_opts.output_format:
@@ -764,7 +768,7 @@ def _config_path_impl(ctx: click.Context, **kwargs: Any) -> None:
         paths: list[dict[str, Any]] = []
         for scope in ConfigScope:
             try:
-                config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir)
+                config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
                 paths.append(
                     {
                         "scope": scope.value.lower(),

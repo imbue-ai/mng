@@ -8,6 +8,8 @@ from typing import Callable
 from loguru import logger
 from pydantic import Field
 
+from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
@@ -59,21 +61,19 @@ class BaseHost(HostInterface):
         Saves activity configuration to data.json, which is read by the
         activity_watcher.sh script using jq.
         """
-        logger.debug(
+        with log_span(
             "Setting activity config for host {}: idle_mode={}, idle_timeout={}s",
             self.id,
             config.idle_mode,
             config.idle_timeout_seconds,
-        )
-        certified_data = self.get_certified_data()
-        updated_data = certified_data.model_copy(
-            update={
-                "idle_mode": config.idle_mode,
-                "idle_timeout_seconds": config.idle_timeout_seconds,
-                "activity_sources": config.activity_sources,
-            }
-        )
-        self.set_certified_data(updated_data)
+        ):
+            certified_data = self.get_certified_data()
+            updated_data = certified_data.model_copy_update(
+                to_update(certified_data.field_ref().idle_mode, config.idle_mode),
+                to_update(certified_data.field_ref().idle_timeout_seconds, config.idle_timeout_seconds),
+                to_update(certified_data.field_ref().activity_sources, config.activity_sources),
+            )
+            self.set_certified_data(updated_data)
 
     # =========================================================================
     # Certified Data
@@ -167,7 +167,7 @@ class BaseHost(HostInterface):
         """Get the current state of the host.
 
         For offline hosts, we determine state based on certified data, stop_reason, and snapshots:
-        - If certified data has state=FAILED, the host failed during creation
+        - If certified data has a failure_reason, the host failed during creation
         - If snapshots exist:
           - stop_reason=PAUSED -> host became idle and was paused
           - stop_reason=STOPPED -> user explicitly stopped all agents on the host
@@ -176,24 +176,30 @@ class BaseHost(HostInterface):
         - If provider doesn't support snapshots, assume STOPPED
         """
         certified_data = self.get_certified_data()
-        if certified_data.state == HostState.FAILED.value:
+        if certified_data.failure_reason is not None:
             return HostState.FAILED
-
-        if self.provider_instance.supports_snapshots:
-            try:
-                snapshots = self.get_snapshots()
-                if not snapshots:
-                    return HostState.DESTROYED
-            except (OSError, IOError, ConnectionError):
-                # If we can't check snapshots, use stop_reason to determine state
-                pass
 
         # Determine state based on stop_reason
         stop_reason = certified_data.stop_reason
         if stop_reason is None:
             return HostState.CRASHED
-        else:
+
+        if self.provider_instance.supports_shutdown_hosts:
+            # if the provider normally allows hosts to be shutdown, the reason is fine
             return HostState(stop_reason)
+
+        # if we cannot resume, and we don't support snapshots, this must be destroyed
+        if not self.provider_instance.supports_snapshots:
+            return HostState.DESTROYED
+
+        # otherwise, check if we have any snapshots
+        snapshots = self.get_snapshots()
+        # if we don't, I guess this is destroyed
+        if not snapshots:
+            return HostState.DESTROYED
+
+        # ok, the stored state is fine!
+        return HostState(stop_reason)
 
     def get_failure_reason(self) -> str | None:
         """Get the failure reason if this host failed during creation."""

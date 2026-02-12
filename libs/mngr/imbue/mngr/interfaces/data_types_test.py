@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -6,41 +7,38 @@ from pathlib import PurePosixPath
 import pytest
 
 from imbue.mngr.errors import InvalidRelativePathError
+from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import RelativePath
 from imbue.mngr.interfaces.data_types import SSHInfo
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
 
 
 def test_relative_path_accepts_relative_string() -> None:
-    """RelativePath should accept a relative path string."""
     path = RelativePath("some/relative/path.txt")
     assert str(path) == "some/relative/path.txt"
 
 
 def test_relative_path_accepts_relative_path_object() -> None:
-    """RelativePath should accept a relative Path object."""
     path = RelativePath(Path("some/relative/path.txt"))
     assert str(path) == "some/relative/path.txt"
 
 
 def test_relative_path_rejects_absolute_path_string() -> None:
-    """RelativePath should reject an absolute path string."""
     with pytest.raises(InvalidRelativePathError, match="Path must be relative"):
         RelativePath("/absolute/path.txt")
 
 
 def test_relative_path_rejects_absolute_path_object() -> None:
-    """RelativePath should reject an absolute Path object."""
     with pytest.raises(InvalidRelativePathError, match="Path must be relative"):
         RelativePath(Path("/absolute/path.txt"))
 
 
 def test_relative_path_is_pure_posix_path() -> None:
-    """RelativePath should be a PurePosixPath subclass for path manipulation."""
     relative_path = RelativePath("some/path.txt")
     assert isinstance(relative_path, PurePosixPath)
     assert relative_path.parent == PurePosixPath("some")
@@ -49,7 +47,6 @@ def test_relative_path_is_pure_posix_path() -> None:
 
 
 def test_relative_path_works_with_path_division() -> None:
-    """RelativePath should work with Path / operator for joining."""
     work_dir = Path("/home/user/work")
     relative_path = RelativePath(".claude/config.json")
     result = work_dir / relative_path
@@ -147,7 +144,7 @@ def test_host_info_with_extended_fields() -> None:
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("docker"),
-        state="running",
+        state=HostState.RUNNING,
         image="ubuntu:22.04",
         tags={"env": "production", "team": "infra"},
         boot_time=boot_time,
@@ -157,7 +154,7 @@ def test_host_info_with_extended_fields() -> None:
         # Note: not testing snapshots here as SnapshotInfo has complex ID requirements
     )
 
-    assert host_info.state == "running"
+    assert host_info.state == HostState.RUNNING
     assert host_info.image == "ubuntu:22.04"
     assert host_info.tags == {"env": "production", "team": "infra"}
     assert host_info.boot_time == boot_time
@@ -185,7 +182,7 @@ def test_host_info_serialization_with_extended_fields() -> None:
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("modal"),
-        state="running",
+        state=HostState.RUNNING,
         image="custom-image:v1",
         tags={"key": "value"},
         boot_time=boot_time,
@@ -195,9 +192,52 @@ def test_host_info_serialization_with_extended_fields() -> None:
 
     data = host_info.model_dump(mode="json")
 
-    assert data["state"] == "running"
+    assert data["state"] == HostState.RUNNING.value
     assert data["image"] == "custom-image:v1"
     assert data["tags"] == {"key": "value"}
     assert data["uptime_seconds"] == 7200.0
     assert data["ssh"]["user"] == "root"
     assert data["ssh"]["port"] == 22
+
+
+# =============================================================================
+# CertifiedHostData Tests
+# =============================================================================
+
+
+def test_certified_host_data_tmux_session_prefix_defaults_to_none() -> None:
+    """tmux_session_prefix should default to None for backward compatibility."""
+    data = CertifiedHostData(host_id="host-123", host_name="test-host")
+    assert data.tmux_session_prefix is None
+
+
+def test_certified_host_data_tmux_session_prefix_set() -> None:
+    """tmux_session_prefix should be settable."""
+    data = CertifiedHostData(
+        host_id="host-123",
+        host_name="test-host",
+        tmux_session_prefix="mngr-",
+    )
+    assert data.tmux_session_prefix == "mngr-"
+
+
+def test_certified_host_data_tmux_session_prefix_serializes_to_json() -> None:
+    """tmux_session_prefix should round-trip through JSON serialization."""
+    data = CertifiedHostData(
+        host_id="host-123",
+        host_name="test-host",
+        tmux_session_prefix="custom-prefix-",
+    )
+    json_str = json.dumps(data.model_dump(by_alias=True))
+    parsed = json.loads(json_str)
+    assert parsed["tmux_session_prefix"] == "custom-prefix-"
+
+    # Deserialize back
+    restored = CertifiedHostData(**parsed)
+    assert restored.tmux_session_prefix == "custom-prefix-"
+
+
+def test_certified_host_data_backward_compatible_without_prefix() -> None:
+    """CertifiedHostData should deserialize from JSON without tmux_session_prefix."""
+    data = CertifiedHostData.model_validate({"host_id": "host-123", "host_name": "test-host"})
+    assert data.tmux_session_prefix is None

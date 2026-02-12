@@ -8,6 +8,9 @@ from typing import Any
 
 from loguru import logger
 
+from imbue.imbue_common.logging import log_call
+from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
 from imbue.mngr.api.data_types import GcResourceTypes
 from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.config.data_types import MngrContext
@@ -24,7 +27,6 @@ from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
-from imbue.mngr.utils.logging import log_call
 
 
 @log_call
@@ -52,76 +54,76 @@ def gc(
     - Build cache entries
     """
     result = GcResult()
-    logger.trace("GC options: dry_run={} error_behavior={}", dry_run, error_behavior)
+    logger.trace("Configured GC: dry_run={} error_behavior={}", dry_run, error_behavior)
 
     if resource_types.is_work_dirs:
-        logger.debug("Garbage collecting orphaned work directories")
-        gc_work_dirs(
-            mngr_ctx=mngr_ctx,
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("Garbage collecting orphaned work directories"):
+            gc_work_dirs(
+                mngr_ctx=mngr_ctx,
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_machines:
-        logger.debug("Garbage collecting idle machines")
-        gc_machines(
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("Garbage collecting idle machines"):
+            gc_machines(
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_snapshots:
-        logger.debug("Garbage collecting orphaned snapshots")
-        gc_snapshots(
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("Garbage collecting orphaned snapshots"):
+            gc_snapshots(
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_volumes:
-        logger.debug("Garbage collecting orphaned volumes")
-        gc_volumes(
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("Garbage collecting orphaned volumes"):
+            gc_volumes(
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_logs:
-        logger.debug("Garbage collecting old log files")
-        gc_logs(
-            mngr_ctx=mngr_ctx,
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("Garbage collecting old log files"):
+            gc_logs(
+                mngr_ctx=mngr_ctx,
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     if resource_types.is_build_cache:
-        logger.debug("Garbage collecting build cache entries")
-        gc_build_cache(
-            mngr_ctx=mngr_ctx,
-            providers=providers,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            dry_run=dry_run,
-            error_behavior=error_behavior,
-            result=result,
-        )
+        with log_span("Garbage collecting build cache entries"):
+            gc_build_cache(
+                mngr_ctx=mngr_ctx,
+                providers=providers,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                dry_run=dry_run,
+                error_behavior=error_behavior,
+                result=result,
+            )
 
     return result
 
@@ -139,10 +141,7 @@ def gc_work_dirs(
     compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
     for provider_instance in providers:
-        logger.trace("Checking provider {} for orphaned work directories", provider_instance.name)
         for host in provider_instance.list_hosts():
-            logger.trace("Checking host {} for orphaned work directories", host.id)
-
             if not isinstance(host, OnlineHostInterface):
                 # Skip offline hosts - can't query them
                 logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
@@ -185,7 +184,6 @@ def gc_machines(
     compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
     for provider in providers:
-        logger.trace("Checking provider {} for idle machines", provider.name)
         try:
             hosts = provider.list_hosts(include_destroyed=False)
 
@@ -254,10 +252,9 @@ def gc_snapshots(
 
     for provider in providers:
         if not provider.supports_snapshots:
-            logger.trace("Skipping provider {} - does not support snapshots", provider.name)
+            logger.trace("Skipped provider {} (does not support snapshots)", provider.name)
             continue
 
-        logger.trace("Checking provider {} for orphaned snapshots", provider.name)
         try:
             hosts = provider.list_hosts(include_destroyed=False)
 
@@ -268,7 +265,9 @@ def gc_snapshots(
                     # Sort by creation time (newest first) and assign recency_idx
                     sorted_snapshots = sorted(snapshots, key=lambda s: s.created_at, reverse=True)
                     snapshots_with_recency = [
-                        snapshot.model_copy(update={"recency_idx": idx})
+                        snapshot.model_copy_update(
+                            to_update(snapshot.field_ref().recency_idx, idx),
+                        )
                         for idx, snapshot in enumerate(sorted_snapshots)
                     ]
 
@@ -312,10 +311,9 @@ def gc_volumes(
 
     for provider in providers:
         if not provider.supports_volumes:
-            logger.trace("Skipping provider {} - does not support volumes", provider.name)
+            logger.trace("Skipped provider {} (does not support volumes)", provider.name)
             continue
 
-        logger.trace("Checking provider {} for orphaned volumes", provider.name)
         try:
             # Get all volumes
             all_volumes = provider.list_volumes()
@@ -379,10 +377,8 @@ def gc_logs(
     logs_dir = logs_dir.expanduser()
 
     if not logs_dir.exists():
-        logger.trace("Logs directory {} does not exist, skipping", logs_dir)
+        logger.trace("Skipped logs directory {} (does not exist)", logs_dir)
         return
-
-    logger.trace("Scanning logs directory {}", logs_dir)
 
     for log_file in logs_dir.rglob("*"):
         if not log_file.is_file():
@@ -431,10 +427,8 @@ def gc_build_cache(
     base_cache_dir = mngr_ctx.profile_dir / "providers"
 
     if not base_cache_dir.exists():
-        logger.trace("Build cache directory {} does not exist, skipping", base_cache_dir)
+        logger.trace("Skipped build cache directory {} (does not exist)", base_cache_dir)
         return
-
-    logger.trace("Scanning build cache directory {}", base_cache_dir)
 
     for provider_dir in base_cache_dir.iterdir():
         if not provider_dir.is_dir():
@@ -570,7 +564,9 @@ def _remove_work_dir_from_certified_data(host: OnlineHostInterface, work_dir_pat
     existing_dirs = set(certified_data.generated_work_dirs)
     existing_dirs.discard(str(work_dir_path))
 
-    updated_data = certified_data.model_copy(update={"generated_work_dirs": tuple(sorted(existing_dirs))})
+    updated_data = certified_data.model_copy_update(
+        to_update(certified_data.field_ref().generated_work_dirs, tuple(sorted(existing_dirs))),
+    )
 
     data_json = updated_data.model_dump_json(by_alias=True, indent=2)
     data_path = host.host_dir / "data.json"

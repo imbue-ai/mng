@@ -8,6 +8,7 @@ from click.testing import CliRunner
 
 from imbue.mngr.cli.create import create
 from imbue.mngr.cli.list import list_command
+from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.utils.testing import tmux_session_cleanup
 
 
@@ -524,19 +525,20 @@ def test_list_command_with_field_aliases(
         # List with field aliases
         result = cli_runner.invoke(
             list_command,
-            ["--fields", "name,combined_state,host,provider"],
+            ["--fields", "name,host.state,state,host,provider"],
             obj=plugin_manager,
             catch_exceptions=False,
         )
 
         assert result.exit_code == 0
         assert "NAME" in result.output
+        assert "HOST_STATE" in result.output
         assert "STATE" in result.output
         assert "HOST" in result.output
         assert "PROVIDER" in result.output
         assert agent_name in result.output
-        # State should show "running" or "stopped" in lowercase
-        assert "running" in result.output or "stopped" in result.output
+        # States should show in uppercase
+        assert AgentLifecycleState.RUNNING.value in result.output or AgentLifecycleState.STOPPED.value in result.output
 
 
 def test_list_command_with_invalid_fields(

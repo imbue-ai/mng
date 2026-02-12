@@ -1,44 +1,46 @@
 import os
-import subprocess
 from pathlib import Path
 
-from loguru import logger
 from modal import Function
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessError
+from imbue.imbue_common.logging import log_span
+from imbue.mngr.errors import MngrError
 
-def deploy_function(function: str, app_name: str, environment_name: str | None) -> str:
-    """Deploys a Function to Modal with the given app name and returns the URL.
-    Returns None if deployment fails.
+
+def deploy_function(function: str, app_name: str, environment_name: str | None, cg: ConcurrencyGroup) -> str:
+    """Deploy a Function to Modal with the given app name and return the URL.
+
+    Raises MngrError if deployment fails.
     """
     script_path = Path(__file__).parent / f"{function}.py"
 
-    logger.debug("Deploying {} function for app: {}", function, app_name)
+    with log_span("Deploying {} function for app: {}", function, app_name):
+        try:
+            cg.run_process_to_completion(
+                [
+                    "uv",
+                    "run",
+                    "modal",
+                    "deploy",
+                    *(["--env", environment_name] if environment_name else []),
+                    str(script_path),
+                ],
+                timeout=180,
+                env={
+                    **os.environ,
+                    "MNGR_MODAL_APP_NAME": app_name,
+                },
+            )
+        except ProcessError as e:
+            output = (e.stdout + "\n" + e.stderr).strip()
+            raise MngrError(f"Failed to deploy {function} function: {output}") from e
 
-    result = subprocess.run(
-        [
-            "uv",
-            "run",
-            "modal",
-            "deploy",
-            *(["--env", environment_name] if environment_name else []),
-            str(script_path),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=180,
-        env={
-            **os.environ,
-            "MNGR_MODAL_APP_NAME": app_name,
-        },
-    )
+        # get the URL out of the resulting Function object
+        func = Function.from_name(name=function, app_name=app_name, environment_name=environment_name)
+        web_url = func.get_web_url()
+        if not web_url:
+            raise MngrError(f"Could not find function URL in deploy output for {function}")
 
-    if result.returncode != 0:
-        raise Exception("Failed to deploy {} function: {}", function, result.stderr)
-
-    # get the URL out of the resulting Function object
-    func = Function.from_name(name=function, app_name=app_name, environment_name=environment_name)
-    web_url = func.get_web_url()
-    if not web_url:
-        raise Exception("Could not find function URL in deploy output: {}", result.stdout)
-
-    return web_url
+        return web_url

@@ -9,8 +9,6 @@ to main. To run them locally:
 """
 
 import subprocess
-import tempfile
-from collections.abc import Generator
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,13 +18,13 @@ from imbue.mngr.conftest import ModalSubprocessTestEnv
 
 
 @pytest.fixture
-def temp_source_dir() -> Generator[Path, None, None]:
+def temp_source_dir(tmp_path: Path) -> Path:
     """Create a temporary source directory for tests."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        source_dir = Path(tmpdir)
-        # Create a simple file so the directory isn't empty
-        (source_dir / "test.txt").write_text("test content")
-        yield source_dir
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    # Create a simple file so the directory isn't empty
+    (source_dir / "test.txt").write_text("test content")
+    return source_dir
 
 
 @pytest.mark.release
@@ -50,6 +48,12 @@ def test_claude_agent_provisioning_on_modal(
     # Use a unique agent name with globally unique id to avoid collisions
     unique_id = uuid4().hex[:12]
     agent_name = f"test-claude-modal-{unique_id}"
+
+    # make a .gitignore file to ignore the claude local settings
+    claude_settings_dir = temp_source_dir / ".claude"
+    claude_settings_dir.mkdir()
+    (claude_settings_dir / "settings.local.json").write_text("{}")
+    (temp_source_dir / ".gitignore").write_text(".claude/settings.local.json\n")
 
     # Run mngr create with claude agent on modal
     # Using --no-connect and --await-ready to run synchronously without attaching

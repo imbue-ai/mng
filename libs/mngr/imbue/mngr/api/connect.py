@@ -1,13 +1,23 @@
 import os
+import shlex
 from pathlib import Path
+from typing import Final
 
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.utils.interactive_subprocess import run_interactive_subprocess
+
+# Exit codes used by the remote SSH wrapper script to signal post-disconnect actions.
+# These are checked by connect_to_agent after the SSH session ends to determine
+# whether to destroy or stop the agent locally.
+SIGNAL_EXIT_CODE_DESTROY: Final[int] = 10
+SIGNAL_EXIT_CODE_STOP: Final[int] = 11
 
 
 def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str:
@@ -18,6 +28,8 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str
     2. Starts a background loop that writes JSON activity to activity/ssh
     3. Runs tmux attach (foreground, blocking)
     4. Kills the activity tracker when tmux exits
+    5. Checks for signal files (written by tmux Ctrl-q/Ctrl-t bindings) and
+       exits with a specific code to tell the local mngr process what to do
 
     The activity file contains JSON with:
     - time: milliseconds since Unix epoch (int)
@@ -27,6 +39,7 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str
     """
     activity_dir = host_dir / "activity"
     activity_file = activity_dir / "ssh"
+    signal_file = host_dir / "signals" / session_name
     # Use single quotes around most things to avoid shell expansion issues,
     # but the paths need to be interpolated
     return (
@@ -37,8 +50,80 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str
         f"sleep 5; done) & "
         "MNGR_ACTIVITY_PID=$!; "
         f"tmux attach -t '{session_name}'; "
-        "kill $MNGR_ACTIVITY_PID 2>/dev/null"
+        "kill $MNGR_ACTIVITY_PID 2>/dev/null; "
+        # Check for signal files written by tmux key bindings (Ctrl-q writes "destroy", Ctrl-t writes "stop")
+        f"SIGNAL_FILE='{signal_file}'; "
+        'if [ -f "$SIGNAL_FILE" ]; then '
+        'ACTION=$(cat "$SIGNAL_FILE"); '
+        'rm -f "$SIGNAL_FILE"; '
+        f'if [ "$ACTION" = "destroy" ]; then exit {SIGNAL_EXIT_CODE_DESTROY}; '
+        f'elif [ "$ACTION" = "stop" ]; then exit {SIGNAL_EXIT_CODE_STOP}; fi; '
+        "fi"
     )
+
+
+def _build_ssh_args(
+    host: OnlineHostInterface,
+    connection_opts: ConnectionOptions,
+) -> list[str]:
+    """Build the SSH command arguments for connecting to a remote host.
+
+    Returns the list of arguments for the SSH command (not including the
+    wrapper script or -t bash -c ... suffix).
+    """
+    pyinfra_host = host.connector.host
+    ssh_host = pyinfra_host.name
+    ssh_user = pyinfra_host.data.get("ssh_user")
+    ssh_port = pyinfra_host.data.get("ssh_port")
+    ssh_key = pyinfra_host.data.get("ssh_key")
+    ssh_known_hosts_file = pyinfra_host.data.get("ssh_known_hosts_file")
+
+    ssh_args = ["ssh"]
+
+    if ssh_key:
+        ssh_args.extend(["-i", str(ssh_key)])
+
+    if ssh_port:
+        ssh_args.extend(["-p", str(ssh_port)])
+
+    # Use the known_hosts file if provided (for pre-trusted host keys)
+    if ssh_known_hosts_file and ssh_known_hosts_file != "/dev/null":
+        ssh_args.extend(["-o", f"UserKnownHostsFile={ssh_known_hosts_file}"])
+        ssh_args.extend(["-o", "StrictHostKeyChecking=yes"])
+    elif connection_opts.is_unknown_host_allowed:
+        # Fall back to disabling host key checking if no known_hosts file
+        ssh_args.extend(["-o", "StrictHostKeyChecking=no"])
+        ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
+    else:
+        raise MngrError(
+            "You must specify a known_hosts file to connect to this host securely. "
+            "Alternatively, use --allow-unknown-host to bypass SSH host key verification."
+        )
+
+    if ssh_user:
+        ssh_args.append(f"{ssh_user}@{ssh_host}")
+    else:
+        ssh_args.append(ssh_host)
+
+    return ssh_args
+
+
+@pure
+def _determine_post_disconnect_action(
+    exit_code: int,
+    session_name: str,
+) -> tuple[str, list[str]] | None:
+    """Given an SSH exit code, return the post-disconnect action to execute.
+
+    Returns (executable, argv) if an action should be taken, or None if no
+    action is needed (normal exit or unknown exit code).
+    """
+    if exit_code == SIGNAL_EXIT_CODE_DESTROY:
+        return ("mngr", ["mngr", "destroy", "--session", session_name, "-f"])
+    elif exit_code == SIGNAL_EXIT_CODE_STOP:
+        return ("mngr", ["mngr", "stop", "--session", session_name])
+    else:
+        return None
 
 
 def connect_to_agent(
@@ -47,15 +132,18 @@ def connect_to_agent(
     mngr_ctx: MngrContext,
     connection_opts: ConnectionOptions,
 ) -> None:
-    """Connect to an agent by replacing the current process with tmux attach.
+    """Connect to an agent via tmux attach (local) or SSH + tmux attach (remote).
 
-    For local agents, executes: tmux attach -t <session_name>
-    For remote agents, executes: ssh <host> <activity_wrapper_script>
+    For local agents, replaces the current process with: tmux attach -t <session_name>
 
-    The activity wrapper script tracks SSH activity by writing timestamps to the
-    host's activity/ssh file while the SSH connection is open.
+    For remote agents, runs SSH interactively and then checks the exit code to
+    determine if a post-disconnect action (destroy/stop) was requested via the
+    tmux key bindings (Ctrl-q for destroy, Ctrl-t for stop). If so, replaces the
+    current process with the appropriate mngr command to perform the action locally.
 
-    This function does not return - it replaces the current process.
+    For local agents, this function does not return (os.execvp replaces the process).
+    For remote agents, this function returns after the SSH session ends unless a
+    post-disconnect action is triggered (in which case os.execvp replaces the process).
     """
     logger.info("Connecting to agent...")
 
@@ -64,42 +152,25 @@ def connect_to_agent(
     if host.is_local:
         os.execvp("tmux", ["tmux", "attach", "-t", session_name])
     else:
-        pyinfra_host = host.connector.host
-        ssh_host = pyinfra_host.name
-        ssh_user = pyinfra_host.data.get("ssh_user")
-        ssh_port = pyinfra_host.data.get("ssh_port")
-        ssh_key = pyinfra_host.data.get("ssh_key")
-        ssh_known_hosts_file = pyinfra_host.data.get("ssh_known_hosts_file")
-
-        ssh_args = ["ssh"]
-
-        if ssh_key:
-            ssh_args.extend(["-i", str(ssh_key)])
-
-        if ssh_port:
-            ssh_args.extend(["-p", str(ssh_port)])
-
-        # Use the known_hosts file if provided (for pre-trusted host keys)
-        if ssh_known_hosts_file and ssh_known_hosts_file != "/dev/null":
-            ssh_args.extend(["-o", f"UserKnownHostsFile={ssh_known_hosts_file}"])
-            ssh_args.extend(["-o", "StrictHostKeyChecking=yes"])
-        elif connection_opts.is_unknown_host_allowed:
-            # Fall back to disabling host key checking if no known_hosts file
-            ssh_args.extend(["-o", "StrictHostKeyChecking=no"])
-            ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
-        else:
-            raise MngrError(
-                "You must specify a known_hosts file to connect to this host securely. "
-                "Alternatively, use --allow-unknown-host to bypass SSH host key verification."
-            )
-
-        if ssh_user:
-            ssh_args.append(f"{ssh_user}@{ssh_host}")
-        else:
-            ssh_args.append(ssh_host)
+        ssh_args = _build_ssh_args(host, connection_opts)
 
         # Build wrapper script that tracks SSH activity while running tmux
         wrapper_script = _build_ssh_activity_wrapper_script(session_name, host.host_dir)
-        ssh_args.extend(["-t", "bash", "-c", wrapper_script])
+        # Pass the wrapper as a single remote command string so SSH doesn't
+        # split it into separate words. SSH concatenates multiple remote command
+        # arguments with spaces, which would cause 'bash -c' to only receive
+        # the first word of the script (e.g., 'mkdir') instead of the full script.
+        ssh_args.extend(["-t", "bash -c " + shlex.quote(wrapper_script)])
 
-        os.execvp("ssh", ssh_args)
+        # Use run_interactive_subprocess instead of os.execvp so we can check the exit code
+        # and run post-disconnect actions (destroy/stop) triggered by tmux key bindings
+        completed = run_interactive_subprocess(ssh_args)
+        exit_code = completed.returncode
+
+        action = _determine_post_disconnect_action(exit_code, session_name)
+        if action is not None:
+            executable, argv = action
+            logger.info("Running post-disconnect action: {}", argv)
+            os.execvp(executable, argv)
+        else:
+            logger.debug("SSH session ended with exit code {} (no post-disconnect action)", exit_code)

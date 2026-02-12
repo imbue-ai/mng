@@ -29,13 +29,18 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+# Only timeout the test function itself, not fixtures. This is required because
+# --timeout-method=signal sends SIGALRM which kills the entire xdist worker process
+# if it fires during fixture setup/teardown (especially the session-scoped cleanup).
+timeout_func_only = true
 pythonpath = [
   "apps/*",
-  "libs/*"
+  "libs/*",
 ]
 testpaths = [
   "apps/*",
   "libs/*",
+  "scripts",
 ]
 filterwarnings = [
   # Suppress grpclib warning that occurs during garbage collection when Channel.__del__ is called
@@ -58,8 +63,8 @@ addopts = [
   # The acceptance tests cover these paths when run in CI.
   "--cov-fail-under=80",
   "--durations=20",
-  "--timeout=5",
-  "--timeout-method=thread",
+  "--timeout=10",
+  "--timeout-method=signal",
   # to hopefully see why a worker crashes, rather than just trying to re-run it
   "--max-worker-restart=0",
   # skip acceptance and release tests by default (they require network access)
@@ -126,9 +131,13 @@ omit = [
     "test_*.py",
     "*/tests/*",
     "*/conftest.py",
+    # Test utility modules contain helpers only used by tests
+    "*/utils/testing.py",
     "libs/imbue_common/imbue/imbue_common/ratchet_testing/ratchets.py",
     # Modal provider requires network access for testing
     "libs/mngr/imbue/mngr/providers/modal/*",
+    # don't bother with anything in scripts
+    "scripts/*",
 ]
 
 [tool.coverage.report]

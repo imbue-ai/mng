@@ -1,4 +1,4 @@
-# agent_data_url Plugin
+# agent_data_url Plugin [future]
 
 The `agent_data_url` plugin provides a way to access agent-specific data via a URL.
 

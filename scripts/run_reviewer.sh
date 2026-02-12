@@ -3,7 +3,7 @@
 # run_reviewer.sh
 #
 # Triggers a code review in a tmux reviewer window, waits for completion,
-# sorts the results, and stores them in git LFS with a git note.
+# and sorts the results.
 #
 # Usage: ./run_reviewer.sh <session> <window>
 #
@@ -21,15 +21,32 @@ fi
 SESSION="$1"
 WINDOW="$2"
 
-# Get the directory of this script
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # Configuration
 REVIEW_TIMEOUT=600  # 10 minutes max wait for review
 POLL_INTERVAL=5     # Check every 5 seconds
 REVIEW_OUTPUT_DIR=".reviews/final_issue_json"
 REVIEW_OUTPUT_FILE="$REVIEW_OUTPUT_DIR/$WINDOW.json"
 REVIEW_DONE_MARKER="$REVIEW_OUTPUT_FILE.done"
+
+# Cache directory for skipping redundant reviews of the same commit
+CACHE_DIR=".reviews/cache"
+CACHE_COMMIT_FILE="$CACHE_DIR/$WINDOW.commit"
+CACHE_OUTPUT_FILE="$CACHE_DIR/$WINDOW.json"
+CACHE_EXIT_CODE_FILE="$CACHE_DIR/$WINDOW.exit_code"
+
+# Check if the current commit has already been reviewed successfully
+CURRENT_COMMIT=$(git rev-parse HEAD)
+if [[ -f "$CACHE_COMMIT_FILE" && -f "$CACHE_OUTPUT_FILE" && -f "$CACHE_EXIT_CODE_FILE" ]]; then
+    CACHED_COMMIT=$(cat "$CACHE_COMMIT_FILE")
+    if [[ "$CURRENT_COMMIT" == "$CACHED_COMMIT" ]]; then
+        CACHED_EXIT_CODE=$(cat "$CACHE_EXIT_CODE_FILE")
+        # Restore the cached output file so callers can read it
+        mkdir -p "$REVIEW_OUTPUT_DIR"
+        cp "$CACHE_OUTPUT_FILE" "$REVIEW_OUTPUT_FILE"
+        echo -e "[$WINDOW] Commit $CURRENT_COMMIT already reviewed -- using cached results (exit code $CACHED_EXIT_CODE)"
+        exit "$CACHED_EXIT_CODE"
+    fi
+fi
 
 # remove the old files
 rm -rf $REVIEW_DONE_MARKER
@@ -107,7 +124,7 @@ if [[ ! -s "$REVIEW_OUTPUT_FILE" ]]; then
 else
     # Sort the JSON by severity (most severe first), then by confidence (high to low)
     # Severity order: CRITICAL > MAJOR > MINOR > NITPICK > unknown
-    # Confidence is a numeric value from 0.0 to 1.0 (higher = more confident)
+    # Confidence may be numeric (0.0-1.0) or a string ("HIGH", "MEDIUM", "LOW")
     log_info "Sorting review results..."
 
     jq -s 'sort_by(
@@ -116,47 +133,40 @@ else
        elif .severity == "MINOR" then 2
        elif .severity == "NITPICK" then 3
        else 4 end),
-      (-.confidence)
+      (if (.confidence | type) == "number" then -.confidence
+       elif .confidence == "HIGH" then 0
+       elif .confidence == "MEDIUM" then 1
+       elif .confidence == "LOW" then 2
+       else 3 end)
     )' "$REVIEW_OUTPUT_FILE" > "$SORTED_OUTPUT"
 fi
 
-# Store the sorted JSON in git LFS
-FILE_TYPE="issues/verify_branch/$WINDOW"
-log_info "Storing review results with FILE_TYPE: $FILE_TYPE"
+# Copy sorted output back to the review output file for callers to read
+cp "$SORTED_OUTPUT" "$REVIEW_OUTPUT_FILE"
 
-if OUTPUT=$("$SCRIPT_DIR/add_commit_metadata_file.sh" "$SORTED_OUTPUT" "$FILE_TYPE" 2>&1); then
-    RAW_URL=$(echo "$OUTPUT" | grep "raw.githubusercontent.com" | sed 's/^[[:space:]]*//')
-    log_info "Review results stored successfully"
-
-    if [[ -n "$RAW_URL" ]]; then
-        # Create git note for the review results
-        COMMIT_SHA=$(git rev-parse HEAD)
-        log_info "Creating git note for review results..."
-        git notes --ref="$FILE_TYPE" add -f -m "$RAW_URL" "$COMMIT_SHA"
-
-        # Push the note
-        log_info "Pushing git note..."
-        if ! git push --force origin "refs/notes/$FILE_TYPE"; then
-            log_warn "Failed to push git note"
-        fi
-    else
-        log_warn "Could not extract URL from output"
-    fi
-else
-    log_error "Failed to store review results: $OUTPUT"
-    exit 1
-fi
-
-# Check for blocking issues (CRITICAL or MAJOR severity with confidence >= 0.7)
+# Check for blocking issues (CRITICAL or MAJOR severity with high confidence)
+# Confidence may be numeric (>= 0.7) or a string ("HIGH")
 BLOCKING_ISSUES=$(jq '[.[] | select(
     (.severity == "CRITICAL" or .severity == "MAJOR") and
-    (.confidence >= 0.7)
+    (((.confidence | type) == "number" and .confidence >= 0.7) or
+     ((.confidence | type) == "string" and .confidence == "HIGH"))
 )] | length' "$SORTED_OUTPUT")
+
+# Cache the results so we can skip re-reviewing the same commit
+cache_results() {
+    local exit_code="$1"
+    mkdir -p "$CACHE_DIR"
+    echo "$CURRENT_COMMIT" > "$CACHE_COMMIT_FILE"
+    cp "$SORTED_OUTPUT" "$CACHE_OUTPUT_FILE"
+    echo "$exit_code" > "$CACHE_EXIT_CODE_FILE"
+}
 
 if [[ "$BLOCKING_ISSUES" -gt 0 ]]; then
     log_error "Found $BLOCKING_ISSUES blocking issues (CRITICAL/MAJOR with confidence >= 0.7)"
+    cache_results 2
     exit 2
 fi
 
 log_info "Reviewer $WINDOW completed successfully (no blocking issues)"
+cache_results 0
 exit 0

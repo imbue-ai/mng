@@ -4,15 +4,19 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pluggy
+import pytest
 from click.testing import CliRunner
 
+from imbue.imbue_common.model_update import to_update
+from imbue.mngr.cli.create import CreateCliOptions
+from imbue.mngr.cli.create import _handle_create
 from imbue.mngr.cli.create import create
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import capture_tmux_pane_contents
-from imbue.mngr.utils.testing import restore_env_var
 from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
 
@@ -112,34 +116,46 @@ def test_cli_create_via_subprocess(
 
 
 def test_connect_flag_calls_tmux_attach_for_local_agent(
-    cli_runner: CliRunner,
     temp_work_dir: Path,
+    temp_mngr_ctx: MngrContext,
     mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
+    default_create_cli_opts: CreateCliOptions,
 ) -> None:
-    """Test that --connect flag attempts to attach to the tmux session for local agents."""
+    """Test that --connect flag results in connection options that would attach to the tmux session.
+
+    Calls _handle_create directly (bypassing _post_create) so we can verify the agent
+    was created and the returned options indicate a connect should happen, without
+    actually calling os.execvp to attach to tmux.
+    """
     agent_name = f"test-connect-local-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
 
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().name, agent_name),
+        to_update(default_create_cli_opts.field_ref().agent_command, "sleep 397265"),
+        to_update(default_create_cli_opts.field_ref().source_path, str(temp_work_dir)),
+        to_update(default_create_cli_opts.field_ref().connect, True),
+        to_update(default_create_cli_opts.field_ref().copy_work_dir, False),
+        to_update(default_create_cli_opts.field_ref().ensure_clean, False),
+    )
+
+    output_opts = OutputOptions()
+
     with tmux_session_cleanup(session_name):
-        with patch("os.execvp") as mock_execvp:
-            cli_runner.invoke(
-                create,
-                [
-                    "--name",
-                    agent_name,
-                    "--agent-cmd",
-                    "sleep 397265",
-                    "--source",
-                    str(temp_work_dir),
-                    "--connect",
-                    "--no-copy-work-dir",
-                    "--no-ensure-clean",
-                ],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
-            mock_execvp.assert_called_once_with("tmux", ["tmux", "attach", "-t", session_name])
+        result = _handle_create(temp_mngr_ctx, output_opts, opts)
+
+        assert result is not None
+        create_result, connection_opts, _, returned_opts, _ = result
+
+        # Verify the agent was created and the tmux session is running
+        assert create_result.agent is not None
+        assert create_result.host is not None
+        assert tmux_session_exists(session_name)
+
+        # Verify the returned options indicate connect should happen
+        # (_post_create would call connect_to_agent -> os.execvp with tmux attach)
+        assert returned_opts.connect is True
+        assert connection_opts.is_reconnect is True
 
 
 def test_no_connect_flag_skips_tmux_attach(
@@ -213,7 +229,7 @@ def test_message_file_flag_reads_message_from_file(
                 "--await-ready",
                 "--no-copy-work-dir",
                 "--no-ensure-clean",
-                "--message-delay",
+                "--ready-timeout",
                 "0.01",
             ],
             obj=plugin_manager,
@@ -300,7 +316,7 @@ def test_multiline_message_creates_file_and_pipes(
                 "--await-ready",
                 "--no-copy-work-dir",
                 "--no-ensure-clean",
-                "--message-delay",
+                "--ready-timeout",
                 "0.01",
             ],
             obj=plugin_manager,
@@ -348,7 +364,7 @@ def test_single_line_message_uses_echo(
                 "--await-ready",
                 "--no-copy-work-dir",
                 "--no-ensure-clean",
-                "--message-delay",
+                "--ready-timeout",
                 "0.01",
             ],
             obj=plugin_manager,
@@ -407,6 +423,14 @@ def test_no_await_ready_creates_agent_in_background(
             lambda: tmux_session_exists(session_name),
             error_message=f"Expected tmux session {session_name} to exist",
         )
+
+        # Wait for the command to actually start running in the session.
+        # The background thread may still be sending keys after the session is created.
+        def command_is_running() -> bool:
+            pane_content = capture_tmux_pane_contents(session_name)
+            return "sleep" in pane_content
+
+        wait_for(command_is_running, error_message="Expected sleep command to be running")
 
 
 def test_add_command_with_named_window(
@@ -611,6 +635,7 @@ def test_edit_message_sends_edited_content(
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that --edit-message opens an editor and sends the edited message."""
     agent_name = f"test-edit-message-{int(time.time())}"
@@ -622,47 +647,40 @@ def test_edit_message_sends_edited_content(
     editor_script.write_text(f'#!/bin/bash\necho -n "{edited_message}" > "$1"\n')
     editor_script.chmod(0o755)
 
-    original_editor = os.environ.get("EDITOR")
-    original_visual = os.environ.get("VISUAL")
-    try:
-        os.environ["EDITOR"] = str(editor_script)
-        if "VISUAL" in os.environ:
-            del os.environ["VISUAL"]
+    monkeypatch.setenv("EDITOR", str(editor_script))
+    monkeypatch.delenv("VISUAL", raising=False)
 
-        with tmux_session_cleanup(session_name):
-            result = cli_runner.invoke(
-                create,
-                [
-                    "--name",
-                    agent_name,
-                    "--agent-cmd",
-                    "cat",
-                    "--edit-message",
-                    "--source",
-                    str(temp_work_dir),
-                    "--no-connect",
-                    "--await-ready",
-                    "--no-copy-work-dir",
-                    "--no-ensure-clean",
-                ],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
+    with tmux_session_cleanup(session_name):
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "cat",
+                "--edit-message",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
 
-            assert result.exit_code == 0, f"CLI failed with: {result.output}"
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
 
-            wait_for(
-                lambda: tmux_session_exists(session_name),
-                error_message=f"Expected tmux session {session_name} to exist",
-            )
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            error_message=f"Expected tmux session {session_name} to exist",
+        )
 
-            wait_for(
-                lambda: edited_message in capture_tmux_pane_contents(session_name),
-                error_message=f"Expected message '{edited_message}' to appear in tmux pane output",
-            )
-    finally:
-        restore_env_var("EDITOR", original_editor)
-        restore_env_var("VISUAL", original_visual)
+        wait_for(
+            lambda: edited_message in capture_tmux_pane_contents(session_name),
+            error_message=f"Expected message '{edited_message}' to appear in tmux pane output",
+        )
 
 
 def test_edit_message_with_initial_content(
@@ -671,6 +689,7 @@ def test_edit_message_with_initial_content(
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that --edit-message with --message uses the message as initial content."""
     agent_name = f"test-edit-initial-{int(time.time())}"
@@ -686,56 +705,49 @@ def test_edit_message_with_initial_content(
     editor_script.write_text(f'#!/bin/bash\ncp "$1" "{captured_file}"\necho -n "{edited_message}" > "$1"\n')
     editor_script.chmod(0o755)
 
-    original_editor = os.environ.get("EDITOR")
-    original_visual = os.environ.get("VISUAL")
-    try:
-        os.environ["EDITOR"] = str(editor_script)
-        if "VISUAL" in os.environ:
-            del os.environ["VISUAL"]
+    monkeypatch.setenv("EDITOR", str(editor_script))
+    monkeypatch.delenv("VISUAL", raising=False)
 
-        with tmux_session_cleanup(session_name):
-            result = cli_runner.invoke(
-                create,
-                [
-                    "--name",
-                    agent_name,
-                    "--agent-cmd",
-                    "cat",
-                    "--edit-message",
-                    "--message",
-                    initial_content,
-                    "--source",
-                    str(temp_work_dir),
-                    "--no-connect",
-                    "--await-ready",
-                    "--no-copy-work-dir",
-                    "--no-ensure-clean",
-                ],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
+    with tmux_session_cleanup(session_name):
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "cat",
+                "--edit-message",
+                "--message",
+                initial_content,
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
 
-            assert result.exit_code == 0, f"CLI failed with: {result.output}"
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
 
-            # Verify the captured initial content
-            assert captured_file.exists(), "Editor script should have captured the initial content"
-            captured_initial_content = captured_file.read_text()
-            assert captured_initial_content == initial_content, (
-                f"Expected initial content '{initial_content}' but got '{captured_initial_content}'"
-            )
+        # Verify the captured initial content
+        assert captured_file.exists(), "Editor script should have captured the initial content"
+        captured_initial_content = captured_file.read_text()
+        assert captured_initial_content == initial_content, (
+            f"Expected initial content '{initial_content}' but got '{captured_initial_content}'"
+        )
 
-            wait_for(
-                lambda: tmux_session_exists(session_name),
-                error_message=f"Expected tmux session {session_name} to exist",
-            )
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            error_message=f"Expected tmux session {session_name} to exist",
+        )
 
-            wait_for(
-                lambda: edited_message in capture_tmux_pane_contents(session_name),
-                error_message=f"Expected message '{edited_message}' to appear in tmux pane output",
-            )
-    finally:
-        restore_env_var("EDITOR", original_editor)
-        restore_env_var("VISUAL", original_visual)
+        wait_for(
+            lambda: edited_message in capture_tmux_pane_contents(session_name),
+            error_message=f"Expected message '{edited_message}' to appear in tmux pane output",
+        )
 
 
 def test_edit_message_incompatible_with_background_creation(
@@ -774,6 +786,7 @@ def test_edit_message_empty_content_does_not_send(
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that empty content from editor does not send a message."""
     agent_name = f"test-edit-empty-{int(time.time())}"
@@ -785,51 +798,44 @@ def test_edit_message_empty_content_does_not_send(
     editor_script.write_text('#!/bin/bash\necho -n "" > "$1"\n')
     editor_script.chmod(0o755)
 
-    original_editor = os.environ.get("EDITOR")
-    original_visual = os.environ.get("VISUAL")
-    try:
-        os.environ["EDITOR"] = str(editor_script)
-        if "VISUAL" in os.environ:
-            del os.environ["VISUAL"]
+    monkeypatch.setenv("EDITOR", str(editor_script))
+    monkeypatch.delenv("VISUAL", raising=False)
 
-        with tmux_session_cleanup(session_name):
-            result = cli_runner.invoke(
-                create,
-                [
-                    "--name",
-                    agent_name,
-                    "--agent-cmd",
-                    f"echo '{marker_text}' && cat",
-                    "--edit-message",
-                    "--source",
-                    str(temp_work_dir),
-                    "--no-connect",
-                    "--await-ready",
-                    "--no-copy-work-dir",
-                    "--no-ensure-clean",
-                ],
-                obj=plugin_manager,
-                catch_exceptions=False,
-            )
+    with tmux_session_cleanup(session_name):
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                f"echo '{marker_text}' && cat",
+                "--edit-message",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
 
-            assert result.exit_code == 0, f"CLI failed with: {result.output}"
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
 
-            wait_for(
-                lambda: tmux_session_exists(session_name),
-                error_message=f"Expected tmux session {session_name} to exist",
-            )
+        wait_for(
+            lambda: tmux_session_exists(session_name),
+            error_message=f"Expected tmux session {session_name} to exist",
+        )
 
-            # Verify agent started (marker appears)
-            wait_for(
-                lambda: marker_text in capture_tmux_pane_contents(session_name),
-                error_message=f"Expected marker '{marker_text}' to appear in tmux pane output",
-            )
+        # Verify agent started (marker appears)
+        wait_for(
+            lambda: marker_text in capture_tmux_pane_contents(session_name),
+            error_message=f"Expected marker '{marker_text}' to appear in tmux pane output",
+        )
 
-            # Warning should be logged about no message being sent
-            assert "No message to send" in result.output or "empty" in result.output.lower()
-    finally:
-        restore_env_var("EDITOR", original_editor)
-        restore_env_var("VISUAL", original_visual)
+        # Warning should be logged about no message being sent
+        assert "No message to send" in result.output or "empty" in result.output.lower()
 
 
 def test_template_applies_values_from_config(
@@ -926,7 +932,7 @@ no_ensure_clean = true
                 "mytemplate",
                 "--message",
                 "cli-message",
-                "--message-delay",
+                "--ready-timeout",
                 "0.01",
             ],
             obj=plugin_manager,

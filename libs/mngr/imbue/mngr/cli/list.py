@@ -1,15 +1,21 @@
 import re
+import shutil
 import sys
 from collections.abc import Sequence
 from enum import Enum
+from threading import Lock
 from typing import Any
+from typing import Final
 
 import click
 from click_option_group import optgroup
 from loguru import logger
 from pydantic import BaseModel
+from pydantic import PrivateAttr
 from tabulate import tabulate
 
+from imbue.imbue_common.mutable_model import MutableModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import ErrorInfo
 from imbue.mngr.api.list import list_agents as api_list_agents
@@ -24,8 +30,22 @@ from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
+
+_DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = ("name", "host", "provider", "host.state", "state", "status")
+
+
+@pure
+def _should_use_streaming_mode(
+    output_format: OutputFormat,
+    is_watch: bool,
+    is_sort_explicit: bool,
+    limit: int | None,
+) -> bool:
+    """Determine whether to use streaming mode for list output."""
+    return output_format == OutputFormat.HUMAN and not is_watch and not is_sort_explicit and limit is None
 
 
 class ListCliOptions(CommonCliOptions):
@@ -72,12 +92,12 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--running",
     is_flag=True,
-    help="Show only running agents (alias for --include 'state == \"running\"')",
+    help="Show only running agents (alias for --include 'state == \"RUNNING\"')",
 )
 @optgroup.option(
     "--stopped",
     is_flag=True,
-    help="Show only stopped agents (alias for --include 'state == \"stopped\"')",
+    help="Show only stopped agents (alias for --include 'state == \"STOPPED\"')",
 )
 @optgroup.option(
     "--local",
@@ -112,7 +132,7 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--sort",
     default="create_time",
-    help="Sort by field (supports nested fields like host.name) [default: create_time]",
+    help="Sort by field (supports nested fields like host.name); enables sorted (non-streaming) output [default: create_time]",
 )
 @optgroup.option(
     "--sort-order",
@@ -171,7 +191,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         command_name="list",
         command_class=ListCliOptions,
     )
-    logger.debug("Running list command")
+    logger.debug("Started list command")
 
     # --format-template FORMAT: Output format as a string template, mutually exclusive with --format
     # Template can reference any field from the Available Fields list (see CommandHelpMetadata)
@@ -200,14 +220,14 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             combined_filter = " || ".join(ref_filters)
             include_filters.append(combined_filter)
 
-    # --running: alias for --include 'state == "running"'
-    # --stopped: alias for --include 'state == "stopped"'
+    # --running: alias for --include 'state == "RUNNING"'
+    # --stopped: alias for --include 'state == "STOPPED"'
     # --local: alias for --include 'host.provider == "local"'
     # --remote: alias for --exclude 'host.provider == "local"'
     if opts.running:
-        include_filters.append('state == "running"')
+        include_filters.append(f'state == "{AgentLifecycleState.RUNNING.value}"')
     if opts.stopped:
-        include_filters.append('state == "stopped"')
+        include_filters.append(f'state == "{AgentLifecycleState.STOPPED.value}"')
     if opts.local:
         include_filters.append('host.provider == "local"')
 
@@ -229,37 +249,58 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
 
     error_behavior = ErrorBehavior(opts.on_error.upper())
 
-    # For JSONL format, use streaming callbacks to emit output as agents are found
-    # Watch mode is not supported for JSONL (streaming doesn't work well with refresh)
+    include_filters_tuple = tuple(include_filters)
+    exclude_filters_tuple = tuple(exclude_filters)
+    provider_names = opts.provider if opts.provider else None
+
+    # Dispatch to the appropriate output path
     if output_opts.output_format == OutputFormat.JSONL:
-        if opts.watch:
-            logger.warning("Watch mode is not supported with JSONL format, running once")
-
-        # Use a callback wrapper that limits output count
-        limited_callback = _LimitedJsonlEmitter()
-        limited_callback.limit = limit
-
-        result = api_list_agents(
-            mngr_ctx=mngr_ctx,
-            include_filters=tuple(include_filters),
-            exclude_filters=tuple(exclude_filters),
-            provider_names=opts.provider if opts.provider else None,
-            error_behavior=error_behavior,
-            on_agent=limited_callback,
-            on_error=_emit_jsonl_error,
+        _list_jsonl(
+            ctx,
+            mngr_ctx,
+            include_filters_tuple,
+            exclude_filters_tuple,
+            provider_names,
+            error_behavior,
+            limit,
+            is_watch=bool(opts.watch),
         )
-        # Exit with non-zero code if there were errors (per error_handling.md spec)
-        if result.errors:
-            ctx.exit(1)
         return
 
-    # Build iteration parameters for reuse in watch mode
+    # Determine if --sort or --sort-order was explicitly set by the user (vs using the default)
+    sort_source = ctx.get_parameter_source("sort")
+    sort_order_source = ctx.get_parameter_source("sort_order")
+    is_sort_explicit = (sort_source is not None and sort_source != click.core.ParameterSource.DEFAULT) or (
+        sort_order_source is not None and sort_order_source != click.core.ParameterSource.DEFAULT
+    )
+
+    # Streaming mode trades sorted output for faster time-to-first-result: agents display
+    # as each provider completes rather than waiting for all providers. Users who need sorted
+    # output can pass --sort explicitly, which falls back to batch mode. When --limit is set,
+    # batch mode is required to get deterministic results (streaming would show whichever
+    # agents load first, since sorting is skipped).
+    if _should_use_streaming_mode(
+        output_opts.output_format, is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit, limit=limit
+    ):
+        display_fields = fields if fields is not None else list(_DEFAULT_HUMAN_DISPLAY_FIELDS)
+        _list_streaming_human(
+            ctx,
+            mngr_ctx,
+            include_filters_tuple,
+            exclude_filters_tuple,
+            provider_names,
+            error_behavior,
+            display_fields,
+        )
+        return
+
+    # Batch/watch path
     iteration_params = _ListIterationParams(
         mngr_ctx=mngr_ctx,
         output_opts=output_opts,
-        include_filters=tuple(include_filters),
-        exclude_filters=tuple(exclude_filters),
-        provider_names=opts.provider if opts.provider else None,
+        include_filters=include_filters_tuple,
+        exclude_filters=exclude_filters_tuple,
+        provider_names=provider_names,
         error_behavior=error_behavior,
         sort_field=sort_field,
         sort_reverse=sort_reverse,
@@ -267,7 +308,6 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         fields=fields,
     )
 
-    # Watch mode: run list repeatedly at the specified interval
     if opts.watch:
         try:
             run_watch_loop(
@@ -282,17 +322,224 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         _run_list_iteration(iteration_params, ctx)
 
 
-class _LimitedJsonlEmitter:
-    """Callable class for emitting JSONL output with a limit (avoids inline function)."""
+def _list_jsonl(
+    ctx: click.Context,
+    mngr_ctx: MngrContext,
+    include_filters: tuple[str, ...],
+    exclude_filters: tuple[str, ...],
+    provider_names: tuple[str, ...] | None,
+    error_behavior: ErrorBehavior,
+    limit: int | None,
+    is_watch: bool,
+) -> None:
+    """JSONL output path: stream agents as JSONL lines with optional limit."""
+    if is_watch:
+        logger.warning("Watch mode is not supported with JSONL format, running once")
+
+    limited_callback = _LimitedJsonlEmitter(limit=limit)
+
+    result = api_list_agents(
+        mngr_ctx=mngr_ctx,
+        include_filters=include_filters,
+        exclude_filters=exclude_filters,
+        provider_names=provider_names,
+        error_behavior=error_behavior,
+        on_agent=limited_callback,
+        on_error=_emit_jsonl_error,
+        is_streaming=False,
+    )
+    # Exit with non-zero code if there were errors (per error_handling.md spec)
+    if result.errors:
+        ctx.exit(1)
+
+
+def _list_streaming_human(
+    ctx: click.Context,
+    mngr_ctx: MngrContext,
+    include_filters: tuple[str, ...],
+    exclude_filters: tuple[str, ...],
+    provider_names: tuple[str, ...] | None,
+    error_behavior: ErrorBehavior,
+    fields: list[str],
+) -> None:
+    """Streaming human output path: display agents as each provider completes."""
+    renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty())
+    renderer.start()
+    try:
+        result = api_list_agents(
+            mngr_ctx=mngr_ctx,
+            include_filters=include_filters,
+            exclude_filters=exclude_filters,
+            provider_names=provider_names,
+            error_behavior=error_behavior,
+            on_agent=renderer,
+            is_streaming=True,
+        )
+    finally:
+        renderer.finish()
+
+    if result.errors:
+        for error in result.errors:
+            logger.warning("{}: {}", error.exception_type, error.message)
+        ctx.exit(1)
+
+
+class _LimitedJsonlEmitter(MutableModel):
+    """Callable that emits JSONL output with an optional limit."""
 
     limit: int | None
     count: int = 0
+    _lock: Lock = PrivateAttr(default_factory=Lock)
 
     def __call__(self, agent: AgentInfo) -> None:
-        if self.limit is not None and self.count >= self.limit:
-            return
-        _emit_jsonl_agent(agent)
-        self.count += 1
+        with self._lock:
+            if self.limit is not None and self.count >= self.limit:
+                return
+            _emit_jsonl_agent(agent)
+            self.count += 1
+
+
+# Minimum column widths for streaming output (left-justified, not truncated)
+_MIN_COLUMN_WIDTHS: Final[dict[str, int]] = {
+    "name": 20,
+    "host": 15,
+    "provider": 10,
+    "host.state": 10,
+    "state": 10,
+    "status": 30,
+}
+_DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 15
+# Columns that get extra space when the terminal is wider than the minimum
+_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "status", "host"}
+_MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {
+    "host": 20,
+}
+_COLUMN_SEPARATOR: Final[str] = "  "
+
+# ANSI escape sequences for terminal control
+_ANSI_ERASE_LINE: Final[str] = "\r\x1b[K"
+_ANSI_DIM_GRAY: Final[str] = "\x1b[38;5;245m"
+_ANSI_RESET: Final[str] = "\x1b[0m"
+
+
+class _StreamingHumanRenderer(MutableModel):
+    """Thread-safe streaming renderer for human-readable list output.
+
+    Writes table rows to stdout as agents arrive from the API. Uses an ANSI status
+    line ("Searching...") that gets replaced by data rows on TTY outputs. On non-TTY
+    outputs (piped), skips status lines and ANSI codes entirely.
+    """
+
+    fields: list[str]
+    is_tty: bool
+    _lock: Lock = PrivateAttr(default_factory=Lock)
+    _count: int = PrivateAttr(default=0)
+    _is_header_written: bool = PrivateAttr(default=False)
+    _column_widths: dict[str, int] = PrivateAttr(default_factory=dict)
+
+    def start(self) -> None:
+        """Compute column widths and write the initial status line (TTY only)."""
+        terminal_width = shutil.get_terminal_size((120, 24)).columns
+        self._column_widths = _compute_column_widths(self.fields, terminal_width)
+
+        if self.is_tty:
+            status = f"{_ANSI_DIM_GRAY}Searching...{_ANSI_RESET}"
+            sys.stdout.write(status)
+            sys.stdout.flush()
+
+    def __call__(self, agent: AgentInfo) -> None:
+        """Handle a single agent result (on_agent callback)."""
+        with self._lock:
+            if self.is_tty:
+                # Erase the current status line
+                sys.stdout.write(_ANSI_ERASE_LINE)
+
+            # Write header on first agent
+            if not self._is_header_written:
+                header_line = _format_streaming_header_row(self.fields, self._column_widths)
+                sys.stdout.write(header_line + "\n")
+                self._is_header_written = True
+
+            # Write the agent row
+            row_line = _format_streaming_agent_row(agent, self.fields, self._column_widths)
+            sys.stdout.write(row_line + "\n")
+            self._count += 1
+
+            if self.is_tty:
+                # Write updated status line
+                status = f"{_ANSI_DIM_GRAY}Searching... ({self._count} found){_ANSI_RESET}"
+                sys.stdout.write(status)
+
+            sys.stdout.flush()
+
+    def finish(self) -> None:
+        """Clean up the status line after all providers have completed."""
+        with self._lock:
+            if self.is_tty:
+                # Erase the final status line
+                sys.stdout.write(_ANSI_ERASE_LINE)
+                sys.stdout.flush()
+
+            if self._count == 0:
+                logger.info("No agents found")
+
+
+@pure
+def _compute_column_widths(fields: Sequence[str], terminal_width: int) -> dict[str, int]:
+    """Compute column widths sized to the terminal, distributing extra space to expandable columns."""
+    separator_total = len(_COLUMN_SEPARATOR) * max(len(fields) - 1, 0)
+
+    # Start with minimum widths
+    width_by_field: dict[str, int] = {}
+    for field in fields:
+        width_by_field[field] = _MIN_COLUMN_WIDTHS.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
+
+    min_total = sum(width_by_field.values()) + separator_total
+    extra_space = max(terminal_width - min_total, 0)
+
+    # Distribute extra space to expandable columns, respecting max widths.
+    # Process columns sorted by tightest max cap first so capped leftovers flow to less
+    # constrained columns in a single pass.
+    expandable_in_fields = [f for f in fields if f in _EXPANDABLE_COLUMNS]
+    if expandable_in_fields and extra_space > 0:
+        sorted_expandable = sorted(expandable_in_fields, key=lambda f: _MAX_COLUMN_WIDTHS.get(f, float("inf")))
+        remaining = extra_space
+        for idx, field in enumerate(sorted_expandable):
+            fields_left = len(sorted_expandable) - idx
+            per_column = remaining // fields_left
+            extra = 1 if (remaining % fields_left) > 0 else 0
+            bonus = per_column + extra
+            max_width = _MAX_COLUMN_WIDTHS.get(field)
+            if max_width is not None and width_by_field[field] + bonus > max_width:
+                bonus = max(max_width - width_by_field[field], 0)
+            width_by_field[field] = width_by_field[field] + bonus
+            remaining = remaining - bonus
+
+    return width_by_field
+
+
+@pure
+def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str, int]) -> str:
+    """Format the header row of streaming output with computed column widths."""
+    parts: list[str] = []
+    for field in fields:
+        width = column_widths.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
+        value = field.upper().replace(".", "_")
+        parts.append(value.ljust(width))
+    return _COLUMN_SEPARATOR.join(parts)
+
+
+@pure
+def _format_streaming_agent_row(agent: AgentInfo, fields: Sequence[str], column_widths: dict[str, int]) -> str:
+    """Format a single agent as a streaming output row."""
+    parts: list[str] = []
+    for field in fields:
+        width = column_widths.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
+        value = _get_field_value(agent, field)
+        # Values are padded but intentionally not truncated: full values are preferred
+        # over truncated ones, so columns may appear ragged when values exceed the width.
+        parts.append(value.ljust(width))
+    return _COLUMN_SEPARATOR.join(parts)
 
 
 class _ListIterationParams(BaseModel):
@@ -320,6 +567,7 @@ def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> Non
         exclude_filters=params.exclude_filters,
         provider_names=params.provider_names,
         error_behavior=params.error_behavior,
+        is_streaming=False,
     )
 
     if result.errors:
@@ -385,14 +633,14 @@ def _emit_jsonl_error(error: ErrorInfo) -> None:
 def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None) -> None:
     """Emit human-readable table output with optional field selection.
 
-    If fields is None, uses default fields (name, state, status, host, provider).
+    If fields is None, uses default fields (name, host, provider, host.state, state, status).
     """
     if not agents:
         return
 
     # Default fields if none specified
     if fields is None:
-        fields = ["name", "host", "provider", "combined_state", "status"]
+        fields = list(_DEFAULT_HUMAN_DISPLAY_FIELDS)
 
     # Build table data dynamically based on requested fields
     headers = []
@@ -453,7 +701,7 @@ def _format_value_as_string(value: Any) -> str:
     if value is None:
         return ""
     elif isinstance(value, Enum):
-        return str(value.value).lower()
+        return str(value.value)
     elif hasattr(value, "line"):
         # For AgentStatus objects which have a 'line' attribute
         return str(value.line)
@@ -616,13 +864,13 @@ All agent fields from the "Available Fields" section can be used in filter expre
 
 **Simple equality filters:**
 - `name == "my-agent"` - Match agent by exact name
-- `state == "running"` - Match running agents
+- `state == "RUNNING"` - Match running agents
 - `host.provider == "docker"` - Match agents on Docker hosts
 - `type == "claude"` - Match agents of type "claude"
 
 **Compound expressions:**
-- `state == "running" && host.provider == "modal"` - Running agents on Modal
-- `state == "stopped" || state == "failed"` - Stopped or failed agents
+- `state == "RUNNING" && host.provider == "modal"` - Running agents on Modal
+- `state == "STOPPED" || state == "FAILED"` - Stopped or failed agents
 - `host.provider == "docker" && name.startsWith("test-")` - Docker agents with names starting with "test-"
 
 **String operations:**
@@ -663,7 +911,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `idle_seconds` - How long since the agent was active
 - `idle_mode` - Idle detection mode
 - `start_on_boot` - Whether the agent is set to start on host boot
-- `state` - Lifecycle state (running, stopped, etc.) - derived from lifecycle_state
+- `state` - Agent lifecycle state (RUNNING, STOPPED, WAITING, REPLACED, DONE)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):
@@ -671,7 +919,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `host.id` - Host ID
 - `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
 - `host.provider` - Host provider (local, docker, modal, etc.)
-- `host.state` - Current host state (running, stopped, building, etc.)
+- `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host
 - `host.boot_time` - When the host was last started

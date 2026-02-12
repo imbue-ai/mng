@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 from typing import assert_never
 
@@ -5,12 +6,13 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_call
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundError
-from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import HostLocation
@@ -27,7 +29,6 @@ from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
-from imbue.mngr.utils.logging import log_call
 
 
 class ParsedSourceLocation(FrozenModel):
@@ -195,20 +196,22 @@ def resolve_source_location(
     Everything after the first ':' is treated as the path (to handle colons in paths).
     HOST can optionally include .PROVIDER suffix (e.g., myhost.docker).
 
+    If the resolved host is offline, it will be automatically started.
+
     This is useful because it allows the user to specify the source agent / location in a maximally flexible way.
     This is important for making the CLI easy to use in a variety of scenarios.
     """
     # Parse the source string into components
-    logger.debug("Parsing source location")
-    parsed = parse_source_string(source, source_agent, source_host, source_path)
-    logger.trace("Parsed source: agent={} host={} path={}", parsed.agent, parsed.host, parsed.path)
+    with log_span("Parsing source location"):
+        parsed = parse_source_string(source, source_agent, source_host, source_path)
+        logger.trace("Parsed source: agent={} host={} path={}", parsed.agent, parsed.host, parsed.path)
 
     # Resolve host and agent references from the parsed components
     all_hosts = list(agents_by_host.keys())
-    logger.debug("Resolving host reference")
-    resolved_host = resolve_host_reference(parsed.host, all_hosts)
-    logger.debug("Resolving agent reference")
-    agent_result = resolve_agent_reference(parsed.agent, resolved_host, agents_by_host)
+    with log_span("Resolving host reference"):
+        resolved_host = resolve_host_reference(parsed.host, all_hosts)
+    with log_span("Resolving agent reference"):
+        agent_result = resolve_agent_reference(parsed.agent, resolved_host, agents_by_host)
 
     # Extract resolved agent if found
     resolved_agent: AgentReference | None = None
@@ -216,23 +219,24 @@ def resolve_source_location(
         resolved_host, resolved_agent = agent_result
 
     # Get the host interface from the provider
-    logger.debug("Getting host interface from provider")
-    if resolved_host is None:
-        provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), mngr_ctx)
-        host_interface = provider.get_host(HostName("local"))
-    else:
-        provider = get_provider_instance(resolved_host.provider_name, mngr_ctx)
-        host_interface = provider.get_host(resolved_host.host_id)
-    logger.trace("Resolved to host id={}", host_interface.id)
+    with log_span("Getting host interface from provider"):
+        if resolved_host is None:
+            provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), mngr_ctx)
+            host_interface = provider.get_host(HostName("local"))
+        else:
+            provider = get_provider_instance(resolved_host.provider_name, mngr_ctx)
+            host_interface = provider.get_host(resolved_host.host_id)
 
-    # Ensure host is online for file operations
+    # Ensure host is online for file operations (starts the host if needed)
     if not isinstance(host_interface, OnlineHostInterface):
-        raise HostOfflineError(f"Host '{host_interface.id}' is offline. Start the host first.")
+        online_host, _was_started = ensure_host_started(host_interface, is_start_desired=True, provider=provider)
+    else:
+        online_host = host_interface
 
     # Resolve the final path
     agent_work_dir: Path | None = None
     if resolved_agent is not None:
-        for agent_ref in host_interface.get_agent_references():
+        for agent_ref in online_host.get_agent_references():
             if agent_ref.agent_id == resolved_agent.agent_id:
                 agent_work_dir = agent_ref.work_dir
                 break
@@ -244,7 +248,7 @@ def resolve_source_location(
     )
 
     return HostLocation(
-        host=host_interface,
+        host=online_host,
         path=resolved_path,
     )
 
@@ -273,7 +277,7 @@ def ensure_host_started(
 ) -> tuple[Host, bool]:
     """Ensure the host is online and started.
 
-    If the host is already online, returns it cast to OnlineHostInterface.
+    If the host is already online, returns it directly.
     If offline and start is desired, starts the host and returns the online host.
     If offline and start is not desired, raises UserInputError.
 
@@ -295,7 +299,12 @@ def ensure_host_started(
             assert_never(unreachable)
 
 
-def _ensure_agent_started(agent: AgentInterface, host: OnlineHostInterface, is_start_desired: bool) -> None:
+def ensure_agent_started(agent: AgentInterface, host: OnlineHostInterface, is_start_desired: bool) -> None:
+    """Ensure an agent is started, starting it if needed and desired.
+
+    If the agent is stopped and is_start_desired is True, starts the agent.
+    If the agent is stopped and is_start_desired is False, raises UserInputError.
+    """
     # Check if the agent's tmux session exists and start it if needed
     lifecycle_state = agent.get_lifecycle_state()
     if lifecycle_state not in (AgentLifecycleState.RUNNING, AgentLifecycleState.REPLACED, AgentLifecycleState.WAITING):
@@ -316,6 +325,7 @@ def find_and_maybe_start_agent_by_name_or_id(
     mngr_ctx: MngrContext,
     command_name: str,
     is_start_desired: bool = False,
+    get_provider: Callable[[ProviderInstanceName, MngrContext], BaseProviderInstance] | None = None,
 ) -> tuple[AgentInterface, OnlineHostInterface]:
     """Find an agent by name or ID and return the agent and host interfaces.
 
@@ -325,6 +335,8 @@ def find_and_maybe_start_agent_by_name_or_id(
     Raises AgentNotFoundError if the agent cannot be found by ID.
     Raises UserInputError if the agent cannot be found by name or if multiple agents match.
     """
+    resolve_provider = get_provider if get_provider is not None else get_provider_instance
+
     # Try parsing as an AgentId first
     try:
         agent_id = AgentId(agent_str)
@@ -335,12 +347,12 @@ def find_and_maybe_start_agent_by_name_or_id(
         for host_ref, agent_refs in agents_by_host.items():
             for agent_ref in agent_refs:
                 if agent_ref.agent_id == agent_id:
-                    provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
+                    provider = resolve_provider(host_ref.provider_name, mngr_ctx)
                     host = provider.get_host(host_ref.host_id)
                     online_host, _was_started = ensure_host_started(host, is_start_desired, provider)
                     for agent in online_host.get_agents():
                         if agent.id == agent_id:
-                            _ensure_agent_started(agent, online_host, is_start_desired)
+                            ensure_agent_started(agent, online_host, is_start_desired)
                             return agent, online_host
         raise AgentNotFoundError(agent_id)
 
@@ -351,7 +363,7 @@ def find_and_maybe_start_agent_by_name_or_id(
     for host_ref, agent_refs in agents_by_host.items():
         for agent_ref in agent_refs:
             if agent_ref.agent_name == agent_name:
-                provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
+                provider = resolve_provider(host_ref.provider_name, mngr_ctx)
                 host = provider.get_host(host_ref.host_id)
                 online_host, _was_started = ensure_host_started(host, is_start_desired, provider)
                 # Find the specific agent by ID (not name, to avoid duplicates)
@@ -376,7 +388,7 @@ def find_and_maybe_start_agent_by_name_or_id(
 
     # make sure the agent is started
     agent, host = matching[0]
-    _ensure_agent_started(agent, host, is_start_desired)
+    ensure_agent_started(agent, host, is_start_desired)
 
     return agent, host
 
@@ -409,10 +421,10 @@ def find_agents_by_identifiers_or_state(
     matches: list[AgentMatch] = []
     matched_identifiers: set[str] = set()
 
-    for agent_ref in list_agents(mngr_ctx).agents:
+    for agent_ref in list_agents(mngr_ctx, is_streaming=False).agents:
         should_include: bool
         if filter_all:
-            should_include = agent_ref.lifecycle_state == target_state
+            should_include = agent_ref.state == target_state
         elif agent_identifiers:
             agent_name_str = str(agent_ref.name)
             agent_id_str = str(agent_ref.id)

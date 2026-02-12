@@ -21,7 +21,7 @@ from imbue.concurrency_group.errors import ProcessTimeoutError
 from imbue.concurrency_group.event_utils import MutableEvent
 from imbue.concurrency_group.event_utils import ReadOnlyEvent
 from imbue.imbue_common.frozen_model import FrozenModel
-
+from imbue.imbue_common.logging import log_span
 
 # Received a shutdown signal
 SUBPROCESS_STOPPED_BY_REQUEST_EXIT_CODE: Final[int] = -9999
@@ -157,23 +157,23 @@ class OutputGatherer:
 
 
 def _shutdown_popen(process: subprocess.Popen[bytes], command: str, shutdown_timeout_sec: float) -> int | None:
-    logger.debug(
+    with log_span(
         "Aborting command (via sigterm to {}) due to signal...",
         process.pid,
-    )
-    process.terminate()
-    try:
-        process.wait(timeout=shutdown_timeout_sec)
-        return process.returncode
-    except subprocess.TimeoutExpired:
-        logger.warning("Process didn't die within {} seconds of SIGTERM", shutdown_timeout_sec)
-        process.kill()
+    ):
+        process.terminate()
         try:
-            process.wait(timeout=2)
+            process.wait(timeout=shutdown_timeout_sec)
             return process.returncode
         except subprocess.TimeoutExpired:
-            logger.error("Process didn't die after kill()")
-            return None
+            logger.warning("Process didn't die within {} seconds of SIGTERM", shutdown_timeout_sec)
+            process.kill()
+            try:
+                process.wait(timeout=2)
+                return process.returncode
+            except subprocess.TimeoutExpired:
+                logger.error("Process didn't die after kill()")
+                return None
 
 
 def _is_timeout(timeout_time: float | None = None) -> bool:

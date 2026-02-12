@@ -14,7 +14,6 @@ import threading
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from uuid import uuid4
 
 import pluggy
 import pytest
@@ -23,7 +22,6 @@ from pyinfra.api.command import StringCommand
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import InvalidActivityTypeError
 from imbue.mngr.errors import LockNotHeldError
 from imbue.mngr.errors import MngrError
@@ -50,9 +48,9 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.ssh.instance import SSHHostConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
-from imbue.mngr.providers.ssh.test_ssh_provider import local_sshd
-from imbue.mngr.providers.ssh.test_ssh_provider import ssh_keypair
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.testing import generate_ssh_keypair
+from imbue.mngr.utils.testing import local_sshd
 
 
 @pytest.fixture
@@ -61,14 +59,6 @@ def host_with_temp_dir(local_provider: LocalProviderInstance, temp_host_dir: Pat
     host = local_provider.create_host(HostName("test"))
     assert isinstance(host, Host)
     return host, temp_host_dir
-
-
-@pytest.fixture
-def temp_profile_dir(temp_host_dir: Path) -> Path:
-    """Create a temporary profile directory for tests that create their own MngrContext."""
-    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return profile_dir
 
 
 # =============================================================================
@@ -593,9 +583,24 @@ def test_unset_vars_applied_during_agent_start(
     # Wait for the tmux session to exist
     def session_ready() -> bool:
         result = host.execute_command(f"tmux has-session -t '{session_name}'")
-        return result.success
+        if not result.success:
+            return False
+        capture_result = host.execute_command(f"tmux capture-pane -t '{session_name}' -p")
+        return capture_result.success and ("sleep 736249" in capture_result.stdout)
 
     wait_for(session_ready, timeout=30.0, poll_interval=0.5, error_message="tmux session not ready")
+
+    # Send Ctrl-C to kill the foreground sleep, returning control to the shell.
+    # This lets us send echo commands to check environment variables.
+    host.execute_command(f"tmux send-keys -t '{session_name}' C-c")
+
+    # This was enabled in modal, but caused things to fail locally. I don't think we need or want this (and I did do a better job of waiting above by ensuring that the sleep text shows up)
+    # # Wait for the shell prompt to return after Ctrl-C
+    # def shell_ready() -> bool:
+    #     capture_result = host.execute_command(f"tmux capture-pane -t '{session_name}' -p")
+    #     return capture_result.success and ("$" in capture_result.stdout or "#" in capture_result.stdout)
+    #
+    # wait_for(shell_ready, error_message="Shell prompt not ready after Ctrl-C")
 
     host.execute_command(f"tmux send-keys -t '{session_name}' 'echo HISTFILE_VALUE=${{HISTFILE:-UNSET}}' Enter")
     host.execute_command(f"tmux send-keys -t '{session_name}' 'echo PROFILE_VALUE=${{PROFILE:-UNSET}}' Enter")
@@ -620,11 +625,13 @@ def test_unset_vars_applied_during_agent_start(
 
 
 # =============================================================================
-# Agent Start/Stop Process Group Tests
-#
-# Note: because of xdist, we must be very careful with our "grep"'s below--
-#  by using different sleeps for each command invocation, we can make this safe even when these tests are run concurrently.
+# Agent Start/Stop Process Tests
 # =============================================================================
+
+
+def _collect_pane_pids(host: Host, session_name: str) -> list[str]:
+    """Collect all pane PIDs and their descendant PIDs for a tmux session (across all windows)."""
+    return host._collect_session_pids(session_name)
 
 
 @pytest.mark.nomodal
@@ -685,14 +692,21 @@ def test_stop_agent_kills_single_pane_processes(
     assert success
     assert session_name in output.stdout
 
-    host.stop_agents([agent.id], timeout_seconds=1.0)
+    # Capture specific PIDs before stopping so we can verify they are killed
+    pids_to_check = _collect_pane_pids(host, session_name)
+    assert len(pids_to_check) > 0
+
+    host.stop_agents([agent.id], timeout_seconds=3.0)
 
     def check_cleanup() -> bool:
         success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
         session_killed = session_name not in output.stdout
-        success_ps, output_ps = host._run_shell_command(StringCommand("ps aux | grep 'sleep 1001' | grep -v grep"))
-        processes_killed = "sleep 1001" not in output_ps.stdout or not success_ps
-        return session_killed and processes_killed
+        # Check that the specific PIDs from this test are dead
+        for pid in pids_to_check:
+            success_kill, _ = host._run_shell_command(StringCommand(f"kill -0 {pid} 2>/dev/null"))
+            if success_kill:
+                return False
+        return session_killed
 
     wait_for(check_cleanup, timeout=10, error_message="Agent session and processes not cleaned up after stop")
 
@@ -738,16 +752,21 @@ def test_stop_agent_kills_multi_pane_processes(
     pane_count = int(output.stdout.strip())
     assert pane_count == 3
 
-    host.stop_agents([agent.id], timeout_seconds=1.0)
+    # Capture specific PIDs before stopping so we can verify they are killed
+    pids_to_check = _collect_pane_pids(host, session_name)
+    assert len(pids_to_check) > 0
+
+    host.stop_agents([agent.id], timeout_seconds=3.0)
 
     def check_cleanup() -> bool:
         success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
         session_killed = session_name not in output.stdout
-        success_ps, output_ps = host._run_shell_command(
-            StringCommand("ps aux | grep -E 'sleep (1000|2000|3000)' | grep -v grep")
-        )
-        processes_killed = "sleep" not in output_ps.stdout or not success_ps
-        return session_killed and processes_killed
+        # Check that the specific PIDs from this test are dead
+        for pid in pids_to_check:
+            success_kill, _ = host._run_shell_command(StringCommand(f"kill -0 {pid} 2>/dev/null"))
+            if success_kill:
+                return False
+        return session_killed
 
     wait_for(
         check_cleanup, timeout=10, error_message="Multi-pane agent session and processes not cleaned up after stop"
@@ -1412,7 +1431,10 @@ def _create_minimal_agent(host: Host, temp_dir: Path, work_dir: Path | None = No
 
 
 def _init_git_repo(path: Path, commit_message: str = "Initial commit") -> None:
-    """Helper to initialize a git repo with consistent env vars."""
+    """Helper to initialize a git repo.
+
+    Requires the setup_git_config fixture to have created .gitconfig in the fake HOME.
+    """
     subprocess.run(["git", "init"], cwd=path, capture_output=True, check=True)
     subprocess.run(["git", "add", "."], cwd=path, capture_output=True, check=True)
     subprocess.run(
@@ -1420,13 +1442,6 @@ def _init_git_repo(path: Path, commit_message: str = "Initial commit") -> None:
         cwd=path,
         capture_output=True,
         check=True,
-        env={
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Test",
-            "GIT_AUTHOR_EMAIL": "test@test.com",
-            "GIT_COMMITTER_NAME": "Test",
-            "GIT_COMMITTER_EMAIL": "test@test.com",
-        },
     )
 
 
@@ -1484,7 +1499,10 @@ def test_create_work_dir_copy_without_git(host_with_temp_dir: tuple[Host, Path])
     assert (work_dir / "subdir" / "file2.txt").read_text() == "content2"
 
 
-def test_create_work_dir_copy_with_git(host_with_temp_dir: tuple[Host, Path]) -> None:
+def test_create_work_dir_copy_with_git(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
     """Test copying a directory with git repository."""
     host, temp_dir = host_with_temp_dir
 
@@ -1548,7 +1566,10 @@ def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tup
     assert not (work_dir / ".git").exists()
 
 
-def test_create_work_dir_copy_with_untracked_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+def test_create_work_dir_copy_with_untracked_files(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
     """Test copying includes untracked files when is_include_unclean is True."""
     host, temp_dir = host_with_temp_dir
 
@@ -1564,13 +1585,6 @@ def test_create_work_dir_copy_with_untracked_files(host_with_temp_dir: tuple[Hos
         cwd=source_path,
         capture_output=True,
         check=True,
-        env={
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Test",
-            "GIT_AUTHOR_EMAIL": "test@test.com",
-            "GIT_COMMITTER_NAME": "Test",
-            "GIT_COMMITTER_EMAIL": "test@test.com",
-        },
     )
 
     # Add untracked file after commit
@@ -1593,7 +1607,10 @@ def test_create_work_dir_copy_with_untracked_files(host_with_temp_dir: tuple[Hos
     assert (work_dir / "untracked.txt").read_text() == "untracked"
 
 
-def test_create_work_dir_copy_with_gitignored_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+def test_create_work_dir_copy_with_gitignored_files(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
     """Test copying includes gitignored files when is_include_gitignored is True."""
     host, temp_dir = host_with_temp_dir
 
@@ -1624,7 +1641,10 @@ def test_create_work_dir_copy_with_gitignored_files(host_with_temp_dir: tuple[Ho
     assert (work_dir / "debug.log").read_text() == "log content"
 
 
-def test_create_work_dir_copy_with_renamed_file(host_with_temp_dir: tuple[Host, Path]) -> None:
+def test_create_work_dir_copy_with_renamed_file(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
     """Test copying handles renamed files in git status output."""
     host, temp_dir = host_with_temp_dir
 
@@ -1654,7 +1674,10 @@ def test_create_work_dir_copy_with_renamed_file(host_with_temp_dir: tuple[Host, 
     assert (work_dir / "new_name.txt").read_text() == "content"
 
 
-def test_create_work_dir_generates_new_branch(host_with_temp_dir: tuple[Host, Path]) -> None:
+def test_create_work_dir_generates_new_branch(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
     """Test that git transfer creates a new branch when is_new_branch is True."""
     host, temp_dir = host_with_temp_dir
 
@@ -2073,7 +2096,10 @@ def test_rsync_extra_args_with_spaces(host_with_temp_dir: tuple[Host, Path]) -> 
     assert not (work_dir / "file with spaces.txt").exists()
 
 
-def test_transfer_extra_files_with_many_files(host_with_temp_dir: tuple[Host, Path]) -> None:
+def test_transfer_extra_files_with_many_files(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
     """Test that transferring many extra files works (uses temp file for --files-from)."""
     host, temp_dir = host_with_temp_dir
 
@@ -2135,51 +2161,51 @@ def test_rsync_files_remote_files_from_handling(
     files_from_path = tmp_path / "files_from.txt"
     files_from_path.write_text("file1.txt\nfile2.txt\n")
 
-    with ssh_keypair() as (private_key, public_key):
-        public_key_content = public_key.read_text()
+    private_key, public_key = generate_ssh_keypair(tmp_path)
+    public_key_content = public_key.read_text()
 
-        with local_sshd(public_key_content) as (port, _host_key):
-            current_user = os.environ.get("USER", "root")
-            ssh_provider = SSHProviderInstance(
-                name=ProviderInstanceName("ssh-test"),
-                host_dir=temp_dir,
-                mngr_ctx=temp_mngr_ctx,
-                hosts={
-                    "localhost": SSHHostConfig(
-                        address="127.0.0.1",
-                        port=port,
-                        user=current_user,
-                        key_file=private_key,
-                    ),
-                },
-            )
+    with local_sshd(public_key_content, tmp_path) as (port, _host_key):
+        current_user = os.environ.get("USER", "root")
+        ssh_provider = SSHProviderInstance(
+            name=ProviderInstanceName("ssh-test"),
+            host_dir=temp_dir,
+            mngr_ctx=temp_mngr_ctx,
+            hosts={
+                "localhost": SSHHostConfig(
+                    address="127.0.0.1",
+                    port=port,
+                    user=current_user,
+                    key_file=private_key,
+                ),
+            },
+        )
 
-            # Get the SSH host
-            ssh_host = ssh_provider.get_host(HostName("localhost"))
+        # Get the SSH host
+        ssh_host = ssh_provider.get_host(HostName("localhost"))
 
-            # Verify the SSH host is not local (is_local should be False)
-            assert not ssh_host.is_local
+        # Verify the SSH host is not local (is_local should be False)
+        assert not ssh_host.is_local
 
-            # Call _rsync_files with the SSH host as source
-            # Since source and target are local paths but source_host is remote,
-            # this tests the code path where the files_from file is copied to the remote
-            local_host._rsync_files(
-                source_host=ssh_host,
-                source_path=source_path,
-                target_path=target_path,
-                files_from=files_from_path,
-            )
+        # Call _rsync_files with the SSH host as source
+        # Since source and target are local paths but source_host is remote,
+        # this tests the code path where the files_from file is copied to the remote
+        local_host._rsync_files(
+            source_host=ssh_host,
+            source_path=source_path,
+            target_path=target_path,
+            files_from=files_from_path,
+        )
 
-            # Verify only the files listed in files_from were transferred
-            assert (target_path / "file1.txt").read_text() == "content1"
-            assert (target_path / "file2.txt").read_text() == "content2"
-            # file3.txt should NOT have been transferred since it wasn't in files_from
-            assert not (target_path / "file3.txt").exists()
+        # Verify only the files listed in files_from were transferred
+        assert (target_path / "file1.txt").read_text() == "content1"
+        assert (target_path / "file2.txt").read_text() == "content2"
+        # file3.txt should NOT have been transferred since it wasn't in files_from
+        assert not (target_path / "file3.txt").exists()
 
-            # Verify the temporary files_from file was cleaned up from the remote
-            # by checking that no files matching the pattern exist
-            result = ssh_host.execute_command("ls /tmp/rsync_files_from_*.txt 2>/dev/null || true")
-            assert "rsync_files_from_" not in result.stdout
+        # Verify the temporary files_from file was cleaned up from the remote
+        # by checking that no files matching the pattern exist
+        result = ssh_host.execute_command("ls /tmp/rsync_files_from_*.txt 2>/dev/null || true")
+        assert "rsync_files_from_" not in result.stdout
 
 
 def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tuple[Host, Path]) -> None:

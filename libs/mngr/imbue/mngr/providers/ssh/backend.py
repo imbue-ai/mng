@@ -17,6 +17,7 @@ from pathlib import Path
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.errors import ConfigStructureError
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
@@ -80,27 +81,23 @@ Example configuration in mngr.toml:
         mngr_ctx: MngrContext,
     ) -> ProviderInstanceInterface:
         """Build an SSH provider instance."""
-        # FIXME: we can just assert isinstance here since it should be impossible to get a different type
-        # Extract typed config values
-        if isinstance(config, SSHProviderConfig):
-            host_dir = config.host_dir
-            hosts = config.hosts
-            # Expand key_file paths
-            expanded_hosts: dict[str, SSHHostConfig] = {}
-            for host_name, host_config in hosts.items():
-                if host_config.key_file is not None:
-                    expanded_hosts[host_name] = SSHHostConfig(
-                        address=host_config.address,
-                        port=host_config.port,
-                        user=host_config.user,
-                        key_file=Path(host_config.key_file).expanduser(),
-                    )
-                else:
-                    expanded_hosts[host_name] = host_config
-            hosts = expanded_hosts
-        else:
-            host_dir = Path("/tmp/mngr")
-            hosts = {}
+        if not isinstance(config, SSHProviderConfig):
+            raise ConfigStructureError(f"Expected SSHProviderConfig, got {type(config).__name__}")
+        host_dir = config.host_dir
+        hosts = config.hosts
+        # Expand key_file paths
+        expanded_hosts: dict[str, SSHHostConfig] = {}
+        for host_name, host_config in hosts.items():
+            if host_config.key_file is not None:
+                expanded_hosts[host_name] = SSHHostConfig(
+                    address=host_config.address,
+                    port=host_config.port,
+                    user=host_config.user,
+                    key_file=Path(host_config.key_file).expanduser(),
+                )
+            else:
+                expanded_hosts[host_name] = host_config
+        hosts = expanded_hosts
 
         return SSHProviderInstance(
             name=name,

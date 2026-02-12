@@ -44,7 +44,7 @@ Define a custom type in your config (run `mngr config edit`):
 [agent_types.my_claude]
 parent_type = "claude"
 cli_args = "--env CLAUDE_MODEL=opus"
-permissions = ["github"]
+permissions = ["github"]  # [future] permissions field parsed but not applied
 ```
 
 Then use it like any built-in type:
@@ -81,7 +81,7 @@ Use a [plugin](./plugins.md) when you need to:
 Agent types come from installed plugins and your config:
 
 ```bash
-mngr plugin list    # Shows plugins and what types they provide
+mngr plugin list    # Shows plugins and what types they provide [future]
 ```
 
 Built-in plugins provide `claude` and `codex` by default.

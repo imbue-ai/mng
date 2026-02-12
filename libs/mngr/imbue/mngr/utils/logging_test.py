@@ -1,11 +1,11 @@
 """Tests for logging utilities."""
 
-import os
-import tempfile
 from pathlib import Path
 
 from loguru import logger
 
+from imbue.imbue_common.logging import _format_arg_value
+from imbue.imbue_common.logging import log_call
 from imbue.mngr.config.data_types import LoggingConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -20,11 +20,9 @@ from imbue.mngr.utils.logging import LoggingSuppressor
 from imbue.mngr.utils.logging import RESET_COLOR
 from imbue.mngr.utils.logging import WARNING_COLOR
 from imbue.mngr.utils.logging import _console_handler_ids
-from imbue.mngr.utils.logging import _format_arg_value
 from imbue.mngr.utils.logging import _format_user_message
 from imbue.mngr.utils.logging import _resolve_log_dir
 from imbue.mngr.utils.logging import _rotate_old_logs
-from imbue.mngr.utils.logging import log_call
 from imbue.mngr.utils.logging import remove_console_handlers
 from imbue.mngr.utils.logging import setup_logging
 
@@ -55,38 +53,38 @@ def test_resolve_log_dir_uses_default_host_dir_for_relative(mngr_test_prefix: st
     assert resolved == Path("/custom/mngr/my_logs")
 
 
-def test_rotate_old_logs_removes_oldest_files() -> None:
+def test_rotate_old_logs_removes_oldest_files(tmp_path: Path) -> None:
     """Should remove oldest files when exceeding max_files."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        log_dir = Path(tmpdir)
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
 
-        # Create 5 log files
-        for i in range(5):
-            log_file = log_dir / f"log{i}.json"
-            log_file.write_text(f"log {i}")
+    # Create 5 log files
+    for i in range(5):
+        log_file = log_dir / f"log{i}.json"
+        log_file.write_text(f"log {i}")
 
-        # Keep only 3 most recent
-        _rotate_old_logs(log_dir, max_files=3)
+    # Keep only 3 most recent
+    _rotate_old_logs(log_dir, max_files=3)
 
-        remaining = sorted(log_dir.glob("*.json"))
-        assert len(remaining) == 3
+    remaining = sorted(log_dir.glob("*.json"))
+    assert len(remaining) == 3
 
 
-def test_rotate_old_logs_keeps_all_if_under_limit() -> None:
+def test_rotate_old_logs_keeps_all_if_under_limit(tmp_path: Path) -> None:
     """Should not remove files if under max_files."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        log_dir = Path(tmpdir)
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
 
-        # Create 3 log files
-        for i in range(3):
-            log_file = log_dir / f"log{i}.json"
-            log_file.write_text(f"log {i}")
+    # Create 3 log files
+    for i in range(3):
+        log_file = log_dir / f"log{i}.json"
+        log_file.write_text(f"log {i}")
 
-        # Max is 10, so should keep all
-        _rotate_old_logs(log_dir, max_files=10)
+    # Max is 10, so should keep all
+    _rotate_old_logs(log_dir, max_files=10)
 
-        remaining = list(log_dir.glob("*.json"))
-        assert len(remaining) == 3
+    remaining = list(log_dir.glob("*.json"))
+    assert len(remaining) == 3
 
 
 def test_rotate_old_logs_handles_nonexistent_dir() -> None:
@@ -128,66 +126,71 @@ def test_setup_logging_creates_log_file(temp_mngr_ctx: MngrContext) -> None:
     assert len(log_files) >= 1
 
 
-def test_setup_logging_uses_custom_log_file_path(temp_mngr_ctx: MngrContext) -> None:
+def test_setup_logging_uses_custom_log_file_path(tmp_path: Path, temp_mngr_ctx: MngrContext) -> None:
     """setup_logging should create log file at custom path when log_file_path is provided."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        custom_log_path = Path(tmpdir) / "custom_log.json"
+    custom_log_path = tmp_path / "custom_log.json"
 
-        output_opts = OutputOptions(
-            output_format=OutputFormat.HUMAN,
-            console_level=LogLevel.INFO,
-            log_file_path=custom_log_path,
-            is_log_commands=True,
-            is_log_command_output=False,
-        )
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+        log_file_path=custom_log_path,
+        is_log_commands=True,
+        is_log_command_output=False,
+    )
 
-        setup_logging(output_opts, temp_mngr_ctx)
+    setup_logging(output_opts, temp_mngr_ctx)
 
-        assert custom_log_path.exists()
+    assert custom_log_path.exists()
 
 
-def test_setup_logging_creates_parent_dirs_for_custom_log_path(temp_mngr_ctx: MngrContext) -> None:
+def test_setup_logging_creates_parent_dirs_for_custom_log_path(tmp_path: Path, temp_mngr_ctx: MngrContext) -> None:
     """setup_logging should create parent directories for custom log file path."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        custom_log_path = Path(tmpdir) / "nested" / "dirs" / "custom_log.json"
+    custom_log_path = tmp_path / "nested" / "dirs" / "custom_log.json"
 
-        assert not custom_log_path.parent.exists()
+    assert not custom_log_path.parent.exists()
 
-        output_opts = OutputOptions(
-            output_format=OutputFormat.HUMAN,
-            console_level=LogLevel.INFO,
-            log_file_path=custom_log_path,
-            is_log_commands=True,
-            is_log_command_output=False,
-        )
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+        log_file_path=custom_log_path,
+        is_log_commands=True,
+        is_log_command_output=False,
+    )
 
-        setup_logging(output_opts, temp_mngr_ctx)
+    setup_logging(output_opts, temp_mngr_ctx)
 
-        assert custom_log_path.parent.exists()
-        assert custom_log_path.exists()
+    assert custom_log_path.parent.exists()
+    assert custom_log_path.exists()
 
 
-def test_setup_logging_expands_user_in_custom_log_path(temp_mngr_ctx: MngrContext) -> None:
-    """setup_logging should expand ~ in custom log file path."""
-    home_dir = Path(os.path.expanduser("~"))
+def test_setup_logging_expands_user_in_custom_log_path(tmp_path: Path, temp_mngr_ctx: MngrContext) -> None:
+    """setup_logging should expand ~ in custom log file path.
 
-    with tempfile.TemporaryDirectory(dir=home_dir) as tmpdir:
-        # Get the relative path from home
-        relative_path = Path(tmpdir).relative_to(home_dir)
-        tilde_path = Path("~") / relative_path / "expanded_log.json"
+    Note: With the test isolation fixtures, ~ expands to tmp_path (the fake home).
+    """
+    # home_dir is tmp_path due to test isolation
+    home_dir = Path.home()
 
-        output_opts = OutputOptions(
-            output_format=OutputFormat.HUMAN,
-            console_level=LogLevel.INFO,
-            log_file_path=tilde_path,
-            is_log_commands=True,
-            is_log_command_output=False,
-        )
+    # Create a subdirectory in the fake home
+    log_subdir = tmp_path / "custom_logs"
+    log_subdir.mkdir()
 
-        setup_logging(output_opts, temp_mngr_ctx)
+    # Get the relative path from home
+    relative_path = log_subdir.relative_to(home_dir)
+    tilde_path = Path("~") / relative_path / "expanded_log.json"
 
-        expanded_path = home_dir / relative_path / "expanded_log.json"
-        assert expanded_path.exists()
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+        log_file_path=tilde_path,
+        is_log_commands=True,
+        is_log_command_output=False,
+    )
+
+    setup_logging(output_opts, temp_mngr_ctx)
+
+    expanded_path = home_dir / relative_path / "expanded_log.json"
+    assert expanded_path.exists()
 
 
 # =============================================================================

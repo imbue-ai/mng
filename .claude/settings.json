@@ -30,35 +30,29 @@
         ]
       }
     ],
+    "Notification": [
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -rf .claude/active"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "[ -e .git ] || { echo \"You should never changed directories! Return to the repo root\" >&2; exit 2; }"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "./scripts/check_commit_status.sh"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "timeout": 600,
-            "command": "./scripts/main_claude_stop_hook.sh"
+            "command": "[ -e .git ] || { echo \"You should never change directories! Return to the repo root\" >&2; exit 2; }"
           }
         ]
       }
     ]
   },
-  "model": "opus",
+  "model": "opus[1m]",
   "statusLine": {
     "type": "command",
     "command": "./scripts/claude_status_line.sh"

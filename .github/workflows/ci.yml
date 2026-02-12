@@ -27,7 +27,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y tmux git openssh-server
+          sudo apt-get install -y tmux git openssh-server unison
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -135,9 +135,9 @@ jobs:
           uv run coverage combine coverage-*/.coverage
           uv run coverage report --fail-under=81
 
-  # Clean up old Modal test environments - runs before acceptance tests
+  # Clean up old Modal test environments - runs on all branches including main,
+  # since both acceptance tests (non-main) and release tests (main) create environments.
   cleanup-modal-environments:
-    if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       MODAL_TOKEN_ID: ${{ vars.MODAL_TOKEN_ID }}
@@ -186,7 +186,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y tmux git openssh-server
+          sudo apt-get install -y tmux git openssh-server unison
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -222,7 +222,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y tmux git openssh-server
+          sudo apt-get install -y tmux git openssh-server unison
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4

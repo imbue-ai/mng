@@ -15,6 +15,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
 from imbue.mngr.config.data_types import MngrConfig
+from imbue.mngr.utils.interactive_subprocess import popen_interactive_subprocess
 
 
 class CommandHelpMetadata(FrozenModel):
@@ -117,6 +118,14 @@ def run_pager(text: str, config: MngrConfig | None) -> None:
         _write_to_stdout(text)
         return
 
+    _run_pager_with_subprocess(text, config)
+
+
+def _run_pager_with_subprocess(text: str, config: MngrConfig | None) -> None:
+    """Display text through a pager subprocess.
+
+    Falls back to writing directly to stdout if the pager fails.
+    """
     pager_cmd = get_pager_command(config)
 
     # Set up environment for less to handle ANSI codes and not require explicit quit
@@ -128,7 +137,7 @@ def run_pager(text: str, config: MngrConfig | None) -> None:
         env["LESS"] = env.get("LESS", "") + " -RFX"
 
     try:
-        process = subprocess.Popen(
+        process = popen_interactive_subprocess(
             pager_cmd,
             shell=True,
             stdin=subprocess.PIPE,

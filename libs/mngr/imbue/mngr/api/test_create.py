@@ -11,6 +11,7 @@ from typing import cast
 
 import pluggy
 
+from imbue.imbue_common.model_update import to_update
 from imbue.mngr import hookimpl
 from imbue.mngr.api.create import _call_on_before_create_hooks
 from imbue.mngr.api.create import create
@@ -64,6 +65,20 @@ def _get_agent_from_create_result(result: CreateAgentResult, temp_mngr_ctx: Mngr
     agent = next((a for a in agents if a.id == result.agent.id), None)
     assert agent is not None
     return agent
+
+
+def _setup_claude_trust_config(work_dir: Path, tmp_home_dir: Path) -> None:
+    """Create a Claude trust config marking work_dir as trusted.
+
+    Since the autouse setup_test_mngr_env fixture sets HOME to a temp directory,
+    this ends up writing ~/.claude.json for the home dir set and used in setup_test_mngr_env
+    """
+    claude_config = {
+        "projects": {
+            str(work_dir): {"allowedTools": [], "hasTrustDialogAccepted": True},
+        }
+    }
+    (tmp_home_dir / ".claude.json").write_text(json.dumps(claude_config))
 
 
 def test_create_simple_echo_agent(
@@ -252,39 +267,16 @@ def test_create_agent_with_unknown_type_uses_type_as_command(
 
 def test_create_agent_with_worktree(
     temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
+    temp_git_repo: Path,
 ) -> None:
     """Test creating an agent using git worktree."""
     agent_name = AgentName(f"test-worktree-{int(time.time())}")
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
-    subprocess.run(["git", "init"], cwd=temp_work_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-    test_file = temp_work_dir / "test.txt"
-    test_file.write_text("test content")
-    subprocess.run(["git", "add", "."], cwd=temp_work_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-
     worktree_path: Path | None = None
     with tmux_session_cleanup(session_name):
         try:
-            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
+            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_git_repo)
 
             agent_options = CreateAgentOptions(
                 agent_type=AgentTypeName("worktree-test"),
@@ -308,7 +300,7 @@ def test_create_agent_with_worktree(
 
             worktree_path = Path(agent.work_dir)
             assert worktree_path.exists()
-            assert (worktree_path / "test.txt").exists()
+            assert (worktree_path / "README.md").exists()
 
             result = subprocess.run(
                 ["git", "branch", "--show-current"],
@@ -324,56 +316,35 @@ def test_create_agent_with_worktree(
             if worktree_path is not None:
                 subprocess.run(
                     ["git", "worktree", "remove", "--force", str(worktree_path)],
-                    cwd=temp_work_dir,
+                    cwd=temp_git_repo,
                     capture_output=True,
                 )
 
 
 def test_worktree_with_custom_branch_name(
+    tmp_home_dir: Path,
     temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
+    temp_git_repo: Path,
 ) -> None:
     """Test creating a worktree with a custom branch name."""
     agent_name = AgentName(f"test-worktree-custom-{int(time.time())}")
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
     custom_branch = "feature/custom-branch"
 
-    subprocess.run(["git", "init"], cwd=temp_work_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-    test_file = temp_work_dir / "test.txt"
-    test_file.write_text("test content")
-    subprocess.run(["git", "add", "."], cwd=temp_work_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-
     branch_result = subprocess.run(
         ["git", "branch", "--show-current"],
-        cwd=temp_work_dir,
+        cwd=temp_git_repo,
         capture_output=True,
         text=True,
         check=True,
     )
     current_branch = branch_result.stdout.strip()
 
+    _setup_claude_trust_config(temp_git_repo, tmp_home_dir)
     worktree_path: Path | None = None
     with tmux_session_cleanup(session_name):
         try:
-            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
+            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_git_repo)
 
             agent_options = CreateAgentOptions(
                 agent_type=AgentTypeName("worktree-test"),
@@ -412,7 +383,7 @@ def test_worktree_with_custom_branch_name(
             if worktree_path is not None:
                 subprocess.run(
                     ["git", "worktree", "remove", "--force", str(worktree_path)],
-                    cwd=temp_work_dir,
+                    cwd=temp_git_repo,
                     capture_output=True,
                 )
 
@@ -464,41 +435,20 @@ def test_in_place_mode_sets_is_generated_work_dir_false(
 
 
 def test_worktree_mode_sets_is_generated_work_dir_true(
+    tmp_home_dir: Path,
     temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
+    temp_git_repo: Path,
     temp_host_dir: Path,
 ) -> None:
     """Test that worktree mode tracks work_dir as generated."""
     agent_name = AgentName(f"test-worktree-gen-{int(time.time())}")
     session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
 
-    subprocess.run(["git", "init"], cwd=temp_work_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-    test_file = temp_work_dir / "test.txt"
-    test_file.write_text("test content")
-    subprocess.run(["git", "add", "."], cwd=temp_work_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=temp_work_dir,
-        check=True,
-        capture_output=True,
-    )
-
+    _setup_claude_trust_config(temp_git_repo, tmp_home_dir)
     worktree_path: Path | None = None
     with tmux_session_cleanup(session_name):
         try:
-            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
+            local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_git_repo)
 
             agent_options = CreateAgentOptions(
                 agent_type=AgentTypeName("worktree-gen-test"),
@@ -520,7 +470,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
             assert data_file.exists(), "agent data.json should exist"
 
             data = json.loads(data_file.read_text())
-            assert data["work_dir"] != str(temp_work_dir), "work_dir should be different from source in worktree mode"
+            assert data["work_dir"] != str(temp_git_repo), "work_dir should be different from source in worktree mode"
 
             agent = _get_agent_from_create_result(result, temp_mngr_ctx)
             worktree_path = Path(agent.work_dir)
@@ -536,7 +486,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
             if worktree_path is not None:
                 subprocess.run(
                     ["git", "worktree", "remove", "--force", str(worktree_path)],
-                    cwd=temp_work_dir,
+                    cwd=temp_git_repo,
                     capture_output=True,
                 )
 
@@ -639,8 +589,12 @@ class PluginModifyingAgentOptions:
     @hookimpl
     def on_before_create(self, args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
         # Modify the agent name by adding a prefix
-        new_options = args.agent_options.model_copy(update={"name": AgentName(f"modified-{args.agent_options.name}")})
-        return args.model_copy(update={"agent_options": new_options})
+        new_options = args.agent_options.model_copy_update(
+            to_update(args.agent_options.field_ref().name, AgentName(f"modified-{args.agent_options.name}")),
+        )
+        return args.model_copy_update(
+            to_update(args.field_ref().agent_options, new_options),
+        )
 
 
 class PluginModifyingCreateWorkDir:
@@ -649,7 +603,9 @@ class PluginModifyingCreateWorkDir:
     @hookimpl
     def on_before_create(self, args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
         # Force create_work_dir to False
-        return args.model_copy(update={"create_work_dir": False})
+        return args.model_copy_update(
+            to_update(args.field_ref().create_work_dir, False),
+        )
 
 
 class PluginReturningNone:
@@ -666,8 +622,12 @@ class PluginChainA:
     @hookimpl
     def on_before_create(self, args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
         new_name = AgentName(f"{args.agent_options.name}-A")
-        new_options = args.agent_options.model_copy(update={"name": new_name})
-        return args.model_copy(update={"agent_options": new_options})
+        new_options = args.agent_options.model_copy_update(
+            to_update(args.agent_options.field_ref().name, new_name),
+        )
+        return args.model_copy_update(
+            to_update(args.field_ref().agent_options, new_options),
+        )
 
 
 class PluginChainB:
@@ -676,8 +636,12 @@ class PluginChainB:
     @hookimpl
     def on_before_create(self, args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
         new_name = AgentName(f"{args.agent_options.name}-B")
-        new_options = args.agent_options.model_copy(update={"name": new_name})
-        return args.model_copy(update={"agent_options": new_options})
+        new_options = args.agent_options.model_copy_update(
+            to_update(args.agent_options.field_ref().name, new_name),
+        )
+        return args.model_copy_update(
+            to_update(args.field_ref().agent_options, new_options),
+        )
 
 
 def test_on_before_create_hook_modifies_agent_options(
@@ -691,7 +655,9 @@ def test_on_before_create_hook_modifies_agent_options(
     pm.register(PluginModifyingAgentOptions())
 
     # Create a modified context with our test plugin manager
-    test_ctx = temp_mngr_ctx.model_copy(update={"pm": pm})
+    test_ctx = temp_mngr_ctx.model_copy_update(
+        to_update(temp_mngr_ctx.field_ref().pm, pm),
+    )
 
     local_host = _get_local_host_for_test(test_ctx)
 
@@ -720,7 +686,9 @@ def test_on_before_create_hook_modifies_create_work_dir(
     pm.add_hookspecs(hookspecs)
     pm.register(PluginModifyingCreateWorkDir())
 
-    test_ctx = temp_mngr_ctx.model_copy(update={"pm": pm})
+    test_ctx = temp_mngr_ctx.model_copy_update(
+        to_update(temp_mngr_ctx.field_ref().pm, pm),
+    )
 
     local_host = _get_local_host_for_test(test_ctx)
 
@@ -747,7 +715,9 @@ def test_on_before_create_hook_returning_none_passes_through(
     pm.add_hookspecs(hookspecs)
     pm.register(PluginReturningNone())
 
-    test_ctx = temp_mngr_ctx.model_copy(update={"pm": pm})
+    test_ctx = temp_mngr_ctx.model_copy_update(
+        to_update(temp_mngr_ctx.field_ref().pm, pm),
+    )
 
     local_host = _get_local_host_for_test(test_ctx)
 
@@ -778,7 +748,9 @@ def test_on_before_create_hooks_chain_in_order(
     pm.register(PluginChainA())
     pm.register(PluginChainB())
 
-    test_ctx = temp_mngr_ctx.model_copy(update={"pm": pm})
+    test_ctx = temp_mngr_ctx.model_copy_update(
+        to_update(temp_mngr_ctx.field_ref().pm, pm),
+    )
 
     local_host = _get_local_host_for_test(test_ctx)
 

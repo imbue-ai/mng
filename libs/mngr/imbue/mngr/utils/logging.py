@@ -1,24 +1,18 @@
-import functools
-import inspect
 import io
 import logging
 import os
 import sys
 from collections import deque
-from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from typing import Final
 from typing import NamedTuple
-from typing import ParamSpec
 from typing import TextIO
-from typing import TypeVar
 from typing import cast
 
 from loguru import logger
 
-from imbue.imbue_common.pure import pure
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -93,6 +87,16 @@ def _format_user_message(record: Any) -> str:
     return "{message}\n"
 
 
+def suppress_warnings():
+    # Silence pyinfra's warnings. Pyinfra uses Python's standard logging module
+    # and logs warnings during file upload retries (e.g., when the remote directory
+    # doesn't exist). Mngr already handles these cases gracefully, so the warnings
+    # are noise. We set pyinfra's logger level to ERROR to suppress warnings while
+    # still allowing errors through.
+    pyinfra_logger = logging.getLogger("pyinfra")
+    pyinfra_logger.setLevel(logging.ERROR)
+
+
 def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     """Configure logging based on output options and mngr context.
 
@@ -106,13 +110,8 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     # Remove default handler
     logger.remove()
 
-    # Silence pyinfra's warnings. Pyinfra uses Python's standard logging module
-    # and logs warnings during file upload retries (e.g., when the remote directory
-    # doesn't exist). Mngr already handles these cases gracefully, so the warnings
-    # are noise. We set pyinfra's logger level to ERROR to suppress warnings while
-    # still allowing errors through.
-    pyinfra_logger = logging.getLogger("pyinfra")
-    pyinfra_logger.setLevel(logging.ERROR)
+    # remove warnings
+    suppress_warnings()
 
     # BUILD level is registered at module import time via register_build_level()
 
@@ -228,49 +227,6 @@ def _rotate_old_logs(log_dir: Path, max_files: int) -> None:
                 # File might have been deleted by another mngr instance, or
                 # we might not have permission - either way, ignore and continue
                 pass
-
-
-P = ParamSpec("P")
-R = TypeVar("R")
-
-
-@pure
-def _format_arg_value(value: Any) -> str:
-    """Format an argument value for logging, truncating if too long."""
-    str_value = repr(value)
-    max_len = 200
-    if len(str_value) > max_len:
-        return str_value[: max_len - 3] + "..."
-    return str_value
-
-
-def log_call(func: Callable[P, R]) -> Callable[P, R]:
-    """Decorator that logs function calls with inputs and outputs at debug level.
-
-    Logs the function name and binds arguments as structured logging fields.
-    Useful for API entry points to trace execution.
-    """
-    # Get the function name once at decoration time
-    func_name = getattr(func, "__name__", repr(func))
-
-    @functools.wraps(func)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        # Get the function signature to map positional args to names
-        sig = inspect.signature(func)
-        bound_args = sig.bind(*args, **kwargs)
-        bound_args.apply_defaults()
-
-        # Build structured logging fields from arguments
-        log_fields = {name: _format_arg_value(value) for name, value in bound_args.arguments.items()}
-        logger.debug("Calling {}", func_name, **log_fields)
-
-        result = func(*args, **kwargs)
-
-        logger.debug("{} returned", func_name, result=_format_arg_value(result))
-
-        return result
-
-    return wrapper
 
 
 class BufferedMessage(NamedTuple):

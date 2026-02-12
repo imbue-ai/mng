@@ -608,7 +608,9 @@ def archive_todos_completed_before(
             todos_to_keep.append(todo)
 
     # Build the result
-    updated_list = todo_list.model_copy(update={"todos": tuple(todos_to_keep)})
+    updated_list = todo_list.model_copy_update(
+        to_update(todo_list.field_ref().todos, tuple(todos_to_keep)),
+    )
     return ArchiveCompletedTodosResult(
         updated_list=updated_list,
         archived_todos=tuple(todos_to_archive),
@@ -745,14 +747,32 @@ If something needs to be changed, return an updated copy instead of mutating the
 
 Use an immutable, functional approach.  Accumulate all changes rather than updating any data "in-place"
 
-Avoid mutating objects created outside the function (unless they are "Implementations", see below).  Instead, prefer to create an updated copy whenever possible:
+Avoid mutating objects created outside the function (unless they are "Implementations", see below).  Instead, prefer to create an updated copy whenever possible.
+
+## Type-safe model_copy_update
+
+When creating updated copies of frozen or mutable models, always use the type-safe `model_copy_update`/`to_update`/`field_ref` pattern instead of passing raw string dictionaries to `model_copy(update=...)`. This ensures that field names are checked by the type system and refactoring tools can find all usages of a field.
 
 ```python
+from imbue.imbue_common.model_update import to_update
+
+
 @pure
 def add_tag_to_todo(todo_item: TodoItem, tag_to_add: Tag) -> TodoItem:
     updated_tags = todo_item.tags + (tag_to_add,)
-    return todo_item.model_copy(update={"tags": updated_tags})
+    return todo_item.model_copy_update(
+        to_update(todo_item.field_ref().tags, updated_tags),
+    )
 ```
+
+- `field_ref()` returns a proxy that records attribute access, making field references type-safe
+- `to_update(field_ref, value)` creates a type-checked `(field_name, value)` pair
+- `model_copy_update(...)` accepts `to_update()` pairs and creates an updated copy of the model
+- Multiple fields can be updated at once by passing multiple `to_update()` calls to `model_copy_update()`
+
+Never pass raw string dictionaries like `model_copy(update={"field_name": value})` -- always use the type-safe pattern above.
+
+Never call `model_copy(update=to_update_dict(...))` directly -- always use `model_copy_update(...)` instead.
 
 Never re-assign to the same function-scoped variable. Instead, create a new variable with an updated name
 
@@ -842,7 +862,9 @@ class TodoReminder(FrozenModel):
     is_sent: bool = Field(default=False, description="Whether sent")
 
     def with_marked_as_sent(self) -> "TodoReminder":
-        return self.model_copy(update={"is_sent": True})
+        return self.model_copy_update(
+            to_update(self.field_ref().is_sent, True),
+        )
 ```
 
 Frozen objects should use computed fields and the correct caching decorator to cache read-only derived properties
@@ -1136,8 +1158,8 @@ class TodoArchive(FrozenModel):
         return len(self.archived_todos)
 
     def with_added_item(self, todo_to_archive: TodoItem) -> "TodoArchive":
-        return self.model_copy(
-            update={"archived_todos": self.archived_todos + (todo_to_archive,)}
+        return self.model_copy_update(
+            to_update(self.field_ref().archived_todos, self.archived_todos + (todo_to_archive,)),
         )
 ```
 
@@ -1262,20 +1284,30 @@ Always use the right log level for your statement:
 
 The purpose of log statements is to tell a story to the reader about what is happening in the program. They help us understand program execution and debug issues.
 
-**Log before actions, not after.** Place log statements immediately before the action they describe, not after. This ensures the log appears even if the action fails:
+**Every log statement should start with a verb** (ex: "Saving todo to repository", "Failed to send notification", etc). This makes it much easier to read, and understand what is happening / has happened.
+
+The verbs should be past tense (eg, end with "ed") in normal log statements (which should be placed *after* the event) or active (eg "ing" form) if using `log_span` (which should be placed *before* the event).
+
+**Use `log_span` to wrap actions.** When logging an action that is about to happen, use the `log_span` context manager instead of a bare `logger.debug`. This emits a debug message on entry and a trace message with elapsed time on exit, making it easy to see how long operations take:
 
 ```python
-from loguru import logger
+
+from imbue.imbue_common.logging import log_span
 
 
 def save_todo_to_repository(
-    todo_repository: TodoRepositoryInterface,
-    todo_item: TodoItem,
+        todo_repository: TodoRepositoryInterface,
+        todo_item: TodoItem,
 ) -> None:
-    # Log BEFORE the action
-    logger.debug("Saving todo to repository")
-    todo_repository.save_todo(todo_item)
-    logger.trace("Saved todo id={} title={}", todo_item.todo_id, todo_item.title)
+    with log_span("Saving todo to repository"):
+        todo_repository.save_todo(todo_item)
+```
+
+`log_span` accepts format args and keyword context args (passed to `logger.contextualize`):
+
+```python
+with log_span("Creating agent work directory from source {}", source_path, host=host_name):
+    work_dir = host.create_work_dir(source_path)
 ```
 
 **Do not log at function entry points.** Since logs are placed at the call site (before calling a function), the function itself should not log its own entry. The caller's log already describes what's about to happen:
@@ -1298,11 +1330,10 @@ def cli_create_todo(title: str) -> None:
     logger.info("Created todo (ID={})", todo.todo_id)
 
 
-# In library/API code - use debug instead
+# In library/API code - use log_span for actions
 def create_todo(title: str) -> TodoItem:
-    logger.debug("Creating todo item")
-    todo = TodoItem(title=title)
-    logger.trace("Created todo id={} title={}", todo.todo_id, todo.title)
+    with log_span("Creating todo item"):
+        todo = TodoItem(title=title)
     return todo
 ```
 
@@ -1571,6 +1602,12 @@ def test_export_large_todo_dataset_to_json_produces_expected_output() -> None:
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     )
 ```
+
+### Test isolation
+
+Tests should be careful to fully isolate themselves. They should be able to run concurrently, even from within the same pytest process.
+
+This means that base level test fixtures should do things like override the HOME directory to a temp directory. All tests should use unique identifiers for any resources they create and avoid any shared state between tests.
 
 ## Test organization
 

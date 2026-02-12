@@ -1,4 +1,4 @@
-# mngr cleanup - CLI Options Reference
+# mngr cleanup [future] - CLI Options Reference
 
 Destroy or stop agents and hosts in order to free up resources.
 

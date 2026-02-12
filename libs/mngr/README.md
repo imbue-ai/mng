@@ -1,48 +1,111 @@
-# mngr
+# mngr: build your team of AI engineering agents
 
-**Effortlessly run Claude Code (or any agent) in a remote sandbox via the CLI, locally in a new worktree, or whatever you want!**
-
+**installation**:
 ```bash
-# install
 # TODO: update installation instructions to be better before release
 git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages && uv tool install -e libs/mngr
-
-# then use mngr:
-mngr create my-agent --in modal  # create an agent in a Modal sandbox and instantly connect to it
-mngr create my-agent             # or just run locally in a new worktree to try it out!
 ```
 
-**Easily transfer data (and agents) back and forth, script your own workflows, and access all of your agents via the web**
+**mngr is *very* simple to use:**
 
 ```bash
-mngr pull my-agent # pull changes from an agent to your local machine
-mngr push my-agent # push your changes to an agent
-mngr pair my-agent # or sync changes continuously!
-mngr migrate my-agent modal # move an existing local agent to the cloud
-mngr message my-agent fix the tests on main # send a message to an agent
-mngr open my-agent # access the agent's terminal and web UIs via a secure web interface
+mngr                  # launch claude on Modal (defaults: command=create, agent=claude, provider=modal)
+mngr --in local       # launch claude locally
+mngr my-task          # launch claude with a name on Modal
+mngr my-task codex    # launch codex instead of claude on Modal
+mngr -- --model opus  # launch pass any arguments to the agent running on Modal
+
+# send an initial message so you don't have to wait around:
+mngr --no-connect --initial-message "Speed up one of my tests and make a PR on github"
+
+# or, be super explicit about all of the arguments:
+mngr create --name my-task --agent-type claude --in modal
+
+# tons more arguments for anything you could want! Learn more via --help
+mngr create --help
+
+# or see the other commands--list, destroy, message, connect, push, pull, copy, and more!
+mngr --help
 ```
 
-**See the status of all your agents in a single place--whether they're blocked, done, whether the tests pass, etc**
-
+**mngr is fast:**
 ```bash
-mngr list  # see all your agents and their status
-# TODO: show some example output here
+> time mngr local-hello  --initial-message "Just say hello" --no-connect --in local
+# (time results)
+
+> time mngr remote-hello --initial-message "Just say hello" --no-connect --in modal
+# (time results)
+
+> time mngr list
+# (time results)
 ```
 
-**Save money by automatically suspending idle agents**
+**mngr itself is free, *and* the cheapest way to run remote agents (they shut down when idle):**
 
 ```bash
-mngr connect my-agent  # after 5 minutes without typing, the agent will automatically suspend itself
+mngr create --in modal --no-connect --initial-message "just say 'hello'" --idle-timeout 60 -- --model sonnet
+# costs $0.001 for inference
+# costs $0.0001 for compute because it shuts down 60 seconds after the agent completes
 ```
 
-**Never lose any work: snapshot and fork the entire agent state**
+**mngr takes security and privacy seriously:**
 
 ```bash
-mngr message my-agent try running rm -rf /  # or try doing something unhinged...
-mngr create new-agent --snapshot `mngr snapshot list my-agent --format "{id}"` # ...and then recover from it!
-mngr snapshot new-agent  # make a snapshot of any agent's current state
-mngr clone another-agent forked-agent  # or create a copy of any existing agent 
+# by default, cannot be accessed by anyone except your modal account (uses a local unique SSH key)
+mngr create example-task --in modal
+
+# you (or your agent) can do whatever bad ideas you want in that container without fear
+mngr exec example-task "rm -rf /"
+
+# you can even completely block internet access...
+mngr create --in modal --build-arg "--block-network"
+
+# or only allow access to certain IPs
+mngr create --in modal --build-arg "--cidr-allowlist 203.0.113.0/24"
+```
+
+**mngr is powerful and composable:**
+
+```bash
+# start multiple agents on the same host to save money and share data
+mngr create agent-1 --in modal --host shared-host
+mngr create agent-2 --in modal --host shared-host
+
+# programmatically send messages to your agents and see their chat histories
+mngr message agent-1 "Tell me a joke"
+mngr transcript agent-1
+
+# schedule agents to run periodically
+mngr schedule --template my-daily-hook "look at any flaky tests over the past day and try to fix one of them" --cron "0 * * * *"
+
+# never lose any work: snapshot and fork the entire agent states
+mngr create doomed-agent --in modal
+SNAPSHOT=$(mngr snapshot doomed-agent --format "{id}")
+mngr message doomed-agent "try running 'rm -rf /' and see what happens"
+mngr create new-agent --snapshot $SNAPSHOT
+```
+
+**mngr makes it easy to work with remote agents**
+
+```bash
+mngr connect my-agent       # directly connect to remote agents via SSH for debugging
+mngr pull my-agent          # pull changes from an agent to your local machine
+mngr push my-agent          # push your changes to an agent
+mngr pair my-agent          # or sync changes continuously!
+```
+
+**mngr is easy to learn:**
+
+```text
+> mngr ask "How do I create a container on modal with custom packages installed by default?"
+
+Simply run:
+    mngr create --in modal --build-arg "--dockerfile path/to/Dockerfile"
+
+If you don't have a Dockerfile for your project, run:
+    mngr bootstrap
+
+From the repo where you would like a Dockerfile created.
 ```
 
 ## Overview
@@ -81,14 +144,14 @@ mngr <command> [options]
 - **[`create`](docs/commands/primary/create.md)**: (default) Create and run an agent in a host
 - [`list`](docs/commands/primary/list.md): List active agents
 - [`connect`](docs/commands/primary/connect.md): Attach to an agent
-- [`open`](docs/commands/primary/open.md): Open a URL from an agent in your browser
+- [`open`](docs/commands/primary/open.md) [future]: Open a URL from an agent in your browser
 - [`stop`](docs/commands/primary/stop.md): Stop an agent
 - [`start`](docs/commands/primary/start.md): Start a stopped agent
-- [`snapshot`](docs/commands/secondary/snapshot.md): Create a snapshot of a host's state
+- [`snapshot`](docs/commands/secondary/snapshot.md) [future]: Create a snapshot of a host's state
 - [`destroy`](docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
 - [`clone`](docs/commands/aliases/clone.md): Create a copy of an existing agent
 - [`migrate`](docs/commands/aliases/migrate.md): Move an agent to a different host
-- [`limit`](docs/commands/secondary/limit.md): (Re)set resource limits for an agent
+- [`limit`](docs/commands/secondary/limit.md) [future]: (Re)set resource limits for an agent
 
 ### For moving data in and out:
 
@@ -96,17 +159,13 @@ mngr <command> [options]
 - [`push`](docs/commands/primary/push.md): Push data to agent
 - [`pair`](docs/commands/primary/pair.md): Continually sync data with an agent
 - [`message`](docs/commands/secondary/message.md): Send a message to an agent
-- [`provision`](docs/commands/secondary/provision.md): Re-run provisioning on an agent (useful for syncing config and auth)
+- [`provision`](docs/commands/secondary/provision.md) [future]: Re-run provisioning on an agent (useful for syncing config and auth)
 
 ### For managing mngr itself:
 
-- [`ask`](docs/commands/secondary/ask.md): Chat with mngr for help
-- [`plugin`](docs/commands/secondary/plugin.md): Manage mngr plugins
+- [`ask`](docs/commands/secondary/ask.md) [future]: Chat with mngr for help
+- [`plugin`](docs/commands/secondary/plugin.md) [future]: Manage mngr plugins
 - [`config`](docs/commands/secondary/config.md): View and edit mngr configuration
-
-## Examples
-
-TODO: put a ton of examples here!
 
 ## How it works
 
@@ -145,6 +204,10 @@ See [`architecture.md`](./docs/architecture.md) for an in-depth overview of the 
 3. Avoid storing sensitive data in agents' filesystems (or encrypt it if necessary).
 
 See [`./docs/security_model.md`](./docs/security_model.md) for more details on our security model.
+
+## Learning more
+
+TODO: put a ton of examples and references here!
 
 ## Contributing
 

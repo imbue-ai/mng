@@ -1,4 +1,3 @@
-import subprocess
 import sys
 import uuid
 from collections.abc import Callable
@@ -15,6 +14,8 @@ from click_option_group import GroupedOption
 from click_option_group import OptionGroup
 from click_option_group import optgroup
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import MngrConfig
@@ -131,6 +132,11 @@ def setup_command_context(
     # First parse options from CLI args to extract common parameters
     initial_opts = command_class(**ctx.params)
 
+    # Create a top-level ConcurrencyGroup for process management
+    cg = ConcurrencyGroup(name=f"mngr-{command_name}")
+    cg.__enter__()
+    ctx.call_on_close(lambda: cg.__exit__(None, None, None))
+
     # Load config
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
     pm = ctx.obj
@@ -147,8 +153,11 @@ def setup_command_context(
         initial_opts.plugin,
         initial_opts.disable_plugin,
         is_interactive=is_interactive,
+        concurrency_group=cg,
     )
 
+    # FIXME: actually, we should probably move the construction of this object (and the call to setup_logging) down after the "opts = command_class(**updated_params)" line (so that it can take those settings into consideration)
+    #  The tricky thing about this is that it means that you're not allowed to log during any of this early code, esp during the _apply_plugin_option_overrides calls
     # Parse output options
     output_opts = parse_output_options(
         output_format=initial_opts.output_format,
@@ -178,7 +187,7 @@ def setup_command_context(
     opts = command_class(**updated_params)
 
     # Run pre-command scripts if configured for this command
-    _run_pre_command_scripts(mngr_ctx.config, command_name)
+    _run_pre_command_scripts(mngr_ctx.config, command_name, cg)
 
     return mngr_ctx, output_opts, opts
 
@@ -274,51 +283,57 @@ def apply_create_template(
     params: dict[str, Any],
     config: MngrConfig,
 ) -> dict[str, Any]:
-    """Apply a create template to parameters if one is specified.
+    """Apply create templates to parameters if any are specified.
 
     Templates are named presets of create command arguments that can be applied
-    using --template <name>. Template values act as defaults - they only override
-    parameters that came from DEFAULT source, not user-specified values.
+    using --template <name>. Multiple templates can be specified and are applied
+    in order, stacking their values. Template values act as defaults - they only
+    override parameters that came from DEFAULT source, not user-specified values.
+
+    When multiple templates are specified, later templates override earlier ones
+    for the same parameter.
 
     CLI arguments always take precedence over template values.
 
     This function should only be called for the 'create' command.
     """
-    template_name = params.get("template")
-    if not template_name:
+    template_names = params.get("template", ())
+    if not template_names:
         return params
-
-    try:
-        template_key = CreateTemplateName(template_name)
-    except ParseSpecError as e:
-        raise UserInputError(f"Invalid template name: {e}") from e
-
-    if template_key not in config.create_templates:
-        available = list(config.create_templates.keys())
-        if available:
-            raise UserInputError(
-                f"Template '{template_name}' not found. Available templates: {', '.join(str(t) for t in available)}"
-            )
-        else:
-            raise UserInputError(
-                f"Template '{template_name}' not found. No templates are configured. "
-                "Add templates to your settings.toml under [create_templates.<name>]"
-            )
-
-    template = config.create_templates[template_key]
 
     # Start with existing params
     updated_params = params.copy()
 
-    # Apply template options only for parameters that came from defaults (not CLI)
-    for param_name, template_value in template.options.items():
-        if template_value is None:
-            continue
-        if param_name not in params:
-            continue
-        source = ctx.get_parameter_source(param_name)
-        if source == ParameterSource.DEFAULT:
-            updated_params[param_name] = template_value
+    # Apply each template in order (later templates override earlier ones)
+    for template_name in template_names:
+        try:
+            template_key = CreateTemplateName(template_name)
+        except ParseSpecError as e:
+            raise UserInputError(f"Invalid template name: {e}") from e
+
+        if template_key not in config.create_templates:
+            available = list(config.create_templates.keys())
+            if available:
+                raise UserInputError(
+                    f"Template '{template_name}' not found. Available templates: {', '.join(str(t) for t in available)}"
+                )
+            else:
+                raise UserInputError(
+                    f"Template '{template_name}' not found. No templates are configured. "
+                    "Add templates to your settings.toml under [create_templates.<name>]"
+                )
+
+        template = config.create_templates[template_key]
+
+        # Apply template options only for parameters that came from defaults (not CLI)
+        for param_name, template_value in template.options.items():
+            if template_value is None:
+                continue
+            if param_name not in params:
+                continue
+            source = ctx.get_parameter_source(param_name)
+            if source == ParameterSource.DEFAULT:
+                updated_params[param_name] = template_value
 
     return updated_params
 
@@ -341,18 +356,18 @@ def _apply_plugin_option_overrides(
     )
 
 
-def _run_single_script(script: str) -> tuple[str, int, str, str]:
+def _run_single_script(script: str, cg: ConcurrencyGroup) -> tuple[str, int, str, str]:
     """Run a single script and return (script, exit_code, stdout, stderr)."""
-    result = subprocess.run(
-        script,
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-    return (script, result.returncode, result.stdout, result.stderr)
+    try:
+        result = cg.run_process_to_completion(
+            ["sh", "-c", script],
+        )
+        return (script, result.returncode if result.returncode is not None else 0, result.stdout, result.stderr)
+    except ProcessError as e:
+        return (script, e.returncode if e.returncode is not None else -1, e.stdout, e.stderr)
 
 
-def _run_pre_command_scripts(config: MngrConfig, command_name: str) -> None:
+def _run_pre_command_scripts(config: MngrConfig, command_name: str, cg: ConcurrencyGroup) -> None:
     """Run pre-command scripts configured for this command.
 
     Scripts are run in parallel and all must succeed (exit code 0).
@@ -365,7 +380,7 @@ def _run_pre_command_scripts(config: MngrConfig, command_name: str) -> None:
     # Run all scripts in parallel
     failures: list[tuple[str, int, str, str]] = []
     with ThreadPoolExecutor() as executor:
-        futures = [executor.submit(_run_single_script, script) for script in scripts]
+        futures = [executor.submit(_run_single_script, script, cg) for script in scripts]
         for future in as_completed(futures):
             script, exit_code, _stdout, stderr = future.result()
             if exit_code != 0:

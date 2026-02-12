@@ -8,6 +8,7 @@ from pathlib import Path
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
@@ -16,6 +17,7 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import get_short_random_string
 
 
@@ -104,11 +106,8 @@ def test_lifecycle_state_running_when_expected_process_exists(
             error_message="Expected agent lifecycle state to be RUNNING",
         )
     finally:
-        # Clean up tmux session
-        test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
-            timeout_seconds=5.0,
-        )
+        # Clean up tmux session and all its processes
+        cleanup_tmux_session(session_name)
 
 
 def test_lifecycle_state_replaced_when_different_process_exists(
@@ -135,11 +134,8 @@ def test_lifecycle_state_replaced_when_different_process_exists(
             error_message="Expected agent lifecycle state to be REPLACED",
         )
     finally:
-        # Clean up tmux session
-        test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
-            timeout_seconds=5.0,
-        )
+        # Clean up tmux session and all its processes
+        cleanup_tmux_session(session_name)
 
 
 def test_lifecycle_state_done_when_no_process_in_pane(
@@ -167,11 +163,8 @@ def test_lifecycle_state_done_when_no_process_in_pane(
             error_message="Expected agent lifecycle state to be DONE",
         )
     finally:
-        # Clean up tmux session
-        test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
-            timeout_seconds=5.0,
-        )
+        # Clean up tmux session and all its processes
+        cleanup_tmux_session(session_name)
 
 
 def test_get_reported_status_returns_none_when_no_status_files(
@@ -256,11 +249,8 @@ def test_lifecycle_state_waiting_when_waiting_file_exists(
             error_message="Expected agent lifecycle state to be WAITING",
         )
     finally:
-        # Clean up tmux session
-        test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
-            timeout_seconds=5.0,
-        )
+        # Clean up tmux session and all its processes
+        cleanup_tmux_session(session_name)
 
 
 def test_lifecycle_state_running_when_waiting_file_removed(
@@ -299,11 +289,8 @@ def test_lifecycle_state_running_when_waiting_file_removed(
             error_message="Expected agent lifecycle state to be RUNNING after removing waiting file",
         )
     finally:
-        # Clean up tmux session
-        test_agent.host.execute_command(
-            f"tmux kill-session -t '{session_name}' 2>/dev/null",
-            timeout_seconds=5.0,
-        )
+        # Clean up tmux session and all its processes
+        cleanup_tmux_session(session_name)
 
 
 def test_get_initial_message_returns_none_when_not_set(
@@ -362,29 +349,173 @@ def test_get_resume_message_returns_message_when_set(
     assert test_agent.get_resume_message() == "Welcome back!"
 
 
-def test_get_message_delay_seconds_returns_default_when_not_set(
+def test_get_ready_timeout_seconds_returns_default_when_not_set(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """Test that get_message_delay_seconds returns 1.0 when not set in data.json."""
+    """Test that get_ready_timeout_seconds returns default when not set in data.json."""
     test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert test_agent.get_message_delay_seconds() == 1.0
+    assert test_agent.get_ready_timeout_seconds() == DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 
 
-def test_get_message_delay_seconds_returns_value_when_set(
+def test_get_ready_timeout_seconds_returns_value_when_set(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """Test that get_message_delay_seconds returns the value when set in data.json."""
+    """Test that get_ready_timeout_seconds returns the value when set in data.json."""
     test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = temp_host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
-    # Update data.json with message_delay_seconds
+    # Update data.json with ready_timeout_seconds
     data = json.loads(data_path.read_text())
-    data["message_delay_seconds"] = 2.5
+    data["ready_timeout_seconds"] = 2.5
     data_path.write_text(json.dumps(data, indent=2))
 
-    assert test_agent.get_message_delay_seconds() == 2.5
+    assert test_agent.get_ready_timeout_seconds() == 2.5
+
+
+def test_get_expected_process_name_uses_command_basename(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that get_expected_process_name returns the command basename."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    # Default command is "sleep 1000" based on create_test_agent
+    assert test_agent.get_expected_process_name() == "sleep"
+
+
+def test_uses_marker_based_send_message_returns_false_by_default(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that uses_marker_based_send_message returns False by default."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    assert test_agent.uses_marker_based_send_message() is False
+
+
+def test_get_tui_ready_indicator_returns_none_by_default(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that get_tui_ready_indicator returns None by default."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    assert test_agent.get_tui_ready_indicator() is None
+
+
+def test_send_backspace_with_noop_sends_keys_to_tmux(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that _send_backspace_with_noop sends backspaces and noop keys to tmux session."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
+
+    # Create a tmux session with some text
+    test_agent.host.execute_command(
+        f"tmux new-session -d -s '{session_name}' 'cat'",
+        timeout_seconds=5.0,
+    )
+
+    try:
+        # Wait for cat to start
+        wait_for(
+            lambda: test_agent.host.execute_command(
+                f"tmux list-panes -t '{session_name}' -F '#{{pane_current_command}}'"
+            ).stdout.strip()
+            == "cat",
+            timeout=5.0,
+            error_message="cat process not ready",
+        )
+
+        # Send some text
+        test_agent.host.execute_command(f"tmux send-keys -t '{session_name}' -l 'hello'")
+
+        # Wait for text to appear
+        wait_for(
+            lambda: "hello" in (test_agent._capture_pane_content(session_name) or ""),
+            timeout=5.0,
+            error_message="text not visible in pane",
+        )
+
+        # Now send backspaces with noop - should remove some characters
+        test_agent._send_backspace_with_noop(session_name, count=2)
+
+        # Verify backspaces were processed (last 2 chars should be removed)
+        content = test_agent._capture_pane_content(session_name)
+        assert content is not None
+        # After backspaces, "hello" should become "hel"
+        assert "hel" in content
+    finally:
+        test_agent.host.execute_command(
+            f"tmux kill-session -t '{session_name}' 2>/dev/null",
+            timeout_seconds=5.0,
+        )
+
+
+def test_send_enter_and_wait_for_signal_returns_true_when_signal_received(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that _send_enter_and_wait_for_signal returns True when tmux wait-for signal is received."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
+    wait_channel = f"mngr-submit-{session_name}"
+
+    # Create a tmux session
+    test_agent.host.execute_command(
+        f"tmux new-session -d -s '{session_name}' 'bash'",
+        timeout_seconds=5.0,
+    )
+
+    try:
+        # Signal the channel from a background process after a short delay
+        # This simulates what the UserPromptSubmit hook does
+        test_agent.host.execute_command(
+            f"( sleep 0.1 && tmux wait-for -S '{wait_channel}' ) &",
+            timeout_seconds=1.0,
+        )
+
+        # Call the method - it should receive the signal and return True
+        result = test_agent._send_enter_and_wait_for_signal(session_name, wait_channel)
+        assert result is True
+    finally:
+        test_agent.host.execute_command(
+            f"tmux kill-session -t '{session_name}' 2>/dev/null",
+            timeout_seconds=5.0,
+        )
+
+
+def test_send_enter_and_wait_for_signal_returns_false_on_timeout(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that _send_enter_and_wait_for_signal returns False when signal times out."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
+    # Use a unique channel that won't be signaled
+    wait_channel = f"mngr-submit-never-signaled-{session_name}"
+
+    # Create a tmux session
+    test_agent.host.execute_command(
+        f"tmux new-session -d -s '{session_name}' 'bash'",
+        timeout_seconds=5.0,
+    )
+
+    try:
+        # Call the method without signaling - should timeout and return False
+        result = test_agent._send_enter_and_wait_for_signal(session_name, wait_channel)
+        assert result is False
+    finally:
+        test_agent.host.execute_command(
+            f"tmux kill-session -t '{session_name}' 2>/dev/null",
+            timeout_seconds=5.0,
+        )

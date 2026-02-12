@@ -72,7 +72,7 @@ def test_host_not_running_error_includes_state() -> None:
     error = HostNotRunningError(host_id, HostState.STOPPED)
     assert error.host_id == host_id
     assert error.state == HostState.STOPPED
-    assert "STOPPED" in str(error)
+    assert HostState.STOPPED.value in str(error)
 
 
 def test_host_not_stopped_error_includes_state() -> None:
@@ -81,7 +81,7 @@ def test_host_not_stopped_error_includes_state() -> None:
     error = HostNotStoppedError(host_id, HostState.RUNNING)
     assert error.host_id == host_id
     assert error.state == HostState.RUNNING
-    assert "RUNNING" in str(error)
+    assert HostState.RUNNING.value in str(error)
 
 
 def test_snapshot_not_found_error_sets_snapshot_id() -> None:

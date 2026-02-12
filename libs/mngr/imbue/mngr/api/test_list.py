@@ -30,6 +30,8 @@ from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostState
+from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.utils.cel_utils import compile_cel_filters
 from imbue.mngr.utils.testing import tmux_session_cleanup
@@ -122,7 +124,7 @@ def test_agent_to_cel_context_basic_fields() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -150,7 +152,7 @@ def test_agent_to_cel_context_with_runtime() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         runtime_seconds=123.45,
         host=host_info,
     )
@@ -176,7 +178,7 @@ def test_agent_to_cel_context_with_activity_time() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         user_activity_time=activity_time,
         host=host_info,
     )
@@ -188,8 +190,8 @@ def test_agent_to_cel_context_with_activity_time() -> None:
     assert context["idle"] >= 0
 
 
-def test_agent_to_cel_context_with_lifecycle_state() -> None:
-    """Test that _agent_to_cel_context flattens lifecycle state."""
+def test_agent_to_cel_context_with_state() -> None:
+    """Test that _agent_to_cel_context flattens state enum to lowercase string."""
     host_info = HostInfo(
         id=HostId.generate(),
         name="test-host",
@@ -203,13 +205,13 @@ def test_agent_to_cel_context_with_lifecycle_state() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.STOPPED,
+        state=AgentLifecycleState.STOPPED,
         host=host_info,
     )
 
     context = _agent_to_cel_context(agent_info)
 
-    assert context["state"] == "stopped"
+    assert context["state"] == AgentLifecycleState.STOPPED.value
 
 
 def test_apply_cel_filters_with_include_filter() -> None:
@@ -227,7 +229,7 @@ def test_apply_cel_filters_with_include_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -256,7 +258,7 @@ def test_apply_cel_filters_with_non_matching_include() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -285,7 +287,7 @@ def test_apply_cel_filters_with_exclude_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -314,12 +316,12 @@ def test_apply_cel_filters_with_state_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
     include_filters, exclude_filters = compile_cel_filters(
-        include_filters=('state == "running"',),
+        include_filters=(f'state == "{AgentLifecycleState.RUNNING.value}"',),
         exclude_filters=(),
     )
 
@@ -343,7 +345,7 @@ def test_apply_cel_filters_with_host_provider_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -363,6 +365,7 @@ def test_list_agents_returns_empty_when_no_agents(
     """Test that list_agents returns empty result when no agents exist."""
     result = list_agents(
         mngr_ctx=temp_mngr_ctx,
+        is_streaming=False,
     )
 
     assert result.agents == []
@@ -402,7 +405,7 @@ def test_list_agents_with_agent(
         assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
 
         # Now list agents
-        result = list_agents(mngr_ctx=temp_mngr_ctx)
+        result = list_agents(mngr_ctx=temp_mngr_ctx, is_streaming=False)
 
         assert len(result.agents) >= 1
         agent_names = [a.name for a in result.agents]
@@ -445,6 +448,7 @@ def test_list_agents_with_include_filter(
         result = list_agents(
             mngr_ctx=temp_mngr_ctx,
             include_filters=(f'name == "{agent_name}"',),
+            is_streaming=False,
         )
 
         assert len(result.agents) == 1
@@ -487,6 +491,7 @@ def test_list_agents_with_exclude_filter(
         result = list_agents(
             mngr_ctx=temp_mngr_ctx,
             exclude_filters=(f'name == "{agent_name}"',),
+            is_streaming=False,
         )
 
         agent_names = [a.name for a in result.agents]
@@ -534,6 +539,7 @@ def test_list_agents_with_callbacks(
         result = list_agents(
             mngr_ctx=temp_mngr_ctx,
             on_agent=on_agent,
+            is_streaming=False,
         )
 
         # Callback should have been called for each agent
@@ -550,6 +556,7 @@ def test_list_agents_with_error_behavior_continue(
     result = list_agents(
         mngr_ctx=temp_mngr_ctx,
         error_behavior=ErrorBehavior.CONTINUE,
+        is_streaming=False,
     )
 
     # Should return a result, possibly empty
@@ -567,7 +574,7 @@ def test_agent_to_cel_context_with_host_state() -> None:
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("local"),
-        state="running",
+        state=HostState.RUNNING,
     )
     agent_info = AgentInfo(
         id=AgentId.generate(),
@@ -577,13 +584,13 @@ def test_agent_to_cel_context_with_host_state() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
     context = _agent_to_cel_context(agent_info)
 
-    assert context["host"]["state"] == "running"
+    assert context["host"]["state"] == HostState.RUNNING.value
 
 
 def test_agent_to_cel_context_with_host_resources() -> None:
@@ -603,7 +610,7 @@ def test_agent_to_cel_context_with_host_resources() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -636,7 +643,7 @@ def test_agent_to_cel_context_with_host_ssh() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -653,7 +660,7 @@ def test_apply_cel_filters_with_host_state_filter() -> None:
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("local"),
-        state="running",
+        state=HostState.RUNNING,
     )
     agent_info = AgentInfo(
         id=AgentId.generate(),
@@ -663,12 +670,12 @@ def test_apply_cel_filters_with_host_state_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
     include_filters, exclude_filters = compile_cel_filters(
-        include_filters=('host.state == "running"',),
+        include_filters=(f'host.state == "{HostState.RUNNING.value}"',),
         exclude_filters=(),
     )
 
@@ -694,7 +701,7 @@ def test_apply_cel_filters_with_host_resource_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -725,7 +732,7 @@ def test_apply_cel_filters_with_host_uptime_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -756,7 +763,7 @@ def test_apply_cel_filters_with_host_tags_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
 
@@ -790,14 +797,14 @@ def test_agent_to_cel_context_with_idle_mode() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
-        idle_mode="agent",
+        state=AgentLifecycleState.RUNNING,
+        idle_mode=IdleMode.AGENT.value,
         host=host_info,
     )
 
     context = _agent_to_cel_context(agent_info)
 
-    assert context["idle_mode"] == "agent"
+    assert context["idle_mode"] == IdleMode.AGENT.value
 
 
 def test_agent_to_cel_context_with_idle_seconds() -> None:
@@ -815,7 +822,7 @@ def test_agent_to_cel_context_with_idle_seconds() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         idle_seconds=300.5,
         host=host_info,
     )
@@ -840,13 +847,13 @@ def test_apply_cel_filters_with_idle_mode_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
-        idle_mode="user",
+        state=AgentLifecycleState.RUNNING,
+        idle_mode=IdleMode.USER.value,
         host=host_info,
     )
 
     include_filters, exclude_filters = compile_cel_filters(
-        include_filters=('idle_mode == "user"',),
+        include_filters=(f'idle_mode == "{IdleMode.USER.value}"',),
         exclude_filters=(),
     )
 
@@ -870,7 +877,7 @@ def test_apply_cel_filters_with_idle_seconds_filter() -> None:
         work_dir=Path("/work/dir"),
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
-        lifecycle_state=AgentLifecycleState.RUNNING,
+        state=AgentLifecycleState.RUNNING,
         idle_seconds=600.0,
         host=host_info,
     )
@@ -919,7 +926,7 @@ def test_list_agents_populates_idle_mode(
         assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
 
         # List agents and check idle_mode is populated
-        result = list_agents(mngr_ctx=temp_mngr_ctx)
+        result = list_agents(mngr_ctx=temp_mngr_ctx, is_streaming=False)
 
         # Find our agent
         our_agent = next((a for a in result.agents if a.name == AgentName(agent_name)), None)
@@ -927,7 +934,97 @@ def test_list_agents_populates_idle_mode(
 
         # idle_mode should be populated (default is "agent")
         assert our_agent.idle_mode is not None
-        assert our_agent.idle_mode == "io"
+        assert our_agent.idle_mode == IdleMode.IO.value
+
+
+def test_list_agents_streaming_with_callback(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_mngr_ctx: MngrContext,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that list_agents with is_streaming=True delivers agents via on_agent callback."""
+    agent_name = f"test-stream-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    agents_received: list[AgentInfo] = []
+
+    def on_agent(agent: AgentInfo) -> None:
+        agents_received.append(agent)
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 519283",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
+
+        # List with streaming mode and callback
+        result = list_agents(
+            mngr_ctx=temp_mngr_ctx,
+            on_agent=on_agent,
+            is_streaming=True,
+        )
+
+        # Callback should have been called for each agent
+        assert len(agents_received) >= 1
+        assert len(agents_received) == len(result.agents)
+
+        # The agent we created should be in the results
+        agent_names = [a.name for a in agents_received]
+        assert AgentName(agent_name) in agent_names
+
+        # Result object should also be populated
+        result_names = [a.name for a in result.agents]
+        assert AgentName(agent_name) in result_names
+
+
+def test_list_agents_streaming_returns_empty_when_no_agents(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Test that streaming list_agents returns empty result when no agents exist."""
+    agents_received: list[AgentInfo] = []
+
+    def on_agent(agent: AgentInfo) -> None:
+        agents_received.append(agent)
+
+    result = list_agents(
+        mngr_ctx=temp_mngr_ctx,
+        on_agent=on_agent,
+        is_streaming=True,
+    )
+
+    assert result.agents == []
+    assert result.errors == []
+    assert len(agents_received) == 0
+
+
+def test_list_agents_streaming_with_error_behavior_continue(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Test that streaming list_agents with CONTINUE error behavior doesn't raise."""
+    result = list_agents(
+        mngr_ctx=temp_mngr_ctx,
+        error_behavior=ErrorBehavior.CONTINUE,
+        is_streaming=True,
+    )
+
+    assert isinstance(result, ListResult)
 
 
 def test_list_agents_with_provider_names_filter(
@@ -963,12 +1060,12 @@ def test_list_agents_with_provider_names_filter(
         assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
 
         # List agents filtering to local provider - should find the agent
-        result = list_agents(mngr_ctx=temp_mngr_ctx, provider_names=("local",))
+        result = list_agents(mngr_ctx=temp_mngr_ctx, provider_names=("local",), is_streaming=False)
 
         agent_names = [a.name for a in result.agents]
         assert AgentName(agent_name) in agent_names
 
         # List agents filtering to nonexistent provider - should not find any agents
-        result_empty = list_agents(mngr_ctx=temp_mngr_ctx, provider_names=("nonexistent",))
+        result_empty = list_agents(mngr_ctx=temp_mngr_ctx, provider_names=("nonexistent",), is_streaming=False)
 
         assert len(result_empty.agents) == 0

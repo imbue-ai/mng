@@ -64,8 +64,10 @@ Templates provide named presets of create command arguments that can be quickly 
 **How it works:**
 
 - Templates are defined in config files under `[create_templates.<template_name>]` sections
-- When using `--template <name>`, all template options are applied as defaults
-- CLI arguments still take precedence over template values
+- When using `--template <name>` (or `-t <name>`), all template options are applied as defaults
+- Multiple templates can be specified and are applied in order, stacking their values (e.g., `-t modal -t codex`)
+- When templates overlap on the same parameter, later templates override earlier ones
+- CLI arguments still take precedence over all template values
 - Templates from multiple config files with the same name are merged (later configs override earlier ones)
 
 **Example:**
@@ -101,12 +103,16 @@ mngr create my-agent -t docker
 
 # Template with CLI override
 mngr create my-agent --template modal --idle-timeout 7200
+
+# Stack multiple templates (host config + agent config)
+mngr create my-agent -t modal -t dev
 ```
 
 **Why use templates?**
 
 Templates are useful when:
 
+- Composing "what" to run (agent args) with "where" to run it (host config) without creating a template for every combination
 - Working with multiple providers that have different path conventions
 - Setting up common configurations that you use frequently
 - Sharing consistent settings across a team without repeating CLI arguments

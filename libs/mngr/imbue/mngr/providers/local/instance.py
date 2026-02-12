@@ -1,4 +1,5 @@
 import json
+from functools import cached_property
 from pathlib import Path
 from typing import Final
 from typing import Mapping
@@ -11,6 +12,7 @@ from pyinfra.api import State
 from pyinfra.api.inventory import Inventory
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
@@ -50,6 +52,10 @@ class LocalProviderInstance(BaseProviderInstance):
         return False
 
     @property
+    def supports_shutdown_hosts(self) -> bool:
+        return True
+
+    @property
     def supports_volumes(self) -> bool:
         return False
 
@@ -75,6 +81,10 @@ class LocalProviderInstance(BaseProviderInstance):
     def _ensure_provider_data_dir(self) -> None:
         """Ensure the provider data directory exists."""
         self._provider_data_dir.mkdir(parents=True, exist_ok=True)
+
+    @cached_property
+    def host_id(self) -> HostId:
+        return self._get_or_create_host_id()
 
     def _get_or_create_host_id(self) -> HostId:
         """Get the persistent host ID, creating it if it doesn't exist.
@@ -136,7 +146,7 @@ class LocalProviderInstance(BaseProviderInstance):
 
     def _create_host(self, name: HostName, tags: Mapping[str, str] | None = None) -> Host:
         """Create a Host object for the local machine."""
-        host_id = self._get_or_create_host_id()
+        host_id = self.host_id
         pyinfra_host = self._create_local_pyinfra_host()
         connector = PyinfraConnector(pyinfra_host)
 
@@ -171,9 +181,8 @@ class LocalProviderInstance(BaseProviderInstance):
         the local host is always the same machine. The known_hosts parameter
         is also ignored since the local machine uses its own known_hosts file.
         """
-        logger.debug("Creating local host (provider={})", self.name)
-        host = self._create_host(name, tags)
-        logger.trace("Local host created: id={}", host.id)
+        with log_span("Creating local host (provider={})", self.name):
+            host = self._create_host(name, tags)
 
         # FIXME: should probably remove this--there is no boot time for local host
         #  (there's another instance below, remove that as well)
@@ -240,12 +249,11 @@ class LocalProviderInstance(BaseProviderInstance):
         For the local provider, this always returns the same host if the ID
         matches, or raises HostNotFoundError if it doesn't match.
         """
-        logger.trace("Getting local host (ref={})", host)
-        host_id = self._get_or_create_host_id()
+        host_id = self.host_id
 
         if isinstance(host, HostId):
             if host != host_id:
-                logger.trace("Host id={} not found (local host id={})", host, host_id)
+                logger.trace("Failed to find host with id={} (local host id={})", host, host_id)
                 raise HostNotFoundError(host)
         # For HostName, we accept "local" or any name since there's only one host
 
@@ -261,8 +269,9 @@ class LocalProviderInstance(BaseProviderInstance):
         For the local provider, this always returns a single-element list
         containing the local host.
         """
-        logger.trace("Listing hosts for local provider {}", self.name)
-        return [self._create_host(HostName("local"))]
+        hosts = [self._create_host(HostName("local"))]
+        logger.trace("Listed hosts for local provider {}", self.name)
+        return hosts
 
     # =========================================================================
     # Snapshot Methods
@@ -338,8 +347,8 @@ class LocalProviderInstance(BaseProviderInstance):
         tags: Mapping[str, str],
     ) -> None:
         """Set tags for the local host."""
-        logger.trace("Setting {} tag(s) on local host", len(tags))
         self._save_tags(tags)
+        logger.trace("Set {} tag(s) on local host", len(tags))
 
     def add_tags_to_host(
         self,
@@ -347,10 +356,10 @@ class LocalProviderInstance(BaseProviderInstance):
         tags: Mapping[str, str],
     ) -> None:
         """Add tags to the local host."""
-        logger.trace("Adding {} tag(s) to local host", len(tags))
         existing_tags = self._load_tags()
         existing_tags.update(tags)
         self._save_tags(existing_tags)
+        logger.trace("Added {} tag(s) to local host", len(tags))
 
     def remove_tags_from_host(
         self,
@@ -358,11 +367,11 @@ class LocalProviderInstance(BaseProviderInstance):
         keys: Sequence[str],
     ) -> None:
         """Remove tags by key from the local host."""
-        logger.trace("Removing {} tag(s) from local host", len(keys))
         existing_tags = self._load_tags()
         keys_to_remove = set(keys)
         filtered_tags = {k: v for k, v in existing_tags.items() if k not in keys_to_remove}
         self._save_tags(filtered_tags)
+        logger.trace("Removed {} tag(s) from local host", len(keys))
 
     def rename_host(
         self,

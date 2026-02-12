@@ -55,12 +55,10 @@ def _get_agent_generator(style: AgentNameStyle) -> RandomGenerator:
             },
         }
     else:
-        # Wrap each word in a list for single-word configs (coolname requirement)
-        wrapped_names = [[name] for name in first_names]
         config = {
             "all": {
                 "type": "words",
-                "words": wrapped_names,
+                "words": first_names,
             },
         }
     return RandomGenerator(config)
@@ -71,12 +69,10 @@ def _get_host_generator(style: HostNameStyle) -> RandomGenerator:
     """Get a cached RandomGenerator for the given host name style."""
     style_name = style.value.lower()
     words = _load_wordlist("host", style_name)
-    # Wrap each word in a list for single-word configs (coolname requirement)
-    wrapped_words = [[word] for word in words]
     config = {
         "all": {
             "type": "words",
-            "words": wrapped_words,
+            "words": words,
         },
     }
     return RandomGenerator(config)

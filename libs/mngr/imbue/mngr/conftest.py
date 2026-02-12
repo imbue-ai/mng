@@ -2,11 +2,8 @@
 
 import json
 import os
-import shutil
 import subprocess
 import sys
-from datetime import datetime
-from datetime import timezone
 from pathlib import Path
 from typing import Generator
 from typing import NamedTuple
@@ -15,10 +12,12 @@ from uuid import uuid4
 import pluggy
 import psutil
 import pytest
+import toml
 from click.testing import CliRunner
 from urwid.widget.listbox import SimpleFocusListWalker
 
 import imbue.mngr.main
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -29,11 +28,14 @@ from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
-from imbue.mngr.utils.testing import MODAL_TEST_ENV_PREFIX
+from imbue.mngr.utils.testing import assert_home_is_temp_directory
+from imbue.mngr.utils.testing import cleanup_tmux_session
 from imbue.mngr.utils.testing import delete_modal_apps_in_environment
 from imbue.mngr.utils.testing import delete_modal_environment
 from imbue.mngr.utils.testing import delete_modal_volumes_in_environment
+from imbue.mngr.utils.testing import generate_test_environment_name
 from imbue.mngr.utils.testing import get_subprocess_test_env
+from imbue.mngr.utils.testing import init_git_repo
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
@@ -84,6 +86,13 @@ _worker_test_ids: list[str] = []
 
 
 @pytest.fixture
+def cg() -> Generator[ConcurrencyGroup, None, None]:
+    """Provide a ConcurrencyGroup for tests that need to run processes."""
+    with ConcurrencyGroup(name="test") as group:
+        yield group
+
+
+@pytest.fixture
 def mngr_test_id() -> str:
     """Generate a unique test ID for isolation.
 
@@ -105,56 +114,115 @@ def mngr_test_prefix(mngr_test_id: str) -> str:
 
 
 @pytest.fixture
-def mngr_test_root_name(mngr_test_id: str) -> Generator[str, None, None]:
+def mngr_test_root_name(mngr_test_id: str) -> str:
     """Get the test root name for config isolation.
 
     Format: mngr-test-{test_id}
 
     This ensures tests don't load the project's .mngr/settings.toml config,
     which might have settings like add_command that would interfere with tests.
-
-    After the test completes, this fixture cleans up any directories that may
-    have been created at ~/.{root_name}/ if load_config was called without
-    MNGR_HOST_DIR being set (which shouldn't happen, but can occur in edge cases).
     """
-    root_name = f"mngr-test-{mngr_test_id}"
-    yield root_name
-
-    # Clean up any directories created at ~/.{root_name}/ in the real home directory.
-    # This handles edge cases where load_config is called without MNGR_HOST_DIR set.
-    home_test_dir = Path.home() / f".{root_name}"
-    if home_test_dir.exists():
-        shutil.rmtree(home_test_dir)
-
-
-@pytest.fixture(autouse=True)
-def setup_test_mngr_env(
-    temp_host_dir: Path,
-    mngr_test_prefix: str,
-    mngr_test_root_name: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Set up mngr environment variables for all tests.
-
-    This autouse fixture ensures:
-    - MNGR_HOST_DIR points to a temporary directory (not ~/.mngr)
-    - MNGR_PREFIX uses a unique test ID for isolation
-    - MNGR_ROOT_NAME prevents loading project config (.mngr/settings.toml)
-    """
-    monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
-    monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
-    monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
+    return f"mngr-test-{mngr_test_id}"
 
 
 @pytest.fixture
 def temp_host_dir(tmp_path: Path) -> Path:
     """Create a temporary directory for host/mngr data.
 
-    This fixture ensures tests don't write to ~/.mngr.
+    This fixture creates .mngr inside tmp_path (which becomes the fake HOME),
+    ensuring tests don't write to the real ~/.mngr.
     """
-    host_dir = tmp_path / "mngr"
+    host_dir = tmp_path / ".mngr"
     host_dir.mkdir()
     return host_dir
+
+
+@pytest.fixture
+def tmp_home_dir(tmp_path: Path) -> Generator[Path, None, None]:
+    yield tmp_path
+
+
+@pytest.fixture(autouse=True)
+def setup_test_mngr_env(
+    tmp_home_dir: Path,
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+    mngr_test_root_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Set up environment variables for all tests.
+
+    This autouse fixture ensures:
+    - HOME points to tmp_path (not the real ~/)
+    - MNGR_HOST_DIR points to tmp_path/.mngr (not ~/.mngr)
+    - MNGR_PREFIX uses a unique test ID for isolation
+    - MNGR_ROOT_NAME prevents loading project config (.mngr/settings.toml)
+
+    By setting HOME to tmp_path, tests cannot accidentally read or modify
+    files in the real home directory. This protects files like ~/.claude.json.
+    """
+    # before we nuke our home directory, we need to load the right token from the real home directory
+    modal_toml_path = Path(os.path.expanduser("~/.modal.toml"))
+    if modal_toml_path.exists():
+        for value in toml.load(modal_toml_path).values():
+            if value.get("active", ""):
+                monkeypatch.setenv("MODAL_TOKEN_ID", value.get("token_id", ""))
+                monkeypatch.setenv("MODAL_TOKEN_SECRET", value.get("token_secret", ""))
+                break
+    if not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"):
+        # check if we have "release" mark enabled:
+        if "release" in getattr(pytest, "current_test_marks", []):
+            raise Exception(
+                "No active Modal token found in ~/.modal.toml for release tests. Please ensure you have an active token configured or set the env vars"
+            )
+
+    monkeypatch.setenv("HOME", str(tmp_home_dir))
+    monkeypatch.setenv("MNGR_HOST_DIR", str(temp_host_dir))
+    monkeypatch.setenv("MNGR_PREFIX", mngr_test_prefix)
+    monkeypatch.setenv("MNGR_ROOT_NAME", mngr_test_root_name)
+
+    # Unison derives its config directory from $HOME. Since we override HOME
+    # above, unison tries to create its config dir inside tmp_path, which
+    # fails because the expected parent directories don't exist. The UNISON
+    # env var overrides this to a path we control.
+    unison_dir = tmp_home_dir / ".unison"
+    unison_dir.mkdir(exist_ok=True)
+    monkeypatch.setenv("UNISON", str(unison_dir))
+
+    # Safety check: verify Path.home() is in a temp directory.
+    # If this fails, tests could accidentally modify the real home directory.
+    assert_home_is_temp_directory()
+
+
+@pytest.fixture
+def setup_git_config(tmp_path: Path) -> None:
+    """Create a .gitconfig in the fake HOME so git commands work.
+
+    Use this fixture for any test that runs git commands.
+    The temp_git_repo fixture depends on this, so you don't need both.
+    """
+    gitconfig = tmp_path / ".gitconfig"
+    if not gitconfig.exists():
+        gitconfig.write_text("[user]\n\tname = Test User\n\temail = test@test.com\n")
+
+
+@pytest.fixture
+def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
+    """Create a temporary git repository with an initial commit.
+
+    This fixture:
+    1. Ensures .gitconfig exists in the fake HOME (via setup_git_config)
+    2. Creates a git repo with one tracked file and an initial commit
+
+    Use this fixture for any test that needs a git repository.
+    """
+    # Create the repo directory
+    repo_dir = tmp_path / "git_repo"
+    repo_dir.mkdir()
+
+    init_git_repo(repo_dir)
+
+    return repo_dir
 
 
 @pytest.fixture
@@ -166,6 +234,17 @@ def temp_work_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def temp_profile_dir(temp_host_dir: Path) -> Path:
+    """Create a temporary profile directory.
+
+    Use this fixture when tests need to create their own MngrContext with custom config.
+    """
+    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return profile_dir
+
+
+@pytest.fixture
 def temp_config(temp_host_dir: Path, mngr_test_prefix: str) -> MngrConfig:
     """Create a MngrConfig with a temporary host directory.
 
@@ -174,16 +253,52 @@ def temp_config(temp_host_dir: Path, mngr_test_prefix: str) -> MngrConfig:
     return MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
 
 
+def make_mngr_ctx(
+    config: MngrConfig,
+    pm: pluggy.PluginManager,
+    profile_dir: Path,
+    *,
+    is_interactive: bool = False,
+    concurrency_group: ConcurrencyGroup | None = None,
+) -> MngrContext:
+    """Create a MngrContext with the given parameters.
+
+    Use this directly in tests that need non-default settings (e.g., interactive mode).
+    Most tests should use the temp_mngr_ctx fixture instead.
+    """
+    return MngrContext(
+        config=config,
+        pm=pm,
+        profile_dir=profile_dir,
+        is_interactive=is_interactive,
+        concurrency_group=concurrency_group,
+    )
+
+
 @pytest.fixture
-def temp_mngr_ctx(temp_config: MngrConfig, temp_host_dir: Path, plugin_manager: pluggy.PluginManager) -> MngrContext:
+def temp_mngr_ctx(
+    temp_config: MngrConfig, temp_profile_dir: Path, plugin_manager: pluggy.PluginManager
+) -> Generator[MngrContext, None, None]:
     """Create a MngrContext with a temporary host directory.
 
     Use this fixture when calling API functions that need a context.
     """
-    # Create a profile directory in the temp host dir
-    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return MngrContext(config=temp_config, pm=plugin_manager, profile_dir=profile_dir)
+    cg = ConcurrencyGroup(name="test")
+    with cg:
+        yield make_mngr_ctx(temp_config, plugin_manager, temp_profile_dir, concurrency_group=cg)
+
+
+@pytest.fixture
+def interactive_mngr_ctx(
+    temp_config: MngrConfig, temp_profile_dir: Path, plugin_manager: pluggy.PluginManager
+) -> Generator[MngrContext, None, None]:
+    """Create an interactive MngrContext with a temporary host directory.
+
+    Use this fixture when testing code paths that require is_interactive=True.
+    """
+    cg = ConcurrencyGroup(name="test-interactive")
+    with cg:
+        yield make_mngr_ctx(temp_config, plugin_manager, temp_profile_dir, is_interactive=True, concurrency_group=cg)
 
 
 @pytest.fixture
@@ -267,16 +382,9 @@ def _get_tmux_sessions_with_prefix(prefix: str) -> list[str]:
 
 
 def _kill_tmux_sessions(sessions: list[str]) -> None:
-    """Kill the specified tmux sessions."""
+    """Kill the specified tmux sessions and all their processes."""
     for session in sessions:
-        try:
-            subprocess.run(
-                ["tmux", "kill-session", "-t", session],
-                capture_output=True,
-                timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
-            pass
+        cleanup_tmux_session(session)
 
 
 def _is_xdist_worker_process(proc: psutil.Process) -> bool:
@@ -361,19 +469,6 @@ def register_modal_test_environment(environment_name: str) -> None:
 # =============================================================================
 
 
-def _generate_modal_test_environment_name() -> str:
-    """Generate a Modal test environment name with current UTC timestamp.
-
-    Format: mngr_test-YYYY-MM-DD-HH-MM-SS
-
-    The name uses only digits and hyphens to be compatible with Modal's naming requirements.
-    Uses MODAL_TEST_ENV_PREFIX from testing.py to ensure consistency with cleanup logic.
-    """
-    now = datetime.now(timezone.utc)
-    timestamp = now.strftime("%Y-%m-%d-%H-%M-%S")
-    return f"{MODAL_TEST_ENV_PREFIX}{timestamp}"
-
-
 class ModalSubprocessTestEnv(NamedTuple):
     """Environment configuration for Modal subprocess tests."""
 
@@ -390,14 +485,14 @@ def modal_test_session_env_name() -> str:
     environment name. The name includes a UTC timestamp in the format:
     mngr_test-YYYY-MM-DD-HH-MM-SS
     """
-    return _generate_modal_test_environment_name()
+    return generate_test_environment_name()
 
 
 @pytest.fixture(scope="session")
 def modal_test_session_host_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Create a session-scoped host directory for Modal tests.
 
-    This ensures all tests in a session share the same user_id file,
+    This ensures all tests in a session share the same host directory,
     which means they share the same Modal environment.
     """
     host_dir = tmp_path_factory.mktemp("modal_session") / "mngr"
@@ -406,9 +501,21 @@ def modal_test_session_host_dir(tmp_path_factory: pytest.TempPathFactory) -> Pat
 
 
 @pytest.fixture(scope="session")
+def modal_test_session_user_id() -> str:
+    """Generate a deterministic user ID for the test session.
+
+    This user ID is shared across all subprocess Modal tests in a session
+    via the MNGR_USER_ID environment variable. By generating it upfront,
+    the cleanup fixture can construct the exact environment name without
+    needing to find the user_id file in the profile directory structure.
+    """
+    return uuid4().hex
+
+
+@pytest.fixture(scope="session")
 def modal_test_session_cleanup(
     modal_test_session_env_name: str,
-    modal_test_session_host_dir: Path,
+    modal_test_session_user_id: str,
 ) -> Generator[None, None, None]:
     """Session-scoped fixture that cleans up the Modal environment at session end.
 
@@ -419,22 +526,18 @@ def modal_test_session_cleanup(
 
     # Clean up Modal environment after the session.
     # The environment name is {prefix}{user_id}, where prefix is based on the timestamp
-    # and user_id is from the shared host_dir.
-    user_id_file = modal_test_session_host_dir / "user_id"
-    if user_id_file.exists():
-        user_id = user_id_file.read_text().strip()
-        # The prefix for session-scoped tests uses the timestamp-based env name
-        prefix = f"{modal_test_session_env_name}-"
-        environment_name = f"{prefix}{user_id}"
+    # and user_id is the session-scoped deterministic ID.
+    prefix = f"{modal_test_session_env_name}-"
+    environment_name = f"{prefix}{modal_test_session_user_id}"
 
-        # Truncate environment_name if needed (Modal has 64 char limit)
-        if len(environment_name) > 64:
-            environment_name = environment_name[:64]
+    # Truncate environment_name if needed (Modal has 64 char limit)
+    if len(environment_name) > 64:
+        environment_name = environment_name[:64]
 
-        # Delete apps, volumes, and environment using functions from testing.py
-        delete_modal_apps_in_environment(environment_name)
-        delete_modal_volumes_in_environment(environment_name)
-        delete_modal_environment(environment_name)
+    # Delete apps, volumes, and environment using functions from testing.py
+    delete_modal_apps_in_environment(environment_name)
+    delete_modal_volumes_in_environment(environment_name)
+    delete_modal_environment(environment_name)
 
 
 @pytest.fixture
@@ -442,13 +545,15 @@ def modal_subprocess_env(
     modal_test_session_env_name: str,
     modal_test_session_host_dir: Path,
     modal_test_session_cleanup: None,
+    modal_test_session_user_id: str,
 ) -> Generator[ModalSubprocessTestEnv, None, None]:
     """Create a subprocess test environment with session-scoped Modal environment.
 
     This fixture:
     1. Uses a session-scoped MNGR_PREFIX based on UTC timestamp (mngr_test-YYYY-MM-DD-HH-MM-SS)
-    2. Uses a session-scoped MNGR_HOST_DIR so all tests share the same user_id file
-    3. Cleans up the Modal environment at the end of the session (not per-test)
+    2. Uses a session-scoped MNGR_HOST_DIR so all tests share the same host directory
+    3. Sets MNGR_USER_ID so all subprocesses use the same deterministic user ID
+    4. Cleans up the Modal environment at the end of the session (not per-test)
 
     Using session-scoped environments reduces the number of environments created
     and makes cleanup easier (environments have timestamps in their names).
@@ -461,6 +566,9 @@ def modal_subprocess_env(
         prefix=prefix,
         host_dir=host_dir,
     )
+    # Set the user ID so all subprocesses use the same deterministic ID.
+    # This ensures the cleanup fixture can construct the exact environment name.
+    env["MNGR_USER_ID"] = modal_test_session_user_id
 
     yield ModalSubprocessTestEnv(env=env, prefix=prefix, host_dir=host_dir)
 
@@ -752,8 +860,7 @@ def session_cleanup() -> Generator[None, None, None]:
     if errors:
         raise AssertionError(
             "=" * 70 + "\n"
-            "TEST SESSION CLEANUP FOUND LEAKED RESOURCES!\n"
-            "=" * 70 + "\n\n" + "\n\n".join(errors) + "\n\n"
+            "TEST SESSION CLEANUP FOUND LEAKED RESOURCES!\n" + "=" * 70 + "\n\n" + "\n\n".join(errors) + "\n\n"
             "These resources have been cleaned up, but tests should not leak!\n"
             "Please fix the test(s) that failed to clean up properly."
         )

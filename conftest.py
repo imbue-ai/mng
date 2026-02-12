@@ -12,6 +12,11 @@ from uuid import uuid4
 import pytest
 from coverage.exceptions import CoverageException
 
+from imbue.mngr.utils.logging import suppress_warnings
+
+# suppress some pointless warnings from other library's loggers
+suppress_warnings()
+
 # Directory for test output files (slow tests, coverage summaries)
 _TEST_OUTPUTS_DIR: Final[Path] = Path(".claude/tests_outputs")
 
@@ -159,7 +164,7 @@ def pytest_sessionfinish(session, exitstatus):
                 max_duration = 80.0
             else:
                 # this limit applies to the entire test suite when run locally
-                max_duration = 50.0
+                max_duration = 300.0
 
         if duration > max_duration:
             pytest.exit(

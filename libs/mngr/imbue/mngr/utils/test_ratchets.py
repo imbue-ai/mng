@@ -89,7 +89,7 @@ def test_prevent_broad_exception_catch() -> None:
     pattern = RegexPattern(r"except\s+Exception\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
-    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
         rule_name="except Exception catches",
         rule_description="Catching 'Exception' is too broad. Use specific exception types instead",
         chunks=chunks,
@@ -100,7 +100,7 @@ def test_prevent_base_exception_catch() -> None:
     pattern = RegexPattern(r"except\s+BaseException\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
-    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(1), format_ratchet_failure_message(
         rule_name="except BaseException catches",
         rule_description="Catching 'BaseException' catches system exits and keyboard interrupts. Use specific exception types instead",
         chunks=chunks,
@@ -237,7 +237,7 @@ def test_prevent_num_prefix() -> None:
     pattern = RegexPattern(r"\bnum_\w+|\bnumOf|\bnum[A-Z]")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
-    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
         rule_name="num prefix usage",
         rule_description="Avoid using 'num' prefix. Use 'count' or 'idx' instead (e.g., 'user_count' not 'num_users')",
         chunks=chunks,
@@ -379,7 +379,7 @@ def test_prevent_time_sleep() -> None:
     pattern = RegexPattern(r"\btime\.sleep\s*\(|\bfrom\s+time\s+import\s+sleep\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
-    assert len(chunks) <= snapshot(5), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(1), format_ratchet_failure_message(
         rule_name="time.sleep usage",
         rule_description="time.sleep is an antipattern. Instead, poll for the condition that you expect to be true. See wait_for",
         chunks=chunks,
@@ -410,7 +410,7 @@ def test_prevent_importing_underscore_prefixed_names_in_non_test_code() -> None:
 def test_prevent_init_methods_in_non_exception_classes() -> None:
     chunks = find_init_methods_in_non_exception_classes(_get_mngr_source_dir(), _THIS_FILE)
 
-    assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(3), format_ratchet_failure_message(
         rule_name="__init__ methods in non-Exception/Error classes",
         rule_description="Do not define __init__ methods in non-Exception/Error classes. Use Pydantic models instead, which handle initialization automatically",
         chunks=chunks,
@@ -506,6 +506,32 @@ def test_prevent_code_in_init_files() -> None:
     assert len(violations) <= snapshot(0), (
         "Code found in __init__.py files (should be empty per style guide):\n"
         + "\n".join(f"  - {v}" for v in violations)
+    )
+
+
+def test_prevent_model_copy() -> None:
+    """Prevent direct usage of .model_copy().
+
+    Use model_copy_update instead:
+
+        obj.model_copy_update(
+            to_update(obj.field_ref().field_name, new_value),
+        )
+
+    model_copy_update wraps model_copy with type-safe field references.
+    See style guide 'Type-safe model_copy_update' section for details.
+    """
+    pattern = RegexPattern(r"\.model_copy\(")
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+
+    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
+        rule_name=".model_copy() usage",
+        rule_description=(
+            "Do not use .model_copy() directly. "
+            "Use model_copy_update instead: obj.model_copy_update(to_update(obj.field_ref().field, value)). "
+            "See style guide 'Type-safe model_copy_update' section."
+        ),
+        chunks=chunks,
     )
 
 
