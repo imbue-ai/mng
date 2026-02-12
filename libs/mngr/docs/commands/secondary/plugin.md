@@ -94,7 +94,7 @@ mngr plugin list [OPTIONS]
 
 ## mngr plugin add
 
-Add a plugin.
+Add a plugin. [future]
 
 **Usage:**
 
@@ -121,7 +121,7 @@ mngr plugin add [OPTIONS] NAME
 
 ## mngr plugin remove
 
-Remove a plugin.
+Remove a plugin. [future]
 
 **Usage:**
 
@@ -148,7 +148,7 @@ mngr plugin remove [OPTIONS] NAME
 
 ## mngr plugin enable
 
-Enable a plugin.
+Enable a plugin. [future]
 
 **Usage:**
 
@@ -175,7 +175,7 @@ mngr plugin enable [OPTIONS] NAME
 
 ## mngr plugin disable
 
-Disable a plugin.
+Disable a plugin. [future]
 
 **Usage:**
 

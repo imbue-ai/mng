@@ -255,7 +255,7 @@ def _plugin_list_impl(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_add(ctx: click.Context, name: str, **kwargs: Any) -> None:
-    """Add a plugin."""
+    """Add a plugin. [future]"""
     raise NotImplementedError("'mngr plugin add' is not yet implemented")
 
 
@@ -264,7 +264,7 @@ def plugin_add(ctx: click.Context, name: str, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_remove(ctx: click.Context, name: str, **kwargs: Any) -> None:
-    """Remove a plugin."""
+    """Remove a plugin. [future]"""
     raise NotImplementedError("'mngr plugin remove' is not yet implemented")
 
 
@@ -273,7 +273,7 @@ def plugin_remove(ctx: click.Context, name: str, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_enable(ctx: click.Context, name: str, **kwargs: Any) -> None:
-    """Enable a plugin."""
+    """Enable a plugin. [future]"""
     raise NotImplementedError("'mngr plugin enable' is not yet implemented")
 
 
@@ -282,7 +282,7 @@ def plugin_enable(ctx: click.Context, name: str, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_disable(ctx: click.Context, name: str, **kwargs: Any) -> None:
-    """Disable a plugin."""
+    """Disable a plugin. [future]"""
     raise NotImplementedError("'mngr plugin disable' is not yet implemented")
 
 
