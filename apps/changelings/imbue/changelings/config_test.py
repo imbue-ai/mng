@@ -1,0 +1,184 @@
+"""Tests for changelings config read/write."""
+
+from pathlib import Path
+
+import pytest
+
+from imbue.changelings.config import add_changeling
+from imbue.changelings.config import get_changeling
+from imbue.changelings.config import load_config
+from imbue.changelings.config import remove_changeling
+from imbue.changelings.config import save_config
+from imbue.changelings.data_types import ChangelingConfig
+from imbue.changelings.data_types import ChangelingDefinition
+from imbue.changelings.errors import ChangelingAlreadyExistsError
+from imbue.changelings.errors import ChangelingConfigError
+from imbue.changelings.errors import ChangelingNotFoundError
+from imbue.changelings.primitives import ChangelingName
+from imbue.changelings.primitives import ChangelingTemplateName
+from imbue.changelings.primitives import CronSchedule
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate config operations to a temporary home directory."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+
+def _make_test_definition(
+    name: str = "test-guardian",
+    template: str = "code-guardian",
+    agent_type: str = "code-guardian",
+) -> ChangelingDefinition:
+    """Create a ChangelingDefinition for testing."""
+    return ChangelingDefinition(
+        name=ChangelingName(name),
+        template=ChangelingTemplateName(template),
+        agent_type=agent_type,
+    )
+
+
+def test_load_config_returns_empty_when_no_file_exists() -> None:
+    """Loading config when no file exists should return an empty config."""
+    config = load_config()
+    assert config.changeling_by_name == {}
+
+
+def test_save_and_load_config_roundtrips_single_changeling() -> None:
+    """Saving and loading a config with one changeling should roundtrip correctly."""
+    definition = _make_test_definition()
+    config = ChangelingConfig(
+        changeling_by_name={definition.name: definition},
+    )
+
+    save_config(config)
+    loaded = load_config()
+
+    assert len(loaded.changeling_by_name) == 1
+    loaded_def = loaded.changeling_by_name[ChangelingName("test-guardian")]
+    assert loaded_def.name == ChangelingName("test-guardian")
+    assert loaded_def.template == ChangelingTemplateName("code-guardian")
+    assert loaded_def.agent_type == "code-guardian"
+    assert loaded_def.branch == "main"
+    assert loaded_def.is_enabled is True
+
+
+def test_save_and_load_config_roundtrips_multiple_changelings() -> None:
+    """Saving and loading a config with multiple changelings should roundtrip correctly."""
+    guardian = _make_test_definition(name="my-guardian", template="code-guardian")
+    fairy = _make_test_definition(name="my-fairy", template="fixme-fairy", agent_type="claude")
+
+    config = ChangelingConfig(
+        changeling_by_name={guardian.name: guardian, fairy.name: fairy},
+    )
+
+    save_config(config)
+    loaded = load_config()
+
+    assert len(loaded.changeling_by_name) == 2
+    assert ChangelingName("my-guardian") in loaded.changeling_by_name
+    assert ChangelingName("my-fairy") in loaded.changeling_by_name
+
+
+def test_save_and_load_config_preserves_optional_fields() -> None:
+    """Optional fields like message, repo, and env_vars should survive roundtrip."""
+    definition = ChangelingDefinition(
+        name=ChangelingName("detailed-changeling"),
+        template=ChangelingTemplateName("code-guardian"),
+        schedule=CronSchedule("0 4 * * 1"),
+        message="Custom analysis instructions",
+        agent_type="code-guardian",
+        extra_mngr_args="--verbose",
+        env_vars={"MY_VAR": "my_value"},
+        is_enabled=False,
+    )
+    config = ChangelingConfig(
+        changeling_by_name={definition.name: definition},
+    )
+
+    save_config(config)
+    loaded = load_config()
+
+    loaded_def = loaded.changeling_by_name[ChangelingName("detailed-changeling")]
+    assert loaded_def.schedule == CronSchedule("0 4 * * 1")
+    assert loaded_def.message == "Custom analysis instructions"
+    assert loaded_def.extra_mngr_args == "--verbose"
+    assert loaded_def.env_vars == {"MY_VAR": "my_value"}
+    assert loaded_def.is_enabled is False
+
+
+def test_add_changeling_adds_to_config() -> None:
+    """add_changeling should persist a new changeling to the config file."""
+    definition = _make_test_definition()
+
+    result = add_changeling(definition)
+
+    assert ChangelingName("test-guardian") in result.changeling_by_name
+    # Verify it persisted by loading fresh
+    loaded = load_config()
+    assert ChangelingName("test-guardian") in loaded.changeling_by_name
+
+
+def test_add_changeling_raises_on_duplicate_name() -> None:
+    """add_changeling should raise ChangelingAlreadyExistsError for duplicates."""
+    definition = _make_test_definition()
+    add_changeling(definition)
+
+    with pytest.raises(ChangelingAlreadyExistsError, match="test-guardian"):
+        add_changeling(definition)
+
+
+def test_remove_changeling_removes_from_config() -> None:
+    """remove_changeling should remove the changeling from the config file."""
+    definition = _make_test_definition()
+    add_changeling(definition)
+
+    result = remove_changeling(ChangelingName("test-guardian"))
+
+    assert ChangelingName("test-guardian") not in result.changeling_by_name
+    loaded = load_config()
+    assert ChangelingName("test-guardian") not in loaded.changeling_by_name
+
+
+def test_remove_changeling_raises_when_not_found() -> None:
+    """remove_changeling should raise ChangelingNotFoundError if the name doesn't exist."""
+    with pytest.raises(ChangelingNotFoundError, match="nonexistent"):
+        remove_changeling(ChangelingName("nonexistent"))
+
+
+def test_get_changeling_returns_definition() -> None:
+    """get_changeling should return the matching ChangelingDefinition."""
+    definition = _make_test_definition()
+    add_changeling(definition)
+
+    result = get_changeling(ChangelingName("test-guardian"))
+
+    assert result.name == ChangelingName("test-guardian")
+    assert result.template == ChangelingTemplateName("code-guardian")
+
+
+def test_get_changeling_raises_when_not_found() -> None:
+    """get_changeling should raise ChangelingNotFoundError if the name doesn't exist."""
+    with pytest.raises(ChangelingNotFoundError, match="nonexistent"):
+        get_changeling(ChangelingName("nonexistent"))
+
+
+def test_load_config_raises_on_malformed_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """load_config should raise ChangelingConfigError for malformed TOML."""
+    config_dir = tmp_path / ".changelings"
+    config_dir.mkdir()
+    config_file = config_dir / "config.toml"
+    config_file.write_text("this is not [ valid toml ]]]]")
+
+    with pytest.raises(ChangelingConfigError, match="Failed to parse"):
+        load_config()
+
+
+def test_save_config_creates_directory_if_missing(tmp_path: Path) -> None:
+    """save_config should create the ~/.changelings/ directory if it doesn't exist."""
+    config = ChangelingConfig()
+    save_config(config)
+
+    config_dir = tmp_path / ".changelings"
+    assert config_dir.exists()
+    assert (config_dir / "config.toml").exists()

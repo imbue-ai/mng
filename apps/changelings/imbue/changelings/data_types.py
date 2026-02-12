@@ -6,14 +6,21 @@ from imbue.changelings.primitives import CronSchedule
 from imbue.changelings.primitives import GitRepoUrl
 from imbue.imbue_common.frozen_model import FrozenModel
 
+DEFAULT_SCHEDULE: str = "0 3 * * *"
+
 
 class ChangelingDefinition(FrozenModel):
     """A configured changeling -- an autonomous agent that runs on a schedule."""
 
     name: ChangelingName = Field(description="Unique name for this changeling")
     template: ChangelingTemplateName = Field(description="Which built-in template to use")
-    schedule: CronSchedule = Field(description="Cron expression for when this changeling runs")
-    repo: GitRepoUrl = Field(description="Git repository URL to operate on")
+    schedule: CronSchedule = Field(
+        default=CronSchedule(DEFAULT_SCHEDULE),
+        description="Cron expression for when this changeling runs",
+    )
+    repo: GitRepoUrl | None = Field(
+        default=None, description="Git repository URL to operate on (required for remote deployment)"
+    )
     branch: str = Field(default="main", description="Base branch to work from")
     message: str | None = Field(
         default=None, description="Custom initial message to send to the agent (overrides template default)"
