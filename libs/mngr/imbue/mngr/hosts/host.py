@@ -1594,19 +1594,18 @@ class Host(BaseHost, OnlineHostInterface):
         )
 
     def rename_agent(self, agent: AgentInterface, new_name: AgentName) -> AgentInterface:
-        """Rename an agent and return the updated agent object."""
+        """Rename an agent and return the updated agent object.
+
+        The operation is idempotent: if interrupted mid-rename, re-running
+        will complete it. This works because data.json (the "commit point")
+        is updated last, while tmux and env changes are applied first and
+        are safe to repeat.
+        """
         with log_span("Renaming agent", agent_id=str(agent.id), old_name=str(agent.name), new_name=str(new_name)):
             old_name = agent.name
             data_path = self._get_agent_state_dir(agent) / "data.json"
 
-            # Read and update data.json
-            content = self.read_text_file(data_path)
-            data = json.loads(content)
-            data["name"] = str(new_name)
-            self.write_text_file(data_path, json.dumps(data, indent=2))
-            self.save_agent_data(agent.id, data)
-
-            # Rename the tmux session if the agent is running
+            # Rename the tmux session first (idempotent -- no-ops if session doesn't exist with old name)
             old_session_name = f"{self.mngr_ctx.config.prefix}{old_name}"
             new_session_name = f"{self.mngr_ctx.config.prefix}{new_name}"
             result = self.execute_command(
@@ -1628,6 +1627,13 @@ class Host(BaseHost, OnlineHostInterface):
                 self.write_text_file(env_path, "\n".join(updated_lines) + "\n")
             except FileNotFoundError:
                 logger.debug("No env file found for agent {}, skipping env update", agent.id)
+
+            # Update data.json last (the "commit point" for the rename)
+            content = self.read_text_file(data_path)
+            data = json.loads(content)
+            data["name"] = str(new_name)
+            self.write_text_file(data_path, json.dumps(data, indent=2))
+            self.save_agent_data(agent.id, data)
 
             # Reload and return the updated agent
             updated_agent = self._load_agent_from_dir(self._get_agent_state_dir(agent))

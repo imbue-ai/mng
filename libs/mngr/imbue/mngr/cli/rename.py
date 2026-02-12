@@ -130,6 +130,9 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
     Renames the agent's data.json and tmux session (if running).
     Git branch names are not renamed.
 
+    If a previous rename was interrupted, re-running the command
+    will attempt to finish it.
+
     \b
     Alias: mv
 
@@ -198,7 +201,11 @@ _RENAME_HELP_METADATA = CommandHelpMetadata(
     description="""Rename an agent.
 
 Updates the agent's name in its data.json and renames the tmux session
-if the agent is currently running. Git branch names are not renamed.""",
+if the agent is currently running. Git branch names are not renamed.
+
+If a previous rename was interrupted (e.g., the tmux session was renamed
+but data.json was not updated), re-running the command will attempt
+to complete it.""",
     aliases=("mv",),
     examples=(
         ("Rename an agent", "mngr rename my-agent new-name"),
