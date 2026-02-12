@@ -1096,14 +1096,16 @@ log "=== Shutdown script completed ==="
         return self._lookup_sandbox_by_host_id_once(host_id)
 
     def _lookup_sandbox_by_name_once(self, name: HostName) -> modal.Sandbox | None:
-        """Perform a single lookup of a sandbox by host_name tag.
-
-        This is a helper for _find_sandbox_by_name that does not retry.
-        Uses server-side tag filtering for efficient lookup.
-        """
+        """Perform a single lookup of a sandbox by host_name tag."""
         app = self._get_modal_app()
-        for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_NAME: str(name)}):
-            return sandbox
+        # FIXME: this has the same error as the lookup by ID, waiting on modal to fix [attempts=1]
+        #  Cannot fix without live Modal API access to verify if tag-based filtering now works server-side (modal 1.3.1 SDK code looks correct)
+        # for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_NAME: str(name)}):
+        #     return sandbox
+        # return None
+        for sandbox in modal.Sandbox.list(app_id=app.app_id):
+            if sandbox.get_tags().get(TAG_HOST_NAME) == str(name):
+                return sandbox
         return None
 
     def _find_sandbox_by_name(
