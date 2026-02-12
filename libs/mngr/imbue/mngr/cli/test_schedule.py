@@ -1,62 +1,100 @@
 import json
+import os
+import stat
 from pathlib import Path
-from unittest.mock import patch
+from typing import Generator
 from uuid import uuid4
 
+import pytest
 from click.testing import CliRunner
 
 from imbue.mngr.main import cli
 
+# The fake crontab script stores its data in $HOME/.fake_crontab.
+# It supports `crontab -l` (list) and `crontab <file>` (install from file).
+_FAKE_CRONTAB_SCRIPT = """#!/bin/sh
+CRONTAB_FILE="$HOME/.fake_crontab"
+if [ "$1" = "-l" ]; then
+    if [ -f "$CRONTAB_FILE" ]; then
+        cat "$CRONTAB_FILE"
+    else
+        echo "no crontab for $(whoami)" >&2
+        exit 1
+    fi
+elif [ -f "$1" ]; then
+    cp "$1" "$CRONTAB_FILE"
+else
+    echo "usage: crontab [-l | file]" >&2
+    exit 1
+fi
+"""
 
-def _make_crontab_noop() -> dict[str, str]:
-    """Return patch targets for making crontab operations no-ops."""
-    return {
-        "read": "imbue.mngr.api.schedule._read_current_crontab",
-        "write": "imbue.mngr.api.schedule._write_crontab",
-    }
+
+@pytest.fixture(autouse=True)
+def fake_crontab(tmp_home_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path, None, None]:
+    """Install a fake crontab script that reads/writes a file under $HOME.
+
+    Since the autouse setup_test_mngr_env fixture already sets HOME to a temp
+    directory, the fake crontab is fully sandboxed -- no real crontab is touched.
+    """
+    bin_dir = tmp_home_dir / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    crontab_script = bin_dir / "crontab"
+    crontab_script.write_text(_FAKE_CRONTAB_SCRIPT)
+    crontab_script.chmod(crontab_script.stat().st_mode | stat.S_IEXEC)
+
+    # Prepend the fake bin directory to PATH so it shadows the real crontab
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    yield tmp_home_dir / ".fake_crontab"
 
 
-def test_schedule_add_creates_schedule_and_shows_output(
+def _read_fake_crontab(fake_crontab_path: Path) -> str:
+    """Read the contents of the fake crontab file."""
+    if fake_crontab_path.exists():
+        return fake_crontab_path.read_text()
+    return ""
+
+
+def test_schedule_add_creates_schedule_and_installs_crontab(
     cli_runner: CliRunner,
     temp_host_dir: Path,
+    fake_crontab: Path,
 ) -> None:
     name = f"sched-{uuid4().hex[:8]}"
-    targets = _make_crontab_noop()
 
-    with (
-        patch(targets["read"], return_value=""),
-        patch(targets["write"]) as mock_write,
-    ):
-        result = cli_runner.invoke(
-            cli,
-            ["schedule", "add", "--cron", "0 * * * *", "--name", name, "fix tests"],
-        )
+    result = cli_runner.invoke(
+        cli,
+        ["schedule", "add", "--cron", "0 * * * *", "--name", name, "fix tests"],
+    )
 
     assert result.exit_code == 0, result.output
     assert f"Added schedule '{name}'" in result.output
-    # crontab was written
-    mock_write.assert_called_once()
+
+    # Verify the crontab entry was actually installed
+    crontab_content = _read_fake_crontab(fake_crontab)
+    assert f"mngr-schedule:{name}" in crontab_content
+    assert "fix tests" in crontab_content
 
 
 def test_schedule_add_with_template(
     cli_runner: CliRunner,
     temp_host_dir: Path,
+    fake_crontab: Path,
 ) -> None:
     name = f"sched-tpl-{uuid4().hex[:8]}"
-    targets = _make_crontab_noop()
 
-    with (
-        patch(targets["read"], return_value=""),
-        patch(targets["write"]),
-    ):
-        result = cli_runner.invoke(
-            cli,
-            ["schedule", "add", "--cron", "*/5 * * * *", "--template", "my-hook", "--name", name, "run hook"],
-        )
+    result = cli_runner.invoke(
+        cli,
+        ["schedule", "add", "--cron", "*/5 * * * *", "--template", "my-hook", "--name", name, "run hook"],
+    )
 
     assert result.exit_code == 0, result.output
     assert f"Added schedule '{name}'" in result.output
     assert "--template" in result.output
+
+    crontab_content = _read_fake_crontab(fake_crontab)
+    assert "--template my-hook" in crontab_content
 
 
 def test_schedule_add_rejects_invalid_cron(
@@ -64,16 +102,11 @@ def test_schedule_add_rejects_invalid_cron(
     temp_host_dir: Path,
 ) -> None:
     name = f"sched-bad-{uuid4().hex[:8]}"
-    targets = _make_crontab_noop()
 
-    with (
-        patch(targets["read"], return_value=""),
-        patch(targets["write"]),
-    ):
-        result = cli_runner.invoke(
-            cli,
-            ["schedule", "add", "--cron", "not-a-cron", "--name", name, "test"],
-        )
+    result = cli_runner.invoke(
+        cli,
+        ["schedule", "add", "--cron", "not-a-cron", "--name", name, "test"],
+    )
 
     assert result.exit_code != 0
     assert "Invalid cron expression" in result.output
@@ -84,26 +117,19 @@ def test_schedule_add_rejects_duplicate_name(
     temp_host_dir: Path,
 ) -> None:
     name = f"sched-dup-{uuid4().hex[:8]}"
-    targets = _make_crontab_noop()
 
-    with (
-        patch(targets["read"], return_value=""),
-        patch(targets["write"]),
-    ):
-        # First add should succeed
-        result1 = cli_runner.invoke(
-            cli,
-            ["schedule", "add", "--cron", "0 * * * *", "--name", name, "first"],
-        )
-        assert result1.exit_code == 0, result1.output
+    result1 = cli_runner.invoke(
+        cli,
+        ["schedule", "add", "--cron", "0 * * * *", "--name", name, "first"],
+    )
+    assert result1.exit_code == 0, result1.output
 
-        # Second add with same name should fail
-        result2 = cli_runner.invoke(
-            cli,
-            ["schedule", "add", "--cron", "0 * * * *", "--name", name, "second"],
-        )
-        assert result2.exit_code != 0
-        assert "already exists" in result2.output
+    result2 = cli_runner.invoke(
+        cli,
+        ["schedule", "add", "--cron", "0 * * * *", "--name", name, "second"],
+    )
+    assert result2.exit_code != 0
+    assert "already exists" in result2.output
 
 
 def test_schedule_list_shows_schedules(
@@ -111,16 +137,11 @@ def test_schedule_list_shows_schedules(
     temp_host_dir: Path,
 ) -> None:
     name = f"sched-list-{uuid4().hex[:8]}"
-    targets = _make_crontab_noop()
 
-    with (
-        patch(targets["read"], return_value=""),
-        patch(targets["write"]),
-    ):
-        cli_runner.invoke(
-            cli,
-            ["schedule", "add", "--cron", "0 * * * *", "--name", name, "fix tests"],
-        )
+    cli_runner.invoke(
+        cli,
+        ["schedule", "add", "--cron", "0 * * * *", "--name", name, "fix tests"],
+    )
 
     result = cli_runner.invoke(cli, ["schedule", "list"])
     assert result.exit_code == 0, result.output
@@ -142,16 +163,11 @@ def test_schedule_list_json_format(
     temp_host_dir: Path,
 ) -> None:
     name = f"sched-json-{uuid4().hex[:8]}"
-    targets = _make_crontab_noop()
 
-    with (
-        patch(targets["read"], return_value=""),
-        patch(targets["write"]),
-    ):
-        cli_runner.invoke(
-            cli,
-            ["schedule", "add", "--cron", "0 * * * *", "--name", name, "json test"],
-        )
+    cli_runner.invoke(
+        cli,
+        ["schedule", "add", "--cron", "0 * * * *", "--name", name, "json test"],
+    )
 
     result = cli_runner.invoke(cli, ["schedule", "list", "--format", "json"])
     assert result.exit_code == 0, result.output
@@ -161,46 +177,39 @@ def test_schedule_list_json_format(
     assert data["schedules"][0]["name"] == name
 
 
-def test_schedule_remove_removes_schedule(
+def test_schedule_remove_removes_schedule_and_crontab_entry(
     cli_runner: CliRunner,
     temp_host_dir: Path,
+    fake_crontab: Path,
 ) -> None:
     name = f"sched-rm-{uuid4().hex[:8]}"
-    targets = _make_crontab_noop()
 
-    with (
-        patch(targets["read"], return_value=""),
-        patch(targets["write"]),
-    ):
-        cli_runner.invoke(
-            cli,
-            ["schedule", "add", "--cron", "0 * * * *", "--name", name, "to remove"],
-        )
+    cli_runner.invoke(
+        cli,
+        ["schedule", "add", "--cron", "0 * * * *", "--name", name, "to remove"],
+    )
 
-    with (
-        patch(targets["read"], return_value=""),
-        patch(targets["write"]),
-    ):
-        result = cli_runner.invoke(cli, ["schedule", "remove", name])
+    # Verify it was added to crontab
+    assert f"mngr-schedule:{name}" in _read_fake_crontab(fake_crontab)
+
+    result = cli_runner.invoke(cli, ["schedule", "remove", name])
 
     assert result.exit_code == 0, result.output
     assert f"Removed schedule '{name}'" in result.output
 
-    # Verify it's gone from the list
+    # Verify it was removed from the list
     list_result = cli_runner.invoke(cli, ["schedule", "list"])
     assert name not in list_result.output
+
+    # Verify it was removed from crontab
+    assert f"mngr-schedule:{name}" not in _read_fake_crontab(fake_crontab)
 
 
 def test_schedule_remove_nonexistent_fails(
     cli_runner: CliRunner,
     temp_host_dir: Path,
 ) -> None:
-    targets = _make_crontab_noop()
-    with (
-        patch(targets["read"], return_value=""),
-        patch(targets["write"]),
-    ):
-        result = cli_runner.invoke(cli, ["schedule", "remove", "nonexistent"])
+    result = cli_runner.invoke(cli, ["schedule", "remove", "nonexistent"])
 
     assert result.exit_code != 0
     assert "not found" in result.output.lower()
@@ -219,19 +228,40 @@ def test_schedule_add_json_format(
     temp_host_dir: Path,
 ) -> None:
     name = f"sched-addjson-{uuid4().hex[:8]}"
-    targets = _make_crontab_noop()
 
-    with (
-        patch(targets["read"], return_value=""),
-        patch(targets["write"]),
-    ):
-        result = cli_runner.invoke(
-            cli,
-            ["schedule", "add", "--cron", "0 * * * *", "--name", name, "--format", "json", "json add test"],
-        )
+    result = cli_runner.invoke(
+        cli,
+        ["schedule", "add", "--cron", "0 * * * *", "--name", name, "--format", "json", "json add test"],
+    )
 
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     assert data["name"] == name
     assert data["cron"] == "0 * * * *"
     assert "crontab_line" in data
+
+
+def test_schedule_add_then_remove_preserves_other_crontab_entries(
+    cli_runner: CliRunner,
+    temp_host_dir: Path,
+    fake_crontab: Path,
+) -> None:
+    """Adding and removing one schedule should not affect other schedules."""
+    name_a = f"sched-a-{uuid4().hex[:8]}"
+    name_b = f"sched-b-{uuid4().hex[:8]}"
+
+    cli_runner.invoke(cli, ["schedule", "add", "--cron", "0 * * * *", "--name", name_a, "task a"])
+    cli_runner.invoke(cli, ["schedule", "add", "--cron", "*/5 * * * *", "--name", name_b, "task b"])
+
+    # Both should be in crontab
+    crontab_content = _read_fake_crontab(fake_crontab)
+    assert f"mngr-schedule:{name_a}" in crontab_content
+    assert f"mngr-schedule:{name_b}" in crontab_content
+
+    # Remove only schedule A
+    cli_runner.invoke(cli, ["schedule", "remove", name_a])
+
+    # Schedule B should still be in crontab
+    crontab_content_after = _read_fake_crontab(fake_crontab)
+    assert f"mngr-schedule:{name_a}" not in crontab_content_after
+    assert f"mngr-schedule:{name_b}" in crontab_content_after
