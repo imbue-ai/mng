@@ -68,9 +68,7 @@ def _transcript_impl(ctx: click.Context, **kwargs) -> None:
 def _emit_output(result: TranscriptResult, output_opts: OutputOptions) -> None:
     """Emit output based on the result and format."""
     match output_opts.output_format:
-        case OutputFormat.HUMAN:
-            _emit_raw_output(result)
-        case OutputFormat.JSONL:
+        case OutputFormat.HUMAN | OutputFormat.JSONL:
             _emit_raw_output(result)
         case OutputFormat.JSON:
             _emit_json_output(result)
