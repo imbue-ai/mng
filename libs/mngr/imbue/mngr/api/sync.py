@@ -14,6 +14,7 @@ from pydantic import Field
 from pydantic import PrivateAttr
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
@@ -166,49 +167,49 @@ class LocalGitContext(GitContextInterface):
     cg: ConcurrencyGroup = Field(frozen=True, description="Concurrency group for process management")
 
     def has_uncommitted_changes(self, path: Path) -> bool:
-        result = self.cg.run_process_to_completion(
-            ["git", "status", "--porcelain"],
-            cwd=path,
-            is_checked_after=False,
-        )
-        if result.returncode != 0:
-            raise MngrError(f"git status failed in {path}: {result.stderr}")
+        try:
+            result = self.cg.run_process_to_completion(
+                ["git", "status", "--porcelain"],
+                cwd=path,
+            )
+        except ProcessError as e:
+            raise MngrError(f"git status failed in {path}: {e.stderr}") from e
         return len(result.stdout.strip()) > 0
 
     def git_stash(self, path: Path) -> bool:
-        result = self.cg.run_process_to_completion(
-            ["git", "stash", "push", "-u", "-m", "mngr-sync-stash"],
-            cwd=path,
-            is_checked_after=False,
-        )
-        if result.returncode != 0:
-            raise MngrError(f"git stash failed: {result.stderr}")
+        try:
+            result = self.cg.run_process_to_completion(
+                ["git", "stash", "push", "-u", "-m", "mngr-sync-stash"],
+                cwd=path,
+            )
+        except ProcessError as e:
+            raise MngrError(f"git stash failed: {e.stderr}") from e
         return "No local changes to save" not in result.stdout
 
     def git_stash_pop(self, path: Path) -> None:
-        result = self.cg.run_process_to_completion(
-            ["git", "stash", "pop"],
-            cwd=path,
-            is_checked_after=False,
-        )
-        if result.returncode != 0:
-            raise MngrError(f"git stash pop failed: {result.stderr}")
+        try:
+            self.cg.run_process_to_completion(
+                ["git", "stash", "pop"],
+                cwd=path,
+            )
+        except ProcessError as e:
+            raise MngrError(f"git stash pop failed: {e.stderr}") from e
 
     def git_reset_hard(self, path: Path) -> None:
-        result = self.cg.run_process_to_completion(
-            ["git", "reset", "--hard", "HEAD"],
-            cwd=path,
-            is_checked_after=False,
-        )
-        if result.returncode != 0:
-            raise MngrError(f"git reset --hard failed: {result.stderr}")
-        result = self.cg.run_process_to_completion(
-            ["git", "clean", "-fd"],
-            cwd=path,
-            is_checked_after=False,
-        )
-        if result.returncode != 0:
-            raise MngrError(f"git clean failed: {result.stderr}")
+        try:
+            self.cg.run_process_to_completion(
+                ["git", "reset", "--hard", "HEAD"],
+                cwd=path,
+            )
+        except ProcessError as e:
+            raise MngrError(f"git reset --hard failed: {e.stderr}") from e
+        try:
+            self.cg.run_process_to_completion(
+                ["git", "clean", "-fd"],
+                cwd=path,
+            )
+        except ProcessError as e:
+            raise MngrError(f"git clean failed: {e.stderr}") from e
 
     def get_current_branch(self, path: Path) -> str:
         return get_current_branch(path, self.cg)
@@ -457,31 +458,34 @@ def _get_head_commit_or_raise(path: Path, cg: ConcurrencyGroup) -> str:
 
 def _merge_fetch_head(local_path: Path, cg: ConcurrencyGroup) -> None:
     """Merge FETCH_HEAD into the current branch, aborting on conflict."""
-    result = cg.run_process_to_completion(
-        ["git", "merge", "FETCH_HEAD", "--no-edit"],
-        cwd=local_path,
-        is_checked_after=False,
-    )
-    if result.returncode != 0:
-        # Check if a merge is actually in progress before trying to abort
-        merge_check = cg.run_process_to_completion(
-            ["git", "rev-parse", "--verify", "MERGE_HEAD"],
+    try:
+        cg.run_process_to_completion(
+            ["git", "merge", "FETCH_HEAD", "--no-edit"],
             cwd=local_path,
-            is_checked_after=False,
         )
-        if merge_check.returncode == 0:
-            abort_result = cg.run_process_to_completion(
-                ["git", "merge", "--abort"],
+    except ProcessError as merge_error:
+        # Check if a merge is actually in progress before trying to abort
+        try:
+            cg.run_process_to_completion(
+                ["git", "rev-parse", "--verify", "MERGE_HEAD"],
                 cwd=local_path,
-                is_checked_after=False,
             )
-            if abort_result.returncode != 0:
+            # MERGE_HEAD exists, so a merge is in progress - abort it
+            try:
+                cg.run_process_to_completion(
+                    ["git", "merge", "--abort"],
+                    cwd=local_path,
+                )
+            except ProcessError as abort_error:
                 logger.warning(
                     "Failed to abort merge in {}: {}. Repository may be in a conflicted state.",
                     local_path,
-                    abort_result.stderr.strip(),
+                    abort_error.stderr.strip(),
                 )
-        raise GitSyncError(result.stderr)
+        except ProcessError:
+            # No MERGE_HEAD means no merge in progress, nothing to abort
+            pass
+        raise GitSyncError(merge_error.stderr) from merge_error
 
 
 # === Git Push Functions ===
@@ -515,21 +519,21 @@ def _local_git_push_mirror(
 
     # Fetch all refs from source into target. --update-head-ok is needed because
     # git otherwise refuses to fetch into the currently checked-out branch.
-    result = cg.run_process_to_completion(
-        [
-            "git",
-            "-C",
-            target_git_dir,
-            "fetch",
-            "--update-head-ok",
-            str(local_path),
-            "--force",
-            "refs/*:refs/*",
-        ],
-        is_checked_after=False,
-    )
-    if result.returncode != 0:
-        raise GitSyncError(result.stderr)
+    try:
+        cg.run_process_to_completion(
+            [
+                "git",
+                "-C",
+                target_git_dir,
+                "fetch",
+                "--update-head-ok",
+                str(local_path),
+                "--force",
+                "refs/*:refs/*",
+            ],
+        )
+    except ProcessError as e:
+        raise GitSyncError(e.stderr) from e
 
     # Reset working tree to match the source branch content. We do NOT checkout
     # source_branch because in the worktree case (local agents), the source
@@ -573,20 +577,20 @@ def _local_git_push_branch(
         return 0
 
     # Fetch from source repo into the target
-    result = cg.run_process_to_completion(
-        ["git", "-C", target_git_dir, "fetch", str(local_path), source_branch],
-        is_checked_after=False,
-    )
-    if result.returncode != 0:
-        raise GitSyncError(result.stderr)
+    try:
+        cg.run_process_to_completion(
+            ["git", "-C", target_git_dir, "fetch", str(local_path), source_branch],
+        )
+    except ProcessError as e:
+        raise GitSyncError(e.stderr) from e
 
     # Resolve FETCH_HEAD to an explicit commit hash to avoid race conditions
-    hash_result = cg.run_process_to_completion(
-        ["git", "-C", target_git_dir, "rev-parse", "FETCH_HEAD"],
-        is_checked_after=False,
-    )
-    if hash_result.returncode != 0:
-        raise GitSyncError(f"Failed to resolve FETCH_HEAD: {hash_result.stderr}")
+    try:
+        hash_result = cg.run_process_to_completion(
+            ["git", "-C", target_git_dir, "rev-parse", "FETCH_HEAD"],
+        )
+    except ProcessError as e:
+        raise GitSyncError(f"Failed to resolve FETCH_HEAD: {e.stderr}") from e
     fetched_commit = hash_result.stdout.strip()
 
     # Check for non-fast-forward push (diverged history)
@@ -691,25 +695,25 @@ def _fetch_and_merge(
     """
     # Fetch from the agent's repository (sets FETCH_HEAD)
     logger.debug("Fetching from agent repository: {}", source_path)
-    result = cg.run_process_to_completion(
-        ["git", "fetch", str(source_path), source_branch],
-        cwd=local_path,
-        is_checked_after=False,
-    )
-    if result.returncode != 0:
-        raise MngrError(f"Failed to fetch from agent: {result.stderr}")
+    try:
+        cg.run_process_to_completion(
+            ["git", "fetch", str(source_path), source_branch],
+            cwd=local_path,
+        )
+    except ProcessError as e:
+        raise MngrError(f"Failed to fetch from agent: {e.stderr}") from e
 
     # Checkout the target branch if different from current
     did_checkout = original_branch != target_branch
     if did_checkout:
         logger.debug("Checking out target branch: {}", target_branch)
-        checkout_result = cg.run_process_to_completion(
-            ["git", "checkout", target_branch],
-            cwd=local_path,
-            is_checked_after=False,
-        )
-        if checkout_result.returncode != 0:
-            raise MngrError(f"Failed to checkout target branch: {checkout_result.stderr}")
+        try:
+            cg.run_process_to_completion(
+                ["git", "checkout", target_branch],
+                cwd=local_path,
+            )
+        except ProcessError as e:
+            raise MngrError(f"Failed to checkout target branch: {e.stderr}") from e
 
     # Record HEAD after checkout so we count commits on the target branch
     pre_merge_head = _get_head_commit_or_raise(local_path, cg)
@@ -741,28 +745,28 @@ def _fetch_and_merge(
     except MngrError:
         # On failure, try to restore original branch before re-raising
         if did_checkout:
-            restore_result = cg.run_process_to_completion(
-                ["git", "checkout", original_branch],
-                cwd=local_path,
-                is_checked_after=False,
-            )
-            if restore_result.returncode != 0:
+            try:
+                cg.run_process_to_completion(
+                    ["git", "checkout", original_branch],
+                    cwd=local_path,
+                )
+            except ProcessError as checkout_error:
                 logger.warning(
                     "Failed to restore branch {} after git pull failure: {}",
                     original_branch,
-                    restore_result.stderr.strip(),
+                    checkout_error.stderr.strip(),
                 )
         raise
 
     # Restore original branch on success
     if did_checkout:
-        restore_result = cg.run_process_to_completion(
-            ["git", "checkout", original_branch],
-            cwd=local_path,
-            is_checked_after=False,
-        )
-        if restore_result.returncode != 0:
-            raise MngrError(f"Failed to checkout original branch {original_branch}: {restore_result.stderr}")
+        try:
+            cg.run_process_to_completion(
+                ["git", "checkout", original_branch],
+                cwd=local_path,
+            )
+        except ProcessError as e:
+            raise MngrError(f"Failed to checkout original branch {original_branch}: {e.stderr}") from e
 
     return commits_transferred
 

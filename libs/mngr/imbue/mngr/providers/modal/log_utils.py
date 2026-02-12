@@ -6,7 +6,8 @@ from typing import Sequence
 
 import modal
 from loguru import logger
-from modal._output import OutputManager
+from modal._output.manager import DisabledOutputManager
+from modal._output.manager import OutputManager
 
 from imbue.imbue_common.logging import log_span
 from imbue.mngr.primitives import LogLevel
@@ -65,7 +66,7 @@ def _create_multi_writer(files: Sequence[Any]) -> _MultiWriter:
     return writer
 
 
-class _ModalLoguruWriter:
+class ModalLoguruWriter:
     """Writer that sends Modal output to loguru with structured metadata.
 
     Supports setting app_id and app_name for structured logging.
@@ -99,54 +100,31 @@ class _ModalLoguruWriter:
         return False
 
 
-def _create_modal_loguru_writer() -> _ModalLoguruWriter:
+def _create_modal_loguru_writer() -> ModalLoguruWriter:
     """Create a new Modal loguru writer instance."""
-    writer = _ModalLoguruWriter()
+    writer = ModalLoguruWriter()
     writer.app_id = None
     writer.app_name = None
     return writer
 
 
-@contextlib.contextmanager
-def Pointless():
-    yield None
-
-
-class _QuietOutputManager(OutputManager):
+class _QuietOutputManager(DisabledOutputManager):
     """Modal OutputManager that suppresses interactive spinners, status updates, and duplicate logs.
 
-    Modal's default OutputManager displays spinners and progress bars which don't
-    work well when capturing output programmatically. This subclass disables those
-    features while preserving the ability to capture log output via _stdout.
-
-    We use the timestamp of each log entry to deduplicate logs, as Modal sometimes
-    emits the same log line multiple times during image builds.
+    Extends DisabledOutputManager (which provides no-op implementations for all abstract
+    methods) and overrides only put_log_content to capture build logs, with timestamp-based
+    deduplication since Modal sometimes emits the same log line multiple times during
+    image builds.
     """
 
+    _stdout: _MultiWriter
     _timestamps: set[float]
+    _app_page_url: str | None = None
 
-    @contextlib.contextmanager
-    def show_status_spinner(self) -> Generator[None, None, None]:
-        """Suppress the status spinner."""
-        yield
-
-    @staticmethod
-    def step_progress(text: str = ""):
-        return ""
-
-    def make_live(self, renderable):
-        return Pointless()
-
-    # this captures the normal log lines from modal
-    # If you want to get the modal URL for the app, it is logged here in one of the earlier messages
-    def print(self, renderable) -> None:
-        pass
-
-    # this is where the build logs end up
-    async def put_log_content(self, log):
+    async def put_log_content(self, log: Any) -> None:
+        """Capture build logs, deduplicating by timestamp."""
         if log.timestamp not in self._timestamps:
             self._timestamps.add(log.timestamp)
-            # print(log)
             self._stdout.write(log.data)
 
     def update_app_page_url(self, app_page_url: str) -> None:
@@ -154,15 +132,19 @@ class _QuietOutputManager(OutputManager):
         logger.debug("Modal app page: {}", app_page_url)
         self._app_page_url = app_page_url
 
-    def update_task_state(self, task_id: str, state: int) -> None:
-        """Suppress task state updates."""
-        pass
+
+def _create_quiet_output_manager(stdout: _MultiWriter) -> _QuietOutputManager:
+    """Create a new quiet output manager with the given stdout writer."""
+    manager = _QuietOutputManager()
+    manager._stdout = stdout
+    manager._timestamps = set()
+    return manager
 
 
 @contextlib.contextmanager
 def enable_modal_output_capture(
     is_logging_to_loguru: bool = True,
-) -> Generator[tuple[StringIO, _ModalLoguruWriter | None], None, None]:
+) -> Generator[tuple[StringIO, ModalLoguruWriter | None], None, None]:
     """Context manager for capturing Modal app output.
 
     Intercepts Modal's output system and routes it to a StringIO buffer for
@@ -177,7 +159,7 @@ def enable_modal_output_capture(
     None if is_logging_to_loguru is False.
     """
     output_buffer = StringIO()
-    loguru_writer: _ModalLoguruWriter | None = _create_modal_loguru_writer() if is_logging_to_loguru else None
+    loguru_writer: ModalLoguruWriter | None = _create_modal_loguru_writer() if is_logging_to_loguru else None
 
     # Build list of writers to tee output to
     writers: list[Any] = [output_buffer]
@@ -186,13 +168,9 @@ def enable_modal_output_capture(
 
     multi_writer = _create_multi_writer(writers)
 
-    with modal.enable_output(show_progress=True):
+    with modal.enable_output():
         with log_span("enabling Modal output capture"):
-            output_manager = _QuietOutputManager()
-            # Set _stdout to capture Modal's output (build logs, status messages, etc.)
-            # This only captures what Modal writes to its OutputManager, not all stdout/stderr
-            output_manager._stdout = multi_writer
-            output_manager._timestamps = set()
-            OutputManager._instance = output_manager
+            output_manager = _create_quiet_output_manager(stdout=multi_writer)
+            OutputManager._set(output_manager)
 
         yield output_buffer, loguru_writer

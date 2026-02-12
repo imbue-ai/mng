@@ -715,6 +715,92 @@ def test_apply_cel_filters_with_host_resource_filter() -> None:
     assert result is True
 
 
+def test_agent_to_cel_context_with_host_lock_fields() -> None:
+    """Test that _agent_to_cel_context includes host.is_locked and host.locked_time fields."""
+    lock_time = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+        is_locked=True,
+        locked_time=lock_time,
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        state=AgentLifecycleState.RUNNING,
+        host=host_info,
+    )
+
+    context = _agent_to_cel_context(agent_info)
+
+    assert context["host"]["is_locked"] is True
+    assert context["host"]["locked_time"] is not None
+
+
+def test_agent_to_cel_context_with_host_not_locked() -> None:
+    """Test that _agent_to_cel_context includes is_locked=False when no lock file exists."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+        is_locked=False,
+        locked_time=None,
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        state=AgentLifecycleState.RUNNING,
+        host=host_info,
+    )
+
+    context = _agent_to_cel_context(agent_info)
+
+    assert context["host"]["is_locked"] is False
+    assert context["host"]["locked_time"] is None
+
+
+def test_apply_cel_filters_with_host_is_locked_filter() -> None:
+    """Test filtering by host.is_locked."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+        is_locked=True,
+        locked_time=datetime.now(timezone.utc),
+    )
+    agent_info = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work/dir"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        state=AgentLifecycleState.RUNNING,
+        host=host_info,
+    )
+
+    include_filters, exclude_filters = compile_cel_filters(
+        include_filters=("host.is_locked == true",),
+        exclude_filters=(),
+    )
+
+    result = _apply_cel_filters(agent_info, include_filters, exclude_filters)
+
+    assert result is True
+
+
 def test_apply_cel_filters_with_host_uptime_filter() -> None:
     """Test filtering by host.uptime_seconds."""
     host_info = HostInfo(
@@ -935,6 +1021,48 @@ def test_list_agents_populates_idle_mode(
         # idle_mode should be populated (default is "agent")
         assert our_agent.idle_mode is not None
         assert our_agent.idle_mode == IdleMode.IO.value
+
+
+def test_list_agents_populates_lock_fields_for_online_host(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_mngr_ctx: MngrContext,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that list_agents populates is_locked and locked_time for online hosts."""
+    agent_name = f"test-lock-fields-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 847292",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
+
+        result = list_agents(mngr_ctx=temp_mngr_ctx, is_streaming=False)
+
+        our_agent = next((a for a in result.agents if a.name == AgentName(agent_name)), None)
+        assert our_agent is not None, f"Agent {agent_name} not found in list"
+
+        # No lock is held during list, so is_locked should be False.
+        # locked_time may be non-None since the lock file persists on local hosts
+        # after flock release, but is_lock_held() correctly detects the lock is not active.
+        assert our_agent.host.is_locked is False
 
 
 def test_list_agents_streaming_with_callback(
