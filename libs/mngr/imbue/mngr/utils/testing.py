@@ -19,12 +19,14 @@ import pytest
 from click.testing import CliRunner
 from loguru import logger
 
+from imbue.mngr.api.schedule import ScheduleDefinition
 from imbue.mngr.cli.create import create as create_command
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.primitives import ScheduleName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
 
@@ -748,3 +750,26 @@ AllowUsers {current_user}
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
+
+
+def make_test_schedule_definition(
+    name: str = "test-schedule",
+    template: str | None = "my-template",
+    message: str = "test message",
+    cron: str = "0 * * * *",
+    create_args: tuple[str, ...] = (),
+) -> ScheduleDefinition:
+    """Create a ScheduleDefinition for testing.
+
+    Shared helper used across schedule test files to avoid duplicating
+    ScheduleDefinition construction logic.
+    """
+    return ScheduleDefinition(
+        name=ScheduleName(name),
+        template=template,
+        message=message,
+        cron=cron,
+        create_args=create_args,
+        created_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+        is_enabled=True,
+    )

@@ -1,6 +1,6 @@
 from imbue.mngr.cli.schedule import ScheduleCliOptions
 from imbue.mngr.cli.schedule import _schedule_definition_to_dict
-from imbue.mngr.conftest import make_test_schedule_definition
+from imbue.mngr.utils.testing import make_test_schedule_definition
 
 
 def test_schedule_cli_options_defaults() -> None:

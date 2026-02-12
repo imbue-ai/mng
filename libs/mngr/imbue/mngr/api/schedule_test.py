@@ -8,8 +8,8 @@ from imbue.mngr.api.schedule import _build_crontab_command
 from imbue.mngr.api.schedule import _crontab_marker
 from imbue.mngr.api.schedule import _load_schedules
 from imbue.mngr.api.schedule import _save_schedules
-from imbue.mngr.conftest import make_test_schedule_definition
 from imbue.mngr.primitives import ScheduleName
+from imbue.mngr.utils.testing import make_test_schedule_definition
 
 
 def test_crontab_marker_contains_schedule_name() -> None:
