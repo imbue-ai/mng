@@ -37,3 +37,9 @@ def test_rm_alias_exists() -> None:
     """The 'rm' command should be an alias for 'destroy'."""
     assert "rm" in cli.commands
     assert cli.commands["rm"] is cli.commands["destroy"]
+
+
+def test_lim_alias_exists() -> None:
+    """The 'lim' command should be an alias for 'limit'."""
+    assert "lim" in cli.commands
+    assert cli.commands["lim"] is cli.commands["limit"]
