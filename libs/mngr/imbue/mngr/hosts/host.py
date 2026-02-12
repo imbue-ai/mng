@@ -1604,7 +1604,7 @@ class Host(BaseHost, OnlineHostInterface):
             data = json.loads(content)
             data["name"] = str(new_name)
             self.write_text_file(data_path, json.dumps(data, indent=2))
-            self.provider_instance.persist_agent_data(self.id, data)
+            self.save_agent_data(agent.id, data)
 
             # Rename the tmux session if the agent is running
             old_session_name = f"{self.mngr_ctx.config.prefix}{old_name}"
