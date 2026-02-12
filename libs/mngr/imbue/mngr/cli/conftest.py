@@ -138,6 +138,7 @@ def default_create_cli_opts() -> CreateCliOptions:
         idle_mode=None,
         activity_sources=None,
         start_on_boot=None,
+        start_host=True,
         grant=(),
         user_command=(),
         sudo_command=(),
