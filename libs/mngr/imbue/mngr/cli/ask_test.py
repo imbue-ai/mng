@@ -16,7 +16,7 @@ from imbue.mngr.primitives import OutputFormat
 def fake_claude(monkeypatch: pytest.MonkeyPatch) -> FakeClaudeBackend:
     """Provide a FakeClaudeBackend and monkeypatch it into the ask module."""
     backend = FakeClaudeBackend()
-    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
+    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda **_kwargs: backend)
     return backend
 
 
@@ -105,7 +105,7 @@ def test_ask_claude_error_shows_message(
 ) -> None:
     """When the claude backend raises an error, it should be displayed to the user."""
     backend = FakeClaudeBackendError(error_message=error_message)
-    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
+    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda **_kwargs: backend)
 
     result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
 
