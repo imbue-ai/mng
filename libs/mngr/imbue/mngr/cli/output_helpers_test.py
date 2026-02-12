@@ -8,6 +8,7 @@ from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
+from imbue.mngr.cli.output_helpers import format_size
 from imbue.mngr.cli.output_helpers import on_error
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import ErrorBehavior
@@ -154,6 +155,64 @@ def test_emit_final_json_outputs_json(capsys) -> None:
     output = json.loads(captured.out.strip())
     assert output["status"] == "success"
     assert output["count"] == 5
+
+
+# =============================================================================
+# Tests for format_size
+# =============================================================================
+
+
+def test_format_size_bytes() -> None:
+    """format_size should format small sizes in bytes."""
+    assert format_size(0) == "0 B"
+    assert format_size(1) == "1 B"
+    assert format_size(512) == "512 B"
+    assert format_size(1023) == "1023 B"
+
+
+def test_format_size_kilobytes() -> None:
+    """format_size should format sizes in kilobytes."""
+    assert format_size(1024) == "1.0 KB"
+    assert format_size(1536) == "1.5 KB"
+    assert format_size(10240) == "10.0 KB"
+    assert format_size(1024 * 1024 - 1) == "1024.0 KB"
+
+
+def test_format_size_megabytes() -> None:
+    """format_size should format sizes in megabytes."""
+    assert format_size(1024**2) == "1.0 MB"
+    assert format_size(int(1.5 * 1024**2)) == "1.5 MB"
+    assert format_size(100 * 1024**2) == "100.0 MB"
+
+
+def test_format_size_gigabytes() -> None:
+    """format_size should format sizes in gigabytes with two decimal places."""
+    assert format_size(1024**3) == "1.00 GB"
+    assert format_size(int(1.5 * 1024**3)) == "1.50 GB"
+    assert format_size(10 * 1024**3) == "10.00 GB"
+
+
+def test_format_size_terabytes() -> None:
+    """format_size should format sizes in terabytes with two decimal places."""
+    assert format_size(1024**4) == "1.00 TB"
+    assert format_size(int(2.5 * 1024**4)) == "2.50 TB"
+
+
+@pytest.mark.parametrize(
+    ("size_bytes", "expected"),
+    [
+        (0, "0 B"),
+        (100, "100 B"),
+        (1024, "1.0 KB"),
+        (1024 * 500, "500.0 KB"),
+        (1024 * 1024, "1.0 MB"),
+        (1024 * 1024 * 1024, "1.00 GB"),
+        (1024 * 1024 * 1024 * 1024, "1.00 TB"),
+    ],
+)
+def test_format_size_parametrized(size_bytes: int, expected: str) -> None:
+    """format_size should format various byte sizes correctly."""
+    assert format_size(size_bytes) == expected
 
 
 # =============================================================================
