@@ -1,8 +1,8 @@
 """Unit tests for cleanup API functions."""
 
 from imbue.mngr.api.cleanup import execute_cleanup
+from imbue.mngr.api.conftest import make_test_agent_info
 from imbue.mngr.api.data_types import CleanupResult
-from imbue.mngr.cli.conftest import make_test_agent_info
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import CleanupAction
