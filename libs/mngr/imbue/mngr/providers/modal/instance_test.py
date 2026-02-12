@@ -522,7 +522,7 @@ def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_err
     # AuthError when _get_modal_app is called, simulating expired/invalid credentials.
     # list_hosts is decorated with @handle_modal_auth_error
     with pytest.raises(ModalAuthError) as exc_info:
-        expired_credentials_modal_provider.list_hosts()
+        expired_credentials_modal_provider.list_hosts(cg=expired_credentials_modal_provider.mngr_ctx.concurrency_group)
 
     # Verify the error message contains helpful information
     error_message = str(exc_info.value)
@@ -535,7 +535,7 @@ def test_list_hosts_returns_empty_list_when_not_authorized(
     unauthorized_modal_provider: UnauthorizedModalProviderInstance,
 ) -> None:
     """When not authorized, list_hosts should return empty list (not raise error)."""
-    result = unauthorized_modal_provider.list_hosts()
+    result = unauthorized_modal_provider.list_hosts(cg=unauthorized_modal_provider.mngr_ctx.concurrency_group)
 
     # Should return empty list, not raise an error
     assert result == []
@@ -699,7 +699,7 @@ def test_list_hosts_includes_running_sandboxes_without_host_records(
         patch.object(modal_provider, "_list_all_host_records", return_value=[]),
         patch.object(modal_provider, "_create_host_from_sandbox", return_value=mock_host),
     ):
-        hosts = modal_provider.list_hosts()
+        hosts = modal_provider.list_hosts(cg=modal_provider.mngr_ctx.concurrency_group)
 
     assert len(hosts) == 1
     assert hosts[0].id == host_id
@@ -724,7 +724,7 @@ def test_list_hosts_returns_stopped_hosts_with_snapshots(
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
         patch.object(modal_provider, "_create_host_from_host_record", return_value=mock_host),
     ):
-        hosts = modal_provider.list_hosts()
+        hosts = modal_provider.list_hosts(cg=modal_provider.mngr_ctx.concurrency_group)
 
     assert len(hosts) == 1
     assert hosts[0].id == host_id
@@ -742,7 +742,7 @@ def test_list_hosts_excludes_destroyed_hosts_by_default(
         patch.object(modal_provider, "_list_sandboxes", return_value=[]),
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
     ):
-        hosts = modal_provider.list_hosts(include_destroyed=False)
+        hosts = modal_provider.list_hosts(cg=modal_provider.mngr_ctx.concurrency_group, include_destroyed=False)
 
     assert len(hosts) == 0
 
@@ -763,7 +763,7 @@ def test_list_hosts_includes_destroyed_hosts_when_requested(
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
         patch.object(modal_provider, "_create_host_from_host_record", return_value=mock_host),
     ):
-        hosts = modal_provider.list_hosts(include_destroyed=True)
+        hosts = modal_provider.list_hosts(cg=modal_provider.mngr_ctx.concurrency_group, include_destroyed=True)
 
     assert len(hosts) == 1
     assert hosts[0].id == host_id
@@ -793,7 +793,7 @@ def test_list_hosts_prefers_running_sandbox_over_host_record(
         patch.object(modal_provider, "_create_host_from_sandbox", return_value=mock_host) as mock_from_sandbox,
         patch.object(modal_provider, "_create_host_from_host_record") as mock_from_record,
     ):
-        hosts = modal_provider.list_hosts()
+        hosts = modal_provider.list_hosts(cg=modal_provider.mngr_ctx.concurrency_group)
 
     assert len(hosts) == 1
     # Should use sandbox, not host record
@@ -1449,7 +1449,7 @@ def test_list_hosts_includes_created_host(real_modal_provider: ModalProviderInst
     try:
         host = real_modal_provider.create_host(HostName("test-host"))
 
-        hosts = real_modal_provider.list_hosts()
+        hosts = real_modal_provider.list_hosts(cg=real_modal_provider.mngr_ctx.concurrency_group)
         host_ids = [h.id for h in hosts]
         assert host.id in host_ids
 

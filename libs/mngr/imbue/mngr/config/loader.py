@@ -263,11 +263,6 @@ def _get_local_config_name(root_name: str) -> Path:
 
 def _find_project_root(cg: ConcurrencyGroup, start: Path | None = None) -> Path | None:
     """Find the project root by looking for git worktree root."""
-    if cg is None:
-        # Fallback for when CG is not available (e.g., test contexts).
-        # Create a short-lived CG just for this operation.
-        with ConcurrencyGroup(name="config-loader-project-root") as fallback_cg:
-            return find_git_worktree_root(start, fallback_cg)
     return find_git_worktree_root(start, cg)
 
 

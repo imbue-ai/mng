@@ -135,9 +135,10 @@ def setup_command_context(
 
     # Create a top-level ConcurrencyGroup for process management
     cg = ConcurrencyGroup(name=f"mngr-{command_name}")
-
-    # enter the concurrency group as a resource so that it gets properly cleaned up on command exit
-    ctx.with_resource(cg)
+    cg.__enter__()
+    # We explicitly pass None to __exit__ so that Click exceptions (e.g. UsageError) don't get
+    # wrapped in ConcurrencyExceptionGroup, which would break Click's error handling.
+    ctx.call_on_close(lambda: cg.__exit__(None, None, None))
 
     # Load config
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
