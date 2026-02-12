@@ -38,7 +38,7 @@ fi
 
 # make the session id accessible to the reviewers
 mkdir -p .claude
-echo $MAIN_CLAUDE_SESSION_ID > .claude/sessionid
+echo "$MAIN_CLAUDE_SESSION_ID" > .claude/sessionid
 
 # Verify that all changes are committed (fail if not)
 untracked=$(git ls-files --others --exclude-standard)

@@ -267,9 +267,7 @@ class ClaudeAgent(BaseAgent):
 
         # Build the environment exports
         # IS_SANDBOX is only set for remote hosts (not local)
-        env_exports = sid_export
-        if not host.is_local:
-            env_exports = f"export IS_SANDBOX=1 && {env_exports}"
+        env_exports = f"export IS_SANDBOX=1 && {sid_export}" if not host.is_local else sid_export
 
         # Build the activity updater background command
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"

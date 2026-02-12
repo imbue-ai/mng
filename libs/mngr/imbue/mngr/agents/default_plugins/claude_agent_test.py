@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
+from uuid import UUID
 
 import pytest
 
@@ -67,6 +68,11 @@ def make_claude_agent(
         host=host,
     )
     return agent, host
+
+
+def _sid_export_for(uuid: UUID) -> str:
+    """Build the expected MAIN_CLAUDE_SESSION_ID export string for a given agent UUID."""
+    return f'export MAIN_CLAUDE_SESSION_ID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || echo "{uuid}")'
 
 
 def _init_git_with_gitignore(work_dir: Path) -> None:
@@ -222,7 +228,7 @@ def test_claude_agent_assemble_command_with_no_args(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
-    sid_export = f'export MAIN_CLAUDE_SESSION_ID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || echo "{uuid}")'
+    sid_export = _sid_export_for(uuid)
     # Local hosts should NOT have IS_SANDBOX set
     assert command == CommandString(
         f'{activity_cmd} {sid_export} && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
@@ -241,7 +247,7 @@ def test_claude_agent_assemble_command_with_agent_args(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
-    sid_export = f'export MAIN_CLAUDE_SESSION_ID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || echo "{uuid}")'
+    sid_export = _sid_export_for(uuid)
     assert command == CommandString(
         f'{activity_cmd} {sid_export} && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || claude --session-id {uuid} --model opus'
     )
@@ -264,7 +270,7 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
-    sid_export = f'export MAIN_CLAUDE_SESSION_ID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || echo "{uuid}")'
+    sid_export = _sid_export_for(uuid)
     assert command == CommandString(
         f'{activity_cmd} {sid_export} && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus'
     )
@@ -286,7 +292,7 @@ def test_claude_agent_assemble_command_with_command_override(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
-    sid_export = f'export MAIN_CLAUDE_SESSION_ID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || echo "{uuid}")'
+    sid_export = _sid_export_for(uuid)
     assert command == CommandString(
         f'{activity_cmd} {sid_export} && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && custom-claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || custom-claude --session-id {uuid} --model opus'
     )
@@ -325,7 +331,7 @@ def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
-    sid_export = f'export MAIN_CLAUDE_SESSION_ID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || echo "{uuid}")'
+    sid_export = _sid_export_for(uuid)
     # Remote hosts SHOULD have IS_SANDBOX set
     assert command == CommandString(
         f'{activity_cmd} export IS_SANDBOX=1 && {sid_export} && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
