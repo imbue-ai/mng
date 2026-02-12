@@ -156,7 +156,6 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
         command_name="stop",
         command_class=StopCliOptions,
     )
-    logger.debug("Started stop command")
 
     # Check for unsupported [future] options
     if opts.include:

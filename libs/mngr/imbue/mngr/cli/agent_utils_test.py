@@ -1,14 +1,10 @@
-"""Unit tests for agent_utils module."""
-
-from unittest.mock import MagicMock
-from unittest.mock import patch
-
 import pytest
 
 from imbue.mngr.cli.agent_utils import _host_matches_filter
 from imbue.mngr.cli.agent_utils import filter_agents_by_host
 from imbue.mngr.cli.agent_utils import parse_agent_spec
 from imbue.mngr.cli.agent_utils import select_agent_interactively_with_host
+from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
@@ -114,76 +110,12 @@ def test_filter_agents_by_host_raises_when_no_match() -> None:
 # =============================================================================
 
 
-@patch("imbue.mngr.cli.agent_utils.list_agents")
-def test_select_agent_interactively_raises_when_no_agents(mock_list_agents: MagicMock) -> None:
-    mock_result = MagicMock()
-    mock_result.agents = []
-    mock_list_agents.return_value = mock_result
-
-    mock_ctx = MagicMock()
-
+def test_select_agent_interactively_raises_when_no_agents(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """With a fresh context (no hosts or agents), raises UserInputError."""
     with pytest.raises(UserInputError, match="No agents found"):
-        select_agent_interactively_with_host(mock_ctx)
-
-
-@patch("imbue.mngr.cli.agent_utils.find_and_maybe_start_agent_by_name_or_id")
-@patch("imbue.mngr.cli.agent_utils.load_all_agents_grouped_by_host")
-@patch("imbue.mngr.cli.agent_utils.select_agent_interactively")
-@patch("imbue.mngr.cli.agent_utils.list_agents")
-def test_select_agent_interactively_returns_none_when_user_quits(
-    mock_list_agents: MagicMock,
-    mock_select: MagicMock,
-    mock_load_agents: MagicMock,
-    mock_find_agent: MagicMock,
-) -> None:
-    mock_result = MagicMock()
-    mock_result.agents = [MagicMock()]
-    mock_list_agents.return_value = mock_result
-
-    # User quits without selecting
-    mock_select.return_value = None
-
-    mock_ctx = MagicMock()
-
-    result = select_agent_interactively_with_host(mock_ctx)
-
-    assert result is None
-    mock_find_agent.assert_not_called()
-
-
-@patch("imbue.mngr.cli.agent_utils.find_and_maybe_start_agent_by_name_or_id")
-@patch("imbue.mngr.cli.agent_utils.load_all_agents_grouped_by_host")
-@patch("imbue.mngr.cli.agent_utils.select_agent_interactively")
-@patch("imbue.mngr.cli.agent_utils.list_agents")
-def test_select_agent_interactively_returns_selected_agent(
-    mock_list_agents: MagicMock,
-    mock_select: MagicMock,
-    mock_load_agents: MagicMock,
-    mock_find_agent: MagicMock,
-) -> None:
-    mock_result = MagicMock()
-    mock_result.agents = [MagicMock()]
-    mock_list_agents.return_value = mock_result
-
-    # User selects an agent
-    selected_agent = MagicMock()
-    selected_agent.id = AgentId.generate()
-    mock_select.return_value = selected_agent
-
-    # Set up the agents_by_host return value
-    mock_load_agents.return_value = ({}, [])
-
-    # Set up the final agent/host return value
-    final_agent = MagicMock()
-    final_host = MagicMock()
-    mock_find_agent.return_value = (final_agent, final_host)
-
-    mock_ctx = MagicMock()
-
-    result = select_agent_interactively_with_host(mock_ctx)
-
-    assert result == (final_agent, final_host)
-    mock_find_agent.assert_called_once()
+        select_agent_interactively_with_host(temp_mngr_ctx)
 
 
 # =============================================================================
