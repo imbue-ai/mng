@@ -56,7 +56,7 @@ class OpenCliOptions(CommonCliOptions):
     "--wait/--no-wait",
     default=False,
     show_default=True,
-    help="Wait for the browser to be closed before exiting",
+    help="Keep running after opening (press Ctrl+C to exit)",
 )
 @optgroup.option(
     "--active",
@@ -151,7 +151,7 @@ The agent can be specified as a positional argument or via --agent:
     examples=(
         ("Open an agent's URL by name", "mngr open my-agent"),
         ("Open without auto-starting if stopped", "mngr open my-agent --no-start"),
-        ("Open and wait for browser to close", "mngr open my-agent --wait"),
+        ("Open and keep running", "mngr open my-agent --wait"),
         ("Open and keep agent active", "mngr open my-agent --wait --active"),
     ),
     see_also=(

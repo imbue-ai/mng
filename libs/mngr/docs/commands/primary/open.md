@@ -27,5 +27,5 @@ mngr open --agent my-agent --type terminal
 
 ## Options
 
-- `--[no-]wait`: Wait for the browser to be closed before exiting [default: no-wait]
+- `--[no-]wait`: Keep running after opening (press Ctrl+C to exit) [default: no-wait]
 - `--active`: Continually update the active timestamp while connected (prevents idle shutdown). Only makes sense with `--wait`
