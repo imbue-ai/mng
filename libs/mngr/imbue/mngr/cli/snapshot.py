@@ -594,10 +594,9 @@ def snapshot_list(ctx: click.Context, **kwargs: Any) -> None:
             all_snapshots.append((host_id_str, snap))
 
     # Apply limit
-    if opts.limit is not None:
-        all_snapshots = all_snapshots[: opts.limit]
+    limited_snapshots = all_snapshots[: opts.limit] if opts.limit is not None else all_snapshots
 
-    _emit_list_snapshots(all_snapshots, output_opts)
+    _emit_list_snapshots(limited_snapshots, output_opts)
 
 
 # =============================================================================
