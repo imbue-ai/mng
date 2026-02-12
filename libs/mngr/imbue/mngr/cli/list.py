@@ -39,14 +39,30 @@ _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = ("name", "host", "provid
 
 
 @pure
+def _is_streaming_eligible(
+    is_watch: bool,
+    is_sort_explicit: bool,
+    limit: int | None,
+) -> bool:
+    """Whether the general conditions for streaming mode are met.
+
+    Streaming requires: no watch mode (needs repeated full fetches), no explicit sort
+    (needs all results before sorting), and no limit (needs sorted results for determinism).
+    """
+    return not is_watch and not is_sort_explicit and limit is None
+
+
+@pure
 def _should_use_streaming_mode(
     output_format: OutputFormat,
     is_watch: bool,
     is_sort_explicit: bool,
     limit: int | None,
 ) -> bool:
-    """Determine whether to use streaming mode for list output."""
-    return output_format == OutputFormat.HUMAN and not is_watch and not is_sort_explicit and limit is None
+    """Determine whether to use streaming mode for human list output."""
+    return output_format == OutputFormat.HUMAN and _is_streaming_eligible(
+        is_watch=is_watch, is_sort_explicit=is_sort_explicit, limit=limit
+    )
 
 
 class ListCliOptions(CommonCliOptions):
@@ -287,7 +303,9 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
 
     # Template output path: if --format-template is set, use streaming when possible, batch otherwise
     if opts.format_template is not None:
-        is_streaming_template = not bool(opts.watch) and not is_sort_explicit and limit is None
+        is_streaming_template = _is_streaming_eligible(
+            is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit, limit=limit
+        )
         if is_streaming_template:
             _list_streaming_template(
                 ctx,

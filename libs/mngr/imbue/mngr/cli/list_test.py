@@ -16,6 +16,7 @@ from imbue.mngr.cli.list import _format_streaming_header_row
 from imbue.mngr.cli.list import _format_value_as_string
 from imbue.mngr.cli.list import _get_field_value
 from imbue.mngr.cli.list import _get_sortable_value
+from imbue.mngr.cli.list import _is_streaming_eligible
 from imbue.mngr.cli.list import _parse_slice_spec
 from imbue.mngr.cli.list import _render_format_template
 from imbue.mngr.cli.list import _should_use_streaming_mode
@@ -667,6 +668,31 @@ def test_streaming_renderer_tty_erases_status_on_finish(monkeypatch) -> None:
     output = captured.getvalue()
     # The final write should end with an erase-line sequence (no trailing status)
     assert output.endswith("\r\x1b[K")
+
+
+# =============================================================================
+# Tests for _is_streaming_eligible
+# =============================================================================
+
+
+def test_is_streaming_eligible_all_conditions_met() -> None:
+    """_is_streaming_eligible should return True when no watch, no sort, no limit."""
+    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=False, limit=None) is True
+
+
+def test_is_streaming_eligible_watch_disables() -> None:
+    """_is_streaming_eligible should return False when watch is active."""
+    assert _is_streaming_eligible(is_watch=True, is_sort_explicit=False, limit=None) is False
+
+
+def test_is_streaming_eligible_explicit_sort_disables() -> None:
+    """_is_streaming_eligible should return False when sort is explicit."""
+    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=True, limit=None) is False
+
+
+def test_is_streaming_eligible_limit_disables() -> None:
+    """_is_streaming_eligible should return False when limit is set."""
+    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=False, limit=5) is False
 
 
 # =============================================================================
