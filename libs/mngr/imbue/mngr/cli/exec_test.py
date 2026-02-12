@@ -1,7 +1,6 @@
 """Unit tests for the exec CLI command."""
 
 import json
-from io import StringIO
 
 import pluggy
 import pytest
@@ -85,54 +84,44 @@ def test_exec_nonexistent_agent(
     assert result.exit_code != 0
 
 
-def test_emit_human_output_success(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_emit_human_output_success(capsys: pytest.CaptureFixture[str]) -> None:
     """Test human output prints stdout and logs success."""
-    captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
     result = ExecResult(agent_name="test-agent", stdout="hello world\n", stderr="", success=True)
     _emit_human_output(result)
 
-    assert "hello world" in captured.getvalue()
+    captured = capsys.readouterr()
+    assert "hello world" in captured.out
 
 
-def test_emit_human_output_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_emit_human_output_failure(capsys: pytest.CaptureFixture[str]) -> None:
     """Test human output handles failed commands."""
-    captured_out = StringIO()
-    captured_err = StringIO()
-    monkeypatch.setattr("sys.stdout", captured_out)
-    monkeypatch.setattr("sys.stderr", captured_err)
-
     result = ExecResult(agent_name="test-agent", stdout="", stderr="bad command\n", success=False)
     _emit_human_output(result)
 
-    assert "bad command" in captured_err.getvalue()
+    captured = capsys.readouterr()
+    assert "bad command" in captured.err
 
 
-def test_emit_json_output(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_emit_json_output(capsys: pytest.CaptureFixture[str]) -> None:
     """Test JSON output format."""
-    captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
     result = ExecResult(agent_name="test-agent", stdout="hello\n", stderr="", success=True)
     _emit_json_output(result)
 
-    output = json.loads(captured.getvalue().strip())
+    captured = capsys.readouterr()
+    output = json.loads(captured.out.strip())
     assert output["agent"] == "test-agent"
     assert output["stdout"] == "hello\n"
     assert output["stderr"] == ""
     assert output["success"] is True
 
 
-def test_emit_jsonl_output(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_emit_jsonl_output(capsys: pytest.CaptureFixture[str]) -> None:
     """Test JSONL output format."""
-    captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
     result = ExecResult(agent_name="test-agent", stdout="hello\n", stderr="", success=True)
     _emit_jsonl_output(result)
 
-    output = json.loads(captured.getvalue().strip())
+    captured = capsys.readouterr()
+    output = json.loads(captured.out.strip())
     assert output["event"] == "exec_result"
     assert output["agent"] == "test-agent"
     assert output["success"] is True
