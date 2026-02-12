@@ -92,6 +92,10 @@ def add(
         logger.error("Changeling '{}' already exists. Use 'changeling update' to modify it.", name)
         raise SystemExit(1) from None
 
+    if not definition.is_enabled:
+        click.echo(f"Changeling '{name}' added to config (disabled, not deployed to Modal)")
+        return
+
     try:
         app_name = deploy_changeling(definition)
     except ChangelingDeployError as e:

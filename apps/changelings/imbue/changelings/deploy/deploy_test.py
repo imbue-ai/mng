@@ -1,11 +1,13 @@
 """Tests for the changeling deployment logic."""
 
 import json
+import sys
 from pathlib import Path
 
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.data_types import DEFAULT_SECRETS
+from imbue.changelings.deploy.deploy import build_cron_mngr_command
 from imbue.changelings.deploy.deploy import build_deploy_env
 from imbue.changelings.deploy.deploy import build_modal_deploy_command
 from imbue.changelings.deploy.deploy import build_modal_secret_command
@@ -251,3 +253,116 @@ def test_serialize_changeling_config_roundtrip_preserves_defaults() -> None:
     assert parsed["initial_message"] == DEFAULT_INITIAL_MESSAGE
     assert parsed["secrets"] == list(DEFAULT_SECRETS)
     assert parsed["is_enabled"] is True
+
+
+# -- build_cron_mngr_command tests --
+
+
+def _make_changeling(
+    name: str = "test-changeling",
+    template: str = "code-guardian",
+    agent_type: str = "code-guardian",
+    branch: str = "main",
+    initial_message: str = DEFAULT_INITIAL_MESSAGE,
+    extra_mngr_args: str = "",
+    env_vars: dict[str, str] | None = None,
+    secrets: tuple[str, ...] | None = None,
+) -> ChangelingDefinition:
+    """Create a ChangelingDefinition for testing."""
+    kwargs: dict = {
+        "name": ChangelingName(name),
+        "template": ChangelingTemplateName(template),
+        "agent_type": agent_type,
+        "branch": branch,
+        "initial_message": initial_message,
+        "extra_mngr_args": extra_mngr_args,
+        "env_vars": env_vars or {},
+    }
+    if secrets is not None:
+        kwargs["secrets"] = secrets
+    return ChangelingDefinition(**kwargs)
+
+
+def test_build_cron_mngr_command_starts_with_uv_run_mngr() -> None:
+    """The cron command should use `uv run mngr` instead of python -m."""
+    changeling = _make_changeling()
+    env_file = Path("/tmp/test.env")
+    cmd = build_cron_mngr_command(changeling, env_file)
+
+    assert cmd[0] == "uv"
+    assert cmd[1] == "run"
+    assert cmd[2] == "mngr"
+    assert cmd[3] == "create"
+
+
+def test_build_cron_mngr_command_does_not_include_python_executable() -> None:
+    """The cron command should NOT include sys.executable or -m flag."""
+    changeling = _make_changeling()
+    env_file = Path("/tmp/test.env")
+    cmd = build_cron_mngr_command(changeling, env_file)
+
+    assert sys.executable not in cmd
+    assert "-m" not in cmd
+    assert "imbue.mngr.main" not in cmd
+
+
+def test_build_cron_mngr_command_includes_modal_flag() -> None:
+    """The cron command should always target Modal."""
+    changeling = _make_changeling()
+    env_file = Path("/tmp/test.env")
+    cmd = build_cron_mngr_command(changeling, env_file)
+
+    in_idx = cmd.index("--in")
+    assert cmd[in_idx + 1] == "modal"
+
+
+def test_build_cron_mngr_command_includes_env_file() -> None:
+    """The cron command should include the env file path."""
+    changeling = _make_changeling()
+    env_file = Path("/tmp/my-secrets.env")
+    cmd = build_cron_mngr_command(changeling, env_file)
+
+    file_idx = cmd.index("--host-env-file")
+    assert cmd[file_idx + 1] == "/tmp/my-secrets.env"
+
+
+def test_build_cron_mngr_command_includes_core_flags() -> None:
+    """The cron command should include all core changeling flags."""
+    changeling = _make_changeling()
+    env_file = Path("/tmp/test.env")
+    cmd = build_cron_mngr_command(changeling, env_file)
+
+    assert "--no-connect" in cmd
+    assert "--await-agent-stopped" in cmd
+    assert "--no-ensure-clean" in cmd
+    assert "CREATOR=changeling" in cmd
+
+
+def test_build_cron_mngr_command_includes_agent_name_with_timestamp() -> None:
+    """The agent name should include the changeling name and a timestamp."""
+    changeling = _make_changeling(name="my-guardian")
+    env_file = Path("/tmp/test.env")
+    cmd = build_cron_mngr_command(changeling, env_file)
+
+    agent_name = cmd[4]
+    assert agent_name.startswith("my-guardian-")
+
+
+def test_build_cron_mngr_command_uses_agent_type() -> None:
+    """The cron command should use the configured agent type."""
+    changeling = _make_changeling(agent_type="code-guardian")
+    env_file = Path("/tmp/test.env")
+    cmd = build_cron_mngr_command(changeling, env_file)
+
+    assert cmd[5] == "code-guardian"
+
+
+def test_build_cron_mngr_command_includes_extra_mngr_args() -> None:
+    """Extra mngr args should be appended to the cron command."""
+    changeling = _make_changeling(extra_mngr_args="--verbose --timeout 300")
+    env_file = Path("/tmp/test.env")
+    cmd = build_cron_mngr_command(changeling, env_file)
+
+    assert "--verbose" in cmd
+    assert "--timeout" in cmd
+    assert "300" in cmd

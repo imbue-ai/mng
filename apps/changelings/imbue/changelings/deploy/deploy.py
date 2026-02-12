@@ -6,6 +6,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from imbue.changelings.cli.run import build_mngr_create_command
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.errors import ChangelingDeployError
 from imbue.imbue_common.logging import log_span
@@ -102,6 +103,22 @@ def collect_secret_values(
 def serialize_changeling_config(changeling: ChangelingDefinition) -> str:
     """Serialize a changeling definition to JSON for embedding in the Modal image."""
     return changeling.model_dump_json()
+
+
+@pure
+def build_cron_mngr_command(
+    changeling: ChangelingDefinition,
+    env_file_path: Path,
+) -> list[str]:
+    """Build the mngr create command for use inside the cron runner.
+
+    Uses build_mngr_create_command to construct the base command, then converts
+    the python -m invocation to a `uv run mngr` invocation suitable for running
+    in the deployed Modal image where mngr is installed as a CLI tool.
+    """
+    base_cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
+    # Replace `python -m imbue.mngr.main create ...` with `uv run mngr create ...`
+    return ["uv", "run", "mngr"] + base_cmd[3:]
 
 
 def find_repo_root() -> Path:
