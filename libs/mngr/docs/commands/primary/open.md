@@ -12,10 +12,9 @@ mngr open [OPTIONS] [AGENT] [URL_TYPE]
 
 Open an agent's URL in a web browser.
 
-Opens the URL associated with an agent. Agents can have a variety of
-different URLs associated with them. If the URL type is unspecified (and
-there is more than one URL), a TUI lets you pick from the available
-URLs [future].
+Opens the URL associated with an agent. Agents can have multiple URLs
+of different types (e.g., default, terminal, chat). Use --type to open
+a specific URL type. If no type is specified, the default URL is opened.
 
 Use `mngr connect` to attach to an agent via the terminal instead.
 
@@ -31,7 +30,7 @@ mngr open [OPTIONS] [AGENT] [URL_TYPE]
 ## Arguments
 
 - `AGENT`: The agent to open (by name or ID). If not specified, opens the most recently created agent
-- `URL_TYPE`: The type of URL to open (e.g., `chat`, `terminal`, `diff`) [future]
+- `URL_TYPE`: The type of URL to open (e.g., `default`, `terminal`, `chat`)
 
 **Options:**
 
@@ -40,7 +39,7 @@ mngr open [OPTIONS] [AGENT] [URL_TYPE]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--agent` | text | The agent to open (by name or ID) | None |
-| `-t`, `--type` | text | The type of URL to open (e.g., chat, terminal, diff) [future] | None |
+| `-t`, `--type` | text | The type of URL to open (e.g., default, terminal, chat) | None |
 | `--start`, `--no-start` | boolean | Automatically start the agent if stopped | `True` |
 
 ## Options
@@ -82,6 +81,12 @@ mngr open [OPTIONS] [AGENT] [URL_TYPE]
 
 ```bash
 $ mngr open my-agent
+```
+
+**Open a specific URL type**
+
+```bash
+$ mngr open my-agent terminal
 ```
 
 **Open without auto-starting if stopped**

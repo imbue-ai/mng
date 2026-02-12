@@ -390,12 +390,14 @@ def create_test_base_agent(
     temp_host_dir: Path,
     temp_work_dir: Path,
     reported_url: str | None = None,
+    # Additional URL types to write to status/urls/<type>
+    reported_urls: dict[str, str] | None = None,
 ) -> BaseAgent:
     """Create a real BaseAgent on a local host for testing.
 
     Shared helper used across test files to avoid duplicating BaseAgent
     construction logic. Creates the agent directory, data.json, and optionally
-    a reported URL file.
+    reported URL files.
     """
     host = local_provider.create_host(HostName("test"))
 
@@ -417,11 +419,18 @@ def create_test_base_agent(
     }
     (agent_dir / "data.json").write_text(json.dumps(data, indent=2))
 
-    # Write the reported URL if provided
+    # Write the default reported URL if provided
     if reported_url is not None:
         status_dir = agent_dir / "status"
         status_dir.mkdir(parents=True, exist_ok=True)
         (status_dir / "url").write_text(reported_url)
+
+    # Write additional URL types to status/urls/<type>
+    if reported_urls is not None:
+        urls_dir = agent_dir / "status" / "urls"
+        urls_dir.mkdir(parents=True, exist_ok=True)
+        for url_type, url_value in reported_urls.items():
+            (urls_dir / url_type).write_text(url_value)
 
     return BaseAgent(
         id=agent_id,
