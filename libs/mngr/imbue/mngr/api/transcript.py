@@ -10,7 +10,6 @@ from imbue.imbue_common.logging import log_span
 from imbue.mngr.api.find import resolve_agent_reference
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.interfaces.host import OnlineHostInterface
@@ -54,8 +53,9 @@ def get_agent_transcript(
             resolved_host=None,
             agents_by_host=agents_by_host,
         )
-    if resolved is None:
-        raise MngrError(f"Failed to resolve agent reference for '{agent_identifier}'")
+    # resolve_agent_reference raises UserInputError for non-None input that doesn't match;
+    # it only returns None when agent_identifier is None (which can't happen here).
+    assert resolved is not None
     matched_host_ref, matched_agent_ref = resolved
 
     agent_name = str(matched_agent_ref.agent_name)
@@ -68,17 +68,15 @@ def get_agent_transcript(
     host_interface = provider.get_host(matched_host_ref.host_id)
 
     if not isinstance(host_interface, OnlineHostInterface):
-        raise HostOfflineError(f"Host '{matched_host_ref.host_id}' is offline. Cannot read transcript.")
-
-    host = host_interface
+        raise MngrError(f"Host '{matched_host_ref.host_id}' is offline. Cannot read transcript.")
 
     # Find the JSONL session file on the host
     agent_uuid = matched_agent_ref.agent_id.get_uuid()
-    session_file_path = _find_session_file(host, agent_uuid, agent_name)
+    session_file_path = _find_session_file(host_interface, agent_uuid, agent_name)
 
     # Read the transcript content
     with log_span("Reading transcript file for agent {}", agent_name):
-        content = host.read_text_file(session_file_path)
+        content = host_interface.read_text_file(session_file_path)
 
     return TranscriptResult(
         agent_name=agent_name,
