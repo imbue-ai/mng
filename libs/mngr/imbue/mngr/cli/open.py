@@ -43,7 +43,7 @@ class OpenCliOptions(CommonCliOptions):
     "-t",
     "--type",
     "url_type",
-    help="The type of URL to open (e.g., chat, terminal, diff) [future]",
+    help="The type of URL to open (e.g., default, terminal, chat)",
 )
 @optgroup.option(
     "--start/--no-start",
@@ -69,10 +69,9 @@ class OpenCliOptions(CommonCliOptions):
 def open_command(ctx: click.Context, **kwargs: Any) -> None:
     """Open an agent's URL in a web browser.
 
-    Opens the URL associated with an agent. Agents can have a variety of
-    different URLs associated with them. If the URL type is unspecified (and
-    there is more than one URL), a TUI lets you pick from the available
-    URLs [future].
+    Opens the URL associated with an agent. Agents can have multiple URLs
+    of different types (e.g., default, terminal, chat). Use --type to open
+    a specific URL type. If no type is specified, the default URL is opened.
 
     Use `mngr connect` to attach to an agent via the terminal instead.
 
@@ -84,10 +83,6 @@ def open_command(ctx: click.Context, **kwargs: Any) -> None:
         command_name="open",
         command_class=OpenCliOptions,
     )
-
-    # The --type option is planned for when plugins provide multiple URL types per agent
-    if opts.url_type is not None:
-        raise NotImplementedError("--type is not implemented yet")
 
     # --active only makes sense with --wait
     if opts.active and not opts.wait:
@@ -132,6 +127,7 @@ def open_command(ctx: click.Context, **kwargs: Any) -> None:
         agent=agent,
         is_wait=opts.wait,
         is_active=opts.active,
+        url_type=opts.url_type,
     )
 
 
@@ -142,9 +138,9 @@ _OPEN_HELP_METADATA = CommandHelpMetadata(
     synopsis="mngr open [OPTIONS] [AGENT] [URL_TYPE]",
     description="""Open an agent's URL in a web browser.
 
-Opens the URL associated with an agent. Agents can have a variety of different
-URLs associated with them. If the URL type is unspecified (and there is more
-than one URL), a TUI lets you pick from the available URLs [future].
+Opens the URL associated with an agent. Agents can have multiple URLs of
+different types (e.g., default, terminal, chat). Use --type to open a
+specific URL type. If no type is specified, the default URL is opened.
 
 Use `mngr connect` to attach to an agent via the terminal instead.
 
@@ -157,9 +153,10 @@ The following are equivalent:
   mngr open --agent my-agent --type terminal""",
     aliases=(),
     arguments_description="""- `AGENT`: The agent to open (by name or ID). If not specified, opens the most recently created agent
-- `URL_TYPE`: The type of URL to open (e.g., `chat`, `terminal`, `diff`) [future]""",
+- `URL_TYPE`: The type of URL to open (e.g., `default`, `terminal`, `chat`)""",
     examples=(
         ("Open an agent's URL by name", "mngr open my-agent"),
+        ("Open a specific URL type", "mngr open my-agent terminal"),
         ("Open without auto-starting if stopped", "mngr open my-agent --no-start"),
         ("Open and keep running", "mngr open my-agent --wait"),
         ("Open and keep agent active", "mngr open my-agent --wait --active"),
