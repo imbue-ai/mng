@@ -566,6 +566,28 @@ class Host(BaseHost, OnlineHostInterface):
         lock_path = self.host_dir / "host_lock"
         return self._get_file_mtime(lock_path)
 
+    def is_lock_held(self) -> bool:
+        """Check whether the host lock is currently held.
+
+        For local hosts, attempts a non-blocking flock to test if the lock is held by another
+        process (the lock file persists after release, so file existence alone is insufficient).
+        For remote hosts, checks whether the lock file exists (it is deleted on release).
+        """
+        lock_path = self.host_dir / "host_lock"
+
+        if self.is_local:
+            if not lock_path.exists():
+                return False
+            try:
+                with open(str(lock_path), "r") as f:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                return False
+            except (BlockingIOError, OSError):
+                return True
+        else:
+            return self.get_reported_lock_time() is not None
+
     # =========================================================================
     # Certified Data
     # =========================================================================

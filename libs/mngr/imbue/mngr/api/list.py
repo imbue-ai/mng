@@ -409,7 +409,7 @@ def _assemble_host_info(
         uptime_seconds = host.get_uptime_seconds()
         resource = host.get_provider_resources()
         locked_time = host.get_reported_lock_time()
-        is_locked = locked_time is not None
+        is_locked = host.is_lock_held()
     else:
         boot_time = None
         uptime_seconds = None
