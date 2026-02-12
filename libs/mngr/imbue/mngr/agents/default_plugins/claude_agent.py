@@ -235,7 +235,7 @@ class ClaudeAgent(BaseAgent):
             """trap 'rm -f "$_MNGR_ACT_LOCK"' EXIT;""",
             'mkdir -p "$MNGR_AGENT_STATE_DIR/activity";',
             f"while tmux has-session -t '{session_name}' 2>/dev/null; do",
-            "if [ -f $MNGR_AGENT_STATE_DIR/active ]; then",
+            'if [ -f "$MNGR_AGENT_STATE_DIR/active" ]; then',
             """printf '{"time": %d, "source": "activity_updater"}'""",
             '"$(($(date +%s) * 1000))" > "$MNGR_AGENT_STATE_DIR/activity/agent";',
             "fi;",

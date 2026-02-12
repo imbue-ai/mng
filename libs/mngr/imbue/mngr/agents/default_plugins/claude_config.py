@@ -358,7 +358,7 @@ def build_readiness_hooks_config() -> dict[str, Any]:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "rm -rf $MNGR_AGENT_STATE_DIR/active",
+                            "command": 'rm -f "$MNGR_AGENT_STATE_DIR/active"',
                         },
                     ],
                 }
