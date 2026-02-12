@@ -991,3 +991,81 @@ no_copy_work_dir = true
     assert result.exit_code != 0
     assert "Template 'nonexistent' not found" in result.output
     assert "existing" in result.output
+
+
+# =============================================================================
+# Tests for ensure-clean behavior with --base-branch
+# =============================================================================
+
+
+def test_ensure_clean_rejects_dirty_worktree_by_default(
+    cli_runner: CliRunner,
+    temp_git_repo: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Creating an agent from a dirty git repo fails when ensure-clean is enabled (the default)."""
+    # Make the repo dirty by creating an untracked file
+    (temp_git_repo / "dirty.txt").write_text("uncommitted change")
+
+    result = cli_runner.invoke(
+        create,
+        [
+            "--name",
+            "test-dirty",
+            "--agent-cmd",
+            "sleep 1",
+            "--source",
+            str(temp_git_repo),
+            "--no-connect",
+        ],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "uncommitted changes" in result.output
+
+
+def test_ensure_clean_skipped_for_worktree_with_explicit_base_branch(
+    cli_runner: CliRunner,
+    temp_git_repo: Path,
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Creating a worktree agent with --base-branch skips the ensure-clean check."""
+    # Create a second branch to use as base
+    subprocess.run(
+        ["git", "branch", "other-branch"],
+        cwd=temp_git_repo,
+        check=True,
+        capture_output=True,
+    )
+
+    # Make the repo dirty
+    (temp_git_repo / "dirty.txt").write_text("uncommitted change")
+
+    agent_name = f"test-base-branch-clean-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 847192",
+                "--source",
+                str(temp_git_repo),
+                "--base-branch",
+                "other-branch",
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
+        assert "uncommitted changes" not in result.output
