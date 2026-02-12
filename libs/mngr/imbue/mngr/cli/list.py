@@ -951,10 +951,11 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
 
 
 _TEMPLATE_ESCAPE_SEQUENCES: Final[tuple[tuple[str, str], ...]] = (
+    # Literal backslash MUST be first: otherwise \\t would be misinterpreted as a tab
+    ("\\\\", "\\"),
     ("\\t", "\t"),
     ("\\n", "\n"),
     ("\\r", "\r"),
-    ("\\\\", "\\"),
 )
 
 

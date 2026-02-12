@@ -855,6 +855,13 @@ def test_process_template_escapes_no_escapes() -> None:
     assert _process_template_escapes("{name} {state}") == "{name} {state}"
 
 
+def test_process_template_escapes_literal_backslash_before_t() -> None:
+    """_process_template_escapes should treat \\\\t as literal backslash + t, not as tab."""
+    # Input "\\\\t" is Python string \\t (backslash-backslash-t).
+    # The user intended a literal backslash followed by 't', not a tab.
+    assert _process_template_escapes("\\\\t") == "\\t"
+
+
 # =============================================================================
 # Tests for _render_format_template
 # =============================================================================
