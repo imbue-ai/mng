@@ -64,7 +64,8 @@ class AgentInfo(FrozenModel):
 
     state: AgentLifecycleState = Field(description="Agent lifecycle state (STOPPED/RUNNING/WAITING/REPLACED/DONE)")
     status: AgentStatus | None = Field(default=None, description="Current status (reported)")
-    url: str | None = Field(default=None, description="Agent URL (reported)")
+    url: str | None = Field(default=None, description="Default agent URL (reported)")
+    urls: dict[str, str] = Field(default_factory=dict, description="All agent URLs keyed by type (reported)")
     start_time: datetime | None = Field(default=None, description="Last start time (reported)")
     runtime_seconds: float | None = Field(default=None, description="Runtime in seconds")
     user_activity_time: datetime | None = Field(default=None, description="Last user activity (reported)")
@@ -457,6 +458,8 @@ def _assemble_host_info(
                 # Get idle_mode from host's activity config
                 activity_config = host.get_activity_config()
 
+                reported_urls = agent.get_reported_urls()
+
                 agent_info = AgentInfo(
                     id=agent.id,
                     name=agent.name,
@@ -468,6 +471,7 @@ def _assemble_host_info(
                     state=agent.get_lifecycle_state(),
                     status=agent_status,
                     url=agent.get_reported_url(),
+                    urls=reported_urls,
                     start_time=agent.get_reported_start_time(),
                     runtime_seconds=agent.runtime_seconds,
                     user_activity_time=agent.get_reported_activity_time(ActivitySource.USER),
