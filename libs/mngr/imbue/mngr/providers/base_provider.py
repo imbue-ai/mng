@@ -51,8 +51,8 @@ class BaseProviderInstance(ProviderInstanceInterface):
 
     def list_hosts(
         self,
+        cg: ConcurrencyGroup,
         include_destroyed: bool = False,
-        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         raise NotImplementedError()
 

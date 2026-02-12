@@ -627,7 +627,7 @@ def test_list_all_host_records_returns_empty_when_volume_empty(
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = []
 
-    host_records = modal_provider._list_all_host_records()
+    host_records = modal_provider._list_all_host_records(modal_provider.mngr_ctx.concurrency_group)
 
     assert host_records == []
     mock_volume.listdir.assert_called_once_with("/")
@@ -648,7 +648,7 @@ def test_list_all_host_records_returns_records_from_volume(
 
     # Mock _read_host_record to return the host record
     with patch.object(modal_provider, "_read_host_record", return_value=host_record):
-        host_records = modal_provider._list_all_host_records()
+        host_records = modal_provider._list_all_host_records(modal_provider.mngr_ctx.concurrency_group)
 
     assert len(host_records) == 1
     assert host_records[0].host_id == str(host_id)
@@ -671,7 +671,7 @@ def test_list_all_host_records_skips_non_json_files(
 
     # Mock _read_host_record - only called for .json files
     with patch.object(modal_provider, "_read_host_record", return_value=None) as mock_read:
-        modal_provider._list_all_host_records()
+        modal_provider._list_all_host_records(modal_provider.mngr_ctx.concurrency_group)
         # Should only have tried to read the .json file
         assert mock_read.call_count == 1
 

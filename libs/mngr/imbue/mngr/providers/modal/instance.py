@@ -486,7 +486,7 @@ class ModalProviderInstance(BaseProviderInstance):
         self._host_by_id_cache.pop(host_id, None)
         self._host_record_cache_by_id.pop(host_id, None)
 
-    def _list_all_host_records(self, cg: ConcurrencyGroup | None = None) -> list[HostRecord]:
+    def _list_all_host_records(self, cg: ConcurrencyGroup) -> list[HostRecord]:
         """List all host records stored on the volume.
 
         Returns a list of all HostRecord objects found on the volume.
@@ -494,11 +494,7 @@ class ModalProviderInstance(BaseProviderInstance):
         """
         volume = self._get_volume()
 
-        with (
-            cg.make_concurrency_group("modal_list_all_host_records")
-            if cg is not None
-            else ConcurrencyGroup(name="modal_list_all_host_records")
-        ) as list_cg:
+        with cg.make_concurrency_group(name="modal_list_all_host_records") as list_cg:
             host_records_by_id: dict[HostId, HostRecord] = {}
             threads: list[ObservableThread] = []
 
@@ -1716,7 +1712,7 @@ log "=== Shutdown script completed ==="
 
             # No sandbox or couldn't connect - search host records by name (for stopped hosts)
             if host_obj is None:
-                for host_record in self._list_all_host_records():
+                for host_record in self._list_all_host_records(cg=self.mngr_ctx.concurrency_group):
                     if host_record.host_name == str(host):
                         host_obj = self._create_host_from_host_record(host_record)
 
@@ -1731,8 +1727,8 @@ log "=== Shutdown script completed ==="
     @handle_modal_auth_error
     def list_hosts(
         self,
+        cg: ConcurrencyGroup,
         include_destroyed: bool = False,
-        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         """List all Modal sandbox hosts, including stopped ones.
 
@@ -1764,11 +1760,7 @@ log "=== Shutdown script completed ==="
         # Use ConcurrencyGroup for thread-safe parallel fetching
         cg_result: dict[str, Any] = {}
         try:
-            with (
-                cg.make_concurrency_group(f"modal_list_hosts_{self.name}")
-                if cg is not None
-                else ConcurrencyGroup(name="modal::list_hosts")
-            ) as list_cg:
+            with cg.make_concurrency_group(name=f"modal_list_hosts_{self.name}") as list_cg:
                 thread_1 = list_cg.start_new_thread(
                     target=_store_result_from_callable,
                     args=(cg_result, "sandboxes", self._list_sandboxes),
