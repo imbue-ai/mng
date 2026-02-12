@@ -12,14 +12,22 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.primitives import AgentId
+
+
+class SessionTranscript(FrozenModel):
+    """A single session's transcript data."""
+
+    session_id: str = Field(description="Session ID (UUID)")
+    file_path: Path = Field(description="Path to the session file on the host")
+    content: str = Field(description="Raw JSONL transcript content")
 
 
 class TranscriptResult(FrozenModel):
-    """Result of fetching an agent's transcript."""
+    """Result of fetching an agent's transcript across all sessions."""
 
     agent_name: str = Field(description="Name of the agent")
-    content: str = Field(description="Raw JSONL transcript content")
-    session_file_path: Path = Field(description="Path to the session file on the host")
+    sessions: tuple[SessionTranscript, ...] = Field(description="Transcripts for each session, in chronological order")
 
 
 class TranscriptNotFoundError(MngrError, FileNotFoundError):
@@ -40,7 +48,7 @@ def get_agent_transcript(
     mngr_ctx: MngrContext,
     agent_identifier: str,
 ) -> TranscriptResult:
-    """Retrieve the raw JSONL session transcript for a single agent."""
+    """Retrieve the raw JSONL session transcripts for a single agent."""
 
     # Load all agents grouped by host
     with log_span("Loading agents from all providers"):
@@ -71,65 +79,92 @@ def get_agent_transcript(
     if not isinstance(host_interface, OnlineHostInterface):
         raise MngrError(f"Host '{matched_host_ref.host_id}' is offline. Cannot read transcript.")
 
-    # Find the JSONL session file on the host.
-    # First try the tracked session ID (written by Claude Code's SessionStart hook),
-    # then fall back to the agent's UUID (used as --session-id on first launch).
+    # Build the ordered list of session IDs to search for.
+    # The history file has one session ID per line in chronological order.
+    # The agent UUID is always the first session (used as --session-id on first launch).
     agent_id = matched_agent_ref.agent_id
     agent_state_dir = host_interface.host_dir / "agents" / str(agent_id)
-    session_id = _read_tracked_session_id(host_interface, agent_state_dir, agent_name)
-    search_id = session_id if session_id else str(agent_id.get_uuid())
-    session_file_path = _find_session_file(host_interface, search_id, agent_name)
+    session_ids = _get_all_session_ids(host_interface, agent_state_dir, agent_id, agent_name)
 
-    # Read the transcript content
-    with log_span("Reading transcript file for agent {}", agent_name):
-        content = host_interface.read_text_file(session_file_path)
+    # Find and read all session files
+    sessions: list[SessionTranscript] = []
+    for session_id in session_ids:
+        session_file = _find_session_file(host_interface, session_id, agent_name)
+        if session_file is None:
+            logger.debug("Session file not found for session {}, skipping", session_id)
+            continue
+        with log_span("Reading transcript file {} for agent {}", session_id, agent_name):
+            content = host_interface.read_text_file(session_file)
+        sessions.append(
+            SessionTranscript(
+                session_id=session_id,
+                file_path=session_file,
+                content=content,
+            )
+        )
+
+    if not sessions:
+        raise TranscriptNotFoundError(agent_name)
 
     return TranscriptResult(
         agent_name=agent_name,
-        content=content,
-        session_file_path=session_file_path,
+        sessions=tuple(sessions),
     )
 
 
-def _read_tracked_session_id(
+def _get_all_session_ids(
     host: OnlineHostInterface,
     agent_state_dir: Path,
+    agent_id: AgentId,
     agent_name: str,
-) -> str | None:
-    """Read the tracked session ID from the agent's state directory.
+) -> list[str]:
+    """Build the ordered list of all session IDs for an agent.
 
-    Returns the session ID string if the file exists and is non-empty, else None.
+    Reads claude_session_id_history (one ID per line, chronological order).
+    Falls back to the agent UUID if no history file exists.
+    Deduplicates while preserving order.
     """
-    session_id_path = agent_state_dir / "claude_session_id"
+    history_path = agent_state_dir / "claude_session_id_history"
     try:
-        content = host.read_text_file(session_id_path).strip()
+        content = host.read_text_file(history_path).strip()
         if content:
-            logger.debug("Found tracked session ID for agent {}: {}", agent_name, content)
-            return content
+            history_ids = [line.strip() for line in content.splitlines() if line.strip()]
+            logger.debug("Found {} session IDs in history for agent {}", len(history_ids), agent_name)
+            # The agent UUID is the initial session; include it first if not already in history
+            agent_uuid_str = str(agent_id.get_uuid())
+            seen: set[str] = set()
+            all_ids: list[str] = []
+            for sid in [agent_uuid_str] + history_ids:
+                if sid not in seen:
+                    seen.add(sid)
+                    all_ids.append(sid)
+            return all_ids
     except FileNotFoundError:
-        logger.debug("No tracked session ID file for agent {}", agent_name)
-    return None
+        logger.debug("No session history file for agent {}", agent_name)
+
+    # Fall back to agent UUID only
+    return [str(agent_id.get_uuid())]
 
 
 def _find_session_file(
     host: OnlineHostInterface,
     search_id: str,
     agent_name: str,
-) -> Path:
-    """Find the Claude Code session JSONL file on the host."""
+) -> Path | None:
+    """Find a Claude Code session JSONL file on the host. Returns None if not found."""
     find_command = f"find ~/.claude/projects/ -name '{search_id}.jsonl' -type f 2>/dev/null | head -1"
 
-    with log_span("Searching for session file for agent {}", agent_name):
+    with log_span("Searching for session file {} for agent {}", search_id, agent_name):
         result = host.execute_command(find_command)
 
     if not result.success:
         logger.debug("Find command failed for agent {} (id={}): {}", agent_name, search_id, result.stderr)
-        raise TranscriptNotFoundError(agent_name)
+        return None
 
     session_path = result.stdout.strip()
     if not session_path:
         logger.debug("No session file found for agent {} (id={})", agent_name, search_id)
-        raise TranscriptNotFoundError(agent_name)
+        return None
 
     logger.debug("Found session file for agent {}: {}", agent_name, session_path)
     return Path(session_path)

@@ -36,8 +36,9 @@ class TranscriptCliOptions(CommonCliOptions):
 def transcript(ctx: click.Context, **kwargs) -> None:
     """Retrieve the raw JSONL session transcript for an agent.
 
-    Reads the Claude Code session data from the agent's host and outputs
-    the raw JSONL content to stdout.
+    Reads all Claude Code session data from the agent's host and outputs
+    the raw JSONL content to stdout. Multiple sessions are concatenated
+    in chronological order.
 
     Examples:
 
@@ -77,10 +78,11 @@ def _emit_output(result: TranscriptResult, output_opts: OutputOptions) -> None:
 
 
 def _emit_raw_output(result: TranscriptResult) -> None:
-    """Emit raw JSONL content to stdout."""
-    sys.stdout.write(result.content)
-    if result.content and not result.content.endswith("\n"):
-        sys.stdout.write("\n")
+    """Emit raw JSONL content from all sessions to stdout."""
+    for session in result.sessions:
+        sys.stdout.write(session.content)
+        if session.content and not session.content.endswith("\n"):
+            sys.stdout.write("\n")
     sys.stdout.flush()
 
 
@@ -88,8 +90,14 @@ def _emit_json_output(result: TranscriptResult) -> None:
     """Emit JSON output wrapping the transcript content."""
     output_data = {
         "agent_name": result.agent_name,
-        "session_file_path": str(result.session_file_path),
-        "content": result.content,
+        "sessions": [
+            {
+                "session_id": session.session_id,
+                "file_path": str(session.file_path),
+                "content": session.content,
+            }
+            for session in result.sessions
+        ],
     }
     emit_final_json(output_data)
 
@@ -101,9 +109,9 @@ _TRANSCRIPT_HELP_METADATA = CommandHelpMetadata(
     synopsis="mngr transcript <AGENT>",
     description="""Retrieve the raw JSONL session transcript for an agent.
 
-Reads the Claude Code session data from the agent's host and outputs
-the raw JSONL content to stdout. The session file is located by searching
-for the agent's UUID under ~/.claude/projects/ on the host.""",
+Reads all Claude Code session data from the agent's host and outputs
+the raw JSONL content to stdout. Multiple sessions (from restarts) are
+concatenated in chronological order.""",
     examples=(
         ("View an agent's transcript", "mngr transcript my-agent"),
         ("Get transcript as JSON", "mngr transcript my-agent --format json"),
