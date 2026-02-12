@@ -19,9 +19,6 @@ def git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     fake_home = tmp_path / "fake_home"
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    # Clear any XDG override so git doesn't find config elsewhere.
-    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
 
     repo_dir = tmp_path / "test_repo"
     repo_dir.mkdir()
