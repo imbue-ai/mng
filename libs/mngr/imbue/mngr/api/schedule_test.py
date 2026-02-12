@@ -1,3 +1,4 @@
+import shlex
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -10,7 +11,6 @@ from imbue.mngr.api.schedule import _build_crontab_command
 from imbue.mngr.api.schedule import _crontab_marker
 from imbue.mngr.api.schedule import _load_schedules
 from imbue.mngr.api.schedule import _save_schedules
-from imbue.mngr.api.schedule import _shell_quote
 from imbue.mngr.primitives import ScheduleName
 
 
@@ -38,14 +38,6 @@ def test_crontab_marker_contains_schedule_name() -> None:
     assert marker == "# mngr-schedule:my-schedule"
 
 
-def test_shell_quote_simple_string() -> None:
-    assert _shell_quote("hello world") == "'hello world'"
-
-
-def test_shell_quote_string_with_single_quotes() -> None:
-    assert _shell_quote("it's a test") == "'it'\\''s a test'"
-
-
 def test_build_crontab_command_with_template() -> None:
     schedule = _make_schedule(
         name="hourly-fixer",
@@ -57,7 +49,7 @@ def test_build_crontab_command_with_template() -> None:
     assert line.startswith("0 * * * * /usr/local/bin/mngr create")
     assert "--template my-hook" in line
     assert "--no-connect" in line
-    assert "'fix flaky tests'" in line
+    assert shlex.quote("fix flaky tests") in line
     assert "# mngr-schedule:hourly-fixer" in line
     assert "schedule-hourly-fixer.log" in line
 
@@ -71,7 +63,7 @@ def test_build_crontab_command_without_template() -> None:
     )
     line = _build_crontab_command(schedule, "/path/to/mngr")
     assert "--template" not in line
-    assert "'run something'" in line
+    assert shlex.quote("run something") in line
 
 
 def test_build_crontab_command_with_create_args() -> None:

@@ -1,3 +1,4 @@
+import shlex
 import shutil
 import sys
 import tempfile
@@ -128,7 +129,7 @@ def _build_crontab_command(schedule: ScheduleDefinition, mngr_path: str) -> str:
     if schedule.template is not None:
         parts.extend(["--template", schedule.template])
 
-    parts.extend(["--no-connect", "--message", _shell_quote(schedule.message)])
+    parts.extend(["--no-connect", "--message", shlex.quote(schedule.message)])
 
     for arg in schedule.create_args:
         parts.append(arg)
@@ -140,12 +141,6 @@ def _build_crontab_command(schedule: ScheduleDefinition, mngr_path: str) -> str:
     parts.append(_crontab_marker(schedule.name))
 
     return " ".join(parts)
-
-
-@pure
-def _shell_quote(value: str) -> str:
-    """Quote a string for safe use in a shell command."""
-    return "'" + value.replace("'", "'\\''") + "'"
 
 
 def _read_current_crontab(cg: ConcurrencyGroup) -> str:
