@@ -547,6 +547,18 @@ def test_uses_marker_based_send_message_returns_true(
     assert agent.uses_marker_based_send_message() is True
 
 
+def test_get_tmux_config_lines_returns_sigwinch_hook(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """ClaudeAgent.get_tmux_config_lines should return SIGWINCH resize hook."""
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    lines = list(agent.get_tmux_config_lines())
+
+    assert len(lines) == 2
+    assert "client-attached" in lines[1]
+    assert "pkill -SIGWINCH -f claude" in lines[1]
+
+
 def test_configure_readiness_hooks_raises_when_not_gitignored(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:

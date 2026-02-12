@@ -526,3 +526,52 @@ def test_build_start_agent_shell_command_monitor_retries_pane_pid(
     assert "TRIES=0" in result
     assert "TRIES=$((TRIES + 1))" in result
     assert "sleep 1" in result
+
+
+# =========================================================================
+# Tests for _create_host_tmux_config
+# =========================================================================
+
+
+def test_create_host_tmux_config_includes_extra_lines(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """_create_host_tmux_config should include agent-contributed extra lines."""
+    host = local_provider.create_host(HostName("test-tmux-extra"))
+    assert isinstance(host, Host)
+
+    extra_lines = [
+        "# Custom agent hook",
+        """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'""",
+    ]
+    config_path = host._create_host_tmux_config(extra_lines=extra_lines)
+
+    config_content = config_path.read_text()
+    assert "# Custom agent hook" in config_content
+    assert "pkill -SIGWINCH -f claude" in config_content
+
+
+def test_create_host_tmux_config_omits_extra_section_when_no_extra_lines(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """_create_host_tmux_config should not add extra section when no extra lines given."""
+    host = local_provider.create_host(HostName("test-tmux-no-extra"))
+    assert isinstance(host, Host)
+
+    config_path = host._create_host_tmux_config()
+
+    config_content = config_path.read_text()
+    # Should not contain claude-specific content when no extra lines
+    assert "pkill -SIGWINCH" not in config_content
+    # Should still contain standard bindings
+    assert "Ctrl-q" in config_content
+
+
+def test_base_agent_get_tmux_config_lines_returns_empty(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """BaseAgent.get_tmux_config_lines should return an empty list by default."""
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    assert list(agent.get_tmux_config_lines()) == []
