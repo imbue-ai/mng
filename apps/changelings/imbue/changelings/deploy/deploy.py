@@ -105,7 +105,6 @@ def serialize_changeling_config(changeling: ChangelingDefinition) -> str:
     return changeling.model_dump_json()
 
 
-@pure
 def build_cron_mngr_command(
     changeling: ChangelingDefinition,
     env_file_path: Path,
@@ -115,6 +114,8 @@ def build_cron_mngr_command(
     Uses build_mngr_create_command to construct the base command, then replaces
     everything before 'create' with `uv run mngr` for running in the deployed
     Modal image where mngr is installed as a CLI tool.
+
+    Not pure: delegates to build_mngr_create_command which reads datetime.now().
     """
     base_cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
     # Find 'create' and replace everything before it with `uv run mngr`
