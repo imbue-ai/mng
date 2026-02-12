@@ -19,6 +19,7 @@ from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.migrate import migrate
 from imbue.mngr.cli.pair import pair
+from imbue.mngr.cli.plugin import plugin as plugin_command
 from imbue.mngr.cli.pull import pull
 from imbue.mngr.cli.push import push
 from imbue.mngr.cli.start import start
@@ -40,6 +41,7 @@ COMMAND_ALIASES: dict[str, list[str]] = {
     "list": ["ls"],
     "connect": ["conn"],
     "stop": ["s"],
+    "plugin": ["plug"],
 }
 
 # Build reverse mapping: alias -> canonical name
@@ -237,6 +239,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     stop,
     config,
     gc,
+    plugin_command,
 ]
 
 for cmd in BUILTIN_COMMANDS:
@@ -249,6 +252,7 @@ cli.add_command(destroy, name="rm")
 cli.add_command(message, name="msg")
 cli.add_command(list_command, name="ls")
 cli.add_command(connect, name="conn")
+cli.add_command(plugin_command, name="plug")
 
 # Add clone as a standalone command (not in BUILTIN_COMMANDS since it uses
 # UNPROCESSED args and delegates to create, which already has plugin options applied)
