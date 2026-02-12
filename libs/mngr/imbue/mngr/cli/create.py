@@ -1,4 +1,5 @@
 import os
+import shlex
 import sys
 from collections.abc import Callable
 from functools import lru_cache
@@ -1330,13 +1331,12 @@ def _parse_target_host(
         # Combine build args from both individual (-b) and bulk (--build-args) options
         combined_build_args = list(opts.build_arg)
         if opts.build_args:
-            # FIXME: this should be shlex.split to handle quoted args properly
-            combined_build_args = opts.build_args.split() + combined_build_args
+            combined_build_args = shlex.split(opts.build_args) + combined_build_args
 
         # Combine start args from both individual (-s) and bulk (--start-args) options
         combined_start_args = list(opts.start_arg)
         if opts.start_args:
-            combined_start_args.extend(opts.start_args.split())
+            combined_start_args.extend(shlex.split(opts.start_args))
 
         # Parse build options
         build_options = NewHostBuildOptions(
