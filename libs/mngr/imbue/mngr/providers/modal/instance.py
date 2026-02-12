@@ -189,6 +189,21 @@ class SandboxConfig(HostConfig):
         default_factory=tuple,
         description="CIDR ranges to restrict network access to",
     )
+    offline: bool = False
+
+    @property
+    def effective_cidr_allowlist(self) -> list[str] | None:
+        """Compute the cidr_allowlist to pass to Modal.
+
+        Returns None (allow all) when neither --offline nor --cidr-allowlist is set.
+        Returns [] (block all) when --offline is set without explicit CIDRs.
+        Returns the explicit list when --cidr-allowlist is provided.
+        """
+        if self.cidr_allowlist:
+            return list(self.cidr_allowlist)
+        if self.offline:
+            return []
+        return None
 
 
 class HostRecord(FrozenModel):
@@ -1026,6 +1041,7 @@ log "=== Shutdown script completed ==="
         parser.add_argument("--context-dir", type=str, default=None)
         parser.add_argument("--secret", type=str, action="append", default=[])
         parser.add_argument("--cidr-allowlist", type=str, action="append", default=[])
+        parser.add_argument("--offline", action="store_true", default=False)
 
         try:
             parsed, unknown = parser.parse_known_args(normalized_args)
@@ -1046,6 +1062,7 @@ log "=== Shutdown script completed ==="
             context_dir=parsed.context_dir,
             secrets=tuple(parsed.secret),
             cidr_allowlist=tuple(parsed.cidr_allowlist),
+            offline=parsed.offline,
         )
 
     # =========================================================================
@@ -1358,7 +1375,7 @@ log "=== Shutdown script completed ==="
                     unencrypted_ports=[CONTAINER_SSH_PORT],
                     gpu=config.gpu,
                     region=config.region,
-                    cidr_allowlist=list(config.cidr_allowlist) or None,
+                    cidr_allowlist=config.effective_cidr_allowlist,
                 )
                 logger.trace("Created Modal sandbox", sandbox_id=sandbox.object_id)
         except (modal.exception.Error, MngrError) as e:
@@ -1619,7 +1636,7 @@ log "=== Shutdown script completed ==="
                 unencrypted_ports=[CONTAINER_SSH_PORT],
                 gpu=config.gpu,
                 region=config.region,
-                cidr_allowlist=list(config.cidr_allowlist) or None,
+                cidr_allowlist=config.effective_cidr_allowlist,
             )
         logger.info("Created sandbox from snapshot", sandbox_id=new_sandbox.object_id)
 

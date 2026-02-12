@@ -957,7 +957,7 @@ def test_parse_build_args_secrets_with_other_args(modal_provider: ModalProviderI
 
 
 # =============================================================================
-# Build args: --cidr-allowlist
+# Build args: --cidr-allowlist and --offline
 # =============================================================================
 
 
@@ -1012,6 +1012,50 @@ def test_parse_build_args_cidr_allowlist_with_other_args(modal_provider: ModalPr
     assert config.cpu == 2.0
     assert config.memory == 4.0
     assert config.cidr_allowlist == ("10.0.0.0/8", "172.16.0.0/12")
+
+
+def test_parse_build_args_offline_default_is_false(modal_provider: ModalProviderInstance) -> None:
+    """offline should default to False."""
+    config = modal_provider._parse_build_args([])
+    assert config.offline is False
+
+
+def test_parse_build_args_offline_flag(modal_provider: ModalProviderInstance) -> None:
+    """--offline flag should set offline to True."""
+    config = modal_provider._parse_build_args(["--offline"])
+    assert config.offline is True
+
+
+def test_parse_build_args_offline_with_other_args(modal_provider: ModalProviderInstance) -> None:
+    """--offline should work alongside other build args."""
+    config = modal_provider._parse_build_args(["cpu=2", "--offline", "memory=4"])
+    assert config.offline is True
+    assert config.cpu == 2.0
+    assert config.memory == 4.0
+
+
+def test_effective_cidr_allowlist_default_is_none(modal_provider: ModalProviderInstance) -> None:
+    """No --offline or --cidr-allowlist should produce None (allow all)."""
+    config = modal_provider._parse_build_args([])
+    assert config.effective_cidr_allowlist is None
+
+
+def test_effective_cidr_allowlist_offline_produces_empty_list(modal_provider: ModalProviderInstance) -> None:
+    """--offline should produce an empty list (block all)."""
+    config = modal_provider._parse_build_args(["--offline"])
+    assert config.effective_cidr_allowlist == []
+
+
+def test_effective_cidr_allowlist_with_cidrs(modal_provider: ModalProviderInstance) -> None:
+    """--cidr-allowlist should produce the specified list."""
+    config = modal_provider._parse_build_args(["--cidr-allowlist=10.0.0.0/8"])
+    assert config.effective_cidr_allowlist == ["10.0.0.0/8"]
+
+
+def test_effective_cidr_allowlist_cidrs_override_offline(modal_provider: ModalProviderInstance) -> None:
+    """When both --offline and --cidr-allowlist are provided, explicit CIDRs take precedence."""
+    config = modal_provider._parse_build_args(["--offline", "--cidr-allowlist=10.0.0.0/8"])
+    assert config.effective_cidr_allowlist == ["10.0.0.0/8"]
 
 
 # =============================================================================
@@ -1982,6 +2026,33 @@ def test_cidr_allowlist_allows_traffic_within_range(real_modal_provider: ModalPr
         result = host.execute_command("curl -s --max-time 10 -o /dev/null -w '%{http_code}' https://example.com")
         assert result.success
         assert "200" in result.stdout
+
+    finally:
+        if host:
+            real_modal_provider.destroy_host(host)
+
+
+@pytest.mark.release
+@pytest.mark.timeout(180)
+def test_offline_blocks_all_network_access(real_modal_provider: ModalProviderInstance) -> None:
+    """A sandbox created with --offline should block all outbound network traffic.
+
+    Uses an empty cidr_allowlist under the hood, which Modal interprets as
+    'no CIDRs allowed' = block all outbound traffic.
+    """
+    host = None
+    try:
+        host = real_modal_provider.create_host(
+            HostName("test-offline"),
+            build_args=["--offline"],
+        )
+
+        # curl to a public IP should fail because all outbound traffic is blocked
+        result = host.execute_command(
+            "curl -s --max-time 5 -o /dev/null -w '%{http_code}' https://example.com || echo 'blocked'"
+        )
+        assert result.success
+        assert "blocked" in result.stdout
 
     finally:
         if host:

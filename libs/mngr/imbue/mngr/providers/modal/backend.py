@@ -380,6 +380,7 @@ Supported build arguments for the modal provider:
                         RUN commands via --mount=type=secret,id=VAR. Can be specified multiple times.
   --cidr-allowlist CIDR Restrict network access to the specified CIDR range (e.g., 203.0.113.0/24).
                         Can be specified multiple times.
+  --offline             Block all outbound network access from the sandbox. Default: off
 """
 
     @staticmethod

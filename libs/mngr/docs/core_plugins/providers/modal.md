@@ -36,6 +36,7 @@ mngr create my-agent --in modal --build-args "gpu=h100 cpu=2 memory=8"
 | `context-dir` | Build context directory for Dockerfile COPY/ADD instructions | Dockerfile's directory |
 | `secret` | Environment variable name to pass as a secret during image build (can be specified multiple times) | None |
 | `cidr-allowlist` | Restrict network access to the specified CIDR range (can be specified multiple times) | None |
+| `offline` | Block all outbound network access from the sandbox | off |
 
 ### Examples
 
@@ -51,6 +52,9 @@ mngr create my-agent --in modal -b image=python:3.11-slim -b timeout=3600
 
 # Create with network restricted to specific CIDR ranges
 mngr create my-agent --in modal -b cidr-allowlist=203.0.113.0/24 -b cidr-allowlist=10.0.0.0/8
+
+# Create with no outbound network access
+mngr create my-agent --in modal -b offline
 ```
 
 ### Using Secrets During Image Build
