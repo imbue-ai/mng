@@ -1,6 +1,7 @@
 import threading
 import time
 import webbrowser
+from typing import Final
 
 from loguru import logger
 
@@ -9,7 +10,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.primitives import ActivitySource
 
 # How often to record user activity when --active is used (seconds)
-_ACTIVITY_INTERVAL_SECONDS = 30.0
+_ACTIVITY_INTERVAL_SECONDS: Final[float] = 30.0
 
 
 def open_agent_url(
