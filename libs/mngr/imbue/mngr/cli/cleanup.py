@@ -197,12 +197,6 @@ def _cleanup_impl(ctx: click.Context, **kwargs) -> None:
         _emit_dry_run_output(selected_agents, action, output_opts)
         return
 
-    # Confirm if not forced and not interactive (interactive already confirmed via selection)
-    if not opts.force and not mngr_ctx.is_interactive:
-        _emit_agent_list(selected_agents, action, output_opts)
-        if not click.confirm("Are you sure you want to continue?"):
-            raise click.Abort()
-
     # Execute the cleanup action
     match action:
         case CleanupAction.DESTROY:
@@ -400,27 +394,6 @@ def _emit_dry_run_output(
                 )
         case _ as unreachable:
             assert_never(unreachable)
-
-
-def _emit_agent_list(
-    agents: list[AgentInfo],
-    action: CleanupAction,
-    output_opts: OutputOptions,
-) -> None:
-    """Output the list of agents that will be acted on."""
-    if output_opts.output_format != OutputFormat.HUMAN:
-        return
-    match action:
-        case CleanupAction.DESTROY:
-            action_past_tense = "destroyed"
-        case CleanupAction.STOP:
-            action_past_tense = "stopped"
-        case _ as unreachable:
-            assert_never(unreachable)
-    logger.info("\nThe following {} agent(s) will be {}:", len(agents), action_past_tense)
-    for agent in agents:
-        logger.info("  - {} (provider={})", agent.name, agent.host.provider_name)
-    logger.info("")
 
 
 def _emit_result(
