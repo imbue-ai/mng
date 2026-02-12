@@ -16,9 +16,6 @@ from imbue.mngr.utils.testing import tmux_session_cleanup
 from imbue.mngr.utils.testing import tmux_session_exists
 
 
-# FIXME: This test is flaky under xdist parallel execution. It creates and destroys tmux sessions,
-# which can race with other workers doing the same. The shared tmux server becomes a contention
-# point, and worker crashes have been observed. Consider using worker-specific tmux socket paths.
 def test_destroy_single_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,

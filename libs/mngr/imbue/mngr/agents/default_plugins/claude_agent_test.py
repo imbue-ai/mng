@@ -11,13 +11,16 @@ import pytest
 
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mngr.agents.default_plugins.claude_agent import _has_api_credentials_available
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.config.data_types import AgentTypeConfig
+from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import PluginMngrError
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.interfaces.host import AgentEnvironmentOptions
 from imbue.mngr.interfaces.host import AgentGitOptions
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
@@ -574,6 +577,38 @@ def test_configure_readiness_hooks_raises_when_not_gitignored(
         agent._configure_readiness_hooks(host)
 
 
+def test_configure_readiness_hooks_skips_gitignore_check_when_not_a_git_repo(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_configure_readiness_hooks should skip gitignore check when the work_dir is not a git repo."""
+    host = local_provider.create_host(HostName("test-hooks-no-git"))
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+
+    # Do NOT init a git repo -- work_dir is just a plain directory
+    agent = ClaudeAgent.model_construct(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=work_dir,
+        create_time=datetime.now(timezone.utc),
+        host_id=host.id,
+        mngr_ctx=temp_mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False),
+        host=host,
+    )
+
+    # Should succeed without raising (no gitignore check needed for non-git dirs)
+    agent._configure_readiness_hooks(host)
+
+    # Verify the hooks file was still created
+    settings_path = work_dir / ".claude" / "settings.local.json"
+    assert settings_path.exists()
+    settings = json.loads(settings_path.read_text())
+    assert "hooks" in settings
+    assert "SessionStart" in settings["hooks"]
+
+
 def test_configure_readiness_hooks_creates_settings_file(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
@@ -911,3 +946,150 @@ def test_provision_raises_when_user_declines_trust(
     ):
         with pytest.raises(ClaudeDirectoryNotTrustedError):
             agent.provision(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=interactive_mngr_ctx)
+
+
+# =============================================================================
+# API Credential Check Tests
+# =============================================================================
+
+_DEFAULT_CREDENTIAL_CHECK_OPTIONS = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+
+
+@pytest.fixture()
+def _no_api_key_in_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure ANTHROPIC_API_KEY is not in os.environ."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+
+@pytest.fixture()
+def credential_check_host(local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext) -> Host:
+    """Create a local host for credential check tests."""
+    _, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    return host
+
+
+@pytest.fixture()
+def _local_credentials_file() -> None:
+    """Create a ~/.claude/.credentials.json file for testing."""
+    credentials_dir = Path.home() / ".claude"
+    credentials_dir.mkdir(parents=True, exist_ok=True)
+    (credentials_dir / ".credentials.json").write_text('{"token": "test"}')
+
+
+def _make_non_local_host() -> OnlineHostInterface:
+    """Create a simulated non-local host for credential check tests."""
+    return cast(
+        OnlineHostInterface,
+        SimpleNamespace(is_local=False, get_env_var=lambda key: None),
+    )
+
+
+def test_has_api_credentials_detects_env_var_on_local_host(
+    credential_check_host: Host, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_has_api_credentials_available returns True when ANTHROPIC_API_KEY is in os.environ on local host."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+    config = ClaudeAgentConfig(check_installation=False)
+
+    assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+
+
+def test_has_api_credentials_ignores_env_var_on_remote_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_has_api_credentials_available ignores os.environ ANTHROPIC_API_KEY for remote hosts."""
+    config = ClaudeAgentConfig(check_installation=False)
+
+    # Set the key locally -- remote hosts should still return False because they don't inherit os.environ
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_has_api_credentials_detects_agent_env_var(credential_check_host: Host) -> None:
+    """_has_api_credentials_available returns True when ANTHROPIC_API_KEY is in agent env vars."""
+    config = ClaudeAgentConfig(check_installation=False)
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        environment=AgentEnvironmentOptions(
+            env_vars=(EnvVar(key="ANTHROPIC_API_KEY", value="sk-test-key"),),
+        ),
+    )
+
+    assert _has_api_credentials_available(credential_check_host, options, config) is True
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_has_api_credentials_detects_host_env_var(credential_check_host: Host) -> None:
+    """_has_api_credentials_available returns True when ANTHROPIC_API_KEY is in host env vars."""
+    config = ClaudeAgentConfig(check_installation=False)
+    credential_check_host.set_env_var("ANTHROPIC_API_KEY", "sk-test-key")
+
+    assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
+def test_has_api_credentials_detects_credentials_file_local(credential_check_host: Host) -> None:
+    """_has_api_credentials_available returns True when credentials file exists on local host."""
+    config = ClaudeAgentConfig(check_installation=False)
+
+    assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
+def test_has_api_credentials_detects_credentials_file_remote_with_sync() -> None:
+    """_has_api_credentials_available returns True when credentials file exists and sync is enabled for remote."""
+    config = ClaudeAgentConfig(check_installation=False, sync_claude_credentials=True)
+
+    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_has_api_credentials_returns_false_when_no_credentials(credential_check_host: Host) -> None:
+    """_has_api_credentials_available returns False when no credential source is available."""
+    config = ClaudeAgentConfig(check_installation=False)
+
+    assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
+def test_has_api_credentials_returns_false_remote_no_sync() -> None:
+    """_has_api_credentials_available returns False for remote host when credentials exist but sync is disabled."""
+    config = ClaudeAgentConfig(check_installation=False, sync_claude_credentials=False)
+
+    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_on_before_provisioning_does_not_raise_when_no_credentials(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """on_before_provisioning should not raise when no API credentials are detected."""
+    agent, host = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=True),
+    )
+
+    # Should complete without raising (logs a warning instead)
+    agent.on_before_provisioning(host=host, options=_DEFAULT_CREDENTIAL_CHECK_OPTIONS, mngr_ctx=temp_mngr_ctx)
+
+
+def test_on_before_provisioning_succeeds_with_credentials(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mngr_ctx: MngrContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """on_before_provisioning should succeed without warning when credentials are available."""
+    agent, host = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=True),
+    )
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+
+    agent.on_before_provisioning(host=host, options=_DEFAULT_CREDENTIAL_CHECK_OPTIONS, mngr_ctx=temp_mngr_ctx)

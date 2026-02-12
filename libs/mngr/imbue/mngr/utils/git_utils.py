@@ -4,7 +4,6 @@ from urllib.parse import urlparse
 from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.concurrency_group.errors import ConcurrencyGroupError
 from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import MngrError
@@ -22,7 +21,8 @@ def get_current_git_branch(path: Path | None, cg: ConcurrencyGroup) -> str | Non
             cwd=cwd,
         )
         return result.stdout.strip()
-    except ConcurrencyGroupError:
+    except ProcessError as e:
+        logger.trace("Failed to get current git branch: {}", e)
         return None
 
 
@@ -66,7 +66,8 @@ def _get_project_name_from_git_remote(path: Path, cg: ConcurrencyGroup) -> str |
             timeout=5,
         )
         return _parse_project_name_from_url(result.stdout.strip())
-    except ConcurrencyGroupError:
+    except ProcessError as e:
+        logger.trace("Failed to get project name from git remote URL: {}", e)
         return None
 
 
@@ -131,7 +132,8 @@ def find_git_worktree_root(start: Path | None, cg: ConcurrencyGroup) -> Path | N
             cwd=cwd,
         )
         return Path(result.stdout.strip())
-    except ConcurrencyGroupError:
+    except ProcessError as e:
+        logger.trace("Failed to find worktree root: {}", e)
         return None
 
 
@@ -229,5 +231,6 @@ def find_git_common_dir(path: Path, cg: ConcurrencyGroup) -> Path | None:
         if not git_common_dir.is_absolute():
             git_common_dir = (path / git_common_dir).resolve()
         return git_common_dir
-    except ConcurrencyGroupError:
+    except ProcessError as e:
+        logger.trace("Failed to find main .git dir: {}", e)
         return None

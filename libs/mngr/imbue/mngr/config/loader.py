@@ -52,11 +52,11 @@ _ENV_COMMANDS_PREFIX = "MNGR_COMMANDS_"
 #  I made a quick example of how to do this correctly in _parse_config (but the other sub parsers need to be updated as well)
 def load_config(
     pm: pluggy.PluginManager,
+    concurrency_group: ConcurrencyGroup,
     context_dir: Path | None = None,
     enabled_plugins: Sequence[str] | None = None,
     disabled_plugins: Sequence[str] | None = None,
     is_interactive: bool = False,
-    concurrency_group: ConcurrencyGroup | None = None,
 ) -> MngrContext:
     """Load and merge configuration from all sources.
 
@@ -261,17 +261,12 @@ def _get_local_config_name(root_name: str) -> Path:
     return Path(f".{root_name}") / "settings.local.toml"
 
 
-def _find_project_root(start: Path | None = None, cg: ConcurrencyGroup | None = None) -> Path | None:
+def _find_project_root(cg: ConcurrencyGroup, start: Path | None = None) -> Path | None:
     """Find the project root by looking for git worktree root."""
-    if cg is None:
-        # Fallback for when CG is not available (e.g., test contexts).
-        # Create a short-lived CG just for this operation.
-        with ConcurrencyGroup(name="config-loader-project-root") as fallback_cg:
-            return find_git_worktree_root(start, fallback_cg)
     return find_git_worktree_root(start, cg)
 
 
-def _find_project_config(context_dir: Path | None, root_name: str, cg: ConcurrencyGroup | None) -> Path | None:
+def _find_project_config(context_dir: Path | None, root_name: str, cg: ConcurrencyGroup) -> Path | None:
     """Find the project config file."""
     root = context_dir or _find_project_root(cg=cg)
     if root is None:
@@ -280,7 +275,7 @@ def _find_project_config(context_dir: Path | None, root_name: str, cg: Concurren
     return config_path if config_path.exists() else None
 
 
-def _find_local_config(context_dir: Path | None, root_name: str, cg: ConcurrencyGroup | None) -> Path | None:
+def _find_local_config(context_dir: Path | None, root_name: str, cg: ConcurrencyGroup) -> Path | None:
     """Find the local config file."""
     root = context_dir or _find_project_root(cg=cg)
     if root is None:
