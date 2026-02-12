@@ -921,6 +921,12 @@ def test_parse_build_args_offline_flag(modal_provider: ModalProviderInstance) ->
     assert config.offline is True
 
 
+def test_parse_build_args_offline_bare_word(modal_provider: ModalProviderInstance) -> None:
+    """Bare word 'offline' (without --) should be normalized and set offline to True."""
+    config = modal_provider._parse_build_args(["offline"])
+    assert config.offline is True
+
+
 def test_parse_build_args_offline_with_other_args(modal_provider: ModalProviderInstance) -> None:
     """--offline should work alongside other build args."""
     config = modal_provider._parse_build_args(["cpu=2", "--offline", "memory=4"])

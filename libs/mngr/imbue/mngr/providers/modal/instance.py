@@ -973,11 +973,18 @@ log "=== Shutdown script completed ==="
         Both formats can be mixed. Unknown arguments raise an error.
         """
 
-        # Normalize arguments: convert "key=value" to "--key=value"
+        # Boolean flags that can be passed as bare words (e.g. -b offline)
+        boolean_flags = {"offline"}
+
+        # Normalize arguments: convert "key=value" to "--key=value" and
+        # bare boolean flag names like "offline" to "--offline"
         normalized_args: list[str] = []
         for arg in build_args or []:
             if "=" in arg and not arg.startswith("-"):
-                # Simple key=value format, convert to --key=value
+                # Key-value format: gpu=h100 -> --gpu=h100
+                normalized_args.append(f"--{arg}")
+            elif not arg.startswith("-") and arg in boolean_flags:
+                # Bare boolean flag: offline -> --offline
                 normalized_args.append(f"--{arg}")
             else:
                 normalized_args.append(arg)
