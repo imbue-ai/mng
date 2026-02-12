@@ -194,7 +194,6 @@ def pull(ctx: click.Context, **kwargs) -> None:
         command_name="pull",
         command_class=PullCliOptions,
     )
-    logger.debug("started pull command")
 
     # Merge positional and named arguments (named option takes precedence)
     effective_source = opts.source if opts.source is not None else opts.source_pos
@@ -309,7 +308,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
             target_branch=opts.target_branch,
             is_dry_run=opts.dry_run,
             uncommitted_changes=uncommitted_changes_mode,
-            cg=mngr_ctx.cg,
+            cg=mngr_ctx.concurrency_group,
         )
 
         output_sync_git_result(git_result, output_opts.output_format)
@@ -337,7 +336,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
             is_dry_run=opts.dry_run,
             is_delete=opts.delete,
             uncommitted_changes=uncommitted_changes_mode,
-            cg=mngr_ctx.cg,
+            cg=mngr_ctx.concurrency_group,
         )
 
         output_sync_files_result(files_result, output_opts.output_format)

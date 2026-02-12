@@ -15,7 +15,9 @@ from click_option_group import OptionGroup
 from click_option_group import optgroup
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -134,6 +136,8 @@ def setup_command_context(
     # Create a top-level ConcurrencyGroup for process management
     cg = ConcurrencyGroup(name=f"mngr-{command_name}")
     cg.__enter__()
+    # We explicitly pass None to __exit__ so that Click exceptions (e.g. UsageError) don't get
+    # wrapped in ConcurrencyExceptionGroup, which would break Click's error handling.
     ctx.call_on_close(lambda: cg.__exit__(None, None, None))
 
     # Load config
@@ -148,11 +152,11 @@ def setup_command_context(
         is_interactive = False
     mngr_ctx = load_config(
         pm,
+        cg,
         context_dir,
         initial_opts.plugin,
         initial_opts.disable_plugin,
         is_interactive=is_interactive,
-        concurrency_group=cg,
     )
 
     # FIXME: actually, we should probably move the construction of this object (and the call to setup_logging) down after the "opts = command_class(**updated_params)" line (so that it can take those settings into consideration)
@@ -171,6 +175,10 @@ def setup_command_context(
 
     # Set up logging (needs mngr_ctx)
     setup_logging(output_opts, mngr_ctx)
+
+    # Enter a log span for the command lifetime
+    span = log_span("Started {} command", command_name)
+    ctx.with_resource(span)
 
     # Apply config defaults to parameters that came from defaults (not user-specified)
     updated_params = apply_config_defaults(ctx, mngr_ctx.config, command_name)
@@ -357,12 +365,13 @@ def _apply_plugin_option_overrides(
 
 def _run_single_script(script: str, cg: ConcurrencyGroup) -> tuple[str, int, str, str]:
     """Run a single script and return (script, exit_code, stdout, stderr)."""
-    result = cg.run_process_to_completion(
-        ["sh", "-c", script],
-        is_checked_after=False,
-    )
-    # returncode is always set after run_process_to_completion; default to -1 to satisfy the type checker
-    return (script, result.returncode if result.returncode is not None else -1, result.stdout, result.stderr)
+    try:
+        result = cg.run_process_to_completion(
+            ["sh", "-c", script],
+        )
+        return (script, result.returncode if result.returncode is not None else 0, result.stdout, result.stderr)
+    except ProcessError as e:
+        return (script, e.returncode if e.returncode is not None else -1, e.stdout, e.stderr)
 
 
 def _run_pre_command_scripts(config: MngrConfig, command_name: str, cg: ConcurrencyGroup) -> None:

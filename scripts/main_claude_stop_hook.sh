@@ -93,8 +93,8 @@ fi
 # Push merge commits (if any were created)
 log_info "Pushing any merge commits..."
 if ! retry_command 3 git push origin HEAD; then
-    log_error "Failed to push merge commits after retries"
-    exit 1
+    log_error "Failed to push merge commits after retries. Perhaps you forgot to commit something? Or pre-commit hooks changed something? Or you made a mistake and modified a previous commit?"
+    exit 2
 fi
 
 # Check if there are any non-markdown file changes compared to the base branch
