@@ -485,8 +485,6 @@ def create(ctx: click.Context, **kwargs) -> None:
     \b
     Alias: c
     """
-    logger.debug("Started create command")
-
     # Setup command context (config, logging, output options)
     # This loads the config, applies defaults, and creates the final options
     mngr_ctx, output_opts, opts = setup_command_context(

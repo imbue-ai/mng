@@ -16,6 +16,7 @@ from click_option_group import optgroup
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_span
 from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -171,6 +172,12 @@ def setup_command_context(
 
     # Set up logging (needs mngr_ctx)
     setup_logging(output_opts, mngr_ctx)
+
+    # Enter a log span for the command lifetime - replaces individual
+    # logger.debug("Started ...") calls in each command function
+    span = log_span("Started {} command", command_name)
+    span.__enter__()
+    ctx.call_on_close(lambda: span.__exit__(None, None, None))
 
     # Apply config defaults to parameters that came from defaults (not user-specified)
     updated_params = apply_config_defaults(ctx, mngr_ctx.config, command_name)
