@@ -185,6 +185,8 @@ class SandboxConfig(HostConfig):
         default_factory=tuple,
         description="Environment variable names to pass as secrets during image build",
     )
+    block_network: bool = False
+    cidr_allowlist: tuple[str, ...] = ()
 
 
 class HostRecord(FrozenModel):
@@ -1021,6 +1023,8 @@ log "=== Shutdown script completed ==="
         parser.add_argument("--region", type=str, default=self.config.default_region)
         parser.add_argument("--context-dir", type=str, default=None)
         parser.add_argument("--secret", type=str, action="append", default=[])
+        parser.add_argument("--block-network", action="store_true", default=False)
+        parser.add_argument("--cidr-allowlist", type=str, action="append", default=[])
 
         try:
             parsed, unknown = parser.parse_known_args(normalized_args)
@@ -1040,6 +1044,8 @@ log "=== Shutdown script completed ==="
             region=parsed.region,
             context_dir=parsed.context_dir,
             secrets=tuple(parsed.secret),
+            block_network=parsed.block_network,
+            cidr_allowlist=tuple(parsed.cidr_allowlist),
         )
 
     # =========================================================================
@@ -1352,6 +1358,8 @@ log "=== Shutdown script completed ==="
                     unencrypted_ports=[CONTAINER_SSH_PORT],
                     gpu=config.gpu,
                     region=config.region,
+                    block_network=config.block_network,
+                    cidr_allowlist=list(config.cidr_allowlist) or None,
                 )
                 logger.trace("Created Modal sandbox", sandbox_id=sandbox.object_id)
         except (modal.exception.Error, MngrError) as e:
@@ -1612,6 +1620,8 @@ log "=== Shutdown script completed ==="
                 unencrypted_ports=[CONTAINER_SSH_PORT],
                 gpu=config.gpu,
                 region=config.region,
+                block_network=config.block_network,
+                cidr_allowlist=list(config.cidr_allowlist) or None,
             )
         logger.info("Created sandbox from snapshot", sandbox_id=new_sandbox.object_id)
 

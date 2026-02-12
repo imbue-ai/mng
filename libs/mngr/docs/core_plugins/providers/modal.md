@@ -35,6 +35,8 @@ mngr create my-agent --in modal --build-args "gpu=h100 cpu=2 memory=8"
 | `region` | Region to run the sandbox in (e.g., `us-east`, `us-west`, `eu-west`) | auto |
 | `context-dir` | Build context directory for Dockerfile COPY/ADD instructions | Dockerfile's directory |
 | `secret` | Environment variable name to pass as a secret during image build (can be specified multiple times) | None |
+| `block-network` | Block all network access from the sandbox | off |
+| `cidr-allowlist` | Allow network access only to the specified CIDR range (can be specified multiple times, implies `block-network`) | None |
 
 ### Examples
 
@@ -47,6 +49,12 @@ mngr create my-agent --in modal -b cpu=4 -b memory=16
 
 # Create with custom image and longer timeout
 mngr create my-agent --in modal -b image=python:3.11-slim -b timeout=3600
+
+# Create with network blocked
+mngr create my-agent --in modal -b block-network
+
+# Create with network restricted to specific CIDR ranges
+mngr create my-agent --in modal -b cidr-allowlist=203.0.113.0/24 -b cidr-allowlist=10.0.0.0/8
 ```
 
 ### Using Secrets During Image Build
