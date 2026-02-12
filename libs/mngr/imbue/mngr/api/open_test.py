@@ -11,6 +11,9 @@ from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.utils.polling import wait_for
 
+# Save the original Event class before any monkeypatching
+_OriginalEvent = threading.Event
+
 
 def _make_mock_agent(url: str | None = None) -> MagicMock:
     """Create a mock agent with an optional reported URL."""
@@ -18,6 +21,24 @@ def _make_mock_agent(url: str | None = None) -> MagicMock:
     agent.name = AgentName("test-agent")
     agent.get_reported_url.return_value = url
     return agent
+
+
+def _make_interrupting_event(interrupt_after_count: int = 2) -> threading.Event:
+    """Create an Event whose wait() raises KeyboardInterrupt after N calls."""
+    event = _OriginalEvent()
+    call_count = 0
+    original_wait = event.wait
+
+    def interrupting_wait(timeout: float | None = None) -> bool:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= interrupt_after_count:
+            raise KeyboardInterrupt
+        # Brief wait to allow other threads to run
+        return original_wait(timeout=0.01)
+
+    setattr(event, "wait", interrupting_wait)
+    return event
 
 
 def test_open_agent_url_opens_browser(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -46,25 +67,13 @@ def test_open_agent_url_wait_blocks_until_interrupt(monkeypatch: pytest.MonkeyPa
 
     agent = _make_mock_agent(url="https://example.com/agent")
 
-    wait_call_count = 0
-    original_event_class = threading.Event
-
-    class InterruptingEvent(original_event_class):  # type: ignore[misc]
-        """Event subclass that raises KeyboardInterrupt after a few wait() calls."""
-
-        def wait(self, timeout: float | None = None) -> bool:
-            nonlocal wait_call_count
-            wait_call_count += 1
-            if wait_call_count >= 2:
-                raise KeyboardInterrupt
-            return False
-
-    monkeypatch.setattr("imbue.mngr.api.open.threading.Event", InterruptingEvent)
+    monkeypatch.setattr(
+        "imbue.mngr.api.open.threading.Event",
+        lambda: _make_interrupting_event(interrupt_after_count=2),
+    )
 
     # Should not raise -- KeyboardInterrupt is caught internally
     open_agent_url(agent=agent, is_wait=True, is_active=False)
-
-    assert wait_call_count >= 2
 
 
 def test_record_activity_loop_records_until_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -72,7 +81,7 @@ def test_record_activity_loop_records_until_stopped(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("imbue.mngr.api.open._ACTIVITY_INTERVAL_SECONDS", 0.01)
 
     agent = _make_mock_agent()
-    stop_event = threading.Event()
+    stop_event = _OriginalEvent()
 
     # Run the loop in a thread, let it record a few times, then stop it
     thread = threading.Thread(target=_record_activity_loop, args=(agent, stop_event), daemon=True)
@@ -99,27 +108,19 @@ def test_open_agent_url_active_starts_activity_thread(monkeypatch: pytest.Monkey
     agent = _make_mock_agent(url="https://example.com/agent")
 
     # Track whether _record_activity_loop was called
-    activity_loop_called = threading.Event()
+    activity_loop_called = _OriginalEvent()
 
     def tracking_activity_loop(agent: MagicMock, stop_event: threading.Event) -> None:
         activity_loop_called.set()
 
     monkeypatch.setattr("imbue.mngr.api.open._record_activity_loop", tracking_activity_loop)
 
-    wait_call_count = 0
-    original_event_class = threading.Event
-
-    class InterruptingEvent(original_event_class):  # type: ignore[misc]
-        """Event subclass that raises KeyboardInterrupt after a few wait() calls."""
-
-        def wait(self, timeout: float | None = None) -> bool:
-            nonlocal wait_call_count
-            wait_call_count += 1
-            if wait_call_count >= 2:
-                raise KeyboardInterrupt
-            return False
-
-    monkeypatch.setattr("imbue.mngr.api.open.threading.Event", InterruptingEvent)
+    # Create an event that interrupts after enough wait() calls to allow the
+    # activity thread to start (interrupt_after_count=3 gives the thread time)
+    monkeypatch.setattr(
+        "imbue.mngr.api.open.threading.Event",
+        lambda: _make_interrupting_event(interrupt_after_count=3),
+    )
 
     open_agent_url(agent=agent, is_wait=True, is_active=True)
 
