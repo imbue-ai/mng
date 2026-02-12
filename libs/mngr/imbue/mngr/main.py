@@ -13,6 +13,7 @@ from imbue.mngr.cli.config import config
 from imbue.mngr.cli.connect import connect
 from imbue.mngr.cli.create import create
 from imbue.mngr.cli.destroy import destroy
+from imbue.mngr.cli.enforce import enforce
 from imbue.mngr.cli.gc import gc
 from imbue.mngr.cli.issue_reporting import handle_not_implemented_error
 from imbue.mngr.cli.list import list_command
@@ -237,6 +238,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     stop,
     config,
     gc,
+    enforce,
 ]
 
 for cmd in BUILTIN_COMMANDS:
