@@ -77,7 +77,7 @@ def execute_cleanup(
 
     # Run post-destroy GC when destroying
     if action == CleanupAction.DESTROY and result.destroyed_agents:
-        _run_post_cleanup_gc(mngr_ctx, result, error_behavior)
+        _run_post_cleanup_gc(mngr_ctx, result)
 
     return result
 
@@ -191,7 +191,6 @@ def _execute_stop(
 def _run_post_cleanup_gc(
     mngr_ctx: MngrContext,
     result: CleanupResult,
-    error_behavior: ErrorBehavior,
 ) -> None:
     """Run garbage collection after destroying agents."""
     try:
