@@ -192,6 +192,7 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
         host_filter=None,
     )
     if result is None:
+        logger.info("No agent selected")
         return
 
     agent, host = result
