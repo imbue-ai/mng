@@ -1597,7 +1597,7 @@ class Host(BaseHost, OnlineHostInterface):
         """Rename an agent and return the updated agent object."""
         with log_span("Renaming agent", agent_id=str(agent.id), old_name=str(agent.name), new_name=str(new_name)):
             old_name = agent.name
-            data_path = self.host_dir / "agents" / str(agent.id) / "data.json"
+            data_path = self._get_agent_state_dir(agent) / "data.json"
 
             # Read and update data.json
             content = self.read_text_file(data_path)
@@ -1630,8 +1630,7 @@ class Host(BaseHost, OnlineHostInterface):
                 logger.debug("No env file found for agent {}, skipping env update", agent.id)
 
             # Reload and return the updated agent
-            agent_dir = self.host_dir / "agents" / str(agent.id)
-            updated_agent = self._load_agent_from_dir(agent_dir)
+            updated_agent = self._load_agent_from_dir(self._get_agent_state_dir(agent))
             if updated_agent is None:
                 raise AgentNotFoundOnHostError(agent.id, self.id)
             return updated_agent
