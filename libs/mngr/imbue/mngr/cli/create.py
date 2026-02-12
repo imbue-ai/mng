@@ -485,8 +485,6 @@ def create(ctx: click.Context, **kwargs) -> None:
     \b
     Alias: c
     """
-    logger.debug("Started create command")
-
     # Setup command context (config, logging, output options)
     # This loads the config, applies defaults, and creates the final options
     mngr_ctx, output_opts, opts = setup_command_context(
@@ -861,7 +859,7 @@ def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions, m
             "Have to re-implement the below function so that it works via HostInterface calls instead!"
         )
 
-    return derive_project_name_from_path(source_location.path, mngr_ctx.cg)
+    return derive_project_name_from_path(source_location.path, mngr_ctx.concurrency_group)
 
 
 def _try_reuse_existing_agent(
@@ -942,7 +940,7 @@ def _resolve_source_location(
         # easy, source location is on current host
         source_path = opts.source_path
         if source_path is None:
-            git_root = find_git_worktree_root(None, mngr_ctx.cg)
+            git_root = find_git_worktree_root(None, mngr_ctx.concurrency_group)
             source_path = str(git_root) if git_root is not None else os.getcwd()
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
         source_location = HostLocation(
@@ -1039,7 +1037,7 @@ def _get_current_git_branch(source_location: HostLocation, mngr_ctx: MngrContext
             "Have to re-implement this function so that it works via HostInterface calls instead!"
         )
 
-    return get_current_git_branch(source_location.path, mngr_ctx.cg)
+    return get_current_git_branch(source_location.path, mngr_ctx.concurrency_group)
 
 
 def _resolve_env_vars(
@@ -1122,7 +1120,7 @@ def _parse_agent_opts(
         if is_creating_remote_host:
             copy_mode = WorkDirCopyMode.COPY
         elif source_location.host.is_local:
-            is_git_repo = _is_git_repo(source_location.path, mngr_ctx.cg)
+            is_git_repo = _is_git_repo(source_location.path, mngr_ctx.concurrency_group)
             if is_git_repo:
                 copy_mode = WorkDirCopyMode.WORKTREE
             else:

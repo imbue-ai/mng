@@ -179,7 +179,6 @@ def _gc_impl(ctx: click.Context, **kwargs) -> None:
         command_name="gc",
         command_class=GcCliOptions,
     )
-    logger.debug("Started gc command")
 
     # Remove machine cache entries (per-provider)
     # Wire this through to the API when implemented

@@ -138,7 +138,6 @@ def push(ctx: click.Context, **kwargs) -> None:
         command_name="push",
         command_class=PushCliOptions,
     )
-    logger.debug("Running push command")
 
     # Merge positional and named arguments (named option takes precedence)
     effective_target = opts.target if opts.target is not None else opts.target_pos
@@ -220,7 +219,7 @@ def push(ctx: click.Context, **kwargs) -> None:
             is_dry_run=opts.dry_run,
             uncommitted_changes=uncommitted_changes_mode,
             is_mirror=opts.mirror,
-            cg=mngr_ctx.cg,
+            cg=mngr_ctx.concurrency_group,
         )
 
         output_sync_git_result(git_result, output_opts.output_format)
@@ -248,7 +247,7 @@ def push(ctx: click.Context, **kwargs) -> None:
             is_dry_run=opts.dry_run,
             is_delete=opts.delete,
             uncommitted_changes=uncommitted_changes_mode,
-            cg=mngr_ctx.cg,
+            cg=mngr_ctx.concurrency_group,
         )
 
         output_sync_files_result(files_result, output_opts.output_format)

@@ -248,8 +248,17 @@ class ClaudeAgent(BaseAgent):
         if agent_args:
             args_str = (args_str + " ").lstrip() + " ".join(agent_args)
 
-        # Build both command variants
-        resume_cmd = f"( find ~/.claude/ -name '{agent_uuid}' | grep . ) && {base} --resume {agent_uuid}"
+        # Read the latest session ID from the tracking file written by the SessionStart hook.
+        # This handles session replacement (e.g., exit plan mode, /clear, compaction) where
+        # Claude Code creates a new session with a different UUID. Falls back to the agent UUID
+        # if the tracking file doesn't exist (first run) or is empty (crash during write).
+        sid_export = (
+            f'_MNGR_READ_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || true);'
+            f' export MAIN_CLAUDE_SESSION_ID="${{_MNGR_READ_SID:-{agent_uuid}}}"'
+        )
+
+        # Build both command variants using the dynamic session ID
+        resume_cmd = f'( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && {base} --resume "$MAIN_CLAUDE_SESSION_ID"'
         create_cmd = f"{base} --session-id {agent_uuid}"
 
         # Append additional args to both commands if present
@@ -259,16 +268,16 @@ class ClaudeAgent(BaseAgent):
 
         # Build the environment exports
         # IS_SANDBOX is only set for remote hosts (not local)
-        env_exports = f"export MAIN_CLAUDE_SESSION_ID={agent_uuid}"
-        if not host.is_local:
-            env_exports = f"export IS_SANDBOX=1 && {env_exports}"
+        env_exports = f"export IS_SANDBOX=1 && {sid_export}" if not host.is_local else sid_export
 
         # Build the activity updater background command
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
         activity_cmd = self._build_activity_updater_command(session_name)
 
-        # Combine: start activity updater in background, then run the main command
-        return CommandString(f"{activity_cmd} {env_exports} && ( {resume_cmd} ) || {create_cmd}")
+        # Combine: start activity updater, export env (including session ID), then run the main command
+        return CommandString(
+            f"{activity_cmd} {env_exports} && ( {resume_cmd} ) || {create_cmd}"
+        )
 
     def on_before_provisioning(
         self,
@@ -294,7 +303,7 @@ class ClaudeAgent(BaseAgent):
                     "Use --copy or --clone instead."
                 )
             if not mngr_ctx.is_interactive:
-                git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.cg)
+                git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.concurrency_group)
                 if git_common_dir is not None:
                     source_path = git_common_dir.parent
                     check_source_directory_trusted(source_path)
@@ -407,7 +416,7 @@ class ClaudeAgent(BaseAgent):
         non-interactive runs re-raise the error.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
-            git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.cg)
+            git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.concurrency_group)
             if git_common_dir is not None:
                 source_path = git_common_dir.parent
                 try:

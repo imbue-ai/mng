@@ -3,7 +3,16 @@
 
 set -euo pipefail
 
-cat `find ~/.claude/projects/ -name "$MAIN_CLAUDE_SESSION_ID.jsonl"` | \
+# Use the latest session ID from the tracking file if available
+_SESSION_ID="${MAIN_CLAUDE_SESSION_ID:-}"
+if [ -n "${MNGR_AGENT_STATE_DIR:-}" ] && [ -f "$MNGR_AGENT_STATE_DIR/claude_session_id" ]; then
+    _MNGR_READ_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id")
+    if [ -n "$_MNGR_READ_SID" ]; then
+        _SESSION_ID="$_MNGR_READ_SID"
+    fi
+fi
+
+cat `find ~/.claude/projects/ -name "$_SESSION_ID.jsonl"` | \
   grep -v "tool_use_id" | \
   grep -v 'content":"<' | \
   grep -v '"type":"progress"' | \
