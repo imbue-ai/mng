@@ -81,12 +81,12 @@ def test_save_and_load_config_roundtrips_multiple_changelings() -> None:
 
 
 def test_save_and_load_config_preserves_optional_fields() -> None:
-    """Optional fields like message, repo, and env_vars should survive roundtrip."""
+    """Optional fields like initial_message, repo, and env_vars should survive roundtrip."""
     definition = ChangelingDefinition(
         name=ChangelingName("detailed-changeling"),
         template=ChangelingTemplateName("code-guardian"),
         schedule=CronSchedule("0 4 * * 1"),
-        message="Custom analysis instructions",
+        initial_message="Custom analysis instructions",
         agent_type="code-guardian",
         extra_mngr_args="--verbose",
         env_vars={"MY_VAR": "my_value"},
@@ -101,7 +101,7 @@ def test_save_and_load_config_preserves_optional_fields() -> None:
 
     loaded_def = loaded.changeling_by_name[ChangelingName("detailed-changeling")]
     assert loaded_def.schedule == CronSchedule("0 4 * * 1")
-    assert loaded_def.message == "Custom analysis instructions"
+    assert loaded_def.initial_message == "Custom analysis instructions"
     assert loaded_def.extra_mngr_args == "--verbose"
     assert loaded_def.env_vars == {"MY_VAR": "my_value"}
     assert loaded_def.is_enabled is False

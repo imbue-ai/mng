@@ -1,3 +1,5 @@
+from typing import Final
+
 from pydantic import Field
 
 from imbue.changelings.primitives import ChangelingName
@@ -7,6 +9,7 @@ from imbue.changelings.primitives import GitRepoUrl
 from imbue.imbue_common.frozen_model import FrozenModel
 
 DEFAULT_SCHEDULE: str = "0 3 * * *"
+DEFAULT_INITIAL_MESSAGE: Final[str] = "Please use your primary skill"
 
 
 class ChangelingDefinition(FrozenModel):
@@ -22,8 +25,9 @@ class ChangelingDefinition(FrozenModel):
         default=None, description="Git repository URL to operate on (required for remote deployment)"
     )
     branch: str = Field(default="main", description="Base branch to work from")
-    message: str | None = Field(
-        default=None, description="Custom initial message to send to the agent (overrides template default)"
+    initial_message: str = Field(
+        default=DEFAULT_INITIAL_MESSAGE,
+        description="Message sent to the agent when it starts (triggers the agent's primary skill)",
     )
     agent_type: str = Field(default="claude", description="The mngr agent type to use")
     extra_mngr_args: str = Field(default="", description="Additional arguments to pass to mngr create")

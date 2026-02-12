@@ -140,8 +140,8 @@ def _serialize_config(config: ChangelingConfig) -> dict:
 
         if definition.repo is not None:
             entry.add("repo", str(definition.repo))
-        if definition.message is not None:
-            entry.add("message", definition.message)
+        if definition.initial_message != ChangelingDefinition.model_fields["initial_message"].default:
+            entry.add("initial_message", definition.initial_message)
         if definition.extra_mngr_args:
             entry.add("extra_mngr_args", definition.extra_mngr_args)
         if definition.env_vars:
