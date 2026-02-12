@@ -167,13 +167,10 @@ def _bootstrap_impl(ctx: click.Context, **kwargs: Any) -> None:
         working_directory=project_dir,
     )
     chunks = backend.query(prompt=_USER_PROMPT, system_prompt=system_prompt)
-    dockerfile_content = accumulate_chunks(chunks).strip()
+    raw_response = accumulate_chunks(chunks).strip()
 
-    if not dockerfile_content:
-        raise MngrError("Claude returned an empty response; no Dockerfile was generated")
-
-    # Strip any markdown fences that Claude might have included despite instructions
-    stripped_dockerfile_content = _strip_non_dockerfile_content(dockerfile_content)
+    # Strip markdown fences and preamble text, keeping only content from the first FROM
+    stripped_dockerfile_content = _strip_non_dockerfile_content(raw_response)
 
     if not stripped_dockerfile_content:
         raise MngrError("Claude's response did not contain valid Dockerfile content (no FROM instruction found)")

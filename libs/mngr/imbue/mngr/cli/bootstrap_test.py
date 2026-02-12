@@ -304,7 +304,7 @@ def test_bootstrap_empty_response_shows_error(
     )
 
     assert result.exit_code != 0
-    assert "empty response" in result.output
+    assert "did not contain valid Dockerfile content" in result.output
 
 
 def test_bootstrap_empty_fences_response_shows_error(
