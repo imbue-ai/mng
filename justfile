@@ -1,4 +1,3 @@
-[default]
 help:
     @just --list
 
