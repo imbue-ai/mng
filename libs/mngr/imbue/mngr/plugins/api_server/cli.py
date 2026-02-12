@@ -1,7 +1,12 @@
 from pathlib import Path
 
 import click
+import uvicorn
 from loguru import logger
+
+from imbue.mngr.plugins.api_server.app import app
+from imbue.mngr.plugins.api_server.app import configure_app
+from imbue.mngr.plugins.api_server.auth import read_or_create_api_token
 
 
 @click.command(name="serve")
@@ -30,12 +35,6 @@ def serve_command(ctx: click.Context, port: int, host: str, config_dir: Path) ->
     This runs the API server on the specified host and port,
     making the mngr API accessible over HTTP for mobile/remote access.
     """
-    import uvicorn
-
-    from imbue.mngr.plugins.api_server.app import app
-    from imbue.mngr.plugins.api_server.app import configure_app
-    from imbue.mngr.plugins.api_server.auth import read_or_create_api_token
-
     expanded_config_dir = config_dir.expanduser()
     api_token = read_or_create_api_token(expanded_config_dir)
 
@@ -60,8 +59,6 @@ def serve_command(ctx: click.Context, port: int, host: str, config_dir: Path) ->
 )
 def show_token_command(config_dir: Path) -> None:
     """Print the API server authentication token."""
-    from imbue.mngr.plugins.api_server.auth import read_or_create_api_token
-
     expanded_config_dir = config_dir.expanduser()
     token = read_or_create_api_token(expanded_config_dir)
     logger.info("{}", token.get_secret_value())

@@ -11,8 +11,9 @@
 # Another candidate for lazy loading: celpy (~45ms) in api/list.py. It's only
 # needed when CEL filters are used (--include/--exclude), but is currently
 # imported at the top level via imbue.mngr.utils.cel_utils.
+import importlib
+
 import imbue.mngr.plugins.activity_tracking.plugin as activity_tracking_plugin_module
-import imbue.mngr.plugins.api_server.plugin as api_server_plugin_module
 import imbue.mngr.plugins.port_forwarding.plugin as port_forwarding_plugin_module
 import imbue.mngr.plugins.ttyd.plugin as ttyd_plugin_module
 import imbue.mngr.providers.local.backend as local_backend_module
@@ -51,10 +52,15 @@ def load_all_registries(pm) -> None:
 
 
 def _load_utility_plugins(pm) -> None:
-    """Register built-in utility plugins (non-agent, non-provider)."""
+    """Register built-in utility plugins (non-agent, non-provider).
+
+    The api_server plugin is loaded via importlib to break a circular import:
+    registry -> api_server.plugin -> cli -> app -> api.find -> api.list -> providers -> registry
+    """
     pm.register(port_forwarding_plugin_module)
     pm.register(ttyd_plugin_module)
-    pm.register(api_server_plugin_module)
+    api_server_plugin = importlib.import_module("imbue.mngr.plugins.api_server.plugin")
+    pm.register(api_server_plugin)
     pm.register(activity_tracking_plugin_module)
 
 

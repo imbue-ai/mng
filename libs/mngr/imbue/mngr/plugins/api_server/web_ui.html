@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>mngr</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+  background: #0d1117; color: #c9d1d9;
+  min-height: 100vh; display: flex; flex-direction: column;
+}
+#auth-screen, #app { display: none; }
+#auth-screen.active, #app.active { display: flex; flex-direction: column; flex: 1; }
+#auth-screen {
+  justify-content: center; align-items: center; padding: 24px;
+}
+#auth-screen input {
+  width: 100%; max-width: 400px; padding: 14px; font-size: 16px;
+  background: #161b22; color: #c9d1d9; border: 1px solid #30363d;
+  border-radius: 6px; margin-bottom: 12px;
+}
+#auth-screen button {
+  padding: 14px 24px; font-size: 16px; background: #238636; color: #fff;
+  border: none; border-radius: 6px; cursor: pointer; min-height: 44px;
+}
+header {
+  padding: 12px 16px; background: #161b22; border-bottom: 1px solid #30363d;
+  display: flex; align-items: center; gap: 12px; min-height: 48px;
+}
+header h1 { font-size: 18px; font-weight: 600; flex: 1; }
+#back-btn {
+  display: none; background: none; border: none; color: #58a6ff;
+  font-size: 16px; cursor: pointer; padding: 8px; min-width: 44px; min-height: 44px;
+}
+#filter-input {
+  padding: 10px 14px; font-size: 14px;
+  background: #0d1117; color: #c9d1d9; border: 1px solid #30363d;
+  border-radius: 6px; margin: 12px 16px 0;
+}
+#agent-list {
+  flex: 1; overflow-y: auto; padding: 8px 16px;
+}
+.agent-row {
+  display: flex; align-items: center; padding: 14px 12px;
+  border-bottom: 1px solid #21262d; cursor: pointer;
+  min-height: 60px; gap: 12px;
+}
+.agent-row:active { background: #161b22; }
+.agent-name { font-weight: 600; font-size: 15px; flex: 1; }
+.agent-type { color: #8b949e; font-size: 13px; }
+.agent-host { color: #8b949e; font-size: 12px; }
+.state-badge {
+  font-size: 11px; padding: 2px 8px; border-radius: 12px;
+  font-weight: 600; text-transform: uppercase;
+}
+.state-RUNNING { background: #238636; color: #fff; }
+.state-WAITING { background: #d29922; color: #000; }
+.state-STOPPED { background: #6e7681; color: #fff; }
+.state-DONE { background: #8b949e; color: #fff; }
+.state-REPLACED { background: #da3633; color: #fff; }
+#agent-view { display: none; flex: 1; flex-direction: column; }
+#agent-view.active { display: flex; }
+#agent-list.hidden { display: none; }
+#agent-toolbar {
+  padding: 8px 16px; background: #161b22; border-bottom: 1px solid #30363d;
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+#agent-toolbar button {
+  padding: 8px 16px; font-size: 14px; background: #21262d; color: #c9d1d9;
+  border: 1px solid #30363d; border-radius: 6px; cursor: pointer;
+  min-height: 44px;
+}
+#agent-toolbar button.primary { background: #238636; border-color: #238636; color: #fff; }
+#agent-iframe {
+  flex: 1; border: none; width: 100%; background: #000;
+}
+#message-bar {
+  display: flex; gap: 8px; padding: 8px 16px; background: #161b22;
+  border-top: 1px solid #30363d;
+}
+#message-input {
+  flex: 1; padding: 10px 14px; font-size: 14px;
+  background: #0d1117; color: #c9d1d9; border: 1px solid #30363d;
+  border-radius: 6px;
+}
+#send-btn {
+  padding: 10px 16px; background: #238636; color: #fff; border: none;
+  border-radius: 6px; cursor: pointer; min-width: 44px; min-height: 44px;
+}
+#no-url-info {
+  flex: 1; padding: 24px; overflow-y: auto;
+}
+#no-url-info pre {
+  white-space: pre-wrap; font-size: 13px; color: #8b949e;
+  background: #161b22; padding: 16px; border-radius: 6px;
+}
+.error-msg { color: #da3633; padding: 16px; text-align: center; }
+#refresh-btn {
+  background: none; border: none; color: #58a6ff; cursor: pointer;
+  font-size: 14px; padding: 8px; min-width: 44px; min-height: 44px;
+}
+</style>
+</head>
+<body>
+<div id="auth-screen" class="active">
+  <h2 style="margin-bottom:24px;font-size:22px;">mngr</h2>
+  <input type="password" id="token-input" placeholder="API token" autocomplete="off">
+  <button onclick="doAuth()">Sign in</button>
+  <div id="auth-error" class="error-msg" style="display:none;"></div>
+</div>
+<div id="app">
+  <header>
+    <button id="back-btn" onclick="showList()">&larr;</button>
+    <h1 id="header-title">mngr</h1>
+    <button id="refresh-btn" onclick="refreshAgents()">&#8635;</button>
+  </header>
+  <input type="text" id="filter-input" placeholder="Filter agents..." oninput="filterAgents()">
+  <div id="agent-list"></div>
+  <div id="agent-view">
+    <div id="agent-toolbar">
+      <button id="stop-btn" onclick="stopAgent()">Stop</button>
+      <button id="msg-toggle" class="primary" onclick="toggleMessage()">Message</button>
+    </div>
+    <iframe id="agent-iframe"></iframe>
+    <div id="no-url-info" style="display:none;"><pre id="agent-status-text"></pre></div>
+    <div id="message-bar" style="display:none;">
+      <input type="text" id="message-input" placeholder="Send a message...">
+      <button id="send-btn" onclick="sendMessage()">&#9654;</button>
+    </div>
+  </div>
+</div>
+<script>
+let TOKEN = localStorage.getItem('mngr_token') || '';
+let agents = [];
+let currentAgent = null;
+let evtSource = null;
+
+if (TOKEN) { startApp(); }
+
+function doAuth() {
+  TOKEN = document.getElementById('token-input').value.trim();
+  if (!TOKEN) return;
+  localStorage.setItem('mngr_token', TOKEN);
+  startApp();
+}
+
+function startApp() {
+  document.getElementById('auth-screen').classList.remove('active');
+  document.getElementById('app').classList.add('active');
+  connectSSE();
+  refreshAgents();
+}
+
+function api(path, opts) {
+  opts = opts || {};
+  opts.headers = Object.assign({'Authorization': 'Bearer ' + TOKEN}, opts.headers || {});
+  return fetch('/api' + path, opts).then(function(r) {
+    if (r.status === 401) {
+      localStorage.removeItem('mngr_token');
+      TOKEN = '';
+      document.getElementById('app').classList.remove('active');
+      document.getElementById('auth-screen').classList.add('active');
+      document.getElementById('auth-error').textContent = 'Invalid token';
+      document.getElementById('auth-error').style.display = 'block';
+      throw new Error('Unauthorized');
+    }
+    return r.json();
+  });
+}
+
+function connectSSE() {
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource('/api/agents/stream?token=' + encodeURIComponent(TOKEN));
+  evtSource.onmessage = function(e) {
+    try {
+      var data = JSON.parse(e.data);
+      if (data.agents) { agents = data.agents; renderAgents(); }
+    } catch(err) {}
+  };
+  evtSource.onerror = function() {
+    setTimeout(connectSSE, 5000);
+  };
+}
+
+function refreshAgents() {
+  api('/agents').then(function(data) {
+    agents = data.agents || [];
+    renderAgents();
+  }).catch(function() {});
+}
+
+function renderAgents() {
+  var filter = (document.getElementById('filter-input').value || '').toLowerCase();
+  var list = document.getElementById('agent-list');
+  var html = '';
+  agents.forEach(function(a) {
+    if (filter && a.name.toLowerCase().indexOf(filter) === -1 &&
+        a.type.toLowerCase().indexOf(filter) === -1) return;
+    html += '<div class="agent-row" onclick="openAgent(\'' + a.id + '\')">' +
+      '<div style="flex:1"><div class="agent-name">' + esc(a.name) + '</div>' +
+      '<div class="agent-host">' + esc(a.type) + ' on ' + esc(a.host.name) + '</div></div>' +
+      '<span class="state-badge state-' + a.state + '">' + a.state + '</span></div>';
+  });
+  if (!html) html = '<div style="padding:24px;text-align:center;color:#8b949e;">No agents found</div>';
+  list.innerHTML = html;
+}
+
+function filterAgents() { renderAgents(); }
+
+function openAgent(id) {
+  currentAgent = agents.find(function(a) { return a.id === id; });
+  if (!currentAgent) return;
+  document.getElementById('agent-list').classList.add('hidden');
+  document.getElementById('filter-input').style.display = 'none';
+  document.getElementById('agent-view').classList.add('active');
+  document.getElementById('back-btn').style.display = 'block';
+  document.getElementById('header-title').textContent = currentAgent.name;
+  var iframe = document.getElementById('agent-iframe');
+  var noUrl = document.getElementById('no-url-info');
+  var url = currentAgent.urls && (currentAgent.urls.terminal || currentAgent.urls['default'] || Object.values(currentAgent.urls)[0]);
+  if (url) {
+    iframe.src = url;
+    iframe.style.display = 'block';
+    noUrl.style.display = 'none';
+  } else {
+    iframe.style.display = 'none';
+    noUrl.style.display = 'block';
+    document.getElementById('agent-status-text').textContent =
+      (currentAgent.status && currentAgent.status.full) || 'No URL available for this agent.';
+  }
+}
+
+function showList() {
+  currentAgent = null;
+  document.getElementById('agent-view').classList.remove('active');
+  document.getElementById('agent-list').classList.remove('hidden');
+  document.getElementById('filter-input').style.display = 'block';
+  document.getElementById('back-btn').style.display = 'none';
+  document.getElementById('header-title').textContent = 'mngr';
+  document.getElementById('agent-iframe').src = '';
+  document.getElementById('message-bar').style.display = 'none';
+}
+
+function toggleMessage() {
+  var bar = document.getElementById('message-bar');
+  bar.style.display = bar.style.display === 'none' ? 'flex' : 'none';
+  if (bar.style.display === 'flex') document.getElementById('message-input').focus();
+}
+
+function sendMessage() {
+  if (!currentAgent) return;
+  var input = document.getElementById('message-input');
+  var msg = input.value.trim();
+  if (!msg) return;
+  api('/agents/' + currentAgent.id + '/message', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({message: msg})
+  }).then(function() { input.value = ''; }).catch(function() {});
+}
+
+function stopAgent() {
+  if (!currentAgent) return;
+  api('/agents/' + currentAgent.id + '/stop', {method: 'POST'}).then(function() {
+    refreshAgents();
+  }).catch(function() {});
+}
+
+function esc(s) {
+  var d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>
