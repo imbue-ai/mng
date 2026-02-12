@@ -1,4 +1,4 @@
-# mngr provision [future] - CLI Options Reference
+# mngr provision - CLI Options Reference
 
 Ensures that an agent has the required packages, libraries, environment variables, and configuration files to run properly.
 

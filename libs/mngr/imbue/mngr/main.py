@@ -19,6 +19,7 @@ from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.migrate import migrate
 from imbue.mngr.cli.pair import pair
+from imbue.mngr.cli.provision import provision
 from imbue.mngr.cli.pull import pull
 from imbue.mngr.cli.push import push
 from imbue.mngr.cli.start import start
@@ -39,6 +40,7 @@ COMMAND_ALIASES: dict[str, list[str]] = {
     "message": ["msg"],
     "list": ["ls"],
     "connect": ["conn"],
+    "provision": ["prov"],
     "stop": ["s"],
 }
 
@@ -231,6 +233,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     connect,
     message,
     pair,
+    provision,
     pull,
     push,
     start,
@@ -249,6 +252,7 @@ cli.add_command(destroy, name="rm")
 cli.add_command(message, name="msg")
 cli.add_command(list_command, name="ls")
 cli.add_command(connect, name="conn")
+cli.add_command(provision, name="prov")
 
 # Add clone as a standalone command (not in BUILTIN_COMMANDS since it uses
 # UNPROCESSED args and delegates to create, which already has plugin options applied)
