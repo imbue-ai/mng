@@ -1,4 +1,3 @@
-from collections.abc import Iterator
 from pathlib import Path
 
 import pluggy
@@ -11,39 +10,16 @@ from imbue.mngr.cli.bootstrap import _get_default_dockerfile
 from imbue.mngr.cli.bootstrap import _resolve_output_path
 from imbue.mngr.cli.bootstrap import _strip_non_dockerfile_content
 from imbue.mngr.cli.bootstrap import bootstrap
-from imbue.mngr.cli.claude_backend import ClaudeBackendInterface
-from imbue.mngr.errors import MngrError
-
-
-class FakeClaude(ClaudeBackendInterface):
-    """Test double that records queries and returns canned responses."""
-
-    responses: list[str] = []
-    queries: list[str] = []
-    system_prompts: list[str] = []
-
-    def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
-        self.queries.append(prompt)
-        self.system_prompts.append(system_prompt)
-        yield self.responses.pop(0)
-
-
-class FakeClaudeError(ClaudeBackendInterface):
-    """Test double that raises an error on query."""
-
-    error_message: str
-
-    def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
-        raise MngrError(self.error_message)
-
+from imbue.mngr.cli.conftest import FakeClaudeBackend
+from imbue.mngr.cli.conftest import FakeClaudeBackendError
 
 _FAKE_DOCKERFILE: str = "FROM python:3.11-slim\nRUN apt-get update\n"
 
 
 @pytest.fixture
-def fake_claude(monkeypatch: pytest.MonkeyPatch) -> FakeClaude:
-    """Provide a FakeClaude backend and monkeypatch it into the bootstrap module."""
-    backend = FakeClaude()
+def fake_claude(monkeypatch: pytest.MonkeyPatch) -> FakeClaudeBackend:
+    """Provide a FakeClaudeBackend and monkeypatch it into the bootstrap module."""
+    backend = FakeClaudeBackend()
     monkeypatch.setattr(bootstrap_module, "SubprocessClaudeBackend", lambda **_kwargs: backend)
     return backend
 
@@ -139,7 +115,7 @@ def test_strip_non_dockerfile_content_removes_preamble() -> None:
 
 
 def test_bootstrap_writes_dockerfile(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
@@ -164,7 +140,7 @@ def test_bootstrap_writes_dockerfile(
 
 
 def test_bootstrap_dry_run_does_not_write(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
@@ -187,7 +163,7 @@ def test_bootstrap_dry_run_does_not_write(
 
 
 def test_bootstrap_force_overwrites_existing(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
@@ -212,7 +188,7 @@ def test_bootstrap_force_overwrites_existing(
 
 
 def test_bootstrap_refuses_overwrite_without_force(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
@@ -236,7 +212,7 @@ def test_bootstrap_refuses_overwrite_without_force(
 
 
 def test_bootstrap_json_output(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
@@ -258,7 +234,7 @@ def test_bootstrap_json_output(
 
 
 def test_bootstrap_jsonl_output(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
@@ -286,7 +262,7 @@ def test_bootstrap_claude_error_shows_message(
     tmp_path: Path,
 ) -> None:
     """When Claude fails, the error should be displayed to the user."""
-    backend = FakeClaudeError(error_message="claude failed (exit code 1): auth error")
+    backend = FakeClaudeBackendError(error_message="claude failed (exit code 1): auth error")
     monkeypatch.setattr(bootstrap_module, "SubprocessClaudeBackend", lambda **_kwargs: backend)
     project_dir = tmp_path / "project"
     project_dir.mkdir()
@@ -303,7 +279,7 @@ def test_bootstrap_claude_error_shows_message(
 
 
 def test_bootstrap_empty_response_shows_error(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
@@ -325,7 +301,7 @@ def test_bootstrap_empty_response_shows_error(
 
 
 def test_bootstrap_creates_mngr_directory(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
@@ -348,7 +324,7 @@ def test_bootstrap_creates_mngr_directory(
 
 
 def test_bootstrap_strips_markdown_fences_from_response(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,

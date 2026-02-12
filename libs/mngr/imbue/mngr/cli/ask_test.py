@@ -1,5 +1,3 @@
-from collections.abc import Iterator
-
 import pluggy
 import pytest
 from click.testing import CliRunner
@@ -8,37 +6,16 @@ import imbue.mngr.cli.ask as ask_module
 from imbue.mngr.cli.ask import _build_ask_context
 from imbue.mngr.cli.ask import _execute_response
 from imbue.mngr.cli.ask import ask
-from imbue.mngr.cli.claude_backend import ClaudeBackendInterface
+from imbue.mngr.cli.conftest import FakeClaudeBackend
+from imbue.mngr.cli.conftest import FakeClaudeBackendError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import OutputFormat
 
 
-class FakeClaude(ClaudeBackendInterface):
-    """Test double that records queries and returns canned responses."""
-
-    responses: list[str] = []
-    queries: list[str] = []
-    system_prompts: list[str] = []
-
-    def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
-        self.queries.append(prompt)
-        self.system_prompts.append(system_prompt)
-        yield self.responses.pop(0)
-
-
-class FakeClaudeError(ClaudeBackendInterface):
-    """Test double that raises MngrError on query."""
-
-    error_message: str
-
-    def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
-        raise MngrError(self.error_message)
-
-
 @pytest.fixture
-def fake_claude(monkeypatch: pytest.MonkeyPatch) -> FakeClaude:
-    """Provide a FakeClaude backend and monkeypatch it into the ask module."""
-    backend = FakeClaude()
+def fake_claude(monkeypatch: pytest.MonkeyPatch) -> FakeClaudeBackend:
+    """Provide a FakeClaudeBackend and monkeypatch it into the ask module."""
+    backend = FakeClaudeBackend()
     monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
     return backend
 
@@ -63,7 +40,7 @@ def test_no_query_shows_command_summary(
 
 
 def test_ask_passes_query_to_claude(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
@@ -81,7 +58,7 @@ def test_ask_passes_query_to_claude(
 
 
 def test_ask_json_output(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
@@ -94,7 +71,7 @@ def test_ask_json_output(
 
 
 def test_ask_jsonl_output(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
@@ -127,7 +104,7 @@ def test_ask_claude_error_shows_message(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """When the claude backend raises an error, it should be displayed to the user."""
-    backend = FakeClaudeError(error_message=error_message)
+    backend = FakeClaudeBackendError(error_message=error_message)
     monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
 
     result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
@@ -137,7 +114,7 @@ def test_ask_claude_error_shows_message(
 
 
 def test_ask_human_streams_output(
-    fake_claude: FakeClaude,
+    fake_claude: FakeClaudeBackend,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
