@@ -8,6 +8,7 @@ from imbue.imbue_common.ratchet_testing.core import FileExtension
 from imbue.imbue_common.ratchet_testing.core import RegexPattern
 from imbue.imbue_common.ratchet_testing.core import check_regex_ratchet
 from imbue.imbue_common.ratchet_testing.core import format_ratchet_failure_message
+from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
 from imbue.imbue_common.ratchet_testing.ratchets import find_assert_isinstance_usages
 from imbue.imbue_common.ratchet_testing.ratchets import find_cast_usages
 from imbue.imbue_common.ratchet_testing.ratchets import find_if_elif_without_else
@@ -572,6 +573,39 @@ def test_prevent_assert_isinstance_usage() -> None:
             "Do not use 'assert isinstance()'. Use match statements with exhaustive case handling instead. "
             "End your match with 'case _ as unreachable: assert_never(unreachable)' to ensure all cases are "
             "handled and catch new variants at compile time. See style guide for examples."
+        ),
+        chunks=chunks,
+    )
+
+
+def test_prevent_direct_subprocess_usage() -> None:
+    """Prevent direct usage of subprocess and os process-spawning functions.
+
+    All subprocess execution should go through ConcurrencyGroup's run_process_to_completion
+    to ensure proper process lifecycle management and cleanup. The only exceptions are
+    interactive_subprocess.py (for terminal-interactive processes that bypass ConcurrencyGroup
+    by design), and os.execvp in connect.py (which replaces the current process rather than
+    spawning a child).
+
+    Test files are excluded from this check.
+    """
+    pattern = RegexPattern(
+        r"\bfrom\s+subprocess\s+import\b(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)"
+        r"|\bsubprocess\.(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)\b"
+        r"|\bos\.(exec\w+|spawn\w+|fork\w*|system|popen)\b"
+        r"|\bfrom\s+os\s+import\b.*\b(exec\w+|spawn\w+|fork\w*|system|popen)\b",
+    )
+    all_chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = tuple(c for c in all_chunks if not _is_test_file(c.file_path))
+
+    assert len(chunks) <= snapshot(41), format_ratchet_failure_message(
+        rule_name="direct subprocess/os.exec usage",
+        rule_description=(
+            "Do not use subprocess.Popen, subprocess.run, subprocess.call, subprocess.check_call, "
+            "subprocess.check_output, os.exec*, os.spawn*, os.fork*, os.system, or os.popen directly. "
+            "Instead, use run_process_to_completion from ConcurrencyGroup and ensure a ConcurrencyGroup "
+            "is passed down to the call site. This ensures all spawned processes get cleaned up properly. "
+            "See libs/concurrency_group/ for details."
         ),
         chunks=chunks,
     )
