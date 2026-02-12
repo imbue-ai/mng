@@ -109,6 +109,7 @@ CEL filters let you control which resources are cleaned.
 
 ## See Also
 
+- [mngr cleanup](./cleanup.md) - Interactive cleanup of agents and hosts
 - [mngr destroy](../primary/destroy.md) - Destroy agents (includes automatic GC)
 - [mngr list](../primary/list.md) - List agents to find unused resources
 

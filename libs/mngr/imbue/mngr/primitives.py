@@ -121,6 +121,13 @@ class ErrorBehavior(UpperCaseStrEnum):
     CONTINUE = auto()
 
 
+class CleanupAction(UpperCaseStrEnum):
+    """Action to perform on selected agents during cleanup."""
+
+    DESTROY = auto()
+    STOP = auto()
+
+
 class WorkDirCopyMode(UpperCaseStrEnum):
     """Mode for copying work directory content."""
 

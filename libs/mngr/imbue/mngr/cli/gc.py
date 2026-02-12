@@ -102,9 +102,6 @@ class GcCliOptions(CommonCliOptions):
     is_flag=True,
     help="Remove machine cache entries (per-provider) [future]",
 )
-# FIXME: When "mngr cleanup" is implemented, add a cross-reference in the gc command's
-# help text pointing users to it for interactive cleanup. See the spec at:
-# docs/commands/secondary/cleanup.md
 @optgroup.group("Filtering")
 @optgroup.option(
     "--include",
@@ -511,6 +508,7 @@ resources at any time.""",
         ),
     ),
     see_also=(
+        ("cleanup", "Interactive cleanup of agents and hosts"),
         ("destroy", "Destroy agents (includes automatic GC)"),
         ("list", "List agents to find unused resources"),
     ),
