@@ -8,35 +8,8 @@ from click.testing import CliRunner
 
 from imbue.mngr.cli.create import create
 from imbue.mngr.cli.provision import provision
+from imbue.mngr.utils.testing import create_test_agent_via_cli
 from imbue.mngr.utils.testing import tmux_session_cleanup
-from imbue.mngr.utils.testing import tmux_session_exists
-
-
-def _create_agent(
-    cli_runner: CliRunner,
-    agent_name: str,
-    temp_work_dir: Path,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Helper to create a generic agent for provisioning tests."""
-    result = cli_runner.invoke(
-        create,
-        [
-            "--name",
-            agent_name,
-            "--agent-cmd",
-            "sleep 847293",
-            "--source",
-            str(temp_work_dir),
-            "--no-connect",
-            "--await-ready",
-            "--no-copy-work-dir",
-            "--no-ensure-clean",
-        ],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
-    assert result.exit_code == 0, f"Create failed with: {result.output}"
 
 
 def test_provision_existing_agent(
@@ -51,8 +24,7 @@ def test_provision_existing_agent(
     session_name = f"{mngr_test_prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
-        _create_agent(cli_runner, agent_name, temp_work_dir, plugin_manager)
-        assert tmux_session_exists(session_name)
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
 
         result = cli_runner.invoke(
             provision,
@@ -78,7 +50,7 @@ def test_provision_with_user_command(
     marker_file = tmp_path / "provision_marker.txt"
 
     with tmux_session_cleanup(session_name):
-        _create_agent(cli_runner, agent_name, temp_work_dir, plugin_manager)
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
 
         result = cli_runner.invoke(
             provision,
@@ -108,7 +80,7 @@ def test_provision_with_env_var(
     session_name = f"{mngr_test_prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
-        _create_agent(cli_runner, agent_name, temp_work_dir, plugin_manager)
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
 
         result = cli_runner.invoke(
             provision,
@@ -209,7 +181,7 @@ def test_provision_with_upload_file(
     remote_path = tmp_path / "upload_destination.txt"
 
     with tmux_session_cleanup(session_name):
-        _create_agent(cli_runner, agent_name, temp_work_dir, plugin_manager)
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
 
         result = cli_runner.invoke(
             provision,
@@ -253,7 +225,7 @@ def test_provision_with_agent_option(
     session_name = f"{mngr_test_prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
-        _create_agent(cli_runner, agent_name, temp_work_dir, plugin_manager)
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
 
         result = cli_runner.invoke(
             provision,
@@ -298,7 +270,7 @@ def test_provision_json_output(
     session_name = f"{mngr_test_prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
-        _create_agent(cli_runner, agent_name, temp_work_dir, plugin_manager)
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
 
         result = cli_runner.invoke(
             provision,
