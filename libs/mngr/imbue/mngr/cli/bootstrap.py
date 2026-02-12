@@ -202,13 +202,14 @@ def _strip_non_dockerfile_content(content: str) -> str:
     """
     # Strip markdown fences
     lines = content.strip().splitlines()
-    if len(lines) >= 2 and lines[0].startswith("```") and lines[-1].strip() == "```":
-        lines = lines[1:-1]
+    stripped_lines = (
+        lines[1:-1] if len(lines) >= 2 and lines[0].startswith("```") and lines[-1].strip() == "```" else lines
+    )
 
     # Find the first FROM instruction and discard everything before it
-    for idx, line in enumerate(lines):
+    for idx, line in enumerate(stripped_lines):
         if line.strip().upper().startswith("FROM "):
-            return "\n".join(lines[idx:]).strip()
+            return "\n".join(stripped_lines[idx:]).strip()
 
     # No FROM found -- return empty so the caller raises an appropriate error
     return ""
