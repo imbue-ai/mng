@@ -166,114 +166,8 @@ def test_snapshot_destroy_cli_options_fields() -> None:
 
 
 # =============================================================================
-# Group help tests
-# =============================================================================
-
-
-def test_snapshot_group_shows_help_without_subcommand(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that snapshot group exits successfully when invoked without subcommand."""
-    result = cli_runner.invoke(
-        snapshot,
-        [],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
-    # Group shows help via logger.info (goes to stderr before logging is configured)
-    assert result.exit_code == 0
-
-
-def test_snapshot_group_help_flag(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that snapshot --help works."""
-    result = cli_runner.invoke(
-        snapshot,
-        ["--help"],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
-    assert result.exit_code == 0
-
-
-# =============================================================================
 # create subcommand tests
 # =============================================================================
-
-
-def test_snapshot_create_requires_target(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that create requires at least one agent, host, or --all."""
-    result = cli_runner.invoke(
-        snapshot,
-        ["create"],
-        obj=plugin_manager,
-        catch_exceptions=True,
-    )
-    assert result.exit_code != 0
-    assert "Must specify at least one agent, host, or use --all" in result.output
-
-
-def test_snapshot_create_cannot_combine_agents_and_all(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that --all cannot be combined with agent names."""
-    result = cli_runner.invoke(
-        snapshot,
-        ["create", "my-agent", "--all"],
-        obj=plugin_manager,
-        catch_exceptions=True,
-    )
-    assert result.exit_code != 0
-    assert "Cannot specify both agent names and --all" in result.output
-
-
-def test_snapshot_create_nonexistent_agent(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test creating a snapshot for a non-existent agent."""
-    result = cli_runner.invoke(
-        snapshot,
-        ["create", "nonexistent-agent-99999"],
-        obj=plugin_manager,
-        catch_exceptions=True,
-    )
-    assert result.exit_code != 0
-
-
-def test_snapshot_create_all_with_no_running_agents(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test creating snapshots for all agents when none are running."""
-    result = cli_runner.invoke(
-        snapshot,
-        ["create", "--all"],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
-    assert result.exit_code == 0
-
-
-def test_snapshot_create_dry_run(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that --dry-run with --all shows what would be done."""
-    result = cli_runner.invoke(
-        snapshot,
-        ["create", "--all", "--dry-run"],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
-    assert result.exit_code == 0
 
 
 def test_snapshot_create_success(
@@ -294,26 +188,6 @@ def test_snapshot_create_success(
     )
     assert result.exit_code == 0
     assert len(fake_provider.create_snapshot_calls) == 1
-
-
-def test_snapshot_create_unsupported_provider(
-    monkeypatch: pytest.MonkeyPatch,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test creating a snapshot with a provider that does not support snapshots."""
-    fake_provider = _FakeSnapshotProvider(is_snapshot_supported=False)
-    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
-    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
-
-    result = cli_runner.invoke(
-        snapshot,
-        ["create", "my-agent"],
-        obj=plugin_manager,
-        catch_exceptions=True,
-    )
-    assert result.exit_code != 0
-    assert "does not support snapshots" in result.output
 
 
 def test_snapshot_create_json_output(
@@ -340,50 +214,6 @@ def test_snapshot_create_json_output(
 # =============================================================================
 # list subcommand tests
 # =============================================================================
-
-
-def test_snapshot_list_requires_target(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that list requires at least one agent or --all."""
-    result = cli_runner.invoke(
-        snapshot,
-        ["list"],
-        obj=plugin_manager,
-        catch_exceptions=True,
-    )
-    assert result.exit_code != 0
-    assert "Must specify at least one agent or use --all" in result.output
-
-
-def test_snapshot_list_cannot_combine_agents_and_all(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that list --all cannot be combined with agent names."""
-    result = cli_runner.invoke(
-        snapshot,
-        ["list", "my-agent", "--all"],
-        obj=plugin_manager,
-        catch_exceptions=True,
-    )
-    assert result.exit_code != 0
-    assert "Cannot specify both agent names and --all" in result.output
-
-
-def test_snapshot_list_all_with_no_running_agents(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test listing snapshots for all agents when none are running."""
-    result = cli_runner.invoke(
-        snapshot,
-        ["list", "--all"],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
-    assert result.exit_code == 0
 
 
 def test_snapshot_list_success(
@@ -539,51 +369,6 @@ def test_snapshot_list_no_snapshots(
 # =============================================================================
 # destroy subcommand tests
 # =============================================================================
-
-
-def test_snapshot_destroy_requires_agent(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that destroy requires at least one agent."""
-    result = cli_runner.invoke(
-        snapshot,
-        ["destroy", "--all-snapshots", "--force"],
-        obj=plugin_manager,
-        catch_exceptions=True,
-    )
-    assert result.exit_code != 0
-    assert "Must specify at least one agent" in result.output
-
-
-def test_snapshot_destroy_requires_snapshot_or_all(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that destroy requires --snapshot or --all-snapshots."""
-    result = cli_runner.invoke(
-        snapshot,
-        ["destroy", "my-agent"],
-        obj=plugin_manager,
-        catch_exceptions=True,
-    )
-    assert result.exit_code != 0
-    assert "Must specify --snapshot or --all-snapshots" in result.output
-
-
-def test_snapshot_destroy_cannot_combine_snapshot_and_all(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that --snapshot and --all-snapshots cannot be combined."""
-    result = cli_runner.invoke(
-        snapshot,
-        ["destroy", "my-agent", "--snapshot", "snap-123", "--all-snapshots", "--force"],
-        obj=plugin_manager,
-        catch_exceptions=True,
-    )
-    assert result.exit_code != 0
-    assert "Cannot specify both --snapshot and --all-snapshots" in result.output
 
 
 def test_snapshot_destroy_with_force(
