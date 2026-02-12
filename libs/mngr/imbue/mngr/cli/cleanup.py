@@ -235,13 +235,13 @@ def _build_cel_filters_from_options(
 
     # --older-than DURATION -> age > N (seconds)
     if opts.older_than is not None:
-        seconds = parse_duration_to_seconds(opts.older_than)
-        include_filters.append(f"age > {seconds}")
+        older_than_seconds = parse_duration_to_seconds(opts.older_than)
+        include_filters.append(f"age > {older_than_seconds}")
 
     # --idle-for DURATION -> idle > N (seconds)
     if opts.idle_for is not None:
-        seconds = parse_duration_to_seconds(opts.idle_for)
-        include_filters.append(f"idle > {seconds}")
+        idle_for_seconds = parse_duration_to_seconds(opts.idle_for)
+        include_filters.append(f"idle > {idle_for_seconds}")
 
     # --provider PROVIDER -> host.provider == "PROVIDER" (repeatable, OR'd)
     if opts.provider:
