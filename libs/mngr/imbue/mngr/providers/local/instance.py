@@ -261,8 +261,8 @@ class LocalProviderInstance(BaseProviderInstance):
 
     def list_hosts(
         self,
+        cg: ConcurrencyGroup,
         include_destroyed: bool = False,
-        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         """List all hosts managed by this provider.
 

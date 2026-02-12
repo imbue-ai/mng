@@ -136,6 +136,8 @@ def setup_command_context(
     # Create a top-level ConcurrencyGroup for process management
     cg = ConcurrencyGroup(name=f"mngr-{command_name}")
     cg.__enter__()
+    # We explicitly pass None to __exit__ so that Click exceptions (e.g. UsageError) don't get
+    # wrapped in ConcurrencyExceptionGroup, which would break Click's error handling.
     ctx.call_on_close(lambda: cg.__exit__(None, None, None))
 
     # Load config
@@ -150,11 +152,11 @@ def setup_command_context(
         is_interactive = False
     mngr_ctx = load_config(
         pm,
+        cg,
         context_dir,
         initial_opts.plugin,
         initial_opts.disable_plugin,
         is_interactive=is_interactive,
-        concurrency_group=cg,
     )
 
     # FIXME: actually, we should probably move the construction of this object (and the call to setup_logging) down after the "opts = command_class(**updated_params)" line (so that it can take those settings into consideration)
@@ -176,8 +178,7 @@ def setup_command_context(
 
     # Enter a log span for the command lifetime
     span = log_span("Started {} command", command_name)
-    span.__enter__()
-    ctx.call_on_close(lambda: span.__exit__(None, None, None))
+    ctx.with_resource(span)
 
     # Apply config defaults to parameters that came from defaults (not user-specified)
     updated_params = apply_config_defaults(ctx, mngr_ctx.config, command_name)
