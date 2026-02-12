@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import UUID
 
 from loguru import logger
 from pydantic import Field
@@ -86,7 +87,7 @@ def get_agent_transcript(
 
 def _find_session_file(
     host: OnlineHostInterface,
-    agent_uuid: object,
+    agent_uuid: UUID,
     agent_name: str,
 ) -> str:
     """Find the Claude Code session JSONL file on the host."""
