@@ -59,10 +59,6 @@ def test_cli_create_with_echo_command(
         assert agents_dir.exists(), "agents directory should exist in temp dir"
 
 
-# FIXME: This test is flaky under xdist parallel execution. It spawns a subprocess that calls
-# `uv run mngr create`, which causes resource contention with other xdist workers accessing
-# the same tmux server. Multiple workers may race to create/destroy tmux sessions simultaneously,
-# leading to worker crashes. Consider using worker-specific tmux socket paths or marking as serial.
 def test_cli_create_via_subprocess(
     temp_work_dir: Path,
     temp_host_dir: Path,

@@ -127,7 +127,6 @@ def _message_impl(ctx: click.Context, **kwargs) -> None:
         command_name="message",
         command_class=MessageCliOptions,
     )
-    logger.debug("Started message command")
 
     # Build list of agent identifiers
     agent_identifiers = list(opts.agents) + list(opts.agent_list)

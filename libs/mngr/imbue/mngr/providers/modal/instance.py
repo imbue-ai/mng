@@ -16,6 +16,7 @@ import socket
 import tempfile
 import time
 from collections.abc import Callable
+from concurrent.futures import Future
 from datetime import datetime
 from datetime import timezone
 from functools import wraps
@@ -44,9 +45,8 @@ from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 from pyinfra.connectors.sshuserclient.client import get_host_keys
 
-from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.concurrency_group.thread_utils import ObservableThread
+from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
@@ -257,18 +257,6 @@ class ModalProviderApp(FrozenModel):
 
     def close(self) -> None:
         self.close_callback()
-
-
-def _store_result_from_callable(
-    result_dict: dict[str, Any],
-    key: str,
-    callable_fn: Callable[[], Any],
-) -> None:
-    """Helper function for storing callable results in a thread-safe manner.
-
-    Used by list_hosts to run parallel fetches with ConcurrencyGroup.
-    """
-    result_dict[key] = callable_fn()
 
 
 class ModalProviderInstance(BaseProviderInstance):
@@ -486,7 +474,7 @@ class ModalProviderInstance(BaseProviderInstance):
         self._host_by_id_cache.pop(host_id, None)
         self._host_record_cache_by_id.pop(host_id, None)
 
-    def _list_all_host_records(self, cg: ConcurrencyGroup | None = None) -> list[HostRecord]:
+    def _list_all_host_records(self, cg: ConcurrencyGroup) -> list[HostRecord]:
         """List all host records stored on the volume.
 
         Returns a list of all HostRecord objects found on the volume.
@@ -494,14 +482,8 @@ class ModalProviderInstance(BaseProviderInstance):
         """
         volume = self._get_volume()
 
-        with (
-            cg.make_concurrency_group("modal_list_all_host_records")
-            if cg is not None
-            else ConcurrencyGroup(name="modal_list_all_host_records")
-        ) as list_cg:
-            host_records_by_id: dict[HostId, HostRecord] = {}
-            threads: list[ObservableThread] = []
-
+        futures: list[Future[HostRecord | None]] = []
+        with ConcurrencyGroupExecutor(parent_cg=cg, name="modal_list_all_host_records", max_workers=32) as executor:
             # List files at the root of the volume
             for entry in volume.listdir("/"):
                 filename = entry.path
@@ -510,17 +492,9 @@ class ModalProviderInstance(BaseProviderInstance):
                     # Remove .json suffix (and any leading / if present)
                     host_id_str = filename.lstrip("/")[:-5]
                     host_id = HostId(host_id_str)
-                    thread = list_cg.start_new_thread(
-                        target=_store_result_from_callable,
-                        args=(host_records_by_id, host_id, lambda x=host_id: self._read_host_record(x)),
-                        name="fetch_host_records",
-                    )
-                    threads.append(thread)
+                    futures.append(executor.submit(self._read_host_record, host_id))
 
-            for thread in threads:
-                thread.join()
-
-        result = list(host_records_by_id.values())
+        result = [record for future in futures if (record := future.result()) is not None]
         logger.trace("Listed all host records from volume")
         return result
 
@@ -874,7 +848,7 @@ class ModalProviderInstance(BaseProviderInstance):
             # it's a little sad that we're constantly re-deploying this, but it's a bit too easy to make mistakes otherwise
             #  (eg, we might end up with outdated code at that endpoint, which would be hard to debug)
             snapshot_url = deploy_function(
-                "snapshot_and_shutdown", self.app_name, self.environment_name, self.mngr_ctx.cg
+                "snapshot_and_shutdown", self.app_name, self.environment_name, self.mngr_ctx.concurrency_group
             )
             self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
 
@@ -1716,7 +1690,7 @@ log "=== Shutdown script completed ==="
 
             # No sandbox or couldn't connect - search host records by name (for stopped hosts)
             if host_obj is None:
-                for host_record in self._list_all_host_records():
+                for host_record in self._list_all_host_records(cg=self.mngr_ctx.concurrency_group):
                     if host_record.host_name == str(host):
                         host_obj = self._create_host_from_host_record(host_record)
 
@@ -1731,8 +1705,8 @@ log "=== Shutdown script completed ==="
     @handle_modal_auth_error
     def list_hosts(
         self,
+        cg: ConcurrencyGroup,
         include_destroyed: bool = False,
-        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         """List all Modal sandbox hosts, including stopped ones.
 
@@ -1761,33 +1735,17 @@ log "=== Shutdown script completed ==="
 
         # Fetch sandboxes and host records in parallel since they are independent.
         # This reduces list_hosts latency by ~1.5s by overlapping the network calls.
-        # Use ConcurrencyGroup for thread-safe parallel fetching
-        cg_result: dict[str, Any] = {}
         try:
-            with (
-                cg.make_concurrency_group(f"modal_list_hosts_{self.name}")
-                if cg is not None
-                else ConcurrencyGroup(name="modal::list_hosts")
-            ) as list_cg:
-                thread_1 = list_cg.start_new_thread(
-                    target=_store_result_from_callable,
-                    args=(cg_result, "sandboxes", self._list_sandboxes),
-                    name="fetch_sandboxes",
-                )
-                thread_2 = list_cg.start_new_thread(
-                    target=_store_result_from_callable,
-                    args=(cg_result, "host_records", lambda: self._list_all_host_records(cg)),
-                    name="fetch_host_records",
-                )
-                thread_1.join()
-                thread_2.join()
+            with ConcurrencyGroupExecutor(
+                parent_cg=cg, name=f"modal_list_hosts_{self.name}", max_workers=2
+            ) as executor:
+                sandboxes_future = executor.submit(self._list_sandboxes)
+                host_records_future = executor.submit(self._list_all_host_records, cg)
 
-                sandboxes = cg_result.get("sandboxes", [])
-                all_host_records = cg_result.get("host_records", [])
-        except ConcurrencyExceptionGroup as e:
-            if e.only_exception_is_instance_of(modal.exception.AuthError):
-                raise ModalAuthError() from e
-            raise
+            sandboxes = sandboxes_future.result()
+            all_host_records = host_records_future.result()
+        except modal.exception.AuthError as e:
+            raise ModalAuthError() from e
 
         # Map running sandboxes by host_id
         running_sandbox_by_host_id: dict[HostId, modal.Sandbox] = {}

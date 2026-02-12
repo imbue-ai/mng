@@ -4,8 +4,7 @@ from urllib.parse import urlparse
 from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.concurrency_group.errors import ConcurrencyGroupError
-from imbue.concurrency_group.errors import ProcessSetupError
+from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import MngrError
 
@@ -22,7 +21,8 @@ def get_current_git_branch(path: Path | None, cg: ConcurrencyGroup) -> str | Non
             cwd=cwd,
         )
         return result.stdout.strip()
-    except ConcurrencyGroupError:
+    except ProcessError as e:
+        logger.trace("Failed to get current git branch: {}", e)
         return None
 
 
@@ -64,12 +64,10 @@ def _get_project_name_from_git_remote(path: Path, cg: ConcurrencyGroup) -> str |
             ["git", "remote", "get-url", "origin"],
             cwd=path,
             timeout=5,
-            is_checked_after=False,
         )
-        if result.returncode != 0:
-            return None
         return _parse_project_name_from_url(result.stdout.strip())
-    except ConcurrencyGroupError:
+    except ProcessError as e:
+        logger.trace("Failed to get project name from git remote URL: {}", e)
         return None
 
 
@@ -108,12 +106,14 @@ def _parse_project_name_from_url(url: str) -> str | None:
 
 def _get_git_config_value(path: Path, key: str, cg: ConcurrencyGroup) -> str | None:
     """Get a git config value for the repository at the given path."""
-    result = cg.run_process_to_completion(
-        ["git", "config", key],
-        cwd=path,
-        is_checked_after=False,
-    )
-    if result.returncode == 0 and result.stdout.strip():
+    try:
+        result = cg.run_process_to_completion(
+            ["git", "config", key],
+            cwd=path,
+        )
+    except ProcessError:
+        return None
+    if result.stdout.strip():
         return result.stdout.strip()
     return None
 
@@ -132,7 +132,8 @@ def find_git_worktree_root(start: Path | None, cg: ConcurrencyGroup) -> Path | N
             cwd=cwd,
         )
         return Path(result.stdout.strip())
-    except ConcurrencyGroupError:
+    except ProcessError as e:
+        logger.trace("Failed to find worktree root: {}", e)
         return None
 
 
@@ -145,13 +146,12 @@ def is_git_repository(path: Path, cg: ConcurrencyGroup) -> bool:
     if not path.exists():
         return False
     try:
-        result = cg.run_process_to_completion(
+        cg.run_process_to_completion(
             ["git", "rev-parse", "--git-dir"],
             cwd=path,
-            is_checked_after=False,
         )
-        return result.returncode == 0
-    except ProcessSetupError:
+        return True
+    except ProcessError:
         return False
 
 
@@ -162,13 +162,13 @@ def get_current_branch(path: Path, cg: ConcurrencyGroup) -> str:
     fails rather than returning None. Also raises if HEAD is detached (no branch),
     since callers need an actual branch name for push/pull operations.
     """
-    result = cg.run_process_to_completion(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=path,
-        is_checked_after=False,
-    )
-    if result.returncode != 0:
-        raise MngrError(f"Failed to get current branch: {result.stderr}")
+    try:
+        result = cg.run_process_to_completion(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=path,
+        )
+    except ProcessError as e:
+        raise MngrError(f"Failed to get current branch: {e.stderr}") from e
     branch = result.stdout.strip()
     if branch == "HEAD":
         raise MngrError(f"HEAD is detached in {path}. A branch checkout is required for sync operations.")
@@ -177,35 +177,37 @@ def get_current_branch(path: Path, cg: ConcurrencyGroup) -> str:
 
 def get_head_commit(path: Path, cg: ConcurrencyGroup) -> str | None:
     """Get the current HEAD commit hash for a repository."""
-    result = cg.run_process_to_completion(
-        ["git", "rev-parse", "HEAD"],
-        cwd=path,
-        is_checked_after=False,
-    )
-    if result.returncode != 0:
+    try:
+        result = cg.run_process_to_completion(
+            ["git", "rev-parse", "HEAD"],
+            cwd=path,
+        )
+    except ProcessError:
         return None
     return result.stdout.strip()
 
 
 def is_ancestor(path: Path, ancestor_commit: str, descendant_commit: str, cg: ConcurrencyGroup) -> bool:
     """Check if ancestor_commit is an ancestor of descendant_commit."""
-    result = cg.run_process_to_completion(
-        ["git", "merge-base", "--is-ancestor", ancestor_commit, descendant_commit],
-        cwd=path,
-        is_checked_after=False,
-    )
-    return result.returncode == 0
+    try:
+        cg.run_process_to_completion(
+            ["git", "merge-base", "--is-ancestor", ancestor_commit, descendant_commit],
+            cwd=path,
+        )
+        return True
+    except ProcessError:
+        return False
 
 
 def count_commits_between(path: Path, base_ref: str, head_ref: str, cg: ConcurrencyGroup) -> int:
     """Count the number of commits between two refs (base_ref..head_ref)."""
-    result = cg.run_process_to_completion(
-        ["git", "rev-list", "--count", f"{base_ref}..{head_ref}"],
-        cwd=path,
-        is_checked_after=False,
-    )
-    if result.returncode != 0:
-        logger.debug("Failed to count commits between {} and {}: {}", base_ref, head_ref, result.stderr.strip())
+    try:
+        result = cg.run_process_to_completion(
+            ["git", "rev-list", "--count", f"{base_ref}..{head_ref}"],
+            cwd=path,
+        )
+    except ProcessError as e:
+        logger.debug("Failed to count commits between {} and {}: {}", base_ref, head_ref, e.stderr.strip())
         return 0
     try:
         return int(result.stdout.strip())
@@ -229,5 +231,6 @@ def find_git_common_dir(path: Path, cg: ConcurrencyGroup) -> Path | None:
         if not git_common_dir.is_absolute():
             git_common_dir = (path / git_common_dir).resolve()
         return git_common_dir
-    except ConcurrencyGroupError:
+    except ProcessError as e:
+        logger.trace("Failed to find main .git dir: {}", e)
         return None

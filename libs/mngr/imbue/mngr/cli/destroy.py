@@ -191,7 +191,6 @@ def destroy(ctx: click.Context, **kwargs) -> None:
         command_name="destroy",
         command_class=DestroyCliOptions,
     )
-    logger.debug("Started destroy command")
 
     # Filter agents to destroy using CEL expressions like:
     # --include 'name.startsWith("test-")' or --include 'host.provider == "docker"'
