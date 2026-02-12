@@ -53,7 +53,8 @@ def get_agent_transcript(
             resolved_host=None,
             agents_by_host=agents_by_host,
         )
-    assert resolved is not None, "resolve_agent_reference should not return None for non-None identifier"
+    if resolved is None:
+        raise MngrError(f"Failed to resolve agent reference for '{agent_identifier}'")
     matched_host_ref, matched_agent_ref = resolved
 
     agent_name = str(matched_agent_ref.agent_name)
