@@ -219,9 +219,9 @@ class ClaudeAgent(BaseAgent):
     ) -> CommandString:
         """Assemble command with --resume || --session-id format for session resumption.
 
-        The command format is: 'claude --resume UUID args || claude --session-id UUID args'
-        This allows users to hit 'up' and 'enter' in tmux to resume the session (--resume)
-        or create it with that ID (--session-id).
+        The resume path uses $MAIN_CLAUDE_SESSION_ID, which is resolved at runtime
+        from the session tracking file (falling back to the agent UUID on first run).
+        The create path always uses the original agent UUID as the session ID.
 
         An activity updater is started in the background to keep the agent's activity
         timestamp up-to-date while the tmux session is alive.
@@ -275,9 +275,7 @@ class ClaudeAgent(BaseAgent):
         activity_cmd = self._build_activity_updater_command(session_name)
 
         # Combine: start activity updater, export env (including session ID), then run the main command
-        return CommandString(
-            f"{activity_cmd} {env_exports} && ( {resume_cmd} ) || {create_cmd}"
-        )
+        return CommandString(f"{activity_cmd} {env_exports} && ( {resume_cmd} ) || {create_cmd}")
 
     def on_before_provisioning(
         self,
