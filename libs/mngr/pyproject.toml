@@ -34,6 +34,7 @@ build-backend = "hatchling.build"
 imbue-common = { workspace = true }
 concurrency-group = { workspace = true }
 
+# Per-project pytest/coverage config. Keep in sync with root pyproject.toml.
 [tool.pytest.ini_options]
 timeout_func_only = true
 testpaths = ["."]
