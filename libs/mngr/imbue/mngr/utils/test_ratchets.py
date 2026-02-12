@@ -720,7 +720,7 @@ def test_prevent_short_uuid_ids() -> None:
         rule_name="short uuid4 IDs",
         rule_description=(
             "Do not truncate uuid4() to create short IDs (e.g., uuid4().hex[:8]). "
-            "Use the full uuid4().hex instead to ensure uniqueness"
+            "Use the full uuid4().hex instead to ensure uniqueness, or use get_short_random_string() in tests if necessary"
         ),
         chunks=chunks,
     )
