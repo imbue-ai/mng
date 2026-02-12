@@ -19,16 +19,6 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -e .git ] || { echo \"You should never change directories! Return to the repo root\" >&2; exit 2; }"
-          }
-        ]
-      }
     ]
   },
   "model": "opus[1m]",
