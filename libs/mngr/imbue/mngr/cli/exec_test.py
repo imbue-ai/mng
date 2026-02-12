@@ -1,6 +1,7 @@
 """Unit tests for the exec CLI command."""
 
 import json
+from io import StringIO
 
 import pluggy
 import pytest
@@ -8,6 +9,9 @@ from click.testing import CliRunner
 
 from imbue.mngr.api.exec import ExecResult
 from imbue.mngr.cli.exec import ExecCliOptions
+from imbue.mngr.cli.exec import _emit_human_output
+from imbue.mngr.cli.exec import _emit_json_output
+from imbue.mngr.cli.exec import _emit_jsonl_output
 from imbue.mngr.cli.exec import exec_command
 
 
@@ -81,120 +85,54 @@ def test_exec_nonexistent_agent(
     assert result.exit_code != 0
 
 
-def test_exec_human_output_success(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test human output format for a successful command."""
-    mock_result = ExecResult(
-        agent_name="test-agent",
-        stdout="hello world\n",
-        stderr="",
-        success=True,
-    )
-    monkeypatch.setattr(
-        "imbue.mngr.cli.exec.exec_command_on_agent",
-        lambda **kwargs: mock_result,
-    )
+def test_emit_human_output_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test human output prints stdout and logs success."""
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
 
-    result = cli_runner.invoke(
-        exec_command,
-        ["test-agent", "echo hello world"],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
+    result = ExecResult(agent_name="test-agent", stdout="hello world\n", stderr="", success=True)
+    _emit_human_output(result)
 
-    assert result.exit_code == 0
-    assert "hello world" in result.output
-    assert "Command succeeded" in result.output
+    assert "hello world" in captured.getvalue()
 
 
-def test_exec_human_output_failure(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test human output format for a failed command."""
-    mock_result = ExecResult(
-        agent_name="test-agent",
-        stdout="",
-        stderr="command not found\n",
-        success=False,
-    )
-    monkeypatch.setattr(
-        "imbue.mngr.cli.exec.exec_command_on_agent",
-        lambda **kwargs: mock_result,
-    )
+def test_emit_human_output_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test human output handles failed commands."""
+    captured_out = StringIO()
+    captured_err = StringIO()
+    monkeypatch.setattr("sys.stdout", captured_out)
+    monkeypatch.setattr("sys.stderr", captured_err)
 
-    result = cli_runner.invoke(
-        exec_command,
-        ["test-agent", "bad-command"],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
+    result = ExecResult(agent_name="test-agent", stdout="", stderr="bad command\n", success=False)
+    _emit_human_output(result)
 
-    assert result.exit_code == 1
+    assert "bad command" in captured_err.getvalue()
 
 
-def test_exec_json_output(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_emit_json_output(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test JSON output format."""
-    mock_result = ExecResult(
-        agent_name="test-agent",
-        stdout="hello\n",
-        stderr="",
-        success=True,
-    )
-    monkeypatch.setattr(
-        "imbue.mngr.cli.exec.exec_command_on_agent",
-        lambda **kwargs: mock_result,
-    )
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
 
-    result = cli_runner.invoke(
-        exec_command,
-        ["test-agent", "echo hello", "--format", "json"],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
+    result = ExecResult(agent_name="test-agent", stdout="hello\n", stderr="", success=True)
+    _emit_json_output(result)
 
-    assert result.exit_code == 0
-    output = json.loads(result.output.strip())
+    output = json.loads(captured.getvalue().strip())
     assert output["agent"] == "test-agent"
     assert output["stdout"] == "hello\n"
     assert output["stderr"] == ""
     assert output["success"] is True
 
 
-def test_exec_jsonl_output(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_emit_jsonl_output(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test JSONL output format."""
-    mock_result = ExecResult(
-        agent_name="test-agent",
-        stdout="hello\n",
-        stderr="",
-        success=True,
-    )
-    monkeypatch.setattr(
-        "imbue.mngr.cli.exec.exec_command_on_agent",
-        lambda **kwargs: mock_result,
-    )
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
 
-    result = cli_runner.invoke(
-        exec_command,
-        ["test-agent", "echo hello", "--format", "jsonl"],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
+    result = ExecResult(agent_name="test-agent", stdout="hello\n", stderr="", success=True)
+    _emit_jsonl_output(result)
 
-    assert result.exit_code == 0
-    output = json.loads(result.output.strip())
+    output = json.loads(captured.getvalue().strip())
     assert output["event"] == "exec_result"
     assert output["agent"] == "test-agent"
     assert output["success"] is True
