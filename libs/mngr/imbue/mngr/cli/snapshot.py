@@ -133,8 +133,8 @@ def _resolve_snapshot_hosts(
             mngr_ctx=mngr_ctx,
         )
         agents_by_host = group_agents_by_host(agents)
-        for host_key, agent_list in agents_by_host.items():
-            host_id_str = host_key.split(":")[0]
+        for _host_key, agent_list in agents_by_host.items():
+            host_id_str = str(agent_list[0].host_id)
             provider_name = agent_list[0].provider_name
             agent_names = [str(m.agent_name) for m in agent_list]
             if host_id_str in seen_hosts:
