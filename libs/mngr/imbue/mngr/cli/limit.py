@@ -438,24 +438,26 @@ def limit(ctx: click.Context, **kwargs: Any) -> None:
     # If --host is also specified, filter agents to those on the specified hosts
     if has_hosts:
         resolved_host_ids = _resolve_host_identifiers(opts.hosts, mngr_ctx)
-        agents = [a for a in agents if a.host_id in resolved_host_ids]
-        if not agents:
+        target_agents = [a for a in agents if a.host_id in resolved_host_ids]
+        if not target_agents:
             _output("No agents found on the specified host(s)", output_opts)
             return
+    else:
+        target_agents = agents
 
     # Handle dry-run mode
     if opts.dry_run:
         _output("Would configure:", output_opts)
-        for match in agents:
+        for match in target_agents:
             _output(f"  - {match.agent_name} (on host {match.host_id})", output_opts)
         if _has_host_level_settings(opts):
-            unique_hosts = {str(m.host_id) for m in agents}
+            unique_hosts = {str(m.host_id) for m in target_agents}
             _output(f"Host-level changes would apply to {len(unique_hosts)} host(s)", output_opts)
         return
 
     # Apply changes
     changes = []
-    agents_by_host = group_agents_by_host(agents)
+    agents_by_host = group_agents_by_host(target_agents)
     updated_host_ids: set[str] = set()
     permissions_changed = False
 
