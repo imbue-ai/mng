@@ -2080,16 +2080,19 @@ def _parse_uptime_output(stdout: str) -> float:
     """
     output = stdout.strip()
     output_lines = output.split("\n")
-    if len(output_lines) == 2:
-        # macOS: two lines -- boot time and current time
-        boot_time = int(output_lines[0])
-        current_time = int(output_lines[1])
-        return float(current_time - boot_time)
-    elif len(output_lines) == 1 and output:
-        # Linux: single line from /proc/uptime
-        uptime_str = output.split()[0]
-        return float(uptime_str)
-    else:
+    try:
+        if len(output_lines) == 2:
+            # macOS: two lines -- boot time and current time
+            boot_time = int(output_lines[0])
+            current_time = int(output_lines[1])
+            return float(current_time - boot_time)
+        elif len(output_lines) == 1 and output:
+            # Linux: single line from /proc/uptime
+            uptime_str = output.split()[0]
+            return float(uptime_str)
+        else:
+            return 0.0
+    except (ValueError, OSError):
         return 0.0
 
 

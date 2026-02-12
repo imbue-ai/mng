@@ -562,6 +562,16 @@ def test_parse_uptime_output_unexpected_lines() -> None:
     assert _parse_uptime_output(stdout) == 0.0
 
 
+def test_parse_uptime_output_non_numeric_two_lines() -> None:
+    """Test parsing non-numeric macOS-style output returns 0."""
+    assert _parse_uptime_output("error\nmessage\n") == 0.0
+
+
+def test_parse_uptime_output_non_numeric_single_line() -> None:
+    """Test parsing non-numeric Linux-style output returns 0."""
+    assert _parse_uptime_output("not_a_number\n") == 0.0
+
+
 # =========================================================================
 # Tests for _parse_boot_time_output
 # =========================================================================
