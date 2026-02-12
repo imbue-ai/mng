@@ -1,10 +1,12 @@
 """Unit tests for the exec API module."""
 
 import json
+from collections.abc import Generator
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 
+import pytest
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
@@ -80,6 +82,19 @@ def _create_running_test_agent(
     return RunningTestAgent(agent=agent, session_name=session_name)
 
 
+@pytest.fixture
+def running_test_agent(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+) -> Generator[RunningTestAgent, None, None]:
+    """Create a running test agent and clean up its tmux session on teardown."""
+    running = _create_running_test_agent(local_provider, temp_mngr_ctx, temp_work_dir, mngr_test_prefix)
+    yield running
+    cleanup_tmux_session(running.session_name)
+
+
 def test_exec_result_fields() -> None:
     """Test ExecResult has the expected fields."""
     result = ExecResult(
@@ -107,72 +122,51 @@ def test_exec_result_failure() -> None:
 
 
 def test_exec_command_on_agent_runs_command(
-    local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
+    running_test_agent: RunningTestAgent,
 ) -> None:
     """Test exec_command_on_agent runs a command on a real local agent."""
-    running = _create_running_test_agent(local_provider, temp_mngr_ctx, temp_work_dir, mngr_test_prefix)
+    result = exec_command_on_agent(
+        mngr_ctx=temp_mngr_ctx,
+        agent_str=str(running_test_agent.agent.name),
+        command="echo hello",
+    )
 
-    try:
-        result = exec_command_on_agent(
-            mngr_ctx=temp_mngr_ctx,
-            agent_str=str(running.agent.name),
-            command="echo hello",
-        )
-
-        assert result.agent_name == str(running.agent.name)
-        assert "hello" in result.stdout
-        assert result.success is True
-    finally:
-        cleanup_tmux_session(running.session_name)
+    assert result.agent_name == str(running_test_agent.agent.name)
+    assert "hello" in result.stdout
+    assert result.success is True
 
 
 def test_exec_command_on_agent_uses_custom_cwd(
-    local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
+    running_test_agent: RunningTestAgent,
     tmp_path: Path,
-    mngr_test_prefix: str,
 ) -> None:
     """Test that --cwd overrides the agent's work_dir."""
-    running = _create_running_test_agent(local_provider, temp_mngr_ctx, temp_work_dir, mngr_test_prefix)
-
     custom_dir = tmp_path / "custom_cwd"
     custom_dir.mkdir()
     (custom_dir / "marker.txt").write_text("found")
 
-    try:
-        result = exec_command_on_agent(
-            mngr_ctx=temp_mngr_ctx,
-            agent_str=str(running.agent.name),
-            command="cat marker.txt",
-            cwd=str(custom_dir),
-        )
+    result = exec_command_on_agent(
+        mngr_ctx=temp_mngr_ctx,
+        agent_str=str(running_test_agent.agent.name),
+        command="cat marker.txt",
+        cwd=str(custom_dir),
+    )
 
-        assert result.stdout == "found"
-        assert result.success is True
-    finally:
-        cleanup_tmux_session(running.session_name)
+    assert result.stdout == "found"
+    assert result.success is True
 
 
 def test_exec_command_on_agent_returns_failure(
-    local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
+    running_test_agent: RunningTestAgent,
 ) -> None:
     """Test that a failing command returns success=False."""
-    running = _create_running_test_agent(local_provider, temp_mngr_ctx, temp_work_dir, mngr_test_prefix)
+    result = exec_command_on_agent(
+        mngr_ctx=temp_mngr_ctx,
+        agent_str=str(running_test_agent.agent.name),
+        command="false",
+    )
 
-    try:
-        result = exec_command_on_agent(
-            mngr_ctx=temp_mngr_ctx,
-            agent_str=str(running.agent.name),
-            command="false",
-        )
-
-        assert result.success is False
-    finally:
-        cleanup_tmux_session(running.session_name)
+    assert result.success is False
