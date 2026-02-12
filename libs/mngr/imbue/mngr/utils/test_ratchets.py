@@ -8,6 +8,7 @@ from imbue.imbue_common.ratchet_testing.core import FileExtension
 from imbue.imbue_common.ratchet_testing.core import RegexPattern
 from imbue.imbue_common.ratchet_testing.core import check_regex_ratchet
 from imbue.imbue_common.ratchet_testing.core import format_ratchet_failure_message
+from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
 from imbue.imbue_common.ratchet_testing.ratchets import find_assert_isinstance_usages
 from imbue.imbue_common.ratchet_testing.ratchets import find_cast_usages
 from imbue.imbue_common.ratchet_testing.ratchets import find_if_elif_without_else
@@ -575,10 +576,6 @@ def test_prevent_assert_isinstance_usage() -> None:
         ),
         chunks=chunks,
     )
-
-
-def _is_test_file(file_path: Path) -> bool:
-    return file_path.name.endswith("_test.py") or file_path.name.startswith("test_")
 
 
 def test_prevent_direct_subprocess_usage() -> None:
