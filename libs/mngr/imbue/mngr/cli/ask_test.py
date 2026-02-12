@@ -1,3 +1,6 @@
+import json
+from collections.abc import Iterator
+
 import pluggy
 import pytest
 from click.testing import CliRunner
@@ -5,8 +8,8 @@ from click.testing import CliRunner
 import imbue.mngr.cli.ask as ask_module
 from imbue.mngr.cli.ask import ClaudeBackendInterface
 from imbue.mngr.cli.ask import _build_ask_context
-from imbue.mngr.cli.ask import _emit_response
 from imbue.mngr.cli.ask import _execute_response
+from imbue.mngr.cli.ask import _extract_text_delta
 from imbue.mngr.cli.ask import ask
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import OutputFormat
@@ -19,10 +22,10 @@ class FakeClaude(ClaudeBackendInterface):
     queries: list[str] = []
     system_prompts: list[str] = []
 
-    def query(self, prompt: str, system_prompt: str) -> str:
+    def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
         self.queries.append(prompt)
         self.system_prompts.append(system_prompt)
-        return self.responses.pop(0)
+        yield self.responses.pop(0)
 
 
 class FakeClaudeError(ClaudeBackendInterface):
@@ -30,7 +33,7 @@ class FakeClaudeError(ClaudeBackendInterface):
 
     error_message: str
 
-    def query(self, prompt: str, system_prompt: str) -> str:
+    def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
         raise MngrError(self.error_message)
 
 
@@ -92,6 +95,22 @@ def test_ask_json_output(
     assert '"response": "mngr list"' in result.output
 
 
+def test_ask_jsonl_output(
+    fake_claude: FakeClaude,
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    fake_claude.responses.append("mngr list")
+
+    result = cli_runner.invoke(
+        ask, ["--format", "jsonl", "list", "agents"], obj=plugin_manager, catch_exceptions=False
+    )
+
+    assert result.exit_code == 0
+    assert '"event": "response"' in result.output
+    assert '"response": "mngr list"' in result.output
+
+
 @pytest.mark.parametrize(
     "error_message, expected_substring",
     [
@@ -119,17 +138,66 @@ def test_ask_claude_error_shows_message(
     assert expected_substring in result.output
 
 
-def test_emit_response_json_format(capsys: pytest.CaptureFixture) -> None:
-    _emit_response(response="Use mngr create", output_format=OutputFormat.JSON)
-    captured = capsys.readouterr()
-    assert '"response": "Use mngr create"' in captured.out
+def test_ask_human_streams_output(
+    fake_claude: FakeClaude,
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """HUMAN format should output the streamed response text."""
+    fake_claude.responses.append("Use mngr create")
+
+    result = cli_runner.invoke(ask, ["how", "to", "create?"], obj=plugin_manager, catch_exceptions=False)
+
+    assert result.exit_code == 0
+    assert "Use mngr create" in result.output
 
 
-def test_emit_response_jsonl_format(capsys: pytest.CaptureFixture) -> None:
-    _emit_response(response="Use mngr create", output_format=OutputFormat.JSONL)
-    captured = capsys.readouterr()
-    assert '"event": "response"' in captured.out
-    assert '"response": "Use mngr create"' in captured.out
+def test_extract_text_delta_valid_event() -> None:
+    """A valid content_block_delta event should return the text."""
+    event = json.dumps(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "hello"},
+            },
+        }
+    )
+    assert _extract_text_delta(event) == "hello"
+
+
+def test_extract_text_delta_non_delta_event() -> None:
+    """Non-delta events should return None."""
+    event = json.dumps(
+        {
+            "type": "stream_event",
+            "event": {"type": "content_block_start", "index": 0},
+        }
+    )
+    assert _extract_text_delta(event) is None
+
+
+def test_extract_text_delta_malformed_json() -> None:
+    """Malformed JSON should return None, not raise."""
+    assert _extract_text_delta("not valid json {{{") is None
+
+
+def test_extract_text_delta_non_stream_event() -> None:
+    """Events that are not stream_event type should return None."""
+    event = json.dumps({"type": "result", "subtype": "success"})
+    assert _extract_text_delta(event) is None
+
+
+def test_extract_text_delta_missing_delta() -> None:
+    """content_block_delta without a delta field should return None."""
+    event = json.dumps(
+        {
+            "type": "stream_event",
+            "event": {"type": "content_block_delta", "index": 0},
+        }
+    )
+    assert _extract_text_delta(event) is None
 
 
 def test_execute_response_raises_on_empty_response() -> None:

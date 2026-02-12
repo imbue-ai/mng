@@ -1,8 +1,11 @@
+import json
 import shlex
 import subprocess
+import sys
 import tempfile
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Iterator
 from typing import Any
 from typing import Final
 from typing import assert_never
@@ -45,44 +48,122 @@ _EXECUTE_QUERY_PREFIX: Final[str] = (
     "the output will be executed directly as a shell command: "
 )
 
+_PROCESS_WAIT_TIMEOUT_SECONDS: Final[int] = 10
+
 
 class ClaudeBackendInterface(MutableModel, ABC):
-    """Abstraction over the claude --print subprocess for testability."""
+    """Abstraction over the claude subprocess for testability."""
 
     @abstractmethod
-    def query(self, prompt: str, system_prompt: str) -> str:
-        """Send a prompt to claude and return the response text."""
+    def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
+        """Send a prompt to claude and yield response text chunks."""
+
+
+def _extract_text_delta(line: str) -> str | None:
+    """Extract text from a stream-json content_block_delta event.
+
+    Returns the delta text if the line is a content_block_delta with a text_delta,
+    or None otherwise.
+    """
+    try:
+        parsed = json.loads(line)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    if parsed.get("type") != "stream_event":
+        return None
+
+    event = parsed.get("event")
+    if not isinstance(event, dict):
+        return None
+
+    if event.get("type") != "content_block_delta":
+        return None
+
+    delta = event.get("delta")
+    if not isinstance(delta, dict):
+        return None
+
+    if delta.get("type") != "text_delta":
+        return None
+
+    text = delta.get("text")
+    if isinstance(text, str):
+        return text
+
+    return None
 
 
 class SubprocessClaudeBackend(ClaudeBackendInterface):
-    """Runs claude --print in a subprocess from an empty temp directory."""
+    """Runs claude in a subprocess from an empty temp directory with streaming."""
 
-    def query(self, prompt: str, system_prompt: str) -> str:
+    def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
         with tempfile.TemporaryDirectory(prefix="mngr-ask-") as tmp_dir:
             try:
-                result = subprocess.run(
-                    ["claude", "--print", "--system-prompt", system_prompt, prompt],
-                    capture_output=True,
-                    text=True,
+                process = subprocess.Popen(
+                    [
+                        "claude",
+                        "--print",
+                        "--system-prompt",
+                        system_prompt,
+                        "--output-format",
+                        "stream-json",
+                        "--verbose",
+                        "--include-partial-messages",
+                        "--tools",
+                        "",
+                        "--no-session-persistence",
+                        prompt,
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     stdin=subprocess.DEVNULL,
+                    text=True,
                     cwd=tmp_dir,
-                    timeout=120,
                 )
-            except subprocess.TimeoutExpired:
-                raise MngrError("claude --print timed out after 120 seconds") from None
             except FileNotFoundError:
                 raise MngrError(
                     "claude is not installed or not found in PATH. "
                     "Install Claude Code: https://docs.anthropic.com/en/docs/claude-code/overview"
                 ) from None
 
-        if result.returncode != 0:
-            stderr_msg = result.stderr.strip()
-            stdout_msg = result.stdout.strip()
-            detail = stderr_msg or stdout_msg or "unknown error (no output captured)"
-            raise MngrError(f"claude --print failed (exit code {result.returncode}): {detail}")
+            assert process.stdout is not None
 
-        return result.stdout.rstrip("\n")
+            # Stream text deltas from stdout
+            is_error = False
+            for line in process.stdout:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+
+                # Check for result events that indicate completion status
+                try:
+                    parsed = json.loads(stripped)
+                    if parsed.get("type") == "result" and parsed.get("is_error"):
+                        is_error = True
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+                text = _extract_text_delta(stripped)
+                if text is not None:
+                    yield text
+
+            # Wait for process to finish and check exit code
+            process.wait(timeout=_PROCESS_WAIT_TIMEOUT_SECONDS)
+
+            if is_error or process.returncode != 0:
+                assert process.stderr is not None
+                stderr_content = process.stderr.read().strip()
+                detail = stderr_content or "unknown error (no output captured)"
+                raise MngrError(f"claude failed (exit code {process.returncode}): {detail}")
+
+
+def _accumulate_chunks(chunks: Iterator[str]) -> str:
+    """Accumulate all chunks from an iterator into a single string."""
+    parts: list[str] = []
+    for chunk in chunks:
+        parts.append(chunk)
+    return "".join(parts)
 
 
 def _build_ask_context() -> str:
@@ -191,22 +272,30 @@ def _ask_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     backend = SubprocessClaudeBackend()
     system_prompt = _build_ask_context()
-    response = backend.query(prompt=query_string, system_prompt=system_prompt)
+    chunks = backend.query(prompt=query_string, system_prompt=system_prompt)
 
     if opts.execute:
+        # Accumulate all chunks for execute mode (don't stream to user)
+        response = _accumulate_chunks(chunks)
         _execute_response(response=response, output_format=output_opts.output_format)
     else:
-        _emit_response(response=response, output_format=output_opts.output_format)
+        _stream_or_accumulate_response(chunks=chunks, output_format=output_opts.output_format)
 
 
-def _emit_response(response: str, output_format: OutputFormat) -> None:
-    """Emit the ask response in the appropriate format."""
+def _stream_or_accumulate_response(chunks: Iterator[str], output_format: OutputFormat) -> None:
+    """Stream response chunks for HUMAN format, or accumulate for JSON/JSONL."""
     match output_format:
         case OutputFormat.HUMAN:
-            logger.info("{}", response)
+            for chunk in chunks:
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+            sys.stdout.write("\n")
+            sys.stdout.flush()
         case OutputFormat.JSON:
+            response = _accumulate_chunks(chunks)
             emit_final_json({"response": response})
         case OutputFormat.JSONL:
+            response = _accumulate_chunks(chunks)
             emit_final_json({"event": "response", "response": response})
         case _ as unreachable:
             assert_never(unreachable)
