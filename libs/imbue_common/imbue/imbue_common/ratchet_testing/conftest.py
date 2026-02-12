@@ -1,9 +1,8 @@
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-
-from imbue.imbue_common.pytest_utils import create_isolated_git_repo
 
 
 @pytest.fixture
@@ -17,4 +16,23 @@ def git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     HOME is redirected to a temp directory so that the host's global
     gitconfig (e.g. commit.gpgsign) does not leak into tests.
     """
-    yield create_isolated_git_repo(tmp_path, monkeypatch)
+    fake_home = tmp_path / "fake_home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    repo_dir = tmp_path / "test_repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=repo_dir,
+        check=True,
+        capture_output=True,
+    )
+    yield repo_dir
