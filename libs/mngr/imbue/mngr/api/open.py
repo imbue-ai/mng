@@ -1,5 +1,4 @@
 import threading
-import time
 import webbrowser
 from typing import Final
 
@@ -48,8 +47,8 @@ def open_agent_url(
         activity_thread.start()
 
     try:
-        while not stop_event.is_set():
-            time.sleep(1.0)
+        while not stop_event.wait(timeout=1.0):
+            pass
     except KeyboardInterrupt:
         logger.info("Exiting")
     finally:

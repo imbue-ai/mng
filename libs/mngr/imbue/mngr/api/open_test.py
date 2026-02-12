@@ -9,6 +9,7 @@ from imbue.mngr.api.open import _record_activity_loop
 from imbue.mngr.api.open import open_agent_url
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import AgentName
+from imbue.mngr.utils.polling import wait_for
 
 
 def _make_mock_agent(url: str | None = None) -> MagicMock:
@@ -45,20 +46,25 @@ def test_open_agent_url_wait_blocks_until_interrupt(monkeypatch: pytest.MonkeyPa
 
     agent = _make_mock_agent(url="https://example.com/agent")
 
-    call_count = 0
+    wait_call_count = 0
+    original_event_class = threading.Event
 
-    def interruptible_sleep(seconds: float) -> None:
-        nonlocal call_count
-        call_count += 1
-        if call_count >= 2:
-            raise KeyboardInterrupt
+    class InterruptingEvent(original_event_class):  # type: ignore[misc]
+        """Event subclass that raises KeyboardInterrupt after a few wait() calls."""
 
-    monkeypatch.setattr("imbue.mngr.api.open.time.sleep", interruptible_sleep)
+        def wait(self, timeout: float | None = None) -> bool:
+            nonlocal wait_call_count
+            wait_call_count += 1
+            if wait_call_count >= 2:
+                raise KeyboardInterrupt
+            return False
+
+    monkeypatch.setattr("imbue.mngr.api.open.threading.Event", InterruptingEvent)
 
     # Should not raise -- KeyboardInterrupt is caught internally
     open_agent_url(agent=agent, is_wait=True, is_active=False)
 
-    assert call_count >= 2
+    assert wait_call_count >= 2
 
 
 def test_record_activity_loop_records_until_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -72,8 +78,14 @@ def test_record_activity_loop_records_until_stopped(monkeypatch: pytest.MonkeyPa
     thread = threading.Thread(target=_record_activity_loop, args=(agent, stop_event), daemon=True)
     thread.start()
 
-    # Wait enough time for at least one recording
-    __import__("time").sleep(0.1)
+    # Poll until at least one recording has been made
+    wait_for(
+        condition=lambda: agent.record_activity.call_count >= 1,
+        timeout=5.0,
+        poll_interval=0.01,
+        error_message="Expected at least one record_activity call",
+    )
+
     stop_event.set()
     thread.join(timeout=1.0)
 
@@ -94,15 +106,20 @@ def test_open_agent_url_active_starts_activity_thread(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr("imbue.mngr.api.open._record_activity_loop", tracking_activity_loop)
 
-    call_count = 0
+    wait_call_count = 0
+    original_event_class = threading.Event
 
-    def interruptible_sleep(seconds: float) -> None:
-        nonlocal call_count
-        call_count += 1
-        if call_count >= 2:
-            raise KeyboardInterrupt
+    class InterruptingEvent(original_event_class):  # type: ignore[misc]
+        """Event subclass that raises KeyboardInterrupt after a few wait() calls."""
 
-    monkeypatch.setattr("imbue.mngr.api.open.time.sleep", interruptible_sleep)
+        def wait(self, timeout: float | None = None) -> bool:
+            nonlocal wait_call_count
+            wait_call_count += 1
+            if wait_call_count >= 2:
+                raise KeyboardInterrupt
+            return False
+
+    monkeypatch.setattr("imbue.mngr.api.open.threading.Event", InterruptingEvent)
 
     open_agent_url(agent=agent, is_wait=True, is_active=True)
 
