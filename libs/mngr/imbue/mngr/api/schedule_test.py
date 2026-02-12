@@ -121,6 +121,27 @@ def test_save_and_load_with_create_args(tmp_path: Path) -> None:
     assert loaded[0].create_args == ("--in", "modal", "--idle-timeout", "60")
 
 
+def test_build_crontab_command_quotes_values_with_spaces() -> None:
+    schedule = _make_schedule(
+        name="space-test",
+        template="my template",
+        message="fix the tests",
+    )
+    line = _build_crontab_command(schedule, "/path with spaces/mngr")
+    assert shlex.quote("/path with spaces/mngr") in line
+    assert shlex.quote("my template") in line
+    assert shlex.quote("fix the tests") in line
+
+
+def test_build_crontab_command_quotes_create_args_with_spaces() -> None:
+    schedule = _make_schedule(
+        name="args-test",
+        create_args=("--label", "my label value"),
+    )
+    line = _build_crontab_command(schedule, "/usr/local/bin/mngr")
+    assert shlex.quote("my label value") in line
+
+
 def test_schedule_definition_is_frozen() -> None:
     schedule = _make_schedule()
     with pytest.raises(ValidationError):

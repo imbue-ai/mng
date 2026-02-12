@@ -124,15 +124,15 @@ def _crontab_marker(name: ScheduleName) -> str:
 @pure
 def _build_crontab_command(schedule: ScheduleDefinition, mngr_path: str) -> str:
     """Build the full crontab line for a schedule."""
-    parts = [schedule.cron, mngr_path, "create"]
+    parts = [schedule.cron, shlex.quote(mngr_path), "create"]
 
     if schedule.template is not None:
-        parts.extend(["--template", schedule.template])
+        parts.extend(["--template", shlex.quote(schedule.template)])
 
     parts.extend(["--no-connect", "--message", shlex.quote(schedule.message)])
 
     for arg in schedule.create_args:
-        parts.append(arg)
+        parts.append(shlex.quote(arg))
 
     # Log output to a schedule-specific log file
     log_path = f"~/.mngr/logs/schedule-{schedule.name}.log"
