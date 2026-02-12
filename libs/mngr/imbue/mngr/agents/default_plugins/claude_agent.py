@@ -115,12 +115,13 @@ def _has_api_credentials_available(
 ) -> bool:
     """Check whether API credentials appear to be available for Claude Code.
 
-    Checks environment variables (process env, agent env vars, host env vars)
-    and local credentials file (~/.claude/.credentials.json).
+    Checks environment variables (process env for local hosts, agent env vars,
+    host env vars) and local credentials file (~/.claude/.credentials.json).
 
     Returns True if any credential source is detected, False otherwise.
     """
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    # Local hosts inherit the process environment via tmux
+    if host.is_local and os.environ.get("ANTHROPIC_API_KEY"):
         return True
 
     for env_var in options.environment.env_vars:
