@@ -18,6 +18,7 @@ from imbue.mngr.cli.list import _get_field_value
 from imbue.mngr.cli.list import _get_sortable_value
 from imbue.mngr.cli.list import _is_streaming_eligible
 from imbue.mngr.cli.list import _parse_slice_spec
+from imbue.mngr.cli.list import _process_template_escapes
 from imbue.mngr.cli.list import _render_format_template
 from imbue.mngr.cli.list import _should_use_streaming_mode
 from imbue.mngr.cli.list import _sort_agents
@@ -763,6 +764,36 @@ def test_should_use_streaming_mode_json_format_uses_batch() -> None:
         )
         is False
     )
+
+
+# =============================================================================
+# Tests for _process_template_escapes
+# =============================================================================
+
+
+def test_process_template_escapes_tab() -> None:
+    """_process_template_escapes should convert \\t to tab."""
+    assert _process_template_escapes("{name}\\t{state}") == "{name}\t{state}"
+
+
+def test_process_template_escapes_newline() -> None:
+    """_process_template_escapes should convert \\n to newline."""
+    assert _process_template_escapes("{name}\\n{state}") == "{name}\n{state}"
+
+
+def test_process_template_escapes_carriage_return() -> None:
+    """_process_template_escapes should convert \\r to carriage return."""
+    assert _process_template_escapes("line\\r") == "line\r"
+
+
+def test_process_template_escapes_literal_backslash() -> None:
+    """_process_template_escapes should convert \\\\\\\\ to a single backslash."""
+    assert _process_template_escapes("path\\\\file") == "path\\file"
+
+
+def test_process_template_escapes_no_escapes() -> None:
+    """_process_template_escapes should pass through strings without escapes."""
+    assert _process_template_escapes("{name} {state}") == "{name} {state}"
 
 
 # =============================================================================

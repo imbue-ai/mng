@@ -212,6 +212,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
 
     # --format-template FORMAT: Output format as a string template, mutually exclusive with --format
     # Template can reference any field from the Available Fields list (see CommandHelpMetadata)
+    format_template: str | None = None
     if opts.format_template is not None:
         # Mutual exclusivity: if --format was explicitly provided, error out
         format_source = ctx.get_parameter_source("output_format")
@@ -224,6 +225,9 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             list(string.Formatter().parse(opts.format_template))
         except (ValueError, KeyError) as e:
             raise click.UsageError(f"Invalid format template: {e}") from None
+
+        # Interpret shell escape sequences (\t -> tab, \n -> newline, etc.)
+        format_template = _process_template_escapes(opts.format_template)
 
     # Parse fields if provided
     fields = None
@@ -302,7 +306,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     )
 
     # Template output path: if --format-template is set, use streaming when possible, batch otherwise
-    if opts.format_template is not None:
+    if format_template is not None:
         is_streaming_template = _is_streaming_eligible(
             is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit, limit=limit
         )
@@ -314,7 +318,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
                 exclude_filters_tuple,
                 provider_names,
                 error_behavior,
-                opts.format_template,
+                format_template,
             )
             return
         # Fall through to batch path with format_template set
@@ -324,7 +328,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     # output can pass --sort explicitly, which falls back to batch mode. When --limit is set,
     # batch mode is required to get deterministic results (streaming would show whichever
     # agents load first, since sorting is skipped).
-    if opts.format_template is None and _should_use_streaming_mode(
+    if format_template is None and _should_use_streaming_mode(
         output_opts.output_format, is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit, limit=limit
     ):
         display_fields = fields if fields is not None else list(_DEFAULT_HUMAN_DISPLAY_FIELDS)
@@ -351,7 +355,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         sort_reverse=sort_reverse,
         limit=limit,
         fields=fields,
-        format_template=opts.format_template,
+        format_template=format_template,
     )
 
     if opts.watch:
@@ -939,6 +943,28 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
         return _format_value_as_string(value)
     except (AttributeError, KeyError):
         return ""
+
+
+_TEMPLATE_ESCAPE_SEQUENCES: Final[tuple[tuple[str, str], ...]] = (
+    ("\\t", "\t"),
+    ("\\n", "\n"),
+    ("\\r", "\r"),
+    ("\\\\", "\\"),
+)
+
+
+@pure
+def _process_template_escapes(template: str) -> str:
+    """Interpret common backslash escape sequences in a template string.
+
+    The shell passes \\t, \\n, etc. as literal characters. This function converts
+    them to actual tab, newline, etc. -- matching the behavior of tools like awk
+    and printf.
+    """
+    result = template
+    for escaped, replacement in _TEMPLATE_ESCAPE_SEQUENCES:
+        result = result.replace(escaped, replacement)
+    return result
 
 
 @pure
