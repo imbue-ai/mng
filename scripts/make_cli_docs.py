@@ -22,7 +22,7 @@ from imbue.mngr.main import cli
 
 # Commands categorized by their documentation location
 PRIMARY_COMMANDS = {"connect", "create", "destroy", "list", "pair", "pull", "push", "start", "stop"}
-SECONDARY_COMMANDS = {"ask", "config", "gc", "message"}
+SECONDARY_COMMANDS = {"ask", "bootstrap", "config", "gc", "message"}
 ALIAS_COMMANDS = {"clone", "migrate"}
 
 
