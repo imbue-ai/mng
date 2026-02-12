@@ -309,10 +309,10 @@ def _parse_selection(selection: str, agents: list[AgentInfo]) -> list[AgentInfo]
     selected_indices: set[int] = set()
     parts = stripped.split(",")
     for part in parts:
-        part = part.strip()
-        if "-" in part:
+        stripped_part = part.strip()
+        if "-" in stripped_part:
             # Range like "1-3"
-            range_parts = part.split("-", 1)
+            range_parts = stripped_part.split("-", 1)
             try:
                 range_start = int(range_parts[0].strip())
                 range_end = int(range_parts[1].strip())
@@ -323,7 +323,7 @@ def _parse_selection(selection: str, agents: list[AgentInfo]) -> list[AgentInfo]
                 continue
         else:
             try:
-                idx = int(part)
+                idx = int(stripped_part)
                 if 1 <= idx <= len(agents):
                     selected_indices.add(idx)
             except ValueError:
