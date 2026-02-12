@@ -37,6 +37,7 @@ from loguru import logger
 from modal.config import Config as ModalConfig
 from modal.exception import NotFoundError
 from modal.stream_type import StreamType
+from modal.volume import FileEntry
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import PrivateAttr
@@ -44,6 +45,10 @@ from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 from pyinfra.connectors.sshuserclient.client import get_host_keys
+from tenacity import retry
+from tenacity import retry_if_exception_type
+from tenacity import stop_after_attempt
+from tenacity import wait_exponential
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
@@ -108,6 +113,38 @@ TAG_USER_PREFIX: Final[str] = "mngr_user_"
 
 P = ParamSpec("P")
 T = TypeVar("T")
+
+# Retry parameters for Modal volume operations.
+# modal.exception.InternalError (e.g. "could not start volume metadata engine")
+# is transient and typically resolves on retry.
+_VOLUME_RETRY_PARAMS = retry_if_exception_type(modal.exception.InternalError)
+_VOLUME_STOP_PARAMS = stop_after_attempt(3)
+_VOLUME_WAIT_PARAMS = wait_exponential(multiplier=1, min=1, max=3)
+
+
+@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
+def _volume_listdir(volume: modal.Volume, path: str) -> list[FileEntry]:
+    """List directory contents on a Modal volume with retry on transient errors."""
+    return volume.listdir(path)
+
+
+@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
+def _volume_read_file(volume: modal.Volume, path: str) -> bytes:
+    """Read a file from a Modal volume with retry on transient errors."""
+    return b"".join(volume.read_file(path))
+
+
+@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
+def _volume_remove_file(volume: modal.Volume, path: str) -> None:
+    """Remove a file from a Modal volume with retry on transient errors."""
+    volume.remove_file(path)
+
+
+@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
+def _volume_batch_upload_file(volume: modal.Volume, file_data: bytes, path: str) -> None:
+    """Upload a single file to a Modal volume with retry on transient errors."""
+    with volume.batch_upload(force=True) as batch:
+        batch.put_file(io.BytesIO(file_data), path)
 
 
 def build_sandbox_tags(
@@ -374,9 +411,7 @@ class ModalProviderInstance(BaseProviderInstance):
         path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
 
-        # Upload the data as a file-like object
-        with volume.batch_upload(force=True) as batch:
-            batch.put_file(io.BytesIO(data.encode("utf-8")), path)
+        _volume_batch_upload_file(volume, data.encode("utf-8"), path)
         logger.trace("Wrote host record to volume: {}", path)
 
         # Update the cache with the new host record
@@ -427,11 +462,7 @@ class ModalProviderInstance(BaseProviderInstance):
         path = self._get_host_record_path(host_id)
 
         try:
-            # Read file returns a generator that yields bytes chunks
-            chunks: list[bytes] = []
-            for chunk in volume.read_file(path):
-                chunks.append(chunk)
-            data = b"".join(chunks)
+            data = _volume_read_file(volume, path)
             host_record = HostRecord.model_validate_json(data)
             logger.trace("Read host record from volume: {}", path)
             # Cache the result
@@ -447,25 +478,21 @@ class ModalProviderInstance(BaseProviderInstance):
         # first delete all agent records for this host
         host_dir = f"/{host_id}"
         try:
-            # FIXME: volume.listdir occasionally raises this:
-            #     modal.exception.InternalError: could not start volume metadata engine
-            #  we should replace all direct calls with a function that instead uses tenacity to retry this a few times (up to 3 tries, up to 5 seconds total wait) in case it is transient
-            #  (eg, both here and the other calls in this file)
-            entries = list(volume.listdir(host_dir))
+            entries = _volume_listdir(volume, host_dir)
         except (NotFoundError, FileNotFoundError):
             pass
         else:
             for entry in entries:
                 filename = entry.path
                 agent_path = filename.lstrip("/")
-                volume.remove_file(agent_path)
+                _volume_remove_file(volume, agent_path)
             # then finally remove the empty host directory
-            volume.remove_file(host_dir)
+            _volume_remove_file(volume, host_dir)
 
         # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
         try:
-            volume.remove_file(path)
+            _volume_remove_file(volume, path)
         except (NotFoundError, FileNotFoundError):
             pass
         logger.trace("Deleted host record from volume: {}", path)
@@ -485,7 +512,7 @@ class ModalProviderInstance(BaseProviderInstance):
         futures: list[Future[HostRecord | None]] = []
         with ConcurrencyGroupExecutor(parent_cg=cg, name="modal_list_all_host_records", max_workers=32) as executor:
             # List files at the root of the volume
-            for entry in volume.listdir("/"):
+            for entry in _volume_listdir(volume, "/"):
                 filename = entry.path
                 # Host records are stored as <host_id>.json
                 if filename.endswith(".json"):
@@ -510,17 +537,13 @@ class ModalProviderInstance(BaseProviderInstance):
         agent_records: list[dict[str, Any]] = []
         host_dir = f"/{host_id}"
         try:
-            for entry in volume.listdir(host_dir):
+            for entry in _volume_listdir(volume, host_dir):
                 filename = entry.path
                 if filename.endswith(".json"):
                     # Read the agent record
                     agent_path = filename.lstrip("/")
                     try:
-                        # Read file returns a generator that yields bytes chunks
-                        chunks: list[bytes] = []
-                        for chunk in volume.read_file(agent_path):
-                            chunks.append(chunk)
-                        content = b"".join(chunks).decode("utf-8")
+                        content = _volume_read_file(volume, agent_path).decode("utf-8")
                         agent_data = json.loads(content)
                         agent_records.append(agent_data)
                     except (OSError, IOError, json.JSONDecodeError) as e:
@@ -551,10 +574,7 @@ class ModalProviderInstance(BaseProviderInstance):
         # Serialize the agent data to JSON
         data = json.dumps(dict(agent_data), indent=2)
 
-        # Upload the data as a file-like object
-        # First ensure the host directory exists by uploading with force=True
-        with volume.batch_upload(force=True) as batch:
-            batch.put_file(io.BytesIO(data.encode("utf-8")), agent_path)
+        _volume_batch_upload_file(volume, data.encode("utf-8"), agent_path)
         logger.trace("Persisted agent data to volume: {}", agent_path)
 
     def remove_persisted_agent_data(self, host_id: HostId, agent_id: AgentId) -> None:
@@ -567,7 +587,7 @@ class ModalProviderInstance(BaseProviderInstance):
         agent_path = f"/{host_id}/{agent_id}.json"
 
         try:
-            volume.remove_file(agent_path)
+            _volume_remove_file(volume, agent_path)
         except FileNotFoundError:
             # File doesn't exist, nothing to remove
             pass
