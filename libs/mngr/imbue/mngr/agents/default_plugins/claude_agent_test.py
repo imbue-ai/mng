@@ -574,6 +574,38 @@ def test_configure_readiness_hooks_raises_when_not_gitignored(
         agent._configure_readiness_hooks(host)
 
 
+def test_configure_readiness_hooks_skips_gitignore_check_when_not_a_git_repo(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_configure_readiness_hooks should skip gitignore check when the work_dir is not a git repo."""
+    host = local_provider.create_host(HostName("test-hooks-no-git"))
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+
+    # Do NOT init a git repo -- work_dir is just a plain directory
+    agent = ClaudeAgent.model_construct(
+        id=AgentId.generate(),
+        name=AgentName("test-agent"),
+        agent_type=AgentTypeName("claude"),
+        work_dir=work_dir,
+        create_time=datetime.now(timezone.utc),
+        host_id=host.id,
+        mngr_ctx=temp_mngr_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False),
+        host=host,
+    )
+
+    # Should succeed without raising (no gitignore check needed for non-git dirs)
+    agent._configure_readiness_hooks(host)
+
+    # Verify the hooks file was still created
+    settings_path = work_dir / ".claude" / "settings.local.json"
+    assert settings_path.exists()
+    settings = json.loads(settings_path.read_text())
+    assert "hooks" in settings
+    assert "SessionStart" in settings["hooks"]
+
+
 def test_configure_readiness_hooks_creates_settings_file(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:

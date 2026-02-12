@@ -369,15 +369,20 @@ class ClaudeAgent(BaseAgent):
         settings_relative = Path(".claude") / "settings.local.json"
         settings_path = self.work_dir / settings_relative
 
-        # FIXME: it's not safe to assume that git exists or that this is a git repo--clean this up
-        # Verify .claude/settings.local.json is gitignored to avoid unstaged changes (if this is even using git)
-        result = host.execute_command(
-            f"git check-ignore -q {shlex.quote(str(settings_relative))}",
+        # Only check gitignore if git is available and this is a git repository
+        is_git_repo = host.execute_command(
+            "git rev-parse --is-inside-work-tree",
             cwd=self.work_dir,
             timeout_seconds=5.0,
         )
-        if not result.success:
-            if "fatal: not a git repository" not in result.stderr:
+        if is_git_repo.success:
+            # Verify .claude/settings.local.json is gitignored to avoid unstaged changes
+            result = host.execute_command(
+                f"git check-ignore -q {shlex.quote(str(settings_relative))}",
+                cwd=self.work_dir,
+                timeout_seconds=5.0,
+            )
+            if not result.success:
                 raise PluginMngrError(
                     f".claude/settings.local.json is not gitignored in {self.work_dir}.\n"
                     "mngr needs to write Claude hooks to this file, but it would appear as an unstaged change.\n"
