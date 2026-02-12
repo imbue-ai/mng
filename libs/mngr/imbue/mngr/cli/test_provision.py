@@ -8,6 +8,7 @@ from click.testing import CliRunner
 
 from imbue.mngr.cli.create import create
 from imbue.mngr.cli.provision import provision
+from imbue.mngr.cli.stop import stop
 from imbue.mngr.utils.testing import create_test_agent_via_cli
 from imbue.mngr.utils.testing import tmux_session_cleanup
 
@@ -285,3 +286,89 @@ def test_provision_json_output(
 
         assert result.exit_code == 0, f"Provision failed with: {result.output}"
         assert '"provisioned": true' in result.output
+
+
+def test_provision_stopped_agent(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that provisioning a stopped agent succeeds.
+
+    This is a regression test: provision needs the host online but does not
+    need the agent process running. Previously, provisioning a stopped agent
+    failed because the agent lookup required the agent to be running.
+    """
+    agent_name = f"test-prov-stopped-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
+
+        # Stop the agent
+        stop_result = cli_runner.invoke(
+            stop,
+            [agent_name],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert stop_result.exit_code == 0, f"Stop failed with: {stop_result.output}"
+
+        # Provision the stopped agent -- should succeed
+        result = cli_runner.invoke(
+            provision,
+            [agent_name],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"Provision stopped agent failed with: {result.output}"
+
+
+def test_provision_stopped_agent_with_user_command(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+    tmp_path: Path,
+) -> None:
+    """Test that provisioning a stopped agent executes user commands.
+
+    Regression test: verifies that user commands run even when the agent
+    process is stopped, since provisioning operates on the host, not
+    the agent process.
+    """
+    agent_name = f"test-prov-stopped-cmd-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+    marker_file = tmp_path / "stopped_provision_marker.txt"
+
+    with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
+
+        # Stop the agent
+        stop_result = cli_runner.invoke(
+            stop,
+            [agent_name],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert stop_result.exit_code == 0, f"Stop failed with: {stop_result.output}"
+
+        # Provision the stopped agent with a user command
+        result = cli_runner.invoke(
+            provision,
+            [
+                agent_name,
+                "--user-command",
+                f"echo 'provisioned-while-stopped' > {marker_file}",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"Provision stopped agent failed with: {result.output}"
+        assert marker_file.exists(), "User command should have created the marker file"
+        assert marker_file.read_text().strip() == "provisioned-while-stopped"
