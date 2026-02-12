@@ -1,4 +1,4 @@
-"""Tests for BaseAgent lifecycle state detection."""
+"""Tests for BaseAgent."""
 
 import json
 from pathlib import Path
@@ -458,3 +458,63 @@ def test_send_enter_and_wait_for_signal_returns_false_on_timeout(
             f"tmux kill-session -t '{session_name}' 2>/dev/null",
             timeout_seconds=5.0,
         )
+
+
+# =============================================================================
+# get_reported_urls tests
+# =============================================================================
+
+
+def test_get_reported_urls_returns_empty_dict_when_no_urls(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
+    assert test_agent.get_reported_urls() == {}
+
+
+def test_get_reported_urls_returns_default_from_legacy_url_file(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    test_agent = create_test_base_agent(
+        local_provider, temp_host_dir, temp_work_dir, reported_url="https://example.com/agent"
+    )
+    urls = test_agent.get_reported_urls()
+    assert urls == {"default": "https://example.com/agent"}
+
+
+def test_get_reported_urls_returns_typed_urls_from_urls_directory(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    test_agent = create_test_base_agent(
+        local_provider,
+        temp_host_dir,
+        temp_work_dir,
+        reported_urls={"terminal": "https://example.com/ttyd", "chat": "https://example.com/chat"},
+    )
+    urls = test_agent.get_reported_urls()
+    assert urls == {"terminal": "https://example.com/ttyd", "chat": "https://example.com/chat"}
+
+
+def test_get_reported_urls_merges_legacy_url_and_typed_urls(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    test_agent = create_test_base_agent(
+        local_provider,
+        temp_host_dir,
+        temp_work_dir,
+        reported_url="https://example.com/default",
+        reported_urls={"terminal": "https://example.com/ttyd"},
+    )
+    urls = test_agent.get_reported_urls()
+    assert urls == {
+        "default": "https://example.com/default",
+        "terminal": "https://example.com/ttyd",
+    }

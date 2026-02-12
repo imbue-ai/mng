@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from imbue.mngr.api.open import _record_activity_loop
+from imbue.mngr.api.open import _resolve_agent_url
 from imbue.mngr.api.open import open_agent_url
 from imbue.mngr.conftest import create_test_base_agent
 from imbue.mngr.errors import UserInputError
@@ -143,3 +144,96 @@ def test_open_agent_url_active_records_activity(
     open_thread.join(timeout=2.0)
 
     assert activity_path.exists()
+
+
+# =============================================================================
+# URL type resolution tests
+# =============================================================================
+
+
+def test_resolve_agent_url_returns_default_when_no_type(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    agent = create_test_base_agent(
+        local_provider, temp_host_dir, temp_work_dir, reported_url="https://example.com/default"
+    )
+    url = _resolve_agent_url(agent, url_type=None)
+    assert url == "https://example.com/default"
+
+
+def test_resolve_agent_url_returns_typed_url(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    agent = create_test_base_agent(
+        local_provider,
+        temp_host_dir,
+        temp_work_dir,
+        reported_url="https://example.com/default",
+        reported_urls={"terminal": "https://example.com/ttyd"},
+    )
+    url = _resolve_agent_url(agent, url_type="terminal")
+    assert url == "https://example.com/ttyd"
+
+
+def test_resolve_agent_url_raises_for_unknown_type(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    agent = create_test_base_agent(
+        local_provider,
+        temp_host_dir,
+        temp_work_dir,
+        reported_url="https://example.com/default",
+        reported_urls={"terminal": "https://example.com/ttyd"},
+    )
+    with pytest.raises(UserInputError, match="no URL of type 'chat'"):
+        _resolve_agent_url(agent, url_type="chat")
+
+
+def test_resolve_agent_url_shows_available_types_in_error(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    agent = create_test_base_agent(
+        local_provider,
+        temp_host_dir,
+        temp_work_dir,
+        reported_url="https://example.com/default",
+        reported_urls={"terminal": "https://example.com/ttyd"},
+    )
+    with pytest.raises(UserInputError, match="Available types: default, terminal"):
+        _resolve_agent_url(agent, url_type="nonexistent")
+
+
+def test_resolve_agent_url_raises_when_no_urls_and_type_requested(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir, reported_url=None)
+    with pytest.raises(UserInputError, match="has no URLs"):
+        _resolve_agent_url(agent, url_type="terminal")
+
+
+def test_open_agent_url_with_type_opens_typed_url(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    agent = create_test_base_agent(
+        local_provider,
+        temp_host_dir,
+        temp_work_dir,
+        reported_url="https://example.com/default",
+        reported_urls={"terminal": "https://example.com/ttyd"},
+    )
+    open_agent_url(agent=agent, is_wait=False, is_active=False, url_type="terminal")
+
+    assert len(_intercepted_urls) == 1
+    assert _intercepted_urls[0] == "https://example.com/ttyd"
