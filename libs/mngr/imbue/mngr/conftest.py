@@ -334,7 +334,7 @@ def create_test_base_agent(
     """
     host = local_provider.create_host(HostName("test"))
 
-    agent_id = AgentId(f"agent-{uuid4().hex}")
+    agent_id = AgentId.generate()
     agent_name = AgentName(f"test-agent-{uuid4().hex[:8]}")
 
     # Create agent directory and data.json
