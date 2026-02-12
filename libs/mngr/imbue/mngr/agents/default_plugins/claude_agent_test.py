@@ -994,12 +994,12 @@ def test_has_api_credentials_detects_env_var_on_local_host(
     assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
 
 
-@pytest.mark.usefixtures("_no_api_key_in_env")
-def test_has_api_credentials_ignores_env_var_on_remote_host() -> None:
+def test_has_api_credentials_ignores_env_var_on_remote_host(monkeypatch: pytest.MonkeyPatch) -> None:
     """_has_api_credentials_available ignores os.environ ANTHROPIC_API_KEY for remote hosts."""
     config = ClaudeAgentConfig(check_installation=False)
 
-    # Even if ANTHROPIC_API_KEY were set locally, remote hosts don't inherit it
+    # Set the key locally -- remote hosts should still return False because they don't inherit os.environ
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
     assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
 
 
