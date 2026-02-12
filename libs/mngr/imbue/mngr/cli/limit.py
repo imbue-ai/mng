@@ -165,11 +165,8 @@ def _has_any_setting(opts: LimitCliOptions) -> bool:
     return _has_host_level_settings(opts) or _has_agent_level_settings(opts)
 
 
-def _resolve_host_identifiers(
-    host_identifiers: tuple[str, ...],
-    mngr_ctx: MngrContext,
-) -> set[HostId]:
-    """Resolve host identifiers (names or IDs) to a set of HostIds."""
+def _build_host_references(mngr_ctx: MngrContext) -> list[HostReference]:
+    """Build a deduplicated list of HostReferences from all known agents."""
     result = list_agents(mngr_ctx, is_streaming=False)
     all_hosts: list[HostReference] = []
     seen_host_ids: set[str] = set()
@@ -184,7 +181,15 @@ def _resolve_host_identifiers(
                     provider_name=agent_info.host.provider_name,
                 )
             )
+    return all_hosts
 
+
+def _resolve_host_identifiers(
+    host_identifiers: tuple[str, ...],
+    mngr_ctx: MngrContext,
+) -> set[HostId]:
+    """Resolve host identifiers (names or IDs) to a set of HostIds."""
+    all_hosts = _build_host_references(mngr_ctx)
     resolved_ids: set[HostId] = set()
     for host_identifier in host_identifiers:
         resolved_host = resolve_host_reference(host_identifier, all_hosts)
@@ -488,22 +493,7 @@ def _apply_host_only_changes(
     changes: list[dict[str, Any]],
 ) -> None:
     """Apply host-level changes when targeting hosts directly (no agents)."""
-    # List all agents to get host references
-    result = list_agents(mngr_ctx, is_streaming=False)
-    all_hosts: list[HostReference] = []
-    seen_host_ids: set[str] = set()
-    for agent_info in result.agents:
-        host_ref_key = str(agent_info.host.id)
-        if host_ref_key not in seen_host_ids:
-            seen_host_ids.add(host_ref_key)
-            all_hosts.append(
-                HostReference(
-                    host_id=agent_info.host.id,
-                    host_name=HostName(agent_info.host.name),
-                    provider_name=agent_info.host.provider_name,
-                )
-            )
-
+    all_hosts = _build_host_references(mngr_ctx)
     resolved_host = resolve_host_reference(host_identifier, all_hosts)
     if resolved_host is None:
         raise UserInputError(f"Could not find host: {host_identifier}")
