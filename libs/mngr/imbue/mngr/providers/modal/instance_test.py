@@ -1961,3 +1961,28 @@ def test_cidr_allowlist_restricts_network_access(real_modal_provider: ModalProvi
     finally:
         if host:
             real_modal_provider.destroy_host(host)
+
+
+@pytest.mark.release
+@pytest.mark.timeout(180)
+def test_cidr_allowlist_allows_traffic_within_range(real_modal_provider: ModalProviderInstance) -> None:
+    """A sandbox created with --cidr-allowlist=0.0.0.0/0 should allow all traffic.
+
+    This is the complement of test_cidr_allowlist_restricts_network_access: it verifies
+    that when the target IP is within the allowed CIDR range, traffic is not blocked.
+    """
+    host = None
+    try:
+        host = real_modal_provider.create_host(
+            HostName("test-cidr-allow"),
+            build_args=["--cidr-allowlist=0.0.0.0/0"],
+        )
+
+        # curl to a public IP should succeed because 0.0.0.0/0 allows everything
+        result = host.execute_command("curl -s --max-time 10 -o /dev/null -w '%{http_code}' https://example.com")
+        assert result.success
+        assert "200" in result.stdout
+
+    finally:
+        if host:
+            real_modal_provider.destroy_host(host)
