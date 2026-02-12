@@ -1,5 +1,3 @@
-"""Unit tests for the rename CLI command."""
-
 from imbue.mngr.cli.rename import RenameCliOptions
 
 
