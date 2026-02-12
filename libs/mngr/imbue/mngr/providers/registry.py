@@ -11,6 +11,7 @@
 # Another candidate for lazy loading: celpy (~45ms) in api/list.py. It's only
 # needed when CEL filters are used (--include/--exclude), but is currently
 # imported at the top level via imbue.mngr.utils.cel_utils.
+import imbue.mngr.plugins.port_forwarding.plugin as port_forwarding_plugin_module
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
@@ -41,6 +42,12 @@ def load_all_registries(pm) -> None:
     """
     load_backends_from_plugins(pm)
     load_agents_from_plugins(pm)
+    _load_utility_plugins(pm)
+
+
+def _load_utility_plugins(pm) -> None:
+    """Register built-in utility plugins (non-agent, non-provider)."""
+    pm.register(port_forwarding_plugin_module)
 
 
 def reset_backend_registry() -> None:
