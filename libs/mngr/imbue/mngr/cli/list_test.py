@@ -437,6 +437,65 @@ def test_parse_slice_spec_negative_start_and_stop() -> None:
 
 
 # =============================================================================
+# Tests for _get_field_value with host plugin dict access
+# =============================================================================
+
+
+def test_get_field_value_host_plugin_top_level() -> None:
+    """_get_field_value should access host plugin data via dict key traversal."""
+    agent = make_test_agent_info(host_plugin={"aws": {"iam_user": "admin"}})
+    result = _get_field_value(agent, "host.plugin.aws.iam_user")
+    assert result == "admin"
+
+
+def test_get_field_value_host_plugin_nested() -> None:
+    """_get_field_value should access nested host plugin data."""
+    agent = make_test_agent_info(host_plugin={"monitoring": {"endpoint": "https://example.com", "enabled": True}})
+    result = _get_field_value(agent, "host.plugin.monitoring.endpoint")
+    assert result == "https://example.com"
+
+
+def test_get_field_value_host_plugin_missing_plugin_name() -> None:
+    """_get_field_value should return empty for nonexistent plugin name."""
+    agent = make_test_agent_info(host_plugin={})
+    result = _get_field_value(agent, "host.plugin.nonexistent.field")
+    assert result == ""
+
+
+def test_get_field_value_host_plugin_missing_field() -> None:
+    """_get_field_value should return empty for nonexistent field within plugin."""
+    agent = make_test_agent_info(host_plugin={"aws": {"iam_user": "admin"}})
+    result = _get_field_value(agent, "host.plugin.aws.nonexistent")
+    assert result == ""
+
+
+def test_get_field_value_host_plugin_whole_dict() -> None:
+    """_get_field_value should format a dict value when accessing a plugin namespace."""
+    agent = make_test_agent_info(host_plugin={"aws": {"iam_user": "admin"}})
+    result = _get_field_value(agent, "host.plugin.aws")
+    assert result == "{'iam_user': 'admin'}"
+
+
+# =============================================================================
+# Tests for _get_sortable_value with host plugin dict access
+# =============================================================================
+
+
+def test_get_sortable_value_host_plugin_field() -> None:
+    """_get_sortable_value should return raw value for host plugin field."""
+    agent = make_test_agent_info(host_plugin={"aws": {"iam_user": "admin"}})
+    result = _get_sortable_value(agent, "host.plugin.aws.iam_user")
+    assert result == "admin"
+
+
+def test_get_sortable_value_host_plugin_missing() -> None:
+    """_get_sortable_value should return None for nonexistent host plugin field."""
+    agent = make_test_agent_info(host_plugin={})
+    result = _get_sortable_value(agent, "host.plugin.nonexistent.field")
+    assert result is None
+
+
+# =============================================================================
 # Tests for _get_sortable_value
 # =============================================================================
 

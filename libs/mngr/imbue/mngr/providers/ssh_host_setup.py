@@ -189,7 +189,6 @@ def parse_warnings_from_output(output: str) -> list[str]:
 def _load_activity_watcher_script() -> str:
     """Load the activity watcher script from resources."""
     resource_files = importlib.resources.files(resources)
-    # FIXME: update this script so that it has set -euo pipefail (and will still work properly)
     script_path = resource_files.joinpath("activity_watcher.sh")
     return script_path.read_text()
 

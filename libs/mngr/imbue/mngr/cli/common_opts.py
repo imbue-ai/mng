@@ -1,8 +1,7 @@
 import sys
 import uuid
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import as_completed
+from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
 from typing import TypeVar
@@ -16,6 +15,7 @@ from click_option_group import optgroup
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessError
+from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.mngr.config.data_types import CreateTemplateName
@@ -143,7 +143,6 @@ def setup_command_context(
     # Load config
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
     pm = ctx.obj
-    # FIXME: stop passing the pm in here--all it's doing is ending up in the MngrContext, which we should assemble at this level instead (ie, load_config should return a MngrConfig, not a MngrContext). We'll need to update all of the tests to account for this as well.
     # Determine if we're running interactively (stdout is a TTY)
     try:
         is_interactive = sys.stdout.isatty()
@@ -159,27 +158,6 @@ def setup_command_context(
         is_interactive=is_interactive,
     )
 
-    # FIXME: actually, we should probably move the construction of this object (and the call to setup_logging) down after the "opts = command_class(**updated_params)" line (so that it can take those settings into consideration)
-    #  The tricky thing about this is that it means that you're not allowed to log during any of this early code, esp during the _apply_plugin_option_overrides calls
-    # Parse output options
-    output_opts = parse_output_options(
-        output_format=initial_opts.output_format,
-        quiet=initial_opts.quiet,
-        verbose=initial_opts.verbose,
-        log_file=initial_opts.log_file,
-        log_commands=initial_opts.log_commands,
-        log_command_output=initial_opts.log_command_output,
-        log_env_vars=initial_opts.log_env_vars,
-        config=mngr_ctx.config,
-    )
-
-    # Set up logging (needs mngr_ctx)
-    setup_logging(output_opts, mngr_ctx)
-
-    # Enter a log span for the command lifetime
-    span = log_span("Started {} command", command_name)
-    ctx.with_resource(span)
-
     # Apply config defaults to parameters that came from defaults (not user-specified)
     updated_params = apply_config_defaults(ctx, mngr_ctx.config, command_name)
 
@@ -192,6 +170,27 @@ def setup_command_context(
 
     # Re-create options with config defaults applied
     opts = command_class(**updated_params)
+
+    # Parse output options after all defaults and overrides have been applied,
+    # so that config defaults and plugin overrides for logging-related params
+    # (verbose, quiet, log_file, etc.) are taken into consideration.
+    output_opts = parse_output_options(
+        output_format=opts.output_format,
+        quiet=opts.quiet,
+        verbose=opts.verbose,
+        log_file=opts.log_file,
+        log_commands=opts.log_commands,
+        log_command_output=opts.log_command_output,
+        log_env_vars=opts.log_env_vars,
+        config=mngr_ctx.config,
+    )
+
+    # Set up logging (needs mngr_ctx)
+    setup_logging(output_opts, mngr_ctx)
+
+    # Enter a log span for the command lifetime
+    span = log_span("Started {} command", command_name)
+    ctx.with_resource(span)
 
     # Run pre-command scripts if configured for this command
     _run_pre_command_scripts(mngr_ctx.config, command_name, cg)
@@ -386,12 +385,14 @@ def _run_pre_command_scripts(config: MngrConfig, command_name: str, cg: Concurre
 
     # Run all scripts in parallel
     failures: list[tuple[str, int, str, str]] = []
-    with ThreadPoolExecutor() as executor:
-        futures = [executor.submit(_run_single_script, script, cg) for script in scripts]
-        for future in as_completed(futures):
-            script, exit_code, _stdout, stderr = future.result()
-            if exit_code != 0:
-                failures.append((script, exit_code, _stdout, stderr))
+    futures: list[Future[tuple[str, int, str, str]]] = []
+    with ConcurrencyGroupExecutor(parent_cg=cg, name="pre_command_scripts", max_workers=32) as executor:
+        for script in scripts:
+            futures.append(executor.submit(_run_single_script, script, cg))
+    for future in futures:
+        script, exit_code, _stdout, stderr = future.result()
+        if exit_code != 0:
+            failures.append((script, exit_code, _stdout, stderr))
 
     if failures:
         error_lines = [f"Pre-command script(s) failed for '{command_name}':"]

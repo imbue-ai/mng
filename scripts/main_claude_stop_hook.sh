@@ -11,12 +11,6 @@ set -euo pipefail
 # Read hook input JSON from stdin (must be done before anything else consumes stdin)
 HOOK_INPUT=$(cat 2>/dev/null || echo '{}')
 
-# Remove the active session marker file on exit (regardless of success/failure)
-cleanup_active_file() {
-    rm -f .claude/active
-}
-trap cleanup_active_file EXIT
-
 # Check if we're in a tmux session
 if [ -z "${TMUX:-}" ]; then
     exit 0
@@ -121,6 +115,7 @@ fi
 if [[ "$IS_INFORMATIONAL_ONLY" == "true" ]]; then
     log_info "No code changes detected compared to $BASE_BRANCH - this is an informational session. Exiting cleanly."
     notify_user || echo "No notify_user function defined, skipping."
+    rm -f .claude/active
     exit 0
 fi
 
@@ -217,6 +212,7 @@ if [[ $REVIEWER_EXIT -ne 0 ]]; then
 fi
 
 # Call local notification script if it exists
+rm -f .claude/active
 notify_user || echo "No notify_user function defined, skipping."
 
 exit 0
