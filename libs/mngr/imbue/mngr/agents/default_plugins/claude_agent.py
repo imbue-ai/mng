@@ -169,17 +169,6 @@ class ClaudeAgent(BaseAgent):
         """
         return True
 
-    def get_tmux_config_lines(self) -> Sequence[str]:
-        """Return tmux config for resize signaling on client attach.
-
-        When a user attaches to a tmux session, claude needs a SIGWINCH
-        signal to detect the new terminal dimensions and re-render.
-        """
-        return [
-            "# Automatically signal claude to tell it to resize on client attach",
-            """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'""",
-        ]
-
     def get_tui_ready_indicator(self) -> str | None:
         """Return Claude Code's banner text as the TUI ready indicator.
 
