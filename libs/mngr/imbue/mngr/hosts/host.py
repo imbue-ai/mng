@@ -1176,9 +1176,11 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> None:
         """Run rsync to transfer files from source to target.
 
-        Always runs rsync from the source host, which simplifies the logic:
-        - If source is local, run rsync locally (pushing to target via SSH if remote)
-        - If source is remote, run rsync on source host (pushing to target via SSH if different host)
+        - If both are local, run rsync locally
+        - If source is local, push to target via SSH
+        - If target is local, pull from source via SSH
+        - If both are remote, sync via a local temp directory as intermediary
+          (pull from source, then push to target)
         """
 
         # Build rsync arguments
