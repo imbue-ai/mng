@@ -1,4 +1,16 @@
 import click
+from loguru import logger
+
+from imbue.changelings.config import add_changeling
+from imbue.changelings.data_types import ChangelingDefinition
+from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
+from imbue.changelings.deploy.deploy import deploy_changeling
+from imbue.changelings.errors import ChangelingAlreadyExistsError
+from imbue.changelings.errors import ChangelingDeployError
+from imbue.changelings.primitives import ChangelingName
+from imbue.changelings.primitives import ChangelingTemplateName
+from imbue.changelings.primitives import CronSchedule
+from imbue.changelings.primitives import GitRepoUrl
 
 
 @click.command(name="add")
@@ -48,10 +60,14 @@ def add(
     agent_type: str,
     enabled: bool,
 ) -> None:
-    """Register a new changeling.
+    """Register a new changeling and deploy it to Modal.
 
     A changeling is an autonomous agent that runs on a schedule to perform
     maintenance tasks on your codebase (fixing FIXMEs, improving tests, etc).
+
+    This command saves the changeling definition to your local config and
+    deploys a cron-scheduled Modal Function that will run the changeling
+    on the specified schedule.
 
     Examples:
 
@@ -59,4 +75,27 @@ def add(
 
       changeling add test-bot --template test-troll --repo git@github.com:org/repo.git --schedule "0 4 * * 1"
     """
-    raise NotImplementedError("changeling add is not yet implemented")
+    definition = ChangelingDefinition(
+        name=ChangelingName(name),
+        template=ChangelingTemplateName(template),
+        repo=GitRepoUrl(repo),
+        schedule=CronSchedule(schedule),
+        branch=branch,
+        initial_message=message or DEFAULT_INITIAL_MESSAGE,
+        agent_type=agent_type,
+        is_enabled=enabled,
+    )
+
+    try:
+        add_changeling(definition)
+    except ChangelingAlreadyExistsError:
+        logger.error("Changeling '{}' already exists. Use 'changeling update' to modify it.", name)
+        raise SystemExit(1) from None
+
+    try:
+        app_name = deploy_changeling(definition)
+    except ChangelingDeployError as e:
+        logger.error("Failed to deploy changeling '{}': {}", name, e)
+        raise SystemExit(1) from None
+
+    click.echo(f"Changeling '{name}' added and deployed to Modal app '{app_name}'")
