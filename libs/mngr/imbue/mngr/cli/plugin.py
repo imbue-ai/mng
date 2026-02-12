@@ -166,6 +166,7 @@ def _emit_plugin_list_jsonl(plugins: list[PluginInfo], fields: tuple[str, ...]) 
         emit_final_json({f: _get_field_value(p, f) for f in fields})
 
 
+@pure
 def _parse_fields(fields_str: str | None) -> tuple[str, ...]:
     """Parse a comma-separated fields string into a tuple of field names."""
     if fields_str is None:
