@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
+from typing import Final
 
 import pluggy
 import pytest
@@ -18,7 +19,7 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 
 # Valid HostId for use in test data (host- prefix + 32 hex characters)
-VALID_HOST_ID = "host-" + "a" * 32
+VALID_HOST_ID: Final[str] = "host-" + "a" * 32
 
 
 # =============================================================================
