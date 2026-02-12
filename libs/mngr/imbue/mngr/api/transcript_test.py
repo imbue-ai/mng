@@ -25,7 +25,7 @@ def test_transcript_result_stores_expected_fields() -> None:
     )
     assert result.agent_name == "test-agent"
     assert result.content == '{"type":"user","message":"hello"}\n'
-    assert result.session_file_path == "/home/user/.claude/projects/foo/abc123.jsonl"
+    assert result.session_file_path == Path("/home/user/.claude/projects/foo/abc123.jsonl")
 
 
 def test_get_agent_transcript_raises_not_found_for_nonexistent_agent(
@@ -97,4 +97,4 @@ def test_get_agent_transcript_returns_content_when_session_file_exists(
 
     assert result.agent_name == str(agent.name)
     assert result.content == fake_content
-    assert str(agent_uuid) in result.session_file_path
+    assert str(agent_uuid) in str(result.session_file_path)

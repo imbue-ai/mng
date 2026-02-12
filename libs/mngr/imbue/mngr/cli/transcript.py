@@ -90,7 +90,7 @@ def _emit_json_output(result: TranscriptResult) -> None:
     """Emit JSON output wrapping the transcript content."""
     output_data = {
         "agent_name": result.agent_name,
-        "session_file_path": result.session_file_path,
+        "session_file_path": str(result.session_file_path),
         "content": result.content,
     }
     emit_final_json(output_data)

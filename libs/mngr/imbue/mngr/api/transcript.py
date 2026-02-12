@@ -20,7 +20,7 @@ class TranscriptResult(FrozenModel):
 
     agent_name: str = Field(description="Name of the agent")
     content: str = Field(description="Raw JSONL transcript content")
-    session_file_path: str = Field(description="Path to the session file on the host")
+    session_file_path: Path = Field(description="Path to the session file on the host")
 
 
 class TranscriptNotFoundError(MngrError):
@@ -76,7 +76,7 @@ def get_agent_transcript(
 
     # Read the transcript content
     with log_span("Reading transcript file for agent {}", agent_name):
-        content = host.read_text_file(Path(session_file_path))
+        content = host.read_text_file(session_file_path)
 
     return TranscriptResult(
         agent_name=agent_name,
@@ -89,7 +89,7 @@ def _find_session_file(
     host: OnlineHostInterface,
     agent_uuid: UUID,
     agent_name: str,
-) -> str:
+) -> Path:
     """Find the Claude Code session JSONL file on the host."""
     find_command = f"find ~/.claude/projects/ -name '{agent_uuid}.jsonl' -type f 2>/dev/null | head -1"
 
@@ -102,4 +102,4 @@ def _find_session_file(
         raise TranscriptNotFoundError(agent_name)
 
     logger.debug("Found session file for agent {}: {}", agent_name, session_path)
-    return session_path
+    return Path(session_path)
