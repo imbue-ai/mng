@@ -222,9 +222,10 @@ def test_claude_agent_assemble_command_with_no_args(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_read = f'_MNGR_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null) || _MNGR_SID="{uuid}"'
     # Local hosts should NOT have IS_SANDBOX set
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
+        f'{activity_cmd} {sid_read} && export MAIN_CLAUDE_SESSION_ID=$_MNGR_SID && ( ( find ~/.claude/ -name "$_MNGR_SID" | grep . ) && claude --resume "$_MNGR_SID" ) || claude --session-id {uuid}'
     )
 
 
@@ -240,8 +241,9 @@ def test_claude_agent_assemble_command_with_agent_args(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_read = f'_MNGR_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null) || _MNGR_SID="{uuid}"'
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
+        f'{activity_cmd} {sid_read} && export MAIN_CLAUDE_SESSION_ID=$_MNGR_SID && ( ( find ~/.claude/ -name "$_MNGR_SID" | grep . ) && claude --resume "$_MNGR_SID" --model opus ) || claude --session-id {uuid} --model opus'
     )
 
 
@@ -262,8 +264,9 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_read = f'_MNGR_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null) || _MNGR_SID="{uuid}"'
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus"
+        f'{activity_cmd} {sid_read} && export MAIN_CLAUDE_SESSION_ID=$_MNGR_SID && ( ( find ~/.claude/ -name "$_MNGR_SID" | grep . ) && claude --resume "$_MNGR_SID" --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus'
     )
 
 
@@ -283,8 +286,9 @@ def test_claude_agent_assemble_command_with_command_override(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_read = f'_MNGR_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null) || _MNGR_SID="{uuid}"'
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
+        f'{activity_cmd} {sid_read} && export MAIN_CLAUDE_SESSION_ID=$_MNGR_SID && ( ( find ~/.claude/ -name "$_MNGR_SID" | grep . ) && custom-claude --resume "$_MNGR_SID" --model opus ) || custom-claude --session-id {uuid} --model opus'
     )
 
 
@@ -321,9 +325,10 @@ def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_read = f'_MNGR_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null) || _MNGR_SID="{uuid}"'
     # Remote hosts SHOULD have IS_SANDBOX set
     assert command == CommandString(
-        f"{activity_cmd} export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
+        f'{activity_cmd} {sid_read} && export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID=$_MNGR_SID && ( ( find ~/.claude/ -name "$_MNGR_SID" | grep . ) && claude --resume "$_MNGR_SID" ) || claude --session-id {uuid}'
     )
 
 
@@ -494,17 +499,25 @@ def test_get_provision_file_transfers_with_sync_repo_settings_disabled(
 
 
 def test_build_readiness_hooks_config_has_session_start_hook() -> None:
-    """build_readiness_hooks_config should include SessionStart hook that creates session_started file."""
+    """build_readiness_hooks_config should include SessionStart hooks for readiness and session tracking."""
     config = build_readiness_hooks_config()
 
     assert "hooks" in config
     assert "SessionStart" in config["hooks"]
     assert len(config["hooks"]["SessionStart"]) == 1
-    hook = config["hooks"]["SessionStart"][0]["hooks"][0]
-    assert hook["type"] == "command"
-    # SessionStart creates session_started file for polling-based detection
-    assert "touch" in hook["command"]
-    assert "session_started" in hook["command"]
+    hooks = config["hooks"]["SessionStart"][0]["hooks"]
+    assert len(hooks) == 2
+
+    # First hook: creates session_started file for polling-based detection
+    assert hooks[0]["type"] == "command"
+    assert "touch" in hooks[0]["command"]
+    assert "session_started" in hooks[0]["command"]
+
+    # Second hook: tracks current session ID for session replacement detection
+    assert hooks[1]["type"] == "command"
+    assert "claude_session_id" in hooks[1]["command"]
+    assert "session_id" in hooks[1]["command"]
+    assert "MNGR_AGENT_STATE_DIR" in hooks[1]["command"]
 
 
 def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:

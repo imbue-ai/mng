@@ -335,6 +335,16 @@ def build_readiness_hooks_config() -> dict[str, Any]:
                             "type": "command",
                             "command": 'touch "$MNGR_AGENT_STATE_DIR/session_started"',
                         },
+                        {
+                            "type": "command",
+                            "command": (
+                                '_MNGR_HOOK_INPUT=$(cat 2>/dev/null || echo "{}");'
+                                ' _MNGR_NEW_SID=$(echo "$_MNGR_HOOK_INPUT" | jq -r ".session_id // empty" 2>/dev/null);'
+                                ' if [ -n "$_MNGR_NEW_SID" ]; then'
+                                ' echo "$_MNGR_NEW_SID" > "$MNGR_AGENT_STATE_DIR/claude_session_id";'
+                                " fi"
+                            ),
+                        },
                     ]
                 }
             ],

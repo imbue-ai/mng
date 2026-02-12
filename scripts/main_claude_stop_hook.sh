@@ -28,6 +28,14 @@ if [ -z "${MAIN_CLAUDE_SESSION_ID:-}" ]; then
     exit 0
 fi
 
+# Use the latest session ID from the tracking file if available. Claude Code can
+# replace its session (e.g., exit plan mode, /clear, compaction), creating a new
+# session with a different UUID. The SessionStart hook writes the current session
+# ID to $MNGR_AGENT_STATE_DIR/claude_session_id so we can track it here.
+if [ -n "${MNGR_AGENT_STATE_DIR:-}" ] && [ -f "$MNGR_AGENT_STATE_DIR/claude_session_id" ]; then
+    MAIN_CLAUDE_SESSION_ID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id")
+fi
+
 # make the session id accessible to the reviewers
 mkdir -p .claude
 echo $MAIN_CLAUDE_SESSION_ID > .claude/sessionid
