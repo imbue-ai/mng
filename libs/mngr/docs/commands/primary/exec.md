@@ -32,8 +32,8 @@ mngr exec [OPTIONS] AGENT COMMAND
 
 ## Arguments
 
-- `AGENT`: The agent
-- `COMMAND`: The command arg
+- `AGENT`: Name or ID of the agent whose host will run the command
+- `COMMAND`: Shell command to execute on the agent's host
 
 **Options:**
 

@@ -170,6 +170,10 @@ _EXEC_HELP_METADATA = CommandHelpMetadata(
     name="mngr-exec",
     one_line_description="Execute a shell command on an agent's host",
     synopsis="mngr [exec|x] AGENT COMMAND [--user <USER>] [--cwd <DIR>] [--timeout <SECONDS>]",
+    arguments_description=(
+        "- `AGENT`: Name or ID of the agent whose host will run the command\n"
+        "- `COMMAND`: Shell command to execute on the agent's host"
+    ),
     description="""Execute a shell command on the host where an agent runs.
 
 The command runs in the agent's work_dir by default. Use --cwd to override
