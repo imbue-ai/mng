@@ -123,7 +123,7 @@ crontab entry that runs `mngr create` with the specified arguments.
 The crontab entry includes a marker comment (`# mngr-schedule:<name>`) for
 reliable identification when removing schedules.
 
-Output from scheduled runs is logged to `~/.mngr/logs/schedule-<name>.log`.
+Output from scheduled runs is logged to `$HOME/.mngr/logs/schedule-<name>.log`.
 
 ## See Also
 

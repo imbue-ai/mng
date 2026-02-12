@@ -134,9 +134,11 @@ def _build_crontab_command(schedule: ScheduleDefinition, mngr_path: str) -> str:
     for arg in schedule.create_args:
         parts.append(shlex.quote(arg))
 
-    # Log output to a schedule-specific log file
-    log_path = f"~/.mngr/logs/schedule-{schedule.name}.log"
-    parts.append(f">> {log_path} 2>&1")
+    # Log output to a schedule-specific log file.
+    # Use $HOME instead of ~ because tilde is not expanded in crontab.
+    # Quote the filename to prevent shell injection via schedule name.
+    log_filename = shlex.quote(f"schedule-{schedule.name}.log")
+    parts.append(f">> $HOME/.mngr/logs/{log_filename} 2>&1")
 
     parts.append(_crontab_marker(schedule.name))
 

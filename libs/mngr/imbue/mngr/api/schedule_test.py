@@ -132,6 +132,20 @@ def test_build_crontab_command_quotes_create_args_with_spaces() -> None:
     assert shlex.quote("my label value") in line
 
 
+def test_build_crontab_command_uses_home_env_var_for_log_path() -> None:
+    schedule = make_test_schedule_definition(name="test-log-path")
+    line = _build_crontab_command(schedule, "/usr/local/bin/mngr")
+    assert "$HOME/.mngr/logs/" in line
+    assert "~/" not in line
+
+
+def test_build_crontab_command_quotes_log_filename_with_spaces() -> None:
+    schedule = make_test_schedule_definition(name="name with spaces")
+    line = _build_crontab_command(schedule, "/usr/local/bin/mngr")
+    # The log filename should be quoted to prevent shell injection
+    assert shlex.quote("schedule-name with spaces.log") in line
+
+
 def test_schedule_definition_is_frozen() -> None:
     schedule = make_test_schedule_definition()
     with pytest.raises(ValidationError):
