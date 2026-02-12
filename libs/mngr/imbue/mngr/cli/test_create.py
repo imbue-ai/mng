@@ -380,8 +380,6 @@ def test_single_line_message_uses_echo(
         )
 
 
-# FIXME: This test has been observed to be flaky - it failed once during a test run
-# but passed when re-run individually. Investigate the root cause.
 def test_no_await_ready_creates_agent_in_background(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -415,8 +413,12 @@ def test_no_await_ready_creates_agent_in_background(
         assert "Agent creation started in background" in result.output
         assert agent_name in result.output
 
+        # Use a longer timeout because background creation uses os.fork() and the
+        # child process may take longer to create the tmux session under load
+        # (especially during parallel test execution with xdist).
         wait_for(
             lambda: tmux_session_exists(session_name),
+            timeout=10.0,
             error_message=f"Expected tmux session {session_name} to exist",
         )
 
@@ -426,7 +428,7 @@ def test_no_await_ready_creates_agent_in_background(
             pane_content = capture_tmux_pane_contents(session_name)
             return "sleep" in pane_content
 
-        wait_for(command_is_running, error_message="Expected sleep command to be running")
+        wait_for(command_is_running, timeout=10.0, error_message="Expected sleep command to be running")
 
 
 def test_add_command_with_named_window(
