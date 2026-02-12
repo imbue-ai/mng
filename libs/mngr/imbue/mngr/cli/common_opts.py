@@ -143,20 +143,29 @@ def setup_command_context(
     # Load config
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
     pm = ctx.obj
-    # FIXME: stop passing the pm in here--all it's doing is ending up in the MngrContext, which we should assemble at this level instead (ie, load_config should return a MngrConfig, not a MngrContext). We'll need to update all of the tests to account for this as well.
+
     # Determine if we're running interactively (stdout is a TTY)
     try:
         is_interactive = sys.stdout.isatty()
     except (ValueError, AttributeError):
         # Handle cases where stdout is uninitialized (e.g., xdist workers)
         is_interactive = False
-    mngr_ctx = load_config(
+
+    config, profile_dir = load_config(
         pm,
         cg,
         context_dir,
         initial_opts.plugin,
         initial_opts.disable_plugin,
+    )
+
+    # Assemble the runtime context from config + runtime parameters
+    mngr_ctx = MngrContext(
+        config=config,
+        pm=pm,
         is_interactive=is_interactive,
+        profile_dir=profile_dir,
+        concurrency_group=cg,
     )
 
     # Apply config defaults to parameters that came from defaults (not user-specified)
