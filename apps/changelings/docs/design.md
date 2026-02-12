@@ -77,10 +77,14 @@ enabled = true
 # if you want to specify extra secrets, use this to forward the value of those env vars to the agent
 # (these are forwarded by default, and if you change this setting, you'll probably want to continue including them) 
 secrets = ["GITHUB_TOKEN", "ANTHROPIC_API_KEY"]
+# the message sent to the agent when it starts. Defaults to "Please use your primary skill",
+# which triggers the agent's configured primary skill (set via the mngr agent type).
+# Override this to give the agent custom instructions instead.
+initial_message = "Please use your primary skill"
+
 # other mngr arguments can optionally be specified as well, like:
-template = "my-template"
-initial_message = "This is a custom message for the agent, overriding the template default"
 build_args = ["--no-cache"]
+template = "my-template"
 # etc.
 ```
 
