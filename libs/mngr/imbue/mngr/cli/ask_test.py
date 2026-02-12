@@ -1,4 +1,3 @@
-import json
 from collections.abc import Iterator
 
 import pluggy
@@ -6,11 +5,10 @@ import pytest
 from click.testing import CliRunner
 
 import imbue.mngr.cli.ask as ask_module
-from imbue.mngr.cli.ask import ClaudeBackendInterface
 from imbue.mngr.cli.ask import _build_ask_context
 from imbue.mngr.cli.ask import _execute_response
-from imbue.mngr.cli.ask import _extract_text_delta
 from imbue.mngr.cli.ask import ask
+from imbue.mngr.cli.claude_backend import ClaudeBackendInterface
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import OutputFormat
 
@@ -150,54 +148,6 @@ def test_ask_human_streams_output(
 
     assert result.exit_code == 0
     assert "Use mngr create" in result.output
-
-
-def test_extract_text_delta_valid_event() -> None:
-    """A valid content_block_delta event should return the text."""
-    event = json.dumps(
-        {
-            "type": "stream_event",
-            "event": {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "text_delta", "text": "hello"},
-            },
-        }
-    )
-    assert _extract_text_delta(event) == "hello"
-
-
-def test_extract_text_delta_non_delta_event() -> None:
-    """Non-delta events should return None."""
-    event = json.dumps(
-        {
-            "type": "stream_event",
-            "event": {"type": "content_block_start", "index": 0},
-        }
-    )
-    assert _extract_text_delta(event) is None
-
-
-def test_extract_text_delta_malformed_json() -> None:
-    """Malformed JSON should return None, not raise."""
-    assert _extract_text_delta("not valid json {{{") is None
-
-
-def test_extract_text_delta_non_stream_event() -> None:
-    """Events that are not stream_event type should return None."""
-    event = json.dumps({"type": "result", "subtype": "success"})
-    assert _extract_text_delta(event) is None
-
-
-def test_extract_text_delta_missing_delta() -> None:
-    """content_block_delta without a delta field should return None."""
-    event = json.dumps(
-        {
-            "type": "stream_event",
-            "event": {"type": "content_block_delta", "index": 0},
-        }
-    )
-    assert _extract_text_delta(event) is None
 
 
 def test_execute_response_raises_on_empty_response() -> None:
