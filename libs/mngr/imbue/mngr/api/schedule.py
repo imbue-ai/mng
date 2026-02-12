@@ -305,7 +305,7 @@ def run_schedule_now(
         command_parts.append(arg)
 
     logger.debug("Running schedule command: {}", " ".join(command_parts))
-    mngr_ctx.cg.run_process_to_completion(
+    mngr_ctx.concurrency_group.run_process_to_completion(
         command_parts,
         is_checked_after=True,
     )

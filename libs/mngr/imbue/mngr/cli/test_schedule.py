@@ -62,7 +62,7 @@ def test_schedule_add_creates_schedule_and_installs_crontab(
     temp_host_dir: Path,
     fake_crontab: Path,
 ) -> None:
-    name = f"sched-{uuid4().hex[:8]}"
+    name = f"sched-{uuid4().hex}"
 
     result = cli_runner.invoke(
         cli,
@@ -82,7 +82,7 @@ def test_schedule_add_with_template(
     temp_host_dir: Path,
     fake_crontab: Path,
 ) -> None:
-    name = f"sched-tpl-{uuid4().hex[:8]}"
+    name = f"sched-tpl-{uuid4().hex}"
 
     result = cli_runner.invoke(
         cli,
@@ -101,7 +101,7 @@ def test_schedule_add_rejects_invalid_cron(
     cli_runner: CliRunner,
     temp_host_dir: Path,
 ) -> None:
-    name = f"sched-bad-{uuid4().hex[:8]}"
+    name = f"sched-bad-{uuid4().hex}"
 
     result = cli_runner.invoke(
         cli,
@@ -116,7 +116,7 @@ def test_schedule_add_rejects_duplicate_name(
     cli_runner: CliRunner,
     temp_host_dir: Path,
 ) -> None:
-    name = f"sched-dup-{uuid4().hex[:8]}"
+    name = f"sched-dup-{uuid4().hex}"
 
     result1 = cli_runner.invoke(
         cli,
@@ -136,7 +136,7 @@ def test_schedule_list_shows_schedules(
     cli_runner: CliRunner,
     temp_host_dir: Path,
 ) -> None:
-    name = f"sched-list-{uuid4().hex[:8]}"
+    name = f"sched-list-{uuid4().hex}"
 
     cli_runner.invoke(
         cli,
@@ -162,7 +162,7 @@ def test_schedule_list_json_format(
     cli_runner: CliRunner,
     temp_host_dir: Path,
 ) -> None:
-    name = f"sched-json-{uuid4().hex[:8]}"
+    name = f"sched-json-{uuid4().hex}"
 
     cli_runner.invoke(
         cli,
@@ -182,7 +182,7 @@ def test_schedule_remove_removes_schedule_and_crontab_entry(
     temp_host_dir: Path,
     fake_crontab: Path,
 ) -> None:
-    name = f"sched-rm-{uuid4().hex[:8]}"
+    name = f"sched-rm-{uuid4().hex}"
 
     cli_runner.invoke(
         cli,
@@ -224,7 +224,7 @@ def test_schedule_add_json_format(
     cli_runner: CliRunner,
     temp_host_dir: Path,
 ) -> None:
-    name = f"sched-addjson-{uuid4().hex[:8]}"
+    name = f"sched-addjson-{uuid4().hex}"
 
     result = cli_runner.invoke(
         cli,
@@ -243,8 +243,8 @@ def test_schedule_add_then_remove_preserves_other_crontab_entries(
     temp_host_dir: Path,
     fake_crontab: Path,
 ) -> None:
-    name_a = f"sched-a-{uuid4().hex[:8]}"
-    name_b = f"sched-b-{uuid4().hex[:8]}"
+    name_a = f"sched-a-{uuid4().hex}"
+    name_b = f"sched-b-{uuid4().hex}"
 
     cli_runner.invoke(cli, ["schedule", "add", "--cron", "0 * * * *", "--name", name_a, "task a"])
     cli_runner.invoke(cli, ["schedule", "add", "--cron", "*/5 * * * *", "--name", name_b, "task b"])
