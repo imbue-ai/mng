@@ -89,7 +89,7 @@ def test_resolve_output_path_override(tmp_path: Path) -> None:
 
 
 # =============================================================================
-# _strip_markdown_fences tests
+# _strip_non_dockerfile_content tests
 # =============================================================================
 
 
