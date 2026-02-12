@@ -1,6 +1,7 @@
 """Unit tests for plugin CLI helpers."""
 
 import json
+from pathlib import Path
 
 import pluggy
 
@@ -309,8 +310,6 @@ def test_gather_plugin_info_skips_internal_plugins() -> None:
     assert "public-plugin" in names
 
 
-def _fake_profile_dir():
+def _fake_profile_dir() -> Path:
     """Return a fake profile directory path for testing."""
-    from pathlib import Path
-
     return Path("/tmp/fake-mngr-profile")
