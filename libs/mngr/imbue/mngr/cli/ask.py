@@ -15,6 +15,7 @@ from click_option_group import optgroup
 from loguru import logger
 
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.imbue_common.pure import pure
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -59,6 +60,7 @@ class ClaudeBackendInterface(MutableModel, ABC):
         """Send a prompt to claude and yield response text chunks."""
 
 
+@pure
 def _extract_text_delta(line: str) -> str | None:
     """Extract text from a stream-json content_block_delta event.
 
