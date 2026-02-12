@@ -408,8 +408,10 @@ def _assemble_host_info(
         boot_time = host.get_boot_time()
         uptime_seconds = host.get_uptime_seconds()
         resource = host.get_provider_resources()
-        locked_time = host.get_reported_lock_time()
         is_locked = host.is_lock_held()
+        # Only fetch locked_time when the lock is held to avoid a redundant
+        # SSH stat command on remote hosts (is_lock_held already checked existence).
+        locked_time = host.get_reported_lock_time() if is_locked else None
     else:
         boot_time = None
         uptime_seconds = None
