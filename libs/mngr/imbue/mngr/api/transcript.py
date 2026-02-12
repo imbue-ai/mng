@@ -23,8 +23,10 @@ class TranscriptResult(FrozenModel):
     session_file_path: Path = Field(description="Path to the session file on the host")
 
 
-class TranscriptNotFoundError(MngrError):
+class TranscriptNotFoundError(MngrError, FileNotFoundError):
     """Raised when no transcript session file is found for an agent."""
+
+    user_help_text = "Ensure the agent has started a Claude Code session. Use 'mngr list' to check agent status."
 
     def __init__(self, agent_name: str) -> None:
         self.agent_name = agent_name
