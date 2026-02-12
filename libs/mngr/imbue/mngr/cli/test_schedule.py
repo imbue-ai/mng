@@ -10,9 +10,10 @@ from click.testing import CliRunner
 
 from imbue.mngr.main import cli
 
-# The fake crontab script stores its data in $HOME/.fake_crontab.
-# It supports `crontab -l` (list) and `crontab <file>` (install from file).
-_FAKE_CRONTAB_SCRIPT = """#!/bin/sh
+# Fake crontab script that stores its data in $HOME/.fake_crontab.
+# Supports `crontab -l` (list) and `crontab <file>` (install from file).
+_FAKE_CRONTAB_SCRIPT = """\
+#!/bin/sh
 CRONTAB_FILE="$HOME/.fake_crontab"
 if [ "$1" = "-l" ]; then
     if [ -f "$CRONTAB_FILE" ]; then
@@ -32,10 +33,12 @@ fi
 
 @pytest.fixture(autouse=True)
 def fake_crontab(tmp_home_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path, None, None]:
-    """Install a fake crontab script that reads/writes a file under $HOME.
+    """Install a fake crontab binary that reads/writes a file under $HOME.
 
-    Since the autouse setup_test_mngr_env fixture already sets HOME to a temp
-    directory, the fake crontab is fully sandboxed -- no real crontab is touched.
+    The real crontab modifies per-user system state that cannot be sandboxed
+    via HOME alone, and may require special permissions on macOS. This fake
+    binary shadows the real one on PATH and stores data in $HOME/.fake_crontab,
+    which is already sandboxed by the autouse setup_test_mngr_env fixture.
     """
     bin_dir = tmp_home_dir / "bin"
     bin_dir.mkdir(exist_ok=True)
@@ -43,14 +46,12 @@ def fake_crontab(tmp_home_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Generat
     crontab_script.write_text(_FAKE_CRONTAB_SCRIPT)
     crontab_script.chmod(crontab_script.stat().st_mode | stat.S_IEXEC)
 
-    # Prepend the fake bin directory to PATH so it shadows the real crontab
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
 
     yield tmp_home_dir / ".fake_crontab"
 
 
 def _read_fake_crontab(fake_crontab_path: Path) -> str:
-    """Read the contents of the fake crontab file."""
     if fake_crontab_path.exists():
         return fake_crontab_path.read_text()
     return ""
@@ -71,7 +72,6 @@ def test_schedule_add_creates_schedule_and_installs_crontab(
     assert result.exit_code == 0, result.output
     assert f"Added schedule '{name}'" in result.output
 
-    # Verify the crontab entry was actually installed
     crontab_content = _read_fake_crontab(fake_crontab)
     assert f"mngr-schedule:{name}" in crontab_content
     assert "fix tests" in crontab_content
@@ -189,7 +189,6 @@ def test_schedule_remove_removes_schedule_and_crontab_entry(
         ["schedule", "add", "--cron", "0 * * * *", "--name", name, "to remove"],
     )
 
-    # Verify it was added to crontab
     assert f"mngr-schedule:{name}" in _read_fake_crontab(fake_crontab)
 
     result = cli_runner.invoke(cli, ["schedule", "remove", name])
@@ -197,11 +196,9 @@ def test_schedule_remove_removes_schedule_and_crontab_entry(
     assert result.exit_code == 0, result.output
     assert f"Removed schedule '{name}'" in result.output
 
-    # Verify it was removed from the list
     list_result = cli_runner.invoke(cli, ["schedule", "list"])
     assert name not in list_result.output
 
-    # Verify it was removed from crontab
     assert f"mngr-schedule:{name}" not in _read_fake_crontab(fake_crontab)
 
 
@@ -246,22 +243,18 @@ def test_schedule_add_then_remove_preserves_other_crontab_entries(
     temp_host_dir: Path,
     fake_crontab: Path,
 ) -> None:
-    """Adding and removing one schedule should not affect other schedules."""
     name_a = f"sched-a-{uuid4().hex[:8]}"
     name_b = f"sched-b-{uuid4().hex[:8]}"
 
     cli_runner.invoke(cli, ["schedule", "add", "--cron", "0 * * * *", "--name", name_a, "task a"])
     cli_runner.invoke(cli, ["schedule", "add", "--cron", "*/5 * * * *", "--name", name_b, "task b"])
 
-    # Both should be in crontab
     crontab_content = _read_fake_crontab(fake_crontab)
     assert f"mngr-schedule:{name_a}" in crontab_content
     assert f"mngr-schedule:{name_b}" in crontab_content
 
-    # Remove only schedule A
     cli_runner.invoke(cli, ["schedule", "remove", name_a])
 
-    # Schedule B should still be in crontab
-    crontab_content_after = _read_fake_crontab(fake_crontab)
-    assert f"mngr-schedule:{name_a}" not in crontab_content_after
-    assert f"mngr-schedule:{name_b}" in crontab_content_after
+    crontab_after = _read_fake_crontab(fake_crontab)
+    assert f"mngr-schedule:{name_a}" not in crontab_after
+    assert f"mngr-schedule:{name_b}" in crontab_after
