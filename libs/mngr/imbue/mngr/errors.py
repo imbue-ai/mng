@@ -340,7 +340,7 @@ class ScheduleError(MngrError):
     """Base class for schedule-related errors."""
 
 
-class ScheduleNotFoundError(ScheduleError):
+class ScheduleNotFoundError(ScheduleError, KeyError):
     """Schedule with this name does not exist."""
 
     user_help_text = "Use 'mngr schedule list' to see available schedules."
@@ -350,7 +350,7 @@ class ScheduleNotFoundError(ScheduleError):
         super().__init__(f"Schedule not found: {name}")
 
 
-class ScheduleAlreadyExistsError(ScheduleError):
+class ScheduleAlreadyExistsError(ScheduleError, ValueError):
     """A schedule with this name already exists."""
 
     user_help_text = "Use a different name or remove the existing schedule first with 'mngr schedule remove'."
@@ -360,7 +360,7 @@ class ScheduleAlreadyExistsError(ScheduleError):
         super().__init__(f"Schedule already exists: {name}")
 
 
-class CrontabError(ScheduleError):
+class CrontabError(ScheduleError, OSError):
     """Failed to read or write crontab."""
 
 
