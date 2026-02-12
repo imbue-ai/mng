@@ -1,11 +1,11 @@
 import click
 
 from imbue.changelings.cli.add import add
-from imbue.changelings.cli.deploy import deploy
 from imbue.changelings.cli.list import list_command
 from imbue.changelings.cli.remove import remove
 from imbue.changelings.cli.run import run
 from imbue.changelings.cli.status import status
+from imbue.changelings.cli.update import update
 
 
 @click.group()
@@ -25,6 +25,6 @@ def cli() -> None:
 cli.add_command(add)
 cli.add_command(remove)
 cli.add_command(list_command, name="list")
-cli.add_command(deploy)
+cli.add_command(update)
 cli.add_command(run)
 cli.add_command(status)
