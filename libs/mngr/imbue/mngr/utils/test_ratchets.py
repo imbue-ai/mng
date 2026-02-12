@@ -752,7 +752,7 @@ def test_prevent_bash_without_strict_mode() -> None:
 
     sh_files = [repo_root / line.strip() for line in ls_result.stdout.splitlines() if line.strip()]
 
-    strict_mode_pattern = re.compile(r"set\s+-[euo]+\s+pipefail")
+    strict_mode_pattern = re.compile(r"set\s+-(?=[^ ]*e)(?=[^ ]*u)(?=[^ ]*o)[euo]+\s+pipefail")
 
     violations: list[str] = []
     for sh_file in sh_files:
@@ -760,6 +760,6 @@ def test_prevent_bash_without_strict_mode() -> None:
         if not strict_mode_pattern.search(content):
             violations.append(str(sh_file))
 
-    assert len(violations) <= snapshot(4), "Bash scripts missing 'set -euo pipefail':\n" + "\n".join(
+    assert len(violations) <= snapshot(3), "Bash scripts missing 'set -euo pipefail':\n" + "\n".join(
         f"  - {v}" for v in violations
     )
