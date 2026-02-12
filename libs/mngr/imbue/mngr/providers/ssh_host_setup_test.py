@@ -213,13 +213,13 @@ def _create_test_script(script_path: str, host_data_dir: str, function_call: str
     """
     lines = [
         "#!/bin/bash",
-        "set -e",
+        "set -euo pipefail",
         "",
         f'HOST_DATA_DIR="{host_data_dir}"',
         "",
     ]
 
-    # Read the script and extract everything between 'set -e' and 'main' (exclusive)
+    # Read the script and extract everything between 'set -euo pipefail' and 'main' (exclusive)
     with open(script_path) as f:
         script_lines = f.readlines()
 
