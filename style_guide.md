@@ -1522,7 +1522,61 @@ Always write tests carefully to avoid race conditions and flaky tests. This mean
 - ALWAYS use `uuid4().hex` to generate unique IDs for any test data that needs an ID or name
 - Make every constant globally unique (ex: if running "sleep N" on the command line, use `sleep 36284` instead of something like `sleep 30` to reduce the chances of collisions between test that, for example, check whether this process is still running)
 
-NEVER use mocks for any testing unless explicitly instructed to do so (they end up making tests more brittle and less reliable)
+### Testing without mocks
+
+Never use `unittest.mock` (`Mock`, `MagicMock`, `patch`, `create_autospec`, etc.) in tests. These constructs make tests brittle and disconnected from real behavior. They test implementation details rather than actual behavior, and silently pass when the real interface changes.
+
+Never use `monkeypatch.setattr` to replace attributes or functions at runtime. This has the same problems as `unittest.mock` -- it fakes out real objects and breaks the connection between tests and actual behavior.
+
+**Always prefer using real classes and implementations.** When a real implementation is not feasible in a test (e.g., it requires network access or expensive infrastructure), create a concrete mock implementation of the interface instead.
+
+#### Creating mock implementations
+
+Create concrete mock implementations of interfaces in `mock_*_test.py` files in the same directory as the interface definition. Before creating a new mock, check if one already exists for that interface.
+
+Mock implementations should:
+- Inherit from the interface class (not from `Mock` or `MagicMock`)
+- Provide configurable behavior through pydantic `Field` attributes
+- Be shared across all test files that need to test against that interface
+
+```python
+class MockTodoRepository(TodoRepositoryInterface):
+    """In-memory implementation for testing."""
+
+    mock_todos: dict[TodoId, TodoItem] = Field(default_factory=dict)
+
+    def save_todo(self, todo_item: TodoItem) -> None:
+        self.mock_todos[todo_item.todo_id] = todo_item
+
+    def get_todo_by_id(self, todo_id: TodoId) -> TodoItem | None:
+        return self.mock_todos.get(todo_id)
+
+    def delete_todo(self, todo_id: TodoId) -> None:
+        del self.mock_todos[todo_id]
+```
+
+If a specific test needs specialized behavior (e.g., simulating errors), create a subclass of the base mock in the test file itself:
+
+```python
+class FailingSaveMockRepository(MockTodoRepository):
+    """Mock that raises on save for error path testing."""
+
+    def save_todo(self, todo_item: TodoItem) -> None:
+        raise TodoStorageError("Simulated save failure")
+```
+
+#### What IS allowed in tests
+
+- `monkeypatch.setenv` / `monkeypatch.delenv` / `monkeypatch.chdir` -- setting environment variables and changing directories is fine since these modify the test environment, not object behavior
+- Occasional sparing use of `types.SimpleNamespace` to create a lightweight attribute holder when a full mock implementation would be overkill (e.g., simulating a single boolean property). This should be rare -- prefer real mock implementations
+- Using real classes and real implementations whenever possible. Most tests should exercise real code paths
+
+#### What is NOT allowed in tests
+
+- `from unittest.mock import Mock, MagicMock, patch, create_autospec` or any other import from `unittest.mock`
+- `monkeypatch.setattr` to replace attributes, methods, or functions on real objects
+- `@patch` decorators
+- `patch.object()` context managers
 
 ### Snapshot testing
 

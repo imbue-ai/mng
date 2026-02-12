@@ -575,3 +575,46 @@ def test_prevent_assert_isinstance_usage() -> None:
         ),
         chunks=chunks,
     )
+
+
+def test_prevent_unittest_mock_imports() -> None:
+    """Prevent importing from unittest.mock.
+
+    unittest.mock (Mock, MagicMock, patch, create_autospec, etc.) makes tests brittle
+    and disconnected from real behavior. Instead, create concrete mock implementations
+    of interfaces in mock_*_test.py files. See the style guide for details.
+    """
+    pattern = RegexPattern(r"from unittest\.mock import|from unittest import mock")
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+
+    assert len(chunks) <= snapshot(3), format_ratchet_failure_message(
+        rule_name="unittest.mock imports",
+        rule_description=(
+            "Do not import from unittest.mock. Mock, MagicMock, patch, create_autospec, etc. make tests "
+            "brittle and disconnected from real behavior. Instead, create concrete mock implementations "
+            "of interfaces in mock_*_test.py files. See the style guide Testing section for details."
+        ),
+        chunks=chunks,
+    )
+
+
+def test_prevent_monkeypatch_setattr() -> None:
+    """Prevent usage of monkeypatch.setattr to replace attributes/functions at runtime.
+
+    monkeypatch.setattr makes tests brittle by replacing real behavior with fakes at
+    the attribute level. Instead, use dependency injection and concrete mock implementations
+    of interfaces. Note that monkeypatch.setenv, monkeypatch.delenv, and monkeypatch.chdir
+    are fine -- only setattr is problematic.
+    """
+    pattern = RegexPattern(r"monkeypatch\.setattr")
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+
+    assert len(chunks) <= snapshot(30), format_ratchet_failure_message(
+        rule_name="monkeypatch.setattr usages",
+        rule_description=(
+            "Do not use monkeypatch.setattr to replace attributes or functions at runtime. "
+            "Use dependency injection and concrete mock implementations of interfaces instead. "
+            "Note: monkeypatch.setenv, monkeypatch.delenv, and monkeypatch.chdir are fine."
+        ),
+        chunks=chunks,
+    )
