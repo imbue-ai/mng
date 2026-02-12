@@ -1676,7 +1676,7 @@ class Host(BaseHost, OnlineHostInterface):
         """
         return self.host_dir / "tmux.conf"
 
-    def _create_host_tmux_config(self) -> Path:
+    def _create_host_tmux_config(self, extra_lines: Sequence[str] = ()) -> Path:
         """Create a tmux config file for the host with hotkeys for agent management.
 
         The config:
@@ -1737,15 +1737,11 @@ class Host(BaseHost, OnlineHostInterface):
                 ]
             )
 
-        lines.extend(
-            [
-                "",
-                # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
-                "# Automatically signal claude to tell it to resize on client attach",
-                """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'""",
-                "",
-            ]
-        )
+        # Append agent-specific tmux config lines (collected from agent plugins)
+        if extra_lines:
+            lines.append("")
+            lines.extend(extra_lines)
+            lines.append("")
         config_content = "\n".join(lines)
 
         self.write_text_file(config_path, config_content)
@@ -1776,16 +1772,24 @@ class Host(BaseHost, OnlineHostInterface):
         and process round trips (important for remote hosts).
         """
         with log_span("Starting {} agent(s)", len(agent_ids)):
-            # Create the host-level tmux config (shared by all agents on this host)
-            # This avoids the issue where per-agent configs would overwrite each other's
-            # Ctrl-q bindings since tmux key bindings are server-wide
-            tmux_config_path = self._create_host_tmux_config()
-
+            # Resolve all agents and collect agent-specific tmux config lines
+            extra_tmux_lines: list[str] = []
+            resolved_agents: list[AgentInterface] = []
             for agent_id in agent_ids:
                 agent = self._get_agent_by_id(agent_id)
                 if agent is None:
                     raise AgentNotFoundOnHostError(agent_id, self.id)
+                resolved_agents.append(agent)
+                for line in agent.get_tmux_config_lines():
+                    if line not in extra_tmux_lines:
+                        extra_tmux_lines.append(line)
 
+            # Create the host-level tmux config (shared by all agents on this host)
+            # This avoids the issue where per-agent configs would overwrite each other's
+            # Ctrl-q bindings since tmux key bindings are server-wide
+            tmux_config_path = self._create_host_tmux_config(extra_lines=extra_tmux_lines)
+
+            for agent in resolved_agents:
                 command = self._get_agent_command(agent)
                 additional_commands = self._get_agent_additional_commands(agent)
 

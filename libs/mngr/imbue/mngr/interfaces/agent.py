@@ -145,6 +145,15 @@ class AgentInterface(MutableModel, ABC):
         """
         start_action()
 
+    def get_tmux_config_lines(self) -> Sequence[str]:
+        """Return extra tmux config lines needed by this agent type.
+
+        Override in agent plugins to add agent-specific tmux configuration.
+        Lines are appended to the host-level tmux config, deduplicated across
+        all agents on the host.
+        """
+        return []
+
     # =========================================================================
     # Status (Reported)
     # =========================================================================
