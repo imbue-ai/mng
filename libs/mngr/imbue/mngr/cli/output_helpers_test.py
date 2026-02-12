@@ -166,6 +166,7 @@ def test_format_size_bytes() -> None:
     """format_size should format small sizes in bytes."""
     assert format_size(0) == "0 B"
     assert format_size(1) == "1 B"
+    assert format_size(100) == "100 B"
     assert format_size(512) == "512 B"
     assert format_size(1023) == "1023 B"
 
@@ -175,6 +176,7 @@ def test_format_size_kilobytes() -> None:
     assert format_size(1024) == "1.0 KB"
     assert format_size(1536) == "1.5 KB"
     assert format_size(10240) == "10.0 KB"
+    assert format_size(1024 * 500) == "500.0 KB"
     assert format_size(1024 * 1024 - 1) == "1024.0 KB"
 
 
@@ -196,23 +198,6 @@ def test_format_size_terabytes() -> None:
     """format_size should format sizes in terabytes with two decimal places."""
     assert format_size(1024**4) == "1.00 TB"
     assert format_size(int(2.5 * 1024**4)) == "2.50 TB"
-
-
-@pytest.mark.parametrize(
-    ("size_bytes", "expected"),
-    [
-        (0, "0 B"),
-        (100, "100 B"),
-        (1024, "1.0 KB"),
-        (1024 * 500, "500.0 KB"),
-        (1024 * 1024, "1.0 MB"),
-        (1024 * 1024 * 1024, "1.00 GB"),
-        (1024 * 1024 * 1024 * 1024, "1.00 TB"),
-    ],
-)
-def test_format_size_parametrized(size_bytes: int, expected: str) -> None:
-    """format_size should format various byte sizes correctly."""
-    assert format_size(size_bytes) == expected
 
 
 # =============================================================================
