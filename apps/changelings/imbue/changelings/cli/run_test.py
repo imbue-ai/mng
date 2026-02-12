@@ -44,7 +44,7 @@ def _make_changeling(
 def test_build_command_includes_python_executable_and_mngr_module() -> None:
     """The command should invoke Python with the mngr main module."""
     changeling = _make_changeling()
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     assert cmd[0] == sys.executable
     assert cmd[1] == "-m"
@@ -55,7 +55,7 @@ def test_build_command_includes_python_executable_and_mngr_module() -> None:
 def test_build_command_includes_agent_name_with_timestamp() -> None:
     """The agent name should include the changeling name and a timestamp."""
     changeling = _make_changeling(name="my-guardian")
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     # The agent name is the 5th element (index 4)
     agent_name = cmd[4]
@@ -69,7 +69,7 @@ def test_build_command_includes_agent_name_with_timestamp() -> None:
 def test_build_command_uses_agent_type_from_definition() -> None:
     """The command should use the agent type from the changeling definition."""
     changeling = _make_changeling(agent_type="code-guardian")
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     # The agent type is the 6th element (index 5)
     assert cmd[5] == "code-guardian"
@@ -78,7 +78,7 @@ def test_build_command_uses_agent_type_from_definition() -> None:
 def test_build_command_includes_no_connect_flag() -> None:
     """The command should include --no-connect since changelings run unattended."""
     changeling = _make_changeling()
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     assert "--no-connect" in cmd
 
@@ -86,7 +86,7 @@ def test_build_command_includes_no_connect_flag() -> None:
 def test_build_command_includes_await_agent_stopped_flag() -> None:
     """The command should include --await-agent-stopped to wait for completion."""
     changeling = _make_changeling()
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     assert "--await-agent-stopped" in cmd
 
@@ -94,7 +94,7 @@ def test_build_command_includes_await_agent_stopped_flag() -> None:
 def test_build_command_includes_creator_tag() -> None:
     """The command should tag the agent as created by changeling."""
     changeling = _make_changeling()
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     tag_idx = cmd.index("CREATOR=changeling")
     assert cmd[tag_idx - 1] == "--tag"
@@ -103,7 +103,7 @@ def test_build_command_includes_creator_tag() -> None:
 def test_build_command_includes_changeling_name_tag() -> None:
     """The command should tag the agent with the changeling name."""
     changeling = _make_changeling(name="my-guardian")
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     assert "CHANGELING=my-guardian" in cmd
 
@@ -111,7 +111,7 @@ def test_build_command_includes_changeling_name_tag() -> None:
 def test_build_command_includes_base_branch() -> None:
     """The command should set --base-branch from the changeling definition."""
     changeling = _make_changeling(branch="develop")
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     branch_idx = cmd.index("--base-branch")
     assert cmd[branch_idx + 1] == "develop"
@@ -120,7 +120,7 @@ def test_build_command_includes_base_branch() -> None:
 def test_build_command_includes_new_branch_with_changeling_name() -> None:
     """The command should create a new branch named after the changeling."""
     changeling = _make_changeling(name="my-guardian")
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     branch_idx = cmd.index("--new-branch")
     branch_name = cmd[branch_idx + 1]
@@ -130,7 +130,7 @@ def test_build_command_includes_new_branch_with_changeling_name() -> None:
 def test_build_command_always_includes_message() -> None:
     """The command should always include --message with the initial_message."""
     changeling = _make_changeling()
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     assert "--message" in cmd
     message_idx = cmd.index("--message")
@@ -140,7 +140,7 @@ def test_build_command_always_includes_message() -> None:
 def test_build_command_uses_custom_initial_message() -> None:
     """A custom initial_message should be passed via --message."""
     changeling = _make_changeling(initial_message="Do something specific")
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     message_idx = cmd.index("--message")
     assert cmd[message_idx + 1] == "Do something specific"
@@ -149,7 +149,7 @@ def test_build_command_uses_custom_initial_message() -> None:
 def test_build_command_includes_env_vars() -> None:
     """Environment variables from the changeling should be passed via --host-env."""
     changeling = _make_changeling(env_vars={"API_KEY": "abc123", "DEBUG": "true"})
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     assert "--host-env" in cmd
     assert "API_KEY=abc123" in cmd
@@ -159,7 +159,7 @@ def test_build_command_includes_env_vars() -> None:
 def test_build_command_includes_extra_mngr_args() -> None:
     """Extra mngr args from the changeling should be appended to the command."""
     changeling = _make_changeling(extra_mngr_args="--verbose --timeout 300")
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     assert "--verbose" in cmd
     assert "--timeout" in cmd
@@ -169,7 +169,7 @@ def test_build_command_includes_extra_mngr_args() -> None:
 def test_build_command_local_does_not_include_modal_flag() -> None:
     """Local execution should not include --in modal."""
     changeling = _make_changeling()
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     assert "--in" not in cmd
     assert "modal" not in cmd
@@ -178,7 +178,7 @@ def test_build_command_local_does_not_include_modal_flag() -> None:
 def test_build_command_local_does_not_include_host_env_file() -> None:
     """Local execution should not include --host-env-file."""
     changeling = _make_changeling()
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     assert "--host-env-file" not in cmd
 
@@ -189,7 +189,7 @@ def test_build_command_local_does_not_include_host_env_file() -> None:
 def test_build_command_modal_includes_in_modal_flag() -> None:
     """Modal execution should include --in modal."""
     changeling = _make_changeling()
-    cmd = build_mngr_create_command(changeling, is_modal=True)
+    cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=None)
 
     in_idx = cmd.index("--in")
     assert cmd[in_idx + 1] == "modal"
@@ -216,7 +216,7 @@ def test_build_command_modal_omits_env_file_when_none() -> None:
 def test_build_command_modal_does_not_include_pass_host_env() -> None:
     """Modal execution should not use --pass-host-env (secrets go via env file)."""
     changeling = _make_changeling()
-    cmd = build_mngr_create_command(changeling, is_modal=True)
+    cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=None)
 
     assert "--pass-host-env" not in cmd
 
@@ -224,7 +224,7 @@ def test_build_command_modal_does_not_include_pass_host_env() -> None:
 def test_build_command_modal_still_includes_env_vars() -> None:
     """Modal execution should still pass explicit env vars via --host-env."""
     changeling = _make_changeling(env_vars={"DEBUG": "true"})
-    cmd = build_mngr_create_command(changeling, is_modal=True)
+    cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=None)
 
     assert "--host-env" in cmd
     assert "DEBUG=true" in cmd
@@ -233,7 +233,7 @@ def test_build_command_modal_still_includes_env_vars() -> None:
 def test_build_command_modal_still_includes_core_flags() -> None:
     """Modal execution should still include core flags like --no-connect and tags."""
     changeling = _make_changeling()
-    cmd = build_mngr_create_command(changeling, is_modal=True)
+    cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=None)
 
     assert "--no-connect" in cmd
     assert "--await-agent-stopped" in cmd
@@ -244,7 +244,7 @@ def test_build_command_modal_still_includes_core_flags() -> None:
 def test_build_command_modal_includes_extra_mngr_args() -> None:
     """Modal execution should still append extra mngr args."""
     changeling = _make_changeling(extra_mngr_args="--gpu a10g --timeout 600")
-    cmd = build_mngr_create_command(changeling, is_modal=True)
+    cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=None)
 
     assert "--gpu" in cmd
     assert "a10g" in cmd

@@ -37,25 +37,13 @@ def run(name: str, local: bool) -> None:
     changeling = get_changeling(ChangelingName(name))
 
     if local:
-        _run_changeling(changeling, is_modal=False)
-    else:
-        _run_changeling(changeling, is_modal=True)
-
-
-def _run_changeling(changeling: ChangelingDefinition, is_modal: bool) -> None:
-    """Run a changeling by invoking mngr create."""
-    execution_mode = "on Modal" if is_modal else "locally"
-    logger.info("Running changeling '{}' {}", changeling.name, execution_mode)
-
-    if is_modal:
-        _run_changeling_on_modal(changeling)
-    else:
         _run_changeling_locally(changeling)
+    else:
+        _run_changeling_on_modal(changeling)
 
 
-def _run_changeling_locally(changeling: ChangelingDefinition) -> None:
-    """Run a changeling locally by invoking mngr create."""
-    cmd = build_mngr_create_command(changeling, is_modal=False)
+def _execute_mngr_command(changeling: ChangelingDefinition, cmd: list[str]) -> None:
+    """Execute an mngr create command and handle the result."""
     logger.debug("Command: {}", " ".join(cmd))
 
     result = subprocess.run(cmd)
@@ -66,23 +54,20 @@ def _run_changeling_locally(changeling: ChangelingDefinition) -> None:
     logger.info("Changeling '{}' completed successfully", changeling.name)
 
 
+def _run_changeling_locally(changeling: ChangelingDefinition) -> None:
+    """Run a changeling locally by invoking mngr create."""
+    logger.info("Running changeling '{}' locally", changeling.name)
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
+    _execute_mngr_command(changeling, cmd)
+
+
 def _run_changeling_on_modal(changeling: ChangelingDefinition) -> None:
     """Run a changeling on Modal, writing secrets to a temporary env file."""
+    logger.info("Running changeling '{}' on Modal", changeling.name)
     env_file_path = _write_secrets_env_file(changeling)
     try:
-        cmd = build_mngr_create_command(
-            changeling,
-            is_modal=True,
-            env_file_path=env_file_path,
-        )
-        logger.debug("Command: {}", " ".join(cmd))
-
-        result = subprocess.run(cmd)
-        if result.returncode != 0:
-            logger.error("Changeling '{}' exited with code {}", changeling.name, result.returncode)
-            sys.exit(result.returncode)
-
-        logger.info("Changeling '{}' completed successfully", changeling.name)
+        cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
+        _execute_mngr_command(changeling, cmd)
     finally:
         env_file_path.unlink(missing_ok=True)
 
@@ -113,7 +98,7 @@ def _write_secrets_env_file(changeling: ChangelingDefinition) -> Path:
 def build_mngr_create_command(
     changeling: ChangelingDefinition,
     is_modal: bool,
-    env_file_path: Path | None = None,
+    env_file_path: Path | None,
 ) -> list[str]:
     """Build the mngr create command for a changeling.
 
