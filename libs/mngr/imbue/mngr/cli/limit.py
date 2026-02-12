@@ -165,6 +165,33 @@ def _has_any_setting(opts: LimitCliOptions) -> bool:
     return _has_host_level_settings(opts) or _has_agent_level_settings(opts)
 
 
+def _apply_activity_config_to_host(
+    online_host: OnlineHostInterface,
+    host_id_str: str,
+    opts: LimitCliOptions,
+    output_opts: OutputOptions,
+    changes: list[dict[str, Any]],
+) -> None:
+    """Apply activity config changes to a single online host."""
+    current_config = online_host.get_activity_config()
+    new_config = _build_updated_activity_config(
+        current=current_config,
+        idle_timeout=opts.idle_timeout,
+        idle_mode_str=opts.idle_mode,
+        activity_sources_str=opts.activity_sources,
+        add_activity_source=opts.add_activity_source,
+        remove_activity_source=opts.remove_activity_source,
+    )
+    online_host.set_activity_config(new_config)
+    _output(f"Updated activity config for host {host_id_str}", output_opts)
+    changes.append(
+        {
+            "type": "host_activity_config",
+            "host_id": host_id_str,
+        }
+    )
+
+
 def _build_host_references(mngr_ctx: MngrContext) -> list[HostReference]:
     """Build a deduplicated list of HostReferences from all known agents."""
     result = list_agents(mngr_ctx, is_streaming=False)
@@ -382,9 +409,11 @@ def limit(ctx: click.Context, **kwargs: Any) -> None:
     # If --host only (no agents, no --all), apply host-level changes directly
     if has_hosts and not has_agents and not opts.limit_all:
         changes: list[dict[str, Any]] = []
+        all_hosts = _build_host_references(mngr_ctx)
         for host_identifier in opts.hosts:
             _apply_host_only_changes(
                 host_identifier=host_identifier,
+                all_hosts=all_hosts,
                 opts=opts,
                 output_opts=output_opts,
                 mngr_ctx=mngr_ctx,
@@ -441,24 +470,14 @@ def limit(ctx: click.Context, **kwargs: Any) -> None:
             case OnlineHostInterface() as online_host:
                 # Apply host-level changes once per host
                 if _has_host_level_settings(opts) and host_id_str not in updated_host_ids:
-                    current_config = online_host.get_activity_config()
-                    new_config = _build_updated_activity_config(
-                        current=current_config,
-                        idle_timeout=opts.idle_timeout,
-                        idle_mode_str=opts.idle_mode,
-                        activity_sources_str=opts.activity_sources,
-                        add_activity_source=opts.add_activity_source,
-                        remove_activity_source=opts.remove_activity_source,
+                    _apply_activity_config_to_host(
+                        online_host=online_host,
+                        host_id_str=host_id_str,
+                        opts=opts,
+                        output_opts=output_opts,
+                        changes=changes,
                     )
-                    online_host.set_activity_config(new_config)
                     updated_host_ids.add(host_id_str)
-                    _output(f"Updated activity config for host {host_id_str}", output_opts)
-                    changes.append(
-                        {
-                            "type": "host_activity_config",
-                            "host_id": host_id_str,
-                        }
-                    )
 
                 # Apply agent-level changes per agent
                 if _has_agent_level_settings(opts):
@@ -486,6 +505,7 @@ def limit(ctx: click.Context, **kwargs: Any) -> None:
 
 def _apply_host_only_changes(
     host_identifier: str,
+    all_hosts: list[HostReference],
     opts: LimitCliOptions,
     output_opts: OutputOptions,
     mngr_ctx: MngrContext,
@@ -493,7 +513,6 @@ def _apply_host_only_changes(
     changes: list[dict[str, Any]],
 ) -> None:
     """Apply host-level changes when targeting hosts directly (no agents)."""
-    all_hosts = _build_host_references(mngr_ctx)
     resolved_host = resolve_host_reference(host_identifier, all_hosts)
     if resolved_host is None:
         raise UserInputError(f"Could not find host: {host_identifier}")
@@ -507,22 +526,12 @@ def _apply_host_only_changes(
 
     match host:
         case OnlineHostInterface() as online_host:
-            current_config = online_host.get_activity_config()
-            new_config = _build_updated_activity_config(
-                current=current_config,
-                idle_timeout=opts.idle_timeout,
-                idle_mode_str=opts.idle_mode,
-                activity_sources_str=opts.activity_sources,
-                add_activity_source=opts.add_activity_source,
-                remove_activity_source=opts.remove_activity_source,
-            )
-            online_host.set_activity_config(new_config)
-            _output(f"Updated activity config for host {resolved_host.host_id}", output_opts)
-            changes.append(
-                {
-                    "type": "host_activity_config",
-                    "host_id": str(resolved_host.host_id),
-                }
+            _apply_activity_config_to_host(
+                online_host=online_host,
+                host_id_str=str(resolved_host.host_id),
+                opts=opts,
+                output_opts=output_opts,
+                changes=changes,
             )
         case HostInterface():
             raise HostOfflineError(f"Host '{resolved_host.host_id}' is offline. Cannot configure offline hosts.")
