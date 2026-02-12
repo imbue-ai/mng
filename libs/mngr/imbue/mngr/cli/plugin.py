@@ -111,15 +111,17 @@ def _gather_plugin_info(mngr_ctx: MngrContext) -> list[PluginInfo]:
 @pure
 def _get_field_value(plugin: PluginInfo, field: str) -> str:
     """Get a display value for a plugin field."""
-    if field == "name":
-        return plugin.name
-    if field == "version":
-        return plugin.version or "-"
-    if field == "description":
-        return plugin.description or "-"
-    if field == "enabled":
-        return str(plugin.is_enabled).lower()
-    return "-"
+    match field:
+        case "name":
+            return plugin.name
+        case "version":
+            return plugin.version or "-"
+        case "description":
+            return plugin.description or "-"
+        case "enabled":
+            return str(plugin.is_enabled).lower()
+        case _:
+            return "-"
 
 
 def _emit_plugin_list(
