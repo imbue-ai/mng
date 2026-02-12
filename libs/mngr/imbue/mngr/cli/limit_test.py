@@ -1,5 +1,3 @@
-"""Unit tests for the limit CLI command."""
-
 import pluggy
 from click.testing import CliRunner
 
