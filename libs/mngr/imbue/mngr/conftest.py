@@ -2,8 +2,10 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Generator
 from typing import NamedTuple
@@ -142,6 +144,64 @@ def tmp_home_dir(tmp_path: Path) -> Generator[Path, None, None]:
     yield tmp_path
 
 
+@pytest.fixture
+def _isolate_tmux_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[None, None, None]:
+    """Give each test its own isolated tmux server.
+
+    This fixture:
+    - Creates a per-test TMUX_TMPDIR under /tmp so each test gets its own
+      tmux server socket, preventing xdist workers from racing on the shared
+      default tmux server.
+    - Unsets TMUX so tmux commands connect to the isolated server (via
+      TMUX_TMPDIR) rather than the real server.
+    - On teardown, kills the isolated tmux server and cleans up the tmpdir.
+
+    IMPORTANT: We use /tmp directly instead of pytest's tmp_path because
+    tmux sockets are Unix domain sockets, which have a ~104-byte path
+    length limit on macOS. Pytest's tmp_path lives under
+    /private/var/folders/.../pytest-of-.../... which is already ~80+ bytes,
+    leaving no room for tmux's tmux-$UID/default suffix. When the path
+    exceeds the limit, tmux silently falls back to the default socket,
+    defeating isolation entirely (and potentially killing production
+    tmux servers during test cleanup).
+    """
+    tmux_tmpdir = Path(tempfile.mkdtemp(prefix="mngr-tmux-", dir="/tmp"))
+    monkeypatch.setenv("TMUX_TMPDIR", str(tmux_tmpdir))
+    # Unset TMUX so tmux commands during the test connect to the isolated
+    # server (via TMUX_TMPDIR) rather than the real server. When TMUX is
+    # set (because we're running inside a tmux session), tmux uses it to
+    # find the current server, overriding TMUX_TMPDIR.
+    monkeypatch.delenv("TMUX", raising=False)
+
+    yield
+
+    # Kill the test's isolated tmux server to clean up any leaked sessions
+    # or processes. We must use -S with the explicit socket path because:
+    # 1. The TMUX env var (set when running inside tmux) tells tmux to
+    #    connect to the CURRENT server, overriding TMUX_TMPDIR entirely.
+    #    Without -S, kill-server would kill the real tmux server.
+    # 2. We also unset TMUX in the env as a belt-and-suspenders measure.
+    tmux_tmpdir_str = str(tmux_tmpdir)
+    assert tmux_tmpdir_str.startswith("/tmp/mngr-tmux-"), (
+        f"TMUX_TMPDIR safety check failed! Expected /tmp/mngr-tmux-* path but got: {tmux_tmpdir_str}. "
+        "Refusing to run 'tmux kill-server' to avoid killing the real tmux server."
+    )
+    socket_path = Path(tmux_tmpdir_str) / f"tmux-{os.getuid()}" / "default"
+    kill_env = os.environ.copy()
+    kill_env.pop("TMUX", None)
+    kill_env["TMUX_TMPDIR"] = tmux_tmpdir_str
+    subprocess.run(
+        ["tmux", "-S", str(socket_path), "kill-server"],
+        capture_output=True,
+        env=kill_env,
+    )
+
+    # Clean up the tmpdir we created outside of pytest's tmp_path.
+    shutil.rmtree(tmux_tmpdir, ignore_errors=True)
+
+
 @pytest.fixture(autouse=True)
 def setup_test_mngr_env(
     tmp_home_dir: Path,
@@ -149,7 +209,8 @@ def setup_test_mngr_env(
     mngr_test_prefix: str,
     mngr_test_root_name: str,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+    _isolate_tmux_server: None,
+) -> Generator[None, None, None]:
     """Set up environment variables for all tests.
 
     This autouse fixture ensures:
@@ -157,6 +218,7 @@ def setup_test_mngr_env(
     - MNGR_HOST_DIR points to tmp_path/.mngr (not ~/.mngr)
     - MNGR_PREFIX uses a unique test ID for isolation
     - MNGR_ROOT_NAME prevents loading project config (.mngr/settings.toml)
+    - TMUX_TMPDIR gives each test its own tmux server (via _isolate_tmux_server)
 
     By setting HOME to tmp_path, tests cannot accidentally read or modify
     files in the real home directory. This protects files like ~/.claude.json.
@@ -192,6 +254,8 @@ def setup_test_mngr_env(
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.
     assert_home_is_temp_directory()
+
+    yield
 
 
 @pytest.fixture
@@ -800,7 +864,11 @@ def session_cleanup() -> Generator[None, None, None]:
             "Tests should clean up spawned processes before completing.\n" + "\n".join(proc_info)
         )
 
-    # 2. Check for leftover tmux sessions from this worker's tests
+    # 2. Check for leftover tmux sessions from this worker's tests.
+    # Note: Each test gets its own tmux server via TMUX_TMPDIR, and the
+    # per-test fixture kills that server on teardown. This check queries
+    # the default tmux server as a fallback safety net -- it would only
+    # catch leaks if a test somehow bypassed the per-test TMUX_TMPDIR.
     leftover_sessions: list[str] = []
     for test_id in _worker_test_ids:
         prefix = f"mngr_{test_id}-"
