@@ -159,27 +159,6 @@ def setup_command_context(
         is_interactive=is_interactive,
     )
 
-    # FIXME: actually, we should probably move the construction of this object (and the call to setup_logging) down after the "opts = command_class(**updated_params)" line (so that it can take those settings into consideration)
-    #  The tricky thing about this is that it means that you're not allowed to log during any of this early code, esp during the _apply_plugin_option_overrides calls
-    # Parse output options
-    output_opts = parse_output_options(
-        output_format=initial_opts.output_format,
-        quiet=initial_opts.quiet,
-        verbose=initial_opts.verbose,
-        log_file=initial_opts.log_file,
-        log_commands=initial_opts.log_commands,
-        log_command_output=initial_opts.log_command_output,
-        log_env_vars=initial_opts.log_env_vars,
-        config=mngr_ctx.config,
-    )
-
-    # Set up logging (needs mngr_ctx)
-    setup_logging(output_opts, mngr_ctx)
-
-    # Enter a log span for the command lifetime
-    span = log_span("Started {} command", command_name)
-    ctx.with_resource(span)
-
     # Apply config defaults to parameters that came from defaults (not user-specified)
     updated_params = apply_config_defaults(ctx, mngr_ctx.config, command_name)
 
@@ -192,6 +171,27 @@ def setup_command_context(
 
     # Re-create options with config defaults applied
     opts = command_class(**updated_params)
+
+    # Parse output options after all defaults and overrides have been applied,
+    # so that config defaults and plugin overrides for logging-related params
+    # (verbose, quiet, log_file, etc.) are taken into consideration.
+    output_opts = parse_output_options(
+        output_format=opts.output_format,
+        quiet=opts.quiet,
+        verbose=opts.verbose,
+        log_file=opts.log_file,
+        log_commands=opts.log_commands,
+        log_command_output=opts.log_command_output,
+        log_env_vars=opts.log_env_vars,
+        config=mngr_ctx.config,
+    )
+
+    # Set up logging (needs mngr_ctx)
+    setup_logging(output_opts, mngr_ctx)
+
+    # Enter a log span for the command lifetime
+    span = log_span("Started {} command", command_name)
+    ctx.with_resource(span)
 
     # Run pre-command scripts if configured for this command
     _run_pre_command_scripts(mngr_ctx.config, command_name, cg)
