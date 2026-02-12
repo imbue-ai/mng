@@ -11,6 +11,7 @@ import pytest
 
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mngr.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
 from imbue.mngr.agents.default_plugins.claude_agent import _has_api_credentials_available
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
@@ -358,8 +359,8 @@ def test_build_activity_updater_command(
     # Should update the activity file
     assert "MNGR_AGENT_STATE_DIR/activity/agent" in cmd
 
-    # Should only update activity when .claude/active exists
-    assert ".claude/active" in cmd
+    # Should only update activity when $MNGR_AGENT_STATE_DIR/active exists
+    assert "MNGR_AGENT_STATE_DIR/active" in cmd
 
     # Should check for existing instances via pidfile
     assert "kill -0" in cmd
@@ -511,27 +512,31 @@ def test_build_readiness_hooks_config_has_session_start_hook() -> None:
 
 
 def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:
-    """build_readiness_hooks_config should include UserPromptSubmit hook."""
+    """build_readiness_hooks_config should include UserPromptSubmit hook that creates active file."""
     config = build_readiness_hooks_config()
 
     assert "UserPromptSubmit" in config["hooks"]
     assert len(config["hooks"]["UserPromptSubmit"]) == 1
     hook = config["hooks"]["UserPromptSubmit"][0]["hooks"][0]
     assert hook["type"] == "command"
-    assert "rm -f" in hook["command"]
-    assert "MNGR_AGENT_STATE_DIR" in hook["command"]
-
-
-def test_build_readiness_hooks_config_has_stop_hook() -> None:
-    """build_readiness_hooks_config should include Stop hook."""
-    config = build_readiness_hooks_config()
-
-    assert "Stop" in config["hooks"]
-    assert len(config["hooks"]["Stop"]) == 1
-    hook = config["hooks"]["Stop"][0]["hooks"][0]
-    assert hook["type"] == "command"
     assert "touch" in hook["command"]
     assert "MNGR_AGENT_STATE_DIR" in hook["command"]
+    assert "active" in hook["command"]
+
+
+def test_build_readiness_hooks_config_has_notification_idle_hook() -> None:
+    """build_readiness_hooks_config should include Notification idle_prompt hook that removes active file."""
+    config = build_readiness_hooks_config()
+
+    assert "Notification" in config["hooks"]
+    assert len(config["hooks"]["Notification"]) == 1
+    hook_group = config["hooks"]["Notification"][0]
+    assert hook_group["matcher"] == "idle_prompt"
+    hook = hook_group["hooks"][0]
+    assert hook["type"] == "command"
+    assert "rm" in hook["command"]
+    assert "MNGR_AGENT_STATE_DIR" in hook["command"]
+    assert "active" in hook["command"]
 
 
 def test_get_expected_process_name_returns_claude(
@@ -641,7 +646,7 @@ def test_configure_readiness_hooks_creates_settings_file(
     assert "hooks" in settings
     assert "SessionStart" in settings["hooks"]
     assert "UserPromptSubmit" in settings["hooks"]
-    assert "Stop" in settings["hooks"]
+    assert "Notification" in settings["hooks"]
 
 
 def test_configure_readiness_hooks_merges_with_existing_settings(
@@ -684,7 +689,7 @@ def test_configure_readiness_hooks_merges_with_existing_settings(
     # Should add new hooks
     assert "SessionStart" in settings["hooks"]
     assert "UserPromptSubmit" in settings["hooks"]
-    assert "Stop" in settings["hooks"]
+    assert "Notification" in settings["hooks"]
 
 
 def test_provision_configures_readiness_hooks(
@@ -1054,6 +1059,81 @@ def test_has_api_credentials_returns_false_when_no_credentials(credential_check_
 def test_has_api_credentials_returns_false_remote_no_sync() -> None:
     """_has_api_credentials_available returns False for remote host when credentials exist but sync is disabled."""
     config = ClaudeAgentConfig(check_installation=False, sync_claude_credentials=False)
+
+    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
+
+
+# =============================================================================
+# primaryApiKey in ~/.claude.json Tests
+# =============================================================================
+
+
+def _write_claude_json_with_primary_api_key(api_key: str = "sk-ant-test-key") -> None:
+    """Write ~/.claude.json with a primaryApiKey entry."""
+    claude_json_path = Path.home() / ".claude.json"
+    config = {"primaryApiKey": api_key}
+    claude_json_path.write_text(json.dumps(config))
+
+
+def test_claude_json_has_primary_api_key_returns_true_when_key_exists() -> None:
+    """_claude_json_has_primary_api_key returns True when primaryApiKey is set."""
+    _write_claude_json_with_primary_api_key()
+
+    assert _claude_json_has_primary_api_key() is True
+
+
+def test_claude_json_has_primary_api_key_returns_false_when_no_file() -> None:
+    """_claude_json_has_primary_api_key returns False when ~/.claude.json does not exist."""
+    assert _claude_json_has_primary_api_key() is False
+
+
+def test_claude_json_has_primary_api_key_returns_false_when_key_missing() -> None:
+    """_claude_json_has_primary_api_key returns False when primaryApiKey is not in the config."""
+    claude_json_path = Path.home() / ".claude.json"
+    claude_json_path.write_text(json.dumps({"projects": {}}))
+
+    assert _claude_json_has_primary_api_key() is False
+
+
+def test_claude_json_has_primary_api_key_returns_false_when_key_empty() -> None:
+    """_claude_json_has_primary_api_key returns False when primaryApiKey is empty string."""
+    claude_json_path = Path.home() / ".claude.json"
+    claude_json_path.write_text(json.dumps({"primaryApiKey": ""}))
+
+    assert _claude_json_has_primary_api_key() is False
+
+
+def test_claude_json_has_primary_api_key_returns_false_when_invalid_json() -> None:
+    """_claude_json_has_primary_api_key returns False when ~/.claude.json contains invalid JSON."""
+    claude_json_path = Path.home() / ".claude.json"
+    claude_json_path.write_text("not valid json {{{")
+
+    assert _claude_json_has_primary_api_key() is False
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_has_api_credentials_detects_primary_api_key_local(credential_check_host: Host) -> None:
+    """_has_api_credentials_available returns True when primaryApiKey exists in ~/.claude.json on local host."""
+    _write_claude_json_with_primary_api_key()
+    config = ClaudeAgentConfig(check_installation=False)
+
+    assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_has_api_credentials_detects_primary_api_key_remote_with_sync() -> None:
+    """_has_api_credentials_available returns True when primaryApiKey exists and sync_claude_json is enabled."""
+    _write_claude_json_with_primary_api_key()
+    config = ClaudeAgentConfig(check_installation=False, sync_claude_json=True)
+
+    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_has_api_credentials_returns_false_primary_api_key_remote_no_sync() -> None:
+    """_has_api_credentials_available returns False when primaryApiKey exists but sync_claude_json is disabled."""
+    _write_claude_json_with_primary_api_key()
+    config = ClaudeAgentConfig(check_installation=False, sync_claude_json=False)
 
     assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
 
