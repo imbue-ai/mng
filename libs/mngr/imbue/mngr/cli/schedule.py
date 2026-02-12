@@ -4,6 +4,7 @@ from typing import assert_never
 import click
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.schedule import ScheduleAddResult
 from imbue.mngr.api.schedule import ScheduleDefinition
 from imbue.mngr.api.schedule import ScheduleListResult
@@ -235,6 +236,7 @@ def schedule_run(ctx: click.Context, name: str, **kwargs: Any) -> None:
             assert_never(unreachable)
 
 
+@pure
 def _schedule_definition_to_dict(
     schedule: ScheduleDefinition,
     crontab_line: str | None,
