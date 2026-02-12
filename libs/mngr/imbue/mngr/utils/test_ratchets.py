@@ -7,6 +7,7 @@ from inline_snapshot import snapshot
 from imbue.imbue_common.ratchet_testing.core import FileExtension
 from imbue.imbue_common.ratchet_testing.core import RegexPattern
 from imbue.imbue_common.ratchet_testing.core import check_regex_ratchet
+from imbue.imbue_common.ratchet_testing.core import clear_ratchet_caches
 from imbue.imbue_common.ratchet_testing.core import format_ratchet_failure_message
 from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
 from imbue.imbue_common.ratchet_testing.ratchets import find_assert_isinstance_usages
@@ -21,6 +22,16 @@ _THIS_FILE = Path(__file__)
 
 # Group all ratchet tests onto a single xdist worker to benefit from LRU caching
 pytestmark = pytest.mark.xdist_group(name="ratchets")
+
+
+def teardown_module() -> None:
+    """Clear ratchet LRU caches after all tests in this module complete.
+
+    The ratchet testing functions use unbounded LRU caches for file contents, AST trees,
+    and file listings. Clearing these after the ratchet tests frees memory for any
+    subsequent tests that may run on this xdist worker, reducing resource pressure.
+    """
+    clear_ratchet_caches()
 
 
 def _get_mngr_source_dir() -> Path:
@@ -451,9 +462,6 @@ def test_prevent_typing_builtin_imports() -> None:
     )
 
 
-# FIXME: This test has been observed to crash xdist workers, likely due to resource pressure
-# when multiple workers perform heavy file I/O simultaneously. The test itself is not flaky,
-# but may be affected by resource leaks or memory pressure from other parallel tests.
 def test_prevent_fstring_logging() -> None:
     pattern = RegexPattern(r"logger\.(trace|debug|info|warning|error|exception)\(f")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
