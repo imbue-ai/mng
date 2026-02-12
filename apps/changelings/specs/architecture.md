@@ -130,8 +130,7 @@ apps/changelings/
     design.md                    # User-facing design document
   specs/
     architecture.md              # This file
-  imbue/
-    __init__.py
+  imbue/                         # Implicit namespace package (no __init__.py)
     changelings/
       __init__.py
       main.py                    # Click CLI group, entry point

@@ -185,3 +185,14 @@ ignore_imports = [
     "imbue.mngr.utils.testing -> imbue.mngr.providers.local.instance",
     "imbue.mngr.utils.testing -> imbue.mngr.config.data_types",
 ]
+
+[[tool.importlinter.contracts]]
+name = "changelings layers contract"
+type = "layers"
+layers = [
+    "imbue.changelings.main",
+    "imbue.changelings.cli",
+    "imbue.changelings.data_types",
+    "imbue.changelings.errors",
+    "imbue.changelings.primitives",
+]
