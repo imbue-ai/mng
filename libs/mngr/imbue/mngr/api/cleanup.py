@@ -108,9 +108,9 @@ def _execute_destroy(
                                         logger.debug("Destroyed agent: {}", agent_info.name)
                                         break
                                 else:
-                                    # Agent not found on host -- try destroying via provider
+                                    # Agent not found on host (likely already cleaned up)
                                     logger.debug(
-                                        "Agent {} not found on host, destroying host if all agents targeted",
+                                        "Agent {} not found on host, treating as already destroyed",
                                         agent_info.name,
                                     )
                                     result.destroyed_agents.append(agent_info.name)
