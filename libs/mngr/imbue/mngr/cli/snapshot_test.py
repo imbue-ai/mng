@@ -1,22 +1,73 @@
+from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
-from unittest.mock import MagicMock
-from unittest.mock import patch
 
 import pluggy
+import pytest
 from click.testing import CliRunner
 
+import imbue.mngr.cli.snapshot as snapshot_module
 from imbue.mngr.cli.snapshot import SnapshotCreateCliOptions
 from imbue.mngr.cli.snapshot import SnapshotDestroyCliOptions
 from imbue.mngr.cli.snapshot import SnapshotListCliOptions
 from imbue.mngr.cli.snapshot import snapshot
 from imbue.mngr.interfaces.data_types import SnapshotInfo
+from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 
-# Valid HostId for use in mocked test data (host- prefix + 32 hex characters)
+# Valid HostId for use in test data (host- prefix + 32 hex characters)
 VALID_HOST_ID = "host-" + "a" * 32
+
+
+# =============================================================================
+# Fake provider for testing snapshot operations
+# =============================================================================
+
+
+class _FakeSnapshotProvider:
+    """Minimal fake provider for testing snapshot CLI commands.
+
+    Tracks calls to create_snapshot, list_snapshots, and delete_snapshot
+    so tests can verify the correct operations were performed without
+    using unittest.mock.
+    """
+
+    def __init__(
+        self,
+        *,
+        is_snapshot_supported: bool = True,
+        create_return: SnapshotId = SnapshotId("snap-fake"),
+        list_return: Sequence[SnapshotInfo] = (),
+    ) -> None:
+        self.supports_snapshots = is_snapshot_supported
+        self._create_return = create_return
+        self._list_return = list(list_return)
+        self.create_snapshot_calls: list[tuple[HostId, SnapshotName | None]] = []
+        self.delete_snapshot_calls: list[tuple[HostId, SnapshotId]] = []
+
+    def create_snapshot(
+        self,
+        host_id: HostId,
+        name: SnapshotName | None = None,
+    ) -> SnapshotId:
+        self.create_snapshot_calls.append((host_id, name))
+        return self._create_return
+
+    def list_snapshots(self, host_id: HostId) -> list[SnapshotInfo]:
+        return self._list_return
+
+    def delete_snapshot(self, host_id: HostId, snapshot_id: SnapshotId) -> None:
+        self.delete_snapshot_calls.append((host_id, snapshot_id))
+
+
+def _make_resolve_return(
+    host_id: str = VALID_HOST_ID,
+    provider_name: str = "modal",
+    agent_names: list[str] | None = None,
+) -> list[tuple[str, ProviderInstanceName, list[str]]]:
+    return [(host_id, ProviderInstanceName(provider_name), agent_names or ["my-agent"])]
 
 
 # =============================================================================
@@ -224,22 +275,15 @@ def test_snapshot_create_dry_run(
     assert result.exit_code == 0
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_create_success(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test successful snapshot creation."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("modal"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = True
-    mock_provider.create_snapshot.return_value = SnapshotId("snap-abc")
-    mock_get_provider.return_value = mock_provider
+    fake_provider = _FakeSnapshotProvider(create_return=SnapshotId("snap-abc"))
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
@@ -248,24 +292,18 @@ def test_snapshot_create_success(
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-    mock_provider.create_snapshot.assert_called_once()
+    assert len(fake_provider.create_snapshot_calls) == 1
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_create_unsupported_provider(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test creating a snapshot with a provider that doesn't support snapshots."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("local"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = False
-    mock_get_provider.return_value = mock_provider
+    """Test creating a snapshot with a provider that does not support snapshots."""
+    fake_provider = _FakeSnapshotProvider(is_snapshot_supported=False)
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
@@ -277,22 +315,15 @@ def test_snapshot_create_unsupported_provider(
     assert "does not support snapshots" in result.output
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_create_json_output(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test snapshot create with JSON output format."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("modal"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = True
-    mock_provider.create_snapshot.return_value = SnapshotId("snap-json")
-    mock_get_provider.return_value = mock_provider
+    fake_provider = _FakeSnapshotProvider(create_return=SnapshotId("snap-json"))
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
@@ -354,35 +385,30 @@ def test_snapshot_list_all_with_no_running_agents(
     assert result.exit_code == 0
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_list_success(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test successful snapshot listing with JSON output."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("modal"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.return_value = [
-        SnapshotInfo(
-            id=SnapshotId("snap-001"),
-            name=SnapshotName("before-refactor"),
-            created_at=datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc),
-            size_bytes=256 * 1024 * 1024,
-        ),
-        SnapshotInfo(
-            id=SnapshotId("snap-002"),
-            name=SnapshotName("auto-stop"),
-            created_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-            size_bytes=64 * 1024 * 1024,
-        ),
-    ]
-    mock_get_provider.return_value = mock_provider
+    fake_provider = _FakeSnapshotProvider(
+        list_return=[
+            SnapshotInfo(
+                id=SnapshotId("snap-001"),
+                name=SnapshotName("before-refactor"),
+                created_at=datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc),
+                size_bytes=256 * 1024 * 1024,
+            ),
+            SnapshotInfo(
+                id=SnapshotId("snap-002"),
+                name=SnapshotName("auto-stop"),
+                created_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+                size_bytes=64 * 1024 * 1024,
+            ),
+        ],
+    )
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
@@ -397,33 +423,28 @@ def test_snapshot_list_success(
     assert "auto-stop" in result.output
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_list_with_limit(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test snapshot list with --limit."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("modal"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.return_value = [
-        SnapshotInfo(
-            id=SnapshotId("snap-001"),
-            name=SnapshotName("first"),
-            created_at=datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc),
-        ),
-        SnapshotInfo(
-            id=SnapshotId("snap-002"),
-            name=SnapshotName("second"),
-            created_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-        ),
-    ]
-    mock_get_provider.return_value = mock_provider
+    fake_provider = _FakeSnapshotProvider(
+        list_return=[
+            SnapshotInfo(
+                id=SnapshotId("snap-001"),
+                name=SnapshotName("first"),
+                created_at=datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc),
+            ),
+            SnapshotInfo(
+                id=SnapshotId("snap-002"),
+                name=SnapshotName("second"),
+                created_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+            ),
+        ],
+    )
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
@@ -436,29 +457,24 @@ def test_snapshot_list_with_limit(
     assert "snap-002" not in result.output
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_list_json_output(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test snapshot list with JSON output."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("modal"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.return_value = [
-        SnapshotInfo(
-            id=SnapshotId("snap-json-1"),
-            name=SnapshotName("test"),
-            created_at=datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc),
-            size_bytes=1024,
-        ),
-    ]
-    mock_get_provider.return_value = mock_provider
+    fake_provider = _FakeSnapshotProvider(
+        list_return=[
+            SnapshotInfo(
+                id=SnapshotId("snap-json-1"),
+                name=SnapshotName("test"),
+                created_at=datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc),
+                size_bytes=1024,
+            ),
+        ],
+    )
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
@@ -471,28 +487,23 @@ def test_snapshot_list_json_output(
     assert "snapshots" in result.output
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_list_jsonl_output(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test snapshot list with JSONL output."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("modal"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.return_value = [
-        SnapshotInfo(
-            id=SnapshotId("snap-jsonl-1"),
-            name=SnapshotName("test"),
-            created_at=datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc),
-        ),
-    ]
-    mock_get_provider.return_value = mock_provider
+    fake_provider = _FakeSnapshotProvider(
+        list_return=[
+            SnapshotInfo(
+                id=SnapshotId("snap-jsonl-1"),
+                name=SnapshotName("test"),
+                created_at=datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc),
+            ),
+        ],
+    )
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
@@ -504,22 +515,15 @@ def test_snapshot_list_jsonl_output(
     assert "snap-jsonl-1" in result.output
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_list_no_snapshots(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test listing when there are no snapshots (JSON output)."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("modal"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.return_value = []
-    mock_get_provider.return_value = mock_provider
+    fake_provider = _FakeSnapshotProvider(list_return=[])
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
@@ -581,21 +585,15 @@ def test_snapshot_destroy_cannot_combine_snapshot_and_all(
     assert "Cannot specify both --snapshot and --all-snapshots" in result.output
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_destroy_with_force(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test destroying a specific snapshot with --force."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("modal"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = True
-    mock_get_provider.return_value = mock_provider
+    fake_provider = _FakeSnapshotProvider()
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
@@ -604,36 +602,31 @@ def test_snapshot_destroy_with_force(
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-    mock_provider.delete_snapshot.assert_called_once()
+    assert len(fake_provider.delete_snapshot_calls) == 1
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_destroy_all_snapshots_with_force(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test destroying all snapshots with --force."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("modal"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.return_value = [
-        SnapshotInfo(
-            id=SnapshotId("snap-001"),
-            name=SnapshotName("first"),
-            created_at=datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc),
-        ),
-        SnapshotInfo(
-            id=SnapshotId("snap-002"),
-            name=SnapshotName("second"),
-            created_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-        ),
-    ]
-    mock_get_provider.return_value = mock_provider
+    fake_provider = _FakeSnapshotProvider(
+        list_return=[
+            SnapshotInfo(
+                id=SnapshotId("snap-001"),
+                name=SnapshotName("first"),
+                created_at=datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc),
+            ),
+            SnapshotInfo(
+                id=SnapshotId("snap-002"),
+                name=SnapshotName("second"),
+                created_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+            ),
+        ],
+    )
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
@@ -642,31 +635,26 @@ def test_snapshot_destroy_all_snapshots_with_force(
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-    assert mock_provider.delete_snapshot.call_count == 2
+    assert len(fake_provider.delete_snapshot_calls) == 2
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_destroy_dry_run(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test destroy --dry-run does not actually delete (JSONL output for stdout)."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("modal"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.return_value = [
-        SnapshotInfo(
-            id=SnapshotId("snap-001"),
-            name=SnapshotName("first"),
-            created_at=datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc),
-        ),
-    ]
-    mock_get_provider.return_value = mock_provider
+    fake_provider = _FakeSnapshotProvider(
+        list_return=[
+            SnapshotInfo(
+                id=SnapshotId("snap-001"),
+                name=SnapshotName("first"),
+                created_at=datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc),
+            ),
+        ],
+    )
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
@@ -676,24 +664,18 @@ def test_snapshot_destroy_dry_run(
     )
     assert result.exit_code == 0
     assert "Would destroy" in result.output
-    mock_provider.delete_snapshot.assert_not_called()
+    assert len(fake_provider.delete_snapshot_calls) == 0
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_destroy_json_output(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test destroy with JSON output."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("modal"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = True
-    mock_get_provider.return_value = mock_provider
+    fake_provider = _FakeSnapshotProvider()
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
@@ -705,22 +687,15 @@ def test_snapshot_destroy_json_output(
     assert "snapshots_destroyed" in result.output
 
 
-@patch("imbue.mngr.cli.snapshot.get_provider_instance")
-@patch("imbue.mngr.cli.snapshot._resolve_snapshot_hosts")
 def test_snapshot_destroy_no_snapshots_found(
-    mock_resolve: MagicMock,
-    mock_get_provider: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test destroy --all-snapshots when no snapshots exist (JSON output)."""
-    mock_resolve.return_value = [
-        (VALID_HOST_ID, ProviderInstanceName("modal"), ["my-agent"]),
-    ]
-    mock_provider = MagicMock()
-    mock_provider.supports_snapshots = True
-    mock_provider.list_snapshots.return_value = []
-    mock_get_provider.return_value = mock_provider
+    fake_provider = _FakeSnapshotProvider(list_return=[])
+    monkeypatch.setattr(snapshot_module, "_resolve_snapshot_hosts", lambda **_kwargs: _make_resolve_return())
+    monkeypatch.setattr(snapshot_module, "get_provider_instance", lambda _name, _ctx: fake_provider)
 
     result = cli_runner.invoke(
         snapshot,
