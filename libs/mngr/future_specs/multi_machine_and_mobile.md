@@ -112,13 +112,9 @@ For a single-user personal tool (per the "personal" principle), the simplest via
 
 This avoids the complexity of OAuth/OIDC while still being secure (HTTPS + long random token). The token can be rotated via the CLI.
 
-### Mobile client options
+### Mobile client: web app
 
-From simplest to most polished:
-
-#### Option A: Mobile web app (recommended starting point)
-
-Adapt `sculptor_web` to be a responsive web app served by the Modal API server. This requires:
+A responsive web app served by the Modal API server. This requires:
 
 - Making the existing FastHTML UI responsive (CSS media queries, touch targets).
 - Pointing it at the HTTP API instead of shelling out to `mngr list`.
@@ -126,15 +122,7 @@ Adapt `sculptor_web` to be a responsive web app served by the Modal API server. 
 
 Advantages: No app store deployment, works on any device, reuses existing code.
 
-#### Option B: PWA (Progressive Web App)
-
-Same as Option A, but with a service worker for offline support and "Add to Home Screen" capability. The `offline_mngr_state` S3 backend could feed a cached agent list for offline viewing.
-
-#### Option C: Native mobile app
-
-A React Native or Flutter app that talks to the HTTP API. More work, but enables push notifications, better offline support, and native UX.
-
-For a personal tool, Option A is likely sufficient.
+PWA (service worker, offline caching) and native apps are potential future improvements but not needed for an MVP.
 
 ### What the mobile interface needs to support
 
@@ -252,19 +240,27 @@ The plan is organized into chunks that each deliver a usable increment. Earlier 
 
 **Depends on**: Nothing strictly (can be done in parallel with chunks 2-3), but is most useful after chunks 1-3 so that the URLs returned by the API are actually reachable.
 
-### Chunk 5: Responsive web UI
+### Chunk 5: Minimal web UI (MVP)
 
-**Why next**: The API server from Chunk 4 returns JSON. A mobile-friendly web UI makes it usable without curl.
+**Why next**: The API server from Chunk 4 returns JSON. A minimal web UI makes it usable from a phone without curl.
+
+**Design principle**: The MVP should feel like tmux -- a list of agents (like tmux sessions) where you tap one to get its terminal/UI in full screen. No fancy dashboards, no complex layouts. Just: pick an agent, see it.
 
 **What to do**:
 
-1. Fork `sculptor_web` into a new app (or refactor it to support both modes):
-   - **Data source**: Replace `subprocess.run(["mngr", "list", ...])` with HTTP calls to the API server (Chunk 4). In local mode, keep the subprocess path.
-   - **Responsive layout**: Replace the fixed 300px sidebar with a collapsible drawer (hamburger menu on mobile, persistent sidebar on desktop). Use CSS media queries at ~768px breakpoint.
-   - **Touch targets**: Ensure all interactive elements are at least 44x44px (Apple HIG minimum).
-   - **Agent detail view**: On mobile, tapping an agent navigates to a detail view (instead of showing a side-by-side iframe). The detail view shows status, URLs (as tappable links), and a message input.
-2. Add a simple auth screen: text input for API token, stored in localStorage.
-3. Serve the web UI from the same Modal endpoint as the API (FastAPI with static file serving, or a `GET /` that returns the HTML).
+1. Single-page HTML app served by the API server (inline JS/CSS, no build step). Can use HTMX for simplicity (same pattern as sculptor_web).
+2. **Agent list view** (the default view):
+   - Full-width list of agents. Each row shows: name, type, state (color-coded), host name. Tap to open.
+   - Pull-to-refresh or auto-refresh every few seconds.
+   - A simple text filter at the top (like sculptor_web's search).
+3. **Agent view** (after tapping an agent):
+   - If the agent has a URL (from Chunk 1): embed it in a full-screen iframe. This is the main interaction mode -- you're looking at the agent's own UI (ttyd terminal, web app, etc.).
+   - Below/above the iframe: a thin toolbar with agent name, back button, and a "message" button that opens a text input for sending messages via the API.
+   - If no URL: show agent status markdown, logs tail, and the message input.
+4. **Auth**: On first visit, prompt for API token. Store in localStorage. Send as Bearer token on all API requests.
+5. **Mobile-first CSS**: viewport meta tag, full-width layout, minimum 44px touch targets. No sidebar -- everything is stacked/fullscreen.
+
+This is intentionally minimal. The goal is to get something usable on a phone in the smallest amount of code. sculptor_web can be adapted later for a richer desktop experience.
 
 **Depends on**: Chunk 4 (API server).
 
@@ -293,20 +289,7 @@ The plan is organized into chunks that each deliver a usable increment. Earlier 
 
 **Depends on**: Chunk 4 (API server), Chunk 5 (web UI).
 
-### Chunk 8: Offline state plugin
-
-**Why next**: When hosts are stopped, the API server can't SSH into them to get agent status. The offline state plugin caches this data so the mobile UI can show last-known status for all agents.
-
-**What to do**:
-
-1. Implement the `offline_mngr_state` plugin as documented in `docs/core_plugins/offline_mngr_state.md`.
-2. S3 backend: On each `list_agents()` call (and periodically), write agent state to S3. On host stop, write final state.
-3. The API server reads from S3 for hosts that are currently offline, merging with live data for online hosts.
-4. The web UI shows a "last updated" timestamp for offline agents, and visually distinguishes them from live data.
-
-**Depends on**: Chunk 4 (API server).
-
-### Chunk 9: `mngr` as a provider backend
+### Chunk 8: `mngr` as a provider backend
 
 **Why**: With the API server running, other `mngr` instances (on other machines) could use it as a "provider" -- querying it for hosts and agents instead of talking to Modal/Docker/local directly. This is hinted at in the existing providers doc (`backend = "mngr"`, `url = "https://mngr.internal.company.com"`).
 
@@ -318,16 +301,18 @@ The plan is organized into chunks that each deliver a usable increment. Earlier 
 
 **Depends on**: Chunk 4 (API server).
 
-**Milestone**: After chunks 4-9, you have full multi-machine support. Any device with a browser can manage agents. The CLI on any machine can also manage agents via the `mngr` provider backend.
+**MVP Milestone**: After chunks 1-7, you have a working mobile experience. Open a URL on your phone, see your agents, tap one to get its terminal, send messages. Chunks 4+5 alone (API server + minimal web UI) are the fastest path to "something usable on a phone" if chunks 1-3 (URL infrastructure) are already in place.
 
 ### Optional / Future Chunks
 
-These are lower priority and can be done in any order after the above:
+These are lower priority and can be done in any order after the core chunks:
 
-- **PWA support**: Add a service worker and manifest to the web UI for "Add to Home Screen" and offline caching. Relatively small lift on top of Chunk 5.
-- **Push notifications**: Use the Web Push API to notify when agents finish tasks or need input. Requires a notification preferences UI.
-- **File browser**: A web UI for browsing agent work directories and pushing/pulling files. More useful on tablet than phone.
-- **`mngr open` over API**: Add `POST /api/agents/{id}/open` that returns the URL(s) instead of opening a browser. The mobile UI calls this to get the URL and renders it inline.
+- **Offline state plugin** (`offline_mngr_state`): S3-backed cache of agent state for when hosts are stopped. The API server reads from S3 for offline hosts, merging with live data. Useful but not required for MVP -- stopped agents simply won't show status until their host is started.
+- **Richer web UI**: Adapt sculptor_web for a fuller desktop experience (sidebar layout, multiple iframes, richer status display). The MVP tmux-like UI is phone-first; this would be desktop-optimized.
+- **PWA support**: Service worker + manifest for "Add to Home Screen" and offline caching.
+- **Push notifications**: Web Push API to notify when agents finish tasks or need input.
+- **File browser**: Web UI for browsing agent work directories and pushing/pulling files.
+- **`mngr open` over API**: `POST /api/agents/{id}/open` returns URL(s) instead of opening a browser.
 
 ## Dependency Graph
 
@@ -338,22 +323,24 @@ Chunk 1 (URL types)
 Chunk 2 (FRP/nginx port forwarding)
   |
   v
-Chunk 3 (ttyd web terminal)          Chunk 4 (HTTP API server) <--+
-  |                                     |       |       |          |
-  |                                     v       v       v          |
-  |                                 Chunk 5  Chunk 8  Chunk 9     |
-  |                                 (Web UI) (Offline) (Provider) |
-  |                                     |                          |
-  |                                     v                          |
-  +-------------------------------> Chunk 6 (Activity tracking)   |
-                                        |                          |
-                                        v                          |
-                                    Chunk 7 (SSE streaming)       |
+Chunk 3 (ttyd web terminal)          Chunk 4 (HTTP API server)
+  |                                     |       |
+  |                                     v       v
+  |                                 Chunk 5  Chunk 8
+  |                                 (Web UI) (Provider)
+  |                                     |
+  |                                     v
+  +-------------------------------> Chunk 6 (Activity tracking)
+                                        |
+                                        v
+                                    Chunk 7 (SSE streaming)
 ```
 
 Chunks 1, 2, 3 are a serial chain (each depends on the previous).
 Chunk 4 can proceed in parallel with chunks 2 and 3.
-Chunks 5, 6, 7, 8, 9 depend on Chunk 4 but are independent of each other.
+Chunks 5, 6, 7, 8 depend on Chunk 4 but are mostly independent of each other.
+
+**Fastest path to MVP**: Chunks 1 -> 2 -> 3 (URL infrastructure), then Chunk 4 + 5 (API + minimal UI). Chunks 6-8 improve the experience but aren't required for basic phone access.
 
 ## Concerns
 
