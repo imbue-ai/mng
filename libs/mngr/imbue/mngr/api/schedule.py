@@ -2,6 +2,7 @@ import shlex
 import shutil
 import sys
 import tempfile
+from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -86,7 +87,7 @@ def _load_schedules(path: Path) -> list[ScheduleDefinition]:
     return result
 
 
-def _save_schedules(path: Path, schedules: list[ScheduleDefinition]) -> None:
+def _save_schedules(path: Path, schedules: Sequence[ScheduleDefinition]) -> None:
     """Save schedule definitions to a TOML file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     doc = tomlkit.document()
