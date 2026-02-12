@@ -7,7 +7,7 @@ Plugins extend `mngr` with new agent types, providers, commands, and behaviors. 
 Only install plugins from sources you trust. Built-in plugins are maintained as part of mngr itself.
 
 ```bash
-mngr plugin list              # Show installed plugins [future]
+mngr plugin list              # Show installed plugins
 mngr plugin add <name>        # Install a plugin (pip/uv install) [future]
 mngr plugin remove <name>     # Uninstall a plugin [future]
 ```
