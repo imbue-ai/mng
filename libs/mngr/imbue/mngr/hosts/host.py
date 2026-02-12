@@ -1032,44 +1032,35 @@ class Host(BaseHost, OnlineHostInterface):
             user, hostname, port, key_path = target_ssh_info
             git_url = f"ssh://{user}@{hostname}:{port}{target_path}/.git"
 
-        # FIXME: this whole block is a bit duplicated. Refactor to do the same thing, but assemble the args a bit more coherently
-        #  For example, the reason we need --no-verify is to skip any hooks, since they can sometimes fail
-        if source_host.is_local:
-            with log_span("Pushing git repo to target: {}", git_url):
-                env: dict[str, str] = {}
-                if target_ssh_info is not None:
-                    user, hostname, port, key_path = target_ssh_info
-                    git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
-                    env["GIT_SSH_COMMAND"] = git_ssh_cmd
+        # Build the environment and command for git push --mirror.
+        # --no-verify skips hooks, since they can sometimes fail on mirror pushes.
+        env: dict[str, str] = {}
+        if target_ssh_info is not None:
+            user, hostname, port, key_path = target_ssh_info
+            git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
+            env["GIT_SSH_COMMAND"] = git_ssh_cmd
 
-                # don't bother pushing LFS objects - they can be transferred later as needed,
-                # and without this, it can take a ridiculously long time.
-                env["GIT_LFS_SKIP_PUSH"] = "1"
+        # Don't bother pushing LFS objects - they can be transferred later as needed,
+        # and without this, it can take a ridiculously long time.
+        env["GIT_LFS_SKIP_PUSH"] = "1"
 
+        with log_span("Pushing git repo to target: {}", git_url):
+            if source_host.is_local:
                 command_args = ["git", "-C", str(source_path), "push", "--no-verify", "--mirror", git_url]
                 try:
                     self.mngr_ctx.concurrency_group.run_process_to_completion(
                         command_args,
-                        env={**os.environ, **env} if env else None,
+                        env={**os.environ, **env},
                     )
                 except ProcessError as e:
                     raise MngrError(f"Failed to push git repo: {e.stderr}") from e
                 logger.trace("Ran git push --mirror from local source to target: {}", " ".join(command_args))
-        else:
-            if target_ssh_info is not None:
-                user, hostname, port, key_path = target_ssh_info
-                git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
-                result = source_host.execute_command(
-                    f"GIT_SSH_COMMAND={shlex.quote(git_ssh_cmd)} git push --no-verify --mirror {shlex.quote(git_url)}",
-                    cwd=source_path,
-                )
             else:
-                result = source_host.execute_command(
-                    f"git push --no-verify --mirror {shlex.quote(git_url)}",
-                    cwd=source_path,
-                )
-            if not result.success:
-                raise MngrError(f"Failed to push git repo from remote source: {result.stderr}")
+                env_prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in env.items())
+                push_cmd = f"{env_prefix} git push --no-verify --mirror {shlex.quote(git_url)}"
+                result = source_host.execute_command(push_cmd, cwd=source_path)
+                if not result.success:
+                    raise MngrError(f"Failed to push git repo from remote source: {result.stderr}")
 
     def _transfer_extra_files(
         self,
