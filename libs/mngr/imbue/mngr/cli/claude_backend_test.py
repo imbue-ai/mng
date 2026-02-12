@@ -65,6 +65,47 @@ def test_accumulate_chunks_returns_empty_for_no_chunks() -> None:
     assert accumulate_chunks(chunks) == ""
 
 
+def test_extract_text_delta_event_field_not_dict() -> None:
+    """When the event field is not a dict (e.g. a string), should return None."""
+    event = json.dumps(
+        {
+            "type": "stream_event",
+            "event": "not_a_dict",
+        }
+    )
+    assert _extract_text_delta(event) is None
+
+
+def test_extract_text_delta_wrong_delta_type() -> None:
+    """When delta.type is not text_delta (e.g. input_json_delta), should return None."""
+    event = json.dumps(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": '{"key":'},
+            },
+        }
+    )
+    assert _extract_text_delta(event) is None
+
+
+def test_extract_text_delta_text_field_not_string() -> None:
+    """When delta.text is not a string (e.g. an integer), should return None."""
+    event = json.dumps(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": 42},
+            },
+        }
+    )
+    assert _extract_text_delta(event) is None
+
+
 def test_build_claude_command_no_tools_disables_all() -> None:
     """When no tools are allowed, --tools "" should be passed."""
     cmd = _build_claude_command(prompt="hello", system_prompt="sys", allowed_tools=())
