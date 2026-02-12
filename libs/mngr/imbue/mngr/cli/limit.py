@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any
 from typing import assert_never
 
@@ -130,7 +131,7 @@ def _build_updated_activity_config(
 
 @pure
 def _build_updated_permissions(
-    current: list[Permission],
+    current: Sequence[Permission],
     grant: tuple[str, ...],
     revoke: tuple[str, ...],
 ) -> list[Permission]:
