@@ -21,6 +21,7 @@ from imbue.mngr.cli.migrate import migrate
 from imbue.mngr.cli.pair import pair
 from imbue.mngr.cli.pull import pull
 from imbue.mngr.cli.push import push
+from imbue.mngr.cli.schedule import schedule
 from imbue.mngr.cli.start import start
 from imbue.mngr.cli.stop import stop
 from imbue.mngr.plugins import hookspecs
@@ -237,6 +238,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     stop,
     config,
     gc,
+    schedule,
 ]
 
 for cmd in BUILTIN_COMMANDS:

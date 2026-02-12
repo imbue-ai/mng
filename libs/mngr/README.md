@@ -76,7 +76,7 @@ mngr message agent-1 "Tell me a joke"
 mngr transcript agent-1
 
 # schedule agents to run periodically
-mngr schedule --template my-daily-hook "look at any flaky tests over the past day and try to fix one of them" --cron "0 * * * *"
+mngr schedule add --template my-daily-hook --cron "0 * * * *" "look at any flaky tests over the past day and try to fix one of them" --name flaky-fixer
 
 # never lose any work: snapshot and fork the entire agent states
 mngr create doomed-agent --in modal

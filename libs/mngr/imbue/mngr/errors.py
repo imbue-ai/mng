@@ -336,6 +336,42 @@ class MissingConcurrencyGroupError(BaseMngrError, RuntimeError):
     """Raised when a ConcurrencyGroup is required but not available on MngrContext."""
 
 
+class ScheduleError(MngrError):
+    """Base class for schedule-related errors."""
+
+
+class ScheduleNotFoundError(ScheduleError):
+    """Schedule with this name does not exist."""
+
+    user_help_text = "Use 'mngr schedule list' to see available schedules."
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        super().__init__(f"Schedule not found: {name}")
+
+
+class ScheduleAlreadyExistsError(ScheduleError):
+    """A schedule with this name already exists."""
+
+    user_help_text = "Use a different name or remove the existing schedule first with 'mngr schedule remove'."
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        super().__init__(f"Schedule already exists: {name}")
+
+
+class CrontabError(ScheduleError):
+    """Failed to read or write crontab."""
+
+
+class InvalidCronExpressionError(ScheduleError, ValueError):
+    """Cron expression is not valid."""
+
+    def __init__(self, expression: str) -> None:
+        self.expression = expression
+        super().__init__(f"Invalid cron expression: {expression}")
+
+
 class UnisonNotInstalledError(MngrError):
     """Raised when unison is not installed but is required for pair mode."""
 

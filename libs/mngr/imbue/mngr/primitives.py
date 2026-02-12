@@ -264,6 +264,10 @@ class ImageReference(NonEmptyStr):
     """Reference to a container or VM image."""
 
 
+class ScheduleName(NonEmptyStr):
+    """Human-readable name for a schedule."""
+
+
 class CommandString(NonEmptyStr):
     """Command string to be executed."""
 
