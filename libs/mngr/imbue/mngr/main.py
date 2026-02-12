@@ -23,6 +23,7 @@ from imbue.mngr.cli.pull import pull
 from imbue.mngr.cli.push import push
 from imbue.mngr.cli.start import start
 from imbue.mngr.cli.stop import stop
+from imbue.mngr.cli.transcript import transcript
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.providers.registry import load_all_registries
 
@@ -235,6 +236,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     push,
     start,
     stop,
+    transcript,
     config,
     gc,
 ]
