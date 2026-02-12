@@ -1,0 +1,33 @@
+[project]
+name = "changelings"
+version = "0.1.0"
+description = "Nightly autonomous agents that maintain your codebase"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.0",
+    "mngr",
+    "imbue-common",
+    "modal>=1.3.1",
+    "pydantic>=2.0",
+    "tomlkit>=0.12.0",
+]
+
+[project.scripts]
+changeling = "imbue.changelings.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+mngr = { workspace = true }
+imbue-common = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["imbue"]
+
+[tool.pyright]
+venvPath = "../.."
+venv = ".venv"
+pythonVersion = "3.11"
+strict = ["**/*.py"]

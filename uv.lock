@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -8,6 +8,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "changelings",
     "claude-web-view",
     "concurrency-group",
     "flexmux",
@@ -509,6 +510,29 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/4e/b5/721b8799b04bf9afe054a3899c6cf4e880fcf8563cc71c15610242490a0c/cfgv-3.5.0.tar.gz", hash = "sha256:d5b1034354820651caa73ede66a6294d6e95c1b00acc5e9b098e917404669132", size = 7334, upload-time = "2025-11-19T20:55:51.612Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl", hash = "sha256:a8dc6b26ad22ff227d2634a65cb388215ce6cc96bbcc5cfde7641ae87e8dacc0", size = 7445, upload-time = "2025-11-19T20:55:50.744Z" },
+]
+
+[[package]]
+name = "changelings"
+version = "0.1.0"
+source = { editable = "apps/changelings" }
+dependencies = [
+    { name = "click" },
+    { name = "imbue-common" },
+    { name = "mngr" },
+    { name = "modal" },
+    { name = "pydantic" },
+    { name = "tomlkit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0" },
+    { name = "imbue-common", editable = "libs/imbue_common" },
+    { name = "mngr", editable = "libs/mngr" },
+    { name = "modal", specifier = ">=1.3.1" },
+    { name = "pydantic", specifier = ">=2.0" },
+    { name = "tomlkit", specifier = ">=0.12.0" },
 ]
 
 [[package]]
