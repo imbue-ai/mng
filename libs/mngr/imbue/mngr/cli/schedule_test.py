@@ -36,6 +36,6 @@ def test_schedule_definition_to_dict_with_crontab_line() -> None:
 
 def test_schedule_definition_to_dict_without_crontab_line() -> None:
     schedule = make_test_schedule_definition(template=None)
-    result = _schedule_definition_to_dict(schedule)
+    result = _schedule_definition_to_dict(schedule, crontab_line=None)
     assert "crontab_line" not in result
     assert result["template"] is None

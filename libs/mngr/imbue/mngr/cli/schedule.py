@@ -136,10 +136,12 @@ def schedule_list(ctx: click.Context, **kwargs: Any) -> None:
 def _emit_schedule_list_result(result: ScheduleListResult, output_opts: OutputOptions) -> None:
     match output_opts.output_format:
         case OutputFormat.JSON:
-            emit_final_json({"schedules": [_schedule_definition_to_dict(s) for s in result.schedules]})
+            emit_final_json(
+                {"schedules": [_schedule_definition_to_dict(s, crontab_line=None) for s in result.schedules]}
+            )
         case OutputFormat.JSONL:
             for s in result.schedules:
-                emit_final_json({"event": "schedule", **_schedule_definition_to_dict(s)})
+                emit_final_json({"event": "schedule", **_schedule_definition_to_dict(s, crontab_line=None)})
         case OutputFormat.HUMAN:
             if not result.schedules:
                 logger.info("No schedules configured.")
@@ -235,7 +237,7 @@ def schedule_run(ctx: click.Context, name: str, **kwargs: Any) -> None:
 
 def _schedule_definition_to_dict(
     schedule: ScheduleDefinition,
-    crontab_line: str | None = None,
+    crontab_line: str | None,
 ) -> dict[str, Any]:
     """Convert a ScheduleDefinition to a JSON-serializable dict."""
     result: dict[str, Any] = {
