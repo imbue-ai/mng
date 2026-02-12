@@ -11,7 +11,6 @@ from click.testing import CliRunner
 from imbue.mngr.cli.snapshot import SnapshotCreateCliOptions
 from imbue.mngr.cli.snapshot import SnapshotDestroyCliOptions
 from imbue.mngr.cli.snapshot import SnapshotListCliOptions
-from imbue.mngr.cli.snapshot import _format_size
 from imbue.mngr.cli.snapshot import snapshot
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.primitives import ProviderInstanceName
@@ -114,31 +113,6 @@ def test_snapshot_destroy_cli_options_fields() -> None:
     )
     assert opts.snapshots == ("snap-123",)
     assert opts.force is True
-
-
-# =============================================================================
-# Helper function tests
-# =============================================================================
-
-
-def test_format_size_bytes() -> None:
-    assert _format_size(500) == "500 B"
-
-
-def test_format_size_kb() -> None:
-    assert _format_size(1536) == "1.5 KB"
-
-
-def test_format_size_mb() -> None:
-    assert _format_size(5 * 1024 * 1024) == "5.0 MB"
-
-
-def test_format_size_gb() -> None:
-    assert _format_size(2 * 1024**3) == "2.00 GB"
-
-
-def test_format_size_tb() -> None:
-    assert _format_size(3 * 1024**4) == "3.00 TB"
 
 
 # =============================================================================

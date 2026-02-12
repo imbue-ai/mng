@@ -21,6 +21,7 @@ from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
+from imbue.mngr.cli.output_helpers import format_size
 from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -370,7 +371,7 @@ def _emit_human_summary(result: GcResult, dry_run: bool) -> None:
         local_size = sum(wd.size_bytes for wd in local_work_dirs)
         total_count_str = f"Work directories: {len(result.work_dirs_destroyed)}"
         if local_count > 0:
-            total_count_str += f" ({local_count} local, freed {_format_size(local_size)})"
+            total_count_str += f" ({local_count} local, freed {format_size(local_size)})"
         logger.info("\n{}", total_count_str)
         total_count += len(result.work_dirs_destroyed)
 
@@ -388,13 +389,13 @@ def _emit_human_summary(result: GcResult, dry_run: bool) -> None:
 
     if result.logs_destroyed:
         logs_size_bytes = sum(log.size_bytes for log in result.logs_destroyed)
-        logger.info("\nLogs: {} (freed {})", len(result.logs_destroyed), _format_size(logs_size_bytes))
+        logger.info("\nLogs: {} (freed {})", len(result.logs_destroyed), format_size(logs_size_bytes))
         total_count += len(result.logs_destroyed)
 
     if result.build_cache_destroyed:
         build_cache_size_bytes = sum(cache.size_bytes for cache in result.build_cache_destroyed)
         logger.info(
-            "\nBuild cache: {} (freed {})", len(result.build_cache_destroyed), _format_size(build_cache_size_bytes)
+            "\nBuild cache: {} (freed {})", len(result.build_cache_destroyed), format_size(build_cache_size_bytes)
         )
         total_count += len(result.build_cache_destroyed)
 
@@ -444,20 +445,6 @@ def _emit_jsonl_summary(result: GcResult, dry_run: bool) -> None:
         "dry_run": dry_run,
     }
     emit_event("summary", event, OutputFormat.JSONL)
-
-
-@pure
-def _format_size(size_bytes: int) -> str:
-    """Format bytes into human-readable size string."""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    if size_bytes < 1024**2:
-        return f"{size_bytes / 1024:.1f} KB"
-    if size_bytes < 1024**3:
-        return f"{size_bytes / 1024**2:.1f} MB"
-    if size_bytes < 1024**4:
-        return f"{size_bytes / 1024**3:.2f} GB"
-    return f"{size_bytes / 1024**4:.2f} TB"
 
 
 def _get_selected_providers(mngr_ctx: MngrContext, opts: GcCliOptions) -> list[ProviderInstanceInterface]:

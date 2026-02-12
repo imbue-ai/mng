@@ -5,7 +5,6 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
-from imbue.imbue_common.pure import pure
 from imbue.mngr.api.find import find_agents_by_identifiers_or_state
 from imbue.mngr.api.find import group_agents_by_host
 from imbue.mngr.api.providers import get_all_provider_instances
@@ -19,6 +18,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
+from imbue.mngr.cli.output_helpers import format_size
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import HostNotFoundError
@@ -153,20 +153,6 @@ def _resolve_snapshot_hosts(
     return [(host_id_str, prov, agents) for host_id_str, (prov, agents) in seen_hosts.items()]
 
 
-@pure
-def _format_size(size_bytes: int) -> str:
-    """Format bytes into a human-readable size string."""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    if size_bytes < 1024**2:
-        return f"{size_bytes / 1024:.1f} KB"
-    if size_bytes < 1024**3:
-        return f"{size_bytes / 1024**2:.1f} MB"
-    if size_bytes < 1024**4:
-        return f"{size_bytes / 1024**3:.2f} GB"
-    return f"{size_bytes / 1024**4:.2f} TB"
-
-
 def _check_create_future_options(opts: SnapshotCreateCliOptions) -> None:
     """Raise NotImplementedError for unimplemented create options."""
     if opts.include:
@@ -264,7 +250,7 @@ def _emit_list_snapshots(
             logger.info("{:<40} {:<25} {:<22} {:<12} {}", "ID", "NAME", "CREATED", "SIZE", "HOST")
             logger.info("{}", "-" * 110)
             for host_id, snap in all_snapshots:
-                size_str = _format_size(snap.size_bytes) if snap.size_bytes is not None else "-"
+                size_str = format_size(snap.size_bytes) if snap.size_bytes is not None else "-"
                 created_str = snap.created_at.strftime("%Y-%m-%d %H:%M:%S")
                 logger.info(
                     "{:<40} {:<25} {:<22} {:<12} {}",

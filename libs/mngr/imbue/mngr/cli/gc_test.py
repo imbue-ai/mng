@@ -12,7 +12,7 @@ from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.cli.gc import _emit_human_summary
 from imbue.mngr.cli.gc import _emit_jsonl_summary
 from imbue.mngr.cli.gc import _format_destroyed_message
-from imbue.mngr.cli.gc import _format_size
+from imbue.mngr.cli.output_helpers import format_size
 from imbue.mngr.interfaces.data_types import BuildCacheInfo
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import LogFileInfo
@@ -27,44 +27,44 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 
 # =============================================================================
-# Tests for _format_size
+# Tests for format_size
 # =============================================================================
 
 
-def test_format_size_bytes() -> None:
-    """_format_size should format small sizes in bytes."""
-    assert _format_size(0) == "0 B"
-    assert _format_size(1) == "1 B"
-    assert _format_size(512) == "512 B"
-    assert _format_size(1023) == "1023 B"
+def testformat_size_bytes() -> None:
+    """format_size should format small sizes in bytes."""
+    assert format_size(0) == "0 B"
+    assert format_size(1) == "1 B"
+    assert format_size(512) == "512 B"
+    assert format_size(1023) == "1023 B"
 
 
-def test_format_size_kilobytes() -> None:
-    """_format_size should format sizes in kilobytes."""
-    assert _format_size(1024) == "1.0 KB"
-    assert _format_size(1536) == "1.5 KB"
-    assert _format_size(10240) == "10.0 KB"
-    assert _format_size(1024 * 1024 - 1) == "1024.0 KB"
+def testformat_size_kilobytes() -> None:
+    """format_size should format sizes in kilobytes."""
+    assert format_size(1024) == "1.0 KB"
+    assert format_size(1536) == "1.5 KB"
+    assert format_size(10240) == "10.0 KB"
+    assert format_size(1024 * 1024 - 1) == "1024.0 KB"
 
 
-def test_format_size_megabytes() -> None:
-    """_format_size should format sizes in megabytes."""
-    assert _format_size(1024**2) == "1.0 MB"
-    assert _format_size(int(1.5 * 1024**2)) == "1.5 MB"
-    assert _format_size(100 * 1024**2) == "100.0 MB"
+def testformat_size_megabytes() -> None:
+    """format_size should format sizes in megabytes."""
+    assert format_size(1024**2) == "1.0 MB"
+    assert format_size(int(1.5 * 1024**2)) == "1.5 MB"
+    assert format_size(100 * 1024**2) == "100.0 MB"
 
 
-def test_format_size_gigabytes() -> None:
-    """_format_size should format sizes in gigabytes with two decimal places."""
-    assert _format_size(1024**3) == "1.00 GB"
-    assert _format_size(int(1.5 * 1024**3)) == "1.50 GB"
-    assert _format_size(10 * 1024**3) == "10.00 GB"
+def testformat_size_gigabytes() -> None:
+    """format_size should format sizes in gigabytes with two decimal places."""
+    assert format_size(1024**3) == "1.00 GB"
+    assert format_size(int(1.5 * 1024**3)) == "1.50 GB"
+    assert format_size(10 * 1024**3) == "10.00 GB"
 
 
-def test_format_size_terabytes() -> None:
-    """_format_size should format sizes in terabytes with two decimal places."""
-    assert _format_size(1024**4) == "1.00 TB"
-    assert _format_size(int(2.5 * 1024**4)) == "2.50 TB"
+def testformat_size_terabytes() -> None:
+    """format_size should format sizes in terabytes with two decimal places."""
+    assert format_size(1024**4) == "1.00 TB"
+    assert format_size(int(2.5 * 1024**4)) == "2.50 TB"
 
 
 # =============================================================================
@@ -424,6 +424,6 @@ def test_emit_human_summary_with_all_resource_types() -> None:
         (1024 * 1024 * 1024 * 1024, "1.00 TB"),
     ],
 )
-def test_format_size_parametrized(size_bytes: int, expected: str) -> None:
-    """_format_size should format various byte sizes correctly."""
-    assert _format_size(size_bytes) == expected
+def testformat_size_parametrized(size_bytes: int, expected: str) -> None:
+    """format_size should format various byte sizes correctly."""
+    assert format_size(size_bytes) == expected

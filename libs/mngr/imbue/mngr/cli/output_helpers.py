@@ -5,6 +5,7 @@ from typing import assert_never
 
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.sync import SyncFilesResult
 from imbue.mngr.api.sync import SyncGitResult
 from imbue.mngr.primitives import ErrorBehavior
@@ -20,6 +21,20 @@ def _write_json_line(data: dict[str, Any]) -> None:
     """
     sys.stdout.write(json.dumps(data) + "\n")
     sys.stdout.flush()
+
+
+@pure
+def format_size(size_bytes: int) -> str:
+    """Format bytes into a human-readable size string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024**2:
+        return f"{size_bytes / 1024:.1f} KB"
+    if size_bytes < 1024**3:
+        return f"{size_bytes / 1024**2:.1f} MB"
+    if size_bytes < 1024**4:
+        return f"{size_bytes / 1024**3:.2f} GB"
+    return f"{size_bytes / 1024**4:.2f} TB"
 
 
 class AbortError(BaseException):
