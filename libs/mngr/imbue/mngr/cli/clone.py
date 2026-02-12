@@ -11,6 +11,32 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 
 
 @pure
+def _has_name_in_remaining_args(
+    remaining: list[str],
+    before_dd_count: int | None,
+) -> bool:
+    """Detect whether *remaining* already contains a name for the new agent.
+
+    A name is present when any of these conditions hold (looking only at args
+    before the ``--`` separator):
+
+    * The ``--name`` or ``-n`` flag appears.
+    * The first element is a positional argument (does not start with ``-``),
+      which the ``create`` command would consume as ``positional_name``.
+    """
+    check = remaining if before_dd_count is None else remaining[:before_dd_count]
+
+    for arg in check:
+        if arg in ("--name", "-n") or arg.startswith(("--name=", "-n=")):
+            return True
+
+    if check and not check[0].startswith("-"):
+        return True
+
+    return False
+
+
+@pure
 def _build_create_args(
     source_agent: str,
     remaining: list[str],
@@ -23,8 +49,17 @@ def _build_create_args(
     *original_argv* (typically ``sys.argv``) to detect whether the user
     supplied ``--`` and, if so, re-insert it at the correct position so that
     downstream commands (e.g. ``create``) see it.
+
+    When no explicit agent name is present in *remaining*, the source agent's
+    name is forwarded via ``--name`` so that clone/migrate preserve the
+    original name by default.
     """
+    before_dd_count = _args_before_dd_count(remaining, original_argv)
+    has_name = _has_name_in_remaining_args(remaining, before_dd_count)
+
     prefix = ["--from-agent", source_agent]
+    if not has_name:
+        prefix = prefix + ["--name", source_agent]
 
     if "--" not in original_argv:
         return prefix + remaining

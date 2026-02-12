@@ -7,6 +7,7 @@ from click.testing import CliRunner
 
 from imbue.mngr.cli.clone import _args_before_dd_count
 from imbue.mngr.cli.clone import _build_create_args
+from imbue.mngr.cli.clone import _has_name_in_remaining_args
 from imbue.mngr.cli.clone import _reject_source_agent_options
 from imbue.mngr.cli.clone import clone
 from imbue.mngr.main import cli
@@ -96,7 +97,7 @@ def test_build_create_args_without_double_dash() -> None:
         remaining=["--in", "docker"],
         original_argv=["mngr", "clone", "my-agent", "--in", "docker"],
     )
-    assert result == ["--from-agent", "my-agent", "--in", "docker"]
+    assert result == ["--from-agent", "my-agent", "--name", "my-agent", "--in", "docker"]
 
 
 def test_build_create_args_with_double_dash() -> None:
@@ -106,7 +107,7 @@ def test_build_create_args_with_double_dash() -> None:
         remaining=["--model", "opus"],
         original_argv=["mngr", "clone", "my-agent", "--", "--model", "opus"],
     )
-    assert result == ["--from-agent", "my-agent", "--", "--model", "opus"]
+    assert result == ["--from-agent", "my-agent", "--name", "my-agent", "--", "--model", "opus"]
 
 
 def test_build_create_args_with_create_options_and_double_dash() -> None:
@@ -145,7 +146,28 @@ def test_build_create_args_with_double_dash_and_empty_remaining() -> None:
         remaining=[],
         original_argv=["mngr", "clone", "my-agent", "--"],
     )
-    assert result == ["--from-agent", "my-agent", "--"]
+    assert result == ["--from-agent", "my-agent", "--name", "my-agent", "--"]
+
+
+def test_build_create_args_preserves_explicit_positional_name() -> None:
+    """When a positional name is provided, --name is not injected."""
+    result = _build_create_args(
+        source_agent="my-agent",
+        remaining=["new-name", "--in", "modal"],
+        original_argv=["mngr", "migrate", "my-agent", "new-name", "--in", "modal"],
+    )
+    assert result == ["--from-agent", "my-agent", "new-name", "--in", "modal"]
+    assert "--name" not in result
+
+
+def test_build_create_args_preserves_explicit_name_flag() -> None:
+    """When --name is provided, another --name is not injected."""
+    result = _build_create_args(
+        source_agent="my-agent",
+        remaining=["--name", "custom-name", "--in", "modal"],
+        original_argv=["mngr", "migrate", "my-agent", "--name", "custom-name", "--in", "modal"],
+    )
+    assert result == ["--from-agent", "my-agent", "--name", "custom-name", "--in", "modal"]
 
 
 # --- _args_before_dd_count tests ---
@@ -189,3 +211,41 @@ def test_reject_source_agent_options_rejects_from_agent_before_dd() -> None:
     ctx = click.Context(clone, info_name="clone")
     with pytest.raises(click.UsageError, match="--from-agent"):
         _reject_source_agent_options(["--from-agent", "x", "--model", "opus"], ctx, before_dd=2)
+
+
+# --- _has_name_in_remaining_args tests ---
+
+
+def test_has_name_detects_positional_name() -> None:
+    """A leading non-option string is treated as a positional name."""
+    assert _has_name_in_remaining_args(["new-agent", "--in", "docker"], before_dd_count=None) is True
+
+
+def test_has_name_detects_name_flag() -> None:
+    """The --name flag indicates a name is provided."""
+    assert _has_name_in_remaining_args(["--name", "custom", "--in", "docker"], before_dd_count=None) is True
+
+
+def test_has_name_detects_short_name_flag() -> None:
+    """The -n flag indicates a name is provided."""
+    assert _has_name_in_remaining_args(["-n", "custom", "--in", "docker"], before_dd_count=None) is True
+
+
+def test_has_name_detects_name_equals_form() -> None:
+    """The --name=value form indicates a name is provided."""
+    assert _has_name_in_remaining_args(["--name=custom", "--in", "docker"], before_dd_count=None) is True
+
+
+def test_has_name_returns_false_when_only_options() -> None:
+    """All args starting with - means no positional name."""
+    assert _has_name_in_remaining_args(["--in", "docker"], before_dd_count=None) is False
+
+
+def test_has_name_returns_false_for_empty_remaining() -> None:
+    """Empty remaining means no name."""
+    assert _has_name_in_remaining_args([], before_dd_count=None) is False
+
+
+def test_has_name_ignores_positional_after_dd() -> None:
+    """A positional arg that appears only after -- is not a name."""
+    assert _has_name_in_remaining_args(["--in", "docker", "some-arg"], before_dd_count=2) is False
