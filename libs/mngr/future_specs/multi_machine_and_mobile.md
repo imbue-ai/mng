@@ -33,12 +33,23 @@ Several web-facing components already exist:
 - **flexmux**: Flask-based layout manager with ttyd terminal integration.
 - **Modal routes**: FastAPI endpoints deployed as Modal functions (e.g., `snapshot_and_shutdown`).
 
+### `mngr open` (in review on `mngr/open-local`)
+
+The `mngr open` command opens an agent's self-reported URL in a browser. Key details:
+
+- Each agent reports a single URL via `get_reported_url()`, stored at `{agent_dir}/status/url`.
+- `mngr open` calls `webbrowser.open()` -- local-only by design.
+- `--wait` keeps the process running after opening; `--active` records user activity every 30s to prevent idle shutdown.
+- `--type` flag is declared but raises `NotImplementedError` -- intended for when plugins register multiple URL types per agent (terminal, chat, diff, etc.).
+
+For mobile, `mngr open` is not directly usable (no local browser to open), but the URL reporting system it relies on is exactly what a mobile UI would consume. The `--active` activity recording pattern also needs a server-side equivalent.
+
 ### Planned plugins that are relevant
 
 Several [future] plugins directly address pieces of this problem:
 
 - **offline_mngr_state**: Backs up agent/host state to S3 or local directory for offline access. Critical for mobile (unreliable connections, want to see status without SSH).
-- **local_port_forwarding_via_frp_and_nginx**: Exposes agent services via subdomain URLs with authentication.
+- **local_port_forwarding_via_frp_and_nginx**: Exposes agent services via subdomain URLs with authentication. Required for agent URLs to be reachable from outside the host's network.
 - **default_url_for_cli_agents_via_ttyd**: Web-based terminal access to CLI agents.
 - **user_activity_tracking_via_web**: Tracks user activity in web interfaces for idle detection.
 
@@ -161,35 +172,188 @@ The main latency concern is `mngr list`, which SSH's into every running host to 
 2. **SSE streaming**: Stream agent info as it arrives (the API already supports streaming via callbacks).
 3. **offline_mngr_state**: For stopped hosts, read from S3 instead of trying to SSH.
 
-## Required work
+## Implementation Plan
 
-### Phase 1: HTTP API on Modal
+The plan is organized into chunks that each deliver a usable increment. Earlier chunks are prerequisites for later ones. Each chunk is roughly one task's worth of work.
 
-1. Create a FastAPI app that wraps `imbue.mngr.api` operations.
-2. Deploy as a Modal web endpoint.
-3. Implement token-based authentication.
-4. Store config and SSH keys in Modal secrets/volumes.
-5. Test from a second machine via `curl`.
+### Chunk 1: Multiple URL types on agents
 
-### Phase 2: Mobile-friendly web UI
+**Why first**: The current `get_reported_url()` returns a single `str | None`. For mobile, agents will expose multiple URL types (e.g., a chat UI, a terminal via ttyd, a diff view). The `--type` flag on `mngr open` is a placeholder for this. This is the smallest foundational change and unblocks everything else.
 
-1. Fork/adapt `sculptor_web` to use the HTTP API instead of CLI subprocess calls.
-2. Make the UI responsive for mobile screens.
-3. Add authentication flow (enter token, store in cookie).
-4. Deploy as static files served by the API server.
+**What to do**:
 
-### Phase 3: Live updates and offline support
+1. Change the agent URL storage from a single file (`status/url`) to a directory (`status/urls/`), where each file is named by type (e.g., `status/urls/default`, `status/urls/terminal`, `status/urls/chat`).
+2. Add `get_reported_urls() -> dict[str, str]` to `AgentInterface` and `BaseAgent`. Returns `{"default": "https://...", "terminal": "https://..."}`, etc. Keep `get_reported_url()` as a convenience that returns the `default` entry (or the only entry if there is exactly one).
+3. Add a `urls: dict[str, str]` field to `AgentInfo` (in `api/list.py`) alongside the existing `url` field. The `url` field continues to return the default URL for backwards compatibility.
+4. Implement the `--type` flag on `mngr open` so it selects from the available URL types. When multiple types exist and no `--type` is given, show a simple selector (reuse the interactive selector pattern from `select_agent_interactively`).
 
-1. Implement SSE endpoints for agent events and logs.
-2. Implement `offline_mngr_state` plugin (S3 backend).
-3. Add service worker for PWA offline support.
-4. Cache agent list for instant load on mobile.
+**Files touched**: `interfaces/agent.py`, `agents/base_agent.py`, `api/list.py`, `cli/open.py` (on `mngr/open-local` branch), `api/open.py`.
 
-### Phase 4: Enhanced mobile experience
+**Depends on**: `mngr open` landing (the `mngr/open-local` branch).
 
-1. Push notifications (via web push or native app) for agent state changes.
-2. File browser for push/pull operations.
-3. Web terminal via ttyd for direct agent interaction from mobile.
+### Chunk 2: Port forwarding plugin (FRP + nginx)
+
+**Why next**: Agent URLs are currently only reachable from inside the host's network (or via SSH tunnel). For mobile access, agent services need to be reachable over the public internet. This is already designed in `docs/core_plugins/local_port_forwarding_via_frp_and_nginx.md`.
+
+**What to do**:
+
+1. Implement the `local_port_forwarding_via_frp_and_nginx` plugin as documented.
+2. During host provisioning, install and start `frpc` (FRP client) on the host and `nginx` as a reverse proxy.
+3. The plugin registers forwarded services as agent URL types (from Chunk 1). For example, when ttyd is forwarded, it becomes a `terminal` URL type.
+4. Implement the `forward-service` command for agents to register services.
+5. Implement the `mngr auth` command that sets a browser authentication cookie for `*.mngr.localhost` domains.
+
+**Files touched**: New plugin in `plugins/`, provisioning scripts, new CLI commands.
+
+**Depends on**: Chunk 1 (URL types).
+
+### Chunk 3: ttyd plugin for web terminal access
+
+**Why next**: Once port forwarding works, we can expose ttyd as a web terminal, giving browser-based (and thus mobile-accessible) terminal access to CLI agents. Already designed in `docs/core_plugins/default_url_for_cli_agents_via_ttyd.md`.
+
+**What to do**:
+
+1. Implement the `default_url_for_cli_agents_via_ttyd` plugin as documented.
+2. During agent creation (for CLI-based agents like Claude Code, Codex), start a ttyd process connected to the agent's tmux session.
+3. Forward the ttyd port via the FRP plugin (Chunk 2), registering it as a `terminal` URL type (Chunk 1).
+4. Generate a per-agent security token embedded in the URL.
+
+**Files touched**: New plugin in `plugins/`, agent provisioning hooks.
+
+**Depends on**: Chunk 2 (port forwarding).
+
+**Milestone**: After chunks 1-3, `mngr open my-agent terminal` works from any browser on any machine, including mobile Safari/Chrome. This is usable multi-machine support without any API server -- you just need the URL.
+
+### Chunk 4: HTTP API server on Modal
+
+**Why next**: Viewing agent URLs in a browser is useful, but you still need the CLI to list agents, send messages, start/stop, etc. An HTTP API makes these operations accessible from any device.
+
+**What to do**:
+
+1. Create a new package: `libs/mngr_api_server/` (or a Modal route in `providers/modal/routes/`).
+2. Build a FastAPI app that wraps the `imbue.mngr.api` module:
+   - `GET /api/agents` -- calls `list_agents()`, returns `list[AgentInfo]` as JSON. Supports query params for CEL filters.
+   - `POST /api/agents/{id}/message` -- calls `send_message_to_agents()`.
+   - `POST /api/agents/{id}/start` -- starts a stopped agent.
+   - `POST /api/agents/{id}/stop` -- stops an agent.
+   - `DELETE /api/agents/{id}` -- destroys an agent.
+   - `POST /api/agents` -- calls `create()`. Accepts agent type, name, provider, etc.
+3. Implement bearer token authentication as middleware. Token stored in Modal Secret, validated on every request.
+4. Bootstrap: `mngr deploy-api` CLI command that:
+   - Generates an API token (or uses an existing one).
+   - Stores the token + SSH key + config in Modal Secrets/Volumes.
+   - Runs `modal deploy` to deploy the FastAPI app.
+   - Prints the API URL and token.
+5. The API server constructs a `MngrContext` on startup from the config/secrets stored in the Modal volume. This is the same context the CLI uses.
+
+**Key design decision**: The API server runs `mngr` operations directly (in-process), not by shelling out to the CLI. It imports and calls `imbue.mngr.api.*` functions. This avoids subprocess overhead and gives proper error handling.
+
+**Files touched**: New package or route module, new CLI command (`deploy-api`), Modal deployment config.
+
+**Depends on**: Nothing strictly (can be done in parallel with chunks 2-3), but is most useful after chunks 1-3 so that the URLs returned by the API are actually reachable.
+
+### Chunk 5: Responsive web UI
+
+**Why next**: The API server from Chunk 4 returns JSON. A mobile-friendly web UI makes it usable without curl.
+
+**What to do**:
+
+1. Fork `sculptor_web` into a new app (or refactor it to support both modes):
+   - **Data source**: Replace `subprocess.run(["mngr", "list", ...])` with HTTP calls to the API server (Chunk 4). In local mode, keep the subprocess path.
+   - **Responsive layout**: Replace the fixed 300px sidebar with a collapsible drawer (hamburger menu on mobile, persistent sidebar on desktop). Use CSS media queries at ~768px breakpoint.
+   - **Touch targets**: Ensure all interactive elements are at least 44x44px (Apple HIG minimum).
+   - **Agent detail view**: On mobile, tapping an agent navigates to a detail view (instead of showing a side-by-side iframe). The detail view shows status, URLs (as tappable links), and a message input.
+2. Add a simple auth screen: text input for API token, stored in localStorage.
+3. Serve the web UI from the same Modal endpoint as the API (FastAPI with static file serving, or a `GET /` that returns the HTML).
+
+**Depends on**: Chunk 4 (API server).
+
+### Chunk 6: Activity tracking for web/mobile sessions
+
+**Why next**: When a user is viewing an agent's URL in a mobile browser, the host doesn't know the user is active and may auto-stop. The `--active` flag on `mngr open` solves this for the CLI; we need an equivalent for web.
+
+**What to do**:
+
+1. Implement the `user_activity_tracking_via_web` plugin as documented. Inject a small JavaScript snippet (via nginx `sub_filter`) into proxied agent pages that sends heartbeat requests on keyboard/mouse/touch activity.
+2. Add a heartbeat endpoint to the API server: `POST /api/agents/{id}/activity`. This calls `agent.record_activity(ActivitySource.USER)`.
+3. The web UI (Chunk 5) sends periodic heartbeats while the user has an agent selected.
+
+**Depends on**: Chunk 2 (nginx), Chunk 4 (API server).
+
+### Chunk 7: SSE streaming for live updates
+
+**Why next**: Polling every 2 seconds is wasteful on mobile (battery, data). SSE gives live updates with a single long-lived connection.
+
+**What to do**:
+
+1. Add `GET /api/agents/stream` SSE endpoint to the API server. On connect, sends the current agent list, then pushes diffs when agents change state (new agent, state change, URL reported, etc.).
+2. The API server runs `list_agents()` periodically (or watches for changes) and pushes updates.
+3. Update the web UI to use SSE instead of polling (fall back to polling if SSE disconnects).
+4. Add `GET /api/agents/{id}/logs/stream` SSE endpoint that tails the agent's log file over SSH and streams new lines.
+
+**Depends on**: Chunk 4 (API server), Chunk 5 (web UI).
+
+### Chunk 8: Offline state plugin
+
+**Why next**: When hosts are stopped, the API server can't SSH into them to get agent status. The offline state plugin caches this data so the mobile UI can show last-known status for all agents.
+
+**What to do**:
+
+1. Implement the `offline_mngr_state` plugin as documented in `docs/core_plugins/offline_mngr_state.md`.
+2. S3 backend: On each `list_agents()` call (and periodically), write agent state to S3. On host stop, write final state.
+3. The API server reads from S3 for hosts that are currently offline, merging with live data for online hosts.
+4. The web UI shows a "last updated" timestamp for offline agents, and visually distinguishes them from live data.
+
+**Depends on**: Chunk 4 (API server).
+
+### Chunk 9: `mngr` as a provider backend
+
+**Why**: With the API server running, other `mngr` instances (on other machines) could use it as a "provider" -- querying it for hosts and agents instead of talking to Modal/Docker/local directly. This is hinted at in the existing providers doc (`backend = "mngr"`, `url = "https://mngr.internal.company.com"`).
+
+**What to do**:
+
+1. Implement a `mngr` provider backend that talks to a remote `mngr` API server (Chunk 4) over HTTP.
+2. This allows `mngr list` on machine A to show agents managed by the API server on Modal, without machine A needing Modal credentials or SSH keys.
+3. Config: `[[providers]]\nname = "remote"\nbackend = "mngr"\nurl = "https://<modal-url>"\ntoken = "..."`.
+
+**Depends on**: Chunk 4 (API server).
+
+**Milestone**: After chunks 4-9, you have full multi-machine support. Any device with a browser can manage agents. The CLI on any machine can also manage agents via the `mngr` provider backend.
+
+### Optional / Future Chunks
+
+These are lower priority and can be done in any order after the above:
+
+- **PWA support**: Add a service worker and manifest to the web UI for "Add to Home Screen" and offline caching. Relatively small lift on top of Chunk 5.
+- **Push notifications**: Use the Web Push API to notify when agents finish tasks or need input. Requires a notification preferences UI.
+- **File browser**: A web UI for browsing agent work directories and pushing/pulling files. More useful on tablet than phone.
+- **`mngr open` over API**: Add `POST /api/agents/{id}/open` that returns the URL(s) instead of opening a browser. The mobile UI calls this to get the URL and renders it inline.
+
+## Dependency Graph
+
+```
+Chunk 1 (URL types)
+  |
+  v
+Chunk 2 (FRP/nginx port forwarding)
+  |
+  v
+Chunk 3 (ttyd web terminal)          Chunk 4 (HTTP API server) <--+
+  |                                     |       |       |          |
+  |                                     v       v       v          |
+  |                                 Chunk 5  Chunk 8  Chunk 9     |
+  |                                 (Web UI) (Offline) (Provider) |
+  |                                     |                          |
+  |                                     v                          |
+  +-------------------------------> Chunk 6 (Activity tracking)   |
+                                        |                          |
+                                        v                          |
+                                    Chunk 7 (SSE streaming)       |
+```
+
+Chunks 1, 2, 3 are a serial chain (each depends on the previous).
+Chunk 4 can proceed in parallel with chunks 2 and 3.
+Chunks 5, 6, 7, 8, 9 depend on Chunk 4 but are independent of each other.
 
 ## Concerns
 
