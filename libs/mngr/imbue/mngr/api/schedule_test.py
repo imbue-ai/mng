@@ -1,35 +1,15 @@
 import shlex
-from datetime import datetime
-from datetime import timezone
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from imbue.mngr.api.schedule import ScheduleDefinition
 from imbue.mngr.api.schedule import _build_crontab_command
 from imbue.mngr.api.schedule import _crontab_marker
 from imbue.mngr.api.schedule import _load_schedules
 from imbue.mngr.api.schedule import _save_schedules
+from imbue.mngr.conftest import make_test_schedule_definition
 from imbue.mngr.primitives import ScheduleName
-
-
-def _make_schedule(
-    name: str = "test-schedule",
-    template: str | None = "my-template",
-    message: str = "test message",
-    cron: str = "0 * * * *",
-    create_args: tuple[str, ...] = (),
-) -> ScheduleDefinition:
-    return ScheduleDefinition(
-        name=ScheduleName(name),
-        template=template,
-        message=message,
-        cron=cron,
-        create_args=create_args,
-        created_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-        is_enabled=True,
-    )
 
 
 def test_crontab_marker_contains_schedule_name() -> None:
@@ -49,7 +29,7 @@ def test_crontab_marker_for_prefix_name_is_not_substring_of_longer_name() -> Non
 
 
 def test_build_crontab_command_with_template() -> None:
-    schedule = _make_schedule(
+    schedule = make_test_schedule_definition(
         name="hourly-fixer",
         template="my-hook",
         message="fix flaky tests",
@@ -65,7 +45,7 @@ def test_build_crontab_command_with_template() -> None:
 
 
 def test_build_crontab_command_without_template() -> None:
-    schedule = _make_schedule(
+    schedule = make_test_schedule_definition(
         name="no-tpl",
         template=None,
         message="run something",
@@ -77,7 +57,7 @@ def test_build_crontab_command_without_template() -> None:
 
 
 def test_build_crontab_command_with_create_args() -> None:
-    schedule = _make_schedule(
+    schedule = make_test_schedule_definition(
         name="with-args",
         create_args=("--in", "modal", "--idle-timeout", "120"),
     )
@@ -88,8 +68,8 @@ def test_build_crontab_command_with_create_args() -> None:
 def test_save_and_load_schedules_roundtrip(tmp_path: Path) -> None:
     schedules_path = tmp_path / "schedules.toml"
     schedules = [
-        _make_schedule(name="schedule-a", template="tpl-a", message="msg a"),
-        _make_schedule(name="schedule-b", template=None, message="msg b", cron="*/10 * * * *"),
+        make_test_schedule_definition(name="schedule-a", template="tpl-a", message="msg a"),
+        make_test_schedule_definition(name="schedule-b", template=None, message="msg b", cron="*/10 * * * *"),
     ]
 
     _save_schedules(schedules_path, schedules)
@@ -113,7 +93,7 @@ def test_load_schedules_returns_empty_for_missing_file(tmp_path: Path) -> None:
 
 def test_save_schedules_creates_parent_directories(tmp_path: Path) -> None:
     path = tmp_path / "nested" / "dir" / "schedules.toml"
-    _save_schedules(path, [_make_schedule()])
+    _save_schedules(path, [make_test_schedule_definition()])
     assert path.exists()
     loaded = _load_schedules(path)
     assert len(loaded) == 1
@@ -121,7 +101,7 @@ def test_save_schedules_creates_parent_directories(tmp_path: Path) -> None:
 
 def test_save_and_load_with_create_args(tmp_path: Path) -> None:
     schedules_path = tmp_path / "schedules.toml"
-    schedule = _make_schedule(
+    schedule = make_test_schedule_definition(
         name="with-extra-args",
         create_args=("--in", "modal", "--idle-timeout", "60"),
     )
@@ -132,7 +112,7 @@ def test_save_and_load_with_create_args(tmp_path: Path) -> None:
 
 
 def test_build_crontab_command_quotes_values_with_spaces() -> None:
-    schedule = _make_schedule(
+    schedule = make_test_schedule_definition(
         name="space-test",
         template="my template",
         message="fix the tests",
@@ -144,7 +124,7 @@ def test_build_crontab_command_quotes_values_with_spaces() -> None:
 
 
 def test_build_crontab_command_quotes_create_args_with_spaces() -> None:
-    schedule = _make_schedule(
+    schedule = make_test_schedule_definition(
         name="args-test",
         create_args=("--label", "my label value"),
     )
@@ -153,6 +133,6 @@ def test_build_crontab_command_quotes_create_args_with_spaces() -> None:
 
 
 def test_schedule_definition_is_frozen() -> None:
-    schedule = _make_schedule()
+    schedule = make_test_schedule_definition()
     with pytest.raises(ValidationError):
         schedule.name = ScheduleName("changed")

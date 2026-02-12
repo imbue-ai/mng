@@ -19,11 +19,13 @@ from urwid.widget.listbox import SimpleFocusListWalker
 import imbue.mngr.main
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
+from imbue.mngr.api.schedule import ScheduleDefinition
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.primitives import ScheduleName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
@@ -90,6 +92,29 @@ def cg() -> Generator[ConcurrencyGroup, None, None]:
     """Provide a ConcurrencyGroup for tests that need to run processes."""
     with ConcurrencyGroup(name="test") as group:
         yield group
+
+
+def make_test_schedule_definition(
+    name: str = "test-schedule",
+    template: str | None = "my-template",
+    message: str = "test message",
+    cron: str = "0 * * * *",
+    create_args: tuple[str, ...] = (),
+) -> ScheduleDefinition:
+    """Create a ScheduleDefinition for testing.
+
+    Shared helper used across schedule test files to avoid duplicating
+    ScheduleDefinition construction logic.
+    """
+    return ScheduleDefinition(
+        name=ScheduleName(name),
+        template=template,
+        message=message,
+        cron=cron,
+        create_args=create_args,
+        created_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+        is_enabled=True,
+    )
 
 
 @pytest.fixture

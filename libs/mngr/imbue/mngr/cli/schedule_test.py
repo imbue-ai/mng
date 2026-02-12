@@ -1,26 +1,6 @@
-from datetime import datetime
-from datetime import timezone
-
-from imbue.mngr.api.schedule import ScheduleDefinition
 from imbue.mngr.cli.schedule import ScheduleCliOptions
 from imbue.mngr.cli.schedule import _schedule_definition_to_dict
-from imbue.mngr.primitives import ScheduleName
-
-
-def _make_schedule_def(
-    name: str = "test-sched",
-    template: str | None = "my-tpl",
-    message: str = "do something",
-) -> ScheduleDefinition:
-    return ScheduleDefinition(
-        name=ScheduleName(name),
-        template=template,
-        message=message,
-        cron="0 * * * *",
-        create_args=(),
-        created_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
-        is_enabled=True,
-    )
+from imbue.mngr.conftest import make_test_schedule_definition
 
 
 def test_schedule_cli_options_defaults() -> None:
@@ -44,18 +24,18 @@ def test_schedule_cli_options_defaults() -> None:
 
 
 def test_schedule_definition_to_dict_with_crontab_line() -> None:
-    schedule = _make_schedule_def()
+    schedule = make_test_schedule_definition()
     result = _schedule_definition_to_dict(schedule, crontab_line="0 * * * * /path/to/mngr create ...")
-    assert result["name"] == "test-sched"
-    assert result["message"] == "do something"
+    assert result["name"] == "test-schedule"
+    assert result["message"] == "test message"
     assert result["cron"] == "0 * * * *"
-    assert result["template"] == "my-tpl"
+    assert result["template"] == "my-template"
     assert result["crontab_line"] == "0 * * * * /path/to/mngr create ..."
     assert result["is_enabled"] is True
 
 
 def test_schedule_definition_to_dict_without_crontab_line() -> None:
-    schedule = _make_schedule_def(template=None)
+    schedule = make_test_schedule_definition(template=None)
     result = _schedule_definition_to_dict(schedule)
     assert "crontab_line" not in result
     assert result["template"] is None
