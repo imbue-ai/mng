@@ -183,14 +183,14 @@ def _check_idle_host(
         logger.trace("Skipped idle check for local host {}", host.id)
         return
 
+    activity_config = host.get_activity_config()
+    idle_timeout_seconds = activity_config.idle_timeout_seconds
+
     try:
-        idle_seconds = host.get_idle_seconds()
+        idle_seconds = host.get_idle_seconds(activity_sources=activity_config.activity_sources)
     except HostOfflineError:
         logger.trace("Skipped idle check for host {} (went offline)", host.id)
         return
-
-    activity_config = host.get_activity_config()
-    idle_timeout_seconds = activity_config.idle_timeout_seconds
 
     if idle_seconds <= idle_timeout_seconds:
         logger.trace(

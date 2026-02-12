@@ -275,8 +275,15 @@ class OnlineHostInterface(HostInterface, ABC):
     # =========================================================================
 
     @abstractmethod
-    def get_idle_seconds(self) -> float:
-        """Return the number of seconds since the host was last considered active."""
+    def get_idle_seconds(
+        self,
+        activity_sources: Sequence[ActivitySource] | None = None,
+    ) -> float:
+        """Return the number of seconds since the host was last considered active.
+
+        If activity_sources is provided, only those sources are checked.
+        Otherwise all sources are checked.
+        """
         ...
 
     # =========================================================================

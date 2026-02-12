@@ -1876,17 +1876,24 @@ class Host(BaseHost, OnlineHostInterface):
     # Agent-Derived Information
     # =========================================================================
 
-    def get_idle_seconds(self) -> float:
+    def get_idle_seconds(
+        self,
+        activity_sources: Sequence[ActivitySource] | None = None,
+    ) -> float:
         """Get the number of seconds since last activity.
 
         Checks both host-level activity files (like BOOT) and agent-level
         activity files (like CREATE, START, AGENT). Returns the time since
-        the most recent activity from any source.
+        the most recent activity from any monitored source.
+
+        If activity_sources is provided, only those sources are checked.
+        Otherwise all sources are checked (for backwards compatibility).
         """
+        sources_to_check = activity_sources if activity_sources is not None else tuple(ActivitySource)
         latest_activity: datetime | None = None
 
         # Check host-level activity files
-        for activity_type in ActivitySource:
+        for activity_type in sources_to_check:
             activity_time = self.get_reported_activity_time(activity_type)
             if activity_time is not None:
                 if latest_activity is None or activity_time > latest_activity:
@@ -1894,7 +1901,7 @@ class Host(BaseHost, OnlineHostInterface):
 
         # Check agent-level activity files for all agents on this host
         for agent in self.get_agents():
-            for activity_type in ActivitySource:
+            for activity_type in sources_to_check:
                 activity_time = agent.get_reported_activity_time(activity_type)
                 if activity_time is not None:
                     if latest_activity is None or activity_time > latest_activity:
