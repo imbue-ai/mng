@@ -514,10 +514,16 @@ def test_build_readiness_hooks_config_has_session_start_hook() -> None:
     assert "session_started" in hooks[0]["command"]
 
     # Second hook: tracks current session ID for session replacement detection
+    session_id_hook = hooks[1]["command"]
     assert hooks[1]["type"] == "command"
-    assert "claude_session_id" in hooks[1]["command"]
-    assert "session_id" in hooks[1]["command"]
-    assert "MNGR_AGENT_STATE_DIR" in hooks[1]["command"]
+    assert "claude_session_id" in session_id_hook
+    assert "session_id" in session_id_hook
+    assert "MNGR_AGENT_STATE_DIR" in session_id_hook
+    # Should fail loudly on missing session_id, not silently swallow
+    assert "exit 1" in session_id_hook
+    assert ">&2" in session_id_hook
+    # Should append to history file for tracking old session IDs
+    assert "claude_session_id_history" in session_id_hook
 
 
 def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:
