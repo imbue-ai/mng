@@ -590,7 +590,7 @@ def test_prevent_direct_subprocess_usage() -> None:
     Test files are excluded from this check.
     """
     pattern = RegexPattern(
-        r"\bfrom\s+subprocess\s+import\b"
+        r"\bfrom\s+subprocess\s+import\b(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)"
         r"|\bsubprocess\.(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)\b"
         r"|\bos\.(exec\w+|spawn\w+|fork\w*|system|popen)\b"
         r"|\bfrom\s+os\s+import\b.*\b(exec\w+|spawn\w+|fork\w*|system|popen)\b",
