@@ -34,7 +34,6 @@ import modal
 import modal.exception
 from dockerfile_parse import DockerfileParser
 from loguru import logger
-from modal.config import Config as ModalConfig
 from modal.exception import NotFoundError
 from modal.stream_type import StreamType
 from modal.volume import FileEntry
@@ -60,7 +59,6 @@ from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
-from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
@@ -321,24 +319,6 @@ class ModalProviderInstance(BaseProviderInstance):
 
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
-
-    # FIXME: we will explode before we ever even get here. Please remove this property from here and the base class.
-    @property
-    def is_authorized(self) -> bool:
-        """Check if Modal credentials are configured.
-
-        Returns True if Modal token_id and token_secret are available in the
-        Modal config (either from ~/.modal.toml or environment variables).
-        This is a lightweight check that doesn't make any API calls.
-        """
-        try:
-            modal_config = ModalConfig()
-            token_id = modal_config.get("token_id")
-            token_secret = modal_config.get("token_secret")
-            return token_id is not None and token_secret is not None
-        except (OSError, ValueError, KeyError):
-            # Config file access issues, parsing errors, or key errors
-            return False
 
     @property
     def supports_snapshots(self) -> bool:
@@ -1281,12 +1261,6 @@ log "=== Shutdown script completed ==="
         known_hosts: Sequence[str] | None = None,
     ) -> Host:
         """Create a new Modal sandbox host."""
-        if not self.is_authorized:
-            raise ProviderNotAuthorizedError(
-                self.name,
-                auth_help="Run 'modal token set' to authenticate with Modal.",
-            )
-
         # Generate host ID
         host_id = HostId.generate()
 
@@ -1418,12 +1392,6 @@ log "=== Shutdown script completed ==="
         terminated. If create_snapshot is True (the default), a snapshot is
         created before termination to allow the host to be restarted later.
         """
-        if not self.is_authorized:
-            raise ProviderNotAuthorizedError(
-                self.name,
-                auth_help="Run 'modal token set' to authenticate with Modal.",
-            )
-
         host_id = host.id if isinstance(host, HostInterface) else host
         logger.info("Stopping (terminating) Modal sandbox: {}", host_id)
 
@@ -1500,12 +1468,6 @@ log "=== Shutdown script completed ==="
         If neither snapshot was created (e.g., is_snapshotted_after_create=False
         and the sandbox was hard-killed), this method raises NoSnapshotsModalMngrError.
         """
-        if not self.is_authorized:
-            raise ProviderNotAuthorizedError(
-                self.name,
-                auth_help="Run 'modal token set' to authenticate with Modal.",
-            )
-
         host_id = host.id if isinstance(host, HostInterface) else host
 
         # If sandbox is still running, return it
@@ -1632,12 +1594,6 @@ log "=== Shutdown script completed ==="
 
         If delete_snapshots is True, also deletes the host record from the volume.
         """
-        if not self.is_authorized:
-            raise ProviderNotAuthorizedError(
-                self.name,
-                auth_help="Run 'modal token set' to authenticate with Modal.",
-            )
-
         host_id = host.id if isinstance(host, HostInterface) else host
         self.stop_host(host)
 
@@ -1668,12 +1624,6 @@ log "=== Shutdown script completed ==="
         First tries to find a running sandbox. If not found, falls back to
         the host record on the volume (for stopped hosts).
         """
-        if not self.is_authorized:
-            raise ProviderNotAuthorizedError(
-                self.name,
-                auth_help="Run 'modal token set' to authenticate with Modal.",
-            )
-
         if isinstance(host, HostId) and host in self._host_by_id_cache:
             return self._host_by_id_cache[host]
 
@@ -1728,20 +1678,9 @@ log "=== Shutdown script completed ==="
         - STOPPED: no sandbox but has snapshots (can be restarted)
         - DESTROYED: no sandbox and no snapshots (only if include_destroyed=True)
 
-        If the provider is not authorized, logs a warning and returns an empty list.
-
         If a ConcurrencyGroup is provided, it will be used for parallel fetching of
         sandboxes and host records, which is safer for concurrent operations.
         """
-        if not self.is_authorized:
-            logger.warning(
-                "Provider '{}' is not authorized. "
-                "Run 'modal token set' to authenticate, or disable this provider with "
-                "'mngr config set --scope user providers.{}.is_enabled false'.",
-                self.name,
-                self.name,
-            )
-            return []
 
         hosts: list[HostInterface] = []
         processed_host_ids: set[HostId] = set()
