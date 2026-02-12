@@ -218,13 +218,11 @@ def _emit_create_result(
 
 
 def _emit_list_snapshots(
+    # List of (host_id_str, SnapshotInfo) tuples
     all_snapshots: list[tuple[str, SnapshotInfo]],
     output_opts: OutputOptions,
 ) -> None:
-    """Emit output for snapshot list.
-
-    all_snapshots is a list of (host_id_str, SnapshotInfo) tuples.
-    """
+    """Emit output for snapshot list."""
     match output_opts.output_format:
         case OutputFormat.JSON:
             data = [
