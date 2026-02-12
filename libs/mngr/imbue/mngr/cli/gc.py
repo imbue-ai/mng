@@ -9,8 +9,7 @@ from imbue.imbue_common.pure import pure
 from imbue.mngr.api.data_types import GcResourceTypes
 from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.api.gc import gc as api_gc
-from imbue.mngr.api.providers import get_all_provider_instances
-from imbue.mngr.api.providers import get_provider_instance
+from imbue.mngr.api.providers import get_selected_providers
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -24,10 +23,8 @@ from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
-from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
-from imbue.mngr.primitives import ProviderInstanceName
 
 
 class GcCliOptions(CommonCliOptions):
@@ -228,7 +225,11 @@ def _run_gc_iteration(mngr_ctx: MngrContext, opts: GcCliOptions, output_opts: Ou
     """Run a single gc iteration."""
     error_behavior = ErrorBehavior(opts.on_error.upper())
 
-    providers = _get_selected_providers(mngr_ctx=mngr_ctx, opts=opts)
+    providers = get_selected_providers(
+        mngr_ctx=mngr_ctx,
+        is_all_providers=opts.all_providers,
+        provider_names=opts.provider,
+    )
 
     # Expand all_agent_resources flag
     is_machines = opts.machines or opts.all_agent_resources
@@ -458,20 +459,6 @@ def _format_size(size_bytes: int) -> str:
     if size_bytes < 1024**4:
         return f"{size_bytes / 1024**3:.2f} GB"
     return f"{size_bytes / 1024**4:.2f} TB"
-
-
-def _get_selected_providers(mngr_ctx: MngrContext, opts: GcCliOptions) -> list[ProviderInstanceInterface]:
-    """Get providers based on CLI options."""
-    if opts.all_providers:
-        return list(get_all_provider_instances(mngr_ctx))
-
-    if opts.provider:
-        providers = []
-        for provider_name in opts.provider:
-            providers.append(get_provider_instance(ProviderInstanceName(provider_name), mngr_ctx))
-        return providers
-
-    return list(get_all_provider_instances(mngr_ctx))
 
 
 # Register help metadata for git-style help formatting

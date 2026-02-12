@@ -156,3 +156,25 @@ def get_all_provider_instances(
 
     logger.trace("Loaded {} total provider instances", len(providers))
     return providers
+
+
+def get_selected_providers(
+    mngr_ctx: MngrContext,
+    is_all_providers: bool,
+    provider_names: tuple[str, ...],
+) -> list[BaseProviderInstance]:
+    """Get providers based on CLI selection flags.
+
+    If is_all_providers is True or no specific providers are given, returns all
+    provider instances. Otherwise returns only the named providers.
+    """
+    if is_all_providers:
+        return list(get_all_provider_instances(mngr_ctx))
+
+    if provider_names:
+        providers: list[BaseProviderInstance] = []
+        for provider_name in provider_names:
+            providers.append(get_provider_instance(ProviderInstanceName(provider_name), mngr_ctx))
+        return providers
+
+    return list(get_all_provider_instances(mngr_ctx))

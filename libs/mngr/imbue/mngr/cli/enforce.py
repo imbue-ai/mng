@@ -7,8 +7,7 @@ from loguru import logger
 from imbue.mngr.api.enforce import EnforceAction
 from imbue.mngr.api.enforce import EnforceResult
 from imbue.mngr.api.enforce import enforce as api_enforce
-from imbue.mngr.api.providers import get_all_provider_instances
-from imbue.mngr.api.providers import get_provider_instance
+from imbue.mngr.api.providers import get_selected_providers
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -22,10 +21,8 @@ from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
-from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
-from imbue.mngr.primitives import ProviderInstanceName
 
 
 class EnforceCliOptions(CommonCliOptions):
@@ -186,7 +183,11 @@ def _enforce_impl(ctx: click.Context, **kwargs) -> None:
 def _run_enforce_iteration(mngr_ctx: MngrContext, opts: EnforceCliOptions, output_opts: OutputOptions) -> None:
     """Run a single enforcement iteration."""
     error_behavior = ErrorBehavior(opts.on_error.upper())
-    providers = _get_selected_providers(mngr_ctx=mngr_ctx, opts=opts)
+    providers = get_selected_providers(
+        mngr_ctx=mngr_ctx,
+        is_all_providers=opts.all_providers,
+        provider_names=opts.provider,
+    )
 
     # Emit info about what checks are enabled
     if opts.check_idle:
@@ -306,20 +307,6 @@ def _emit_jsonl_summary(result: EnforceResult, is_dry_run: bool) -> None:
         "dry_run": is_dry_run,
     }
     emit_event("summary", event, OutputFormat.JSONL)
-
-
-def _get_selected_providers(mngr_ctx: MngrContext, opts: EnforceCliOptions) -> list[ProviderInstanceInterface]:
-    """Get providers based on CLI options."""
-    if opts.all_providers:
-        return list(get_all_provider_instances(mngr_ctx))
-
-    if opts.provider:
-        providers = []
-        for provider_name in opts.provider:
-            providers.append(get_provider_instance(ProviderInstanceName(provider_name), mngr_ctx))
-        return providers
-
-    return list(get_all_provider_instances(mngr_ctx))
 
 
 # Register help metadata for git-style help formatting
