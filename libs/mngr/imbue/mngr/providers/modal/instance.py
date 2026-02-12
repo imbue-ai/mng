@@ -45,7 +45,6 @@ from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 from pyinfra.connectors.sshuserclient.client import get_host_keys
 
-from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
@@ -258,18 +257,6 @@ class ModalProviderApp(FrozenModel):
 
     def close(self) -> None:
         self.close_callback()
-
-
-def _store_result_from_callable(
-    result_dict: dict[str, Any],
-    key: str,
-    callable_fn: Callable[[], Any],
-) -> None:
-    """Helper function for storing callable results in a thread-safe manner.
-
-    Used by list_hosts to run parallel fetches with ConcurrencyGroup.
-    """
-    result_dict[key] = callable_fn()
 
 
 class ModalProviderInstance(BaseProviderInstance):
@@ -1748,29 +1735,17 @@ log "=== Shutdown script completed ==="
 
         # Fetch sandboxes and host records in parallel since they are independent.
         # This reduces list_hosts latency by ~1.5s by overlapping the network calls.
-        # Use ConcurrencyGroup for thread-safe parallel fetching
-        cg_result: dict[str, Any] = {}
         try:
-            with cg.make_concurrency_group(name=f"modal_list_hosts_{self.name}") as list_cg:
-                thread_1 = list_cg.start_new_thread(
-                    target=_store_result_from_callable,
-                    args=(cg_result, "sandboxes", self._list_sandboxes),
-                    name="fetch_sandboxes",
-                )
-                thread_2 = list_cg.start_new_thread(
-                    target=_store_result_from_callable,
-                    args=(cg_result, "host_records", lambda: self._list_all_host_records(cg)),
-                    name="fetch_host_records",
-                )
-                thread_1.join()
-                thread_2.join()
+            with ConcurrencyGroupExecutor(
+                parent_cg=cg, name=f"modal_list_hosts_{self.name}", max_workers=2
+            ) as executor:
+                sandboxes_future = executor.submit(self._list_sandboxes)
+                host_records_future = executor.submit(self._list_all_host_records, cg)
 
-                sandboxes = cg_result.get("sandboxes", [])
-                all_host_records = cg_result.get("host_records", [])
-        except ConcurrencyExceptionGroup as e:
-            if e.only_exception_is_instance_of(modal.exception.AuthError):
-                raise ModalAuthError() from e
-            raise
+            sandboxes = sandboxes_future.result()
+            all_host_records = host_records_future.result()
+        except modal.exception.AuthError as e:
+            raise ModalAuthError() from e
 
         # Map running sandboxes by host_id
         running_sandbox_by_host_id: dict[HostId, modal.Sandbox] = {}

@@ -1,8 +1,7 @@
 import sys
 import uuid
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import as_completed
+from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
 from typing import TypeVar
@@ -16,6 +15,7 @@ from click_option_group import optgroup
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessError
+from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.mngr.config.data_types import CreateTemplateName
@@ -386,12 +386,14 @@ def _run_pre_command_scripts(config: MngrConfig, command_name: str, cg: Concurre
 
     # Run all scripts in parallel
     failures: list[tuple[str, int, str, str]] = []
-    with ThreadPoolExecutor() as executor:
-        futures = [executor.submit(_run_single_script, script, cg) for script in scripts]
-        for future in as_completed(futures):
-            script, exit_code, _stdout, stderr = future.result()
-            if exit_code != 0:
-                failures.append((script, exit_code, _stdout, stderr))
+    futures: list[Future[tuple[str, int, str, str]]] = []
+    with ConcurrencyGroupExecutor(parent_cg=cg, name="pre_command_scripts", max_workers=32) as executor:
+        for script in scripts:
+            futures.append(executor.submit(_run_single_script, script, cg))
+    for future in futures:
+        script, exit_code, _stdout, stderr = future.result()
+        if exit_code != 0:
+            failures.append((script, exit_code, _stdout, stderr))
 
     if failures:
         error_lines = [f"Pre-command script(s) failed for '{command_name}':"]
