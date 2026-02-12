@@ -34,8 +34,9 @@ def test_run_code_guardian_changeling_on_modal(
     agent_name = f"changeling-test-{get_short_random_string()}"
 
     # Run mngr create with code-guardian agent type on Modal.
-    # This is the exact command that `changeling run` would build,
-    # minus the changeling-specific wrapping.
+    # This mirrors the command that `changeling run` builds via
+    # build_mngr_create_command, but uses `uv run mngr` for subprocess
+    # invocation instead of sys.executable.
     result = subprocess.run(
         [
             "uv",
@@ -53,6 +54,8 @@ def test_run_code_guardian_changeling_on_modal(
             "CREATOR=changeling",
             "--tag",
             "CHANGELING=code-guardian-test",
+            "--pass-host-env",
+            "GITHUB_TOKEN",
             "--pass-host-env",
             "ANTHROPIC_API_KEY",
             "--message",
