@@ -252,12 +252,12 @@ class ClaudeAgent(BaseAgent):
         # This handles session replacement (e.g., exit plan mode, /clear, compaction) where
         # Claude Code creates a new session with a different UUID. Falls back to the agent UUID
         # if the tracking file doesn't exist (first run).
-        sid_read = (
-            f'_MNGR_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null) || _MNGR_SID="{agent_uuid}"'
+        sid_export = (
+            f'export MAIN_CLAUDE_SESSION_ID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || echo "{agent_uuid}")'
         )
 
         # Build both command variants using the dynamic session ID
-        resume_cmd = f'( find ~/.claude/ -name "$_MNGR_SID" | grep . ) && {base} --resume "$_MNGR_SID"'
+        resume_cmd = f'( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && {base} --resume "$MAIN_CLAUDE_SESSION_ID"'
         create_cmd = f"{base} --session-id {agent_uuid}"
 
         # Append additional args to both commands if present
@@ -267,7 +267,7 @@ class ClaudeAgent(BaseAgent):
 
         # Build the environment exports
         # IS_SANDBOX is only set for remote hosts (not local)
-        env_exports = "export MAIN_CLAUDE_SESSION_ID=$_MNGR_SID"
+        env_exports = sid_export
         if not host.is_local:
             env_exports = f"export IS_SANDBOX=1 && {env_exports}"
 
@@ -275,9 +275,9 @@ class ClaudeAgent(BaseAgent):
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
         activity_cmd = self._build_activity_updater_command(session_name)
 
-        # Combine: read session ID, start activity updater, export env, then run the main command
+        # Combine: start activity updater, export env (including session ID), then run the main command
         return CommandString(
-            f"{activity_cmd} {sid_read} && {env_exports} && ( {resume_cmd} ) || {create_cmd}"
+            f"{activity_cmd} {env_exports} && ( {resume_cmd} ) || {create_cmd}"
         )
 
     def on_before_provisioning(
