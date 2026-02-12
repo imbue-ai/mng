@@ -221,7 +221,7 @@ class ClaudeAgent(BaseAgent):
 
         The activity updater continuously updates the agent's activity file
         ($MNGR_AGENT_STATE_DIR/activity/agent) as long as the tmux session exists
-        AND the .claude/active file is present (indicating the agent is actively
+        AND the $MNGR_AGENT_STATE_DIR/active file is present (indicating the agent is actively
         processing, not idle). Uses a pidfile to prevent duplicate instances for
         the same session.
         """
@@ -235,7 +235,7 @@ class ClaudeAgent(BaseAgent):
             """trap 'rm -f "$_MNGR_ACT_LOCK"' EXIT;""",
             'mkdir -p "$MNGR_AGENT_STATE_DIR/activity";',
             f"while tmux has-session -t '{session_name}' 2>/dev/null; do",
-            "if [ -f .claude/active ]; then",
+            "if [ -f $MNGR_AGENT_STATE_DIR/active ]; then",
             """printf '{"time": %d, "source": "activity_updater"}'""",
             '"$(($(date +%s) * 1000))" > "$MNGR_AGENT_STATE_DIR/activity/agent";',
             "fi;",

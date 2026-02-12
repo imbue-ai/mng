@@ -358,8 +358,8 @@ def test_build_activity_updater_command(
     # Should update the activity file
     assert "MNGR_AGENT_STATE_DIR/activity/agent" in cmd
 
-    # Should only update activity when .claude/active exists
-    assert ".claude/active" in cmd
+    # Should only update activity when $MNGR_AGENT_STATE_DIR/active exists
+    assert "MNGR_AGENT_STATE_DIR/active" in cmd
 
     # Should check for existing instances via pidfile
     assert "kill -0" in cmd
