@@ -1,3 +1,4 @@
+# FIXME: Replace usages of MagicMock, Mock, patch, etc with better testing patterns like we did in create_test.py
 """Tests for batch conversion functionality."""
 
 import tempfile
@@ -250,9 +251,9 @@ class TestGenerateBatchHtml:
         # Last call should have current == total
         assert progress_calls[-1][2] == progress_calls[-1][3]
 
-    def test_handles_failed_session_gracefully(self, output_dir, monkeypatch):
+    def test_handles_failed_session_gracefully(self, output_dir):
         """Test that failed session conversion doesn't crash the batch."""
-        import claude_code_transcripts
+        from unittest.mock import patch
 
         with tempfile.TemporaryDirectory() as tmpdir:
             projects_dir = Path(tmpdir)
@@ -273,16 +274,16 @@ class TestGenerateBatchHtml:
                 '{"type": "user", "timestamp": "2025-01-02T10:00:00.000Z", "message": {"role": "user", "content": "Hello from session 2"}}\n'
             )
 
-            # Monkeypatch generate_html to fail on one specific session
-            original_generate_html = claude_code_transcripts.generate_html
+            # Patch generate_html to fail on one specific session
+            original_generate_html = __import__("claude_code_transcripts").generate_html
 
             def mock_generate_html(json_path, output_dir, github_repo=None):
                 if "session1" in str(json_path):
                     raise RuntimeError("Simulated failure")
                 return original_generate_html(json_path, output_dir, github_repo)
 
-            monkeypatch.setattr(claude_code_transcripts, "generate_html", mock_generate_html)
-            stats = generate_batch_html(projects_dir, output_dir)
+            with patch("claude_code_transcripts.generate_html", side_effect=mock_generate_html):
+                stats = generate_batch_html(projects_dir, output_dir)
 
             # Should have processed session2 successfully
             assert stats["total_sessions"] == 1
@@ -411,73 +412,89 @@ class TestAllCommand:
 class TestJsonCommandWithUrl:
     """Tests for the json command with URL support."""
 
-    def test_json_command_accepts_url(self, httpx_mock, output_dir):
+    def test_json_command_accepts_url(self, output_dir):
         """Test that json command can accept a URL starting with http:// or https://."""
+        from unittest.mock import MagicMock
+        from unittest.mock import patch
+
         # Sample JSONL content
         jsonl_content = (
             '{"type": "user", "timestamp": "2025-01-01T10:00:00.000Z", "message": {"role": "user", "content": "Hello from URL"}}\n'
             '{"type": "assistant", "timestamp": "2025-01-01T10:00:05.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Hi there!"}]}}\n'
         )
 
-        httpx_mock.add_response(url="https://example.com/session.jsonl", text=jsonl_content)
+        # Mock the httpx.get response
+        mock_response = MagicMock()
+        mock_response.text = jsonl_content
+        mock_response.raise_for_status = MagicMock()
 
         runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "json",
-                "https://example.com/session.jsonl",
-                "-o",
-                str(output_dir),
-            ],
-        )
+        with patch("claude_code_transcripts.httpx.get", return_value=mock_response) as mock_get:
+            result = runner.invoke(
+                cli,
+                [
+                    "json",
+                    "https://example.com/session.jsonl",
+                    "-o",
+                    str(output_dir),
+                ],
+            )
 
         # Check that the URL was fetched
-        requests = httpx_mock.get_requests()
-        assert len(requests) == 1
-        assert str(requests[0].url) == "https://example.com/session.jsonl"
+        mock_get.assert_called_once()
+        call_url = mock_get.call_args[0][0]
+        assert call_url == "https://example.com/session.jsonl"
 
         # Check that HTML was generated
         assert result.exit_code == 0
         assert (output_dir / "index.html").exists()
 
-    def test_json_command_accepts_http_url(self, httpx_mock, output_dir):
+    def test_json_command_accepts_http_url(self, output_dir):
         """Test that json command can accept http:// URLs."""
+        from unittest.mock import MagicMock
+        from unittest.mock import patch
+
         jsonl_content = '{"type": "user", "timestamp": "2025-01-01T10:00:00.000Z", "message": {"role": "user", "content": "Hello"}}\n'
 
-        httpx_mock.add_response(url="http://example.com/session.jsonl", text=jsonl_content)
+        mock_response = MagicMock()
+        mock_response.text = jsonl_content
+        mock_response.raise_for_status = MagicMock()
 
         runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "json",
-                "http://example.com/session.jsonl",
-                "-o",
-                str(output_dir),
-            ],
-        )
+        with patch("claude_code_transcripts.httpx.get", return_value=mock_response) as mock_get:
+            result = runner.invoke(
+                cli,
+                [
+                    "json",
+                    "http://example.com/session.jsonl",
+                    "-o",
+                    str(output_dir),
+                ],
+            )
 
-        requests = httpx_mock.get_requests()
-        assert len(requests) == 1
+        mock_get.assert_called_once()
         assert result.exit_code == 0
 
-    def test_json_command_url_fetch_error(self, httpx_mock, output_dir):
+    def test_json_command_url_fetch_error(self, output_dir):
         """Test that json command handles URL fetch errors gracefully."""
+        from unittest.mock import patch
+
         import httpx
 
-        httpx_mock.add_exception(httpx.ConnectError("Network error"))
-
         runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "json",
-                "https://example.com/session.jsonl",
-                "-o",
-                str(output_dir),
-            ],
-        )
+        with patch(
+            "claude_code_transcripts.httpx.get",
+            side_effect=httpx.RequestError("Network error"),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "json",
+                    "https://example.com/session.jsonl",
+                    "-o",
+                    str(output_dir),
+                ],
+            )
 
         assert result.exit_code != 0
         assert "error" in result.output.lower() or "Error" in result.output
