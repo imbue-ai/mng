@@ -58,15 +58,15 @@ apps/changelings/
 
 - Implement `changeling run` where we run on Modal
 
-### Phase 4: Modal deployment
+### Phase 5: Modal deployment
 
 - Implement `changeling add` to create the scheduled Modal Function for a given changeling definition (see how we deploy a modal function in `mngr` for reference)
 
-### Phase 4: Management commands
+### Phase 6: Management commands
 - 
 - Implement `changeling list`
 - Implement `changeling status` (basically just calls `mngr list` for the configured profile and filters down to those agents that were created by `changelings`)
 
-### Phase 5: Polish
+### Phase 7: Polish
 
 - Implement `changeling remove` (just removes the Modal App), `changeling update` (just an alias for `changeling add --update`)
