@@ -290,7 +290,7 @@ def _list_agents_streaming(
         providers = get_all_provider_instances(mngr_ctx, provider_names)
         logger.trace("Found {} provider instances", len(providers))
 
-        with mngr_ctx.concurrency_group.make_concurrency_group(name="list_agents_streaming") as cgF:
+        with mngr_ctx.concurrency_group.make_concurrency_group(name="list_agents_streaming") as cg:
             threads: list[ObservableThread] = []
             for provider in providers:
                 threads.append(

@@ -565,7 +565,7 @@ class MngrContext(FrozenModel):
         description="Profile-specific directory for user data (user_id, providers, settings)",
     )
     concurrency_group: ConcurrencyGroup = Field(
-        default=ConcurrencyGroup(name="default"),
+        default_factory=lambda: ConcurrencyGroup(name="default"),
         description="Top-level concurrency group for managing spawned processes",
     )
 

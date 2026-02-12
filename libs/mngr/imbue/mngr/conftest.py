@@ -259,7 +259,7 @@ def make_mngr_ctx(
     profile_dir: Path,
     *,
     is_interactive: bool = False,
-    concurrency_group: ConcurrencyGroup | None = None,
+    concurrency_group: ConcurrencyGroup,
 ) -> MngrContext:
     """Create a MngrContext with the given parameters.
 
