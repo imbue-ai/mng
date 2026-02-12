@@ -246,11 +246,7 @@ def _list_agents_batch(
     logger.trace("Found {} hosts with agents", len(agents_by_host))
 
     # Process each host and its agents in parallel
-    with (
-        mngr_ctx.concurrency_group.make_concurrency_group("list_agents_process_hosts")
-        if mngr_ctx.concurrency_group is not None
-        else ConcurrencyGroup(name="list_agents_process_hosts")
-    ) as cg:
+    with mngr_ctx.concurrency_group.make_concurrency_group(name="list_agents_process_hosts") as cg:
         threads: list[ObservableThread] = []
         for host_ref, agent_refs in agents_by_host.items():
             if not agent_refs:
@@ -294,11 +290,7 @@ def _list_agents_streaming(
         providers = get_all_provider_instances(mngr_ctx, provider_names)
         logger.trace("Found {} provider instances", len(providers))
 
-        with (
-            mngr_ctx.concurrency_group.make_concurrency_group("list_agents_streaming")
-            if mngr_ctx.concurrency_group is not None
-            else ConcurrencyGroup(name="list_agents_streaming")
-        ) as cg:
+        with mngr_ctx.concurrency_group.make_concurrency_group(name="list_agents_streaming") as cgF:
             threads: list[ObservableThread] = []
             for provider in providers:
                 threads.append(
@@ -702,11 +694,7 @@ def load_all_agents_grouped_by_host(
         logger.trace("Found {} provider instances", len(providers))
 
         # Process all providers in parallel using ConcurrencyGroup
-        with (
-            mngr_ctx.concurrency_group.make_concurrency_group("load_all_agents_grouped_by_host")
-            if mngr_ctx.concurrency_group is not None
-            else ConcurrencyGroup(name="load_all_agents_grouped_by_host")
-        ) as cg:
+        with mngr_ctx.concurrency_group.make_concurrency_group(name="load_all_agents_grouped_by_host") as cg:
             threads: list[ObservableThread] = []
             for provider in providers:
                 threads.append(

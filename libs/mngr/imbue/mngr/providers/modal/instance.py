@@ -874,7 +874,7 @@ class ModalProviderInstance(BaseProviderInstance):
             # it's a little sad that we're constantly re-deploying this, but it's a bit too easy to make mistakes otherwise
             #  (eg, we might end up with outdated code at that endpoint, which would be hard to debug)
             snapshot_url = deploy_function(
-                "snapshot_and_shutdown", self.app_name, self.environment_name, self.mngr_ctx.cg
+                "snapshot_and_shutdown", self.app_name, self.environment_name, self.mngr_ctx.concurrency_group
             )
             self._create_shutdown_script(host, sandbox, host_id, snapshot_url)
 

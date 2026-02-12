@@ -410,7 +410,7 @@ Supported build arguments for the modal provider:
         # Create the ModalProviderApp that manages the Modal app and its resources
         try:
             app, context_handle = ModalProviderBackend._get_or_create_app(
-                app_name, environment_name, config.is_persistent, mngr_ctx.cg
+                app_name, environment_name, config.is_persistent, mngr_ctx.concurrency_group
             )
             volume = ModalProviderBackend.get_volume_for_app(app_name)
 

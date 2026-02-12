@@ -54,9 +54,7 @@ class ConfigCliOptions(CommonCliOptions):
     value: str | None = None
 
 
-def _get_config_path(
-    scope: ConfigScope, root_name: str = "mngr", profile_dir: Path | None = None, cg: ConcurrencyGroup | None = None
-) -> Path:
+def _get_config_path(scope: ConfigScope, root_name: str, profile_dir: Path, cg: ConcurrencyGroup) -> Path:
     """Get the config file path for the given scope. The profile_dir is required for USER scope."""
     match scope:
         case ConfigScope.USER:

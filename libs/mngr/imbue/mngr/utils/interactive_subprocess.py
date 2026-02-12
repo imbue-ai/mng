@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from typing import Any
 
 
+# TODO: these should have the full type signatures for all args
 def run_interactive_subprocess(
     command: Sequence[str],
     **kwargs: Any,
@@ -15,6 +16,7 @@ def run_interactive_subprocess(
     return subprocess.run(command, **kwargs)
 
 
+# TODO: these should have the full type signatures for all args
 def popen_interactive_subprocess(
     command: Sequence[str],
     **kwargs: Any,
