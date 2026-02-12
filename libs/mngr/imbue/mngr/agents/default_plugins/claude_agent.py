@@ -329,9 +329,7 @@ class ClaudeAgent(BaseAgent):
         activity_cmd = self._build_activity_updater_command(session_name)
 
         # Combine: start activity updater, export env (including session ID), then run the main command
-        return CommandString(
-            f"{activity_cmd} {env_exports} && ( {resume_cmd} ) || {create_cmd}"
-        )
+        return CommandString(f"{activity_cmd} {env_exports} && ( {resume_cmd} ) || {create_cmd}")
 
     def on_before_provisioning(
         self,
