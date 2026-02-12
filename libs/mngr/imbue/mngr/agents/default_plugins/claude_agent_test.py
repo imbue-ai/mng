@@ -511,27 +511,31 @@ def test_build_readiness_hooks_config_has_session_start_hook() -> None:
 
 
 def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:
-    """build_readiness_hooks_config should include UserPromptSubmit hook."""
+    """build_readiness_hooks_config should include UserPromptSubmit hook that creates active file."""
     config = build_readiness_hooks_config()
 
     assert "UserPromptSubmit" in config["hooks"]
     assert len(config["hooks"]["UserPromptSubmit"]) == 1
     hook = config["hooks"]["UserPromptSubmit"][0]["hooks"][0]
     assert hook["type"] == "command"
-    assert "rm -f" in hook["command"]
-    assert "MNGR_AGENT_STATE_DIR" in hook["command"]
-
-
-def test_build_readiness_hooks_config_has_stop_hook() -> None:
-    """build_readiness_hooks_config should include Stop hook."""
-    config = build_readiness_hooks_config()
-
-    assert "Stop" in config["hooks"]
-    assert len(config["hooks"]["Stop"]) == 1
-    hook = config["hooks"]["Stop"][0]["hooks"][0]
-    assert hook["type"] == "command"
     assert "touch" in hook["command"]
     assert "MNGR_AGENT_STATE_DIR" in hook["command"]
+    assert "active" in hook["command"]
+
+
+def test_build_readiness_hooks_config_has_notification_idle_hook() -> None:
+    """build_readiness_hooks_config should include Notification idle_prompt hook that removes active file."""
+    config = build_readiness_hooks_config()
+
+    assert "Notification" in config["hooks"]
+    assert len(config["hooks"]["Notification"]) == 1
+    hook_group = config["hooks"]["Notification"][0]
+    assert hook_group["matcher"] == "idle_prompt"
+    hook = hook_group["hooks"][0]
+    assert hook["type"] == "command"
+    assert "rm" in hook["command"]
+    assert "MNGR_AGENT_STATE_DIR" in hook["command"]
+    assert "active" in hook["command"]
 
 
 def test_get_expected_process_name_returns_claude(
@@ -641,7 +645,7 @@ def test_configure_readiness_hooks_creates_settings_file(
     assert "hooks" in settings
     assert "SessionStart" in settings["hooks"]
     assert "UserPromptSubmit" in settings["hooks"]
-    assert "Stop" in settings["hooks"]
+    assert "Notification" in settings["hooks"]
 
 
 def test_configure_readiness_hooks_merges_with_existing_settings(
@@ -684,7 +688,7 @@ def test_configure_readiness_hooks_merges_with_existing_settings(
     # Should add new hooks
     assert "SessionStart" in settings["hooks"]
     assert "UserPromptSubmit" in settings["hooks"]
-    assert "Stop" in settings["hooks"]
+    assert "Notification" in settings["hooks"]
 
 
 def test_provision_configures_readiness_hooks(

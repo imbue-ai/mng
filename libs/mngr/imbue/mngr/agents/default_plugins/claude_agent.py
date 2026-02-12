@@ -387,8 +387,8 @@ class ClaudeAgent(BaseAgent):
         """Configure Claude hooks for readiness signaling in the agent's work_dir.
 
         This writes hooks to .claude/settings.local.json in the agent's work_dir.
-        The hooks signal when Claude is ready for input by creating/removing a
-        'waiting' file in the agent's state directory.
+        The hooks signal when Claude is actively processing by creating/removing an
+        'active' file in the agent's state directory.
 
         Skips if hooks already exist.
         """

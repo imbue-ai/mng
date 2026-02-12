@@ -316,8 +316,8 @@ def build_readiness_hooks_config() -> dict[str, Any]:
     files that signal agent state.
 
     - SessionStart: creates 'session_started' file (Claude Code has started)
-    - UserPromptSubmit: create 'active' file AND signals tmux wait-for channel
-    - Idle: creates remove 'active' file (Claude finished processing, waiting for input)
+    - UserPromptSubmit: creates 'active' file AND signals tmux wait-for channel
+    - Notification (idle_prompt): removes 'active' file (Claude finished processing, waiting for input)
 
     File semantics:
     - session_started: Claude Code session has started (for initial message timing)
