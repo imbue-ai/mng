@@ -69,8 +69,12 @@ class OpenCliOptions(CommonCliOptions):
 def open_command(ctx: click.Context, **kwargs: Any) -> None:
     """Open an agent's URL in a web browser.
 
-    Opens the URL associated with an agent. Use `mngr connect` to attach to
-    an agent via the terminal instead.
+    Opens the URL associated with an agent. Agents can have a variety of
+    different URLs associated with them. If the URL type is unspecified (and
+    there is more than one URL), a TUI lets you pick from the available
+    URLs [future].
+
+    Use `mngr connect` to attach to an agent via the terminal instead.
 
     If no agent is specified, shows an interactive selector to choose from
     available agents.
@@ -138,16 +142,22 @@ _OPEN_HELP_METADATA = CommandHelpMetadata(
     synopsis="mngr open [OPTIONS] [AGENT] [URL_TYPE]",
     description="""Open an agent's URL in a web browser.
 
-Opens the URL associated with an agent. Use `mngr connect` to attach to
-an agent via the terminal instead.
+Opens the URL associated with an agent. Agents can have a variety of different
+URLs associated with them. If the URL type is unspecified (and there is more
+than one URL), a TUI lets you pick from the available URLs [future].
+
+Use `mngr connect` to attach to an agent via the terminal instead.
 
 If no agent is specified, shows an interactive selector to choose from
 available agents.
 
-The agent can be specified as a positional argument or via --agent:
-  mngr open my-agent
-  mngr open --agent my-agent""",
+The agent and URL type can be specified as positional arguments for convenience.
+The following are equivalent:
+  mngr open my-agent terminal
+  mngr open --agent my-agent --type terminal""",
     aliases=(),
+    arguments_description="""- `AGENT`: The agent to open (by name or ID). If not specified, opens the most recently created agent
+- `URL_TYPE`: The type of URL to open (e.g., `chat`, `terminal`, `diff`) [future]""",
     examples=(
         ("Open an agent's URL by name", "mngr open my-agent"),
         ("Open without auto-starting if stopped", "mngr open my-agent --no-start"),
