@@ -50,7 +50,7 @@ mngr list [OPTIONS]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format-template` | text | Output format as a string template (mutually exclusive with --format) [future] | None |
+| `--format-template` | text | Output format as a string template (mutually exclusive with --format) | None |
 | `--fields` | text | Which fields to include (comma-separated) | None |
 | `--sort` | text | Sort by field (supports nested fields like host.name); enables sorted (non-streaming) output [default: create_time] | `create_time` |
 | `--sort-order` | choice (`asc` &#x7C; `desc`) | Sort order [default: asc] | `asc` |

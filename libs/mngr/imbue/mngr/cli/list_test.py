@@ -10,12 +10,14 @@ from loguru import logger
 from imbue.mngr.cli.conftest import make_test_agent_info
 from imbue.mngr.cli.list import _StreamingHumanRenderer
 from imbue.mngr.cli.list import _compute_column_widths
+from imbue.mngr.cli.list import _emit_template_output
 from imbue.mngr.cli.list import _format_streaming_agent_row
 from imbue.mngr.cli.list import _format_streaming_header_row
 from imbue.mngr.cli.list import _format_value_as_string
 from imbue.mngr.cli.list import _get_field_value
 from imbue.mngr.cli.list import _get_sortable_value
 from imbue.mngr.cli.list import _parse_slice_spec
+from imbue.mngr.cli.list import _render_format_template
 from imbue.mngr.cli.list import _should_use_streaming_mode
 from imbue.mngr.cli.list import _sort_agents
 from imbue.mngr.interfaces.data_types import SnapshotInfo
@@ -735,3 +737,113 @@ def test_should_use_streaming_mode_json_format_uses_batch() -> None:
         )
         is False
     )
+
+
+# =============================================================================
+# Tests for _render_format_template
+# =============================================================================
+
+
+def test_render_format_template_simple_field() -> None:
+    """_render_format_template should expand a simple field."""
+    agent = make_test_agent_info(name="my-agent")
+    result = _render_format_template("{name}", agent)
+    assert result == "my-agent"
+
+
+def test_render_format_template_multiple_fields() -> None:
+    """_render_format_template should expand multiple fields."""
+    agent = make_test_agent_info(name="my-agent", state=AgentLifecycleState.RUNNING)
+    result = _render_format_template("{name} {state}", agent)
+    assert result == "my-agent RUNNING"
+
+
+def test_render_format_template_nested_field() -> None:
+    """_render_format_template should expand nested fields with dot notation."""
+    agent = make_test_agent_info()
+    result = _render_format_template("{host.name}", agent)
+    assert result == "test-host"
+
+
+def test_render_format_template_field_alias() -> None:
+    """_render_format_template should resolve field aliases."""
+    agent = make_test_agent_info()
+    result = _render_format_template("{provider}", agent)
+    assert result == "local"
+
+
+def test_render_format_template_unknown_field() -> None:
+    """_render_format_template should resolve unknown fields to empty string."""
+    agent = make_test_agent_info()
+    result = _render_format_template("{nonexistent}", agent)
+    assert result == ""
+
+
+def test_render_format_template_format_spec() -> None:
+    """_render_format_template should support format specifications."""
+    agent = make_test_agent_info(name="hi")
+    result = _render_format_template("{name:>10}", agent)
+    assert result == "        hi"
+
+
+def test_render_format_template_literal_braces() -> None:
+    """_render_format_template should handle escaped braces."""
+    agent = make_test_agent_info(name="my-agent")
+    result = _render_format_template("{{literal}} {name}", agent)
+    assert result == "{literal} my-agent"
+
+
+def test_render_format_template_empty_template() -> None:
+    """_render_format_template should handle empty template."""
+    agent = make_test_agent_info()
+    result = _render_format_template("", agent)
+    assert result == ""
+
+
+def test_render_format_template_literal_text_only() -> None:
+    """_render_format_template should handle template with no fields."""
+    agent = make_test_agent_info()
+    result = _render_format_template("just text", agent)
+    assert result == "just text"
+
+
+def test_render_format_template_tab_separator() -> None:
+    """_render_format_template should handle tab characters in templates."""
+    agent = make_test_agent_info(name="my-agent", state=AgentLifecycleState.STOPPED)
+    result = _render_format_template("{name}\t{state}", agent)
+    assert result == "my-agent\tSTOPPED"
+
+
+# =============================================================================
+# Tests for _emit_template_output
+# =============================================================================
+
+
+def test_emit_template_output_multiple_agents(monkeypatch) -> None:
+    """_emit_template_output should produce one line per agent."""
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
+
+    agents = [
+        make_test_agent_info(name="agent-alpha"),
+        make_test_agent_info(name="agent-bravo"),
+        make_test_agent_info(name="agent-charlie"),
+    ]
+    _emit_template_output(agents, "{name}")
+
+    output = captured.getvalue()
+    lines = output.strip().split("\n")
+    assert len(lines) == 3
+    assert lines[0] == "agent-alpha"
+    assert lines[1] == "agent-bravo"
+    assert lines[2] == "agent-charlie"
+
+
+def test_emit_template_output_empty_agents(monkeypatch) -> None:
+    """_emit_template_output should produce no output for empty list."""
+    captured = StringIO()
+    monkeypatch.setattr("sys.stdout", captured)
+
+    _emit_template_output([], "{name}")
+
+    assert captured.getvalue() == ""
