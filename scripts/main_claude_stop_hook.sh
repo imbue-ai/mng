@@ -33,7 +33,10 @@ fi
 # session with a different UUID. The SessionStart hook writes the current session
 # ID to $MNGR_AGENT_STATE_DIR/claude_session_id so we can track it here.
 if [ -n "${MNGR_AGENT_STATE_DIR:-}" ] && [ -f "$MNGR_AGENT_STATE_DIR/claude_session_id" ]; then
-    MAIN_CLAUDE_SESSION_ID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id")
+    _MNGR_READ_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id")
+    if [ -n "$_MNGR_READ_SID" ]; then
+        MAIN_CLAUDE_SESSION_ID="$_MNGR_READ_SID"
+    fi
 fi
 
 # make the session id accessible to the reviewers

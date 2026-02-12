@@ -251,9 +251,10 @@ class ClaudeAgent(BaseAgent):
         # Read the latest session ID from the tracking file written by the SessionStart hook.
         # This handles session replacement (e.g., exit plan mode, /clear, compaction) where
         # Claude Code creates a new session with a different UUID. Falls back to the agent UUID
-        # if the tracking file doesn't exist (first run).
+        # if the tracking file doesn't exist (first run) or is empty (crash during write).
         sid_export = (
-            f'export MAIN_CLAUDE_SESSION_ID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || echo "{agent_uuid}")'
+            f'_MNGR_READ_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || true);'
+            f' export MAIN_CLAUDE_SESSION_ID="${{_MNGR_READ_SID:-{agent_uuid}}}"'
         )
 
         # Build both command variants using the dynamic session ID

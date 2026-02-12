@@ -344,7 +344,8 @@ def build_readiness_hooks_config() -> dict[str, Any]:
                                 ' echo "mngr: SessionStart hook failed to extract session_id from hook input: $_MNGR_HOOK_INPUT" >&2;'
                                 " exit 1;"
                                 " fi;"
-                                ' echo "$_MNGR_NEW_SID" > "$MNGR_AGENT_STATE_DIR/claude_session_id";'
+                                ' echo "$_MNGR_NEW_SID" > "$MNGR_AGENT_STATE_DIR/claude_session_id.tmp"'
+                                ' && mv "$MNGR_AGENT_STATE_DIR/claude_session_id.tmp" "$MNGR_AGENT_STATE_DIR/claude_session_id";'
                                 ' echo "$_MNGR_NEW_SID" >> "$MNGR_AGENT_STATE_DIR/claude_session_id_history"'
                             ),
                         },

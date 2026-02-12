@@ -72,7 +72,10 @@ def make_claude_agent(
 
 def _sid_export_for(uuid: UUID) -> str:
     """Build the expected MAIN_CLAUDE_SESSION_ID export string for a given agent UUID."""
-    return f'export MAIN_CLAUDE_SESSION_ID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || echo "{uuid}")'
+    return (
+        f'_MNGR_READ_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || true);'
+        f' export MAIN_CLAUDE_SESSION_ID="${{_MNGR_READ_SID:-{uuid}}}"'
+    )
 
 
 def _init_git_with_gitignore(work_dir: Path) -> None:
@@ -530,6 +533,9 @@ def test_build_readiness_hooks_config_has_session_start_hook() -> None:
     assert ">&2" in session_id_hook
     # Should append to history file for tracking old session IDs
     assert "claude_session_id_history" in session_id_hook
+    # Should use atomic write (write to .tmp then mv) to prevent torn reads
+    assert "claude_session_id.tmp" in session_id_hook
+    assert "mv" in session_id_hook
 
 
 def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:
