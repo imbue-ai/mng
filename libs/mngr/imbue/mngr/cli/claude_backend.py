@@ -117,6 +117,9 @@ def _build_claude_command(
     else:
         cmd.extend(["--tools", ""])
 
+    # Use -- to separate flags from the positional prompt, since variadic
+    # flags like --allowedTools can consume subsequent positional args
+    cmd.append("--")
     cmd.append(prompt)
     return cmd
 

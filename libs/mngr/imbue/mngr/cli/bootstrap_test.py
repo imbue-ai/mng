@@ -9,7 +9,7 @@ import imbue.mngr.cli.bootstrap as bootstrap_module
 from imbue.mngr.cli.bootstrap import _build_system_prompt
 from imbue.mngr.cli.bootstrap import _get_default_dockerfile
 from imbue.mngr.cli.bootstrap import _resolve_output_path
-from imbue.mngr.cli.bootstrap import _strip_markdown_fences
+from imbue.mngr.cli.bootstrap import _strip_non_dockerfile_content
 from imbue.mngr.cli.bootstrap import bootstrap
 from imbue.mngr.cli.claude_backend import ClaudeBackendInterface
 from imbue.mngr.errors import MngrError
@@ -117,14 +117,20 @@ def test_resolve_output_path_override(tmp_path: Path) -> None:
 # =============================================================================
 
 
-def test_strip_markdown_fences_removes_fences() -> None:
+def test_strip_non_dockerfile_content_removes_fences() -> None:
     content = "```dockerfile\nFROM python:3.11\nRUN echo hello\n```"
-    assert _strip_markdown_fences(content) == "FROM python:3.11\nRUN echo hello"
+    assert _strip_non_dockerfile_content(content) == "FROM python:3.11\nRUN echo hello"
 
 
-def test_strip_markdown_fences_no_fences() -> None:
+def test_strip_non_dockerfile_content_no_fences() -> None:
     content = "FROM python:3.11\nRUN echo hello"
-    assert _strip_markdown_fences(content) == content
+    assert _strip_non_dockerfile_content(content) == content
+
+
+def test_strip_non_dockerfile_content_removes_preamble() -> None:
+    """Explanatory text before the first FROM line should be stripped."""
+    content = "Let me explore the project first.\nHere is the Dockerfile:\nFROM python:3.11\nRUN echo hello"
+    assert _strip_non_dockerfile_content(content) == "FROM python:3.11\nRUN echo hello"
 
 
 # =============================================================================

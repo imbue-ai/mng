@@ -173,7 +173,7 @@ def _bootstrap_impl(ctx: click.Context, **kwargs: Any) -> None:
         raise MngrError("Claude returned an empty response; no Dockerfile was generated")
 
     # Strip any markdown fences that Claude might have included despite instructions
-    dockerfile_content = _strip_markdown_fences(dockerfile_content)
+    dockerfile_content = _strip_non_dockerfile_content(dockerfile_content)
 
     if opts.dry_run:
         _output_dry_run(
@@ -189,12 +189,25 @@ def _bootstrap_impl(ctx: click.Context, **kwargs: Any) -> None:
 
 
 @pure
-def _strip_markdown_fences(content: str) -> str:
-    """Strip markdown code fences if Claude included them despite instructions."""
+def _strip_non_dockerfile_content(content: str) -> str:
+    """Strip markdown fences and any preamble text before the Dockerfile.
+
+    Claude sometimes includes explanation text before the actual Dockerfile
+    content, even when instructed not to. This extracts just the Dockerfile
+    by finding the first FROM instruction.
+    """
+    # Strip markdown fences
     lines = content.strip().splitlines()
     if len(lines) >= 2 and lines[0].startswith("```") and lines[-1].strip() == "```":
-        return "\n".join(lines[1:-1]).strip()
-    return content
+        lines = lines[1:-1]
+
+    # Find the first FROM instruction and discard everything before it
+    for idx, line in enumerate(lines):
+        if line.strip().upper().startswith("FROM "):
+            return "\n".join(lines[idx:]).strip()
+
+    # No FROM found -- return the content as-is and let the caller decide
+    return "\n".join(lines).strip()
 
 
 def _output_dry_run(
