@@ -50,7 +50,6 @@ class BaseHost(HostInterface):
         """Get the activity configuration for this host."""
         certified_data = self.get_certified_data()
         return ActivityConfig(
-            idle_mode=certified_data.idle_mode,
             idle_timeout_seconds=certified_data.idle_timeout_seconds,
             activity_sources=certified_data.activity_sources,
         )
@@ -62,14 +61,13 @@ class BaseHost(HostInterface):
         activity_watcher.sh script using jq.
         """
         with log_span(
-            "Setting activity config for host {}: idle_mode={}, idle_timeout={}s",
+            "Setting activity config for host {}: idle_timeout={}s, activity_sources={}",
             self.id,
-            config.idle_mode,
             config.idle_timeout_seconds,
+            config.activity_sources,
         ):
             certified_data = self.get_certified_data()
             updated_data = certified_data.model_copy_update(
-                to_update(certified_data.field_ref().idle_mode, config.idle_mode),
                 to_update(certified_data.field_ref().idle_timeout_seconds, config.idle_timeout_seconds),
                 to_update(certified_data.field_ref().activity_sources, config.activity_sources),
             )

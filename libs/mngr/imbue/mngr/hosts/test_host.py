@@ -243,9 +243,14 @@ def test_set_and_get_activity_config(host_with_temp_dir: tuple[Host, Path]) -> N
     """Test setting and getting activity config."""
     host, _ = host_with_temp_dir
     config = ActivityConfig(
-        idle_mode=IdleMode.USER,
         idle_timeout_seconds=7200,
-        activity_sources=(ActivitySource.USER, ActivitySource.AGENT),
+        activity_sources=(
+            ActivitySource.USER,
+            ActivitySource.SSH,
+            ActivitySource.CREATE,
+            ActivitySource.START,
+            ActivitySource.BOOT,
+        ),
     )
     host.set_activity_config(config)
 

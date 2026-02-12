@@ -1359,7 +1359,6 @@ log "=== Shutdown script completed ==="
         # Note: max_host_age is the sandbox timeout (without the buffer we added to modal_timeout)
         # so the activity watcher can trigger a clean shutdown before Modal's hard kill
         host_data = CertifiedHostData(
-            idle_mode=activity_config.idle_mode,
             idle_timeout_seconds=activity_config.idle_timeout_seconds,
             activity_sources=activity_config.activity_sources,
             max_host_age=config.timeout,
