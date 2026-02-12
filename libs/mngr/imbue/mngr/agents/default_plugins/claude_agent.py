@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 from collections.abc import Sequence
 from pathlib import Path
@@ -107,6 +108,59 @@ def _prompt_user_for_trust(source_path: Path) -> bool:
     return click.confirm("Would you like to trust this directory?", default=False)
 
 
+def _claude_json_has_primary_api_key() -> bool:
+    """Check if ~/.claude.json contains a non-empty primaryApiKey."""
+    claude_json_path = Path.home() / ".claude.json"
+    if not claude_json_path.exists():
+        return False
+    try:
+        config_data = json.loads(claude_json_path.read_text())
+        return bool(config_data.get("primaryApiKey"))
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
+def _has_api_credentials_available(
+    host: OnlineHostInterface,
+    options: CreateAgentOptions,
+    config: ClaudeAgentConfig,
+) -> bool:
+    """Check whether API credentials appear to be available for Claude Code.
+
+    Checks environment variables (process env for local hosts, agent env vars,
+    host env vars), local credentials file (~/.claude/.credentials.json), and
+    primaryApiKey in ~/.claude.json.
+
+    Returns True if any credential source is detected, False otherwise.
+    """
+    # Local hosts inherit the process environment via tmux
+    if host.is_local and os.environ.get("ANTHROPIC_API_KEY"):
+        return True
+
+    for env_var in options.environment.env_vars:
+        if env_var.key == "ANTHROPIC_API_KEY":
+            return True
+
+    if host.get_env_var("ANTHROPIC_API_KEY"):
+        return True
+
+    credentials_path = Path.home() / ".claude" / ".credentials.json"
+    if credentials_path.exists():
+        if host.is_local:
+            return True
+        if config.sync_claude_credentials:
+            return True
+
+    # Check for primaryApiKey in ~/.claude.json
+    if _claude_json_has_primary_api_key():
+        if host.is_local:
+            return True
+        if config.sync_claude_json:
+            return True
+
+    return False
+
+
 class ClaudeAgent(BaseAgent):
     """Agent implementation for Claude with session resumption support."""
 
@@ -187,7 +241,7 @@ class ClaudeAgent(BaseAgent):
 
         The activity updater continuously updates the agent's activity file
         ($MNGR_AGENT_STATE_DIR/activity/agent) as long as the tmux session exists
-        AND the .claude/active file is present (indicating the agent is actively
+        AND the $MNGR_AGENT_STATE_DIR/active file is present (indicating the agent is actively
         processing, not idle). Uses a pidfile to prevent duplicate instances for
         the same session.
         """
@@ -201,7 +255,7 @@ class ClaudeAgent(BaseAgent):
             """trap 'rm -f "$_MNGR_ACT_LOCK"' EXIT;""",
             'mkdir -p "$MNGR_AGENT_STATE_DIR/activity";',
             f"while tmux has-session -t '{session_name}' 2>/dev/null; do",
-            "if [ -f .claude/active ]; then",
+            'if [ -f "$MNGR_AGENT_STATE_DIR/active" ]; then',
             """printf '{"time": %d, "source": "activity_updater"}'""",
             '"$(($(date +%s) * 1000))" > "$MNGR_AGENT_STATE_DIR/activity/agent";',
             "fi;",
@@ -294,7 +348,7 @@ class ClaudeAgent(BaseAgent):
                     "Use --copy or --clone instead."
                 )
             if not mngr_ctx.is_interactive:
-                git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.cg)
+                git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.concurrency_group)
                 if git_common_dir is not None:
                     source_path = git_common_dir.parent
                     check_source_directory_trusted(source_path)
@@ -304,7 +358,13 @@ class ClaudeAgent(BaseAgent):
             logger.debug("Skipped claude installation check (check_installation=False)")
             return
 
-        # FIXME: check that we either have an API key in the env, or that it is configured locally and credentials will be synced
+        if not _has_api_credentials_available(host, options, config):
+            logger.warning(
+                "No API credentials detected for Claude Code. The agent may fail to start.\n"
+                "Provide credentials via one of:\n"
+                "  - Set ANTHROPIC_API_KEY environment variable (use --pass-env ANTHROPIC_API_KEY)\n"
+                "  - Run 'claude login' to create ~/.claude/.credentials.json"
+            )
 
     def get_provision_file_transfers(
         self,
@@ -347,8 +407,8 @@ class ClaudeAgent(BaseAgent):
         """Configure Claude hooks for readiness signaling in the agent's work_dir.
 
         This writes hooks to .claude/settings.local.json in the agent's work_dir.
-        The hooks signal when Claude is ready for input by creating/removing a
-        'waiting' file in the agent's state directory.
+        The hooks signal when Claude is actively processing by creating/removing an
+        'active' file in the agent's state directory.
 
         Skips if hooks already exist.
         """
@@ -358,15 +418,20 @@ class ClaudeAgent(BaseAgent):
         settings_relative = Path(".claude") / "settings.local.json"
         settings_path = self.work_dir / settings_relative
 
-        # FIXME: it's not safe to assume that git exists or that this is a git repo--clean this up
-        # Verify .claude/settings.local.json is gitignored to avoid unstaged changes (if this is even using git)
-        result = host.execute_command(
-            f"git check-ignore -q {shlex.quote(str(settings_relative))}",
+        # Only check gitignore if git is available and this is a git repository
+        is_git_repo = host.execute_command(
+            "git rev-parse --is-inside-work-tree",
             cwd=self.work_dir,
             timeout_seconds=5.0,
         )
-        if not result.success:
-            if "fatal: not a git repository" not in result.stderr:
+        if is_git_repo.success:
+            # Verify .claude/settings.local.json is gitignored to avoid unstaged changes
+            result = host.execute_command(
+                f"git check-ignore -q {shlex.quote(str(settings_relative))}",
+                cwd=self.work_dir,
+                timeout_seconds=5.0,
+            )
+            if not result.success:
                 raise PluginMngrError(
                     f".claude/settings.local.json is not gitignored in {self.work_dir}.\n"
                     "mngr needs to write Claude hooks to this file, but it would appear as an unstaged change.\n"
@@ -407,7 +472,7 @@ class ClaudeAgent(BaseAgent):
         non-interactive runs re-raise the error.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
-            git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.cg)
+            git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.concurrency_group)
             if git_common_dir is not None:
                 source_path = git_common_dir.parent
                 try:

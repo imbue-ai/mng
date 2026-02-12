@@ -153,7 +153,6 @@ class HostLifecycleOptions(FrozenModel):
             idle_timeout_seconds=self.idle_timeout_seconds
             if self.idle_timeout_seconds is not None
             else default_idle_timeout_seconds,
-            idle_mode=resolved_idle_mode,
             activity_sources=resolved_activity_sources,
         )
 

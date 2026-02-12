@@ -142,7 +142,7 @@ def gc_work_dirs(
     compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
     for provider_instance in providers:
-        for host in provider_instance.list_hosts():
+        for host in provider_instance.list_hosts(cg=mngr_ctx.concurrency_group):
             if not isinstance(host, OnlineHostInterface):
                 # Skip offline hosts - can't query them
                 logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
@@ -186,7 +186,7 @@ def gc_machines(
 
     for provider in providers:
         try:
-            hosts = provider.list_hosts(include_destroyed=False)
+            hosts = provider.list_hosts(include_destroyed=False, cg=provider.mngr_ctx.concurrency_group)
 
             for host in hosts:
                 try:
@@ -257,7 +257,7 @@ def gc_snapshots(
             continue
 
         try:
-            hosts = provider.list_hosts(include_destroyed=False)
+            hosts = provider.list_hosts(include_destroyed=False, cg=provider.mngr_ctx.concurrency_group)
 
             for host in hosts:
                 try:
@@ -321,7 +321,7 @@ def gc_volumes(
 
             # Get volumes that are currently attached to hosts
             active_volume_ids = set()
-            for host in provider.list_hosts(include_destroyed=False):
+            for host in provider.list_hosts(include_destroyed=False, cg=provider.mngr_ctx.concurrency_group):
                 for volume in all_volumes:
                     if volume.host_id == host.id:
                         active_volume_ids.add(volume.volume_id)

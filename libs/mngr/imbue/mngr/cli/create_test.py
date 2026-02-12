@@ -6,6 +6,8 @@ from typing import cast
 from imbue.imbue_common.model_update import to_update
 from imbue.mngr.cli.create import CreateCliOptions
 from imbue.mngr.cli.create import _parse_host_lifecycle_options
+from imbue.mngr.cli.create import _resolve_source_location
+from imbue.mngr.cli.create import _resolve_target_host
 from imbue.mngr.cli.create import _try_reuse_existing_agent
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.interfaces.host import CreateAgentOptions
@@ -309,3 +311,62 @@ def test_try_reuse_existing_agent_not_found_on_host(
     )
 
     assert result is None
+
+
+# =============================================================================
+# Tests for _resolve_source_location and _resolve_target_host with is_start_desired
+# =============================================================================
+
+
+def test_resolve_source_location_with_auto_start_enabled(
+    default_create_cli_opts: CreateCliOptions,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """_resolve_source_location returns an online host when is_start_desired=True."""
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().source_path, str(temp_work_dir)),
+    )
+
+    result = _resolve_source_location(
+        opts,
+        agent_and_host_loader=lambda: {},
+        mngr_ctx=temp_mngr_ctx,
+        is_start_desired=True,
+    )
+
+    assert isinstance(result.host, OnlineHostInterface)
+    assert result.path == temp_work_dir
+
+
+def test_resolve_target_host_with_auto_start_enabled(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """_resolve_target_host returns an online host when target is None and is_start_desired=True."""
+    result = _resolve_target_host(
+        target_host=None,
+        mngr_ctx=temp_mngr_ctx,
+        is_start_desired=True,
+    )
+
+    assert isinstance(result, OnlineHostInterface)
+
+
+def test_resolve_target_host_with_host_reference(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """_resolve_target_host resolves a HostReference to an online host."""
+    host_ref = HostReference(
+        provider_name=ProviderInstanceName("local"),
+        host_id=local_provider.host_id,
+        host_name=HostName("local"),
+    )
+
+    result = _resolve_target_host(
+        target_host=host_ref,
+        mngr_ctx=temp_mngr_ctx,
+        is_start_desired=True,
+    )
+
+    assert isinstance(result, OnlineHostInterface)

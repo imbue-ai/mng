@@ -226,8 +226,10 @@ class ConcurrencyGroup(MutableModel, AbstractContextManager):
                         pass
         for tracked_thread in self._threads:
             remaining_timeout = self._get_remaining_timeout(start_time, timeout_seconds)
+            # Thread.join(timeout=float("inf")) raises OverflowError, so convert to None (wait forever)
+            join_timeout = None if remaining_timeout == float("inf") else remaining_timeout
             try:
-                tracked_thread.thread.join(timeout=remaining_timeout)
+                tracked_thread.thread.join(timeout=join_timeout)
             except Exception:
                 pass
             if tracked_thread.thread.is_alive():

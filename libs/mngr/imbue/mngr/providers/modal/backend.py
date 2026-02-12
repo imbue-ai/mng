@@ -1,12 +1,13 @@
 import contextlib
-import json
+from contextlib import AbstractContextManager
+from io import StringIO
 from pathlib import Path
-from typing import Any
 from typing import ClassVar
 
 import modal
 import modal.exception
 from loguru import logger
+from pydantic import ConfigDict
 from pydantic import Field
 from tenacity import retry
 from tenacity import retry_if_exception_type
@@ -31,6 +32,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
+from imbue.mngr.providers.modal.log_utils import ModalLoguruWriter
 from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 
 MODAL_BACKEND_NAME = ProviderBackendName("modal")
@@ -38,13 +40,15 @@ STATE_VOLUME_SUFFIX = "-state"
 MODAL_NAME_MAX_LENGTH = 64
 
 
-# FIXME: this should just be renamed to _create_environment, and we should delete the first check, since it is only called when the env is missing
-def _ensure_environment_exists(environment_name: str, cg: ConcurrencyGroup) -> None:
-    """Ensure a Modal environment exists, creating it if necessary.
+def _create_environment(environment_name: str, cg: ConcurrencyGroup) -> None:
+    """Create a Modal environment.
 
     Modal environments must be created before they can be used to scope resources
     like apps, volumes, and sandboxes. Since the Modal Python SDK doesn't provide
     an API for managing environments, we use the CLI.
+
+    This function is only called when the environment is known to be missing (after
+    a NotFoundError), so it does not check for existence first.
     """
 
     # first a quick check to make sure we're not naming things incorrectly (and making it hard to clean up these environments)
@@ -53,22 +57,6 @@ def _ensure_environment_exists(environment_name: str, cg: ConcurrencyGroup) -> N
             f"Refusing to create Modal environment with name {environment_name}: test environments should start with 'mngr_test-' and should be explicitly configured using generate_test_environment_name() so that they can be easily identified and cleaned up."
         )
 
-    # Check if the environment exists by listing environments
-    try:
-        result = cg.run_process_to_completion(
-            ["uv", "run", "modal", "environment", "list", "--json"],
-            timeout=30,
-        )
-        environments = json.loads(result.stdout)
-        for env in environments:
-            if env.get("name") == environment_name:
-                logger.trace("Found existing Modal environment: {}", environment_name)
-                return
-    except (ProcessError, json.JSONDecodeError):
-        # If we can't list environments, try to create anyway
-        pass
-
-    # Environment doesn't exist, create it
     with log_span("Creating Modal environment: {}", environment_name):
         try:
             cg.run_process_to_completion(
@@ -90,8 +78,8 @@ def _lookup_persistent_app_with_env_retry(app_name: str, environment_name: str, 
     try:
         return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
     except modal.exception.NotFoundError:
-        # Ensure the environment exists before retrying
-        _ensure_environment_exists(environment_name, cg)
+        # Create the environment before retrying
+        _create_environment(environment_name, cg)
         return _lookup_persistent_app_with_retry(app_name, environment_name)
 
 
@@ -107,7 +95,9 @@ def _lookup_persistent_app_with_retry(app_name: str, environment_name: str) -> m
         return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
 
 
-def _enter_ephemeral_app_context_with_env_retry(app: modal.App, environment_name: str, cg: ConcurrencyGroup) -> Any:
+def _enter_ephemeral_app_context_with_env_retry(
+    app: modal.App, environment_name: str, cg: ConcurrencyGroup
+) -> AbstractContextManager[modal.App]:
     """Enter an ephemeral Modal app's run context, retrying if the environment is not found.
 
     On the first NotFoundError, creates the environment and retries with exponential backoff
@@ -119,8 +109,8 @@ def _enter_ephemeral_app_context_with_env_retry(app: modal.App, environment_name
         run_context.__enter__()
         return run_context
     except modal.exception.NotFoundError:
-        # Ensure the environment exists before retrying
-        _ensure_environment_exists(environment_name, cg)
+        # Create the environment before retrying
+        _create_environment(environment_name, cg)
         return _enter_ephemeral_app_context_with_retry(app, environment_name)
 
 
@@ -130,7 +120,9 @@ def _enter_ephemeral_app_context_with_env_retry(app: modal.App, environment_name
     wait=wait_exponential(multiplier=1, min=1, max=10),
     reraise=True,
 )
-def _enter_ephemeral_app_context_with_retry(app: modal.App, environment_name: str) -> Any:
+def _enter_ephemeral_app_context_with_retry(
+    app: modal.App, environment_name: str
+) -> AbstractContextManager[modal.App]:
     """Enter an ephemeral Modal app's run context with tenacity retry."""
     with log_span("Retrying Modal app context entry (env: {})", environment_name):
         run_context = app.run(environment_name=environment_name)
@@ -149,19 +141,22 @@ class ModalAppContextHandle(FrozenModel):
     termination. The volume is created lazily when first accessed.
     """
 
-    # FIXME: replace Any with concrete types from modal
-    #  you'll need a config dict like this:
-    #      model_config = ConfigDict(arbitrary_types_allowed=True)
-    run_context: Any | None = Field(
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    run_context: AbstractContextManager[modal.App] | None = Field(
         description="The Modal app.run() context manager (only present for ephemeral apps)"
     )
     app_name: str = Field(description="The name of the Modal app")
     environment_name: str = Field(description="The Modal environment name for user isolation")
-    output_capture_context: Any = Field(description="The output capture context manager")
-    output_buffer: Any = Field(description="StringIO buffer containing captured Modal output")
-    loguru_writer: Any = Field(description="Loguru writer for structured logging (or None)")
+    output_capture_context: AbstractContextManager[tuple[StringIO, ModalLoguruWriter | None]] = Field(
+        description="The output capture context manager"
+    )
+    output_buffer: StringIO = Field(description="StringIO buffer containing captured Modal output")
+    loguru_writer: ModalLoguruWriter | None = Field(description="Loguru writer for structured logging (or None)")
     volume_name: str = Field(description="Name of the state volume for persisting host records")
-    volume: Any = Field(default=None, description="The Modal volume for state storage (lazily created)")
+    volume: modal.Volume | None = Field(
+        default=None, description="The Modal volume for state storage (lazily created)"
+    )
 
 
 def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
@@ -410,7 +405,7 @@ Supported build arguments for the modal provider:
         # Create the ModalProviderApp that manages the Modal app and its resources
         try:
             app, context_handle = ModalProviderBackend._get_or_create_app(
-                app_name, environment_name, config.is_persistent, mngr_ctx.cg
+                app_name, environment_name, config.is_persistent, mngr_ctx.concurrency_group
             )
             volume = ModalProviderBackend.get_volume_for_app(app_name)
 
