@@ -45,8 +45,8 @@ def test_rename_stopped_agent_updates_data_json(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test renaming a stopped agent updates data.json."""
-    agent_name = f"test-rename-stopped-{uuid4().hex[:8]}"
-    new_name = f"test-renamed-{uuid4().hex[:8]}"
+    agent_name = f"test-rename-stopped-{uuid4().hex}"
+    new_name = f"test-renamed-{uuid4().hex}"
 
     host = _create_stopped_agent(local_provider, temp_work_dir, agent_name)
 
@@ -75,8 +75,8 @@ def test_rename_running_agent_renames_tmux_session(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test renaming a running agent also renames the tmux session."""
-    agent_name = f"test-rename-running-{uuid4().hex[:8]}"
-    new_name = f"test-renamed-running-{uuid4().hex[:8]}"
+    agent_name = f"test-rename-running-{uuid4().hex}"
+    new_name = f"test-renamed-running-{uuid4().hex}"
     old_session_name = f"{mngr_test_prefix}{agent_name}"
     new_session_name = f"{mngr_test_prefix}{new_name}"
 
@@ -123,8 +123,8 @@ def test_rename_dry_run_does_not_change_agent(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that --dry-run shows what would happen without actually renaming."""
-    agent_name = f"test-rename-dry-{uuid4().hex[:8]}"
-    new_name = f"test-dry-renamed-{uuid4().hex[:8]}"
+    agent_name = f"test-rename-dry-{uuid4().hex}"
+    new_name = f"test-dry-renamed-{uuid4().hex}"
 
     host = _create_stopped_agent(local_provider, temp_work_dir, agent_name)
 
@@ -166,8 +166,8 @@ def test_rename_to_existing_name_fails(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that renaming to an existing agent's name fails."""
-    agent_name_1 = f"test-rename-dup1-{uuid4().hex[:8]}"
-    agent_name_2 = f"test-rename-dup2-{uuid4().hex[:8]}"
+    agent_name_1 = f"test-rename-dup1-{uuid4().hex}"
+    agent_name_2 = f"test-rename-dup2-{uuid4().hex}"
 
     _create_stopped_agent(local_provider, temp_work_dir, agent_name_1)
     _create_stopped_agent(local_provider, temp_work_dir, agent_name_2)
@@ -189,7 +189,7 @@ def test_rename_to_same_name_is_no_op(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that renaming to the same name is a no-op."""
-    agent_name = f"test-rename-noop-{uuid4().hex[:8]}"
+    agent_name = f"test-rename-noop-{uuid4().hex}"
 
     _create_stopped_agent(local_provider, temp_work_dir, agent_name)
 
@@ -211,8 +211,8 @@ def test_rename_with_agent_id(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test renaming an agent using its ID instead of name."""
-    agent_name = f"test-rename-byid-{uuid4().hex[:8]}"
-    new_name = f"test-renamed-byid-{uuid4().hex[:8]}"
+    agent_name = f"test-rename-byid-{uuid4().hex}"
+    new_name = f"test-renamed-byid-{uuid4().hex}"
 
     host = _create_stopped_agent(local_provider, temp_work_dir, agent_name)
 
@@ -245,8 +245,8 @@ def test_rename_json_output(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test rename with --format json produces valid JSON output."""
-    agent_name = f"test-rename-json-{uuid4().hex[:8]}"
-    new_name = f"test-renamed-json-{uuid4().hex[:8]}"
+    agent_name = f"test-rename-json-{uuid4().hex}"
+    new_name = f"test-renamed-json-{uuid4().hex}"
 
     _create_stopped_agent(local_provider, temp_work_dir, agent_name)
 
