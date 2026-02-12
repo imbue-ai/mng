@@ -1,4 +1,4 @@
-# mngr snapshot [future] - CLI Options Reference
+# mngr snapshot - CLI Options Reference
 
 Create, destroy, and list snapshots of agents.
 

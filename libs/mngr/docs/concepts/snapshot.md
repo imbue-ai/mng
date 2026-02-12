@@ -11,8 +11,8 @@ Snapshots capture the complete filesystem state of a [host](./hosts.md). They en
 `mngr` creates snapshots automatically when stopping an agent. You can also create them manually:
 
 ```bash
-mngr snapshot create --agent my-agent  # [future]
-mngr snapshot create --agent my-agent --name "before-refactor"  # [future]
+mngr snapshot create --agent my-agent
+mngr snapshot create --agent my-agent --name "before-refactor"
 ```
 
 ## Using Snapshots
@@ -44,8 +44,8 @@ Snapshot support varies by [provider](./providers.md):
 List and clean up snapshots:
 
 ```bash
-mngr snapshot list --agent my-agent  # [future]
-mngr snapshot destroy --agent my-agent --snapshot-id <id>  # [future]
+mngr snapshot list --agent my-agent
+mngr snapshot destroy --agent my-agent --snapshot <id>
 ```
 
 See [`mngr snapshot`](../commands/secondary/snapshot.md) for all options.
