@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from typing import assert_never
 
 from loguru import logger
 from pydantic import Field
@@ -160,6 +161,9 @@ def _enforce_host(
         case HostState.STOPPED | HostState.PAUSED | HostState.CRASHED | HostState.FAILED | HostState.DESTROYED:
             # Nothing to enforce on these states
             logger.trace("Skipped host {} in state {}", host.id, state)
+
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def _check_idle_host(
