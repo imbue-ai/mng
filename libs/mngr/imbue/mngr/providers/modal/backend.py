@@ -1,5 +1,4 @@
 import contextlib
-import json
 from pathlib import Path
 from typing import Any
 from typing import ClassVar
@@ -38,13 +37,15 @@ STATE_VOLUME_SUFFIX = "-state"
 MODAL_NAME_MAX_LENGTH = 64
 
 
-# FIXME: this should just be renamed to _create_environment, and we should delete the first check, since it is only called when the env is missing
-def _ensure_environment_exists(environment_name: str, cg: ConcurrencyGroup) -> None:
-    """Ensure a Modal environment exists, creating it if necessary.
+def _create_environment(environment_name: str, cg: ConcurrencyGroup) -> None:
+    """Create a Modal environment.
 
     Modal environments must be created before they can be used to scope resources
     like apps, volumes, and sandboxes. Since the Modal Python SDK doesn't provide
     an API for managing environments, we use the CLI.
+
+    This function is only called when the environment is known to be missing (after
+    a NotFoundError), so it does not check for existence first.
     """
 
     # first a quick check to make sure we're not naming things incorrectly (and making it hard to clean up these environments)
@@ -53,22 +54,6 @@ def _ensure_environment_exists(environment_name: str, cg: ConcurrencyGroup) -> N
             f"Refusing to create Modal environment with name {environment_name}: test environments should start with 'mngr_test-' and should be explicitly configured using generate_test_environment_name() so that they can be easily identified and cleaned up."
         )
 
-    # Check if the environment exists by listing environments
-    try:
-        result = cg.run_process_to_completion(
-            ["uv", "run", "modal", "environment", "list", "--json"],
-            timeout=30,
-        )
-        environments = json.loads(result.stdout)
-        for env in environments:
-            if env.get("name") == environment_name:
-                logger.trace("Found existing Modal environment: {}", environment_name)
-                return
-    except (ProcessError, json.JSONDecodeError):
-        # If we can't list environments, try to create anyway
-        pass
-
-    # Environment doesn't exist, create it
     with log_span("Creating Modal environment: {}", environment_name):
         try:
             cg.run_process_to_completion(
@@ -90,8 +75,8 @@ def _lookup_persistent_app_with_env_retry(app_name: str, environment_name: str, 
     try:
         return modal.App.lookup(app_name, create_if_missing=True, environment_name=environment_name)
     except modal.exception.NotFoundError:
-        # Ensure the environment exists before retrying
-        _ensure_environment_exists(environment_name, cg)
+        # Create the environment before retrying
+        _create_environment(environment_name, cg)
         return _lookup_persistent_app_with_retry(app_name, environment_name)
 
 
@@ -119,8 +104,8 @@ def _enter_ephemeral_app_context_with_env_retry(app: modal.App, environment_name
         run_context.__enter__()
         return run_context
     except modal.exception.NotFoundError:
-        # Ensure the environment exists before retrying
-        _ensure_environment_exists(environment_name, cg)
+        # Create the environment before retrying
+        _create_environment(environment_name, cg)
         return _enter_ephemeral_app_context_with_retry(app, environment_name)
 
 
