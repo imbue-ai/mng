@@ -32,6 +32,8 @@ class RenameCliOptions(CommonCliOptions):
     current: str
     new_name: str
     dry_run: bool
+    # Planned features (not yet implemented)
+    host: bool
 
 
 def _find_agent_without_starting(
@@ -122,10 +124,15 @@ def _output_result(
     is_flag=True,
     help="Show what would be renamed without actually renaming",
 )
+@optgroup.option(
+    "--host",
+    is_flag=True,
+    help="Rename a host instead of an agent [future]",
+)
 @add_common_options
 @click.pass_context
 def rename(ctx: click.Context, **kwargs: Any) -> None:
-    """Rename an agent.
+    """Rename an agent or host.
 
     Renames the agent's data.json and tmux session (if running).
     Git branch names are not renamed.
@@ -149,6 +156,10 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
         command_class=RenameCliOptions,
     )
     logger.debug("Started rename command")
+
+    # Check for unsupported [future] options
+    if opts.host:
+        raise NotImplementedError("--host is not implemented yet. Currently only agent renaming is supported.")
 
     # Validate new name
     try:
@@ -196,9 +207,10 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
 # Register help metadata for git-style help formatting
 _RENAME_HELP_METADATA = CommandHelpMetadata(
     name="mngr-rename",
-    one_line_description="Rename an agent",
-    synopsis="mngr [rename|mv] <CURRENT> <NEW-NAME> [--dry-run]",
-    description="""Rename an agent.
+    one_line_description="Rename an agent or host",
+    synopsis="mngr [rename|mv] <CURRENT> <NEW-NAME> [--dry-run] [--host]",
+    arguments_description="- `CURRENT`: Current name or ID of the agent to rename\n- `NEW-NAME`: New name for the agent",
+    description="""Rename an agent or host.
 
 Updates the agent's name in its data.json and renames the tmux session
 if the agent is currently running. Git branch names are not renamed.

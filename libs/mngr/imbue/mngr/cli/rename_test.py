@@ -17,6 +17,7 @@ def test_rename_cli_options_parsing_creates_valid_options() -> None:
         current="my-agent",
         new_name="new-agent",
         dry_run=False,
+        host=False,
     )
     assert opts.current == "my-agent"
     assert opts.new_name == "new-agent"
@@ -39,6 +40,7 @@ def test_rename_cli_options_with_dry_run() -> None:
         current="agent-123",
         new_name="renamed-agent",
         dry_run=True,
+        host=False,
     )
     assert opts.current == "agent-123"
     assert opts.new_name == "renamed-agent"
