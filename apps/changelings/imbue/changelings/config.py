@@ -1,9 +1,11 @@
 from pathlib import Path
 
 import tomlkit
+from tomlkit.exceptions import TOMLKitError
 
 from imbue.changelings.data_types import ChangelingConfig
 from imbue.changelings.data_types import ChangelingDefinition
+from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.errors import ChangelingAlreadyExistsError
 from imbue.changelings.errors import ChangelingConfigError
 from imbue.changelings.errors import ChangelingNotFoundError
@@ -38,7 +40,7 @@ def load_config() -> ChangelingConfig:
 
     try:
         raw = tomlkit.loads(config_path.read_text())
-    except Exception as e:
+    except TOMLKitError as e:
         raise ChangelingConfigError(f"Failed to parse config file {config_path}: {e}") from e
 
     return _parse_config(raw)
@@ -140,7 +142,7 @@ def _serialize_config(config: ChangelingConfig) -> dict:
 
         if definition.repo is not None:
             entry.add("repo", str(definition.repo))
-        if definition.initial_message != ChangelingDefinition.model_fields["initial_message"].default:
+        if definition.initial_message != DEFAULT_INITIAL_MESSAGE:
             entry.add("initial_message", definition.initial_message)
         if definition.extra_mngr_args:
             entry.add("extra_mngr_args", definition.extra_mngr_args)

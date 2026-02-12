@@ -1,14 +1,19 @@
 """Tests for the code-guardian agent type."""
 
+from pathlib import Path
+
 from imbue.mngr.agents.agent_registry import get_agent_class
 from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.agents.agent_registry import list_registered_agent_types
 from imbue.mngr.agents.agent_registry import resolve_agent_type
+from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.code_guardian_agent import CodeGuardianAgent
 from imbue.mngr.agents.default_plugins.code_guardian_agent import CodeGuardianAgentConfig
 from imbue.mngr.agents.default_plugins.code_guardian_agent import _CODE_GUARDIAN_SKILL_CONTENT
 from imbue.mngr.agents.default_plugins.code_guardian_agent import _SKILL_NAME
+from imbue.mngr.agents.default_plugins.code_guardian_agent import _install_skill_locally
 from imbue.mngr.config.data_types import MngrConfig
+from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 
@@ -90,5 +95,32 @@ def test_code_guardian_skill_content_is_substantial() -> None:
 
 def test_code_guardian_agent_is_subclass_of_claude_agent() -> None:
     """CodeGuardianAgent should be a subclass of ClaudeAgent."""
-    assert CodeGuardianAgent is not None
-    assert issubclass(CodeGuardianAgent, CodeGuardianAgent.__bases__[0])
+    assert issubclass(CodeGuardianAgent, ClaudeAgent)
+
+
+def test_install_skill_locally_creates_skill_file_in_non_interactive_mode(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """In non-interactive mode, _install_skill_locally should create the skill file without prompting."""
+    # temp_mngr_ctx has is_interactive=False by default, and HOME is set to tmp_path
+    skill_path = Path.home() / ".claude" / "skills" / _SKILL_NAME / "SKILL.md"
+    assert not skill_path.exists()
+
+    _install_skill_locally(temp_mngr_ctx)
+
+    assert skill_path.exists()
+    content = skill_path.read_text()
+    assert content == _CODE_GUARDIAN_SKILL_CONTENT
+
+
+def test_install_skill_locally_overwrites_existing_skill_in_non_interactive_mode(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """In non-interactive mode, _install_skill_locally should overwrite an existing skill file."""
+    skill_path = Path.home() / ".claude" / "skills" / _SKILL_NAME / "SKILL.md"
+    skill_path.parent.mkdir(parents=True, exist_ok=True)
+    skill_path.write_text("old content")
+
+    _install_skill_locally(temp_mngr_ctx)
+
+    assert skill_path.read_text() == _CODE_GUARDIAN_SKILL_CONTENT

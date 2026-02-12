@@ -8,7 +8,7 @@ from imbue.changelings.primitives import CronSchedule
 from imbue.changelings.primitives import GitRepoUrl
 from imbue.imbue_common.frozen_model import FrozenModel
 
-DEFAULT_SCHEDULE: str = "0 3 * * *"
+DEFAULT_SCHEDULE: Final[str] = "0 3 * * *"
 DEFAULT_INITIAL_MESSAGE: Final[str] = "Please use your primary skill"
 
 

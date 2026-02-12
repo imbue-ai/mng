@@ -110,6 +110,34 @@ def _prompt_user_for_skill_install(skill_path: Path) -> bool:
         return click.confirm("Install the code-guardian skill?", default=True)
 
 
+def _install_skill_locally(mngr_ctx: MngrContext) -> None:
+    """Install the code-guardian skill to the local user's ~/.claude/skills/."""
+    skill_path = Path.home() / ".claude" / "skills" / _SKILL_NAME / "SKILL.md"
+
+    with log_span("Installing code-guardian skill to {}", skill_path):
+        if mngr_ctx.is_interactive:
+            if not _prompt_user_for_skill_install(skill_path):
+                logger.info("Skipped code-guardian skill installation")
+                return
+
+        skill_path.parent.mkdir(parents=True, exist_ok=True)
+        skill_path.write_text(_CODE_GUARDIAN_SKILL_CONTENT)
+        logger.debug("Installed code-guardian skill to {}", skill_path)
+
+
+def _install_skill_remotely(host: OnlineHostInterface) -> None:
+    """Install the code-guardian skill on a remote host."""
+    skill_path = Path(f".claude/skills/{_SKILL_NAME}/SKILL.md")
+
+    with log_span("Installing code-guardian skill on remote host"):
+        host.execute_command(
+            f"mkdir -p ~/.claude/skills/{_SKILL_NAME}",
+            timeout_seconds=10.0,
+        )
+        host.write_text_file(skill_path, _CODE_GUARDIAN_SKILL_CONTENT)
+        logger.debug("Installed code-guardian skill on remote host")
+
+
 class CodeGuardianAgent(ClaudeAgent):
     """Agent implementation for code-guardian with skill provisioning."""
 
@@ -121,41 +149,11 @@ class CodeGuardianAgent(ClaudeAgent):
     ) -> None:
         """Provision the code-guardian skill and then run standard Claude provisioning."""
         super().provision(host, options, mngr_ctx)
-        self._install_skill(host, mngr_ctx)
-
-    def _install_skill(self, host: OnlineHostInterface, mngr_ctx: MngrContext) -> None:
-        """Install the code-guardian skill to ~/.claude/skills/."""
-        skill_relative_path = Path(".claude") / "skills" / _SKILL_NAME / "SKILL.md"
 
         if host.is_local:
-            self._install_skill_locally(mngr_ctx)
+            _install_skill_locally(mngr_ctx)
         else:
-            self._install_skill_remotely(host, skill_relative_path)
-
-    def _install_skill_locally(self, mngr_ctx: MngrContext) -> None:
-        """Install the skill to the local user's ~/.claude/skills/."""
-        skill_path = Path.home() / ".claude" / "skills" / _SKILL_NAME / "SKILL.md"
-
-        with log_span("Installing code-guardian skill to {}", skill_path):
-            if mngr_ctx.is_interactive:
-                if not _prompt_user_for_skill_install(skill_path):
-                    logger.info("Skipped code-guardian skill installation")
-                    return
-
-            skill_path.parent.mkdir(parents=True, exist_ok=True)
-            skill_path.write_text(_CODE_GUARDIAN_SKILL_CONTENT)
-            logger.debug("Installed code-guardian skill to {}", skill_path)
-
-    def _install_skill_remotely(self, host: OnlineHostInterface, skill_relative_path: Path) -> None:
-        """Install the skill on a remote host."""
-        with log_span("Installing code-guardian skill on remote host"):
-            host.execute_command(
-                f"mkdir -p ~/.claude/skills/{_SKILL_NAME}",
-                timeout_seconds=10.0,
-            )
-            home_skill_path = Path(f".claude/skills/{_SKILL_NAME}/SKILL.md")
-            host.write_text_file(home_skill_path, _CODE_GUARDIAN_SKILL_CONTENT)
-            logger.debug("Installed code-guardian skill on remote host")
+            _install_skill_remotely(host)
 
 
 @hookimpl
