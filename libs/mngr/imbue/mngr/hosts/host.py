@@ -44,7 +44,6 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.common import LOCAL_CONNECTOR_NAME
-from imbue.mngr.hosts.common import is_macos
 from imbue.mngr.hosts.offline_host import BaseHost
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CertifiedHostData
@@ -697,29 +696,32 @@ class Host(BaseHost, OnlineHostInterface):
         """Return the host last stop time as a datetime, or None if unknown."""
         return None
 
-    # FIXME: both this and the below method will be broken if we ever have remote hosts that are OSX
-    #  instead of this, we should, for each of them, make a single command that does the platform check before dispatching to the resulting platform-dependent logic
     def get_uptime_seconds(self) -> float:
         """Get host uptime in seconds."""
-        if is_macos() and self.is_local:
-            # macOS: use sysctl kern.boottime to get boot time, then compute uptime
-            # Output format: { sec = 1234567890, usec = 123456 } ...
-            # Use awk to reliably extract the sec value (not usec)
-            result = self.execute_command(
-                "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}' && date +%s"
-            )
-            if result.success:
-                output_lines = result.stdout.strip().split("\n")
-                if len(output_lines) == 2:
-                    boot_time = int(output_lines[0])
-                    current_time = int(output_lines[1])
-                    return float(current_time - boot_time)
-        else:
-            # Linux: use /proc/uptime
-            result = self.execute_command("cat /proc/uptime 2>/dev/null")
-            if result.success:
-                uptime_str = result.stdout.split()[0]
+        # Single command that detects the platform on the host and dispatches accordingly,
+        # so it works for both local and remote hosts regardless of OS
+        result = self.execute_command(
+            'if [ "$(uname -s)" = "Darwin" ]; then '
+            "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}' && date +%s; "
+            "else "
+            "cat /proc/uptime 2>/dev/null; "
+            "fi"
+        )
+        if result.success:
+            output = result.stdout.strip()
+            output_lines = output.split("\n")
+            if len(output_lines) == 2:
+                # macOS: two lines -- boot time and current time
+                boot_time = int(output_lines[0])
+                current_time = int(output_lines[1])
+                return float(current_time - boot_time)
+            elif len(output_lines) == 1 and output:
+                # Linux: single line from /proc/uptime
+                uptime_str = output.split()[0]
                 return float(uptime_str)
+            else:
+                # Unexpected output format
+                return 0.0
 
         return 0.0
 
@@ -729,28 +731,21 @@ class Host(BaseHost, OnlineHostInterface):
         Returns the actual boot time from the OS, not computed from uptime,
         to avoid timing inconsistencies.
         """
-        if is_macos() and self.is_local:
-            # macOS: use sysctl kern.boottime which gives boot time directly
-            # Output format: { sec = 1234567890, usec = 123456 } ...
-            # Use awk to reliably extract the sec value (not usec)
-            result = self.execute_command(
-                "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}'"
-            )
-            if result.success:
-                try:
-                    boot_timestamp = int(result.stdout.strip())
-                    return datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
-                except (ValueError, OSError):
-                    pass
-        else:
-            # Linux: use /proc/stat which has btime (boot time as Unix timestamp)
-            result = self.execute_command("grep '^btime ' /proc/stat 2>/dev/null | awk '{print $2}'")
-            if result.success:
-                try:
-                    boot_timestamp = int(result.stdout.strip())
-                    return datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
-                except (ValueError, OSError):
-                    pass
+        # Single command that detects the platform on the host and dispatches accordingly,
+        # so it works for both local and remote hosts regardless of OS
+        result = self.execute_command(
+            'if [ "$(uname -s)" = "Darwin" ]; then '
+            "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}'; "
+            "else "
+            "grep '^btime ' /proc/stat 2>/dev/null | awk '{print $2}'; "
+            "fi"
+        )
+        if result.success:
+            try:
+                boot_timestamp = int(result.stdout.strip())
+                return datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
+            except (ValueError, OSError):
+                pass
 
         return None
 
