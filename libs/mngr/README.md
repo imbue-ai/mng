@@ -164,6 +164,7 @@ mngr <command> [options]
 ### For managing mngr itself:
 
 - [`ask`](docs/commands/secondary/ask.md): Chat with mngr for help
+- [`bootstrap`](docs/commands/secondary/bootstrap.md): Generate a Dockerfile for your project
 - [`plugin`](docs/commands/secondary/plugin.md) [future]: Manage mngr plugins
 - [`config`](docs/commands/secondary/config.md): View and edit mngr configuration
 
