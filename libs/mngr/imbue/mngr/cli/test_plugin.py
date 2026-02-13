@@ -6,6 +6,7 @@ from pathlib import Path
 import pluggy
 import pytest
 from click.testing import CliRunner
+from loguru import logger
 
 from imbue.mngr.cli.plugin import plugin
 
@@ -123,16 +124,27 @@ def test_plugin_without_subcommand_shows_help(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that invoking plugin with no subcommand shows help text."""
-    result = cli_runner.invoke(
-        plugin,
-        [],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
+    """Test that invoking plugin with no subcommand shows help text.
+
+    The help output goes through logger.info(), which writes to loguru's handlers
+    rather than stdout. CliRunner.output only captures stdout, so we use a loguru
+    sink to reliably capture the output regardless of handler state.
+    """
+    messages: list[str] = []
+    sink_id = logger.add(lambda msg: messages.append(str(msg)), level="INFO")
+    try:
+        result = cli_runner.invoke(
+            plugin,
+            [],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+    finally:
+        logger.remove(sink_id)
 
     assert result.exit_code == 0
-    assert "list" in result.output.lower()
+    combined = "\n".join(messages)
+    assert "list" in combined.lower()
 
 
 # =============================================================================
