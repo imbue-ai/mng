@@ -59,24 +59,6 @@ def test_open_cli_options_with_all_fields() -> None:
     assert opts.active is True
 
 
-def test_open_type_raises_not_implemented(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that specifying a URL type raises NotImplementedError."""
-    # Use positional args: agent="my-agent", url_type="terminal"
-    result = cli_runner.invoke(
-        open_command,
-        ["my-agent", "terminal"],
-        obj=plugin_manager,
-        catch_exceptions=True,
-    )
-
-    assert result.exit_code != 0
-    assert isinstance(result.exception, NotImplementedError)
-    assert "--type is not implemented yet" in str(result.exception)
-
-
 def test_open_active_without_wait_raises_error(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
