@@ -1,9 +1,24 @@
+import time
+from typing import Any
 from typing import assert_never
 
 import click
 from click_option_group import optgroup
 from loguru import logger
+from pydantic import ConfigDict
+from urwid.display.raw import Screen
+from urwid.event_loop.abstract_loop import ExitMainLoop
+from urwid.event_loop.main_loop import MainLoop
+from urwid.widget.attr_map import AttrMap
+from urwid.widget.divider import Divider
+from urwid.widget.frame import Frame
+from urwid.widget.listbox import ListBox
+from urwid.widget.listbox import SimpleFocusListWalker
+from urwid.widget.pile import Pile
+from urwid.widget.text import Text
+from urwid.widget.wimp import SelectableIcon
 
+from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.cleanup import execute_cleanup
 from imbue.mngr.api.cleanup import find_agents_for_cleanup
@@ -12,6 +27,9 @@ from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.connect import build_status_text
+from imbue.mngr.cli.connect import filter_agents
+from imbue.mngr.cli.connect import handle_search_key
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
@@ -269,74 +287,295 @@ def _run_interactive_selection(
     agents: list[AgentInfo],
     action: CleanupAction,
 ) -> list[AgentInfo]:
-    """Show a numbered list of agents and let the user select which to act on."""
-    match action:
-        case CleanupAction.DESTROY:
-            action_verb = "destroy"
-        case CleanupAction.STOP:
-            action_verb = "stop"
-        case _ as unreachable:
-            assert_never(unreachable)
-    logger.info("\nFound {} agent(s). Select which to {}:\n", len(agents), action_verb)
+    """Show a urwid-based multi-select TUI for choosing agents to clean up."""
+    if not agents:
+        return []
+    return _run_cleanup_selector(agents, action)
 
-    for idx, agent in enumerate(agents, start=1):
-        state_str = agent.state.value
-        provider_str = str(agent.host.provider_name)
-        host_state = agent.host.state.value if agent.host.state else "unknown"
-        logger.info(
-            "  [{}] {} (type={}, state={}, provider={}, host_state={})",
-            idx,
-            agent.name,
-            agent.type,
-            state_str,
-            provider_str,
-            host_state,
-        )
 
-    logger.info("")
-    logger.info("Enter selection: numbers (1,3,5), ranges (1-3), 'all', or 'none'")
+# =============================================================================
+# Urwid multi-select TUI for cleanup
+# =============================================================================
 
-    selection = click.prompt("Selection", type=str, default="none")
-    return _parse_selection(selection, agents)
+
+class _CleanupSelectorState(MutableModel):
+    """Mutable state for the cleanup multi-select TUI."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    agents: list[AgentInfo]
+    filtered_agents: list[AgentInfo] = []
+    selected_ids: set[str] = set()
+    list_walker: Any
+    status_text: Any
+    result: list[AgentInfo] | None = None
+    hide_stopped: bool = False
+    search_query: str = ""
+    last_ctrl_c_time: float = 0.0
+    name_width: int = 0
+    state_width: int = 0
+    provider_width: int = 0
+    action: CleanupAction = CleanupAction.DESTROY
 
 
 @pure
-def _parse_selection(selection: str, agents: list[AgentInfo]) -> list[AgentInfo]:
-    """Parse a user selection string into a list of agents."""
-    stripped = selection.strip().lower()
+def _selected_marker(is_selected: bool) -> str:
+    """Return [x] or [ ] depending on selection state."""
+    return "[x]" if is_selected else "[ ]"
 
-    if stripped == "none" or stripped == "":
-        return []
 
-    if stripped == "all":
-        return list(agents)
+def _create_cleanup_list_item(
+    agent: AgentInfo,
+    is_selected: bool,
+    name_width: int,
+    state_width: int,
+    provider_width: int,
+) -> AttrMap:
+    """Create a selectable list item for the cleanup selector."""
+    marker = _selected_marker(is_selected)
+    name_padded = str(agent.name).ljust(name_width)
+    state_padded = agent.state.value.ljust(state_width)
+    provider_padded = str(agent.host.provider_name).ljust(provider_width)
+    host_str = str(agent.host.name)
 
-    # Parse comma-separated values, each of which can be a number or range
-    selected_indices: set[int] = set()
-    parts = stripped.split(",")
-    for part in parts:
-        stripped_part = part.strip()
-        if "-" in stripped_part:
-            # Range like "1-3"
-            range_parts = stripped_part.split("-", 1)
-            try:
-                range_start = int(range_parts[0].strip())
-                range_end = int(range_parts[1].strip())
-                for idx in range(range_start, range_end + 1):
-                    if 1 <= idx <= len(agents):
-                        selected_indices.add(idx)
-            except ValueError:
-                continue
+    display_text = f"{marker} {name_padded}  {state_padded}  {provider_padded}  {host_str}"
+    selectable_item = SelectableIcon(display_text, cursor_position=0)
+
+    return AttrMap(selectable_item, None, focus_map="reversed")
+
+
+def _build_cleanup_status_text(
+    search_query: str,
+    hide_stopped: bool,
+    selected_count: int,
+    total_count: int,
+    action: CleanupAction,
+) -> str:
+    """Build the status bar text for the cleanup selector."""
+    base_status = build_status_text(search_query, hide_stopped)
+    match action:
+        case CleanupAction.DESTROY:
+            action_word = "destroy"
+        case CleanupAction.STOP:
+            action_word = "stop"
+        case _ as unreachable:
+            assert_never(unreachable)
+    return f"{base_status} | Selected: {selected_count}/{total_count} to {action_word}"
+
+
+def _refresh_cleanup_list(state: _CleanupSelectorState) -> None:
+    """Refresh the agent list view with current filter and selection state."""
+    state.filtered_agents = filter_agents(state.agents, state.hide_stopped, state.search_query)
+
+    # Preserve focus position
+    _, old_focus = state.list_walker.get_focus() if state.list_walker else (None, None)
+
+    state.list_walker.clear()
+    for agent in state.filtered_agents:
+        is_selected = str(agent.id) in state.selected_ids
+        state.list_walker.append(
+            _create_cleanup_list_item(agent, is_selected, state.name_width, state.state_width, state.provider_width)
+        )
+
+    if state.list_walker:
+        safe_focus = min(old_focus, len(state.list_walker) - 1) if old_focus is not None else 0
+        state.list_walker.set_focus(max(safe_focus, 0))
+
+    state.status_text.set_text(
+        _build_cleanup_status_text(
+            state.search_query, state.hide_stopped, len(state.selected_ids), len(state.agents), state.action
+        )
+    )
+
+
+def _handle_cleanup_input(state: _CleanupSelectorState, key: str) -> bool:
+    """Handle keyboard input for the cleanup selector. Returns True if handled."""
+    # Space or 'd' toggles selection on the focused item
+    if key in (" ", "d"):
+        if state.list_walker and state.filtered_agents:
+            _, focus_index = state.list_walker.get_focus()
+            if focus_index is not None and 0 <= focus_index < len(state.filtered_agents):
+                agent_id = str(state.filtered_agents[focus_index].id)
+                if agent_id in state.selected_ids:
+                    state.selected_ids.discard(agent_id)
+                else:
+                    state.selected_ids.add(agent_id)
+                _refresh_cleanup_list(state)
+        return True
+
+    # 'a' selects all visible agents
+    if key == "a":
+        for agent in state.filtered_agents:
+            state.selected_ids.add(str(agent.id))
+        _refresh_cleanup_list(state)
+        return True
+
+    # 'n' deselects all
+    if key == "n":
+        state.selected_ids.clear()
+        _refresh_cleanup_list(state)
+        return True
+
+    # Enter confirms selection
+    if key == "enter":
+        state.result = [agent for agent in state.agents if str(agent.id) in state.selected_ids]
+        raise ExitMainLoop()
+
+    # Ctrl+R toggles hiding stopped agents (reusing connect.py pattern)
+    if key == "ctrl r":
+        state.hide_stopped = not state.hide_stopped
+        _refresh_cleanup_list(state)
+        return True
+
+    # Ctrl+C: clear search first, then quit on double-press
+    if key == "ctrl c":
+        current_time = time.time()
+        if state.search_query:
+            state.search_query = ""
+            state.last_ctrl_c_time = current_time
+            _refresh_cleanup_list(state)
+            return True
+        elif current_time - state.last_ctrl_c_time < 0.5:
+            state.result = []
+            raise ExitMainLoop()
         else:
-            try:
-                idx = int(stripped_part)
-                if 1 <= idx <= len(agents):
-                    selected_indices.add(idx)
-            except ValueError:
-                continue
+            state.last_ctrl_c_time = current_time
+            return True
 
-    # Convert 1-based indices to agents
-    return [agents[idx - 1] for idx in sorted(selected_indices)]
+    # Arrow keys pass through to ListBox for navigation
+    if key in ("up", "down", "page up", "page down", "home", "end"):
+        return False
+
+    # Typeahead search (reusing connect.py pattern)
+    is_printable = len(key) == 1 and key.isprintable()
+    character = key if is_printable else None
+
+    new_query, should_refresh = handle_search_key(
+        key=key,
+        is_printable=is_printable,
+        character=character,
+        current_query=state.search_query,
+    )
+
+    if should_refresh:
+        state.search_query = new_query
+        _refresh_cleanup_list(state)
+        return True
+
+    return False
+
+
+class _CleanupInputHandler(MutableModel):
+    """Callable input handler for urwid MainLoop."""
+
+    state: _CleanupSelectorState
+
+    def __call__(self, key: str | tuple[str, int, int, int]) -> bool | None:
+        if isinstance(key, tuple):
+            return None
+        handled = _handle_cleanup_input(self.state, key)
+        return True if handled else None
+
+
+def _run_cleanup_selector(agents: list[AgentInfo], action: CleanupAction) -> list[AgentInfo]:
+    """Run the multi-select cleanup TUI and return selected agents."""
+    # Calculate column widths
+    name_width = min(max((len(str(a.name)) for a in agents), default=10), 40)
+    state_width = min(max((len(a.state.value) for a in agents), default=7), 15)
+    provider_width = min(max((len(str(a.host.provider_name)) for a in agents), default=5), 20)
+
+    list_walker: SimpleFocusListWalker[AttrMap] = SimpleFocusListWalker([])
+    listbox = ListBox(list_walker)
+
+    status_text = Text("")
+    status_bar = AttrMap(status_text, "status")
+
+    state = _CleanupSelectorState(
+        agents=agents,
+        list_walker=list_walker,
+        status_text=status_text,
+        name_width=name_width,
+        state_width=state_width,
+        provider_width=provider_width,
+        action=action,
+    )
+
+    match action:
+        case CleanupAction.DESTROY:
+            title_action = "Destroy"
+        case CleanupAction.STOP:
+            title_action = "Stop"
+        case _ as unreachable:
+            assert_never(unreachable)
+
+    instructions_text = (
+        "Instructions:\n"
+        "  Space/d - Toggle selection on focused agent\n"
+        "  a - Select all visible agents\n"
+        "  n - Deselect all\n"
+        "  Enter - Confirm selection\n"
+        "  Type - Search agents by name\n"
+        "  Up/Down - Navigate the list\n"
+        "  Backspace - Clear search character\n"
+        "  Ctrl+C - Clear search (twice to quit)\n"
+        "  Ctrl+R - Toggle hiding stopped agents"
+    )
+    instructions = Text(instructions_text)
+
+    header_text = (
+        f"    {'NAME'.ljust(name_width)}  {'STATE'.ljust(state_width)}  {'PROVIDER'.ljust(provider_width)}  HOST"
+    )
+    header_row = AttrMap(Text(("table_header", header_text)), "table_header")
+
+    _refresh_cleanup_list(state)
+
+    header = Pile(
+        [
+            AttrMap(Text(f"Cleanup: Select Agents to {title_action}", align="center"), "header"),
+            Divider(),
+            instructions,
+            Divider(),
+            header_row,
+            Divider("-"),
+        ]
+    )
+
+    footer = Pile(
+        [
+            Divider(),
+            status_bar,
+        ]
+    )
+
+    frame = Frame(
+        body=listbox,
+        header=header,
+        footer=footer,
+    )
+
+    palette = [
+        ("header", "white", "dark blue"),
+        ("status", "white", "dark blue"),
+        ("reversed", "standout", ""),
+        ("table_header", "bold", ""),
+    ]
+
+    input_handler = _CleanupInputHandler(state=state)
+
+    screen = Screen()
+    screen.tty_signal_keys(intr="undefined")
+
+    loop = MainLoop(
+        frame,
+        palette=palette,
+        unhandled_input=input_handler,
+        screen=screen,
+    )
+    loop.run()
+
+    if state.result is None:
+        return []
+    return state.result
 
 
 def _emit_no_agents_found(output_opts: OutputOptions) -> None:

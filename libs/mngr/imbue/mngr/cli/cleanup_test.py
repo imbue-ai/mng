@@ -5,10 +5,8 @@ from click.testing import CliRunner
 
 from imbue.mngr.cli.cleanup import CleanupCliOptions
 from imbue.mngr.cli.cleanup import _build_cel_filters_from_options
-from imbue.mngr.cli.cleanup import _parse_selection
+from imbue.mngr.cli.cleanup import _selected_marker
 from imbue.mngr.cli.cleanup import cleanup
-from imbue.mngr.cli.conftest import make_test_agent_info
-from imbue.mngr.primitives import AgentName
 
 # =============================================================================
 # Tests for _build_cel_filters_from_options
@@ -127,63 +125,16 @@ def test_build_cel_filters_combined() -> None:
 
 
 # =============================================================================
-# Tests for _parse_selection
+# Tests for _selected_marker
 # =============================================================================
 
 
-def test_parse_selection_none() -> None:
-    agents = [make_test_agent_info("a"), make_test_agent_info("b")]
-    assert _parse_selection("none", agents) == []
+def test_selected_marker_true() -> None:
+    assert _selected_marker(True) == "[x]"
 
 
-def test_parse_selection_empty() -> None:
-    agents = [make_test_agent_info("a")]
-    assert _parse_selection("", agents) == []
-
-
-def test_parse_selection_all() -> None:
-    agents = [make_test_agent_info("a"), make_test_agent_info("b")]
-    result = _parse_selection("all", agents)
-    assert len(result) == 2
-
-
-def test_parse_selection_single_number() -> None:
-    agents = [make_test_agent_info("a"), make_test_agent_info("b"), make_test_agent_info("c")]
-    result = _parse_selection("2", agents)
-    assert len(result) == 1
-    assert result[0].name == AgentName("b")
-
-
-def test_parse_selection_comma_separated() -> None:
-    agents = [make_test_agent_info("a"), make_test_agent_info("b"), make_test_agent_info("c")]
-    result = _parse_selection("1,3", agents)
-    assert len(result) == 2
-    assert result[0].name == AgentName("a")
-    assert result[1].name == AgentName("c")
-
-
-def test_parse_selection_range() -> None:
-    agents = [make_test_agent_info("a"), make_test_agent_info("b"), make_test_agent_info("c")]
-    result = _parse_selection("1-3", agents)
-    assert len(result) == 3
-
-
-def test_parse_selection_mixed() -> None:
-    agents = [make_test_agent_info(f"agent-{i}") for i in range(5)]
-    result = _parse_selection("1,3-5", agents)
-    assert len(result) == 4
-
-
-def test_parse_selection_out_of_range_ignored() -> None:
-    agents = [make_test_agent_info("a"), make_test_agent_info("b")]
-    result = _parse_selection("1,5,10", agents)
-    assert len(result) == 1
-
-
-def test_parse_selection_invalid_input_ignored() -> None:
-    agents = [make_test_agent_info("a")]
-    result = _parse_selection("abc", agents)
-    assert result == []
+def test_selected_marker_false() -> None:
+    assert _selected_marker(False) == "[ ]"
 
 
 # =============================================================================
