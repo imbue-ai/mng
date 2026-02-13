@@ -774,17 +774,20 @@ def test_provision_raises_when_remote_installation_disabled(
             agent_config=ClaudeAgentConfig(check_installation=True),
         )
 
-        # Simulate a non-local host where claude is not installed
-        non_local_host = cast(OnlineHostInterface, SimpleNamespace(is_local=False))
+        # Simulate a non-local host where claude is not installed.
+        # execute_command returns a failed result to simulate 'command -v claude' failing.
+        non_local_host = cast(
+            OnlineHostInterface,
+            SimpleNamespace(
+                is_local=False,
+                execute_command=lambda *args, **kwargs: SimpleNamespace(success=False),
+            ),
+        )
 
         options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
 
-        with patch(
-            "imbue.mngr.agents.default_plugins.claude_agent._check_claude_installed",
-            return_value=False,
-        ):
-            with pytest.raises(PluginMngrError, match="automatic remote installation is disabled"):
-                agent.provision(host=non_local_host, options=options, mngr_ctx=ctx)
+        with pytest.raises(PluginMngrError, match="automatic remote installation is disabled"):
+            agent.provision(host=non_local_host, options=options, mngr_ctx=ctx)
 
 
 # =============================================================================
