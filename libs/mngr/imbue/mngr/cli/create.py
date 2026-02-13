@@ -1,4 +1,5 @@
 import os
+import shlex
 import sys
 from collections.abc import Callable
 from functools import lru_cache
@@ -201,6 +202,7 @@ class CreateCliOptions(CommonCliOptions):
     idle_mode: str | None
     activity_sources: str | None
     start_on_boot: bool | None
+    start_host: bool
     grant: tuple[str, ...]
     user_command: tuple[str, ...]
     sudo_command: tuple[str, ...]
@@ -252,10 +254,6 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.group("Host Options")
 @optgroup.option("--in", "--new-host", "new_host", help="Create a new host using provider (docker, modal, ...)")
 @optgroup.option("--host", "--target-host", help="Use an existing host (by name or ID) [default: local]")
-# FIXME: you can get yourself in a bit of a screwy situation if you DONT specify --project and you DO use a remote source (which comes from a different project)
-#   currently we have this assumption that your local dir and source are for the same project
-#   we should at least validate that, for remote sources, they end up having the exact same project inferred as locally
-#   and if not, raise an error to require that the user clarify
 @optgroup.option(
     "--project",
     help="Project name for the agent [default: derived from git remote origin or folder name]",
@@ -303,6 +301,13 @@ class CreateCliOptions(CommonCliOptions):
     "copy_work_dir",
     default=None,
     help="Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect]",
+)
+@optgroup.option(
+    "--auto-start/--no-auto-start",
+    "start_host",
+    default=True,
+    show_default=True,
+    help="Automatically start offline hosts (source and target) before proceeding",
 )
 @optgroup.group("Agent Source Data (what to include in the new agent)")
 @optgroup.option(
@@ -577,7 +582,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
         return load_all_agents_grouped_by_host(mngr_ctx)[0]
 
     # figure out where the source data is coming from
-    source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx)
+    source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx, is_start_desired=opts.start_host)
 
     # figure out the project label, in case we need that
     project_name = _parse_project_name(source_location, opts, mngr_ctx)
@@ -652,12 +657,20 @@ def _handle_create(mngr_ctx, output_opts, opts):
             create_result = CreateAgentResult(agent=agent, host=host)
             return create_result, connection_opts, output_opts, opts, mngr_ctx
 
-    # If ensure-clean is set, verify the source work_dir is clean
-    if opts.ensure_clean:
+    # If ensure-clean is set, verify the source work_dir is clean.
+    # Skip the check when using worktree mode with an explicit --base-branch, since the
+    # worktree will be created from that branch and uncommitted changes in the current
+    # working tree are irrelevant.
+    is_worktree_from_other_branch = (
+        agent_opts.git is not None
+        and agent_opts.git.copy_mode == WorkDirCopyMode.WORKTREE
+        and opts.base_branch is not None
+    )
+    if opts.ensure_clean and not is_worktree_from_other_branch:
         _ensure_clean_work_dir(source_location)
 
     # figure out the target host (if we just have a reference)
-    resolved_target_host = _resolve_target_host(target_host, mngr_ctx)
+    resolved_target_host = _resolve_target_host(target_host, mngr_ctx, is_start_desired=opts.start_host)
 
     # figure out the source (this may snapshot the source agent if needed)
     snapshot = _snapshot_if_required(
@@ -859,7 +872,25 @@ def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions, m
             "Have to re-implement the below function so that it works via HostInterface calls instead!"
         )
 
-    return derive_project_name_from_path(source_location.path, mngr_ctx.concurrency_group)
+    source_project = derive_project_name_from_path(source_location.path, mngr_ctx.concurrency_group)
+
+    # When creating a new host from an external source (--source-agent or --source-host),
+    # validate that the project inferred from the source matches the project inferred from
+    # the local working directory. If they differ, the user must specify --project explicitly
+    # to avoid silently tagging the new host with the wrong project.
+    is_external_source = opts.source_agent is not None or opts.source_host is not None
+    is_creating_new_host = opts.new_host is not None
+    if is_external_source and is_creating_new_host:
+        local_git_root = find_git_worktree_root(None, mngr_ctx.concurrency_group)
+        local_path = local_git_root if local_git_root is not None else Path(os.getcwd())
+        local_project = derive_project_name_from_path(local_path, mngr_ctx.concurrency_group)
+        if source_project != local_project:
+            raise UserInputError(
+                f"Project mismatch: source infers project '{source_project}' but local directory infers "
+                f"'{local_project}'. Use --project to specify which project name to use."
+            )
+
+    return source_project
 
 
 def _try_reuse_existing_agent(
@@ -934,6 +965,8 @@ def _resolve_source_location(
     opts: CreateCliOptions,
     agent_and_host_loader: Callable[[], dict[HostReference, list[AgentReference]]],
     mngr_ctx: MngrContext,
+    *,
+    is_start_desired: bool,
 ) -> HostLocation:
     # figure out the agent source data
     if opts.source is None and opts.source_agent is None and opts.source_host is None:
@@ -943,34 +976,43 @@ def _resolve_source_location(
             git_root = find_git_worktree_root(None, mngr_ctx.concurrency_group)
             source_path = str(git_root) if git_root is not None else os.getcwd()
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
+        host = provider.get_host(HostName("local"))
+        online_host, _ = ensure_host_started(host, is_start_desired=is_start_desired, provider=provider)
         source_location = HostLocation(
-            # FIXME: rather than casting (and assuming this is online), we should be doing the whole "ensure host is online"
-            #  logic from other parts of the codebase, eg, connect, and have some flag that controls whether we
-            #  automatically start (source or target) hosts if we're offline. A single arg (--start / --no-start) for both seems fine, just needs to get wired through
-            #  Also we would need to update _resolve_target_host to do the same logic for target hosts
-            host=cast(OnlineHostInterface, provider.get_host(HostName("local"))),
+            host=online_host,
             path=Path(source_path),
         )
     else:
         # more complicated, have to figure out where the source is coming from
         agents_by_host = agent_and_host_loader()
         source_location = resolve_source_location(
-            opts.source, opts.source_agent, opts.source_host, opts.source_path, agents_by_host, mngr_ctx
+            opts.source,
+            opts.source_agent,
+            opts.source_host,
+            opts.source_path,
+            agents_by_host,
+            mngr_ctx,
+            is_start_desired=is_start_desired,
         )
     return source_location
 
 
 def _resolve_target_host(
-    target_host: HostReference | NewHostOptions | None, mngr_ctx: MngrContext
+    target_host: HostReference | NewHostOptions | None,
+    mngr_ctx: MngrContext,
+    *,
+    is_start_desired: bool,
 ) -> OnlineHostInterface | NewHostOptions:
     resolved_target_host: OnlineHostInterface | NewHostOptions
     if target_host is None:
         # No host specified, use the local provider's default host
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
-        resolved_target_host = cast(OnlineHostInterface, provider.get_host(HostName("local")))
+        host = provider.get_host(HostName("local"))
+        resolved_target_host, _ = ensure_host_started(host, is_start_desired=is_start_desired, provider=provider)
     elif isinstance(target_host, HostReference):
         provider = get_provider_instance(target_host.provider_name, mngr_ctx)
-        resolved_target_host = cast(OnlineHostInterface, provider.get_host(target_host.host_id))
+        host = provider.get_host(target_host.host_id)
+        resolved_target_host, _ = ensure_host_started(host, is_start_desired=is_start_desired, provider=provider)
     else:
         resolved_target_host = target_host
     return resolved_target_host
@@ -1330,13 +1372,12 @@ def _parse_target_host(
         # Combine build args from both individual (-b) and bulk (--build-args) options
         combined_build_args = list(opts.build_arg)
         if opts.build_args:
-            # FIXME: this should be shlex.split to handle quoted args properly
-            combined_build_args = opts.build_args.split() + combined_build_args
+            combined_build_args = shlex.split(opts.build_args) + combined_build_args
 
         # Combine start args from both individual (-s) and bulk (--start-args) options
         combined_start_args = list(opts.start_arg)
         if opts.start_args:
-            combined_start_args.extend(opts.start_args.split())
+            combined_start_args.extend(shlex.split(opts.start_args))
 
         # Parse build options
         build_options = NewHostBuildOptions(
@@ -1483,7 +1524,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot] [--reuse|--no-reuse]
-    [--] [<AGENT_ARGS>...]""",
+    [--[no-]auto-start] [--] [<AGENT_ARGS>...]""",
     aliases=("c",),
     arguments_description="""- `NAME`: Name for the agent (auto-generated if not provided)
 - `AGENT_TYPE`: Which type of agent to run (default: `claude`). Can also be specified via `--agent-type`

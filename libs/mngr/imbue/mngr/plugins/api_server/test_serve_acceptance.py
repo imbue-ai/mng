@@ -24,11 +24,15 @@ def _start_serve_subprocess(
     env: dict[str, str],
     config_dir: Path,
 ) -> subprocess.Popen[str]:
-    """Start mngr serve as a subprocess on the given port."""
+    """Start mngr serve as a subprocess on the given port.
+
+    The serve command is a plugin-registered command and does not support
+    --disable-plugin. Test isolation via MNGR_ROOT_NAME and MNGR_HOST_DIR
+    prevents providers from loading real configs.
+    """
     return subprocess.Popen(
         [
             "uv", "run", "mngr",
-            "--disable-plugin", "modal",
             "serve",
             "--port", str(port),
             "--host", "127.0.0.1",
@@ -49,7 +53,7 @@ def test_serve_starts_and_responds(tmp_path: Path) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     host_dir = tmp_path / ".mngr"
-    host_dir.mkdir()
+    host_dir.mkdir(exist_ok=True)
 
     env = get_subprocess_test_env(
         root_name="mngr-serve-acceptance",
@@ -86,7 +90,7 @@ def test_serve_authenticates_with_generated_token(tmp_path: Path) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     host_dir = tmp_path / ".mngr"
-    host_dir.mkdir()
+    host_dir.mkdir(exist_ok=True)
 
     env = get_subprocess_test_env(
         root_name="mngr-serve-acceptance",
@@ -147,7 +151,7 @@ def test_serve_no_sse_endpoint(tmp_path: Path) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     host_dir = tmp_path / ".mngr"
-    host_dir.mkdir()
+    host_dir.mkdir(exist_ok=True)
 
     env = get_subprocess_test_env(
         root_name="mngr-serve-acceptance",

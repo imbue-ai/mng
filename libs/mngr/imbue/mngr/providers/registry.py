@@ -17,6 +17,7 @@ import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.errors import ConfigStructureError
 from imbue.mngr.errors import UnknownBackendError
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.primitives import ProviderBackendName
@@ -144,5 +145,8 @@ def build_provider_instance(
         config=config,
         mngr_ctx=mngr_ctx,
     )
-    assert isinstance(obj, BaseProviderInstance)
+    if not isinstance(obj, BaseProviderInstance):
+        raise ConfigStructureError(
+            f"Backend {backend_name} returned {type(obj).__name__}, expected BaseProviderInstance subclass"
+        )
     return obj

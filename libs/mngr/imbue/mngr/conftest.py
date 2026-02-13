@@ -35,6 +35,7 @@ from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.primitives import UserId
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
@@ -627,7 +628,7 @@ def modal_test_session_host_dir(tmp_path_factory: pytest.TempPathFactory) -> Pat
 
 
 @pytest.fixture(scope="session")
-def modal_test_session_user_id() -> str:
+def modal_test_session_user_id() -> UserId:
     """Generate a deterministic user ID for the test session.
 
     This user ID is shared across all subprocess Modal tests in a session
@@ -635,13 +636,13 @@ def modal_test_session_user_id() -> str:
     the cleanup fixture can construct the exact environment name without
     needing to find the user_id file in the profile directory structure.
     """
-    return uuid4().hex
+    return UserId(uuid4().hex)
 
 
 @pytest.fixture(scope="session")
 def modal_test_session_cleanup(
     modal_test_session_env_name: str,
-    modal_test_session_user_id: str,
+    modal_test_session_user_id: UserId,
 ) -> Generator[None, None, None]:
     """Session-scoped fixture that cleans up the Modal environment at session end.
 
@@ -671,7 +672,7 @@ def modal_subprocess_env(
     modal_test_session_env_name: str,
     modal_test_session_host_dir: Path,
     modal_test_session_cleanup: None,
-    modal_test_session_user_id: str,
+    modal_test_session_user_id: UserId,
 ) -> Generator[ModalSubprocessTestEnv, None, None]:
     """Create a subprocess test environment with session-scoped Modal environment.
 

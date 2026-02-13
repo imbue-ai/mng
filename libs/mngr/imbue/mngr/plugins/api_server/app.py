@@ -8,17 +8,30 @@ from fastapi import Query
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
+from loguru import logger
 from pydantic import SecretStr
+from starlette.responses import Response
 
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import list_agents as _list_agents
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.plugins.api_server.web_ui import generate_web_ui_html
 from imbue.mngr.primitives import ActivitySource
+from imbue.mngr.primitives import ErrorBehavior
 
 _app_state: dict[str, Any] = {"mngr_ctx": None, "api_token": None}
 
 app = FastAPI(title="mngr API", docs_url=None, redoc_url=None)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> Response:
+    """Return provider/backend errors as structured JSON instead of raw 500s."""
+    logger.error("Unhandled exception in {}: {}", request.url.path, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "error_type": type(exc).__name__},
+    )
 
 
 def configure_app(mngr_ctx: Any, api_token: SecretStr) -> None:
@@ -63,14 +76,23 @@ def list_agents_endpoint(
     mngr_ctx = _get_mngr_ctx()
     include_filters = (include,) if include else ()
     exclude_filters = (exclude,) if exclude else ()
-    result = _list_agents(
-        mngr_ctx=mngr_ctx,
-        is_streaming=False,
-        include_filters=include_filters,
-        exclude_filters=exclude_filters,
-    )
-    agents_data = [_agent_info_to_dict(a) for a in result.agents]
-    return JSONResponse(content={"agents": agents_data, "errors": [e.model_dump() for e in result.errors]})
+    try:
+        result = _list_agents(
+            mngr_ctx=mngr_ctx,
+            is_streaming=False,
+            include_filters=include_filters,
+            exclude_filters=exclude_filters,
+            error_behavior=ErrorBehavior.CONTINUE,
+        )
+        agents_data = [_agent_info_to_dict(a) for a in result.agents]
+        errors = [e.model_dump() for e in result.errors]
+    except Exception as e:
+        # Provider initialization failures (e.g. Modal auth) can crash before
+        # error_behavior takes effect. Return partial results with the error.
+        logger.warning("Error loading agents: {}", e)
+        agents_data = []
+        errors = [{"message": str(e), "error_type": type(e).__name__}]
+    return JSONResponse(content={"agents": agents_data, "errors": errors})
 
 
 @app.post("/api/agents/{agent_id}/message", dependencies=[Depends(_verify_token)])

@@ -6,6 +6,7 @@ agents, and utility plugins with a real plugin manager.
 
 import pluggy
 
+from imbue.mngr.agents.agent_registry import list_registered_agent_types
 from imbue.mngr.plugin_loader import load_all_registries
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.providers.registry import list_backends
@@ -73,7 +74,5 @@ def test_load_all_registries_registers_agent_types(
     The autouse plugin_manager fixture loads agents via load_agents_from_plugins,
     populating the global agent registry. We verify the expected types are present.
     """
-    from imbue.mngr.agents.agent_registry import list_registered_agent_types
-
     registered = list_registered_agent_types()
     assert "claude" in registered

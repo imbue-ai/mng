@@ -4,9 +4,11 @@ import click
 import uvicorn
 from loguru import logger
 
+from imbue.mngr.config.loader import load_config
 from imbue.mngr.plugins.api_server.app import app
 from imbue.mngr.plugins.api_server.app import configure_app
 from imbue.mngr.plugins.api_server.auth import read_or_create_api_token
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
 
 @click.command(name="serve")
@@ -38,8 +40,13 @@ def serve_command(ctx: click.Context, port: int, host: str, config_dir: Path) ->
     expanded_config_dir = config_dir.expanduser()
     api_token = read_or_create_api_token(expanded_config_dir)
 
-    # Get MngrContext from the Click context (set by CLI setup)
-    mngr_ctx = ctx.obj
+    # ctx.obj is the PluginManager (set by the CLI entry point).
+    # We need to build a full MngrContext from it via load_config.
+    pm = ctx.obj
+    cg = ConcurrencyGroup(name="mngr-serve")
+    cg.__enter__()
+    ctx.call_on_close(lambda: cg.__exit__(None, None, None))
+    mngr_ctx = load_config(pm, cg)
 
     configure_app(mngr_ctx=mngr_ctx, api_token=api_token)
 

@@ -28,15 +28,14 @@ from typing import ParamSpec
 from typing import Sequence
 from typing import TypeVar
 from typing import cast
-from uuid import uuid4
 
 import modal
 import modal.exception
 from dockerfile_parse import DockerfileParser
 from loguru import logger
-from modal.config import Config as ModalConfig
 from modal.exception import NotFoundError
 from modal.stream_type import StreamType
+from modal.volume import FileEntry
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import PrivateAttr
@@ -44,6 +43,10 @@ from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 from pyinfra.connectors.sshuserclient.client import get_host_keys
+from tenacity import retry
+from tenacity import retry_if_exception_type
+from tenacity import stop_after_attempt
+from tenacity import wait_exponential
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
@@ -55,7 +58,6 @@ from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
-from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
@@ -108,6 +110,38 @@ TAG_USER_PREFIX: Final[str] = "mngr_user_"
 
 P = ParamSpec("P")
 T = TypeVar("T")
+
+# Retry parameters for Modal volume operations.
+# modal.exception.InternalError (e.g. "could not start volume metadata engine")
+# is transient and typically resolves on retry.
+_VOLUME_RETRY_PARAMS = retry_if_exception_type(modal.exception.InternalError)
+_VOLUME_STOP_PARAMS = stop_after_attempt(3)
+_VOLUME_WAIT_PARAMS = wait_exponential(multiplier=1, min=1, max=3)
+
+
+@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
+def _volume_listdir(volume: modal.Volume, path: str) -> list[FileEntry]:
+    """List directory contents on a Modal volume with retry on transient errors."""
+    return volume.listdir(path)
+
+
+@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
+def _volume_read_file(volume: modal.Volume, path: str) -> bytes:
+    """Read a file from a Modal volume with retry on transient errors."""
+    return b"".join(volume.read_file(path))
+
+
+@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
+def _volume_remove_file(volume: modal.Volume, path: str) -> None:
+    """Remove a file from a Modal volume with retry on transient errors."""
+    volume.remove_file(path)
+
+
+@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
+def _volume_batch_upload_file(volume: modal.Volume, file_data: bytes, path: str) -> None:
+    """Upload a single file to a Modal volume with retry on transient errors."""
+    with volume.batch_upload(force=True) as batch:
+        batch.put_file(io.BytesIO(file_data), path)
 
 
 def build_sandbox_tags(
@@ -206,23 +240,6 @@ class HostRecord(FrozenModel):
     ssh_host_public_key: str | None = Field(default=None, description="SSH host public key for verification")
     config: SandboxConfig | None = Field(default=None, description="Sandbox configuration")
 
-    # FIXME: remove these once we're fully using certified_host_data
-    @property
-    def host_name(self) -> str:
-        return self.certified_host_data.host_name
-
-    @property
-    def host_id(self) -> str:
-        return self.certified_host_data.host_id
-
-    @property
-    def user_tags(self) -> dict[str, str]:
-        return self.certified_host_data.user_tags
-
-    @property
-    def snapshots(self) -> list[SnapshotRecord]:
-        return self.certified_host_data.snapshots
-
 
 class ModalProviderApp(FrozenModel):
     """Encapsulates a Modal app and its associated resources.
@@ -284,24 +301,6 @@ class ModalProviderInstance(BaseProviderInstance):
 
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
-
-    # FIXME: we will explode before we ever even get here. Please remove this property from here and the base class.
-    @property
-    def is_authorized(self) -> bool:
-        """Check if Modal credentials are configured.
-
-        Returns True if Modal token_id and token_secret are available in the
-        Modal config (either from ~/.modal.toml or environment variables).
-        This is a lightweight check that doesn't make any API calls.
-        """
-        try:
-            modal_config = ModalConfig()
-            token_id = modal_config.get("token_id")
-            token_secret = modal_config.get("token_secret")
-            return token_id is not None and token_secret is not None
-        except (OSError, ValueError, KeyError):
-            # Config file access issues, parsing errors, or key errors
-            return False
 
     @property
     def supports_snapshots(self) -> bool:
@@ -370,14 +369,12 @@ class ModalProviderInstance(BaseProviderInstance):
     def _write_host_record(self, host_record: HostRecord) -> None:
         """Write a host record to the volume."""
         volume = self._get_volume()
-        host_id = HostId(host_record.host_id)
+        host_id = HostId(host_record.certified_host_data.host_id)
         path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
 
-        # Upload the data as a file-like object
-        with volume.batch_upload(force=True) as batch:
-            batch.put_file(io.BytesIO(data.encode("utf-8")), path)
-        logger.trace("Wrote host record to volume: {}", path)
+        _volume_batch_upload_file(volume, data.encode("utf-8"), path)
+        logger.trace("Wrote host record to volume: {}", path, host_data=data)
 
         # Update the cache with the new host record
         self._host_record_cache_by_id[host_id] = host_record
@@ -427,13 +424,9 @@ class ModalProviderInstance(BaseProviderInstance):
         path = self._get_host_record_path(host_id)
 
         try:
-            # Read file returns a generator that yields bytes chunks
-            chunks: list[bytes] = []
-            for chunk in volume.read_file(path):
-                chunks.append(chunk)
-            data = b"".join(chunks)
+            data = _volume_read_file(volume, path)
             host_record = HostRecord.model_validate_json(data)
-            logger.trace("Read host record from volume: {}", path)
+            logger.trace("Read host record from volume: {}", path, host_data=data.decode("utf-8"))
             # Cache the result
             self._host_record_cache_by_id[host_id] = host_record
             return host_record
@@ -447,25 +440,21 @@ class ModalProviderInstance(BaseProviderInstance):
         # first delete all agent records for this host
         host_dir = f"/{host_id}"
         try:
-            # FIXME: volume.listdir occasionally raises this:
-            #     modal.exception.InternalError: could not start volume metadata engine
-            #  we should replace all direct calls with a function that instead uses tenacity to retry this a few times (up to 3 tries, up to 5 seconds total wait) in case it is transient
-            #  (eg, both here and the other calls in this file)
-            entries = list(volume.listdir(host_dir))
+            entries = _volume_listdir(volume, host_dir)
         except (NotFoundError, FileNotFoundError):
             pass
         else:
             for entry in entries:
                 filename = entry.path
                 agent_path = filename.lstrip("/")
-                volume.remove_file(agent_path)
+                _volume_remove_file(volume, agent_path)
             # then finally remove the empty host directory
-            volume.remove_file(host_dir)
+            _volume_remove_file(volume, host_dir)
 
         # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
         try:
-            volume.remove_file(path)
+            _volume_remove_file(volume, path)
         except (NotFoundError, FileNotFoundError):
             pass
         logger.trace("Deleted host record from volume: {}", path)
@@ -485,7 +474,7 @@ class ModalProviderInstance(BaseProviderInstance):
         futures: list[Future[HostRecord | None]] = []
         with ConcurrencyGroupExecutor(parent_cg=cg, name="modal_list_all_host_records", max_workers=32) as executor:
             # List files at the root of the volume
-            for entry in volume.listdir("/"):
+            for entry in _volume_listdir(volume, "/"):
                 filename = entry.path
                 # Host records are stored as <host_id>.json
                 if filename.endswith(".json"):
@@ -510,17 +499,13 @@ class ModalProviderInstance(BaseProviderInstance):
         agent_records: list[dict[str, Any]] = []
         host_dir = f"/{host_id}"
         try:
-            for entry in volume.listdir(host_dir):
+            for entry in _volume_listdir(volume, host_dir):
                 filename = entry.path
                 if filename.endswith(".json"):
                     # Read the agent record
                     agent_path = filename.lstrip("/")
                     try:
-                        # Read file returns a generator that yields bytes chunks
-                        chunks: list[bytes] = []
-                        for chunk in volume.read_file(agent_path):
-                            chunks.append(chunk)
-                        content = b"".join(chunks).decode("utf-8")
+                        content = _volume_read_file(volume, agent_path).decode("utf-8")
                         agent_data = json.loads(content)
                         agent_records.append(agent_data)
                     except (OSError, IOError, json.JSONDecodeError) as e:
@@ -551,10 +536,7 @@ class ModalProviderInstance(BaseProviderInstance):
         # Serialize the agent data to JSON
         data = json.dumps(dict(agent_data), indent=2)
 
-        # Upload the data as a file-like object
-        # First ensure the host directory exists by uploading with force=True
-        with volume.batch_upload(force=True) as batch:
-            batch.put_file(io.BytesIO(data.encode("utf-8")), agent_path)
+        _volume_batch_upload_file(volume, data.encode("utf-8"), agent_path)
         logger.trace("Persisted agent data to volume: {}", agent_path)
 
     def remove_persisted_agent_data(self, host_id: HostId, agent_id: AgentId) -> None:
@@ -567,7 +549,7 @@ class ModalProviderInstance(BaseProviderInstance):
         agent_path = f"/{host_id}/{agent_id}.json"
 
         try:
-            volume.remove_file(agent_path)
+            _volume_remove_file(volume, agent_path)
         except FileNotFoundError:
             # File doesn't exist, nothing to remove
             pass
@@ -882,8 +864,9 @@ class ModalProviderInstance(BaseProviderInstance):
         # The stop_reason parameter indicates why the host stopped:
         # - PAUSED: Host became idle (called by activity_watcher.sh)
         # - STOPPED: User explicitly stopped the host
-        # FIXME: update this script so that it has set -euo pipefail (and will still work properly)
         script_content = f'''#!/bin/bash
+set -euo pipefail
+
 # Auto-generated shutdown script for mngr Modal host
 # This script snapshots and shuts down the host by calling the deployed Modal function
 # It also gathers agent data to persist to the volume so agents show up in mngr list
@@ -940,9 +923,13 @@ log "Agents: $AGENTS"
 # Send the shutdown request with agent data and stop reason
 # Use --max-time to prevent hanging if the endpoint is slow
 log "Sending shutdown request to $SNAPSHOT_URL"
-RESPONSE=$(curl -s --max-time 30 -w "\\n%{{http_code}}" -X POST "$SNAPSHOT_URL" \\
+if ! RESPONSE=$(curl -s --max-time 30 -w "\\n%{{http_code}}" -X POST "$SNAPSHOT_URL" \\
     -H "Content-Type: application/json" \\
-    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}')
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}'); then
+    log "curl request failed"
+    log "=== Shutdown script completed with error ==="
+    exit 1
+fi
 
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 BODY=$(echo "$RESPONSE" | sed '$d')
@@ -1067,7 +1054,7 @@ log "=== Shutdown script completed ==="
         Otherwise, returns False.
         """
         app = self._get_modal_app()
-        # FIXME: put this back--no idea why it wasn't working
+        # TODO: Unfortunately, this has the same error as the lookup by ID. We are waiting on modal to respond before we can fix this--it's a bug on their side
         # for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_ID: str(host_id)}):
         #     result_container.append(sandbox)
         #     return True
@@ -1122,7 +1109,7 @@ log "=== Shutdown script completed ==="
     def _lookup_sandbox_by_name_once(self, name: HostName) -> modal.Sandbox | None:
         """Perform a single lookup of a sandbox by host_name tag."""
         app = self._get_modal_app()
-        # FIXME: this has the same error as the lookup by ID, waiting on modal to fix
+        # TODO: Unfortunately, this has the same error as the lookup by ID. We are waiting on modal to respond before we can fix this--it's a bug on their side
         # for sandbox in modal.Sandbox.list(app_id=app.app_id, tags={TAG_HOST_NAME: str(name)}):
         #     return sandbox
         # return None
@@ -1240,7 +1227,7 @@ log "=== Shutdown script completed ==="
         The certified_host_data is populated with information available from
         the host record.
         """
-        host_id = HostId(host_record.host_id)
+        host_id = HostId(host_record.certified_host_data.host_id)
         return OfflineHost(
             id=host_id,
             certified_host_data=host_record.certified_host_data,
@@ -1267,12 +1254,6 @@ log "=== Shutdown script completed ==="
         known_hosts: Sequence[str] | None = None,
     ) -> Host:
         """Create a new Modal sandbox host."""
-        if not self.is_authorized:
-            raise ProviderNotAuthorizedError(
-                self.name,
-                auth_help="Run 'modal token set' to authenticate with Modal.",
-            )
-
         # Generate host ID
         host_id = HostId.generate()
 
@@ -1359,7 +1340,6 @@ log "=== Shutdown script completed ==="
         # Note: max_host_age is the sandbox timeout (without the buffer we added to modal_timeout)
         # so the activity watcher can trigger a clean shutdown before Modal's hard kill
         host_data = CertifiedHostData(
-            idle_mode=activity_config.idle_mode,
             idle_timeout_seconds=activity_config.idle_timeout_seconds,
             activity_sources=activity_config.activity_sources,
             max_host_age=config.timeout,
@@ -1405,12 +1385,6 @@ log "=== Shutdown script completed ==="
         terminated. If create_snapshot is True (the default), a snapshot is
         created before termination to allow the host to be restarted later.
         """
-        if not self.is_authorized:
-            raise ProviderNotAuthorizedError(
-                self.name,
-                auth_help="Run 'modal token set' to authenticate with Modal.",
-            )
-
         host_id = host.id if isinstance(host, HostInterface) else host
         logger.info("Stopping (terminating) Modal sandbox: {}", host_id)
 
@@ -1461,7 +1435,7 @@ log "=== Shutdown script completed ==="
 
         # Remove from all caches since the sandbox is now terminated
         # Read host record to get the name for cache cleanup (re-read in case it was just updated)
-        host_name = HostName(host_record.host_name) if host_record else None
+        host_name = HostName(host_record.certified_host_data.host_name) if host_record else None
         self._uncache_sandbox(host_id, host_name)
         # Also invalidate host cache so next lookup returns an OfflineHost
         self._uncache_host(host_id)
@@ -1487,12 +1461,6 @@ log "=== Shutdown script completed ==="
         If neither snapshot was created (e.g., is_snapshotted_after_create=False
         and the sandbox was hard-killed), this method raises NoSnapshotsModalMngrError.
         """
-        if not self.is_authorized:
-            raise ProviderNotAuthorizedError(
-                self.name,
-                auth_help="Run 'modal token set' to authenticate with Modal.",
-            )
-
         host_id = host.id if isinstance(host, HostInterface) else host
 
         # If sandbox is still running, return it
@@ -1523,14 +1491,16 @@ log "=== Shutdown script completed ==="
             if host_record is None:
                 raise HostNotFoundError(host_id)
 
-            if not host_record.snapshots:
+            if not host_record.certified_host_data.snapshots:
                 raise NoSnapshotsModalMngrError(
                     f"Modal sandbox {host_id} is not running and has no snapshots. "
                     "Cannot restart. Create a new host instead."
                 )
 
             # Use the most recent snapshot (sorted by created_at descending)
-            sorted_snapshots = sorted(host_record.snapshots, key=lambda s: s.created_at, reverse=True)
+            sorted_snapshots = sorted(
+                host_record.certified_host_data.snapshots, key=lambda s: s.created_at, reverse=True
+            )
             snapshot_id = SnapshotId(sorted_snapshots[0].id)
             logger.info("Using most recent snapshot for restart", snapshot_id=str(snapshot_id))
 
@@ -1540,7 +1510,7 @@ log "=== Shutdown script completed ==="
 
         # Find the snapshot in the host record
         snapshot_data: SnapshotRecord | None = None
-        for snap in host_record.snapshots:
+        for snap in host_record.certified_host_data.snapshots:
             if snap.id == str(snapshot_id):
                 snapshot_data = snap
                 break
@@ -1559,8 +1529,8 @@ log "=== Shutdown script completed ==="
                 f"Host {host_id} has no configuration and cannot be started. "
                 "This may indicate the host was never fully created."
             )
-        host_name = HostName(host_record.host_name)
-        user_tags = host_record.user_tags
+        host_name = HostName(host_record.certified_host_data.host_name)
+        user_tags = host_record.certified_host_data.user_tags
 
         # Create the image reference from the snapshot (the id IS the Modal image ID)
         with log_span("Creating sandbox from snapshot image", image_id=modal_image_id):
@@ -1619,12 +1589,6 @@ log "=== Shutdown script completed ==="
 
         If delete_snapshots is True, also deletes the host record from the volume.
         """
-        if not self.is_authorized:
-            raise ProviderNotAuthorizedError(
-                self.name,
-                auth_help="Run 'modal token set' to authenticate with Modal.",
-            )
-
         host_id = host.id if isinstance(host, HostInterface) else host
         self.stop_host(host)
 
@@ -1635,7 +1599,7 @@ log "=== Shutdown script completed ==="
         """Remove all caches if we notice a connection to the host fail"""
         host_record = self._host_record_cache_by_id.get(host_id)
         if host_record is not None:
-            host_name = HostName(host_record.host_name)
+            host_name = HostName(host_record.certified_host_data.host_name)
             self._sandbox_cache_by_name.pop(host_name, None)
         self._sandbox_cache_by_id.pop(host_id, None)
         self._host_by_id_cache.pop(host_id, None)
@@ -1655,12 +1619,6 @@ log "=== Shutdown script completed ==="
         First tries to find a running sandbox. If not found, falls back to
         the host record on the volume (for stopped hosts).
         """
-        if not self.is_authorized:
-            raise ProviderNotAuthorizedError(
-                self.name,
-                auth_help="Run 'modal token set' to authenticate with Modal.",
-            )
-
         if isinstance(host, HostId) and host in self._host_by_id_cache:
             return self._host_by_id_cache[host]
 
@@ -1691,7 +1649,7 @@ log "=== Shutdown script completed ==="
             # No sandbox or couldn't connect - search host records by name (for stopped hosts)
             if host_obj is None:
                 for host_record in self._list_all_host_records(cg=self.mngr_ctx.concurrency_group):
-                    if host_record.host_name == str(host):
+                    if host_record.certified_host_data.host_name == str(host):
                         host_obj = self._create_host_from_host_record(host_record)
 
         # finally save to the cache and return
@@ -1715,20 +1673,9 @@ log "=== Shutdown script completed ==="
         - STOPPED: no sandbox but has snapshots (can be restarted)
         - DESTROYED: no sandbox and no snapshots (only if include_destroyed=True)
 
-        If the provider is not authorized, logs a warning and returns an empty list.
-
         If a ConcurrencyGroup is provided, it will be used for parallel fetching of
         sandboxes and host records, which is safer for concurrent operations.
         """
-        if not self.is_authorized:
-            logger.warning(
-                "Provider '{}' is not authorized. "
-                "Run 'modal token set' to authenticate, or disable this provider with "
-                "'mngr config set --scope user providers.{}.is_enabled false'.",
-                self.name,
-                self.name,
-            )
-            return []
 
         hosts: list[HostInterface] = []
         processed_host_ids: set[HostId] = set()
@@ -1760,7 +1707,7 @@ log "=== Shutdown script completed ==="
 
         # First, process host records (includes both running and stopped hosts)
         for host_record in all_host_records:
-            host_id = HostId(host_record.host_id)
+            host_id = HostId(host_record.certified_host_data.host_id)
             processed_host_ids.add(host_id)
 
             host_obj: HostInterface | None = None
@@ -1776,7 +1723,7 @@ log "=== Shutdown script completed ==="
                     continue
             if host_id not in running_sandbox_by_host_id or host_obj is None:
                 # Host has no running sandbox - it's stopped, failed, destroyed, or we couldn't connect
-                has_snapshots = len(host_record.snapshots) > 0
+                has_snapshots = len(host_record.certified_host_data.snapshots) > 0
                 is_failed = host_record.certified_host_data.failure_reason is not None
 
                 if is_failed:
@@ -1892,7 +1839,8 @@ log "=== Shutdown script completed ==="
         # Update host record with new snapshot and write to volume
         updated_certified_data = host_record.certified_host_data.model_copy_update(
             to_update(
-                host_record.certified_host_data.field_ref().snapshots, list(host_record.snapshots) + [new_snapshot]
+                host_record.certified_host_data.field_ref().snapshots,
+                list(host_record.certified_host_data.snapshots) + [new_snapshot],
             ),
         )
         self.get_host(host_id).set_certified_data(updated_certified_data)
@@ -1937,10 +1885,8 @@ log "=== Shutdown script completed ==="
 
         # Generate snapshot name if not provided
         if name is None:
-            # FIXME: this is a dumb default--use the creation time instead
-            # Use first 8 characters of a random UUID as a short identifier
-            short_id = uuid4().hex[:8]
-            name = SnapshotName(f"snapshot-{short_id}")
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
+            name = SnapshotName(f"snapshot-{timestamp}")
 
         with log_span("Creating snapshot for Modal sandbox", host_id=str(host_id)):
             snapshot_id = self._record_snapshot(sandbox, host_id, name)
@@ -1965,7 +1911,7 @@ log "=== Shutdown script completed ==="
 
         # Convert to SnapshotInfo objects, sorted by created_at (newest first)
         snapshots: list[SnapshotInfo] = []
-        sorted_snapshots = sorted(host_record.snapshots, key=lambda s: s.created_at, reverse=True)
+        sorted_snapshots = sorted(host_record.certified_host_data.snapshots, key=lambda s: s.created_at, reverse=True)
         for idx, snap_record in enumerate(sorted_snapshots):
             created_at_str = snap_record.created_at
             created_at = datetime.fromisoformat(created_at_str) if created_at_str else datetime.now(timezone.utc)
@@ -2003,9 +1949,9 @@ log "=== Shutdown script completed ==="
 
             # Find and remove the snapshot
             snapshot_id_str = str(snapshot_id)
-            updated_snapshots = [s for s in host_record.snapshots if s.id != snapshot_id_str]
+            updated_snapshots = [s for s in host_record.certified_host_data.snapshots if s.id != snapshot_id_str]
 
-            if len(updated_snapshots) == len(host_record.snapshots):
+            if len(updated_snapshots) == len(host_record.certified_host_data.snapshots):
                 raise SnapshotNotFoundError(snapshot_id)
 
             # Update host record on volume
@@ -2055,7 +2001,7 @@ log "=== Shutdown script completed ==="
         # Try to read from volume (maybe it's offline)
         host_record = self._read_host_record(host_id)
         if host_record is not None:
-            return dict(host_record.user_tags)
+            return dict(host_record.certified_host_data.user_tags)
 
         raise HostNotFoundError(host_id)
 

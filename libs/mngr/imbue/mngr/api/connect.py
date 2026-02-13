@@ -20,7 +20,7 @@ SIGNAL_EXIT_CODE_DESTROY: Final[int] = 10
 SIGNAL_EXIT_CODE_STOP: Final[int] = 11
 
 
-def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str:
+def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path, agent_command: str) -> str:
     """Build a shell script that tracks SSH activity while running tmux.
 
     The script:
@@ -49,6 +49,9 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path) -> str
         f'printf \'{{\\n  "time": %d,\\n  "ssh_pid": %d\\n}}\\n\' "$TIME_MS" "$$" > \'{activity_file}\'; '
         f"sleep 5; done) & "
         "MNGR_ACTIVITY_PID=$!; "
+        # resize all tmux windows to be the correct size and signal the agent that it needs to redraw. We do this with a delay so that it happens after attaching.
+        f"(sleep 5 && tmux list-windows -t '{session_name}' -F '#I' | xargs -I{{}} tmux resize-window -t '{session_name}':{{}} -A && sleep 1 && pkill -SIGWINCH -f {agent_command}) & "
+        # actually attach
         f"tmux attach -t '{session_name}'; "
         "kill $MNGR_ACTIVITY_PID 2>/dev/null; "
         # Check for signal files written by tmux key bindings (Ctrl-q writes "destroy", Ctrl-t writes "stop")
@@ -155,7 +158,8 @@ def connect_to_agent(
         ssh_args = _build_ssh_args(host, connection_opts)
 
         # Build wrapper script that tracks SSH activity while running tmux
-        wrapper_script = _build_ssh_activity_wrapper_script(session_name, host.host_dir)
+        agent_command = agent.get_expected_process_name()
+        wrapper_script = _build_ssh_activity_wrapper_script(session_name, host.host_dir, agent_command)
         # Pass the wrapper as a single remote command string so SSH doesn't
         # split it into separate words. SSH concatenates multiple remote command
         # arguments with spaces, which would cause 'bash -c' to only receive

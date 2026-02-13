@@ -187,6 +187,8 @@ def resolve_source_location(
     source_path: str | None,
     agents_by_host: dict[HostReference, list[AgentReference]],
     mngr_ctx: MngrContext,
+    *,
+    is_start_desired: bool = True,
 ) -> HostLocation:
     """Parse and resolve source location to a concrete host and path.
 
@@ -195,7 +197,8 @@ def resolve_source_location(
     Everything after the first ':' is treated as the path (to handle colons in paths).
     HOST can optionally include .PROVIDER suffix (e.g., myhost.docker).
 
-    If the resolved host is offline, it will be automatically started.
+    If the resolved host is offline, it will be started if is_start_desired is True (the default).
+    If is_start_desired is False and the host is offline, raises UserInputError.
 
     This is useful because it allows the user to specify the source agent / location in a maximally flexible way.
     This is important for making the CLI easy to use in a variety of scenarios.
@@ -228,7 +231,9 @@ def resolve_source_location(
 
     # Ensure host is online for file operations (starts the host if needed)
     if not isinstance(host_interface, OnlineHostInterface):
-        online_host, _was_started = ensure_host_started(host_interface, is_start_desired=True, provider=provider)
+        online_host, _was_started = ensure_host_started(
+            host_interface, is_start_desired=is_start_desired, provider=provider
+        )
     else:
         online_host = host_interface
 
@@ -292,7 +297,8 @@ def ensure_host_started(
                 return started_host, True
             else:
                 raise UserInputError(
-                    f"Host '{offline_host.id}' is offline and --no-start was specified. Use --start to automatically start the host."
+                    f"Host '{offline_host.id}' is offline and automatic starting is disabled. "
+                    "Enable automatic host starting to proceed."
                 )
         case _ as unreachable:
             assert_never(unreachable)
@@ -309,11 +315,15 @@ def ensure_agent_started(agent: AgentInterface, host: OnlineHostInterface, is_st
     if lifecycle_state not in (AgentLifecycleState.RUNNING, AgentLifecycleState.REPLACED, AgentLifecycleState.WAITING):
         if is_start_desired:
             logger.info("Agent {} is stopped, starting it", agent.name)
-            host.start_agents([agent.id])
+            agent.wait_for_ready_signal(
+                is_creating=False,
+                start_action=lambda: host.start_agents([agent.id]),
+                timeout=10.0,
+            )
         else:
             raise UserInputError(
-                f"Agent '{agent.name}' is stopped and --no-start was specified. "
-                "Use --start to automatically start the agent."
+                f"Agent '{agent.name}' is stopped and automatic starting is disabled. "
+                "Enable automatic agent starting to proceed."
             )
 
 
