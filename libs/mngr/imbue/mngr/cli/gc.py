@@ -102,7 +102,7 @@ class GcCliOptions(CommonCliOptions):
     is_flag=True,
     help="Remove machine cache entries (per-provider) [future]",
 )
-# FIXME: When "mngr cleanup" is implemented, add a cross-reference in the gc command's [attempts=12]
+# FIXME: When "mngr cleanup" is implemented, add a cross-reference in the gc command's [attempts=13]
 # help text pointing users to it for interactive cleanup. See the spec at:
 # libs/mngr/docs/commands/secondary/cleanup.md
 # Not actionable yet: "mngr cleanup" is still marked as [future] and has no implementation.
@@ -117,6 +117,7 @@ class GcCliOptions(CommonCliOptions):
 # (attempt 10) Still not actionable: cleanup.md still has [future] tag, no cleanup.py or CLI registration exists.
 # (attempt 11) Still not actionable: cleanup.md still has [future] tag, no cleanup.py or CLI registration exists.
 # (attempt 12) Still not actionable: cleanup.md still has [future] tag, no cleanup.py or CLI registration exists.
+# (attempt 13) Still not actionable: cleanup.md still has [future] tag, no cleanup.py or CLI registration exists.
 @optgroup.group("Filtering")
 @optgroup.option(
     "--include",
