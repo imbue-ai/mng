@@ -89,7 +89,7 @@ def test_prevent_inline_imports() -> None:
 
 
 def test_prevent_importlib_import_module() -> None:
-    pattern = RegexPattern(r"importlib\.import_module")
+    pattern = RegexPattern(r"\bimport_module\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
