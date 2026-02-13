@@ -36,6 +36,7 @@ from imbue.mngr.primitives import OutputFormat
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = ("name", "host", "provider", "host.state", "state", "status")
 
+# FIXME: remove this entirely--just use the unaliased names everywhere necessary, and then remove this, and anything that uses it
 # Display field aliases: map user-facing shorthand field names to their actual
 # data model paths. Used by both _get_field_value and _get_sortable_value so that
 # --fields and --sort accept the same shorthand names.
