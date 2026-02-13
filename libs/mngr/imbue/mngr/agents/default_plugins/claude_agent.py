@@ -321,8 +321,10 @@ class ClaudeAgent(BaseAgent):
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
         activity_cmd = self._build_activity_updater_command(session_name)
 
-        # Combine: start activity updater in background, then run the main command
-        return CommandString(f"{activity_cmd} {env_exports} && ( {resume_cmd} ) || {create_cmd}")
+        # Combine: start activity updater in background, then run the main command (and make sure we get rid of the session started marker on each run so that wait_for_ready_signal works correctly for both new and resumed sessions)
+        return CommandString(
+            f"{activity_cmd} {env_exports} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( {resume_cmd} ) || {create_cmd}"
+        )
 
     def on_before_provisioning(
         self,
