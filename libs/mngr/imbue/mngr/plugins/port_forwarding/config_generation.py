@@ -66,8 +66,5 @@ def generate_frpc_full_config(
         frps_port=frps_port,
         frps_token=frps_token,
     )
-    proxy_entries = [
-        generate_frpc_proxy_entry(service=service, domain_suffix=domain_suffix)
-        for service in services
-    ]
+    proxy_entries = [generate_frpc_proxy_entry(service=service, domain_suffix=domain_suffix) for service in services]
     return base + "\n" + "\n".join(proxy_entries) if proxy_entries else base

@@ -38,8 +38,7 @@ def _resolve_agent_url(agent: AgentInterface, url_type: str | None) -> str:
     if url_type not in reported_urls:
         available_types = ", ".join(sorted(reported_urls.keys()))
         raise UserInputError(
-            f"Agent '{agent.name}' has no URL of type '{url_type}'. "
-            f"Available types: {available_types}"
+            f"Agent '{agent.name}' has no URL of type '{url_type}'. Available types: {available_types}"
         )
 
     return reported_urls[url_type]
