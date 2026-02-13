@@ -18,11 +18,13 @@ import imbue.mngr.providers.ssh.backend as ssh_backend_module
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.errors import ConfigStructureError
 from imbue.mngr.errors import UnknownBackendError
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
+from imbue.mngr.providers.docker.config import DockerProviderConfig
 
 # Cache for registered backends
 _backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
@@ -52,18 +54,20 @@ def reset_backend_registry() -> None:
     _registry_state["backends_loaded"] = False
 
 
-def _load_backends(pm, *, include_modal: bool) -> None:
+def _load_backends(pm, *, include_modal: bool, include_docker: bool) -> None:
     """Load provider backends from the specified modules.
 
     The pm parameter is the pluggy plugin manager. If include_modal is True,
-    the Modal backend is included (requires Modal credentials).
+    the Modal backend is included (requires Modal credentials). If include_docker
+    is True, the Docker backend is included (requires a Docker daemon).
     """
     if _registry_state["backends_loaded"]:
         return
 
     pm.register(local_backend_module)
     pm.register(ssh_backend_module)
-    pm.register(docker_backend_module)
+    if include_docker:
+        pm.register(docker_backend_module)
     if include_modal:
         pm.register(modal_backend_module)
 
@@ -76,21 +80,27 @@ def _load_backends(pm, *, include_modal: bool) -> None:
             _backend_registry[backend_name] = backend_class
             _config_registry[backend_name] = config_class
 
+    # Register docker config even when backend is not loaded, so config files
+    # referencing the docker backend can still be parsed
+    if not include_docker:
+        _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
+
     _registry_state["backends_loaded"] = True
 
 
 def load_local_backend_only(pm) -> None:
     """Load only the local and SSH provider backends.
 
-    This is used by tests to avoid depending on Modal credentials.
-    Unlike load_backends_from_plugins, this only registers the local and SSH backends.
+    This is used by tests to avoid depending on external services.
+    Unlike load_backends_from_plugins, this only registers the local and SSH backends
+    (not Modal or Docker which require external daemons/credentials).
     """
-    _load_backends(pm, include_modal=False)
+    _load_backends(pm, include_modal=False, include_docker=False)
 
 
 def load_backends_from_plugins(pm) -> None:
     """Load all provider backends from plugins."""
-    _load_backends(pm, include_modal=True)
+    _load_backends(pm, include_modal=True, include_docker=True)
 
 
 def get_backend(name: str | ProviderBackendName) -> type[ProviderBackendInterface]:
@@ -138,5 +148,8 @@ def build_provider_instance(
         config=config,
         mngr_ctx=mngr_ctx,
     )
-    assert isinstance(obj, BaseProviderInstance)
+    if not isinstance(obj, BaseProviderInstance):
+        raise ConfigStructureError(
+            f"Backend {backend_name} returned {type(obj).__name__}, expected BaseProviderInstance subclass"
+        )
     return obj
