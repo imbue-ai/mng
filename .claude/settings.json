@@ -21,6 +21,16 @@
       }
     ]
   },
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "[ -e .git ] || { echo \"Be sure to return to the repo root when you finish! Otherwise the other stop hooks cannot run correctly.\" >&2; exit 2; }"
+        }
+      ]
+    }
+  ],
   "model": "opus[1m]",
   "statusLine": {
     "type": "command",
