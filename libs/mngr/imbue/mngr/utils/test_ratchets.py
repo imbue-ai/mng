@@ -576,7 +576,7 @@ def test_prevent_assert_isinstance_usage() -> None:
     """
     chunks = find_assert_isinstance_usages(_get_mngr_source_dir(), _THIS_FILE)
 
-    assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="assert isinstance() usages",
         rule_description=(
             "Do not use 'assert isinstance()'. Use match statements with exhaustive case handling instead. "
