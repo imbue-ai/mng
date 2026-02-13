@@ -22,6 +22,9 @@ def get_current_git_branch(path: Path | None, cg: ConcurrencyGroup) -> str | Non
         )
         return result.stdout.strip()
     except ProcessError as e:
+        # FIXME: Error swallowed at trace level. If the caller is in a git repo and something
+        # actually goes wrong, this error is invisible. Should log at debug or warning level,
+        # and ideally distinguish "not a git repo" (expected) from unexpected failures.
         logger.trace("Failed to get current git branch: {}", e)
         return None
 
@@ -67,6 +70,8 @@ def _get_project_name_from_git_remote(path: Path, cg: ConcurrencyGroup) -> str |
         )
         return _parse_project_name_from_url(result.stdout.strip())
     except ProcessError as e:
+        # FIXME: Error swallowed at trace level, but we already confirmed .git exists (line 57-58),
+        # so a ProcessError here is genuinely unexpected and should be logged at warning level.
         logger.trace("Failed to get project name from git remote URL: {}", e)
         return None
 
@@ -133,6 +138,8 @@ def find_git_worktree_root(start: Path | None, cg: ConcurrencyGroup) -> Path | N
         )
         return Path(result.stdout.strip())
     except ProcessError as e:
+        # FIXME: Error swallowed at trace level. If something is genuinely wrong with the git
+        # repo, this error is invisible. Should log at debug or warning level.
         logger.trace("Failed to find worktree root: {}", e)
         return None
 
@@ -232,5 +239,7 @@ def find_git_common_dir(path: Path, cg: ConcurrencyGroup) -> Path | None:
             git_common_dir = (path / git_common_dir).resolve()
         return git_common_dir
     except ProcessError as e:
+        # FIXME: Error swallowed at trace level. If something is genuinely wrong with the git
+        # repo, this error is invisible. Should log at debug or warning level.
         logger.trace("Failed to find main .git dir: {}", e)
         return None

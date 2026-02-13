@@ -526,22 +526,20 @@ class ModalProviderInstance(BaseProviderInstance):
 
         agent_records: list[dict[str, Any]] = []
         host_dir = f"/{host_id}"
-        try:
-            for entry in _volume_listdir(volume, host_dir):
-                filename = entry.path
-                if filename.endswith(".json"):
-                    # Read the agent record
-                    agent_path = filename.lstrip("/")
-                    try:
-                        content = _volume_read_file(volume, agent_path).decode("utf-8")
-                        agent_data = json.loads(content)
-                        agent_records.append(agent_data)
-                    except (OSError, IOError, json.JSONDecodeError) as e:
-                        logger.trace("Skipped invalid agent record file {}: {}", agent_path, e)
-                        continue
-        except (OSError, IOError, modal.exception.Error) as e:
-            # Host directory might not exist yet (no agents persisted)
-            logger.trace("Failed to find agent records for host {}: {}", host_id, e)
+        for entry in _volume_listdir(volume, host_dir):
+            filename = entry.path
+            if filename.endswith(".json"):
+                # Read the agent record
+                agent_path = filename.lstrip("/")
+                content = _volume_read_file(volume, agent_path).decode("utf-8")
+                try:
+                    agent_data = json.loads(content)
+                except json.JSONDecodeError as e:
+                    # this happens if the file is corrupted or partially written. Log and skip it.
+                    logger.warning("Skipped invalid agent record file {}: {}", agent_path, e)
+                    continue
+                else:
+                    agent_records.append(agent_data)
 
         logger.trace("Listed agent records for host {} from volume", host_id)
         return agent_records
@@ -1670,6 +1668,9 @@ log "=== Shutdown script completed ==="
                 try:
                     host_obj = self._create_host_from_sandbox(sandbox)
                 except HostConnectionError as e:
+                    # FIXME: Error swallowed at debug level. A running sandbox that we can't
+                    # connect to is a notable failure that should be logged at warning level
+                    # so the user is aware their host may have connectivity issues.
                     logger.debug("Failed to create host from sandbox {}: {}", host, e)
 
             if host_obj is None:
@@ -1684,6 +1685,9 @@ log "=== Shutdown script completed ==="
                 try:
                     host_obj = self._create_host_from_sandbox(sandbox)
                 except HostConnectionError as e:
+                    # FIXME: Error swallowed at debug level. A running sandbox that we can't
+                    # connect to is a notable failure that should be logged at warning level
+                    # so the user is aware their host may have connectivity issues.
                     logger.debug("Failed to create host from sandbox {}: {}", host, e)
 
             # No sandbox or couldn't connect - search host records by name (for stopped hosts)

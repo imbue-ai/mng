@@ -1135,6 +1135,9 @@ class Host(BaseHost, OnlineHostInterface):
                                 filename = filename.split(" -> ")[1]
                             files_to_include.append(filename)
                 except ProcessError as e:
+                    # FIXME: Error swallowed at trace level. If git status fails, we silently skip
+                    # transferring modified/untracked files, which could cause data loss. Should log
+                    # at warning level so the user knows their unclean files were not transferred.
                     logger.trace("git status --porcelain failed, skipping unclean files: {}", e)
             else:
                 result = source_host.execute_command("git status --porcelain", cwd=source_path)
@@ -1158,6 +1161,9 @@ class Host(BaseHost, OnlineHostInterface):
                         if line:
                             files_to_include.append(line)
                 except ProcessError as e:
+                    # FIXME: Error swallowed at trace level. If git ls-files fails, we silently skip
+                    # transferring gitignored files that the user requested to include. Should log at
+                    # warning level so the user knows their files were not transferred.
                     logger.trace("git ls-files failed, skipping gitignored files: {}", e)
             else:
                 result = source_host.execute_command(

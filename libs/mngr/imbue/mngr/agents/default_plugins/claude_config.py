@@ -241,6 +241,12 @@ def remove_claude_trust_for_path(path: Path) -> bool:
     """
     path = path.resolve()
 
+    # FIXME: Overly broad try/except scope. The entire function body is wrapped in a single
+    # try block catching (OSError, json.JSONDecodeError, KeyError) together. These represent
+    # fundamentally different failure modes: OSError = filesystem issue, JSONDecodeError = config
+    # file corruption, KeyError = programming error or unexpected data. The try/except scope
+    # should be narrowed to wrap only the operations that can fail, and each exception type
+    # should be handled separately with appropriate logging.
     try:
         with _claude_config_lock() as config_path:
             config = _read_claude_config(config_path)
