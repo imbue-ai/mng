@@ -198,7 +198,9 @@ class ClaudeAgent(BaseAgent):
         """
         return "Claude Code"
 
-    def wait_for_ready_signal(self, start_action: Callable[[], None], timeout: float | None = None) -> None:
+    def wait_for_ready_signal(
+        self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
+    ) -> None:
         """Wait for the agent to become ready, executing start_action then polling.
 
         Polls for the 'session_started' file that the SessionStart hook creates.
@@ -209,16 +211,13 @@ class ClaudeAgent(BaseAgent):
         if timeout is None:
             timeout = _READY_SIGNAL_TIMEOUT_SECONDS
 
+        # this file is removed when we start the agent, see assemble_command, and created by the SessionStart hook when the session is ready
         session_started_path = self._get_agent_dir() / "session_started"
 
         with log_span("Waiting for session_started file (timeout={}s)", timeout):
-            # Remove any stale marker file
-            rm_cmd = f"rm -f {shlex.quote(str(session_started_path))}"
-            self.host.execute_command(rm_cmd, timeout_seconds=1.0)
-
             # Run the start action (e.g., start the agent)
             with log_span("Calling start_action..."):
-                start_action()
+                super().wait_for_ready_signal(is_creating, start_action, timeout)
 
             # Poll for the session_started file (created by SessionStart hook)
             success, poll_count, poll_elapsed = poll_until_counted(
@@ -273,9 +272,11 @@ class ClaudeAgent(BaseAgent):
     ) -> CommandString:
         """Assemble command with --resume || --session-id format for session resumption.
 
-        The command format is: 'claude --resume UUID args || claude --session-id UUID args'
+        The command format is: 'claude --resume $SID args || claude --session-id UUID args'
         This allows users to hit 'up' and 'enter' in tmux to resume the session (--resume)
-        or create it with that ID (--session-id).
+        or create it with that ID (--session-id). The resume path uses $MAIN_CLAUDE_SESSION_ID,
+        resolved at runtime from the session tracking file (falling back to the agent UUID on
+        first run).
 
         An activity updater is started in the background to keep the agent's activity
         timestamp up-to-date while the tmux session is alive.
@@ -291,19 +292,20 @@ class ClaudeAgent(BaseAgent):
         agent_uuid = str(self.id.get_uuid())
 
         # Build the additional arguments (cli_args from config + agent_args from CLI)
-        args_str = ""
+        all_extra_args = self.agent_config.cli_args + agent_args
+        args_str = " ".join(all_extra_args) if all_extra_args else ""
 
-        # FIXME: it's strange that cli_args is a str and agent_args is a tuple[str, ...].
-        #  We should probably update both to be able to handle either style of argument (at the interface level)
-        #  And convert them to tuple[str, ...] in these data types.
-        if self.agent_config.cli_args:
-            args_str += self.agent_config.cli_args
+        # Read the latest session ID from the tracking file written by the SessionStart hook.
+        # This handles session replacement (e.g., exit plan mode, /clear, compaction) where
+        # Claude Code creates a new session with a different UUID. Falls back to the agent UUID
+        # if the tracking file doesn't exist (first run) or is empty (crash during write).
+        sid_export = (
+            f'_MNGR_READ_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || true);'
+            f' export MAIN_CLAUDE_SESSION_ID="${{_MNGR_READ_SID:-{agent_uuid}}}"'
+        )
 
-        if agent_args:
-            args_str = (args_str + " ").lstrip() + " ".join(agent_args)
-
-        # Build both command variants
-        resume_cmd = f"( find ~/.claude/ -name '{agent_uuid}' | grep . ) && {base} --resume {agent_uuid}"
+        # Build both command variants using the dynamic session ID
+        resume_cmd = f'( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && {base} --resume "$MAIN_CLAUDE_SESSION_ID"'
         create_cmd = f"{base} --session-id {agent_uuid}"
 
         # Append additional args to both commands if present
@@ -313,16 +315,16 @@ class ClaudeAgent(BaseAgent):
 
         # Build the environment exports
         # IS_SANDBOX is only set for remote hosts (not local)
-        env_exports = f"export MAIN_CLAUDE_SESSION_ID={agent_uuid}"
-        if not host.is_local:
-            env_exports = f"export IS_SANDBOX=1 && {env_exports}"
+        env_exports = f"export IS_SANDBOX=1 && {sid_export}" if not host.is_local else sid_export
 
         # Build the activity updater background command
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
         activity_cmd = self._build_activity_updater_command(session_name)
 
-        # Combine: start activity updater in background, then run the main command
-        return CommandString(f"{activity_cmd} {env_exports} && ( {resume_cmd} ) || {create_cmd}")
+        # Combine: start activity updater in background, export env (including session ID), then run the main command (and make sure we get rid of the session started marker on each run so that wait_for_ready_signal works correctly for both new and resumed sessions)
+        return CommandString(
+            f"{activity_cmd} {env_exports} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( {resume_cmd} ) || {create_cmd}"
+        )
 
     def on_before_provisioning(
         self,
@@ -511,10 +513,14 @@ class ClaudeAgent(BaseAgent):
                             "  curl -fsSL https://claude.ai/install.sh | bash"
                         )
                 else:
-                    # FIXME: for remote hosts, we need to check whether the user has allowed automatic installation for remote hosts
-                    #  in the global MngrConfig (we'll need to add that config option there, defaulting to True)
-                    #  If they have not enabled that, we must raise an error here
-                    pass
+                    if not mngr_ctx.config.is_remote_agent_installation_allowed:
+                        raise PluginMngrError(
+                            "Claude is not installed on the remote host and automatic remote installation is disabled. "
+                            "Set is_remote_agent_installation_allowed = true in your mngr config to enable automatic installation, "
+                            "or install Claude manually on the remote host."
+                        )
+                    else:
+                        logger.debug("Automatic remote agent installation is enabled, proceeding")
 
                 # Install claude
                 logger.info("Installing claude...")
