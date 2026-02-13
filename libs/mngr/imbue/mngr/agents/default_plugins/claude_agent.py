@@ -606,7 +606,7 @@ class ClaudeAgent(BaseAgent):
                     timeout_seconds=60.0,
                 )
             else:
-                dest_project_dir = Path("~/.claude/projects") / dest_dir_name
+                dest_project_dir = Path(".claude/projects") / dest_dir_name
                 for file_path in source_project_dir.rglob("*"):
                     if file_path.is_file():
                         relative_path = file_path.relative_to(source_project_dir)

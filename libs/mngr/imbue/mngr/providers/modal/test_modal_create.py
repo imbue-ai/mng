@@ -11,6 +11,7 @@ Or to run all tests including Modal tests:
 """
 
 import importlib.resources
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -18,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from imbue.mngr import resources
+from imbue.mngr.agents.default_plugins.claude_config import encode_claude_project_dir_name
 from imbue.mngr.conftest import ModalSubprocessTestEnv
 from imbue.mngr.utils.testing import get_short_random_string
 
@@ -404,6 +406,134 @@ def test_mngr_create_transfers_git_repo_with_new_branch(
 
     assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
     assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(300)
+def test_mngr_clone_transfers_claude_session_to_modal(
+    temp_git_repo: Path,
+    modal_subprocess_env: ModalSubprocessTestEnv,
+) -> None:
+    """Test that cloning a local agent to Modal transfers Claude session data.
+
+    This verifies the end-to-end session transfer flow:
+    1. Create a local agent from a git repo
+    2. Create fake Claude project data (session file, memory, companion dir)
+    3. Clone the agent to Modal via --from-agent
+    4. Verify on the remote that session data was transferred correctly
+    """
+    source_name = f"test-session-src-{get_short_random_string()}"
+    clone_name = f"test-session-clone-{get_short_random_string()}"
+    memory_marker = f"memory-marker-{get_short_random_string()}"
+    session_id = f"session-{get_short_random_string()}"
+
+    env = modal_subprocess_env.env
+
+    # Step 1: Create a local source agent
+    create_result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "mngr",
+            "create",
+            source_name,
+            "generic",
+            "--no-connect",
+            "--await-ready",
+            "--no-ensure-clean",
+            "--source",
+            str(temp_git_repo),
+            "--",
+            "sleep 3600",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
+    )
+    assert create_result.returncode == 0, (
+        f"Failed to create source agent.\nstderr: {create_result.stderr}\nstdout: {create_result.stdout}"
+    )
+
+    # Step 2: Find the source agent's work_dir via mngr list --format json
+    list_result = subprocess.run(
+        ["uv", "run", "mngr", "list", "--format", "json"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+    )
+    assert list_result.returncode == 0, f"Failed to list agents.\nstderr: {list_result.stderr}"
+    list_data = json.loads(list_result.stdout)
+    source_agents = [a for a in list_data["agents"] if a["name"] == source_name]
+    assert len(source_agents) == 1, f"Expected 1 agent named {source_name}, found {len(source_agents)}"
+    source_work_dir = Path(source_agents[0]["work_dir"])
+
+    # Step 3: Create fake Claude project data for the source work_dir
+    source_dir_name = encode_claude_project_dir_name(source_work_dir)
+    project_dir = Path.home() / ".claude" / "projects" / source_dir_name
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    # Session file
+    session_file = project_dir / f"{session_id}.jsonl"
+    session_file.write_text('{"type":"message","role":"user","content":"hello"}\n')
+
+    # Memory
+    memory_dir = project_dir / "memory"
+    memory_dir.mkdir()
+    (memory_dir / "MEMORY.md").write_text(f"# Memory\n{memory_marker}\n")
+
+    # Companion dir
+    companion_dir = project_dir / session_id
+    companion_dir.mkdir()
+    (companion_dir / "subagent.jsonl").write_text('{"type":"subagent"}\n')
+
+    # Step 4: Clone to Modal with a verification command.
+    # The command checks that:
+    # a) The memory file exists at ~/.claude/projects/<encoded-remote-work-dir>/memory/MEMORY.md
+    #    and contains the expected marker
+    # b) The session ID file exists at $MNGR_AGENT_STATE_DIR/claude_session_id
+    #    and contains the expected session ID
+    # c) The session .jsonl file was transferred
+    # If any check fails, the command exits non-zero, which causes the test to fail.
+    verify_cmd = (
+        f'MARKER=$(grep -r "{memory_marker}" ~/.claude/projects/*/memory/MEMORY.md 2>/dev/null) '
+        f'&& [ -n "$MARKER" ] '
+        f'&& echo "MEMORY_OK" '
+        f'&& SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null) '
+        f'&& [ "$SID" = "{session_id}" ] '
+        f'&& echo "SESSION_ID_OK" '
+        f"&& ls ~/.claude/projects/*/{session_id}.jsonl >/dev/null 2>&1 "
+        f'&& echo "JSONL_OK"'
+    )
+
+    clone_result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "mngr",
+            "create",
+            clone_name,
+            "generic",
+            "--from-agent",
+            source_name,
+            "--in",
+            "modal",
+            "--no-connect",
+            "--await-agent-stopped",
+            "--no-ensure-clean",
+            "--",
+            f"bash -c '{verify_cmd}'",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+    )
+
+    assert clone_result.returncode == 0, (
+        f"Session transfer verification failed on Modal.\nstderr: {clone_result.stderr}\nstdout: {clone_result.stdout}"
+    )
 
 
 def _get_mngr_default_dockerfile_path() -> Path:
