@@ -28,7 +28,6 @@ from typing import ParamSpec
 from typing import Sequence
 from typing import TypeVar
 from typing import cast
-from uuid import uuid4
 
 import modal
 import modal.exception
@@ -145,6 +144,30 @@ def _volume_batch_upload_file(volume: modal.Volume, file_data: bytes, path: str)
         batch.put_file(io.BytesIO(file_data), path)
 
 
+def _parse_volume_spec(spec: str) -> tuple[str, str]:
+    """Parse a volume mount spec of the form 'volume_name:mount_path'."""
+    parts = spec.split(":", 1)
+    if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+        raise MngrError(f"Invalid volume spec '{spec}': expected format 'volume_name:/mount/path'")
+    return (parts[0].strip(), parts[1].strip())
+
+
+def _build_modal_volumes(
+    volume_specs: tuple[tuple[str, str], ...],
+    environment_name: str,
+) -> dict[str | os.PathLike[str], modal.Volume | modal.CloudBucketMount]:
+    """Build a dict of mount_path -> modal.Volume for Sandbox.create()."""
+    volumes: dict[str | os.PathLike[str], modal.Volume | modal.CloudBucketMount] = {}
+    for volume_name, mount_path in volume_specs:
+        with log_span("Ensuring volume: {} at {}", volume_name, mount_path):
+            volumes[mount_path] = modal.Volume.from_name(
+                volume_name,
+                create_if_missing=True,
+                environment_name=environment_name,
+            )
+    return volumes
+
+
 def build_sandbox_tags(
     host_id: HostId,
     name: HostName,
@@ -225,6 +248,10 @@ class SandboxConfig(HostConfig):
         description="CIDR ranges to restrict network access to",
     )
     offline: bool = False
+    volumes: tuple[tuple[str, str], ...] = Field(
+        default_factory=tuple,
+        description="Volume mounts as (volume_name, mount_path) pairs",
+    )
 
     @property
     def effective_cidr_allowlist(self) -> list[str] | None:
@@ -394,7 +421,7 @@ class ModalProviderInstance(BaseProviderInstance):
         data = host_record.model_dump_json(indent=2)
 
         _volume_batch_upload_file(volume, data.encode("utf-8"), path)
-        logger.trace("Wrote host record to volume: {}", path)
+        logger.trace("Wrote host record to volume: {}", path, host_data=data)
 
         # Update the cache with the new host record
         self._host_record_cache_by_id[host_id] = host_record
@@ -446,7 +473,7 @@ class ModalProviderInstance(BaseProviderInstance):
         try:
             data = _volume_read_file(volume, path)
             host_record = HostRecord.model_validate_json(data)
-            logger.trace("Read host record from volume: {}", path)
+            logger.trace("Read host record from volume: {}", path, host_data=data.decode("utf-8"))
             # Cache the result
             self._host_record_cache_by_id[host_id] = host_record
             return host_record
@@ -884,8 +911,9 @@ class ModalProviderInstance(BaseProviderInstance):
         # The stop_reason parameter indicates why the host stopped:
         # - PAUSED: Host became idle (called by activity_watcher.sh)
         # - STOPPED: User explicitly stopped the host
-        # FIXME: update this script so that it has set -euo pipefail (and will still work properly)
         script_content = f'''#!/bin/bash
+set -euo pipefail
+
 # Auto-generated shutdown script for mngr Modal host
 # This script snapshots and shuts down the host by calling the deployed Modal function
 # It also gathers agent data to persist to the volume so agents show up in mngr list
@@ -942,9 +970,13 @@ log "Agents: $AGENTS"
 # Send the shutdown request with agent data and stop reason
 # Use --max-time to prevent hanging if the endpoint is slow
 log "Sending shutdown request to $SNAPSHOT_URL"
-RESPONSE=$(curl -s --max-time 30 -w "\\n%{{http_code}}" -X POST "$SNAPSHOT_URL" \\
+if ! RESPONSE=$(curl -s --max-time 30 -w "\\n%{{http_code}}" -X POST "$SNAPSHOT_URL" \\
     -H "Content-Type: application/json" \\
-    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}')
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}'); then
+    log "curl request failed"
+    log "=== Shutdown script completed with error ==="
+    exit 1
+fi
 
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 BODY=$(echo "$RESPONSE" | sed '$d')
@@ -1006,6 +1038,7 @@ log "=== Shutdown script completed ==="
         parser.add_argument("--secret", type=str, action="append", default=[])
         parser.add_argument("--cidr-allowlist", type=str, action="append", default=[])
         parser.add_argument("--offline", action="store_true", default=False)
+        parser.add_argument("--volume", type=str, action="append", default=[])
 
         try:
             parsed, unknown = parser.parse_known_args(normalized_args)
@@ -1027,6 +1060,7 @@ log "=== Shutdown script completed ==="
             secrets=tuple(parsed.secret),
             cidr_allowlist=tuple(parsed.cidr_allowlist),
             offline=parsed.offline,
+            volumes=tuple(_parse_volume_spec(v) for v in parsed.volume),
         )
 
     # =========================================================================
@@ -1312,6 +1346,10 @@ log "=== Shutdown script completed ==="
             # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
             # trigger a clean shutdown before Modal's hard timeout kills the host
             modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
+
+            # Build volume mounts from build args
+            sandbox_volumes = _build_modal_volumes(config.volumes, self.environment_name)
+
             with log_span(
                 "Creating Modal sandbox",
                 timeout=config.timeout,
@@ -1334,6 +1372,7 @@ log "=== Shutdown script completed ==="
                     gpu=config.gpu,
                     region=config.region,
                     cidr_allowlist=config.effective_cidr_allowlist,
+                    volumes=sandbox_volumes,
                 )
                 logger.trace("Created Modal sandbox", sandbox_id=sandbox.object_id)
         except (modal.exception.Error, MngrError) as e:
@@ -1572,6 +1611,10 @@ log "=== Shutdown script completed ==="
             # trigger a clean shutdown before Modal's hard timeout kills the host
             modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
             memory_mb = int(config.memory * 1024)
+
+            # Build volume mounts from the stored config
+            sandbox_volumes = _build_modal_volumes(config.volumes, self.environment_name)
+
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
@@ -1584,6 +1627,7 @@ log "=== Shutdown script completed ==="
                 gpu=config.gpu,
                 region=config.region,
                 cidr_allowlist=config.effective_cidr_allowlist,
+                volumes=sandbox_volumes,
             )
         logger.info("Created sandbox from snapshot", sandbox_id=new_sandbox.object_id)
 
@@ -1913,10 +1957,8 @@ log "=== Shutdown script completed ==="
 
         # Generate snapshot name if not provided
         if name is None:
-            # FIXME: this is a dumb default--use the creation time instead
-            # Use first 8 characters of a random UUID as a short identifier
-            short_id = uuid4().hex[:8]
-            name = SnapshotName(f"snapshot-{short_id}")
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
+            name = SnapshotName(f"snapshot-{timestamp}")
 
         with log_span("Creating snapshot for Modal sandbox", host_id=str(host_id)):
             snapshot_id = self._record_snapshot(sandbox, host_id, name)

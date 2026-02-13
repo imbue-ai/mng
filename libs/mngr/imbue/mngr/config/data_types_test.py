@@ -18,6 +18,7 @@ from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.config.data_types import merge_cli_args
 from imbue.mngr.config.data_types import merge_dict_fields
 from imbue.mngr.config.data_types import merge_list_fields
+from imbue.mngr.config.data_types import split_cli_args_string
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import LifecycleHook
@@ -135,26 +136,26 @@ def test_agent_type_config_merge_with_overrides_command() -> None:
 
 def test_agent_type_config_merge_with_concatenates_cli_args() -> None:
     """AgentTypeConfig.merge_with should concatenate cli_args."""
-    base = AgentTypeConfig(cli_args="--arg1")
-    override = AgentTypeConfig(cli_args="--arg2")
+    base = AgentTypeConfig(cli_args=("--arg1",))
+    override = AgentTypeConfig(cli_args=("--arg2",))
     merged = base.merge_with(override)
-    assert merged.cli_args == "--arg1 --arg2"
+    assert merged.cli_args == ("--arg1", "--arg2")
 
 
 def test_agent_type_config_merge_with_handles_empty_base_cli_args() -> None:
     """AgentTypeConfig.merge_with should handle empty base cli_args."""
-    base = AgentTypeConfig(cli_args="")
-    override = AgentTypeConfig(cli_args="--arg")
+    base = AgentTypeConfig(cli_args=())
+    override = AgentTypeConfig(cli_args=("--arg",))
     merged = base.merge_with(override)
-    assert merged.cli_args == "--arg"
+    assert merged.cli_args == ("--arg",)
 
 
 def test_agent_type_config_merge_with_handles_empty_override_cli_args() -> None:
     """AgentTypeConfig.merge_with should keep base when override is empty."""
-    base = AgentTypeConfig(cli_args="--arg")
-    override = AgentTypeConfig(cli_args="")
+    base = AgentTypeConfig(cli_args=("--arg",))
+    override = AgentTypeConfig(cli_args=())
     merged = base.merge_with(override)
-    assert merged.cli_args == "--arg"
+    assert merged.cli_args == ("--arg",)
 
 
 def test_agent_type_config_merge_with_concatenates_permissions() -> None:
@@ -167,26 +168,26 @@ def test_agent_type_config_merge_with_concatenates_permissions() -> None:
 
 def test_merge_cli_args_concatenates_both_when_present() -> None:
     """merge_cli_args should concatenate when both present."""
-    result = merge_cli_args("--arg1", "--arg2")
-    assert result == "--arg1 --arg2"
+    result = merge_cli_args(("--arg1",), ("--arg2",))
+    assert result == ("--arg1", "--arg2")
 
 
 def test_merge_cli_args_returns_override_when_base_empty() -> None:
     """merge_cli_args should return override when base is empty."""
-    result = merge_cli_args("", "--arg")
-    assert result == "--arg"
+    result = merge_cli_args((), ("--arg",))
+    assert result == ("--arg",)
 
 
 def test_merge_cli_args_returns_base_when_override_empty() -> None:
     """merge_cli_args should return base when override is empty."""
-    result = merge_cli_args("--arg", "")
-    assert result == "--arg"
+    result = merge_cli_args(("--arg",), ())
+    assert result == ("--arg",)
 
 
 def test_merge_cli_args_returns_empty_when_both_empty() -> None:
     """merge_cli_args should return empty when both empty."""
-    result = merge_cli_args("", "")
-    assert result == ""
+    result = merge_cli_args((), ())
+    assert result == ()
 
 
 def test_merge_list_fields_concatenates_when_override_not_none() -> None:
@@ -386,23 +387,23 @@ def test_mngr_config_merge_with_concatenates_unset_vars(mngr_test_prefix: str) -
 def test_mngr_config_merge_with_merges_agent_types(mngr_test_prefix: str) -> None:
     """MngrConfig.merge_with should merge agent_types dicts."""
     base = MngrConfig(
-        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args="--base")}
+        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args=("--base",))}
     )
     override = MngrConfig(
-        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args="--override")}
+        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args=("--override",))}
     )
     merged = base.merge_with(override)
     # cli_args should be concatenated
-    assert merged.agent_types[AgentTypeName("claude")].cli_args == "--base --override"
+    assert merged.agent_types[AgentTypeName("claude")].cli_args == ("--base", "--override")
 
 
 def test_mngr_config_merge_with_adds_new_agent_types(mngr_test_prefix: str) -> None:
     """MngrConfig.merge_with should add new agent types from override."""
     base = MngrConfig(
-        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args="--base")}
+        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args=("--base",))}
     )
     override = MngrConfig(
-        prefix=mngr_test_prefix, agent_types={AgentTypeName("codex"): AgentTypeConfig(cli_args="--codex")}
+        prefix=mngr_test_prefix, agent_types={AgentTypeName("codex"): AgentTypeConfig(cli_args=("--codex",))}
     )
     merged = base.merge_with(override)
     assert AgentTypeName("claude") in merged.agent_types
@@ -701,3 +702,90 @@ def test_mngr_config_merge_enabled_backends_keeps_base_when_override_empty(mngr_
     )
     merged = base.merge_with(override)
     assert merged.enabled_backends == [ProviderBackendName("local")]
+
+
+# =============================================================================
+# Tests for MngrConfig.is_remote_agent_installation_allowed
+# =============================================================================
+
+
+def test_mngr_config_merge_is_remote_agent_installation_allowed_override_wins(mngr_test_prefix: str) -> None:
+    """MngrConfig merge should use override's is_remote_agent_installation_allowed when set."""
+    base = MngrConfig(prefix=mngr_test_prefix, is_remote_agent_installation_allowed=True)
+    override = MngrConfig(prefix=mngr_test_prefix, is_remote_agent_installation_allowed=False)
+    merged = base.merge_with(override)
+    assert merged.is_remote_agent_installation_allowed is False
+
+
+# =============================================================================
+# Tests for split_cli_args_string
+# =============================================================================
+
+
+def test_split_cli_args_string_simple_args() -> None:
+    """split_cli_args_string should split simple arguments on whitespace."""
+    result = split_cli_args_string("--verbose --model gpt-4")
+    assert result == ("--verbose", "--model", "gpt-4")
+
+
+def test_split_cli_args_string_preserves_single_quotes() -> None:
+    """split_cli_args_string should preserve single-quoted values."""
+    result = split_cli_args_string('--settings \'{"key": "value"}\'')
+    assert result == ("--settings", '\'{"key": "value"}\'')
+    assert " ".join(result) == '--settings \'{"key": "value"}\''
+
+
+def test_split_cli_args_string_preserves_double_quotes() -> None:
+    """split_cli_args_string should preserve double-quoted values."""
+    result = split_cli_args_string('--flag "value with spaces"')
+    assert result == ("--flag", '"value with spaces"')
+    assert " ".join(result) == '--flag "value with spaces"'
+
+
+def test_split_cli_args_string_empty_string() -> None:
+    """split_cli_args_string should return empty tuple for empty string."""
+    result = split_cli_args_string("")
+    assert result == ()
+
+
+def test_split_cli_args_string_complex_json_with_single_quotes() -> None:
+    """split_cli_args_string should preserve complex JSON wrapped in single quotes."""
+    cli_args = (
+        """--settings '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "./scripts/check.sh"}]}]}}'"""
+    )
+    result = split_cli_args_string(cli_args)
+    assert len(result) == 2
+    assert result[0] == "--settings"
+    # The JSON value should still be wrapped in single quotes
+    assert result[1].startswith("'")
+    assert result[1].endswith("'")
+    # Round-trip: joining should produce the original string
+    assert " ".join(result) == cli_args
+
+
+def test_split_cli_args_string_single_arg() -> None:
+    """split_cli_args_string should handle a single argument."""
+    result = split_cli_args_string("--verbose")
+    assert result == ("--verbose",)
+
+
+def test_split_cli_args_string_preserves_quoting_for_assemble_command() -> None:
+    """Verify that cli_args parsed from a string produce correct commands when joined.
+
+    This is the end-to-end scenario: TOML string -> split -> tuple -> join -> command.
+    """
+    cli_args_str = """--settings '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "./scripts/check_commit_status.sh"}]}, {"hooks": [{"type": "command", "timeout": 600, "command": "./scripts/main_claude_stop_hook.sh"}]}]}}'"""
+    parts = split_cli_args_string(cli_args_str)
+    reassembled = " ".join(parts)
+    assert reassembled == cli_args_str
+
+
+def test_split_cli_args_string_does_not_treat_hash_as_comment() -> None:
+    """split_cli_args_string should not treat '#' as a comment character."""
+    hash_token = "#channel"
+    cli_args = f"--flag {hash_token} --other"
+    result = split_cli_args_string(cli_args)
+    assert len(result) == 3
+    assert result[0] == "--flag"
+    assert result[1] == hash_token
+    assert result[2] == "--other"

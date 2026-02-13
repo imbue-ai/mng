@@ -37,6 +37,7 @@ mngr create my-agent --in modal --build-args "gpu=h100 cpu=2 memory=8"
 | `secret` | Environment variable name to pass as a secret during image build (can be specified multiple times) | None |
 | `cidr-allowlist` | Restrict network access to the specified CIDR range (can be specified multiple times) | None |
 | `offline` | Block all outbound network access from the sandbox | off |
+| `volume` | Mount a persistent Modal Volume (format: `name:/path`, can be specified multiple times) | None |
 
 ### Examples
 
@@ -106,6 +107,20 @@ RUN --mount=type=secret,id=NPM_TOKEN \
 RUN --mount=type=secret,id=GITHUB_TOKEN \
     pip install git+https://$(cat /run/secrets/GITHUB_TOKEN)@github.com/myorg/private-repo.git
 ```
+
+### Mounting Persistent Volumes
+
+The `volume` build argument mounts a persistent [Modal Volume](https://modal.com/docs/guide/volumes) at a specified path inside the sandbox. Volumes persist across sandbox restarts and can be shared between sandboxes.
+
+```bash
+# Mount a single volume
+mngr create my-agent --in modal -b volume=my-data:/data
+
+# Mount multiple volumes
+mngr create my-agent --in modal -b volume=cache:/cache -b volume=results:/results
+```
+
+The volume is created automatically if it does not already exist. Data written to the mount path is persisted on the volume and available the next time a sandbox mounts the same volume.
 
 ## Snapshots
 

@@ -1019,8 +1019,6 @@ class Host(BaseHost, OnlineHostInterface):
                 if not result.success:
                     raise MngrError(f"Failed to configure git repo on target: {result.stderr}")
 
-    # FIXME: we should probably warn if we detect any submodules (eg, .git folders inside of here)
-    #  Submodules are *not* supported right now, and we wouldn't want the user thinking they were
     def _git_push_to_target(
         self,
         source_host: OnlineHostInterface,
@@ -1028,6 +1026,7 @@ class Host(BaseHost, OnlineHostInterface):
         target_path: Path,
     ) -> None:
         """Push git repo from source to target using git push --mirror."""
+        self._warn_if_submodules_detected(source_host, source_path)
         target_ssh_info = self._get_ssh_connection_info()
 
         if target_ssh_info is None:
@@ -1083,6 +1082,33 @@ class Host(BaseHost, OnlineHostInterface):
                 result = source_host.execute_command(push_cmd, cwd=source_path)
                 if not result.success:
                     raise MngrError(f"Failed to push git repo from remote source: {result.stderr}")
+
+    def _warn_if_submodules_detected(
+        self,
+        source_host: OnlineHostInterface,
+        source_path: Path,
+    ) -> None:
+        """Warn the user if git submodules are detected in the source repo."""
+        try:
+            if source_host.is_local:
+                result_obj = self.mngr_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "submodule", "status"],
+                    cwd=source_path,
+                    timeout=10,
+                )
+                submodule_output = result_obj.stdout.strip()
+            else:
+                result = source_host.execute_command("git submodule status", cwd=source_path, timeout_seconds=10)
+                submodule_output = result.stdout.strip() if result.success else ""
+        except (ProcessError, Exception):
+            # If we can't check for submodules, just skip the warning
+            return
+
+        if submodule_output:
+            logger.warning(
+                "Detected git submodules in source repository. "
+                "Submodules are not supported and will not be transferred correctly."
+            )
 
     def _transfer_extra_files(
         self,
@@ -1637,6 +1663,54 @@ class Host(BaseHost, OnlineHostInterface):
             success=success,
         )
 
+    def rename_agent(self, agent: AgentInterface, new_name: AgentName) -> AgentInterface:
+        """Rename an agent and return the updated agent object.
+
+        The operation is idempotent: if interrupted mid-rename, re-running
+        will complete it. This works because data.json (the "commit point")
+        is updated last, while tmux and env changes are applied first and
+        are safe to repeat.
+        """
+        with log_span("Renaming agent", agent_id=str(agent.id), old_name=str(agent.name), new_name=str(new_name)):
+            old_name = agent.name
+            data_path = self._get_agent_state_dir(agent) / "data.json"
+
+            # Rename the tmux session first (idempotent -- no-ops if session doesn't exist with old name)
+            old_session_name = f"{self.mngr_ctx.config.prefix}{old_name}"
+            new_session_name = f"{self.mngr_ctx.config.prefix}{new_name}"
+            result = self.execute_command(
+                f"tmux has-session -t {shlex.quote(old_session_name)} 2>/dev/null && "
+                f"tmux rename-session -t {shlex.quote(old_session_name)} {shlex.quote(new_session_name)} || true"
+            )
+            logger.debug("Tmux rename result: success={}, stdout={}", result.success, result.stdout.strip())
+
+            # Update the MNGR_AGENT_NAME env var in the agent's env file
+            env_path = self._get_agent_env_path(agent)
+            try:
+                env_content = self.read_text_file(env_path)
+                updated_lines: list[str] = []
+                for line in env_content.splitlines():
+                    if line.startswith("MNGR_AGENT_NAME="):
+                        updated_lines.append(f"MNGR_AGENT_NAME={new_name}")
+                    else:
+                        updated_lines.append(line)
+                self.write_text_file(env_path, "\n".join(updated_lines) + "\n")
+            except FileNotFoundError:
+                logger.debug("No env file found for agent {}, skipping env update", agent.id)
+
+            # Update data.json last (the "commit point" for the rename)
+            content = self.read_text_file(data_path)
+            data = json.loads(content)
+            data["name"] = str(new_name)
+            self.write_text_file(data_path, json.dumps(data, indent=2))
+            self.save_agent_data(agent.id, data)
+
+            # Reload and return the updated agent
+            updated_agent = self._load_agent_from_dir(self._get_agent_state_dir(agent))
+            if updated_agent is None:
+                raise AgentNotFoundOnHostError(agent.id, self.id)
+            return updated_agent
+
     def destroy_agent(self, agent: AgentInterface) -> None:
         """Destroy an agent and clean up its resources."""
         with log_span("Destroying agent", agent_id=str(agent.id), agent_name=str(agent.name)):
@@ -1651,13 +1725,17 @@ class Host(BaseHost, OnlineHostInterface):
                 self.provider_instance.remove_persisted_agent_data(self.id, agent.id)
 
     def _build_env_shell_command(self, agent: AgentInterface) -> str:
-        """Build a shell command that sources env files and then execs bash.
+        """Build a shell command that sources env files and then execs into a shell.
 
-        This is used as the shell-command for tmux new-session/new-window, so the
-        resulting shell has all environment variables properly set.
+        Uses MNGR_SAVED_DEFAULT_TMUX_COMMAND if set (the user's original
+        default-command, saved via tmux set-environment during session creation),
+        falling back to bash otherwise. This means agent windows created before
+        the variable is set get bash, while user-created windows (via
+        default-command) get the user's shell.
         """
         commands = self._build_source_env_commands(agent)
-        commands.append("exec bash")
+        # Note: no quotes, because the saved command may have multiple words
+        commands.append("exec ${MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash}")
         return "bash -c " + shlex.quote("; ".join(commands))
 
     def _get_host_tmux_config_path(self) -> Path:
@@ -1730,14 +1808,6 @@ class Host(BaseHost, OnlineHostInterface):
                 ]
             )
 
-        lines.extend(
-            [
-                "",
-                "# Automatically signal claude to tell it to resize on client attach",
-                """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'""",
-                "",
-            ]
-        )
         config_content = "\n".join(lines)
 
         self.write_text_file(config_path, config_content)
@@ -1756,7 +1826,10 @@ class Host(BaseHost, OnlineHostInterface):
         same session for each additional command.
 
         Environment variables from the host and agent env files are sourced
-        when creating the tmux session, so all shells in the session inherit them.
+        when creating the tmux session and its agent windows. The session's
+        default-command is set to source env files and exec into the user's
+        original default-command (queried via tmux show-option), so that
+        user-created windows get both the env vars and the user's shell.
 
         A custom tmux config is used that:
         - Sources the user's default ~/.tmux.conf if it exists
@@ -2008,8 +2081,20 @@ def _build_start_agent_shell_command(
         f" {shlex.quote(env_shell_cmd)}"
     )
 
-    # Set the session's default-command so new windows/panes inherit env vars
-    steps.append(f"tmux set-option -t {shlex.quote(session_name)} default-command {shlex.quote(env_shell_cmd)}")
+    # Save the user's original default-command (from their ~/.tmux.conf) into
+    # the tmux session environment, then set default-command to env_shell_cmd.
+    # Because env_shell_cmd uses ${MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash}, the
+    # initial agent window (created above, before this variable exists) gets
+    # bash, while user-created windows get the user's shell.
+    quoted_session = shlex.quote(session_name)
+    save_user_shell_script = (
+        f"U=$(tmux show-option -t {quoted_session} -Aqv default-command 2>/dev/null); "
+        f'[ -z "$U" ] && U=$(tmux show-option -t {quoted_session} -Aqv default-shell 2>/dev/null) || true; '
+        '[ -z "$U" ] && U=bash; '
+        f'tmux set-environment -t {quoted_session} MNGR_SAVED_DEFAULT_TMUX_COMMAND "$U"'
+    )
+    steps.append("bash -c " + shlex.quote(save_user_shell_script))
+    steps.append(f"tmux set-option -t {quoted_session} default-command {shlex.quote(env_shell_cmd)}")
 
     # Send the agent command as literal keys, then Enter to execute
     steps.append(f"tmux send-keys -t {shlex.quote(session_name)} -l {shlex.quote(command)}")
@@ -2047,10 +2132,12 @@ def _build_start_agent_shell_command(
     )
     steps.append(activity_printf_cmd)
 
-    # Build the process activity monitor script (runs in the background)
+    # Build the process activity monitor script (runs in the background, inspects window :0 where the agent is assumed to be running)
     # Wait up to 10 seconds for the PANE_PID to appear (tmux can take a moment to start)
     max_wait_seconds = 10
-    tmux_list_panes_cmd = f"tmux list-panes -t {shlex.quote(session_name)} -F '#{{pane_pid}}' 2>/dev/null | head -n 1"
+    tmux_list_panes_cmd = (
+        f"tmux list-panes -t {shlex.quote(session_name) + ':0'} -F '#{{pane_pid}}' 2>/dev/null | head -n 1"
+    )
     process_activity_path = activity_dir / ActivitySource.PROCESS.value.lower()
     monitor_script = (
         f"PANE_PID=$({tmux_list_panes_cmd}); "

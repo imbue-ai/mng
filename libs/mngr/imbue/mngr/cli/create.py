@@ -254,10 +254,6 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.group("Host Options")
 @optgroup.option("--in", "--new-host", "new_host", help="Create a new host using provider (docker, modal, ...)")
 @optgroup.option("--host", "--target-host", help="Use an existing host (by name or ID) [default: local]")
-# FIXME: you can get yourself in a bit of a screwy situation if you DONT specify --project and you DO use a remote source (which comes from a different project)
-#   currently we have this assumption that your local dir and source are for the same project
-#   we should at least validate that, for remote sources, they end up having the exact same project inferred as locally
-#   and if not, raise an error to require that the user clarify
 @optgroup.option(
     "--project",
     help="Project name for the agent [default: derived from git remote origin or folder name]",
@@ -661,8 +657,16 @@ def _handle_create(mngr_ctx, output_opts, opts):
             create_result = CreateAgentResult(agent=agent, host=host)
             return create_result, connection_opts, output_opts, opts, mngr_ctx
 
-    # If ensure-clean is set, verify the source work_dir is clean
-    if opts.ensure_clean:
+    # If ensure-clean is set, verify the source work_dir is clean.
+    # Skip the check when using worktree mode with an explicit --base-branch, since the
+    # worktree will be created from that branch and uncommitted changes in the current
+    # working tree are irrelevant.
+    is_worktree_from_other_branch = (
+        agent_opts.git is not None
+        and agent_opts.git.copy_mode == WorkDirCopyMode.WORKTREE
+        and opts.base_branch is not None
+    )
+    if opts.ensure_clean and not is_worktree_from_other_branch:
         _ensure_clean_work_dir(source_location)
 
     # figure out the target host (if we just have a reference)
@@ -868,7 +872,25 @@ def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions, m
             "Have to re-implement the below function so that it works via HostInterface calls instead!"
         )
 
-    return derive_project_name_from_path(source_location.path, mngr_ctx.concurrency_group)
+    source_project = derive_project_name_from_path(source_location.path, mngr_ctx.concurrency_group)
+
+    # When creating a new host from an external source (--source-agent or --source-host),
+    # validate that the project inferred from the source matches the project inferred from
+    # the local working directory. If they differ, the user must specify --project explicitly
+    # to avoid silently tagging the new host with the wrong project.
+    is_external_source = opts.source_agent is not None or opts.source_host is not None
+    is_creating_new_host = opts.new_host is not None
+    if is_external_source and is_creating_new_host:
+        local_git_root = find_git_worktree_root(None, mngr_ctx.concurrency_group)
+        local_path = local_git_root if local_git_root is not None else Path(os.getcwd())
+        local_project = derive_project_name_from_path(local_path, mngr_ctx.concurrency_group)
+        if source_project != local_project:
+            raise UserInputError(
+                f"Project mismatch: source infers project '{source_project}' but local directory infers "
+                f"'{local_project}'. Use --project to specify which project name to use."
+            )
+
+    return source_project
 
 
 def _try_reuse_existing_agent(

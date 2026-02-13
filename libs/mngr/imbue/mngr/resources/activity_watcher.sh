@@ -163,6 +163,13 @@ has_running_agent_sessions() {
         fi
     fi
 
+    # check how long this container has been running for--if it's been less than the grace period, skip the tmux check to avoid shutting down the host before agent sessions have a chance to start
+    local container_uptime_seconds
+    container_uptime_seconds=$(cat /proc/uptime | awk '{print int($1)}')
+    if [ "$container_uptime_seconds" -lt "$AGENT_SESSION_GRACE_PERIOD" ]; then
+        return 0
+    fi
+
     # List tmux sessions and check if any match the prefix.
     # tmux list-sessions fails if no server is running, which means no sessions.
     local sessions
