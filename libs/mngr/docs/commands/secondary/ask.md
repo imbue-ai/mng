@@ -1,41 +1,37 @@
 <!-- This file is auto-generated. Do not edit directly. -->
 <!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
 
-# mngr rename
+# mngr ask
 
 **Synopsis:**
 
 ```text
-mngr [rename|mv] <CURRENT> <NEW-NAME> [--dry-run] [--host]
+mngr ask [--execute] QUERY...
 ```
 
 
-Rename an agent or host.
+Chat with mngr for help.
 
-Renames the agent's data.json and tmux session (if running).
-Git branch names are not renamed.
-
-If a previous rename was interrupted, re-running the command
-will attempt to finish it.
-
-Alias: mv
+Ask mngr a question and it will generate the appropriate CLI command.
+If no query is provided, shows general help.
 
 Examples:
 
-  mngr rename my-agent new-name
+  mngr ask "how do I create an agent?"
 
-  mngr rename my-agent new-name --dry-run
+  mngr ask start a container with claude code
+
+  mngr ask --execute forward port 8080 to the public internet
 
 **Usage:**
 
 ```text
-mngr rename [OPTIONS] CURRENT NEW-NAME
+mngr ask [OPTIONS] [QUERY]...
 ```
 
 ## Arguments
 
-- `CURRENT`: Current name or ID of the agent to rename
-- `NEW-NAME`: New name for the agent
+- `QUERY`: The query (optional)
 
 **Options:**
 
@@ -43,8 +39,7 @@ mngr rename [OPTIONS] CURRENT NEW-NAME
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--dry-run` | boolean | Show what would be renamed without actually renaming | `False` |
-| `--host` | boolean | Rename a host instead of an agent [future] | `False` |
+| `--execute` | boolean | Execute the generated CLI command instead of just printing it | `False` |
 
 ## Common
 
@@ -69,26 +64,26 @@ mngr rename [OPTIONS] CURRENT NEW-NAME
 
 ## See Also
 
-- [mngr list](./list.md) - List existing agents
-- [mngr create](./create.md) - Create a new agent
-- [mngr destroy](./destroy.md) - Destroy an agent
+- [mngr create](../primary/create.md) - Create an agent
+- [mngr list](../primary/list.md) - List existing agents
+- [mngr connect](../primary/connect.md) - Connect to an agent
 
 ## Examples
 
-**Rename an agent**
+**Ask a question**
 
 ```bash
-$ mngr rename my-agent new-name
+$ mngr ask "how do I create an agent?"
 ```
 
-**Preview what would be renamed**
+**Ask without quotes**
 
 ```bash
-$ mngr rename my-agent new-name --dry-run
+$ mngr ask start a container with claude code
 ```
 
-**Use the alias**
+**Execute the generated command**
 
 ```bash
-$ mngr mv my-agent new-name
+$ mngr ask --execute forward port 8080 to the public internet
 ```
