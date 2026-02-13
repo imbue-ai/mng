@@ -1,5 +1,7 @@
 """Integration tests for the list CLI command."""
 
+import json
+import os
 import time
 from pathlib import Path
 
@@ -617,6 +619,21 @@ def test_list_command_with_running_filter_alias(
             catch_exceptions=False,
         )
         assert create_result.exit_code == 0
+
+        # Create the "active" file so the agent is considered RUNNING.
+        # Without this file, the agent would be in WAITING state.
+        host_dir = Path(os.environ["MNGR_HOST_DIR"])
+        json_result = cli_runner.invoke(
+            list_command,
+            ["--format", "json"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        data = json.loads(json_result.output)
+        agents = data["agents"]
+        agent_id = next(a["id"] for a in agents if a["name"] == agent_name)
+        active_file = host_dir / "agents" / agent_id / "active"
+        active_file.write_text("")
 
         # List with --running should show the agent
         result = cli_runner.invoke(
