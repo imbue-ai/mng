@@ -70,8 +70,8 @@ def temp_source_dir(tmp_path: Path) -> Path:
     return source_dir
 
 
-@pytest.mark.release
-@pytest.mark.timeout(600)
+@pytest.mark.acceptance
+@pytest.mark.timeout(300)
 def test_mngr_enforce_stops_idle_modal_host(
     temp_source_dir: Path,
     modal_subprocess_env: ModalSubprocessTestEnv,
