@@ -12,6 +12,8 @@ from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.errors import AgentError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import _build_start_agent_shell_command
+from imbue.mngr.hosts.host import _parse_boot_time_output
+from imbue.mngr.hosts.host import _parse_uptime_output
 from imbue.mngr.interfaces.host import NamedCommand
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentId
@@ -387,7 +389,7 @@ def _build_command_with_defaults(
         session_name=f"mngr-{agent.name}",
         command="sleep 1000",
         additional_commands=additional_commands if additional_commands is not None else [],
-        env_shell_cmd="bash -c 'exec bash'",
+        env_shell_cmd="bash -c 'exec \"${MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash}\"'",
         tmux_config_path=Path("/tmp/tmux.conf"),
         unset_vars=unset_vars if unset_vars is not None else [],
         host_dir=host_dir,
@@ -409,6 +411,7 @@ def test_build_start_agent_shell_command_produces_single_command(
     assert "tmux" in result
     assert "new-session" in result
     assert "set-option" in result
+    assert "default-command" in result
     assert "send-keys" in result
 
     # Should contain activity recording
@@ -490,7 +493,7 @@ def test_build_start_agent_shell_command_uses_and_chaining(
     assert "; " in result
     after_guard = result.split("; ", 1)[1]
     parts = after_guard.split(" && ")
-    assert len(parts) >= 6
+    assert len(parts) >= 7
 
 
 def test_build_start_agent_shell_command_bails_if_session_exists(
@@ -511,3 +514,103 @@ def test_build_start_agent_shell_command_bails_if_session_exists(
 
     # The rest of the command (tmux new-session, etc.) comes after
     assert "new-session" in rest
+
+
+def test_build_start_agent_shell_command_monitor_retries_pane_pid(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """The process monitor should retry getting the pane PID instead of exiting immediately."""
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_command_with_defaults(agent, temp_host_dir)
+
+    # The monitor script should contain retry loop elements
+    assert "TRIES=0" in result
+    assert "TRIES=$((TRIES + 1))" in result
+    assert "sleep 1" in result
+
+
+def test_build_start_agent_shell_command_default_command_uses_user_shell(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """The default-command should query the user's shell and exec into it."""
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_command_with_defaults(agent, temp_host_dir)
+
+    # Should query the user's original default-command via tmux show-option
+    assert "show-option" in result
+
+    # Should save the user's shell via tmux set-environment
+    assert "MNGR_SAVED_DEFAULT_TMUX_COMMAND" in result
+
+    # The default-command should exec into the saved user shell, not hardcoded bash
+    assert "MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash" in result
+
+
+# =========================================================================
+# Tests for _parse_uptime_output
+# =========================================================================
+
+
+def test_parse_uptime_output_macos_format() -> None:
+    """Test parsing macOS-style uptime output (boot timestamp + current timestamp)."""
+    # macOS sysctl gives boot time, date gives current time
+    stdout = "1700000000\n1700003600\n"
+    result = _parse_uptime_output(stdout)
+    assert result == 3600.0
+
+
+def test_parse_uptime_output_linux_format() -> None:
+    """Test parsing Linux-style /proc/uptime output."""
+    stdout = "12345.67 98765.43\n"
+    result = _parse_uptime_output(stdout)
+    assert result == 12345.67
+
+
+def test_parse_uptime_output_empty() -> None:
+    """Test parsing empty output returns 0."""
+    assert _parse_uptime_output("") == 0.0
+    assert _parse_uptime_output("  \n") == 0.0
+
+
+def test_parse_uptime_output_unexpected_lines() -> None:
+    """Test parsing output with unexpected number of lines returns 0."""
+    stdout = "line1\nline2\nline3\n"
+    assert _parse_uptime_output(stdout) == 0.0
+
+
+def test_parse_uptime_output_non_numeric_two_lines() -> None:
+    """Test parsing non-numeric macOS-style output returns 0."""
+    assert _parse_uptime_output("error\nmessage\n") == 0.0
+
+
+def test_parse_uptime_output_non_numeric_single_line() -> None:
+    """Test parsing non-numeric Linux-style output returns 0."""
+    assert _parse_uptime_output("not_a_number\n") == 0.0
+
+
+# =========================================================================
+# Tests for _parse_boot_time_output
+# =========================================================================
+
+
+def test_parse_boot_time_output_valid_timestamp() -> None:
+    """Test parsing a valid Unix timestamp returns the correct datetime."""
+    # Both macOS sysctl and Linux btime produce a single Unix timestamp
+    result = _parse_boot_time_output("1700000000\n")
+    assert result is not None
+    assert result == datetime(2023, 11, 14, 22, 13, 20, tzinfo=timezone.utc)
+
+
+def test_parse_boot_time_output_empty() -> None:
+    """Test parsing empty output returns None."""
+    assert _parse_boot_time_output("") is None
+    assert _parse_boot_time_output("  \n") is None
+
+
+def test_parse_boot_time_output_non_numeric() -> None:
+    """Test parsing non-numeric output returns None."""
+    assert _parse_boot_time_output("not_a_number\n") is None

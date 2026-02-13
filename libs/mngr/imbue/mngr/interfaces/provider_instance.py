@@ -42,21 +42,6 @@ class ProviderInstanceInterface(MutableModel, ABC):
 
     @property
     @abstractmethod
-    def is_authorized(self) -> bool:
-        """Whether this provider instance is authorized/authenticated.
-
-        For providers that require authentication (like Modal), this checks if
-        valid credentials are available. For providers that don't require auth
-        (like local), this always returns True.
-
-        When a provider is not authorized:
-        - list_hosts() should warn and return empty list
-        - create_host() and other write operations should raise ProviderNotAuthorizedError
-        """
-        ...
-
-    @property
-    @abstractmethod
     def supports_snapshots(self) -> bool:
         """Whether this provider supports creating and managing host snapshots."""
         ...
@@ -150,8 +135,8 @@ class ProviderInstanceInterface(MutableModel, ABC):
     @abstractmethod
     def list_hosts(
         self,
+        cg: ConcurrencyGroup,
         include_destroyed: bool = False,
-        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         """List all hosts managed by this provider instance."""
         ...

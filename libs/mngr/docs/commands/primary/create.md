@@ -12,7 +12,7 @@ mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] 
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot] [--reuse|--no-reuse]
-    [--] [<AGENT_ARGS>...]
+    [--[no-]auto-start] [--] [<AGENT_ARGS>...]
 ```
 
 
@@ -74,6 +74,7 @@ By default, `mngr create` uses the "local" host. Use these options to change tha
 | `--ensure-clean`, `--no-ensure-clean` | boolean | Abort if working tree is dirty | `True` |
 | `--snapshot-source`, `--no-snapshot-source` | boolean | Snapshot source agent first [default: yes if --source-agent and not local] | None |
 | `--copy-work-dir`, `--no-copy-work-dir` | boolean | Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect] | None |
+| `--auto-start`, `--no-auto-start` | boolean | Automatically start offline hosts (source and target) before proceeding | `True` |
 
 ## Agent Source Data (what to include in the new agent)
 

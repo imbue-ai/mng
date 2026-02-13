@@ -259,6 +259,10 @@ class AgentTypeName(NonEmptyStr):
     """Type name for an agent (e.g., claude, codex)."""
 
 
+class UserId(NonEmptyStr):
+    """Unique user identifier for namespacing provider resources."""
+
+
 class PluginName(NonEmptyStr):
     """Name of a plugin."""
 

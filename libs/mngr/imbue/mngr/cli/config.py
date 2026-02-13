@@ -19,7 +19,9 @@ from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
+from imbue.mngr.cli.help_formatter import show_help_with_pager
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import OutputOptions
@@ -54,9 +56,7 @@ class ConfigCliOptions(CommonCliOptions):
     value: str | None = None
 
 
-def _get_config_path(
-    scope: ConfigScope, root_name: str = "mngr", profile_dir: Path | None = None, cg: ConcurrencyGroup | None = None
-) -> Path:
+def _get_config_path(scope: ConfigScope, root_name: str, profile_dir: Path, cg: ConcurrencyGroup) -> Path:
     """Get the config file path for the given scope. The profile_dir is required for USER scope."""
     match scope:
         case ConfigScope.USER:
@@ -218,9 +218,10 @@ def config(ctx: click.Context, **kwargs: Any) -> None:
 
       mngr config edit --scope user
     """
-    # If no subcommand is provided, show help
+    # FIXME: passing None means the user's pager config setting is not respected;
+    # config is not yet loaded at the group level (ctx.obj is the PluginManager).
     if ctx.invoked_subcommand is None:
-        logger.info(ctx.get_help())
+        show_help_with_pager(ctx, ctx.command, None)
 
 
 @config.command(name="list")
@@ -866,3 +867,5 @@ register_help_metadata("config", _CONFIG_HELP_METADATA)
 # Also register under alias for consistent help output
 for alias in _CONFIG_HELP_METADATA.aliases:
     register_help_metadata(alias, _CONFIG_HELP_METADATA)
+
+add_pager_help_option(config)

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 #
 # stop_hook_common.sh
 #
