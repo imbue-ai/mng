@@ -36,6 +36,15 @@ from imbue.mngr.primitives import OutputFormat
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = ("name", "host", "provider", "host.state", "state", "status")
 
+# Display field aliases: map user-facing shorthand field names to their actual
+# data model paths. Used by both _get_field_value and _get_sortable_value so that
+# --fields and --sort accept the same shorthand names.
+_FIELD_ALIASES: Final[dict[str, str]] = {
+    "host": "host.name",
+    "provider": "host.provider_name",
+    "host.provider": "host.provider_name",
+}
+
 
 @pure
 def _should_use_streaming_mode(
@@ -724,17 +733,9 @@ def _get_sortable_value(agent: AgentInfo, field: str) -> Any:
     Returns the raw value (not string-formatted) for proper sorting behavior.
     Supports nested fields like "host.name" and field aliases.
     """
-    # FIXME: remove these aliases here and below. If anything must remain, make it a proper on AgentInfo
-    # Handle special field aliases for backward compatibility and convenience
-    field_aliases = {
-        "host": "host.name",
-        "provider": "host.provider_name",
-        "host.provider": "host.provider_name",
-    }
-
-    # Apply alias if it exists
-    if field in field_aliases:
-        field = field_aliases[field]
+    # Apply display field alias if it exists
+    if field in _FIELD_ALIASES:
+        field = _FIELD_ALIASES[field]
 
     # Handle nested fields (e.g., "host.name")
     # Also supports dict key access for plugin fields (e.g., "host.plugin.aws.iam_user")
@@ -783,17 +784,9 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
     Supports nested fields like "host.name", handles field aliases, and supports
     list slicing syntax like "host.snapshots[0]" or "host.snapshots[:3]".
     """
-    # Handle special field aliases for backward compatibility and convenience
-    # Note: host.provider maps to host.provider_name for consistency with CEL filters
-    field_aliases = {
-        "host": "host.name",
-        "provider": "host.provider_name",
-        "host.provider": "host.provider_name",
-    }
-
-    # Apply alias if it exists
-    if field in field_aliases:
-        field = field_aliases[field]
+    # Apply display field alias if it exists
+    if field in _FIELD_ALIASES:
+        field = _FIELD_ALIASES[field]
 
     # Handle nested fields (e.g., "host.name") with optional bracket notation
     # Also supports dict key access for plugin fields (e.g., "host.plugin.aws.iam_user")
