@@ -26,14 +26,13 @@ imbue-common = { workspace = true }
 [tool.hatch.build.targets.wheel]
 packages = ["imbue"]
 
-# Per-project pytest/coverage config. Keep in sync with root pyproject.toml.
+# Shared pytest defaults (markers, filterwarnings, CLI args like -n/--timeout/--durations,
+# coverage report settings) are configured in a single place:
+#   libs/imbue_common/imbue/imbue_common/conftest_hooks.py
+# Only project-specific settings belong here.
 [tool.pytest.ini_options]
 timeout_func_only = true
 testpaths = ["."]
-filterwarnings = [
-  "ignore:Exception ignored in.*Channel.__del__.*:pytest.PytestUnraisableExceptionWarning",
-  "ignore:Module imbue\\..* was previously imported, but not measured:coverage.exceptions.CoverageWarning",
-]
 addopts = [
   "-n 4",
   "--cov=imbue.changelings",
@@ -51,10 +50,6 @@ addopts = [
   "--slow-tests-to-file",
   "--coverage-to-file",
 ]
-markers = [
-  "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
-  "release: marks tests as being required for release (but not for merging PRs)",
-]
 
 [tool.coverage.run]
 parallel = true
@@ -66,26 +61,6 @@ omit = [
   "*/conftest.py",
   "*/utils/testing.py",
 ]
-
-[tool.coverage.report]
-exclude_lines = [
-  "pragma: no cover",
-  "def __repr__",
-  "case _ as unreachable:",
-  "assert_never(unreachable)",
-  "raise AssertionError",
-  "raise NotImplementedError",
-  "if __name__ == .__main__.:",
-  "if TYPE_CHECKING:",
-  "@abstractmethod",
-  "^\\s*\\.\\.\\.$",
-]
-skip_empty = true
-precision = 2
-sort = "Cover"
-
-[tool.coverage.html]
-directory = "htmlcov"
 
 [tool.pyright]
 venvPath = "../.."

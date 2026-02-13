@@ -4,6 +4,7 @@ Provides common test infrastructure:
 - Global test locking (prevents parallel pytest processes from conflicting)
 - Test suite timing limits
 - Output file redirection (slow tests report, coverage report)
+- Shared pytest defaults (markers, filterwarnings, CLI args, coverage report config)
 
 Usage in each project's conftest.py:
     from imbue.imbue_common.conftest_hooks import register_conftest_hooks
@@ -41,6 +42,47 @@ _SESSION_LOCK_HANDLE_ATTR: Final[str] = "_global_test_lock_file_handle"
 
 # Guard to prevent duplicate hook registration (see module docstring).
 _registered: bool = False
+
+
+# ---------------------------------------------------------------------------
+# Shared defaults -- the single source of truth for pytest/coverage settings
+# that are common across all projects. Per-project pyproject.toml files only
+# need to specify project-specific values (testpaths, --cov, --cov-fail-under,
+# and coverage omit patterns).
+# ---------------------------------------------------------------------------
+
+_SHARED_MARKERS: Final[list[str]] = [
+    "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
+    "release: marks tests as being required for release (but not for merging PRs)",
+]
+
+_SHARED_FILTER_WARNINGS: Final[list[str]] = [
+    # Suppress grpclib warning that occurs during garbage collection when Channel.__del__ is called
+    # after the connection's transport has already been cleaned up. This is a known issue in grpclib.
+    "ignore:Exception ignored in.*Channel.__del__.*:pytest.PytestUnraisableExceptionWarning",
+    # Suppress coverage warning about modules being imported before coverage starts measuring.
+    # This happens because pytest collects tests (importing modules) before coverage.py starts.
+    r"ignore:Module imbue\..* was previously imported, but not measured:coverage.exceptions.CoverageWarning",
+]
+
+# Lines matching any of these patterns are excluded from coverage measurement.
+_SHARED_COVERAGE_EXCLUDE_LINES: Final[list[str]] = [
+    "pragma: no cover",
+    "def __repr__",
+    "case _ as unreachable:",
+    "assert_never(unreachable)",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+    r"^\s*\.\.\.$",  # Matches lines containing only "..."
+]
+
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
 
 
 def _is_xdist_worker() -> bool:
@@ -96,6 +138,40 @@ def _acquire_global_test_lock(
     _print_lock_message("PYTEST GLOBAL LOCK: Lock acquired, proceeding with tests.")
 
     return lock_file_handle
+
+
+def _configure_shared_coverage_report(config: pytest.Config) -> None:
+    """Apply shared coverage report settings to the Coverage object.
+
+    Sets exclude_lines, skip_empty, precision, sort, and html directory on the
+    coverage.py config. These settings are shared across all projects in the
+    monorepo so they don't need to be duplicated in each pyproject.toml.
+
+    Must be called after pytest-cov has created the Coverage object (i.e., after
+    pytest_sessionstart). Safe to call when coverage is disabled (--no-cov).
+    """
+    cov_plugin = config.pluginmanager.get_plugin("_cov")
+    if cov_plugin is None:
+        return
+
+    cov_controller = getattr(cov_plugin, "cov_controller", None)
+    if cov_controller is None:
+        return
+
+    cov = getattr(cov_controller, "cov", None)
+    if cov is None:
+        return
+
+    # Replace the default exclude list with our shared list
+    cov.config.exclude_list = list(_SHARED_COVERAGE_EXCLUDE_LINES)
+
+    # Report formatting
+    cov.config.skip_empty = True
+    cov.config.precision = 2
+    cov.config.sort = "Cover"
+
+    # HTML output directory
+    cov.config.html_dir = "htmlcov"
 
 
 # ---------------------------------------------------------------------------
@@ -225,12 +301,7 @@ def _pytest_load_initial_conftests(
     parser: pytest.Parser,
     args: list[str],
 ) -> None:
-    """Modify coverage options early, before pytest-cov processes them.
-
-    Note: This hook runs before conftest.py is loaded, so it doesn't actually
-    execute from conftest.py. It's kept here for documentation purposes and
-    in case it's registered as a plugin.
-    """
+    """Modify coverage options early, before pytest-cov processes them."""
     # Check if --coverage-to-file is in the args
     if "--coverage-to-file" in args:
         # Find and remove term-based coverage reports from the args
@@ -256,7 +327,15 @@ def _pytest_load_initial_conftests(
 
 @pytest.hookimpl(tryfirst=True)
 def _pytest_configure(config: pytest.Config) -> None:
-    """Store options on config for later use and suppress terminal output when redirecting to files."""
+    """Register shared markers/filterwarnings and handle output-to-file options."""
+    # Register shared markers
+    for marker in _SHARED_MARKERS:
+        config.addinivalue_line("markers", marker)
+
+    # Register shared filterwarnings
+    for warning_filter in _SHARED_FILTER_WARNINGS:
+        config.addinivalue_line("filterwarnings", warning_filter)
+
     # Store the slow-tests-to-file option on config for use in hooks
     # Use setattr to avoid type errors - pytest Config doesn't declare these private attributes
     slow_tests_to_file = config.getoption("--slow-tests-to-file", default=False)
@@ -291,6 +370,21 @@ def _pytest_configure(config: pytest.Config) -> None:
                 if controller_cov_report is not None and isinstance(controller_cov_report, dict):
                     controller_cov_report.pop("term-missing", None)
                     controller_cov_report.pop("term", None)
+
+
+def _pytest_collection_finish(session: pytest.Session) -> None:
+    """Configure shared coverage report settings after test collection.
+
+    This hook runs after pytest_sessionstart (where pytest-cov creates the Coverage
+    object), so the coverage config can be safely modified here. Report settings like
+    exclude_lines, skip_empty, precision, and sort are only needed at report generation
+    time, not during measurement.
+
+    Only runs on the controller process (not xdist workers).
+    """
+    if _is_xdist_worker():
+        return
+    _configure_shared_coverage_report(session.config)
 
 
 @pytest.hookimpl(trylast=True)
@@ -423,4 +517,5 @@ def register_conftest_hooks(namespace: dict) -> None:
     namespace["pytest_addoption"] = _pytest_addoption
     namespace["pytest_load_initial_conftests"] = _pytest_load_initial_conftests
     namespace["pytest_configure"] = _pytest_configure
+    namespace["pytest_collection_finish"] = _pytest_collection_finish
     namespace["pytest_terminal_summary"] = _pytest_terminal_summary
