@@ -141,6 +141,8 @@ class AgentTypeConfig(FrozenModel):
     def merge_with(self, override: Self) -> Self:
         """Merge this config with an override config.
 
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
+
         Scalar fields: override wins if not None
         Lists: concatenate both lists
         """
@@ -181,6 +183,8 @@ class ProviderInstanceConfig(FrozenModel):
 
     def merge_with(self, override: "ProviderInstanceConfig") -> "ProviderInstanceConfig":
         """Merge this config with an override config.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
 
         Scalar fields: override wins if not None
         List fields: concatenate both lists
@@ -223,6 +227,8 @@ class PluginConfig(FrozenModel):
 
     def merge_with(self, override: "PluginConfig") -> "PluginConfig":
         """Merge this config with an override config.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
 
         Scalar fields: override wins if not None
         """
@@ -269,6 +275,8 @@ class LoggingConfig(FrozenModel):
     def merge_with(self, override: "LoggingConfig") -> "LoggingConfig":
         """Merge this config with an override config.
 
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
+
         Scalar fields: override wins if not None
         """
         return LoggingConfig(
@@ -305,6 +313,8 @@ class CommandDefaults(FrozenModel):
 
     def merge_with(self, override: Self) -> Self:
         """Merge this config with an override config.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
 
         For command defaults, later configs completely override earlier ones.
         """
@@ -352,6 +362,8 @@ class CreateTemplate(FrozenModel):
 
     def merge_with(self, override: Self) -> Self:
         """Merge this template with an override template.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
 
         For templates, later configs override earlier ones on a per-key basis.
         """
@@ -415,11 +427,11 @@ class MngrConfig(FrozenModel):
         default_factory=LoggingConfig,
         description="Logging configuration",
     )
-    is_remote_agent_installation_allowed: bool | None = Field(
-        default=None,
+    is_remote_agent_installation_allowed: bool = Field(
+        default=True,
         description="Whether to allow automatic installation of agents (e.g. Claude) on remote hosts. "
         "When False, raises an error if the agent is not already installed on the remote host. "
-        "Defaults to True (allowed) when not explicitly set.",
+        "Defaults to True (allowed).",
     )
     is_allowed_in_pytest: bool = Field(
         default=True,
@@ -428,6 +440,8 @@ class MngrConfig(FrozenModel):
 
     def merge_with(self, override: Self) -> Self:
         """Merge this config with an override config.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
 
         Scalar fields: override wins if not None
         Dicts: merge keys, with per-key merge for nested config objects
@@ -528,12 +542,9 @@ class MngrConfig(FrozenModel):
         # Merge pre_command_scripts (dict - override keys take precedence)
         merged_pre_command_scripts = merge_dict_fields(self.pre_command_scripts, override.pre_command_scripts)
 
-        # Merge is_remote_agent_installation_allowed (scalar - override wins if not None)
-        merged_is_remote_agent_installation_allowed = (
-            override.is_remote_agent_installation_allowed
-            if override.is_remote_agent_installation_allowed is not None
-            else self.is_remote_agent_installation_allowed
-        )
+        is_remote_agent_installation_allowed = self.is_remote_agent_installation_allowed
+        if override.is_remote_agent_installation_allowed is not None:
+            is_remote_agent_installation_allowed = override.is_remote_agent_installation_allowed
 
         is_allowed_in_pytest = self.is_allowed_in_pytest
         if override.is_allowed_in_pytest is not None:
@@ -557,7 +568,7 @@ class MngrConfig(FrozenModel):
             commands=merged_commands,
             create_templates=merged_create_templates,
             pre_command_scripts=merged_pre_command_scripts,
-            is_remote_agent_installation_allowed=merged_is_remote_agent_installation_allowed,
+            is_remote_agent_installation_allowed=is_remote_agent_installation_allowed,
             logging=merged_logging,
             is_allowed_in_pytest=is_allowed_in_pytest,
         )

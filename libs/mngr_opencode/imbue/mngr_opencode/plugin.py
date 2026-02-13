@@ -25,7 +25,11 @@ class OpenCodeAgentConfig(AgentTypeConfig):
     )
 
     def merge_with(self, override: AgentTypeConfig) -> AgentTypeConfig:
-        """Merge this config with an override config."""
+        """
+        Merge this config with an override config.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
+        """
         if not isinstance(override, OpenCodeAgentConfig):
             raise ConfigParseError("Cannot merge OpenCodeAgentConfig with different agent config type")
 
