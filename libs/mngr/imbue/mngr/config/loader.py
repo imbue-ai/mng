@@ -7,6 +7,7 @@ from typing import Sequence
 from uuid import uuid4
 
 import pluggy
+from pydantic import BaseModel
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.model_update import to_update
@@ -22,6 +23,7 @@ from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.config.data_types import ROOT_CONFIG_FILENAME
+from imbue.mngr.config.data_types import split_cli_args_string
 from imbue.mngr.config.plugin_registry import get_plugin_config_class
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
@@ -47,9 +49,6 @@ from imbue.mngr.utils.git_utils import find_git_worktree_root
 _ENV_COMMANDS_PREFIX = "MNGR_COMMANDS_"
 
 
-# FIXME: sadly, putting in random keys into the various config locations often silently fails. We should *at least* warn when there are unknown keys.
-#  The behavior of whether to warn/error/ignore should be configurable as well! (both via an env var and via config file)
-#  I made a quick example of how to do this correctly in _parse_config (but the other sub parsers need to be updated as well)
 def load_config(
     pm: pluggy.PluginManager,
     concurrency_group: ConcurrencyGroup,
@@ -175,6 +174,7 @@ def load_config(
     if config.logging is not None:
         config_dict["logging"] = config.logging
 
+    config_dict["is_nested_tmux_allowed"] = config.is_nested_tmux_allowed
     config_dict["is_allowed_in_pytest"] = config.is_allowed_in_pytest
     config_dict["pre_command_scripts"] = config.pre_command_scripts
 
@@ -301,6 +301,22 @@ def _load_toml(path: Path) -> dict[str, Any]:
         raise ConfigParseError(f"Failed to parse {path}: {e}") from e
 
 
+def _check_unknown_fields(
+    raw_config: dict[str, Any],
+    model_class: type[BaseModel],
+    context: str,
+) -> None:
+    """Raise ConfigParseError if raw_config contains fields not defined on model_class.
+
+    This catches typos and misconfigured keys early rather than silently ignoring them,
+    which is important because model_construct bypasses pydantic's extra="forbid" validation.
+    """
+    known_fields = set(model_class.model_fields.keys())
+    unknown = set(raw_config.keys()) - known_fields
+    if unknown:
+        raise ConfigParseError(f"Unknown fields in {context}: {sorted(unknown)}. Valid fields: {sorted(known_fields)}")
+
+
 def _parse_providers(
     raw_providers: dict[str, dict[str, Any]],
 ) -> dict[ProviderInstanceName, ProviderInstanceConfig]:
@@ -316,9 +332,24 @@ def _parse_providers(
             config_class = get_provider_config_class(backend)
         except UnknownBackendError as e:
             raise ConfigParseError(f"Provider '{name}' missing required 'backend' field") from e
+        _check_unknown_fields(raw_config, config_class, f"providers.{name}")
         providers[ProviderInstanceName(name)] = config_class.model_construct(**raw_config)
 
     return providers
+
+
+def _normalize_cli_args_for_construct(raw_config: dict[str, Any]) -> dict[str, Any]:
+    """Normalize cli_args from str or list to tuple before model_construct (which bypasses validators)."""
+    if "cli_args" not in raw_config:
+        return raw_config
+    cli_args = raw_config["cli_args"]
+    if isinstance(cli_args, str):
+        normalized = split_cli_args_string(cli_args) if cli_args else ()
+    elif isinstance(cli_args, (list, tuple)):
+        normalized = tuple(cli_args)
+    else:
+        normalized = cli_args
+    return {**raw_config, "cli_args": normalized}
 
 
 def _parse_agent_types(
@@ -332,7 +363,9 @@ def _parse_agent_types(
 
     for name, raw_config in raw_types.items():
         config_class = get_agent_config_class(name)
-        agent_types[AgentTypeName(name)] = config_class.model_construct(**raw_config)
+        _check_unknown_fields(raw_config, config_class, f"agent_types.{name}")
+        normalized_config = _normalize_cli_args_for_construct(raw_config)
+        agent_types[AgentTypeName(name)] = config_class.model_construct(**normalized_config)
 
     return agent_types
 
@@ -348,6 +381,7 @@ def _parse_plugins(
 
     for name, raw_config in raw_plugins.items():
         config_class = get_plugin_config_class(name)
+        _check_unknown_fields(raw_config, config_class, f"plugins.{name}")
         plugins[PluginName(name)] = config_class.model_construct(**raw_config)
 
     return plugins
@@ -406,6 +440,7 @@ def _parse_logging_config(raw_logging: dict[str, Any]) -> LoggingConfig:
 
     Uses model_construct to bypass validation and explicitly set None for unset fields.
     """
+    _check_unknown_fields(raw_logging, LoggingConfig, "logging")
     return LoggingConfig.model_construct(**raw_logging)
 
 
@@ -462,6 +497,7 @@ def _parse_config(raw: dict[str, Any]) -> MngrConfig:
         _parse_create_templates(raw.pop("create_templates", {})) if "create_templates" in raw else {}
     )
     kwargs["logging"] = _parse_logging_config(raw.pop("logging", {})) if "logging" in raw else None
+    kwargs["is_nested_tmux_allowed"] = raw.pop("is_nested_tmux_allowed", None) if "is_nested_tmux_allowed" in raw else None
     kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", {}) if "is_allowed_in_pytest" in raw else None
     kwargs["pre_command_scripts"] = raw.pop("pre_command_scripts", {}) if "pre_command_scripts" in raw else None
 

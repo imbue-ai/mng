@@ -389,7 +389,7 @@ def _build_command_with_defaults(
         session_name=f"mngr-{agent.name}",
         command="sleep 1000",
         additional_commands=additional_commands if additional_commands is not None else [],
-        env_shell_cmd="bash -c 'exec bash'",
+        env_shell_cmd="bash -c 'exec \"${MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash}\"'",
         tmux_config_path=Path("/tmp/tmux.conf"),
         unset_vars=unset_vars if unset_vars is not None else [],
         host_dir=host_dir,
@@ -411,6 +411,7 @@ def test_build_start_agent_shell_command_produces_single_command(
     assert "tmux" in result
     assert "new-session" in result
     assert "set-option" in result
+    assert "default-command" in result
     assert "send-keys" in result
 
     # Should contain activity recording
@@ -492,7 +493,7 @@ def test_build_start_agent_shell_command_uses_and_chaining(
     assert "; " in result
     after_guard = result.split("; ", 1)[1]
     parts = after_guard.split(" && ")
-    assert len(parts) >= 6
+    assert len(parts) >= 7
 
 
 def test_build_start_agent_shell_command_bails_if_session_exists(
@@ -528,6 +529,25 @@ def test_build_start_agent_shell_command_monitor_retries_pane_pid(
     assert "TRIES=0" in result
     assert "TRIES=$((TRIES + 1))" in result
     assert "sleep 1" in result
+
+
+def test_build_start_agent_shell_command_default_command_uses_user_shell(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """The default-command should query the user's shell and exec into it."""
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_command_with_defaults(agent, temp_host_dir)
+
+    # Should query the user's original default-command via tmux show-option
+    assert "show-option" in result
+
+    # Should save the user's shell via tmux set-environment
+    assert "MNGR_SAVED_DEFAULT_TMUX_COMMAND" in result
+
+    # The default-command should exec into the saved user shell, not hardcoded bash
+    assert 'MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash' in result
 
 
 # =========================================================================
