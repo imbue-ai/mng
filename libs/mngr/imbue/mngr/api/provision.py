@@ -48,8 +48,8 @@ def provision_agent(
         # Write to a local temp file so _collect_agent_env_vars can read it
         # as the first env_file (giving it lowest priority among user-provided values)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as tmp:
-            tmp.write(existing_env_content)
             existing_env_local_path = Path(tmp.name)
+            tmp.write(existing_env_content)
 
         merged_env_files = (existing_env_local_path,) + environment.env_files
     else:
