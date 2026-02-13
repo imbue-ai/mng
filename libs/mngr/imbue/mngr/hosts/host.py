@@ -1730,14 +1730,6 @@ class Host(BaseHost, OnlineHostInterface):
                 ]
             )
 
-        lines.extend(
-            [
-                "",
-                "# Automatically signal claude to tell it to resize on client attach",
-                """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'""",
-                "",
-            ]
-        )
         config_content = "\n".join(lines)
 
         self.write_text_file(config_path, config_content)

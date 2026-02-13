@@ -80,6 +80,15 @@ class AgentInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
+    def get_expected_process_name(self) -> str:
+        """Get the expected process name for lifecycle state detection.
+
+        Subclasses can override this to return a hardcoded process name
+        when the command is complex (e.g., shell wrappers with exports).
+        """
+        ...
+
+    @abstractmethod
     def get_permissions(self) -> list[Permission]:
         """Return the list of permissions assigned to this agent."""
         ...
