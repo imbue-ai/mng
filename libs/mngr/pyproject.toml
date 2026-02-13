@@ -37,8 +37,8 @@ concurrency-group = { workspace = true }
 # Shared pytest settings (markers, filterwarnings, coverage report config)
 # are centralized in:
 #   libs/imbue_common/imbue/imbue_common/conftest_hooks.py
-# addopts and coverage.run (parallel/concurrency) remain here because they
-# must be parsed before pytest hooks run.
+# The settings below remain here because they are read from pyproject.toml
+# before any hooks run: addopts, coverage.run, inline-snapshot, timeout_func_only.
 [tool.pytest.ini_options]
 timeout_func_only = true
 testpaths = ["."]
