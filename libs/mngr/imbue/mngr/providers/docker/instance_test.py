@@ -16,6 +16,7 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.docker.config import DockerProviderConfig
+from imbue.mngr.providers.docker.conftest import make_docker_provider
 from imbue.mngr.providers.docker.host_store import ContainerConfig
 from imbue.mngr.providers.docker.instance import DockerProviderInstance
 from imbue.mngr.providers.docker.instance import LABEL_HOST_ID
@@ -30,48 +31,38 @@ HOST_ID_A = "host-00000000000000000000000000000001"
 HOST_ID_B = "host-00000000000000000000000000000002"
 
 
-def _make_docker_provider(mngr_ctx: MngrContext, name: str = "test-docker") -> DockerProviderInstance:
-    config = DockerProviderConfig()
-    return DockerProviderInstance(
-        name=ProviderInstanceName(name),
-        host_dir=Path("/mngr"),
-        mngr_ctx=mngr_ctx,
-        config=config,
-    )
-
-
 # =========================================================================
 # Capability Properties
 # =========================================================================
 
 
 def test_docker_provider_name(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx, "my-docker")
+    provider = make_docker_provider(temp_mngr_ctx, "my-docker")
     assert provider.name == ProviderInstanceName("my-docker")
 
 
 def test_docker_provider_supports_snapshots(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     assert provider.supports_snapshots is True
 
 
 def test_docker_provider_supports_shutdown_hosts(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     assert provider.supports_shutdown_hosts is True
 
 
 def test_docker_provider_does_not_support_volumes(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     assert provider.supports_volumes is False
 
 
 def test_docker_provider_does_not_support_mutable_tags(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     assert provider.supports_mutable_tags is False
 
 
 def test_list_volumes_returns_empty_list(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     assert provider.list_volumes() == []
 
 
@@ -189,7 +180,7 @@ def test_get_ssh_host_remote_docker_tcp() -> None:
 
 
 def test_parse_build_args_empty(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(None)
     assert isinstance(config, ContainerConfig)
     assert config.cpu == 1.0
@@ -199,21 +190,21 @@ def test_parse_build_args_empty(temp_mngr_ctx: MngrContext) -> None:
 
 
 def test_parse_build_args_empty_list(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args([])
     assert config.cpu == 1.0
     assert config.memory == 1.0
 
 
 def test_parse_build_args_key_value_format(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(["cpu=2", "memory=8"])
     assert config.cpu == 2.0
     assert config.memory == 8.0
 
 
 def test_parse_build_args_flag_equals_format(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(["--cpu=2", "--memory=8", "--gpu=nvidia"])
     assert config.cpu == 2.0
     assert config.memory == 8.0
@@ -221,69 +212,69 @@ def test_parse_build_args_flag_equals_format(temp_mngr_ctx: MngrContext) -> None
 
 
 def test_parse_build_args_flag_space_format(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(["--cpu", "2", "--memory", "8"])
     assert config.cpu == 2.0
     assert config.memory == 8.0
 
 
 def test_parse_build_args_mixed_formats(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(["cpu=4", "--memory=16"])
     assert config.cpu == 4.0
     assert config.memory == 16.0
 
 
 def test_parse_build_args_image(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(["--image=python:3.11-slim"])
     assert config.image == "python:3.11-slim"
 
 
 def test_parse_build_args_dockerfile(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(["--dockerfile=/path/to/Dockerfile"])
     assert config.dockerfile == "/path/to/Dockerfile"
 
 
 def test_parse_build_args_context_dir(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(["--context-dir=/path/to/context"])
     assert config.context_dir == "/path/to/context"
 
 
 def test_parse_build_args_network(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(["--network=my-network"])
     assert config.network == "my-network"
 
 
 def test_parse_build_args_volume_single(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(["--volume=/host:/container"])
     assert config.volumes == ("/host:/container",)
 
 
 def test_parse_build_args_volume_multiple(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(["--volume=/a:/b", "--volume=/c:/d"])
     assert config.volumes == ("/a:/b", "/c:/d")
 
 
 def test_parse_build_args_port_single(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(["--port=8080:80"])
     assert config.ports == ("8080:80",)
 
 
 def test_parse_build_args_port_multiple(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     config = provider._parse_build_args(["--port=8080:80", "--port=9090:90"])
     assert config.ports == ("8080:80", "9090:90")
 
 
 def test_parse_build_args_unknown_raises_error(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     with pytest.raises(MngrError, match="Unknown build arguments"):
         provider._parse_build_args(["--foobar=baz"])
 
@@ -331,24 +322,24 @@ def test_parse_build_args_explicit_args_override_config_defaults(temp_mngr_ctx: 
 
 
 def test_set_host_tags_raises_mngr_error(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     with pytest.raises(MngrError, match="does not support mutable tags"):
         provider.set_host_tags(HostId(HOST_ID_A), {"key": "val"})
 
 
 def test_add_tags_to_host_raises_mngr_error(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     with pytest.raises(MngrError, match="does not support mutable tags"):
         provider.add_tags_to_host(HostId(HOST_ID_A), {"key": "val"})
 
 
 def test_remove_tags_from_host_raises_mngr_error(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     with pytest.raises(MngrError, match="does not support mutable tags"):
         provider.remove_tags_from_host(HostId(HOST_ID_A), ["key"])
 
 
 def test_delete_volume_raises_not_implemented(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     with pytest.raises(NotImplementedError):
         provider.delete_volume(VolumeId("vol-00000000000000000000000000000001"))

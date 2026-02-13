@@ -9,7 +9,6 @@ in CI environments where Docker is available.
 """
 
 from collections.abc import Generator
-from pathlib import Path
 
 import docker.errors
 import pytest
@@ -22,27 +21,16 @@ from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
-from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
-from imbue.mngr.providers.docker.config import DockerProviderConfig
+from imbue.mngr.providers.docker.conftest import make_docker_provider
 from imbue.mngr.providers.docker.instance import DockerProviderInstance
-
-
-def _make_docker_provider(mngr_ctx: MngrContext, name: str = "test-docker") -> DockerProviderInstance:
-    config = DockerProviderConfig()
-    return DockerProviderInstance(
-        name=ProviderInstanceName(name),
-        host_dir=Path("/mngr"),
-        mngr_ctx=mngr_ctx,
-        config=config,
-    )
 
 
 @pytest.fixture
 def docker_provider(temp_mngr_ctx: MngrContext) -> Generator[DockerProviderInstance, None, None]:
     """Create a Docker provider instance and clean up containers on teardown."""
-    provider = _make_docker_provider(temp_mngr_ctx)
+    provider = make_docker_provider(temp_mngr_ctx)
     yield provider
 
     # Cleanup: destroy all hosts created during the test
@@ -237,7 +225,7 @@ def test_rename_host(docker_provider: DockerProviderInstance) -> None:
 
 @pytest.mark.acceptance
 def test_close_closes_docker_client(temp_mngr_ctx: MngrContext) -> None:
-    provider = _make_docker_provider(temp_mngr_ctx, "test-close")
+    provider = make_docker_provider(temp_mngr_ctx, "test-close")
     # Access the client to initialize it
     _ = provider._docker_client
     provider.close()
