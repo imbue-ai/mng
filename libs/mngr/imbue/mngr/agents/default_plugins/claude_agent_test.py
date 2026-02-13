@@ -228,7 +228,7 @@ def test_claude_agent_assemble_command_with_no_args(
     activity_cmd = agent._build_activity_updater_command(session_name)
     # Local hosts should NOT have IS_SANDBOX set
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
+        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
     )
 
 
@@ -245,7 +245,7 @@ def test_claude_agent_assemble_command_with_agent_args(
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
+        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
     )
 
 
@@ -267,7 +267,7 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus"
+        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus"
     )
 
 
@@ -288,7 +288,7 @@ def test_claude_agent_assemble_command_with_command_override(
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
+        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
     )
 
 
@@ -327,7 +327,7 @@ def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
     activity_cmd = agent._build_activity_updater_command(session_name)
     # Remote hosts SHOULD have IS_SANDBOX set
     assert command == CommandString(
-        f"{activity_cmd} export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
+        f"{activity_cmd} export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
     )
 
 
