@@ -34,10 +34,11 @@ build-backend = "hatchling.build"
 imbue-common = { workspace = true }
 concurrency-group = { workspace = true }
 
-# Shared pytest defaults (markers, filterwarnings, CLI args like -n/--timeout/--durations,
-# coverage report settings) are configured in a single place:
+# Shared pytest settings (markers, filterwarnings, coverage report config)
+# are centralized in:
 #   libs/imbue_common/imbue/imbue_common/conftest_hooks.py
-# Only project-specific settings belong here.
+# addopts and coverage.run (parallel/concurrency) remain here because they
+# must be parsed before pytest hooks run.
 [tool.pytest.ini_options]
 timeout_func_only = true
 testpaths = ["."]

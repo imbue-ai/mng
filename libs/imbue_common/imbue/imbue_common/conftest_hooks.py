@@ -45,10 +45,11 @@ _registered: bool = False
 
 
 # ---------------------------------------------------------------------------
-# Shared defaults -- the single source of truth for pytest/coverage settings
-# that are common across all projects. Per-project pyproject.toml files only
-# need to specify project-specific values (testpaths, --cov, --cov-fail-under,
-# and coverage omit patterns).
+# Shared defaults -- the single source of truth for markers, filterwarnings,
+# and coverage report settings that are common across all projects.
+# Per-project pyproject.toml files still contain addopts (CLI args like -n,
+# --timeout, --cov, etc.) and coverage.run settings (parallel, concurrency,
+# omit) because those must be parsed before hooks run.
 # ---------------------------------------------------------------------------
 
 _SHARED_MARKERS: Final[list[str]] = [
@@ -140,12 +141,20 @@ def _acquire_global_test_lock(
     return lock_file_handle
 
 
-def _configure_shared_coverage_report(config: pytest.Config) -> None:
+def _configure_shared_coverage_defaults(config: pytest.Config) -> None:
     """Apply shared coverage report settings to the Coverage object.
 
-    Sets exclude_lines, skip_empty, precision, sort, and html directory on the
-    coverage.py config. These settings are shared across all projects in the
-    monorepo so they don't need to be duplicated in each pyproject.toml.
+    Configures:
+    - report exclude_lines (code patterns to exclude from coverage)
+    - report formatting (skip_empty, precision, sort)
+    - html output directory
+
+    These settings are shared across all projects in the monorepo so they
+    don't need to be duplicated in each pyproject.toml.
+
+    Note: coverage.run settings (parallel, concurrency, omit) must remain in
+    each pyproject.toml because they are read at Coverage.__init__ time, before
+    any hooks run.
 
     Must be called after pytest-cov has created the Coverage object (i.e., after
     pytest_sessionstart). Safe to call when coverage is disabled (--no-cov).
@@ -296,35 +305,6 @@ def _generate_output_filename(prefix: str, extension: str) -> Path:
     return _ensure_test_outputs_dir() / f"{prefix}_{uuid4().hex}{extension}"
 
 
-def _pytest_load_initial_conftests(
-    early_config: pytest.Config,
-    parser: pytest.Parser,
-    args: list[str],
-) -> None:
-    """Modify coverage options early, before pytest-cov processes them."""
-    # Check if --coverage-to-file is in the args
-    if "--coverage-to-file" in args:
-        # Find and remove term-based coverage reports from the args
-        # We need to handle both explicit args and those from addopts
-        indices_to_remove: list[int] = []
-        i = 0
-        while i < len(args):
-            arg = args[i]
-            # Handle --cov-report=term-missing form
-            if arg.startswith("--cov-report=term"):
-                indices_to_remove.append(i)
-            # Handle --cov-report term-missing form (two separate args)
-            elif arg == "--cov-report" and i + 1 < len(args) and args[i + 1].startswith("term"):
-                indices_to_remove.append(i)
-                indices_to_remove.append(i + 1)
-                i += 1
-            i += 1
-
-        # Remove in reverse order to preserve indices
-        for idx in reversed(indices_to_remove):
-            args.pop(idx)
-
-
 @pytest.hookimpl(tryfirst=True)
 def _pytest_configure(config: pytest.Config) -> None:
     """Register shared markers/filterwarnings and handle output-to-file options."""
@@ -384,7 +364,7 @@ def _pytest_collection_finish(session: pytest.Session) -> None:
     """
     if _is_xdist_worker():
         return
-    _configure_shared_coverage_report(session.config)
+    _configure_shared_coverage_defaults(session.config)
 
 
 @pytest.hookimpl(trylast=True)
@@ -515,7 +495,6 @@ def register_conftest_hooks(namespace: dict) -> None:
     namespace["pytest_sessionstart"] = _pytest_sessionstart
     namespace["pytest_sessionfinish"] = _pytest_sessionfinish
     namespace["pytest_addoption"] = _pytest_addoption
-    namespace["pytest_load_initial_conftests"] = _pytest_load_initial_conftests
     namespace["pytest_configure"] = _pytest_configure
     namespace["pytest_collection_finish"] = _pytest_collection_finish
     namespace["pytest_terminal_summary"] = _pytest_terminal_summary
