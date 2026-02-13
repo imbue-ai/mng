@@ -181,7 +181,7 @@ upload_reviewer_output() {
     # e.g. 63dced2455b3a9a54942169b02273ac568757f8e
     #   -> 63dc/ed24/55b3/a9a5/4942169b02273ac568757f8e/
     local nested_path="${commit:0:4}/${commit:4:4}/${commit:8:4}/${commit:12:4}/${commit:16}"
-    local filename="${reviewer_num}.jsonl"
+    local filename="${reviewer_num}.json"
 
     # Method 1: Copy to mounted volume + sync (Modal sandbox)
     local mount_dir="${UPLOAD_VOLUME_MOUNT}/${nested_path}"
