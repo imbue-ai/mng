@@ -126,11 +126,11 @@ def run_changeling() -> None:
     if not changeling.is_enabled:
         return
 
-    def _log_output(line: str, is_stderr: bool) -> None:
-        """Forward subprocess output to Modal logs via print."""
+    def _log_output(line: str, is_stdout: bool) -> None:
+        """Forward subprocess output to Modal logs."""
         import sys
 
-        stream = sys.stderr if is_stderr else sys.stdout
+        stream = sys.stdout if is_stdout else sys.stderr
         stream.write(line)
         stream.flush()
 

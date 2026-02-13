@@ -77,9 +77,9 @@ def run(
         _run_changeling_on_modal(changeling)
 
 
-def _forward_output(line: str, is_stderr: bool) -> None:
+def _forward_output(line: str, is_stdout: bool) -> None:
     """Forward subprocess output to the parent's stdout/stderr in real time."""
-    stream = sys.stderr if is_stderr else sys.stdout
+    stream = sys.stdout if is_stdout else sys.stderr
     stream.write(line)
     stream.flush()
 
