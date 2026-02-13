@@ -15,8 +15,27 @@ from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.errors import ChangelingRunError
 from imbue.changelings.mngr_commands import build_mngr_create_command
+from imbue.changelings.mngr_commands import get_agent_name_from_command
 from imbue.changelings.mngr_commands import write_secrets_env_file
 from imbue.changelings.primitives import ChangelingName
+
+# -- get_agent_name_from_command tests --
+
+
+def test_get_agent_name_from_command_extracts_name() -> None:
+    """Should extract the agent name (first positional arg after 'create')."""
+    cmd = ["uv", "run", "mngr", "create", "my-agent-2026-01-01", "code-guardian", "--no-connect"]
+    assert get_agent_name_from_command(cmd) == "my-agent-2026-01-01"
+
+
+def test_get_agent_name_from_command_matches_build_output() -> None:
+    """The extracted name should match what build_mngr_create_command generates."""
+    changeling = make_test_changeling(name="fairy")
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
+    agent_name = get_agent_name_from_command(cmd)
+
+    assert agent_name.startswith("fairy-")
+
 
 # -- Local execution tests (is_modal=False) --
 
@@ -144,6 +163,14 @@ def test_build_command_includes_extra_mngr_args() -> None:
     assert "--verbose" in cmd
     assert "--timeout" in cmd
     assert "300" in cmd
+
+
+def test_build_command_includes_no_interactive_flag() -> None:
+    """The command should include --no-interactive since changelings run unattended."""
+    changeling = make_test_changeling()
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
+
+    assert "--no-interactive" in cmd
 
 
 def test_build_command_includes_mngr_options() -> None:
