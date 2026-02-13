@@ -12,7 +12,7 @@ The Docker provider sits between the local provider (no isolation, no snapshots)
 - SSH-based host access (same pattern as Modal: sshd inside the container, SSH port exposed via Docker port mapping)
 - Snapshots via `docker commit` / `docker run` from committed image
 - Native `docker stop` / `docker start` for stop/start (unlike Modal which must terminate and recreate from snapshots)
-- Metadata stored in Docker container labels (immutable, for discovery) and a local JSON file store (mutable, for host records)
+- Metadata stored in Docker container labels (immutable, for discovery and tags) and a local JSON file store (for host records)
 - Reuses `ssh_host_setup.py` for package installation, SSH key setup, known_hosts configuration, and activity watcher setup
 - Supports local and remote Docker daemons via `DOCKER_HOST` or the `host` config field
 
@@ -214,10 +214,10 @@ def supports_volumes(self) -> bool:
 
 @property
 def supports_mutable_tags(self) -> bool:
-    return True  # Tags stored in host record store, not Docker labels
+    return False  # Tags stored in Docker labels, which are immutable after creation
 ```
 
-**Note on `supports_mutable_tags`:** Docker container labels are immutable after creation. However, since we store mutable metadata (including user tags) in the host record store (not in Docker labels), we can support mutable tags. Docker labels are only used for discovery (host_id and host_name), not for user-facing tags.
+**Note on `supports_mutable_tags`:** Docker container labels are immutable after creation. Tags are stored as labels on the container, so they are set at host creation time and cannot be changed afterward. This avoids the need for a sync mechanism between external state and the container. If a user attempts to mutate tags, mngr raises an error.
 
 ### Docker Client Management
 
@@ -235,15 +235,16 @@ Error handling wraps `docker.errors.DockerException` at the boundary (similar to
 
 ### Container Labels (Discovery)
 
-Docker container labels are used for discovery only. They are immutable after container creation.
+Docker container labels are used for discovery and metadata. They are immutable after container creation.
 
 ```
 com.imbue.mngr.host-id=<host_id>
 com.imbue.mngr.host-name=<host_name>
 com.imbue.mngr.provider=<provider_instance_name>
+com.imbue.mngr.tags=<json-encoded tag dict>
 ```
 
-The label prefix `com.imbue.mngr.` follows Docker label naming conventions. The `provider` label scopes discovery to the current provider instance (important when multiple Docker provider instances exist, e.g., one local and one remote).
+The label prefix `com.imbue.mngr.` follows Docker label naming conventions. The `provider` label scopes discovery to the current provider instance (important when multiple Docker provider instances exist, e.g., one local and one remote). The `tags` label stores the user-specified tags as a JSON-encoded dictionary, set at creation time. Tags are also stored in the host record's `certified_host_data` for offline access (e.g., when a container has been destroyed but the record persists).
 
 ### SSH Access Pattern
 
@@ -406,14 +407,12 @@ Unlike Modal (which can't delete images via API), Docker supports explicit image
 
 ### Tag Methods
 
-Tags are stored in the host record store (mutable), not in Docker labels (immutable).
+Tags are stored in Docker container labels (immutable). They are set at host creation time and cannot be changed afterward.
 
-- `get_host_tags()` -- Read from host record's `certified_host_data.user_tags`
-- `set_host_tags()` -- Update host record's `certified_host_data.user_tags`
-- `add_tags_to_host()` -- Merge into host record
-- `remove_tags_from_host()` -- Remove from host record
-
-All tag mutations update the host record via `_on_certified_host_data_updated()` (same callback pattern as Modal).
+- `get_host_tags()` -- Read from the container's `com.imbue.mngr.tags` label (parsed from JSON). For offline hosts, read from the host record's `certified_host_data.user_tags`.
+- `set_host_tags()` -- Raises `MngrError` ("Docker provider does not support mutable tags")
+- `add_tags_to_host()` -- Raises `MngrError` ("Docker provider does not support mutable tags")
+- `remove_tags_from_host()` -- Raises `MngrError` ("Docker provider does not support mutable tags")
 
 ### Rename Method
 
@@ -492,7 +491,7 @@ When these configurations are detected during `create_snapshot()`, the provider 
 - Container creation, SSH setup, and connectivity (requires Docker)
 - Stop/start cycle with filesystem preservation
 - Snapshot creation and restoration
-- Tag mutation via host record store
+- Tag reading from labels and error on mutation attempts
 - Host discovery (list, get by id, get by name)
 - Failed host recording
 - Remote Docker host connectivity (if test infrastructure available)
@@ -533,7 +532,7 @@ The implementation should proceed in this order, with each step producing a work
 
 7. **Instance snapshots (`instance.py`)**: Implement `create_snapshot()`, `list_snapshots()`, `delete_snapshot()`.
 
-8. **Instance tags and mutation (`instance.py`)**: Implement tag methods, `rename_host()`, `get_connector()`.
+8. **Instance tags and mutation (`instance.py`)**: Implement tag reading (from labels), tag mutation error methods, `rename_host()`, `get_connector()`.
 
 9. **Instance agent data persistence (`instance.py`)**: Implement `list_persisted_agent_data_for_host()`, `persist_agent_data()`, `remove_persisted_agent_data()`.
 
@@ -564,9 +563,9 @@ The implementation should proceed in this order, with each step producing a work
 
 The rest of mngr (provisioning, file sync, agent management) is built around pyinfra's SSH connector. Using SSH for Docker containers means all existing functionality works without modification. `docker exec` would require a separate code path for every operation.
 
-### Why a local file store instead of Docker labels?
+### Why a local file store in addition to Docker labels?
 
-Docker container labels are immutable after creation. Host records need to be updated (snapshots added, tags changed, certified data updated). A local file store provides the mutability needed while Docker labels provide efficient discovery.
+Docker container labels are immutable after creation. Host records need to be updated (snapshots added, certified data updated). A local file store provides the mutability needed for these fields while Docker labels provide efficient discovery and store immutable identity metadata and tags. Tags are intentionally immutable on Docker -- this avoids the complexity of keeping external state in sync with the container lifecycle. Labels are atomic with the container: if the container exists, so do its labels; if the container is destroyed, the labels are gone. Labels are also preserved across `docker stop`/`docker start` and included in committed images (`docker commit`), so they survive snapshot/restore cycles automatically.
 
 ### Why not Docker volumes for host record storage?
 
