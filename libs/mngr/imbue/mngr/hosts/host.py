@@ -1637,6 +1637,54 @@ class Host(BaseHost, OnlineHostInterface):
             success=success,
         )
 
+    def rename_agent(self, agent: AgentInterface, new_name: AgentName) -> AgentInterface:
+        """Rename an agent and return the updated agent object.
+
+        The operation is idempotent: if interrupted mid-rename, re-running
+        will complete it. This works because data.json (the "commit point")
+        is updated last, while tmux and env changes are applied first and
+        are safe to repeat.
+        """
+        with log_span("Renaming agent", agent_id=str(agent.id), old_name=str(agent.name), new_name=str(new_name)):
+            old_name = agent.name
+            data_path = self._get_agent_state_dir(agent) / "data.json"
+
+            # Rename the tmux session first (idempotent -- no-ops if session doesn't exist with old name)
+            old_session_name = f"{self.mngr_ctx.config.prefix}{old_name}"
+            new_session_name = f"{self.mngr_ctx.config.prefix}{new_name}"
+            result = self.execute_command(
+                f"tmux has-session -t {shlex.quote(old_session_name)} 2>/dev/null && "
+                f"tmux rename-session -t {shlex.quote(old_session_name)} {shlex.quote(new_session_name)} || true"
+            )
+            logger.debug("Tmux rename result: success={}, stdout={}", result.success, result.stdout.strip())
+
+            # Update the MNGR_AGENT_NAME env var in the agent's env file
+            env_path = self._get_agent_env_path(agent)
+            try:
+                env_content = self.read_text_file(env_path)
+                updated_lines: list[str] = []
+                for line in env_content.splitlines():
+                    if line.startswith("MNGR_AGENT_NAME="):
+                        updated_lines.append(f"MNGR_AGENT_NAME={new_name}")
+                    else:
+                        updated_lines.append(line)
+                self.write_text_file(env_path, "\n".join(updated_lines) + "\n")
+            except FileNotFoundError:
+                logger.debug("No env file found for agent {}, skipping env update", agent.id)
+
+            # Update data.json last (the "commit point" for the rename)
+            content = self.read_text_file(data_path)
+            data = json.loads(content)
+            data["name"] = str(new_name)
+            self.write_text_file(data_path, json.dumps(data, indent=2))
+            self.save_agent_data(agent.id, data)
+
+            # Reload and return the updated agent
+            updated_agent = self._load_agent_from_dir(self._get_agent_state_dir(agent))
+            if updated_agent is None:
+                raise AgentNotFoundOnHostError(agent.id, self.id)
+            return updated_agent
+
     def destroy_agent(self, agent: AgentInterface) -> None:
         """Destroy an agent and clean up its resources."""
         with log_span("Destroying agent", agent_id=str(agent.id), agent_name=str(agent.name)):
