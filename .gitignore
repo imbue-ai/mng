@@ -254,3 +254,6 @@ scripts/notify_user.local.sh
 
 # Changelings deploy-time build artifacts
 .changelings/build/
+
+# Autofix working artifacts
+.autofix/
