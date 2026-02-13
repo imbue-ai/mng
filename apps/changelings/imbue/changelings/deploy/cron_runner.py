@@ -16,7 +16,6 @@
 # - CHANGELING_SECRET_NAME: Name of the Modal Secret containing API keys
 
 import os
-import subprocess
 from pathlib import Path
 
 import modal
@@ -120,6 +119,7 @@ def run_changeling() -> None:
     from imbue.changelings.deploy.deploy import build_cron_mngr_command
     from imbue.changelings.errors import ChangelingRunError
     from imbue.changelings.mngr_commands import write_secrets_env_file
+    from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
     changeling = ChangelingDefinition.model_validate_json(_CONFIG_JSON)
 
@@ -129,7 +129,9 @@ def run_changeling() -> None:
     env_file_path = write_secrets_env_file(changeling)
     try:
         cmd = build_cron_mngr_command(changeling, env_file_path)
-        result = subprocess.run(cmd, cwd="/repo")
+        with ConcurrencyGroup(name=f"cron-{changeling.name}") as cg:
+            result = cg.run_process_to_completion(cmd, is_checked_after=False, cwd=Path("/repo"))
+
         if result.returncode != 0:
             raise ChangelingRunError(f"Changeling '{changeling.name}' failed with exit code {result.returncode}")
     finally:
