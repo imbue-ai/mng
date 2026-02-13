@@ -61,6 +61,12 @@ omit = [
   "*/utils/testing.py",
 ]
 
+[tool.inline-snapshot]
+default-flags=["report"]
+default-flags-tui=["report"]
+default-flags-ide=["report"]
+format-command="uv run ruff format --force-exclude --config pyproject.toml --stdin-filename {filename}"
+
 [tool.pyright]
 venvPath = "../.."
 venv = ".venv"
