@@ -273,9 +273,11 @@ class ClaudeAgent(BaseAgent):
     ) -> CommandString:
         """Assemble command with --resume || --session-id format for session resumption.
 
-        The command format is: 'claude --resume UUID args || claude --session-id UUID args'
+        The command format is: 'claude --resume $SID args || claude --session-id UUID args'
         This allows users to hit 'up' and 'enter' in tmux to resume the session (--resume)
-        or create it with that ID (--session-id).
+        or create it with that ID (--session-id). The resume path uses $MAIN_CLAUDE_SESSION_ID,
+        resolved at runtime from the session tracking file (falling back to the agent UUID on
+        first run).
 
         An activity updater is started in the background to keep the agent's activity
         timestamp up-to-date while the tmux session is alive.
