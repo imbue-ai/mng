@@ -41,6 +41,25 @@ T = TypeVar("T")
 
 
 @pure
+def split_cli_args_string(cli_args: str) -> tuple[str, ...]:
+    """Split a CLI args string into individual argument tokens, preserving quoting.
+
+    Uses shlex in non-POSIX mode so that quote characters (both single and double)
+    are kept as part of the resulting tokens. This ensures that when the arguments
+    are later joined with spaces (e.g. in assemble_command), the quoting is
+    maintained and the resulting shell command is correct.
+
+    Example:
+        >>> split_cli_args_string("--settings '{\"key\": \"value\"}'")
+        ('--settings', '\\'{"key": "value"}\\'')
+    """
+    lexer = shlex.shlex(cli_args, posix=False)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return tuple(lexer)
+
+
+@pure
 def merge_cli_args(base: tuple[str, ...], override: tuple[str, ...]) -> tuple[str, ...]:
     """Merge CLI arguments, concatenating if both present."""
     if override:
@@ -135,7 +154,7 @@ class AgentTypeConfig(FrozenModel):
     @classmethod
     def _normalize_cli_args(cls, value: str | list[str] | tuple[str, ...]) -> tuple[str, ...]:
         if isinstance(value, str):
-            return tuple(shlex.split(value)) if value else ()
+            return split_cli_args_string(value) if value else ()
         return tuple(value)
 
     def merge_with(self, override: Self) -> Self:
@@ -433,6 +452,10 @@ class MngrConfig(FrozenModel):
         "When False, raises an error if the agent is not already installed on the remote host. "
         "Defaults to True (allowed).",
     )
+    is_nested_tmux_allowed: bool = Field(
+        default=False,
+        description="Allow attaching to tmux sessions from within an existing tmux session by unsetting $TMUX",
+    )
     is_allowed_in_pytest: bool = Field(
         default=True,
         description="Set this to False to prevent loading this config in pytest runs",
@@ -546,6 +569,11 @@ class MngrConfig(FrozenModel):
         if override.is_remote_agent_installation_allowed is not None:
             is_remote_agent_installation_allowed = override.is_remote_agent_installation_allowed
 
+        # Merge is_nested_tmux_allowed (scalar - override wins if not None)
+        merged_is_nested_tmux_allowed = self.is_nested_tmux_allowed
+        if override.is_nested_tmux_allowed is not None:
+            merged_is_nested_tmux_allowed = override.is_nested_tmux_allowed
+
         is_allowed_in_pytest = self.is_allowed_in_pytest
         if override.is_allowed_in_pytest is not None:
             is_allowed_in_pytest = override.is_allowed_in_pytest
@@ -570,6 +598,7 @@ class MngrConfig(FrozenModel):
             pre_command_scripts=merged_pre_command_scripts,
             is_remote_agent_installation_allowed=is_remote_agent_installation_allowed,
             logging=merged_logging,
+            is_nested_tmux_allowed=merged_is_nested_tmux_allowed,
             is_allowed_in_pytest=is_allowed_in_pytest,
         )
 
