@@ -1,3 +1,5 @@
+import json
+import os
 from collections.abc import Callable
 from collections.abc import Sequence
 from concurrent.futures import Future
@@ -230,7 +232,38 @@ def list_agents(
         if on_error:
             on_error(error_info)
 
+    _write_completion_cache(mngr_ctx, result)
+
     return result
+
+
+COMPLETION_CACHE_FILENAME = ".completion_cache.json"
+
+
+def _write_completion_cache(mngr_ctx: MngrContext, result: ListResult) -> None:
+    """Write agent names to the completion cache file (best-effort).
+
+    Writes a JSON file with all agent names from the list result so that
+    shell completion can read it without importing the mngr config system.
+    The cache file is written to {host_dir}/.completion_cache.json.
+
+    This function never raises -- cache write failures must not break list_agents().
+    """
+    try:
+        env_host_dir = os.environ.get("MNGR_HOST_DIR")
+        host_dir = Path(env_host_dir) if env_host_dir else mngr_ctx.config.default_host_dir.expanduser()
+
+        names = sorted({str(agent.name) for agent in result.agents})
+        cache_data = {
+            "names": names,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        cache_path = host_dir / COMPLETION_CACHE_FILENAME
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(cache_data))
+    except OSError:
+        pass
 
 
 def _list_agents_batch(

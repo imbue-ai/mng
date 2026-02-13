@@ -1,5 +1,6 @@
 """Integration tests for the list API module."""
 
+import json
 import time
 from datetime import datetime
 from datetime import timezone
@@ -10,12 +11,14 @@ from click.testing import CliRunner
 
 from imbue.mngr.api.list import AgentErrorInfo
 from imbue.mngr.api.list import AgentInfo
+from imbue.mngr.api.list import COMPLETION_CACHE_FILENAME
 from imbue.mngr.api.list import ErrorInfo
 from imbue.mngr.api.list import HostErrorInfo
 from imbue.mngr.api.list import ListResult
 from imbue.mngr.api.list import ProviderErrorInfo
 from imbue.mngr.api.list import _agent_to_cel_context
 from imbue.mngr.api.list import _apply_cel_filters
+from imbue.mngr.api.list import _write_completion_cache
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.cli.create import create
 from imbue.mngr.config.data_types import MngrContext
@@ -1197,3 +1200,113 @@ def test_list_agents_with_provider_names_filter(
         result_empty = list_agents(mngr_ctx=temp_mngr_ctx, provider_names=("nonexistent",), is_streaming=False)
 
         assert len(result_empty.agents) == 0
+
+
+# =============================================================================
+# Completion Cache Write Tests
+# =============================================================================
+
+
+def test_write_completion_cache_writes_agent_names(
+    temp_host_dir: Path,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Test that _write_completion_cache writes sorted agent names to the cache file."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    result = ListResult(
+        agents=[
+            AgentInfo(
+                id=AgentId.generate(),
+                name=AgentName("beta-agent"),
+                type="claude",
+                command=CommandString("sleep 100"),
+                work_dir=Path("/work"),
+                create_time=datetime.now(timezone.utc),
+                start_on_boot=False,
+                state=AgentLifecycleState.RUNNING,
+                host=host_info,
+            ),
+            AgentInfo(
+                id=AgentId.generate(),
+                name=AgentName("alpha-agent"),
+                type="claude",
+                command=CommandString("sleep 100"),
+                work_dir=Path("/work"),
+                create_time=datetime.now(timezone.utc),
+                start_on_boot=False,
+                state=AgentLifecycleState.RUNNING,
+                host=host_info,
+            ),
+        ]
+    )
+
+    _write_completion_cache(temp_mngr_ctx, result)
+
+    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    assert cache_path.is_file()
+    cache_data = json.loads(cache_path.read_text())
+    assert cache_data["names"] == ["alpha-agent", "beta-agent"]
+    assert "updated_at" in cache_data
+
+
+def test_write_completion_cache_writes_empty_list_for_no_agents(
+    temp_host_dir: Path,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Test that _write_completion_cache writes an empty names list when no agents."""
+    result = ListResult()
+
+    _write_completion_cache(temp_mngr_ctx, result)
+
+    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    assert cache_path.is_file()
+    cache_data = json.loads(cache_path.read_text())
+    assert cache_data["names"] == []
+
+
+def test_write_completion_cache_deduplicates_names(
+    temp_host_dir: Path,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Test that _write_completion_cache deduplicates agent names."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+    result = ListResult(
+        agents=[
+            AgentInfo(
+                id=AgentId.generate(),
+                name=AgentName("same-name"),
+                type="claude",
+                command=CommandString("sleep 100"),
+                work_dir=Path("/work"),
+                create_time=datetime.now(timezone.utc),
+                start_on_boot=False,
+                state=AgentLifecycleState.RUNNING,
+                host=host_info,
+            ),
+            AgentInfo(
+                id=AgentId.generate(),
+                name=AgentName("same-name"),
+                type="claude",
+                command=CommandString("sleep 100"),
+                work_dir=Path("/work"),
+                create_time=datetime.now(timezone.utc),
+                start_on_boot=False,
+                state=AgentLifecycleState.RUNNING,
+                host=host_info,
+            ),
+        ]
+    )
+
+    _write_completion_cache(temp_mngr_ctx, result)
+
+    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    cache_data = json.loads(cache_path.read_text())
+    assert cache_data["names"] == ["same-name"]

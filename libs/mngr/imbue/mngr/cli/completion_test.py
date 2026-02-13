@@ -1,4 +1,7 @@
 import json
+import os
+import shutil
+import time
 from collections.abc import Generator
 from pathlib import Path
 
@@ -6,147 +9,204 @@ import click
 import pytest
 from click.shell_completion import CompletionItem
 
-from imbue.mngr.cli.completion import _read_agent_names_from_disk
+from imbue.mngr.cli.completion import COMPLETION_CACHE_FILENAME
+from imbue.mngr.cli.completion import _BACKGROUND_REFRESH_COOLDOWN_SECONDS
+from imbue.mngr.cli.completion import _read_agent_names_from_cache
+from imbue.mngr.cli.completion import _trigger_background_cache_refresh
 from imbue.mngr.cli.completion import complete_agent_name
 
 
+def _path_without_mngr() -> str:
+    """Return PATH with the directory containing `mngr` removed.
+
+    Used in tests to prevent _trigger_background_cache_refresh from spawning
+    a real subprocess, without breaking other binaries (like tmux) that test
+    fixtures need during teardown.
+    """
+    mngr_path = shutil.which("mngr")
+    if mngr_path is None:
+        return os.environ.get("PATH", "")
+    mngr_dir = str(Path(mngr_path).parent)
+    current_path = os.environ.get("PATH", "")
+    return os.pathsep.join(d for d in current_path.split(os.pathsep) if d != mngr_dir)
+
+
 @pytest.fixture()
-def completion_agents_dir(
+def completion_host_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[Path, None, None]:
-    """Set up a temporary MNGR_HOST_DIR and return the agents directory path."""
+    """Set up a temporary MNGR_HOST_DIR and return the host directory path."""
     host_dir = tmp_path / ".mngr"
-    agents_dir = host_dir / "agents"
+    host_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("MNGR_HOST_DIR", str(host_dir))
-    yield agents_dir
+    yield host_dir
 
 
-def _create_agent_data_file(agents_dir: Path, agent_id: str, name: str) -> None:
-    """Create a minimal agent data.json file for testing."""
-    agent_dir = agents_dir / agent_id
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    data = {"id": agent_id, "name": name, "type": "generic"}
-    (agent_dir / "data.json").write_text(json.dumps(data))
+def _write_cache(host_dir: Path, names: list[str]) -> Path:
+    """Write a completion cache file with the given names."""
+    cache_path = host_dir / COMPLETION_CACHE_FILENAME
+    data = {"names": names, "updated_at": "2025-01-01T00:00:00+00:00"}
+    cache_path.write_text(json.dumps(data))
+    return cache_path
 
 
-def test_read_agent_names_from_disk_returns_names(
-    completion_agents_dir: Path,
+# =============================================================================
+# _read_agent_names_from_cache tests
+# =============================================================================
+
+
+def test_read_agent_names_from_cache_returns_names(
+    completion_host_dir: Path,
 ) -> None:
-    _create_agent_data_file(completion_agents_dir, "agent-aaa", "alpha-agent")
-    _create_agent_data_file(completion_agents_dir, "agent-bbb", "beta-agent")
+    _write_cache(completion_host_dir, ["beta-agent", "alpha-agent"])
 
-    result = _read_agent_names_from_disk()
+    result = _read_agent_names_from_cache()
 
     assert result == ["alpha-agent", "beta-agent"]
 
 
-def test_read_agent_names_from_disk_returns_sorted(
-    completion_agents_dir: Path,
+def test_read_agent_names_from_cache_returns_empty_when_no_file(
+    completion_host_dir: Path,
 ) -> None:
-    _create_agent_data_file(completion_agents_dir, "agent-ccc", "zebra")
-    _create_agent_data_file(completion_agents_dir, "agent-aaa", "alpha")
-    _create_agent_data_file(completion_agents_dir, "agent-bbb", "middle")
+    result = _read_agent_names_from_cache()
 
-    result = _read_agent_names_from_disk()
-
-    assert result == ["alpha", "middle", "zebra"]
+    assert result == []
 
 
-def test_read_agent_names_from_disk_returns_empty_when_dir_missing(
+def test_read_agent_names_from_cache_returns_empty_when_dir_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MNGR_HOST_DIR", str(tmp_path / "nonexistent"))
 
-    result = _read_agent_names_from_disk()
+    result = _read_agent_names_from_cache()
 
     assert result == []
 
 
-def test_read_agent_names_from_disk_skips_malformed_json(
-    completion_agents_dir: Path,
+def test_read_agent_names_from_cache_returns_empty_for_malformed_json(
+    completion_host_dir: Path,
 ) -> None:
-    _create_agent_data_file(completion_agents_dir, "agent-aaa", "good-agent")
+    cache_path = completion_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path.write_text("not valid json {{{")
 
-    # Create malformed data.json
-    bad_dir = completion_agents_dir / "agent-bad"
-    bad_dir.mkdir(parents=True, exist_ok=True)
-    (bad_dir / "data.json").write_text("not valid json {{{")
+    result = _read_agent_names_from_cache()
 
-    result = _read_agent_names_from_disk()
-
-    assert result == ["good-agent"]
+    assert result == []
 
 
-def test_read_agent_names_from_disk_skips_missing_name_field(
-    completion_agents_dir: Path,
+def test_read_agent_names_from_cache_returns_empty_when_names_not_list(
+    completion_host_dir: Path,
 ) -> None:
-    _create_agent_data_file(completion_agents_dir, "agent-aaa", "good-agent")
+    cache_path = completion_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path.write_text(json.dumps({"names": "not-a-list"}))
 
-    # Create data.json without "name" field
-    no_name_dir = completion_agents_dir / "agent-noname"
-    no_name_dir.mkdir(parents=True, exist_ok=True)
-    (no_name_dir / "data.json").write_text(json.dumps({"id": "agent-noname", "type": "generic"}))
+    result = _read_agent_names_from_cache()
 
-    result = _read_agent_names_from_disk()
-
-    assert result == ["good-agent"]
+    assert result == []
 
 
-def test_read_agent_names_from_disk_skips_empty_name(
-    completion_agents_dir: Path,
+def test_read_agent_names_from_cache_returns_empty_when_names_missing(
+    completion_host_dir: Path,
 ) -> None:
-    _create_agent_data_file(completion_agents_dir, "agent-aaa", "good-agent")
+    cache_path = completion_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path.write_text(json.dumps({"other_key": "value"}))
 
-    # Create data.json with empty name
-    empty_dir = completion_agents_dir / "agent-empty"
-    empty_dir.mkdir(parents=True, exist_ok=True)
-    (empty_dir / "data.json").write_text(json.dumps({"id": "agent-empty", "name": "", "type": "generic"}))
+    result = _read_agent_names_from_cache()
 
-    result = _read_agent_names_from_disk()
-
-    assert result == ["good-agent"]
+    assert result == []
 
 
-def test_read_agent_names_from_disk_skips_non_dir_entries(
-    completion_agents_dir: Path,
+def test_read_agent_names_from_cache_filters_non_string_and_empty_names(
+    completion_host_dir: Path,
 ) -> None:
-    completion_agents_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = completion_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path.write_text(json.dumps({"names": ["good", "", 123, None, "also-good"]}))
 
-    _create_agent_data_file(completion_agents_dir, "agent-aaa", "good-agent")
+    result = _read_agent_names_from_cache()
 
-    # Create a non-directory file in the agents directory
-    (completion_agents_dir / "some-file.txt").write_text("not a directory")
-
-    result = _read_agent_names_from_disk()
-
-    assert result == ["good-agent"]
+    assert result == ["also-good", "good"]
 
 
-def test_read_agent_names_from_disk_uses_default_host_dir(
+def test_read_agent_names_from_cache_uses_default_host_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Clear MNGR_HOST_DIR so it uses the default ~/.mngr
     monkeypatch.delenv("MNGR_HOST_DIR", raising=False)
-    # Point HOME to tmp_path so ~/.mngr is under tmp_path
     monkeypatch.setenv("HOME", str(tmp_path))
 
-    agents_dir = tmp_path / ".mngr" / "agents"
-    _create_agent_data_file(agents_dir, "agent-aaa", "home-agent")
+    host_dir = tmp_path / ".mngr"
+    host_dir.mkdir(parents=True, exist_ok=True)
+    _write_cache(host_dir, ["home-agent"])
 
-    result = _read_agent_names_from_disk()
+    result = _read_agent_names_from_cache()
 
     assert result == ["home-agent"]
 
 
-def test_complete_agent_name_filters_by_prefix(
-    completion_agents_dir: Path,
+# =============================================================================
+# _trigger_background_cache_refresh tests
+# =============================================================================
+
+
+def test_trigger_background_cache_refresh_skips_when_cache_is_fresh(
+    completion_host_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _create_agent_data_file(completion_agents_dir, "agent-aaa", "alpha-agent")
-    _create_agent_data_file(completion_agents_dir, "agent-bbb", "beta-agent")
-    _create_agent_data_file(completion_agents_dir, "agent-ccc", "alpha-other")
+    """When the cache was recently written, no subprocess should be spawned."""
+    _write_cache(completion_host_dir, ["agent"])
+
+    # Remove mngr from PATH as a safety net against accidental process spawning.
+    # If the freshness check works, we never reach shutil.which() anyway.
+    monkeypatch.setenv("PATH", _path_without_mngr())
+
+    # Should return without spawning (cache is fresh)
+    _trigger_background_cache_refresh()
+
+    # Verify the cache still exists (was not corrupted)
+    cache_path = completion_host_dir / COMPLETION_CACHE_FILENAME
+    assert cache_path.is_file()
+
+
+def test_trigger_background_cache_refresh_skips_when_mngr_not_on_path(
+    completion_host_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When mngr is not found on PATH, no subprocess should be spawned."""
+    # Make cache stale so the freshness check passes
+    cache_path = _write_cache(completion_host_dir, ["agent"])
+    old_time = time.time() - _BACKGROUND_REFRESH_COOLDOWN_SECONDS - 10
+    os.utime(cache_path, (old_time, old_time))
+
+    # Ensure mngr is not findable
+    monkeypatch.setenv("PATH", _path_without_mngr())
+
+    # Should return without spawning (mngr not found)
+    _trigger_background_cache_refresh()
+
+
+def test_trigger_background_cache_refresh_skips_when_no_cache_and_no_mngr(
+    completion_host_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When no cache exists and mngr is not on PATH, nothing happens."""
+    monkeypatch.setenv("PATH", _path_without_mngr())
+
+    # Should return without error
+    _trigger_background_cache_refresh()
+
+
+# =============================================================================
+# complete_agent_name tests
+# =============================================================================
+
+
+def test_complete_agent_name_filters_by_prefix(
+    completion_host_dir: Path,
+) -> None:
+    # Cache is fresh (just written), so background refresh is throttled
+    _write_cache(completion_host_dir, ["alpha-agent", "beta-agent", "alpha-other"])
 
     ctx = click.Context(click.Command("test"))
     param = click.Argument(["agent"])
@@ -160,10 +220,10 @@ def test_complete_agent_name_filters_by_prefix(
 
 
 def test_complete_agent_name_returns_all_when_incomplete_is_empty(
-    completion_agents_dir: Path,
+    completion_host_dir: Path,
 ) -> None:
-    _create_agent_data_file(completion_agents_dir, "agent-aaa", "alpha")
-    _create_agent_data_file(completion_agents_dir, "agent-bbb", "beta")
+    # Cache is fresh (just written), so background refresh is throttled
+    _write_cache(completion_host_dir, ["alpha", "beta"])
 
     ctx = click.Context(click.Command("test"))
     param = click.Argument(["agent"])
@@ -176,13 +236,29 @@ def test_complete_agent_name_returns_all_when_incomplete_is_empty(
 
 
 def test_complete_agent_name_returns_empty_when_no_match(
-    completion_agents_dir: Path,
+    completion_host_dir: Path,
 ) -> None:
-    _create_agent_data_file(completion_agents_dir, "agent-aaa", "alpha")
+    # Cache is fresh (just written), so background refresh is throttled
+    _write_cache(completion_host_dir, ["alpha"])
 
     ctx = click.Context(click.Command("test"))
     param = click.Argument(["agent"])
 
     result = complete_agent_name(ctx, param, "zzz")
+
+    assert result == []
+
+
+def test_complete_agent_name_returns_empty_when_no_cache(
+    completion_host_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # No cache exists, so background refresh would fire. Prevent it by removing mngr from PATH.
+    monkeypatch.setenv("PATH", _path_without_mngr())
+
+    ctx = click.Context(click.Command("test"))
+    param = click.Argument(["agent"])
+
+    result = complete_agent_name(ctx, param, "")
 
     assert result == []
