@@ -1,9 +1,11 @@
+import threading
 from io import StringIO
 
 from imbue.mngr.providers.modal.log_utils import ModalLoguruWriter
 from imbue.mngr.providers.modal.log_utils import _create_modal_loguru_writer
 from imbue.mngr.providers.modal.log_utils import _create_multi_writer
 from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
+from imbue.mngr.providers.modal.log_utils import get_output_after_stabilization
 
 
 def test_multi_writer_writes_to_all_files() -> None:
@@ -81,3 +83,42 @@ def test_enable_modal_output_capture_returns_none_writer_when_disabled() -> None
     with enable_modal_output_capture(is_logging_to_loguru=False) as (buffer, writer):
         assert isinstance(buffer, StringIO)
         assert writer is None
+
+
+def test_get_output_after_stabilization_returns_static_content() -> None:
+    """Should return content from a buffer that already has content."""
+    buffer = StringIO()
+    buffer.write("existing content")
+
+    result = get_output_after_stabilization(buffer.getvalue, timeout=0.5, poll_interval=0.1)
+
+    assert result == "existing content"
+
+
+def test_get_output_after_stabilization_returns_empty_for_empty_buffer() -> None:
+    """Should return empty string when buffer is empty and stays empty."""
+    buffer = StringIO()
+
+    result = get_output_after_stabilization(buffer.getvalue, timeout=0.5, poll_interval=0.1)
+
+    assert result == ""
+
+
+def test_get_output_after_stabilization_captures_delayed_writes() -> None:
+    """Should capture content written to buffer after initial check."""
+    buffer = StringIO()
+
+    # Write content from a background thread after a short delay (simulating async log delivery)
+    delay_event = threading.Event()
+
+    def _delayed_write() -> None:
+        delay_event.wait(0.05)
+        buffer.write("delayed content")
+
+    thread = threading.Thread(target=_delayed_write)
+    thread.start()
+
+    result = get_output_after_stabilization(buffer.getvalue, timeout=2.0, poll_interval=0.2)
+
+    thread.join()
+    assert result == "delayed content"

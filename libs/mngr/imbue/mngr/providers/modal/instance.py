@@ -84,6 +84,7 @@ from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.errors import NoSnapshotsModalMngrError
+from imbue.mngr.providers.modal.log_utils import get_output_after_stabilization
 from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
@@ -1312,7 +1313,10 @@ log "=== Shutdown script completed ==="
         except (modal.exception.Error, MngrError) as e:
             # On failure, save a failed host record so the user can see what happened
             failure_reason = str(e)
-            build_log = self.get_captured_output()
+            # Wait for async log delivery to stabilize before reading the output buffer.
+            # Modal's put_log_content is async and may not have been called for all log
+            # entries when the exception is raised.
+            build_log = get_output_after_stabilization(self.get_captured_output)
             logger.error("Host creation failed: {}", failure_reason)
             self._save_failed_host_record(
                 host_id=host_id,
