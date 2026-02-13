@@ -1,43 +1,15 @@
 # Tests for the changeling CLI entry point.
 
+import pytest
 from click.testing import CliRunner
 
 from imbue.changelings.main import cli
 
 
-def test_cli_is_a_group() -> None:
-    """The cli should be a Click group with subcommands."""
-    assert hasattr(cli, "commands")
-
-
-def test_cli_has_add_command() -> None:
-    """The add subcommand should be registered."""
-    assert "add" in cli.commands
-
-
-def test_cli_has_remove_command() -> None:
-    """The remove subcommand should be registered."""
-    assert "remove" in cli.commands
-
-
-def test_cli_has_list_command() -> None:
-    """The list subcommand should be registered."""
-    assert "list" in cli.commands
-
-
-def test_cli_has_update_command() -> None:
-    """The update subcommand should be registered."""
-    assert "update" in cli.commands
-
-
-def test_cli_has_run_command() -> None:
-    """The run subcommand should be registered."""
-    assert "run" in cli.commands
-
-
-def test_cli_has_status_command() -> None:
-    """The status subcommand should be registered."""
-    assert "status" in cli.commands
+@pytest.mark.parametrize("command_name", ["add", "remove", "list", "update", "run", "status"])
+def test_cli_has_expected_command(command_name: str) -> None:
+    """All expected subcommands should be registered on the CLI group."""
+    assert command_name in cli.commands
 
 
 def test_cli_help_includes_description() -> None:
