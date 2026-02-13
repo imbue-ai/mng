@@ -1,6 +1,5 @@
 # Tests for the changeling run command.
 
-import sys
 from collections.abc import Callable
 from collections.abc import Generator
 from pathlib import Path
@@ -10,24 +9,26 @@ from click.testing import CliRunner
 
 from imbue.changelings.cli.add import add
 from imbue.changelings.cli.run import _execute_mngr_command
-from imbue.changelings.cli.run import run
+from imbue.changelings.config import get_changeling
 from imbue.changelings.conftest import make_test_changeling
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
+from imbue.changelings.errors import ChangelingRunError
 from imbue.changelings.mngr_commands import build_mngr_create_command
 from imbue.changelings.mngr_commands import write_secrets_env_file
+from imbue.changelings.primitives import ChangelingName
 
 # -- Local execution tests (is_modal=False) --
 
 
-def test_build_command_includes_python_executable_and_mngr_module() -> None:
-    """The command should invoke Python with the mngr main module."""
+def test_build_command_invokes_mngr_via_uv() -> None:
+    """The command should invoke mngr via uv run."""
     changeling = make_test_changeling()
     cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
-    assert cmd[0] == sys.executable
-    assert cmd[1] == "-m"
-    assert cmd[2] == "imbue.mngr.main"
+    assert cmd[0] == "uv"
+    assert cmd[1] == "run"
+    assert cmd[2] == "mngr"
     assert cmd[3] == "create"
 
 
@@ -313,29 +314,27 @@ def test_write_secrets_env_file_produces_empty_file_when_no_secrets(
     assert content == ""
 
 
-# -- _execute_mngr_command tests (using real subprocess calls) --
+# -- _execute_mngr_command tests (using ConcurrencyGroup) --
 
 
 def test_execute_mngr_command_succeeds_on_zero_exit() -> None:
-    """A successful command (exit 0) should complete without calling sys.exit."""
+    """A successful command (exit 0) should complete without raising."""
     changeling = make_test_changeling()
 
     # "true" is a real Unix command that always exits with 0
     _execute_mngr_command(changeling, ["true"])
 
 
-def test_execute_mngr_command_exits_on_nonzero() -> None:
-    """A failing command (exit 1) should cause sys.exit with the exit code."""
+def test_execute_mngr_command_raises_on_nonzero() -> None:
+    """A failing command should raise ChangelingRunError."""
     changeling = make_test_changeling()
 
     # "false" is a real Unix command that always exits with 1
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(ChangelingRunError, match="exited with code"):
         _execute_mngr_command(changeling, ["false"])
 
-    assert exc_info.value.code == 1
 
-
-# -- run CLI command tests (using real subprocess + isolated config) --
+# -- run CLI command tests (loading from config) --
 
 
 _REQUIRED_ADD_ARGS = [
@@ -356,32 +355,19 @@ def _isolated_changeling_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.usefixtures("_isolated_changeling_config")
-def test_run_cli_local_invokes_mngr_create() -> None:
-    """Running locally should dispatch to _run_changeling_locally and invoke mngr create.
+def test_run_cli_builds_correct_command_from_config() -> None:
+    """Running should load the changeling from config and build a valid mngr create command.
 
-    Verifies the full local path: run() reads the changeling from config,
-    _run_changeling_locally() builds the command via build_mngr_create_command(),
-    and _execute_mngr_command() runs the subprocess. A zero exit code confirms
-    the entire chain succeeded -- if the command was built incorrectly, mngr
-    create would fail with a non-zero exit code.
+    Verifies that run() reads the changeling definition from config and
+    constructs the right command. The actual agent execution is covered
+    by the end-to-end test in test_run_local.py.
     """
-    runner = CliRunner()
-    result = runner.invoke(run, ["test-guardian", "--local"])
+    changeling = get_changeling(ChangelingName("test-guardian"))
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
-    assert result.exit_code == 0
-
-
-@pytest.mark.usefixtures("_isolated_changeling_config")
-def test_run_cli_modal_invokes_mngr_create_with_env_file() -> None:
-    """Running on Modal should write a secrets env file, invoke mngr create with
-    --in modal, and clean up the env file afterward.
-
-    Verifies the full modal path: run() reads the changeling, _run_changeling_on_modal()
-    writes a secrets env file, builds the command with --in modal and --host-env-file,
-    executes it, and cleans up the env file in a finally block. A zero exit code
-    confirms the entire chain succeeded.
-    """
-    runner = CliRunner()
-    result = runner.invoke(run, ["test-guardian"])
-
-    assert result.exit_code == 0
+    assert cmd[0:4] == ["uv", "run", "mngr", "create"]
+    assert cmd[5] == "code-guardian"
+    assert "--no-connect" in cmd
+    assert "--no-interactive" in cmd
+    assert "--await-agent-stopped" in cmd
+    assert "CHANGELING=test-guardian" in cmd

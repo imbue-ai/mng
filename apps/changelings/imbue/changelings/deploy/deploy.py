@@ -1,5 +1,4 @@
 import os
-import subprocess
 from collections.abc import Mapping
 from collections.abc import Sequence
 from pathlib import Path
@@ -9,6 +8,7 @@ from loguru import logger
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.errors import ChangelingDeployError
 from imbue.changelings.mngr_commands import build_mngr_create_command
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 
@@ -118,9 +118,8 @@ def build_cron_mngr_command(
     Not pure: delegates to build_mngr_create_command which reads datetime.now().
     """
     base_cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
-    # Find 'create' and replace everything before it with `uv run mngr`
-    create_idx = base_cmd.index("create")
-    return ["uv", "run", "mngr"] + base_cmd[create_idx:]
+    # The command already starts with `uv run mngr create ...`, so just return it
+    return base_cmd
 
 
 def find_repo_root() -> Path:
@@ -128,11 +127,12 @@ def find_repo_root() -> Path:
 
     Raises ChangelingDeployError if not inside a git repository.
     """
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-    )
+    with ConcurrencyGroup(name="find-repo-root") as cg:
+        result = cg.run_process_to_completion(
+            ["git", "rev-parse", "--show-toplevel"],
+            is_checked_after=False,
+        )
+
     if result.returncode != 0:
         raise ChangelingDeployError(
             "Could not find git repository root. Changeling deployment must be run from within a git repository."
@@ -167,7 +167,9 @@ def create_modal_secret(
         )
 
     cmd = build_modal_secret_command(secret_name, secret_values, environment_name)
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    with ConcurrencyGroup(name=f"modal-secret-{changeling.name}") as cg:
+        result = cg.run_process_to_completion(cmd, is_checked_after=False)
+
     if result.returncode != 0:
         raise ChangelingDeployError(f"Failed to create Modal secret '{secret_name}': {result.stderr}") from None
 
@@ -212,13 +214,9 @@ def deploy_changeling(
         env = {**os.environ, **deploy_env_vars}
         cmd = build_modal_deploy_command(cron_runner_path, environment_name)
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=600,
-            env=env,
-        )
+        with ConcurrencyGroup(name=f"modal-deploy-{changeling.name}") as cg:
+            result = cg.run_process_to_completion(cmd, timeout=600.0, env=env, is_checked_after=False)
+
         if result.returncode != 0:
             output = (result.stdout + "\n" + result.stderr).strip()
             raise ChangelingDeployError(

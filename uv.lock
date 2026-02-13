@@ -518,6 +518,7 @@ version = "0.1.0"
 source = { editable = "apps/changelings" }
 dependencies = [
     { name = "click" },
+    { name = "concurrency-group" },
     { name = "imbue-common" },
     { name = "mngr" },
     { name = "modal" },
@@ -528,6 +529,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.0" },
+    { name = "concurrency-group", editable = "libs/concurrency_group" },
     { name = "imbue-common", editable = "libs/imbue_common" },
     { name = "mngr", editable = "libs/mngr" },
     { name = "modal", specifier = ">=1.3.1" },

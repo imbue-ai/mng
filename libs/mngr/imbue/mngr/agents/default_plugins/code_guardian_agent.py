@@ -115,6 +115,11 @@ def _install_skill_locally(mngr_ctx: MngrContext) -> None:
     skill_path = Path.home() / ".claude" / "skills" / _SKILL_NAME / "SKILL.md"
 
     with log_span("Installing code-guardian skill to {}", skill_path):
+        # Skip if the skill is already installed with the same content
+        if skill_path.exists() and skill_path.read_text() == _CODE_GUARDIAN_SKILL_CONTENT:
+            logger.debug("Code-guardian skill is already up to date at {}", skill_path)
+            return
+
         if mngr_ctx.is_interactive:
             if not _prompt_user_for_skill_install(skill_path):
                 logger.info("Skipped code-guardian skill installation")

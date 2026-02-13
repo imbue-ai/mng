@@ -3,7 +3,6 @@
 
 import os
 import shlex
-import sys
 import tempfile
 from datetime import datetime
 from datetime import timezone
@@ -31,13 +30,14 @@ def build_mngr_create_command(
     branch_name = f"changelings/{changeling.name}-{now_str}"
 
     cmd = [
-        sys.executable,
-        "-m",
-        "imbue.mngr.main",
+        "uv",
+        "run",
+        "mngr",
         "create",
         agent_name,
         changeling.agent_type,
         "--no-connect",
+        "--no-interactive",
         "--await-agent-stopped",
         "--no-ensure-clean",
         "--tag",
@@ -71,6 +71,15 @@ def build_mngr_create_command(
         cmd.extend(shlex.split(changeling.extra_mngr_args))
 
     return cmd
+
+
+def get_agent_name_from_command(cmd: list[str]) -> str:
+    """Extract the agent name from a mngr create command.
+
+    The agent name is the first positional argument after 'create'.
+    """
+    create_idx = cmd.index("create")
+    return cmd[create_idx + 1]
 
 
 def write_secrets_env_file(changeling: ChangelingDefinition) -> Path:

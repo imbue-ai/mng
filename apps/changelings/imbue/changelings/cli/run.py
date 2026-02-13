@@ -1,6 +1,3 @@
-import subprocess
-import sys
-
 import click
 from loguru import logger
 
@@ -9,9 +6,11 @@ from imbue.changelings.cli.options import changeling_definition_options
 from imbue.changelings.config import get_changeling
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.errors import ChangelingNotFoundError
+from imbue.changelings.errors import ChangelingRunError
 from imbue.changelings.mngr_commands import build_mngr_create_command
 from imbue.changelings.mngr_commands import write_secrets_env_file
 from imbue.changelings.primitives import ChangelingName
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
 
 @click.command(name="run")
@@ -77,13 +76,14 @@ def run(
 
 
 def _execute_mngr_command(changeling: ChangelingDefinition, cmd: list[str]) -> None:
-    """Execute an mngr create command and handle the result."""
+    """Execute an mngr create command via ConcurrencyGroup and handle the result."""
     logger.debug("Command: {}", " ".join(cmd))
 
-    result = subprocess.run(cmd)
+    with ConcurrencyGroup(name=f"changeling-{changeling.name}") as cg:
+        result = cg.run_process_to_completion(cmd, is_checked_after=False)
+
     if result.returncode != 0:
-        logger.error("Changeling '{}' exited with code {}", changeling.name, result.returncode)
-        sys.exit(result.returncode)
+        raise ChangelingRunError(f"Changeling '{changeling.name}' exited with code {result.returncode}")
 
     logger.info("Changeling '{}' completed successfully", changeling.name)
 

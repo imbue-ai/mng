@@ -8,14 +8,14 @@
 #
 #     just test apps/changelings/imbue/changelings/test_run_modal.py::test_run_code_guardian_changeling_on_modal
 
-import subprocess
-
 import pytest
 
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.mngr_commands import build_mngr_create_command
+from imbue.changelings.mngr_commands import get_agent_name_from_command
 from imbue.changelings.mngr_commands import write_secrets_env_file
 from imbue.changelings.primitives import ChangelingName
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.conftest import ModalSubprocessTestEnv
 
 
@@ -41,18 +41,17 @@ def test_run_code_guardian_changeling_on_modal(
     # Write secrets to a temp env file (same flow as _run_changeling_on_modal)
     env_file_path = write_secrets_env_file(changeling)
     try:
-        # Build the command using the same function that `changeling run` uses,
-        # then replace the python invocation with `uv run mngr` for subprocess use
+        # Build the command (already starts with "uv run mngr create ...")
         cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
-        subprocess_cmd = ["uv", "run", "mngr"] + cmd[3:]
+        agent_name = get_agent_name_from_command(cmd)
 
-        result = subprocess.run(
-            subprocess_cmd,
-            capture_output=True,
-            text=True,
-            timeout=600,
-            env=modal_subprocess_env.env,
-        )
+        with ConcurrencyGroup(name="test-modal-run") as cg:
+            result = cg.run_process_to_completion(
+                cmd,
+                timeout=600.0,
+                env=modal_subprocess_env.env,
+                is_checked_after=False,
+            )
 
         assert result.returncode == 0, (
             f"mngr create on Modal failed with code {result.returncode}.\n"
@@ -61,3 +60,9 @@ def test_run_code_guardian_changeling_on_modal(
         )
     finally:
         env_file_path.unlink(missing_ok=True)
+        # Clean up the agent
+        with ConcurrencyGroup(name="test-cleanup") as cg:
+            cg.run_process_to_completion(
+                ["uv", "run", "mngr", "destroy", "--force", agent_name],
+                is_checked_after=False,
+            )

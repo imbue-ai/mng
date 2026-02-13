@@ -1,7 +1,6 @@
 # Tests for the changeling deployment logic.
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -271,13 +270,12 @@ def test_build_cron_mngr_command_starts_with_uv_run_mngr() -> None:
     assert cmd[3] == "create"
 
 
-def test_build_cron_mngr_command_does_not_include_python_executable() -> None:
-    """The cron command should NOT include sys.executable or -m flag."""
+def test_build_cron_mngr_command_does_not_include_python_module_invocation() -> None:
+    """The cron command should use uv run mngr, not python -m."""
     changeling = make_test_changeling()
     env_file = Path("/tmp/test.env")
     cmd = build_cron_mngr_command(changeling, env_file)
 
-    assert sys.executable not in cmd
     assert "-m" not in cmd
     assert "imbue.mngr.main" not in cmd
 
