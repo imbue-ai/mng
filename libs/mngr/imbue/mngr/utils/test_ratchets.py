@@ -88,13 +88,13 @@ def test_prevent_inline_imports() -> None:
     )
 
 
-def test_prevent_importlib_usage() -> None:
-    pattern = RegexPattern(r"\bimport\s+importlib\b|\bfrom\s+importlib\b")
+def test_prevent_importlib_import_module() -> None:
+    pattern = RegexPattern(r"importlib\.import_module")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
-    assert len(chunks) <= snapshot(3), format_ratchet_failure_message(
-        rule_name="importlib usage",
-        rule_description="importlib should not be used. Prefer direct imports and explicit resource handling instead",
+    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
+        rule_name="importlib.import_module usage",
+        rule_description="Always use normal top-level imports instead of importlib.import_module",
         chunks=chunks,
     )
 
