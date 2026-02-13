@@ -1,5 +1,4 @@
 import contextlib
-from collections.abc import Callable
 from io import StringIO
 from typing import Any
 from typing import Generator
@@ -12,7 +11,6 @@ from modal._output import OutputManager
 from imbue.imbue_common.logging import log_span
 from imbue.mngr.primitives import LogLevel
 from imbue.mngr.utils.logging import register_build_level
-from imbue.mngr.utils.polling import poll_until
 
 # Ensure BUILD level is registered (in case this module is imported before logging.py)
 register_build_level()
@@ -198,41 +196,3 @@ def enable_modal_output_capture(
             OutputManager._instance = output_manager
 
         yield output_buffer, loguru_writer
-
-
-class _OutputStabilizationChecker:
-    """Tracks whether an output buffer has stopped growing.
-
-    Used to detect when Modal's async log delivery has completed. The initial
-    previous_length is set to -1 to force at least one poll cycle, ensuring the
-    async event loop gets time to process pending tasks before we conclude that
-    the output has stabilized.
-    """
-
-    _previous_length: int = -1
-    _get_output: Callable[[], str]
-
-    def __call__(self) -> bool:
-        current_length = len(self._get_output())
-        if current_length != self._previous_length:
-            self._previous_length = current_length
-            return False
-        return True
-
-
-def get_output_after_stabilization(
-    get_output: Callable[[], str],
-    timeout: float = 2.0,
-    poll_interval: float = 0.2,
-) -> str:
-    """Get captured output, waiting for async log delivery to stabilize.
-
-    Modal's log streaming is async (put_log_content is an async method), so when
-    an exception is raised during an image build or sandbox creation, pending async
-    log deliveries may not have completed yet. This function polls the output buffer
-    until it stops growing, giving pending async tasks time to deliver their logs.
-    """
-    checker = _OutputStabilizationChecker()
-    checker._get_output = get_output
-    poll_until(checker, timeout=timeout, poll_interval=poll_interval)
-    return get_output()
