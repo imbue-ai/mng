@@ -942,11 +942,16 @@ def test_render_format_template_tab_separator() -> None:
 # =============================================================================
 
 
-def test_emit_template_output_multiple_agents(monkeypatch) -> None:
-    """_emit_template_output should produce one line per agent."""
+def test_emit_template_output(monkeypatch) -> None:
+    """_emit_template_output should produce one line per agent, and nothing for empty list."""
     captured = StringIO()
     monkeypatch.setattr("sys.stdout", captured)
 
+    # Empty list produces no output
+    _emit_template_output([], "{name}")
+    assert captured.getvalue() == ""
+
+    # Multiple agents produce one line each
     agents = [
         make_test_agent_info(name="agent-alpha"),
         make_test_agent_info(name="agent-bravo"),
@@ -960,13 +965,3 @@ def test_emit_template_output_multiple_agents(monkeypatch) -> None:
     assert lines[0] == "agent-alpha"
     assert lines[1] == "agent-bravo"
     assert lines[2] == "agent-charlie"
-
-
-def test_emit_template_output_empty_agents(monkeypatch) -> None:
-    """_emit_template_output should produce no output for empty list."""
-    captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    _emit_template_output([], "{name}")
-
-    assert captured.getvalue() == ""
