@@ -1725,13 +1725,17 @@ class Host(BaseHost, OnlineHostInterface):
                 self.provider_instance.remove_persisted_agent_data(self.id, agent.id)
 
     def _build_env_shell_command(self, agent: AgentInterface) -> str:
-        """Build a shell command that sources env files and then execs bash.
+        """Build a shell command that sources env files and then execs into a shell.
 
-        This is used as the shell-command for tmux new-session/new-window, so the
-        resulting shell has all environment variables properly set.
+        Uses MNGR_SAVED_DEFAULT_TMUX_COMMAND if set (the user's original
+        default-command, saved via tmux set-environment during session creation),
+        falling back to bash otherwise. This means agent windows created before
+        the variable is set get bash, while user-created windows (via
+        default-command) get the user's shell.
         """
         commands = self._build_source_env_commands(agent)
-        commands.append("exec bash")
+        # Note: no quotes, because the saved command may have multiple words
+        commands.append('exec ${MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash}')
         return "bash -c " + shlex.quote("; ".join(commands))
 
     def _get_host_tmux_config_path(self) -> Path:
@@ -1822,7 +1826,10 @@ class Host(BaseHost, OnlineHostInterface):
         same session for each additional command.
 
         Environment variables from the host and agent env files are sourced
-        when creating the tmux session, so all shells in the session inherit them.
+        when creating the tmux session and its agent windows. The session's
+        default-command is set to source env files and exec into the user's
+        original default-command (queried via tmux show-option), so that
+        user-created windows get both the env vars and the user's shell.
 
         A custom tmux config is used that:
         - Sources the user's default ~/.tmux.conf if it exists
@@ -2074,8 +2081,23 @@ def _build_start_agent_shell_command(
         f" {shlex.quote(env_shell_cmd)}"
     )
 
-    # Set the session's default-command so new windows/panes inherit env vars
-    steps.append(f"tmux set-option -t {shlex.quote(session_name)} default-command {shlex.quote(env_shell_cmd)}")
+    # Save the user's original default-command (from their ~/.tmux.conf) into
+    # the tmux session environment, then set default-command to env_shell_cmd.
+    # Because env_shell_cmd uses ${MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash}, the
+    # initial agent window (created above, before this variable exists) gets
+    # bash, while user-created windows get the user's shell.
+    quoted_session = shlex.quote(session_name)
+    save_user_shell_script = (
+        f"U=$(tmux show-option -t {quoted_session} -Aqv default-command 2>/dev/null); "
+        f'[ -z "$U" ] && U=$(tmux show-option -t {quoted_session} -Aqv default-shell 2>/dev/null) || true; '
+        '[ -z "$U" ] && U=bash; '
+        f"tmux set-environment -t {quoted_session} MNGR_SAVED_DEFAULT_TMUX_COMMAND \"$U\""
+    )
+    steps.append("bash -c " + shlex.quote(save_user_shell_script))
+    steps.append(
+        f"tmux set-option -t {quoted_session} default-command"
+        f" {shlex.quote(env_shell_cmd)}"
+    )
 
     # Send the agent command as literal keys, then Enter to execute
     steps.append(f"tmux send-keys -t {shlex.quote(session_name)} -l {shlex.quote(command)}")

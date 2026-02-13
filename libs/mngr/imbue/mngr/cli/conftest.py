@@ -183,15 +183,15 @@ def default_connect_cli_opts() -> ConnectCliOptions:
 
 @pytest.fixture
 def intercepted_execvp_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, list[str]]]:
-    """Intercept os.execvp in connect_to_agent and return the captured calls.
+    """Intercept os.execvpe in connect_to_agent and return the captured calls.
 
-    os.execvp replaces the current process, making it impossible to test
+    os.execvpe replaces the current process, making it impossible to test
     CLI-level connect flows without interception. This fixture uses pytest
     monkeypatch to replace it with a simple recorder.
     """
     calls: list[tuple[str, list[str]]] = []
     monkeypatch.setattr(
-        "imbue.mngr.api.connect.os.execvp",
-        lambda program, args: calls.append((program, args)),
+        "imbue.mngr.api.connect.os.execvpe",
+        lambda program, args, env: calls.append((program, args)),
     )
     return calls
