@@ -4,6 +4,7 @@ import click
 import pluggy
 from click_option_group import OptionGroup
 
+from imbue.mngr.cli.ask import ask
 from imbue.mngr.cli.clone import clone
 from imbue.mngr.cli.common_opts import TCommand
 from imbue.mngr.cli.common_opts import create_group_title_option
@@ -227,6 +228,7 @@ def reset_plugin_manager() -> None:
 
 # Add built-in commands to the CLI group
 BUILTIN_COMMANDS: list[click.Command] = [
+    ask,
     create,
     destroy,
     list_command,
