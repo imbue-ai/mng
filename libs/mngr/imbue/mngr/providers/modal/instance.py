@@ -537,11 +537,15 @@ class ModalProviderInstance(BaseProviderInstance):
             if filename.endswith(".json"):
                 # Read the agent record
                 agent_path = filename.lstrip("/")
-                content = _volume_read_file(volume, agent_path).decode("utf-8")
                 try:
-                    agent_data = json.loads(content)
-                except json.JSONDecodeError as e:
-                    # this happens if the file is corrupted or partially written. Log and skip it.
+                    content = _volume_read_file(volume, agent_path)
+                except (NotFoundError, FileNotFoundError):
+                    # File was deleted between listdir and read (TOCTOU race on distributed volume)
+                    continue
+                try:
+                    agent_data = json.loads(content.decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                    # Corrupted or partially written file. Log and skip it.
                     logger.warning("Skipped invalid agent record file {}: {}", agent_path, e)
                     continue
                 else:
