@@ -497,7 +497,9 @@ def _parse_config(raw: dict[str, Any]) -> MngrConfig:
         _parse_create_templates(raw.pop("create_templates", {})) if "create_templates" in raw else {}
     )
     kwargs["logging"] = _parse_logging_config(raw.pop("logging", {})) if "logging" in raw else None
-    kwargs["is_nested_tmux_allowed"] = raw.pop("is_nested_tmux_allowed", None) if "is_nested_tmux_allowed" in raw else None
+    kwargs["is_nested_tmux_allowed"] = (
+        raw.pop("is_nested_tmux_allowed", None) if "is_nested_tmux_allowed" in raw else None
+    )
     kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", {}) if "is_allowed_in_pytest" in raw else None
     kwargs["pre_command_scripts"] = raw.pop("pre_command_scripts", {}) if "pre_command_scripts" in raw else None
 
