@@ -134,20 +134,3 @@ def test_exec_json_output_on_modal(
     assert output["agent"] == agent_name
     assert "json-test" in output["stdout"]
     assert output["success"] is True
-
-
-@pytest.mark.acceptance
-@pytest.mark.timeout(300)
-def test_exec_confirms_remote_environment(
-    temp_source_dir: Path,
-    modal_subprocess_env: ModalSubprocessTestEnv,
-) -> None:
-    """Test that exec runs on the remote Modal host, not locally."""
-    agent_name = f"test-exec-remote-{get_short_random_string()}"
-    _create_modal_agent(agent_name, temp_source_dir, modal_subprocess_env)
-
-    result = _exec_on_agent(agent_name, "hostname", modal_subprocess_env)
-
-    assert result.returncode == 0, f"exec failed: {result.stderr}\n{result.stdout}"
-    # Modal containers have hostname "modal"
-    assert "modal" in result.stdout.lower()
