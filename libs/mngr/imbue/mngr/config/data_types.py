@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 from pathlib import Path
 from typing import Any
 from typing import Self
@@ -10,6 +11,7 @@ from uuid import uuid4
 import pluggy
 from pydantic import Field
 from pydantic import GetCoreSchemaHandler
+from pydantic import field_validator
 from pydantic_core import CoreSchema
 from pydantic_core import core_schema
 
@@ -38,12 +40,10 @@ T = TypeVar("T")
 
 
 @pure
-def merge_cli_args(base: str, override: str) -> str:
+def merge_cli_args(base: tuple[str, ...], override: tuple[str, ...]) -> tuple[str, ...]:
     """Merge CLI arguments, concatenating if both present."""
     if override:
-        if base:
-            return f"{base} {override}"
-        return override
+        return base + override
     return base
 
 
@@ -121,14 +121,21 @@ class AgentTypeConfig(FrozenModel):
         default=None,
         description="Command to run for this agent type",
     )
-    cli_args: str = Field(
-        default="",
+    cli_args: tuple[str, ...] = Field(
+        default=(),
         description="Additional CLI arguments to pass to the agent",
     )
     permissions: list[Permission] = Field(
         default_factory=list,
         description="Explicit list of permissions (overrides parent type permissions)",
     )
+
+    @field_validator("cli_args", mode="before")
+    @classmethod
+    def _normalize_cli_args(cls, value: str | list[str] | tuple[str, ...]) -> tuple[str, ...]:
+        if isinstance(value, str):
+            return tuple(shlex.split(value)) if value else ()
+        return tuple(value)
 
     def merge_with(self, override: Self) -> Self:
         """Merge this config with an override config.
@@ -146,7 +153,7 @@ class AgentTypeConfig(FrozenModel):
         # Merge command (scalar - override wins if not None)
         merged_command = override.command if override.command is not None else self.command
 
-        # Merge cli_args (concatenate both with space separator)
+        # Merge cli_args (concatenate both tuples)
         merged_cli_args = merge_cli_args(self.cli_args, override.cli_args)
 
         # Merge permissions (list - concatenate if override is not None)

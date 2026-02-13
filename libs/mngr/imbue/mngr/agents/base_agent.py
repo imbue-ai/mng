@@ -69,7 +69,7 @@ class BaseAgent(AgentInterface):
 
         parts = [base]
         if self.agent_config.cli_args:
-            parts.append(self.agent_config.cli_args)
+            parts.extend(self.agent_config.cli_args)
         if agent_args:
             parts.extend(agent_args)
 

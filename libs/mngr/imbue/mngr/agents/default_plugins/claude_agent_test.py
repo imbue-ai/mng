@@ -200,22 +200,22 @@ def test_claude_agent_config_merge_overrides_command() -> None:
 
 def test_claude_agent_config_merge_concatenates_cli_args() -> None:
     """Claude agent config should concatenate cli_args."""
-    base = ClaudeAgentConfig(cli_args="--verbose")
-    override = ClaudeAgentConfig(cli_args="--model sonnet")
+    base = ClaudeAgentConfig(cli_args=("--verbose",))
+    override = ClaudeAgentConfig(cli_args=("--model", "sonnet"))
 
     merged = base.merge_with(override)
 
-    assert merged.cli_args == "--verbose --model sonnet"
+    assert merged.cli_args == ("--verbose", "--model", "sonnet")
 
 
 def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> None:
     """ClaudeAgentConfig merge should use override cli_args when base is empty."""
     base = ClaudeAgentConfig()
-    override = ClaudeAgentConfig(cli_args="--verbose")
+    override = ClaudeAgentConfig(cli_args=("--verbose",))
 
     merged = base.merge_with(override)
 
-    assert merged.cli_args == "--verbose"
+    assert merged.cli_args == ("--verbose",)
 
 
 # =============================================================================
@@ -268,7 +268,7 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
         local_provider,
         tmp_path,
         temp_mngr_ctx,
-        agent_config=ClaudeAgentConfig(cli_args="--verbose", check_installation=False),
+        agent_config=ClaudeAgentConfig(cli_args=("--verbose",), check_installation=False),
     )
 
     command = agent.assemble_command(host=host, agent_args=("--model", "opus"), command_override=None)
@@ -393,13 +393,13 @@ def test_get_claude_config_returns_config_when_claude_agent_config(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """_get_claude_config should return the config when it is a ClaudeAgentConfig."""
-    config = ClaudeAgentConfig(cli_args="--verbose", check_installation=False)
+    config = ClaudeAgentConfig(cli_args=("--verbose",), check_installation=False)
     agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx, agent_config=config)
 
     result = agent._get_claude_config()
 
     assert result is config
-    assert result.cli_args == "--verbose"
+    assert result.cli_args == ("--verbose",)
 
 
 def test_get_claude_config_returns_default_when_not_claude_agent_config(

@@ -37,13 +37,8 @@ class OpenCodeAgentConfig(AgentTypeConfig):
         if hasattr(override, "command") and override.command is not None:
             merged_command = override.command
 
-        # Merge cli_args (concatenate both with space separator)
-        merged_cli_args = self.cli_args
-        if override.cli_args:
-            if self.cli_args:
-                merged_cli_args = f"{self.cli_args} {override.cli_args}"
-            else:
-                merged_cli_args = override.cli_args
+        # Merge cli_args (concatenate both tuples)
+        merged_cli_args = self.cli_args + override.cli_args if override.cli_args else self.cli_args
 
         # Merge permissions (list - concatenate if override is not None)
         merged_permissions = self.permissions

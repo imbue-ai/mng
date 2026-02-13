@@ -135,26 +135,26 @@ def test_agent_type_config_merge_with_overrides_command() -> None:
 
 def test_agent_type_config_merge_with_concatenates_cli_args() -> None:
     """AgentTypeConfig.merge_with should concatenate cli_args."""
-    base = AgentTypeConfig(cli_args="--arg1")
-    override = AgentTypeConfig(cli_args="--arg2")
+    base = AgentTypeConfig(cli_args=("--arg1",))
+    override = AgentTypeConfig(cli_args=("--arg2",))
     merged = base.merge_with(override)
-    assert merged.cli_args == "--arg1 --arg2"
+    assert merged.cli_args == ("--arg1", "--arg2")
 
 
 def test_agent_type_config_merge_with_handles_empty_base_cli_args() -> None:
     """AgentTypeConfig.merge_with should handle empty base cli_args."""
-    base = AgentTypeConfig(cli_args="")
-    override = AgentTypeConfig(cli_args="--arg")
+    base = AgentTypeConfig(cli_args=())
+    override = AgentTypeConfig(cli_args=("--arg",))
     merged = base.merge_with(override)
-    assert merged.cli_args == "--arg"
+    assert merged.cli_args == ("--arg",)
 
 
 def test_agent_type_config_merge_with_handles_empty_override_cli_args() -> None:
     """AgentTypeConfig.merge_with should keep base when override is empty."""
-    base = AgentTypeConfig(cli_args="--arg")
-    override = AgentTypeConfig(cli_args="")
+    base = AgentTypeConfig(cli_args=("--arg",))
+    override = AgentTypeConfig(cli_args=())
     merged = base.merge_with(override)
-    assert merged.cli_args == "--arg"
+    assert merged.cli_args == ("--arg",)
 
 
 def test_agent_type_config_merge_with_concatenates_permissions() -> None:
@@ -167,26 +167,26 @@ def test_agent_type_config_merge_with_concatenates_permissions() -> None:
 
 def test_merge_cli_args_concatenates_both_when_present() -> None:
     """merge_cli_args should concatenate when both present."""
-    result = merge_cli_args("--arg1", "--arg2")
-    assert result == "--arg1 --arg2"
+    result = merge_cli_args(("--arg1",), ("--arg2",))
+    assert result == ("--arg1", "--arg2")
 
 
 def test_merge_cli_args_returns_override_when_base_empty() -> None:
     """merge_cli_args should return override when base is empty."""
-    result = merge_cli_args("", "--arg")
-    assert result == "--arg"
+    result = merge_cli_args((), ("--arg",))
+    assert result == ("--arg",)
 
 
 def test_merge_cli_args_returns_base_when_override_empty() -> None:
     """merge_cli_args should return base when override is empty."""
-    result = merge_cli_args("--arg", "")
-    assert result == "--arg"
+    result = merge_cli_args(("--arg",), ())
+    assert result == ("--arg",)
 
 
 def test_merge_cli_args_returns_empty_when_both_empty() -> None:
     """merge_cli_args should return empty when both empty."""
-    result = merge_cli_args("", "")
-    assert result == ""
+    result = merge_cli_args((), ())
+    assert result == ()
 
 
 def test_merge_list_fields_concatenates_when_override_not_none() -> None:
@@ -386,23 +386,23 @@ def test_mngr_config_merge_with_concatenates_unset_vars(mngr_test_prefix: str) -
 def test_mngr_config_merge_with_merges_agent_types(mngr_test_prefix: str) -> None:
     """MngrConfig.merge_with should merge agent_types dicts."""
     base = MngrConfig(
-        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args="--base")}
+        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args=("--base",))}
     )
     override = MngrConfig(
-        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args="--override")}
+        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args=("--override",))}
     )
     merged = base.merge_with(override)
     # cli_args should be concatenated
-    assert merged.agent_types[AgentTypeName("claude")].cli_args == "--base --override"
+    assert merged.agent_types[AgentTypeName("claude")].cli_args == ("--base", "--override")
 
 
 def test_mngr_config_merge_with_adds_new_agent_types(mngr_test_prefix: str) -> None:
     """MngrConfig.merge_with should add new agent types from override."""
     base = MngrConfig(
-        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args="--base")}
+        prefix=mngr_test_prefix, agent_types={AgentTypeName("claude"): AgentTypeConfig(cli_args=("--base",))}
     )
     override = MngrConfig(
-        prefix=mngr_test_prefix, agent_types={AgentTypeName("codex"): AgentTypeConfig(cli_args="--codex")}
+        prefix=mngr_test_prefix, agent_types={AgentTypeName("codex"): AgentTypeConfig(cli_args=("--codex",))}
     )
     merged = base.merge_with(override)
     assert AgentTypeName("claude") in merged.agent_types

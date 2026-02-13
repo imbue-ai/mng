@@ -304,7 +304,7 @@ def test_parse_agent_types_parses_valid_agent() -> None:
     raw = {"claude": {"cli_args": "--verbose"}}
     result = _parse_agent_types(raw)
     assert AgentTypeName("claude") in result
-    assert result[AgentTypeName("claude")].cli_args == "--verbose"
+    assert result[AgentTypeName("claude")].cli_args == ("--verbose",)
 
 
 def test_parse_agent_types_handles_empty_dict() -> None:
@@ -609,7 +609,7 @@ def test_on_load_config_hook_can_add_new_fields(
 
     # Verify the agent type was added
     assert AgentTypeName("custom-agent") in mngr_ctx.config.agent_types
-    assert mngr_ctx.config.agent_types[AgentTypeName("custom-agent")].cli_args == "--custom"
+    assert mngr_ctx.config.agent_types[AgentTypeName("custom-agent")].cli_args == ("--custom",)
 
 
 # =============================================================================

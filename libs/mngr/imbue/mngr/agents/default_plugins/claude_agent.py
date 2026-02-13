@@ -292,16 +292,8 @@ class ClaudeAgent(BaseAgent):
         agent_uuid = str(self.id.get_uuid())
 
         # Build the additional arguments (cli_args from config + agent_args from CLI)
-        args_str = ""
-
-        # FIXME: it's strange that cli_args is a str and agent_args is a tuple[str, ...].
-        #  We should probably update both to be able to handle either style of argument (at the interface level)
-        #  And convert them to tuple[str, ...] in these data types.
-        if self.agent_config.cli_args:
-            args_str += self.agent_config.cli_args
-
-        if agent_args:
-            args_str = (args_str + " ").lstrip() + " ".join(agent_args)
+        all_extra_args = self.agent_config.cli_args + agent_args
+        args_str = " ".join(all_extra_args) if all_extra_args else ""
 
         # Read the latest session ID from the tracking file written by the SessionStart hook.
         # This handles session replacement (e.g., exit plan mode, /clear, compaction) where

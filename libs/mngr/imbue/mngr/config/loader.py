@@ -1,4 +1,5 @@
 import os
+import shlex
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
@@ -321,6 +322,20 @@ def _parse_providers(
     return providers
 
 
+def _normalize_cli_args_for_construct(raw_config: dict[str, Any]) -> dict[str, Any]:
+    """Normalize cli_args from str or list to tuple before model_construct (which bypasses validators)."""
+    if "cli_args" not in raw_config:
+        return raw_config
+    cli_args = raw_config["cli_args"]
+    if isinstance(cli_args, str):
+        normalized = tuple(shlex.split(cli_args)) if cli_args else ()
+    elif isinstance(cli_args, (list, tuple)):
+        normalized = tuple(cli_args)
+    else:
+        normalized = cli_args
+    return {**raw_config, "cli_args": normalized}
+
+
 def _parse_agent_types(
     raw_types: dict[str, dict[str, Any]],
 ) -> dict[AgentTypeName, AgentTypeConfig]:
@@ -332,7 +347,8 @@ def _parse_agent_types(
 
     for name, raw_config in raw_types.items():
         config_class = get_agent_config_class(name)
-        agent_types[AgentTypeName(name)] = config_class.model_construct(**raw_config)
+        normalized_config = _normalize_cli_args_for_construct(raw_config)
+        agent_types[AgentTypeName(name)] = config_class.model_construct(**normalized_config)
 
     return agent_types
 
