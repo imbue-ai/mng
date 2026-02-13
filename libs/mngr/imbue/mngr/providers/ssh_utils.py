@@ -1,7 +1,6 @@
 """Shared SSH utilities for providers.
 
 Handles SSH key generation and management for provider access.
-Originally in modal/ssh_utils.py, moved here to be shared across providers.
 """
 
 import fcntl
