@@ -1,16 +1,20 @@
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import SnapshotNotFoundError
+from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.modal.errors import NoSnapshotsModalMngrError
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
+
+# Placeholder for the agent parameter in on_agent_created calls.
+# The method doesn't use the agent, but the type signature requires AgentInterface.
+_UNUSED_AGENT: AgentInterface = None  # ty: ignore[invalid-assignment]
 
 
 @pytest.mark.acceptance
@@ -240,7 +244,7 @@ def test_list_snapshots_returns_initial_snapshot(initial_snapshot_provider: Moda
     try:
         host = initial_snapshot_provider.create_host(HostName("test-host"))
         # we have to manually trigger the on_agent_created hook to create the initial snapshot (this is normally done automatically during the api::create_host call as a plugin callback)
-        initial_snapshot_provider.on_agent_created(MagicMock(), host)
+        initial_snapshot_provider.on_agent_created(_UNUSED_AGENT, host)
         snapshots = initial_snapshot_provider.list_snapshots(host)
         assert len(snapshots) == 1
         assert snapshots[0].name == "initial"
@@ -371,7 +375,7 @@ def test_start_host_on_stopped_host_uses_initial_snapshot(initial_snapshot_provi
         host_id = host.id
 
         # we have to manually trigger the on_agent_created hook to create the initial snapshot (this is normally done automatically during the api::create_host call as a plugin callback)
-        initial_snapshot_provider.on_agent_created(MagicMock(), host)
+        initial_snapshot_provider.on_agent_created(_UNUSED_AGENT, host)
 
         # Verify an initial snapshot was created
         snapshots = initial_snapshot_provider.list_snapshots(host)
@@ -440,7 +444,7 @@ def test_restart_after_hard_kill_with_initial_snapshot(initial_snapshot_provider
         host_name = HostName("test-host")
 
         # we have to manually trigger the on_agent_created hook to create the initial snapshot (this is normally done automatically during the api::create_host call as a plugin callback)
-        initial_snapshot_provider.on_agent_created(MagicMock(), host)
+        initial_snapshot_provider.on_agent_created(_UNUSED_AGENT, host)
 
         # Verify initial snapshot was created
         snapshots = initial_snapshot_provider.list_snapshots(host)

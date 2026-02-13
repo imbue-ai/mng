@@ -1,12 +1,13 @@
-import subprocess
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Generator
-from typing import cast
 
+import modal
+import modal.exception
 import pluggy
 import pytest
+from modal.environments import delete_environment
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.config.data_types import MngrConfig
@@ -15,6 +16,7 @@ from imbue.mngr.conftest import make_mngr_ctx
 from imbue.mngr.conftest import register_modal_test_app
 from imbue.mngr.conftest import register_modal_test_environment
 from imbue.mngr.conftest import register_modal_test_volume
+from imbue.mngr.errors import ConfigStructureError
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.modal.backend import STATE_VOLUME_SUFFIX
@@ -50,7 +52,9 @@ def make_modal_provider_real(
         config=config,
         mngr_ctx=mngr_ctx,
     )
-    return cast(ModalProviderInstance, instance)
+    if not isinstance(instance, ModalProviderInstance):
+        raise ConfigStructureError(f"Expected ModalProviderInstance, got {type(instance).__name__}")
+    return instance
 
 
 @pytest.fixture
@@ -85,24 +89,16 @@ def _cleanup_modal_test_resources(app_name: str, volume_name: str, environment_n
     # Close the Modal app context first
     ModalProviderBackend.close_app(app_name)
 
-    # Delete the volume (must be done before environment deletion)
+    # Delete the volume using Modal SDK (must be done before environment deletion)
     try:
-        subprocess.run(
-            ["uv", "run", "modal", "volume", "delete", volume_name, "--yes"],
-            capture_output=True,
-            timeout=30,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        modal.Volume.delete(volume_name, environment_name=environment_name)
+    except (modal.exception.Error, OSError):
         pass
 
-    # Delete the environment (this also cleans up any remaining resources in it)
+    # Delete the environment using Modal SDK (cleans up any remaining resources)
     try:
-        subprocess.run(
-            ["uv", "run", "modal", "environment", "delete", environment_name, "--yes"],
-            capture_output=True,
-            timeout=30,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        delete_environment(environment_name)
+    except (modal.exception.Error, OSError):
         pass
 
 
