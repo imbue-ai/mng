@@ -9,6 +9,7 @@ from pathlib import Path
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
@@ -64,7 +65,8 @@ Supported build arguments for the docker provider:
         mngr_ctx: MngrContext,
     ) -> ProviderInstanceInterface:
         """Build a Docker provider instance."""
-        assert isinstance(config, DockerProviderConfig)
+        if not isinstance(config, DockerProviderConfig):
+            raise MngrError(f"Expected DockerProviderConfig, got {type(config).__name__}")
         host_dir = config.host_dir if config.host_dir is not None else Path("/mngr")
         return DockerProviderInstance(
             name=name,

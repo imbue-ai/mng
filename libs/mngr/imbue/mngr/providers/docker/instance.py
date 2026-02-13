@@ -10,7 +10,6 @@ import argparse
 import json
 import socket
 import time
-from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone
 from functools import cached_property
@@ -52,7 +51,6 @@ from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
-from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
@@ -188,7 +186,7 @@ class DockerProviderInstance(BaseProviderInstance):
     def _host_store(self) -> DockerHostStore:
         """Get the host record store for this provider instance."""
         base_dir = self.mngr_ctx.profile_dir / "providers" / "docker" / str(self.name)
-        return DockerHostStore(base_dir)
+        return DockerHostStore(base_dir=base_dir)
 
     @property
     def _keys_dir(self) -> Path:
@@ -668,11 +666,11 @@ kill -TERM 1
         with log_span("Pulling Docker image: {}", image_name):
             try:
                 self._docker_client.images.pull(image_name)
-            except docker.errors.ImageNotFound:
+            except docker.errors.ImageNotFound as e:
                 raise MngrError(
                     f"Docker image not found: {image_name}. "
                     "Check the image name or use --dockerfile to build a custom image."
-                )
+                ) from e
             except docker.errors.APIError as e:
                 raise MngrError(f"Docker API error pulling image: {e}") from e
         return image_name
@@ -837,10 +835,9 @@ kill -TERM 1
 
         # Disconnect SSH before stopping
         cached_host = self._host_by_id_cache.get(host_id)
-        if cached_host is not None and isinstance(cached_host, Host):
-            cached_host.disconnect()
-        elif isinstance(host, Host):
-            host.disconnect()
+        host_to_disconnect = cached_host if cached_host is not None else host
+        if isinstance(host_to_disconnect, Host):
+            host_to_disconnect.disconnect()
 
         container = self._find_container_by_host_id(host_id)
         if container is not None:
@@ -1158,13 +1155,8 @@ kill -TERM 1
             is_failed = host_record.certified_host_data.failure_reason is not None
             has_container = host_id in container_by_host_id
 
-            if is_failed or has_snapshots or has_container:
-                try:
-                    host_obj = self._create_host_from_host_record(host_record)
-                    hosts.append(host_obj)
-                except (OSError, ValueError, KeyError) as e:
-                    logger.warning("Failed to create host from record {}: {}", host_id, e)
-            elif include_destroyed:
+            should_include = is_failed or has_snapshots or has_container or include_destroyed
+            if should_include:
                 try:
                     host_obj = self._create_host_from_host_record(host_record)
                     hosts.append(host_obj)
@@ -1463,5 +1455,5 @@ kill -TERM 1
         if "_docker_client" in self.__dict__:
             try:
                 self._docker_client.close()
-            except Exception:
+            except (OSError, docker.errors.DockerException):
                 pass

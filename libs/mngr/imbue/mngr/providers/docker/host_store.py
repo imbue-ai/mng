@@ -10,14 +10,14 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from pydantic import Field
+from pydantic import PrivateAttr
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import HostConfig
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
-
-from pydantic import Field
 
 
 class ContainerConfig(HostConfig):
@@ -55,31 +55,30 @@ class HostRecord(FrozenModel):
     container_id: str | None = Field(default=None, description="Docker container ID for reconnection")
 
 
-class DockerHostStore:
+class DockerHostStore(FrozenModel):
     """JSON file-based host record store for the Docker provider.
 
-    Directory layout:
+    Directory layout::
+
         <base_dir>/
             hosts/
-                <host_id>.json        # HostRecord
+                <host_id>.json
                 <host_id>/
-                    <agent_id>.json   # Persisted agent data
+                    <agent_id>.json
     """
 
-    def __init__(self, base_dir: Path) -> None:
-        self._base_dir = base_dir
-        self._hosts_dir = base_dir / "hosts"
-        self._cache: dict[HostId, HostRecord] = {}
+    base_dir: Path = Field(frozen=True, description="Root directory for the store")
+    _cache: dict[HostId, HostRecord] = PrivateAttr(default_factory=dict)
 
     @property
     def hosts_dir(self) -> Path:
-        return self._hosts_dir
+        return self.base_dir / "hosts"
 
     def _host_record_path(self, host_id: HostId) -> Path:
-        return self._hosts_dir / f"{host_id}.json"
+        return self.hosts_dir / f"{host_id}.json"
 
     def _agent_data_dir(self, host_id: HostId) -> Path:
-        return self._hosts_dir / str(host_id)
+        return self.hosts_dir / str(host_id)
 
     def _agent_data_path(self, host_id: HostId, agent_id: AgentId) -> Path:
         return self._agent_data_dir(host_id) / f"{agent_id}.json"
@@ -114,14 +113,12 @@ class DockerHostStore:
 
     def delete_host_record(self, host_id: HostId) -> None:
         """Delete a host record and associated agent data."""
-        # Delete agent data directory
         agent_dir = self._agent_data_dir(host_id)
         if agent_dir.exists():
             for agent_file in agent_dir.iterdir():
                 agent_file.unlink()
             agent_dir.rmdir()
 
-        # Delete host record file
         path = self._host_record_path(host_id)
         if path.exists():
             path.unlink()
@@ -131,11 +128,11 @@ class DockerHostStore:
 
     def list_all_host_records(self) -> list[HostRecord]:
         """List all host records stored on disk."""
-        if not self._hosts_dir.exists():
+        if not self.hosts_dir.exists():
             return []
 
         records: list[HostRecord] = []
-        for path in self._hosts_dir.glob("*.json"):
+        for path in self.hosts_dir.glob("*.json"):
             host_id_str = path.stem
             host_id = HostId(host_id_str)
             record = self.read_host_record(host_id, use_cache=False)
