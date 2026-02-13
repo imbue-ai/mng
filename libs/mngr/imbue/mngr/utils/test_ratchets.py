@@ -760,6 +760,6 @@ def test_prevent_bash_without_strict_mode() -> None:
         if not strict_mode_pattern.search(content):
             violations.append(str(sh_file))
 
-    assert len(violations) <= snapshot(3), "Bash scripts missing 'set -euo pipefail':\n" + "\n".join(
+    assert len(violations) <= snapshot(0), "Bash scripts missing 'set -euo pipefail':\n" + "\n".join(
         f"  - {v}" for v in violations
     )
