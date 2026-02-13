@@ -159,17 +159,3 @@ def test_stop_agent_endpoint(
         assert response.json()["status"] == "stopped"
     finally:
         host.destroy_agent(agent)
-
-
-def test_sse_stream_requires_query_token(api_client: TestClient) -> None:
-    """The SSE endpoint requires a token query parameter."""
-    response = api_client.get("/api/agents/stream")
-    assert response.status_code == 422  # Missing required query param
-
-
-def test_sse_stream_rejects_wrong_token(api_client: TestClient) -> None:
-    """The SSE endpoint rejects an incorrect token."""
-    response = api_client.get("/api/agents/stream?token=wrong")
-    assert response.status_code == 401
-
-

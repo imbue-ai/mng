@@ -38,7 +38,7 @@ from imbue.mngr.primitives import LogLevel
 from imbue.mngr.primitives import PluginName
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
-from imbue.mngr.providers.registry import load_all_registries
+from imbue.mngr.plugin_loader import load_all_registries
 
 hookimpl = pluggy.HookimplMarker("mngr")
 

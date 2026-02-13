@@ -25,7 +25,7 @@ from imbue.mngr.cli.push import push
 from imbue.mngr.cli.start import start
 from imbue.mngr.cli.stop import stop
 from imbue.mngr.plugins import hookspecs
-from imbue.mngr.providers.registry import load_all_registries
+from imbue.mngr.plugin_loader import load_all_registries
 
 # Module-level container for the plugin manager singleton, created lazily.
 # Using a dict avoids the need for the 'global' keyword while still allowing module-level state.

@@ -21,10 +21,10 @@ def test_generate_web_ui_html_has_agent_list() -> None:
     assert "filter-input" in html
 
 
-def test_generate_web_ui_html_has_sse_connection() -> None:
+def test_generate_web_ui_html_has_polling() -> None:
     html = generate_web_ui_html()
-    assert "EventSource" in html
-    assert "/api/agents/stream" in html
+    assert "setInterval" in html
+    assert "refreshAgents" in html
 
 
 def test_generate_web_ui_html_has_mobile_viewport() -> None:

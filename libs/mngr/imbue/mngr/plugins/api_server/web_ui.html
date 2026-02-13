@@ -135,7 +135,7 @@ header h1 { font-size: 18px; font-weight: 600; flex: 1; }
 let TOKEN = localStorage.getItem('mngr_token') || '';
 let agents = [];
 let currentAgent = null;
-let evtSource = null;
+let pollInterval = null;
 
 if (TOKEN) { startApp(); }
 
@@ -149,8 +149,9 @@ function doAuth() {
 function startApp() {
   document.getElementById('auth-screen').classList.remove('active');
   document.getElementById('app').classList.add('active');
-  connectSSE();
   refreshAgents();
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(refreshAgents, 5000);
 }
 
 function api(path, opts) {
@@ -168,20 +169,6 @@ function api(path, opts) {
     }
     return r.json();
   });
-}
-
-function connectSSE() {
-  if (evtSource) evtSource.close();
-  evtSource = new EventSource('/api/agents/stream?token=' + encodeURIComponent(TOKEN));
-  evtSource.onmessage = function(e) {
-    try {
-      var data = JSON.parse(e.data);
-      if (data.agents) { agents = data.agents; renderAgents(); }
-    } catch(err) {}
-  };
-  evtSource.onerror = function() {
-    setTimeout(connectSSE, 5000);
-  };
 }
 
 function refreshAgents() {

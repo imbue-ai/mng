@@ -1,9 +1,5 @@
-import json
-from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
-
-import anyio
 
 from fastapi import Depends
 from fastapi import FastAPI
@@ -12,14 +8,11 @@ from fastapi import Query
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
-from fastapi.responses import StreamingResponse
-from loguru import logger
 from pydantic import SecretStr
 
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import list_agents as _list_agents
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
-from imbue.mngr.errors import MngrError
 from imbue.mngr.plugins.api_server.web_ui import generate_web_ui_html
 from imbue.mngr.primitives import ActivitySource
 
@@ -47,15 +40,6 @@ def _verify_token(request: Request) -> None:
             return
 
     raise HTTPException(status_code=401, detail="Unauthorized")
-
-
-def _verify_token_query(token: str = Query(...)) -> None:
-    """Verify token passed as a query parameter (for SSE connections)."""
-    api_token: SecretStr | None = _app_state["api_token"]
-    if api_token is None:
-        raise HTTPException(status_code=500, detail="API server not configured")
-    if token != api_token.get_secret_value():
-        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def _get_mngr_ctx() -> Any:
@@ -127,49 +111,6 @@ def record_activity(agent_id: str) -> JSONResponse:
     )
     agent.record_activity(ActivitySource.USER)
     return JSONResponse(content={"status": "recorded"})
-
-
-@app.get("/api/agents/stream", dependencies=[Depends(_verify_token_query)])
-async def stream_agents(
-    request: Request,
-) -> StreamingResponse:
-    """SSE endpoint that streams agent list updates.
-
-    Polls the agent list every 5 seconds and pushes changes as SSE events.
-    """
-
-    async def event_generator() -> AsyncIterator[str]:
-        mngr_ctx = _get_mngr_ctx()
-        last_snapshot = ""
-        connected = True
-
-        while connected:
-            if await request.is_disconnected():
-                break
-
-            try:
-                result = _list_agents(mngr_ctx=mngr_ctx, is_streaming=False)
-                agents_data = [_agent_info_to_dict(a) for a in result.agents]
-                snapshot = json.dumps(agents_data, sort_keys=True, default=str)
-
-                if snapshot != last_snapshot:
-                    last_snapshot = snapshot
-                    payload = json.dumps({"agents": agents_data}, default=str)
-                    yield f"data: {payload}\n\n"
-            except (MngrError, OSError, ValueError):
-                logger.debug("Error in SSE agent stream")
-
-            for _ in range(10):
-                if await request.is_disconnected():
-                    connected = False
-                    break
-                await anyio.sleep(0.5)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-    )
 
 
 def _agent_info_to_dict(agent_info: Any) -> dict[str, Any]:

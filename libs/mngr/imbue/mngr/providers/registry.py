@@ -11,16 +11,10 @@
 # Another candidate for lazy loading: celpy (~45ms) in api/list.py. It's only
 # needed when CEL filters are used (--include/--exclude), but is currently
 # imported at the top level via imbue.mngr.utils.cel_utils.
-import importlib
-
-import imbue.mngr.plugins.activity_tracking.plugin as activity_tracking_plugin_module
-import imbue.mngr.plugins.port_forwarding.plugin as port_forwarding_plugin_module
-import imbue.mngr.plugins.ttyd.plugin as ttyd_plugin_module
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.mngr_remote.backend as mngr_remote_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
-from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import UnknownBackendError
@@ -38,30 +32,6 @@ _config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
 _explicit_config_only: set[ProviderBackendName] = set()
 # Use a mutable container to track state without 'global' keyword
 _registry_state: dict[str, bool] = {"backends_loaded": False}
-
-
-def load_all_registries(pm) -> None:
-    """Load all registries from plugins.
-
-    This is the main entry point for loading all pluggy-based registries.
-    Call this once during application startup, before using any registry lookups.
-    """
-    load_backends_from_plugins(pm)
-    load_agents_from_plugins(pm)
-    _load_utility_plugins(pm)
-
-
-def _load_utility_plugins(pm) -> None:
-    """Register built-in utility plugins (non-agent, non-provider).
-
-    The api_server plugin is loaded via importlib to break a circular import:
-    registry -> api_server.plugin -> cli -> app -> api.find -> api.list -> providers -> registry
-    """
-    pm.register(port_forwarding_plugin_module)
-    pm.register(ttyd_plugin_module)
-    api_server_plugin = importlib.import_module("imbue.mngr.plugins.api_server.plugin")
-    pm.register(api_server_plugin)
-    pm.register(activity_tracking_plugin_module)
 
 
 def reset_backend_registry() -> None:
