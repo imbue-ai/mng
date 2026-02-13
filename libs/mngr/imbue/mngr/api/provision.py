@@ -1,3 +1,4 @@
+import tempfile
 from pathlib import Path
 
 from loguru import logger
@@ -11,6 +12,19 @@ from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
 
 
+def _read_existing_env_content(host: OnlineHostInterface, agent: AgentInterface) -> str | None:
+    """Read the agent's existing env file content from the host.
+
+    Returns the file content, or None if the env file does not exist.
+    Uses host.read_text_file() so this works for both local and remote hosts.
+    """
+    env_path = host.get_agent_env_path(agent)
+    try:
+        return host.read_text_file(env_path)
+    except FileNotFoundError:
+        return None
+
+
 def provision_agent(
     agent: AgentInterface,
     host: OnlineHostInterface,
@@ -20,19 +34,24 @@ def provision_agent(
 ) -> None:
     """Re-run provisioning on an existing agent.
 
-    Constructs a CreateAgentOptions with defaults for re-provisioning, preserving
-    the agent's existing env file as the first env_files entry so that previously-
-    stored env vars (including GIT_BASE_BRANCH) are preserved. New CLI-provided
-    env_vars and env_files override them.
-    """
-    # Read the agent's existing env file path so we can preserve its vars
-    existing_env_path = host.get_agent_env_path(agent)
+    Reads the agent's existing env file from the host (using host.read_text_file so
+    it works for both local and remote hosts), then includes it as the first env_file
+    entry so existing vars are preserved with lowest priority. CLI-provided env_files
+    and env_vars override them.
 
-    # Prepend the existing env file to env_files so stored vars are loaded first,
-    # then CLI-provided env_files and env_vars override them
-    merged_env_files: tuple[Path, ...]
-    if existing_env_path.exists():
-        merged_env_files = (existing_env_path,) + environment.env_files
+    Precedence (lowest to highest): existing env vars < CLI env_files < CLI env_vars.
+    """
+    # Read existing env content from the host (handles both local and remote)
+    existing_env_content = _read_existing_env_content(host, agent)
+
+    if existing_env_content is not None:
+        # Write to a local temp file so _collect_agent_env_vars can read it
+        # as the first env_file (giving it lowest priority among user-provided values)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as tmp:
+            tmp.write(existing_env_content)
+            existing_env_local_path = Path(tmp.name)
+
+        merged_env_files = (existing_env_local_path,) + environment.env_files
     else:
         merged_env_files = environment.env_files
 
@@ -47,8 +66,13 @@ def provision_agent(
         environment=merged_environment,
     )
 
-    with host.lock_cooperatively():
-        with log_span("Provisioning agent {}", agent.name):
-            host.provision_agent(agent, options, mngr_ctx)
+    try:
+        with host.lock_cooperatively():
+            with log_span("Provisioning agent {}", agent.name):
+                host.provision_agent(agent, options, mngr_ctx)
+    finally:
+        # Clean up the temp file if we created one
+        if existing_env_content is not None:
+            existing_env_local_path.unlink(missing_ok=True)
 
     logger.info("Provisioned agent: {}", agent.name)
