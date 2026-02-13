@@ -332,6 +332,21 @@ class UnknownBackendError(ConfigError):
     """Unknown provider backend."""
 
 
+class NestedTmuxError(MngrError):
+    """Cannot attach to tmux session from inside another tmux session."""
+
+    def __init__(self, session_name: str) -> None:
+        self.session_name = session_name
+        super().__init__(
+            f"You're already in a tmux session. You can attach to the agent with:\n"
+            f"  tmux attach -t {session_name}"
+        )
+        self.user_help_text = (
+            "To allow mngr to attach automatically inside tmux, run:\n"
+            "  mngr config set --scope user is_nested_tmux_allowed true"
+        )
+
+
 class UnisonNotInstalledError(MngrError):
     """Raised when unison is not installed but is required for pair mode."""
 
