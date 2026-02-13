@@ -431,7 +431,7 @@ kill -TERM 1
         with log_span("Updating certified host data", host_id=str(host_id)):
             host_record = self._host_store.read_host_record(host_id, use_cache=False)
             if host_record is None:
-                raise Exception(f"Host record not found for {host_id}")
+                raise HostNotFoundError(host_id)
             updated_host_record = host_record.model_copy_update(
                 to_update(host_record.field_ref().certified_host_data, certified_data),
             )
