@@ -1,8 +1,13 @@
 # Tests for the changeling deployment logic.
 
 import json
+import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
+from unittest.mock import patch
+
+import pytest
 
 from imbue.changelings.conftest import make_test_changeling
 from imbue.changelings.data_types import ChangelingDefinition
@@ -13,9 +18,13 @@ from imbue.changelings.deploy.deploy import build_deploy_env
 from imbue.changelings.deploy.deploy import build_modal_deploy_command
 from imbue.changelings.deploy.deploy import build_modal_secret_command
 from imbue.changelings.deploy.deploy import collect_secret_values
+from imbue.changelings.deploy.deploy import create_modal_secret
+from imbue.changelings.deploy.deploy import deploy_changeling
+from imbue.changelings.deploy.deploy import find_repo_root
 from imbue.changelings.deploy.deploy import get_modal_app_name
 from imbue.changelings.deploy.deploy import get_modal_secret_name
 from imbue.changelings.deploy.deploy import serialize_changeling_config
+from imbue.changelings.errors import ChangelingDeployError
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import ChangelingTemplateName
 
@@ -342,3 +351,123 @@ def test_build_cron_mngr_command_includes_extra_mngr_args() -> None:
     assert "--verbose" in cmd
     assert "--timeout" in cmd
     assert "300" in cmd
+
+
+# -- find_repo_root tests --
+
+
+@patch("imbue.changelings.deploy.deploy.subprocess.run")
+def test_find_repo_root_returns_path_on_success(mock_run: MagicMock) -> None:
+    """A successful git rev-parse should return the repo root path."""
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="/home/user/repo\n", stderr="")
+
+    result = find_repo_root()
+
+    assert result == Path("/home/user/repo")
+
+
+@patch("imbue.changelings.deploy.deploy.subprocess.run")
+def test_find_repo_root_raises_when_not_in_git_repo(mock_run: MagicMock) -> None:
+    """When git rev-parse fails, ChangelingDeployError should be raised."""
+    mock_run.return_value = subprocess.CompletedProcess(
+        args=[], returncode=128, stdout="", stderr="fatal: not a git repository"
+    )
+
+    with pytest.raises(ChangelingDeployError, match="Could not find git repository root"):
+        find_repo_root()
+
+
+# -- create_modal_secret tests --
+
+
+@patch("imbue.changelings.deploy.deploy.subprocess.run")
+def test_create_modal_secret_returns_secret_name_on_success(mock_run: MagicMock) -> None:
+    """A successful modal secret create should return the secret name."""
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    changeling = make_test_changeling(name="my-guardian", secrets=())
+
+    result = create_modal_secret(changeling)
+
+    assert result == "changeling-my-guardian-secrets"
+
+
+@patch("imbue.changelings.deploy.deploy.subprocess.run")
+def test_create_modal_secret_raises_on_failure(mock_run: MagicMock) -> None:
+    """A failed modal secret create should raise ChangelingDeployError."""
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="permission denied")
+    changeling = make_test_changeling(secrets=())
+
+    with pytest.raises(ChangelingDeployError, match="Failed to create Modal secret"):
+        create_modal_secret(changeling)
+
+
+@patch("imbue.changelings.deploy.deploy.subprocess.run")
+def test_create_modal_secret_passes_environment_name(mock_run: MagicMock) -> None:
+    """The environment name should be forwarded to the modal CLI."""
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    changeling = make_test_changeling(secrets=())
+
+    create_modal_secret(changeling, environment_name="test-env")
+
+    cmd = mock_run.call_args[0][0]
+    assert "--env" in cmd
+    assert "test-env" in cmd
+
+
+# -- deploy_changeling tests --
+
+
+@patch("imbue.changelings.deploy.deploy.subprocess.run")
+@patch("imbue.changelings.deploy.deploy.find_repo_root")
+def test_deploy_changeling_returns_app_name_on_success(
+    mock_find_root: MagicMock,
+    mock_run: MagicMock,
+) -> None:
+    """A successful deploy should return the Modal app name."""
+    mock_find_root.return_value = Path("/repo")
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    changeling = make_test_changeling(name="my-guardian", secrets=())
+
+    result = deploy_changeling(changeling)
+
+    assert result == "changeling-my-guardian"
+
+
+@patch("imbue.changelings.deploy.deploy.subprocess.run")
+@patch("imbue.changelings.deploy.deploy.find_repo_root")
+def test_deploy_changeling_raises_on_deploy_failure(
+    mock_find_root: MagicMock,
+    mock_run: MagicMock,
+) -> None:
+    """A failed modal deploy should raise ChangelingDeployError."""
+    mock_find_root.return_value = Path("/repo")
+    # First call (secret create) succeeds, second call (deploy) fails
+    mock_run.side_effect = [
+        subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+        subprocess.CompletedProcess(args=[], returncode=1, stdout="error output", stderr="deploy failed"),
+    ]
+    changeling = make_test_changeling(secrets=())
+
+    with pytest.raises(ChangelingDeployError, match="Failed to deploy changeling"):
+        deploy_changeling(changeling)
+
+
+@patch("imbue.changelings.deploy.deploy.subprocess.run")
+@patch("imbue.changelings.deploy.deploy.find_repo_root")
+def test_deploy_changeling_creates_secret_and_deploys(
+    mock_find_root: MagicMock,
+    mock_run: MagicMock,
+) -> None:
+    """Deploy should create a secret first, then deploy the cron runner."""
+    mock_find_root.return_value = Path("/repo")
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    changeling = make_test_changeling(secrets=())
+
+    deploy_changeling(changeling)
+
+    # Should have been called twice: once for secret creation, once for deploy
+    assert mock_run.call_count == 2
+    secret_cmd = mock_run.call_args_list[0][0][0]
+    deploy_cmd = mock_run.call_args_list[1][0][0]
+    assert "secret" in secret_cmd
+    assert "deploy" in deploy_cmd

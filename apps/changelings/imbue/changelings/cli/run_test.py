@@ -1,12 +1,20 @@
 # Tests for the changeling run command.
 
+import subprocess
 import sys
 from collections.abc import Callable
 from collections.abc import Generator
 from pathlib import Path
+from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
 
+from imbue.changelings.cli.run import _execute_mngr_command
+from imbue.changelings.cli.run import _run_changeling_locally
+from imbue.changelings.cli.run import _run_changeling_on_modal
+from imbue.changelings.cli.run import run
 from imbue.changelings.conftest import make_test_changeling
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
@@ -296,3 +304,126 @@ def test_write_secrets_env_file_produces_empty_file_when_no_secrets(
     env_file = secrets_env_file_creator(changeling)
     content = env_file.read_text()
     assert content == ""
+
+
+# -- _execute_mngr_command tests --
+
+
+@patch("imbue.changelings.cli.run.subprocess.run")
+def test_execute_mngr_command_succeeds_on_zero_exit(mock_run: MagicMock) -> None:
+    """A zero exit code should log success without exiting."""
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+    changeling = make_test_changeling()
+
+    # Should not raise or call sys.exit
+    _execute_mngr_command(changeling, ["echo", "test"])
+
+    mock_run.assert_called_once_with(["echo", "test"])
+
+
+@patch("imbue.changelings.cli.run.subprocess.run")
+def test_execute_mngr_command_exits_on_nonzero(mock_run: MagicMock) -> None:
+    """A non-zero exit code should call sys.exit with that code."""
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=42)
+    changeling = make_test_changeling()
+
+    with pytest.raises(SystemExit) as exc_info:
+        _execute_mngr_command(changeling, ["failing-cmd"])
+
+    assert exc_info.value.code == 42
+
+
+# -- _run_changeling_locally tests --
+
+
+@patch("imbue.changelings.cli.run.subprocess.run")
+def test_run_changeling_locally_builds_local_command(mock_run: MagicMock) -> None:
+    """Local run should invoke mngr create without --in modal."""
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+    changeling = make_test_changeling()
+
+    _run_changeling_locally(changeling)
+
+    cmd = mock_run.call_args[0][0]
+    assert "create" in cmd
+    assert "--in" not in cmd
+
+
+# -- _run_changeling_on_modal tests --
+
+
+@patch("imbue.changelings.cli.run.subprocess.run")
+def test_run_changeling_on_modal_includes_modal_flag(mock_run: MagicMock) -> None:
+    """Modal run should invoke mngr create with --in modal."""
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+    changeling = make_test_changeling(secrets=())
+
+    _run_changeling_on_modal(changeling)
+
+    cmd = mock_run.call_args[0][0]
+    in_idx = cmd.index("--in")
+    assert cmd[in_idx + 1] == "modal"
+
+
+@patch("imbue.changelings.cli.run.subprocess.run")
+def test_run_changeling_on_modal_cleans_up_env_file(mock_run: MagicMock) -> None:
+    """The temporary env file should be deleted after the run completes."""
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+    changeling = make_test_changeling(secrets=())
+
+    _run_changeling_on_modal(changeling)
+
+    # The env file referenced in the command should have been cleaned up
+    cmd = mock_run.call_args[0][0]
+    env_file_idx = cmd.index("--host-env-file")
+    env_file_path = Path(cmd[env_file_idx + 1])
+    assert not env_file_path.exists()
+
+
+@patch("imbue.changelings.cli.run.subprocess.run")
+def test_run_changeling_on_modal_cleans_up_on_failure(mock_run: MagicMock) -> None:
+    """The env file should be cleaned up even when the command fails."""
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1)
+    changeling = make_test_changeling(secrets=())
+
+    with pytest.raises(SystemExit):
+        _run_changeling_on_modal(changeling)
+
+    cmd = mock_run.call_args[0][0]
+    env_file_idx = cmd.index("--host-env-file")
+    env_file_path = Path(cmd[env_file_idx + 1])
+    assert not env_file_path.exists()
+
+
+# -- run CLI command tests --
+
+
+@patch("imbue.changelings.cli.run.get_changeling")
+@patch("imbue.changelings.cli.run.subprocess.run")
+def test_run_cli_with_local_flag(mock_run: MagicMock, mock_get: MagicMock) -> None:
+    """The --local flag should run the changeling locally."""
+    mock_get.return_value = make_test_changeling()
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+
+    runner = CliRunner()
+    result = runner.invoke(run, ["test-changeling", "--local"])
+
+    assert result.exit_code == 0
+    cmd = mock_run.call_args[0][0]
+    assert "--in" not in cmd
+
+
+@patch("imbue.changelings.cli.run.get_changeling")
+@patch("imbue.changelings.cli.run.subprocess.run")
+def test_run_cli_default_uses_modal(mock_run: MagicMock, mock_get: MagicMock) -> None:
+    """Without --local, the changeling should run on Modal."""
+    mock_get.return_value = make_test_changeling(secrets=())
+    mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+
+    runner = CliRunner()
+    result = runner.invoke(run, ["test-changeling"])
+
+    assert result.exit_code == 0
+    cmd = mock_run.call_args[0][0]
+    in_idx = cmd.index("--in")
+    assert cmd[in_idx + 1] == "modal"
