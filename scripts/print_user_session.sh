@@ -1,9 +1,54 @@
 #!/bin/bash
-# Print out a Claude Code conversation history in a way that is easier to read and analyze
+# Print out Claude Code conversation history in a way that is easier to read and analyze.
+# Prints all sessions in chronological order using the session ID history file.
 
 set -euo pipefail
 
-cat `find ~/.claude/projects/ -name "$MAIN_CLAUDE_SESSION_ID.jsonl"` | \
+_process_session() {
+    local session_id="$1"
+    local jsonl_file
+    jsonl_file=$(find ~/.claude/projects/ -name "$session_id.jsonl" 2>/dev/null | head -1)
+    if [ -n "$jsonl_file" ] && [ -f "$jsonl_file" ]; then
+        cat "$jsonl_file"
+    fi
+}
+
+# Collect all session IDs in chronological order from the history file
+_SESSION_IDS=()
+
+if [ -n "${MNGR_AGENT_STATE_DIR:-}" ] && [ -f "$MNGR_AGENT_STATE_DIR/claude_session_id_history" ]; then
+    while IFS= read -r sid; do
+        if [ -n "$sid" ]; then
+            _SESSION_IDS+=("$sid")
+        fi
+    done < "$MNGR_AGENT_STATE_DIR/claude_session_id_history"
+fi
+
+# Fall back to single current session ID if no history available
+if [ ${#_SESSION_IDS[@]} -eq 0 ]; then
+    _FALLBACK_SID="${MAIN_CLAUDE_SESSION_ID:-}"
+    if [ -n "${MNGR_AGENT_STATE_DIR:-}" ] && [ -f "$MNGR_AGENT_STATE_DIR/claude_session_id" ]; then
+        _MNGR_READ_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id")
+        if [ -n "$_MNGR_READ_SID" ]; then
+            _FALLBACK_SID="$_MNGR_READ_SID"
+        fi
+    fi
+    if [ -n "$_FALLBACK_SID" ]; then
+        _SESSION_IDS+=("$_FALLBACK_SID")
+    fi
+fi
+
+if [ ${#_SESSION_IDS[@]} -eq 0 ]; then
+    echo "No session IDs found" >&2
+    exit 1
+fi
+
+# Concatenate all session .jsonl files in order, then filter and format
+(
+    for sid in "${_SESSION_IDS[@]}"; do
+        _process_session "$sid"
+    done
+) | \
   grep -v "tool_use_id" | \
   grep -v 'content":"<' | \
   grep -v '"type":"progress"' | \

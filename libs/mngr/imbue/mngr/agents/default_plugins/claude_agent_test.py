@@ -6,9 +6,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
+from uuid import UUID
 
+import pluggy
 import pytest
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mngr.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
@@ -17,7 +20,9 @@ from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTr
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import EnvVar
+from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.conftest import make_mngr_ctx
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import PluginMngrError
 from imbue.mngr.hosts.host import Host
@@ -71,6 +76,14 @@ def make_claude_agent(
         host=host,
     )
     return agent, host
+
+
+def _sid_export_for(uuid: UUID) -> str:
+    """Build the expected MAIN_CLAUDE_SESSION_ID export string for a given agent UUID."""
+    return (
+        f'_MNGR_READ_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || true);'
+        f' export MAIN_CLAUDE_SESSION_ID="${{_MNGR_READ_SID:-{uuid}}}"'
+    )
 
 
 def _init_git_with_gitignore(work_dir: Path) -> None:
@@ -191,22 +204,22 @@ def test_claude_agent_config_merge_overrides_command() -> None:
 
 def test_claude_agent_config_merge_concatenates_cli_args() -> None:
     """Claude agent config should concatenate cli_args."""
-    base = ClaudeAgentConfig(cli_args="--verbose")
-    override = ClaudeAgentConfig(cli_args="--model sonnet")
+    base = ClaudeAgentConfig(cli_args=("--verbose",))
+    override = ClaudeAgentConfig(cli_args=("--model", "sonnet"))
 
     merged = base.merge_with(override)
 
-    assert merged.cli_args == "--verbose --model sonnet"
+    assert merged.cli_args == ("--verbose", "--model", "sonnet")
 
 
 def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> None:
     """ClaudeAgentConfig merge should use override cli_args when base is empty."""
     base = ClaudeAgentConfig()
-    override = ClaudeAgentConfig(cli_args="--verbose")
+    override = ClaudeAgentConfig(cli_args=("--verbose",))
 
     merged = base.merge_with(override)
 
-    assert merged.cli_args == "--verbose"
+    assert merged.cli_args == ("--verbose",)
 
 
 # =============================================================================
@@ -226,9 +239,10 @@ def test_claude_agent_assemble_command_with_no_args(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_export = _sid_export_for(uuid)
     # Local hosts should NOT have IS_SANDBOX set
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
+        f'{activity_cmd} {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
     )
 
 
@@ -244,8 +258,9 @@ def test_claude_agent_assemble_command_with_agent_args(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
+        f'{activity_cmd} {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || claude --session-id {uuid} --model opus'
     )
 
 
@@ -257,7 +272,7 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
         local_provider,
         tmp_path,
         temp_mngr_ctx,
-        agent_config=ClaudeAgentConfig(cli_args="--verbose", check_installation=False),
+        agent_config=ClaudeAgentConfig(cli_args=("--verbose",), check_installation=False),
     )
 
     command = agent.assemble_command(host=host, agent_args=("--model", "opus"), command_override=None)
@@ -266,8 +281,9 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus"
+        f'{activity_cmd} {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus'
     )
 
 
@@ -287,8 +303,9 @@ def test_claude_agent_assemble_command_with_command_override(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
+        f'{activity_cmd} {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && custom-claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || custom-claude --session-id {uuid} --model opus'
     )
 
 
@@ -325,9 +342,10 @@ def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_export = _sid_export_for(uuid)
     # Remote hosts SHOULD have IS_SANDBOX set
     assert command == CommandString(
-        f"{activity_cmd} export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
+        f'{activity_cmd} export IS_SANDBOX=1 && {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
     )
 
 
@@ -379,13 +397,13 @@ def test_get_claude_config_returns_config_when_claude_agent_config(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
     """_get_claude_config should return the config when it is a ClaudeAgentConfig."""
-    config = ClaudeAgentConfig(cli_args="--verbose", check_installation=False)
+    config = ClaudeAgentConfig(cli_args=("--verbose",), check_installation=False)
     agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx, agent_config=config)
 
     result = agent._get_claude_config()
 
     assert result is config
-    assert result.cli_args == "--verbose"
+    assert result.cli_args == ("--verbose",)
 
 
 def test_get_claude_config_returns_default_when_not_claude_agent_config(
@@ -498,17 +516,34 @@ def test_get_provision_file_transfers_with_sync_repo_settings_disabled(
 
 
 def test_build_readiness_hooks_config_has_session_start_hook() -> None:
-    """build_readiness_hooks_config should include SessionStart hook that creates session_started file."""
+    """build_readiness_hooks_config should include SessionStart hooks for readiness and session tracking."""
     config = build_readiness_hooks_config()
 
     assert "hooks" in config
     assert "SessionStart" in config["hooks"]
     assert len(config["hooks"]["SessionStart"]) == 1
-    hook = config["hooks"]["SessionStart"][0]["hooks"][0]
-    assert hook["type"] == "command"
-    # SessionStart creates session_started file for polling-based detection
-    assert "touch" in hook["command"]
-    assert "session_started" in hook["command"]
+    hooks = config["hooks"]["SessionStart"][0]["hooks"]
+    assert len(hooks) == 2
+
+    # First hook: creates session_started file for polling-based detection
+    assert hooks[0]["type"] == "command"
+    assert "touch" in hooks[0]["command"]
+    assert "session_started" in hooks[0]["command"]
+
+    # Second hook: tracks current session ID for session replacement detection
+    session_id_hook = hooks[1]["command"]
+    assert hooks[1]["type"] == "command"
+    assert "claude_session_id" in session_id_hook
+    assert "session_id" in session_id_hook
+    assert "MNGR_AGENT_STATE_DIR" in session_id_hook
+    # Should fail loudly on missing session_id, not silently swallow
+    assert "exit 1" in session_id_hook
+    assert ">&2" in session_id_hook
+    # Should append to history file for tracking old session IDs
+    assert "claude_session_id_history" in session_id_hook
+    # Should use atomic write (write to .tmp then mv) to prevent torn reads
+    assert "claude_session_id.tmp" in session_id_hook
+    assert "mv" in session_id_hook
 
 
 def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:
@@ -714,6 +749,45 @@ def test_provision_configures_readiness_hooks(
     settings = json.loads(settings_path.read_text())
     assert "hooks" in settings
     assert "SessionStart" in settings["hooks"]
+
+
+def test_provision_raises_when_remote_installation_disabled(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_host_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: "pluggy.PluginManager",
+    mngr_test_prefix: str,
+) -> None:
+    """provision should raise when claude is not installed on remote host and is_remote_agent_installation_allowed is False."""
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        default_host_dir=temp_host_dir,
+        is_remote_agent_installation_allowed=False,
+    )
+    with ConcurrencyGroup(name="test-remote-install") as cg:
+        ctx = make_mngr_ctx(config, plugin_manager, temp_profile_dir, concurrency_group=cg)
+        agent, _ = make_claude_agent(
+            local_provider,
+            tmp_path,
+            ctx,
+            agent_config=ClaudeAgentConfig(check_installation=True),
+        )
+
+        # Simulate a non-local host where claude is not installed.
+        # execute_command returns a failed result to simulate 'command -v claude' failing.
+        non_local_host = cast(
+            OnlineHostInterface,
+            SimpleNamespace(
+                is_local=False,
+                execute_command=lambda *args, **kwargs: SimpleNamespace(success=False),
+            ),
+        )
+
+        options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+
+        with pytest.raises(PluginMngrError, match="automatic remote installation is disabled"):
+            agent.provision(host=non_local_host, options=options, mngr_ctx=ctx)
 
 
 # =============================================================================

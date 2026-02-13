@@ -343,5 +343,7 @@ def test_has_running_agent_sessions_returns_false_when_agents_exist_but_no_sessi
     os.utime(str(agent_dir), (old_time, old_time))
 
     script_path = _get_activity_watcher_script_path()
-    result = _run_bash_function(script_path, str(tmp_path), "has_running_agent_sessions")
+    # Override AGENT_SESSION_GRACE_PERIOD to 0 so the container uptime check
+    # doesn't cause a false positive on freshly started CI runners.
+    result = _run_bash_function(script_path, str(tmp_path), "AGENT_SESSION_GRACE_PERIOD=0\nhas_running_agent_sessions")
     assert result.returncode != 0

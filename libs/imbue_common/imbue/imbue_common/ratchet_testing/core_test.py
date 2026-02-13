@@ -91,86 +91,50 @@ def test_ratchet_match_chunk_is_frozen() -> None:
         chunk.start_line = LineNumber(2)
 
 
-def test_get_non_ignored_files_returns_matching_files(tmp_path: Path) -> None:
-    test_dir = tmp_path / "test_repo"
-    test_dir.mkdir()
-
-    # Initialize git repo
-    subprocess.run(["git", "init"], cwd=test_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-
+def test_get_non_ignored_files_returns_matching_files(git_repo: Path) -> None:
     # Create test files
-    (test_dir / "file1.py").write_text("print('hello')")
-    (test_dir / "file2.py").write_text("print('world')")
-    (test_dir / "file3.txt").write_text("text file")
+    (git_repo / "file1.py").write_text("print('hello')")
+    (git_repo / "file2.py").write_text("print('world')")
+    (git_repo / "file3.txt").write_text("text file")
 
     # Add files to git
-    subprocess.run(["git", "add", "."], cwd=test_dir, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "Initial commit"],
-        cwd=test_dir,
+        cwd=git_repo,
         check=True,
         capture_output=True,
     )
 
     # Call the function
-    result = _get_non_ignored_files_with_extension(test_dir, FileExtension(".py"))
+    result = _get_non_ignored_files_with_extension(git_repo, FileExtension(".py"))
 
     assert len(result) == 2
     assert all(path.suffix == ".py" for path in result)
 
 
-def test_get_non_ignored_files_excludes_specified_file(tmp_path: Path) -> None:
-    test_dir = tmp_path / "test_repo"
-    test_dir.mkdir()
-
-    # Initialize git repo
-    subprocess.run(["git", "init"], cwd=test_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-
+def test_get_non_ignored_files_excludes_specified_file(git_repo: Path) -> None:
     # Create test files
-    file1 = test_dir / "file1.py"
-    file2 = test_dir / "file2.py"
+    file1 = git_repo / "file1.py"
+    file2 = git_repo / "file2.py"
     file1.write_text("print('hello')")
     file2.write_text("print('world')")
 
     # Add files to git
-    subprocess.run(["git", "add", "."], cwd=test_dir, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "Initial commit"],
-        cwd=test_dir,
+        cwd=git_repo,
         check=True,
         capture_output=True,
     )
 
     # Call without exclusion - should get both files
-    result_without_exclusion = _get_non_ignored_files_with_extension(test_dir, FileExtension(".py"))
+    result_without_exclusion = _get_non_ignored_files_with_extension(git_repo, FileExtension(".py"))
     assert len(result_without_exclusion) == 2
 
     # Call with exclusion - should get only one file
-    result_with_exclusion = _get_non_ignored_files_with_extension(test_dir, FileExtension(".py"), file1)
+    result_with_exclusion = _get_non_ignored_files_with_extension(git_repo, FileExtension(".py"), file1)
     assert len(result_with_exclusion) == 1
     assert result_with_exclusion[0].resolve() == file2.resolve()
 
@@ -189,41 +153,23 @@ def test_read_file_contents_caches_results(tmp_path: Path) -> None:
     assert content1 is content2
 
 
-def test_get_ratchet_failures_finds_matches_in_git_repo(tmp_path: Path) -> None:
-    test_dir = tmp_path / "test_repo"
-    test_dir.mkdir()
-
-    # Initialize git repo
-    subprocess.run(["git", "init"], cwd=test_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-
+def test_get_ratchet_failures_finds_matches_in_git_repo(git_repo: Path) -> None:
     # Create test file with pattern matches
-    test_file = test_dir / "test.py"
+    test_file = git_repo / "test.py"
     test_file.write_text("# TODO: Fix this\ndef foo():\n    pass\n# TODO: And this\ndef bar():\n    pass\n")
 
     # Add and commit
-    subprocess.run(["git", "add", "."], cwd=test_dir, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "Add test file"],
-        cwd=test_dir,
+        cwd=git_repo,
         check=True,
         capture_output=True,
     )
 
     # Find TODO comments
     pattern = RegexPattern(r"# TODO:.*")
-    chunks = get_ratchet_failures(test_dir, FileExtension(".py"), pattern)
+    chunks = get_ratchet_failures(git_repo, FileExtension(".py"), pattern)
 
     assert len(chunks) == 2
     assert chunks[0].matched_content in ["# TODO: Fix this", "# TODO: And this"]
@@ -233,33 +179,16 @@ def test_get_ratchet_failures_finds_matches_in_git_repo(tmp_path: Path) -> None:
     assert all(chunk.last_modified_date.tzinfo == timezone.utc for chunk in chunks)
 
 
-def test_get_ratchet_failures_sorts_by_most_recent_first(tmp_path: Path) -> None:
-    test_dir = tmp_path / "test_repo"
-    test_dir.mkdir()
-
-    subprocess.run(["git", "init"], cwd=test_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-
+def test_get_ratchet_failures_sorts_by_most_recent_first(git_repo: Path) -> None:
     # Create file with first TODO using a fixed old timestamp
-    test_file = test_dir / "test.py"
+    test_file = git_repo / "test.py"
     test_file.write_text("# TODO: Old issue\n")
-    subprocess.run(["git", "add", "."], cwd=test_dir, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
     # Use git environment variables to set a specific commit timestamp (Jan 1, 2024)
     old_env = {**os.environ, "GIT_COMMITTER_DATE": "2024-01-01T00:00:00"}
     subprocess.run(
         ["git", "commit", "-m", "First commit"],
-        cwd=test_dir,
+        cwd=git_repo,
         check=True,
         capture_output=True,
         env=old_env,
@@ -267,18 +196,18 @@ def test_get_ratchet_failures_sorts_by_most_recent_first(tmp_path: Path) -> None
 
     # Add second TODO with a newer timestamp (Jan 2, 2024) - no sleep needed
     test_file.write_text("# TODO: Old issue\n# TODO: New issue\n")
-    subprocess.run(["git", "add", "."], cwd=test_dir, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
     new_env = {**os.environ, "GIT_COMMITTER_DATE": "2024-01-02T00:00:00"}
     subprocess.run(
         ["git", "commit", "-m", "Second commit"],
-        cwd=test_dir,
+        cwd=git_repo,
         check=True,
         capture_output=True,
         env=new_env,
     )
 
     pattern = RegexPattern(r"# TODO:.*")
-    chunks = get_ratchet_failures(test_dir, FileExtension(".py"), pattern)
+    chunks = get_ratchet_failures(git_repo, FileExtension(".py"), pattern)
 
     # Most recent should be first
     assert len(chunks) == 2
@@ -286,38 +215,21 @@ def test_get_ratchet_failures_sorts_by_most_recent_first(tmp_path: Path) -> None
     assert chunks[0].matched_content == "# TODO: New issue"
 
 
-def test_get_ratchet_failures_handles_multiline_matches(tmp_path: Path) -> None:
-    test_dir = tmp_path / "test_repo"
-    test_dir.mkdir()
-
-    subprocess.run(["git", "init"], cwd=test_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-
-    test_file = test_dir / "test.py"
+def test_get_ratchet_failures_handles_multiline_matches(git_repo: Path) -> None:
+    test_file = git_repo / "test.py"
     test_file.write_text("def foo():\n    pass\n\ndef bar():\n    pass\n")
 
-    subprocess.run(["git", "add", "."], cwd=test_dir, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "Add functions"],
-        cwd=test_dir,
+        cwd=git_repo,
         check=True,
         capture_output=True,
     )
 
     # Match function definitions (multiline)
     pattern = RegexPattern(r"def \w+\(\):\n    pass")
-    chunks = get_ratchet_failures(test_dir, FileExtension(".py"), pattern)
+    chunks = get_ratchet_failures(git_repo, FileExtension(".py"), pattern)
 
     assert len(chunks) == 2
     assert all("\n" in chunk.matched_content for chunk in chunks)
@@ -325,72 +237,38 @@ def test_get_ratchet_failures_handles_multiline_matches(tmp_path: Path) -> None:
     assert chunks[1].end_line - chunks[1].start_line == 1
 
 
-def test_get_ratchet_failures_returns_empty_for_no_matches(tmp_path: Path) -> None:
-    test_dir = tmp_path / "test_repo"
-    test_dir.mkdir()
-
-    subprocess.run(["git", "init"], cwd=test_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-
-    test_file = test_dir / "test.py"
+def test_get_ratchet_failures_returns_empty_for_no_matches(git_repo: Path) -> None:
+    test_file = git_repo / "test.py"
     test_file.write_text("print('hello world')\n")
 
-    subprocess.run(["git", "add", "."], cwd=test_dir, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "Add file"],
-        cwd=test_dir,
+        cwd=git_repo,
         check=True,
         capture_output=True,
     )
 
     pattern = RegexPattern(r"# TODO:.*")
-    chunks = get_ratchet_failures(test_dir, FileExtension(".py"), pattern)
+    chunks = get_ratchet_failures(git_repo, FileExtension(".py"), pattern)
 
     assert len(chunks) == 0
 
 
-def test_get_ratchet_failures_only_processes_specified_extension(tmp_path: Path) -> None:
-    test_dir = tmp_path / "test_repo"
-    test_dir.mkdir()
+def test_get_ratchet_failures_only_processes_specified_extension(git_repo: Path) -> None:
+    (git_repo / "file.py").write_text("# TODO: Python file\n")
+    (git_repo / "file.txt").write_text("# TODO: Text file\n")
 
-    subprocess.run(["git", "init"], cwd=test_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=test_dir,
-        check=True,
-        capture_output=True,
-    )
-
-    (test_dir / "file.py").write_text("# TODO: Python file\n")
-    (test_dir / "file.txt").write_text("# TODO: Text file\n")
-
-    subprocess.run(["git", "add", "."], cwd=test_dir, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "Add files"],
-        cwd=test_dir,
+        cwd=git_repo,
         check=True,
         capture_output=True,
     )
 
     pattern = RegexPattern(r"# TODO:.*")
-    chunks = get_ratchet_failures(test_dir, FileExtension(".py"), pattern)
+    chunks = get_ratchet_failures(git_repo, FileExtension(".py"), pattern)
 
     assert len(chunks) == 1
     assert chunks[0].file_path.suffix == ".py"

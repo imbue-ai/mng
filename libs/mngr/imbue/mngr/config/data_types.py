@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 from pathlib import Path
 from typing import Any
 from typing import Self
@@ -10,6 +11,7 @@ from uuid import uuid4
 import pluggy
 from pydantic import Field
 from pydantic import GetCoreSchemaHandler
+from pydantic import field_validator
 from pydantic_core import CoreSchema
 from pydantic_core import core_schema
 
@@ -27,6 +29,7 @@ from imbue.mngr.primitives import Permission
 from imbue.mngr.primitives import PluginName
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.primitives import UserId
 
 USER_ID_FILENAME = "user_id"
 PROFILES_DIRNAME = "profiles"
@@ -38,12 +41,10 @@ T = TypeVar("T")
 
 
 @pure
-def merge_cli_args(base: str, override: str) -> str:
+def merge_cli_args(base: tuple[str, ...], override: tuple[str, ...]) -> tuple[str, ...]:
     """Merge CLI arguments, concatenating if both present."""
     if override:
-        if base:
-            return f"{base} {override}"
-        return override
+        return base + override
     return base
 
 
@@ -121,8 +122,8 @@ class AgentTypeConfig(FrozenModel):
         default=None,
         description="Command to run for this agent type",
     )
-    cli_args: str = Field(
-        default="",
+    cli_args: tuple[str, ...] = Field(
+        default=(),
         description="Additional CLI arguments to pass to the agent",
     )
     permissions: list[Permission] = Field(
@@ -130,8 +131,17 @@ class AgentTypeConfig(FrozenModel):
         description="Explicit list of permissions (overrides parent type permissions)",
     )
 
+    @field_validator("cli_args", mode="before")
+    @classmethod
+    def _normalize_cli_args(cls, value: str | list[str] | tuple[str, ...]) -> tuple[str, ...]:
+        if isinstance(value, str):
+            return tuple(shlex.split(value)) if value else ()
+        return tuple(value)
+
     def merge_with(self, override: Self) -> Self:
         """Merge this config with an override config.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
 
         Scalar fields: override wins if not None
         Lists: concatenate both lists
@@ -146,7 +156,7 @@ class AgentTypeConfig(FrozenModel):
         # Merge command (scalar - override wins if not None)
         merged_command = override.command if override.command is not None else self.command
 
-        # Merge cli_args (concatenate both with space separator)
+        # Merge cli_args (concatenate both tuples)
         merged_cli_args = merge_cli_args(self.cli_args, override.cli_args)
 
         # Merge permissions (list - concatenate if override is not None)
@@ -173,6 +183,8 @@ class ProviderInstanceConfig(FrozenModel):
 
     def merge_with(self, override: "ProviderInstanceConfig") -> "ProviderInstanceConfig":
         """Merge this config with an override config.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
 
         Scalar fields: override wins if not None
         List fields: concatenate both lists
@@ -215,6 +227,8 @@ class PluginConfig(FrozenModel):
 
     def merge_with(self, override: "PluginConfig") -> "PluginConfig":
         """Merge this config with an override config.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
 
         Scalar fields: override wins if not None
         """
@@ -261,6 +275,8 @@ class LoggingConfig(FrozenModel):
     def merge_with(self, override: "LoggingConfig") -> "LoggingConfig":
         """Merge this config with an override config.
 
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
+
         Scalar fields: override wins if not None
         """
         return LoggingConfig(
@@ -297,6 +313,8 @@ class CommandDefaults(FrozenModel):
 
     def merge_with(self, override: Self) -> Self:
         """Merge this config with an override config.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
 
         For command defaults, later configs completely override earlier ones.
         """
@@ -344,6 +362,8 @@ class CreateTemplate(FrozenModel):
 
     def merge_with(self, override: Self) -> Self:
         """Merge this template with an override template.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
 
         For templates, later configs override earlier ones on a per-key basis.
         """
@@ -407,6 +427,12 @@ class MngrConfig(FrozenModel):
         default_factory=LoggingConfig,
         description="Logging configuration",
     )
+    is_remote_agent_installation_allowed: bool = Field(
+        default=True,
+        description="Whether to allow automatic installation of agents (e.g. Claude) on remote hosts. "
+        "When False, raises an error if the agent is not already installed on the remote host. "
+        "Defaults to True (allowed).",
+    )
     is_allowed_in_pytest: bool = Field(
         default=True,
         description="Set this to False to prevent loading this config in pytest runs",
@@ -414,6 +440,8 @@ class MngrConfig(FrozenModel):
 
     def merge_with(self, override: Self) -> Self:
         """Merge this config with an override config.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
 
         Scalar fields: override wins if not None
         Dicts: merge keys, with per-key merge for nested config objects
@@ -514,6 +542,10 @@ class MngrConfig(FrozenModel):
         # Merge pre_command_scripts (dict - override keys take precedence)
         merged_pre_command_scripts = merge_dict_fields(self.pre_command_scripts, override.pre_command_scripts)
 
+        is_remote_agent_installation_allowed = self.is_remote_agent_installation_allowed
+        if override.is_remote_agent_installation_allowed is not None:
+            is_remote_agent_installation_allowed = override.is_remote_agent_installation_allowed
+
         is_allowed_in_pytest = self.is_allowed_in_pytest
         if override.is_allowed_in_pytest is not None:
             is_allowed_in_pytest = override.is_allowed_in_pytest
@@ -536,6 +568,7 @@ class MngrConfig(FrozenModel):
             commands=merged_commands,
             create_templates=merged_create_templates,
             pre_command_scripts=merged_pre_command_scripts,
+            is_remote_agent_installation_allowed=is_remote_agent_installation_allowed,
             logging=merged_logging,
             is_allowed_in_pytest=is_allowed_in_pytest,
         )
@@ -569,7 +602,7 @@ class MngrContext(FrozenModel):
         description="Top-level concurrency group for managing spawned processes",
     )
 
-    def get_profile_user_id(self) -> str:
+    def get_profile_user_id(self) -> UserId:
         return get_or_create_user_id(self.profile_dir)
 
 
@@ -606,8 +639,7 @@ class OutputOptions(FrozenModel):
     )
 
 
-# FIXME: this should obviously this should return a concrete type, not a str
-def get_or_create_user_id(profile_dir: Path) -> str:
+def get_or_create_user_id(profile_dir: Path) -> UserId:
     """Get or create a unique user ID for this mngr profile.
 
     The user ID is stored in a file in the profile directory. This ID is used
@@ -629,4 +661,4 @@ def get_or_create_user_id(profile_dir: Path) -> str:
             # Generate a new user ID
             user_id = uuid4().hex
         user_id_file.write_text(user_id)
-    return user_id
+    return UserId(user_id)

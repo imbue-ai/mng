@@ -150,6 +150,7 @@ mngr <command> [options]
 - [`snapshot`](docs/commands/secondary/snapshot.md) [future]: Create a snapshot of a host's state
 - [`destroy`](docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
 - [`exec`](docs/commands/primary/exec.md): Execute a shell command on an agent's host
+- [`rename`](docs/commands/primary/rename.md): Rename an agent
 - [`clone`](docs/commands/aliases/clone.md): Create a copy of an existing agent
 - [`migrate`](docs/commands/aliases/migrate.md): Move an agent to a different host
 - [`limit`](docs/commands/secondary/limit.md) [future]: (Re)set resource limits for an agent
@@ -164,7 +165,7 @@ mngr <command> [options]
 
 ### For managing mngr itself:
 
-- [`ask`](docs/commands/secondary/ask.md) [future]: Chat with mngr for help
+- [`ask`](docs/commands/secondary/ask.md): Chat with mngr for help
 - [`plugin`](docs/commands/secondary/plugin.md) [future]: Manage mngr plugins
 - [`config`](docs/commands/secondary/config.md): View and edit mngr configuration
 

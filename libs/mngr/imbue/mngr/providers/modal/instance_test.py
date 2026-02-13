@@ -47,6 +47,7 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
+from imbue.mngr.primitives import UserId
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.modal.backend import STATE_VOLUME_SUFFIX
 from imbue.mngr.providers.modal.config import ModalProviderConfig
@@ -1000,8 +1001,8 @@ def test_modal_provider_config_user_id_defaults_to_none() -> None:
 
 def test_modal_provider_config_user_id_can_be_set() -> None:
     """ModalProviderConfig user_id can be set to override profile user_id."""
-    config = ModalProviderConfig(user_id="custom-user-id")
-    assert config.user_id == "custom-user-id"
+    config = ModalProviderConfig(user_id=UserId("custom-user-id"))
+    assert config.user_id == UserId("custom-user-id")
 
 
 # =============================================================================
