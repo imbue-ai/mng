@@ -231,6 +231,10 @@ def test_cleanup_json_output_with_modal_agent(
 
     assert result.returncode == 0, f"Cleanup failed: {result.stderr}\n{result.stdout}"
 
-    output = json.loads(result.stdout)
+    # The JSON result is the last line of stdout; earlier lines may contain
+    # logger output from the provider layer (e.g. "Stopping Modal sandbox...")
+    json_lines = [line for line in result.stdout.strip().split("\n") if line.startswith("{")]
+    assert json_lines, f"No JSON output found in stdout: {result.stdout}"
+    output = json.loads(json_lines[-1])
     assert agent_name in output["destroyed_agents"], f"Expected {agent_name} in destroyed_agents: {output}"
     assert output["destroyed_count"] >= 1
