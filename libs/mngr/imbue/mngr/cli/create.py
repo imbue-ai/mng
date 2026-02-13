@@ -15,6 +15,7 @@ from pydantic import Field
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.create import create as api_create
@@ -211,6 +212,7 @@ class CreateCliOptions(CommonCliOptions):
     prepend_to_file: tuple[str, ...]
     create_directory: tuple[str, ...]
     ready_timeout: float
+    yes: bool
 
 
 @click.command()
@@ -479,6 +481,14 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries (e.g., 5s, 1m)")
 @optgroup.option("--attach-command", help="Command to run instead of attaching to main session")
+@optgroup.group("Automation")
+@optgroup.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    default=False,
+    help="Auto-approve all prompts (e.g., skill installation) without asking",
+)
 @add_common_options
 @click.pass_context
 def create(ctx: click.Context, **kwargs) -> None:
@@ -497,6 +507,12 @@ def create(ctx: click.Context, **kwargs) -> None:
         command_name="create",
         command_class=CreateCliOptions,
     )
+
+    # Apply --yes flag to auto-approve prompts (e.g., skill installation)
+    if opts.yes:
+        mngr_ctx = mngr_ctx.model_copy_update(
+            to_update(mngr_ctx.field_ref().is_auto_approve, True),
+        )
 
     result = _handle_create(mngr_ctx, output_opts, opts)
     if result is None:

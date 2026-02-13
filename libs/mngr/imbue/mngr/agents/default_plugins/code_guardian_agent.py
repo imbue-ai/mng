@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 from typing import Final
 
@@ -79,6 +80,10 @@ _CODE_GUARDIAN_AGENT_DEFINITION: Final[dict] = {
 
 _CODE_GUARDIAN_AGENTS_JSON: Final[str] = json.dumps(_CODE_GUARDIAN_AGENT_DEFINITION, separators=(",", ":"))
 
+_CODE_GUARDIAN_CLI_ARGS: Final[tuple[str, ...]] = tuple(
+    shlex.split(f"--agents '{_CODE_GUARDIAN_AGENTS_JSON}' --agent {_SKILL_NAME}")
+)
+
 
 class CodeGuardianAgentConfig(ClaudeAgentConfig):
     """Config for the code-guardian agent type.
@@ -88,8 +93,8 @@ class CodeGuardianAgentConfig(ClaudeAgentConfig):
     that its primary skill is the code-guardian skill.
     """
 
-    cli_args: str = Field(
-        default=f"--agents '{_CODE_GUARDIAN_AGENTS_JSON}' --agent {_SKILL_NAME}",
+    cli_args: tuple[str, ...] = Field(
+        default=_CODE_GUARDIAN_CLI_ARGS,
         description="CLI arguments including agent definition and selection",
     )
 
@@ -120,7 +125,7 @@ def _install_skill_locally(mngr_ctx: MngrContext) -> None:
             logger.debug("Code-guardian skill is already up to date at {}", skill_path)
             return
 
-        if mngr_ctx.is_interactive:
+        if mngr_ctx.is_interactive and not mngr_ctx.is_auto_approve:
             if not _prompt_user_for_skill_install(skill_path):
                 logger.info("Skipped code-guardian skill installation")
                 return

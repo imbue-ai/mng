@@ -37,7 +37,7 @@ def build_mngr_create_command(
         agent_name,
         changeling.agent_type,
         "--no-connect",
-        "--no-interactive",
+        "--yes",
         "--await-agent-stopped",
         "--no-ensure-clean",
         "--tag",

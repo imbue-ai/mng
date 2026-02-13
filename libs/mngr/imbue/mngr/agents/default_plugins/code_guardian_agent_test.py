@@ -48,14 +48,16 @@ def test_code_guardian_config_includes_agents_and_agent_flags() -> None:
     """CodeGuardianAgentConfig cli_args should include --agents and --agent flags."""
     config = CodeGuardianAgentConfig()
     assert "--agents" in config.cli_args
-    assert "--agent code-guardian" in config.cli_args
+    assert "--agent" in config.cli_args
+    assert "code-guardian" in config.cli_args
 
 
 def test_code_guardian_config_agents_json_contains_skill_name() -> None:
     """The --agents JSON should reference the code-guardian skill."""
     config = CodeGuardianAgentConfig()
-    assert '"code-guardian"' in config.cli_args
-    assert "primary skill" in config.cli_args
+    cli_args_str = " ".join(config.cli_args)
+    assert '"code-guardian"' in cli_args_str
+    assert "primary skill" in cli_args_str
 
 
 def test_resolve_code_guardian_type_returns_code_guardian_agent_and_config() -> None:

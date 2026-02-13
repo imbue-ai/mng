@@ -165,12 +165,12 @@ def test_build_command_includes_extra_mngr_args() -> None:
     assert "300" in cmd
 
 
-def test_build_command_includes_no_interactive_flag() -> None:
-    """The command should include --no-interactive since changelings run unattended."""
+def test_build_command_includes_yes_flag() -> None:
+    """The command should include --yes to auto-approve prompts."""
     changeling = make_test_changeling()
     cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
-    assert "--no-interactive" in cmd
+    assert "--yes" in cmd
 
 
 def test_build_command_includes_mngr_options() -> None:
@@ -403,6 +403,6 @@ def test_run_cli_builds_correct_command_from_config() -> None:
     assert cmd[0:4] == ["uv", "run", "mngr", "create"]
     assert cmd[5] == "code-guardian"
     assert "--no-connect" in cmd
-    assert "--no-interactive" in cmd
+    assert "--yes" in cmd
     assert "--await-agent-stopped" in cmd
     assert "CHANGELING=test-guardian" in cmd
