@@ -478,35 +478,486 @@ When these configurations are detected during `create_snapshot()`, the provider 
 
 ## Testing Strategy
 
-### Unit Tests (`instance_test.py`, `backend_test.py`, `host_store_test.py`)
-
-- `ContainerConfig` parsing from build args
-- Label building and parsing
-- Host record store CRUD operations
-- `_parse_build_args()` with various argument combinations
-- Capability properties
-
-### Integration Tests
-
-- Container creation, SSH setup, and connectivity (requires Docker)
-- Stop/start cycle with filesystem preservation
-- Snapshot creation and restoration
-- Tag reading from labels and error on mutation attempts
-- Host discovery (list, get by id, get by name)
-- Failed host recording
-- Remote Docker host connectivity (if test infrastructure available)
-
-### Acceptance Tests (in `test_docker_create.py`)
-
-- Full end-to-end `mngr create --in docker` flow
-- Marked with `@pytest.mark.acceptance` (requires Docker daemon)
+Tests follow the project conventions: unit tests in `*_test.py` files (same directory as code under test), integration/acceptance/release tests in `test_*.py` files. All tests use the shared fixtures (`temp_host_dir`, `temp_mngr_ctx`, `cg`, `plugin_manager`) from `conftest.py`.
 
 ### Test Fixtures
 
-Use the existing shared fixtures (`temp_host_dir`, `temp_mngr_ctx`) plus Docker-specific fixtures:
+Docker-specific fixtures, defined in the test files themselves (following the Modal pattern):
 
-- `docker_provider` -- Creates a `DockerProviderInstance` connected to the test Docker daemon
-- `docker_container` -- Creates and cleans up a test container
+- `docker_provider` -- Creates a `DockerProviderInstance` with a mocked `docker.DockerClient` for unit tests. Uses `model_construct()` to bypass Pydantic validation (same pattern as `make_modal_provider_with_mocks`).
+- `real_docker_provider` -- Creates a `DockerProviderInstance` connected to a real Docker daemon for acceptance tests. Yields the instance and cleans up all containers/images on teardown.
+- `docker_container` -- Creates a real Docker container with a unique name, yields it, and force-removes it on teardown. For integration tests that need a running container without the full provider lifecycle.
+
+Helper functions:
+
+- `make_docker_provider_with_mocks(mngr_ctx, instance_name)` -- Factory for unit test providers with mocked Docker client.
+- `make_docker_provider_real(mngr_ctx, instance_name)` -- Factory for acceptance test providers with real Docker.
+- `_make_host_record(host_id, host_name, ...)` -- Create a `HostRecord` for testing (same pattern as Modal).
+- `_make_snapshot_record(name)` -- Create a `SnapshotRecord` for testing.
+
+### Unit Tests
+
+#### `backend_test.py`
+
+Tests for `DockerProviderBackend` (follows `local/backend_test.py` pattern):
+
+```
+test_backend_name
+    DockerProviderBackend.get_name() returns DOCKER_BACKEND_NAME ("docker")
+
+test_backend_description
+    get_description() returns a non-empty string containing "docker"
+
+test_backend_build_args_help
+    get_build_args_help() returns non-empty string documenting --cpu, --memory, etc.
+
+test_backend_start_args_help
+    get_start_args_help() returns non-empty string
+
+test_backend_get_config_class
+    get_config_class() returns DockerProviderConfig
+
+test_build_provider_instance_returns_docker_provider_instance
+    build_provider_instance() returns a DockerProviderInstance
+
+test_build_provider_instance_with_custom_host_dir
+    Custom host_dir in config is respected
+
+test_build_provider_instance_uses_default_host_dir
+    Default host_dir (/mngr) is used when not specified
+
+test_build_provider_instance_uses_name
+    Provider instance name is correctly set
+```
+
+#### `host_store_test.py`
+
+Tests for `DockerHostStore` (the JSON file-based host record store):
+
+```
+test_write_and_read_host_record
+    Write a HostRecord, read it back, verify all fields match
+
+test_read_host_record_returns_none_for_nonexistent
+    Reading a nonexistent host_id returns None
+
+test_read_host_record_caching
+    Second read returns cached result without re-reading file
+
+test_delete_host_record
+    Delete removes the JSON file and associated agent data directory
+
+test_delete_host_record_nonexistent_is_noop
+    Deleting a nonexistent record does not raise
+
+test_list_all_host_records_empty
+    Returns empty list when no records exist
+
+test_list_all_host_records_returns_all_records
+    Returns all stored host records
+
+test_list_all_host_records_skips_corrupt_files
+    Skips malformed JSON files with a warning rather than crashing
+
+test_persist_agent_data
+    Writes agent data JSON under hosts/<host_id>/<agent_id>.json
+
+test_persist_agent_data_without_id_is_noop
+    Agent data missing "id" field does not write anything
+
+test_list_persisted_agent_data_for_host
+    Returns all agent data dicts for a given host
+
+test_list_persisted_agent_data_for_host_empty
+    Returns empty list when no agent data exists
+
+test_remove_persisted_agent_data
+    Removes the agent JSON file
+
+test_remove_persisted_agent_data_nonexistent_is_noop
+    Removing nonexistent agent data does not raise
+
+test_host_record_store_directory_structure
+    Verify the store creates the expected directory layout under the profile dir
+
+test_write_host_record_creates_parent_dirs
+    Writing a record to a fresh store creates all necessary parent directories
+```
+
+#### `instance_test.py`
+
+Tests for `DockerProviderInstance` (follows `modal/instance_test.py` pattern):
+
+**Capability properties (no Docker required):**
+
+```
+test_docker_provider_name
+    provider.name matches the configured ProviderInstanceName
+
+test_docker_provider_supports_snapshots
+    supports_snapshots is True
+
+test_docker_provider_supports_shutdown_hosts
+    supports_shutdown_hosts is True
+
+test_docker_provider_does_not_support_volumes
+    supports_volumes is False
+
+test_docker_provider_does_not_support_mutable_tags
+    supports_mutable_tags is False
+
+test_list_volumes_returns_empty_list
+    list_volumes() returns []
+```
+
+**Container label helpers (no Docker required):**
+
+```
+test_build_container_labels_with_no_tags
+    Labels include host-id, host-name, provider; tags label is "{}"
+
+test_build_container_labels_with_tags
+    Tags are JSON-encoded in the com.imbue.mngr.tags label
+
+test_parse_container_labels_extracts_host_id_and_name
+    Extracts HostId, HostName, and provider name from labels
+
+test_parse_container_labels_extracts_tags
+    Parses the tags JSON label back to a dict
+
+test_build_and_parse_container_labels_roundtrip
+    Build labels then parse them; all values match originals
+
+test_parse_container_labels_handles_missing_tags_label
+    Missing tags label returns empty dict (backward compatibility)
+
+test_parse_container_labels_handles_invalid_tags_json
+    Invalid JSON in tags label returns empty dict with warning
+```
+
+**Build args parsing (no Docker required):**
+
+```
+test_parse_build_args_empty
+    None or [] returns ContainerConfig with defaults from provider config
+
+test_parse_build_args_key_value_format
+    Parses cpu=2, memory=8, gpu=nvidia format
+
+test_parse_build_args_flag_equals_format
+    Parses --cpu=2, --memory=8, --gpu=nvidia format
+
+test_parse_build_args_flag_space_format
+    Parses --cpu 2, --memory 8 format (two separate args)
+
+test_parse_build_args_mixed_formats
+    Parses mixed key=value and --flag formats in same call
+
+test_parse_build_args_image
+    Parses --image=python:3.11-slim
+
+test_parse_build_args_dockerfile
+    Parses --dockerfile=/path/to/Dockerfile
+
+test_parse_build_args_context_dir
+    Parses --context-dir=/path/to/context
+
+test_parse_build_args_network
+    Parses --network=my-network
+
+test_parse_build_args_volume_single
+    Parses single --volume=/host:/container
+
+test_parse_build_args_volume_multiple
+    Parses multiple --volume args; collected as tuple
+
+test_parse_build_args_port_single
+    Parses single --port=8080:80
+
+test_parse_build_args_port_multiple
+    Parses multiple --port args; collected as tuple
+
+test_parse_build_args_unknown_raises_error
+    Unknown arg like --foobar raises MngrError
+
+test_parse_build_args_invalid_type_raises_error
+    Non-numeric value for --cpu raises MngrError
+
+test_parse_build_args_uses_config_default_gpu
+    When config.default_gpu is set, empty build_args uses it
+
+test_parse_build_args_uses_config_default_image
+    When config.default_image is set, empty build_args uses it
+
+test_parse_build_args_explicit_args_override_config_defaults
+    Explicit --gpu overrides config.default_gpu
+```
+
+**Tag methods (no Docker required):**
+
+```
+test_set_host_tags_raises_mngr_error
+    set_host_tags() raises MngrError with "does not support mutable tags"
+
+test_add_tags_to_host_raises_mngr_error
+    add_tags_to_host() raises MngrError with "does not support mutable tags"
+
+test_remove_tags_from_host_raises_mngr_error
+    remove_tags_from_host() raises MngrError with "does not support mutable tags"
+
+test_get_host_tags_reads_from_container_labels
+    Mocked container returns labels; get_host_tags parses the tags label
+
+test_get_host_tags_falls_back_to_host_record_for_offline_host
+    When container is not found, reads tags from host record's certified_host_data
+```
+
+**Shutdown script generation (no Docker required):**
+
+```
+test_create_shutdown_script_generates_correct_content
+    Script contains #!/bin/bash, kill -TERM 1, LOG_FILE, STOP_REASON
+
+test_create_shutdown_script_is_executable
+    Script is written with mode 755
+```
+
+**list_hosts unit tests (mocked Docker client):**
+
+```
+test_list_hosts_returns_running_containers_as_hosts
+    Mocked containers.list returns containers; list_hosts returns Host objects
+
+test_list_hosts_returns_stopped_containers_as_offline_hosts
+    Stopped containers (status=exited) returned as OfflineHost
+
+test_list_hosts_merges_containers_with_host_records
+    Running container takes precedence over host record for same host_id
+
+test_list_hosts_returns_host_record_only_hosts
+    Host records without matching containers still appear (destroyed but recorded)
+
+test_list_hosts_excludes_destroyed_hosts_by_default
+    Host records with no snapshots and no container are excluded by default
+
+test_list_hosts_includes_destroyed_hosts_when_requested
+    include_destroyed=True includes host records with no container and no snapshots
+
+test_list_hosts_filters_by_provider_label
+    Only containers with matching com.imbue.mngr.provider label are returned
+```
+
+**Agent data persistence (no Docker required):**
+
+```
+test_persist_agent_data_writes_to_host_store
+    Calls host_store.persist_agent_data with correct args
+
+test_persist_agent_data_without_id_is_noop
+    Agent data without "id" field does not call host_store
+
+test_remove_persisted_agent_data_removes_from_store
+    Calls host_store.remove_persisted_agent_data
+
+test_remove_persisted_agent_data_handles_not_found
+    Missing agent data does not raise
+
+test_list_persisted_agent_data_for_host_delegates_to_store
+    Returns data from host_store.list_persisted_agent_data_for_host
+```
+
+### Integration Tests (`test_docker_lifecycle.py`)
+
+These tests require a running Docker daemon but do NOT use the `mngr` CLI. They test the provider instance methods directly with real Docker containers. Each test cleans up its containers on teardown.
+
+```
+test_create_host_creates_container_with_ssh
+    create_host() creates a running container, sets up SSH, returns a Host with
+    a working SSH connector. Verify: container is running, SSH port is mapped,
+    host.execute_command("echo hello") succeeds.
+
+test_create_host_with_tags
+    create_host(tags={"env": "test"}) stores tags in container labels.
+    Verify: container labels include com.imbue.mngr.tags with {"env": "test"}.
+    get_host_tags() returns {"env": "test"}.
+
+test_create_host_with_custom_image
+    create_host(build_args=["--image=python:3.11-slim"]) uses the specified image.
+    Verify: container.image matches, python3 is available via SSH.
+
+test_create_host_with_dockerfile
+    create_host(build_args=["--dockerfile=<path>"]) builds a custom image.
+    Verify: marker file from Dockerfile exists in the container.
+
+test_create_host_with_resource_limits
+    create_host(build_args=["--cpu=2", "--memory=2"]) applies resource limits.
+    Verify: get_host_resources() returns matching values.
+
+test_stop_host_stops_container
+    stop_host() stops the container (not removes). Verify: container status is
+    "exited", SSH no longer works.
+
+test_stop_host_with_snapshot
+    stop_host(create_snapshot=True) commits the container before stopping.
+    Verify: snapshot appears in list_snapshots().
+
+test_start_host_restarts_stopped_container
+    After stop_host(), start_host() restarts the same container. Verify: SSH
+    reconnects, filesystem changes from before stop are preserved.
+
+test_start_host_filesystem_preserved_across_stop_start
+    Write a marker file, stop, start. Verify: marker file still exists. This
+    is a key difference from Modal, where stop always means snapshot-restore.
+
+test_start_host_from_snapshot_creates_new_container
+    After stop, start_host(snapshot_id=...) creates a NEW container from the
+    committed image. Verify: marker file from snapshot is present, the container
+    is a different container (different container_id).
+
+test_start_host_on_running_host_returns_same_host
+    start_host() on an already-running host returns the same host without error.
+
+test_destroy_host_removes_container
+    destroy_host() force-removes the container. Verify: container no longer
+    exists, get_host() raises HostNotFoundError.
+
+test_destroy_host_with_delete_snapshots
+    destroy_host(delete_snapshots=True) removes both the container and its
+    snapshot images.
+
+test_destroy_host_without_delete_snapshots
+    destroy_host(delete_snapshots=False) removes the container but preserves
+    snapshot images.
+
+test_get_host_by_id
+    create_host(), then get_host(host_id). Verify: returns matching host.
+
+test_get_host_by_name
+    create_host(name), then get_host(name). Verify: returns matching host.
+
+test_get_host_not_found_raises_error
+    get_host(random_id) raises HostNotFoundError.
+
+test_get_host_by_name_not_found_raises_error
+    get_host(HostName("nonexistent")) raises HostNotFoundError.
+
+test_list_hosts_includes_created_host
+    create_host(), then list_hosts(). Verify: host appears in list.
+
+test_list_hosts_includes_stopped_hosts
+    create_host(), stop_host(), list_hosts(). Verify: stopped host appears as
+    OfflineHost with appropriate state.
+
+test_get_host_resources
+    Verify get_host_resources() returns cpu/memory matching build args.
+
+test_create_snapshot
+    create_snapshot() commits the container and returns a SnapshotId.
+    Verify: the committed image exists, list_snapshots() includes it.
+
+test_create_and_list_snapshots
+    Create multiple snapshots with names. list_snapshots() returns all with
+    correct names and ordering.
+
+test_delete_snapshot
+    Create a snapshot, delete it. Verify: list_snapshots() is empty,
+    Docker image has been removed.
+
+test_delete_nonexistent_snapshot_raises_error
+    delete_snapshot(fake_id) raises SnapshotNotFoundError.
+
+test_get_host_tags_returns_creation_tags
+    create_host(tags={"k": "v"}). get_host_tags() returns {"k": "v"}.
+
+test_set_host_tags_raises_mngr_error
+    set_host_tags() raises MngrError. Verify error message mentions immutable.
+
+test_add_tags_to_host_raises_mngr_error
+    add_tags_to_host() raises MngrError.
+
+test_remove_tags_from_host_raises_mngr_error
+    remove_tags_from_host() raises MngrError.
+
+test_rename_host
+    rename_host(host, new_name). Verify: get_host(new_name) works, the container
+    name is unchanged (only the logical name in host record changes).
+
+test_get_connector_returns_ssh_connector
+    get_connector() returns a PyinfraHost with SSHConnector.
+
+test_on_connection_error_clears_caches
+    Verify on_connection_error(host_id) clears internal caches so the next
+    get_host() fetches fresh state.
+
+test_create_host_failure_records_failed_host
+    Force a failure during container creation (e.g., bad image). Verify: the
+    failed host record is saved and appears in list_hosts() with failure info.
+
+test_snapshot_warns_on_volume_mounts
+    create_host with --volume, then create_snapshot(). Verify: a warning is
+    logged about volumes not being captured.
+
+test_close_closes_docker_client
+    close() closes the underlying Docker client connection.
+```
+
+### Acceptance Tests (`test_docker_create.py`)
+
+End-to-end tests that use the `mngr` CLI as a subprocess, verifying the full user-facing flow. Marked with `@pytest.mark.acceptance`. Each test requires a running Docker daemon.
+
+```
+@pytest.mark.acceptance
+test_mngr_create_echo_command_on_docker
+    Run `uv run mngr create <name> echo --in docker --no-connect --await-ready -- hello`.
+    Verify: exit code 0, "Done." in stdout.
+
+@pytest.mark.acceptance
+test_mngr_create_with_build_args_on_docker
+    Run `uv run mngr create ... --in docker -b --cpu -b 2 -b --memory -b 2 -- hello`.
+    Verify: exit code 0.
+
+@pytest.mark.acceptance
+test_mngr_create_with_dockerfile_on_docker
+    Create a Dockerfile with a marker file. Run `uv run mngr create ... --in docker
+    -b --dockerfile=<path> -- cat /marker.txt`. Verify: exit code 0.
+
+@pytest.mark.acceptance
+test_mngr_create_with_failing_dockerfile_shows_build_failure
+    Create a Dockerfile with `RUN exit 1`. Run mngr create. Verify: non-zero
+    exit code, build failure is visible in output.
+
+@pytest.mark.acceptance
+test_mngr_create_with_tags_on_docker
+    Run `uv run mngr create ... --in docker --tag env=test -- echo hello`.
+    Verify: exit code 0, `mngr list --format json` shows the tags.
+
+@pytest.mark.acceptance
+test_mngr_create_with_worktree_flag_on_docker_raises_error
+    Run `uv run mngr create ... --in docker --worktree`. Verify: non-zero exit,
+    error about worktree mode not being supported on remote providers.
+
+@pytest.mark.acceptance
+test_mngr_create_transfers_git_repo
+    Use temp_git_repo fixture. Run mngr create with --source pointing to the
+    git repo. Verify: exit code 0, agent created successfully.
+```
+
+### Release Tests (`test_docker_create.py`)
+
+Slower, more comprehensive tests that run only on pushes to main.
+
+```
+@pytest.mark.release
+test_mngr_create_stop_start_destroy_lifecycle
+    Full lifecycle via CLI: create agent, verify running; stop it via
+    `mngr stop`, verify stopped in `mngr list`; start it via `mngr start`,
+    verify running again; destroy via `mngr destroy`, verify gone.
+
+@pytest.mark.release
+test_mngr_create_snapshot_and_restore
+    Create agent, write a marker file, create snapshot, stop, restore from
+    snapshot, verify marker file exists on restored host.
+```
 
 ## Implementation Order
 
