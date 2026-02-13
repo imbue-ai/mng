@@ -84,7 +84,6 @@ initial_message = "Please use your primary skill"
 
 # other mngr arguments can optionally be specified as well, like:
 build_args = ["--no-cache"]
-template = "my-template"
 # etc.
 ```
 
