@@ -8,6 +8,7 @@ from datetime import timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from typing import Final
 
 from loguru import logger
 from pydantic import Field
@@ -237,7 +238,7 @@ def list_agents(
     return result
 
 
-COMPLETION_CACHE_FILENAME = ".completion_cache.json"
+COMPLETION_CACHE_FILENAME: Final[str] = ".completion_cache.json"
 
 
 def _write_completion_cache(mngr_ctx: MngrContext, result: ListResult) -> None:

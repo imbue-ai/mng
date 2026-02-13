@@ -4,12 +4,13 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from typing import Final
 
 import click
 from click.shell_completion import CompletionItem
 
-COMPLETION_CACHE_FILENAME = ".completion_cache.json"
-_BACKGROUND_REFRESH_COOLDOWN_SECONDS = 30
+COMPLETION_CACHE_FILENAME: Final[str] = ".completion_cache.json"
+_BACKGROUND_REFRESH_COOLDOWN_SECONDS: Final[int] = 30
 
 
 def _get_host_dir() -> Path:
