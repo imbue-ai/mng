@@ -1,9 +1,3 @@
-"""Unit tests for the ModalProviderInstance.
-
-Acceptance tests that require Modal credentials and network access are in
-test_modal_instance.py.
-"""
-
 import json
 from io import StringIO
 from pathlib import Path

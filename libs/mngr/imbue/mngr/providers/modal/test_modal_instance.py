@@ -1,9 +1,3 @@
-"""Acceptance tests for the Modal provider instance.
-
-These tests require Modal credentials and network access to run. They are marked
-with @pytest.mark.acceptance and run on all branches in CI.
-"""
-
 from pathlib import Path
 from unittest.mock import MagicMock
 
