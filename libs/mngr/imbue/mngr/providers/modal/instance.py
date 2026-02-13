@@ -375,7 +375,7 @@ class ModalProviderInstance(BaseProviderInstance):
         data = host_record.model_dump_json(indent=2)
 
         _volume_batch_upload_file(volume, data.encode("utf-8"), path)
-        logger.trace("Wrote host record to volume: {}", path)
+        logger.trace("Wrote host record to volume: {}", path, host_data=data)
 
         # Update the cache with the new host record
         self._host_record_cache_by_id[host_id] = host_record
@@ -427,7 +427,7 @@ class ModalProviderInstance(BaseProviderInstance):
         try:
             data = _volume_read_file(volume, path)
             host_record = HostRecord.model_validate_json(data)
-            logger.trace("Read host record from volume: {}", path)
+            logger.trace("Read host record from volume: {}", path, host_data=data.decode("utf-8"))
             # Cache the result
             self._host_record_cache_by_id[host_id] = host_record
             return host_record
