@@ -153,6 +153,48 @@ def test_send_message_to_agents_fails_for_stopped_agent(
     assert "no tmux session" in result.failed_agents[0][1]
 
 
+def test_send_message_to_agents_starts_stopped_agent_when_start_desired(
+    temp_work_dir: Path,
+    temp_mngr_ctx: MngrContext,
+    local_provider: LocalProviderInstance,
+) -> None:
+    """Test that send_message auto-starts a stopped agent when is_start_desired=True."""
+    host = local_provider.create_host(HostName("test-start-agent"))
+    assert isinstance(host, Host)
+
+    agent = host.create_agent_state(
+        work_dir_path=temp_work_dir,
+        options=CreateAgentOptions(
+            name=AgentName("start-test"),
+            agent_type=AgentTypeName("generic"),
+            command=CommandString("sleep 847268"),
+        ),
+    )
+
+    # Don't start the agent - it should be stopped
+    assert agent.get_lifecycle_state() == AgentLifecycleState.STOPPED
+
+    success_agents: list[str] = []
+    error_agents: list[tuple[str, str]] = []
+
+    result = send_message_to_agents(
+        mngr_ctx=temp_mngr_ctx,
+        message_content="Hello with auto-start",
+        all_agents=True,
+        is_start_desired=True,
+        on_success=lambda name: success_agents.append(name),
+        on_error=lambda name, err: error_agents.append((name, err)),
+    )
+
+    # Clean up
+    host.destroy_agent(agent)
+
+    # Agent should have been started and message sent successfully
+    assert "start-test" in result.successful_agents
+    assert "start-test" in success_agents
+    assert len(error_agents) == 0
+
+
 def test_send_message_to_agents_with_include_filter(
     temp_work_dir: Path,
     temp_mngr_ctx: MngrContext,

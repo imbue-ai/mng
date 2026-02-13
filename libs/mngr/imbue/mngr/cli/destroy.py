@@ -1,10 +1,11 @@
-from typing import NamedTuple
 from typing import assert_never
 
 import click
 from click_option_group import optgroup
 from loguru import logger
+from pydantic import Field
 
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.data_types import GcResourceTypes
 from imbue.mngr.api.gc import gc as api_gc
 from imbue.mngr.api.list import list_agents
@@ -33,21 +34,27 @@ from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
 
-class OfflineHostToDestroy(NamedTuple):
+class _OfflineHostToDestroy(FrozenModel):
     """An offline host where all agents are targeted for destruction."""
 
-    host: HostInterface
-    provider: ProviderInstanceInterface
-    agent_names: list[AgentName]
+    model_config = {**FrozenModel.model_config, "arbitrary_types_allowed": True}
+
+    host: HostInterface = Field(description="The offline host to destroy")
+    provider: ProviderInstanceInterface = Field(description="The provider instance for this host")
+    agent_names: list[AgentName] = Field(description="Names of agents on this host targeted for destruction")
 
 
-# FIXME: neither this nor the above should not be using NamedTuple! Just use our FrozenModel like the rest of the codebase...
-#  Also, this class should also have an online_hosts field, and the below logic should be updated to allow directly specification of hosts to destroy
-class DestroyTargets(NamedTuple):
+class _DestroyTargets(FrozenModel):
     """Result of finding agents/hosts to destroy."""
 
-    online_agents: list[tuple[AgentInterface, OnlineHostInterface]]
-    offline_hosts: list[OfflineHostToDestroy]
+    model_config = {**FrozenModel.model_config, "arbitrary_types_allowed": True}
+
+    online_agents: list[tuple[AgentInterface, OnlineHostInterface]] = Field(
+        description="Agents on online hosts to destroy, paired with their host"
+    )
+    offline_hosts: list[_OfflineHostToDestroy] = Field(
+        description="Offline hosts where all agents are targeted for destruction"
+    )
 
 
 def get_agent_name_from_session(session_name: str, prefix: str) -> str | None:
@@ -246,7 +253,7 @@ def destroy(ctx: click.Context, **kwargs) -> None:
         )
     except AgentNotFoundError as e:
         if opts.force:
-            targets = DestroyTargets(online_agents=[], offline_hosts=[])
+            targets = _DestroyTargets(online_agents=[], offline_hosts=[])
             _output(f"Error destroying agent(s): {e}", output_opts)
         else:
             raise
@@ -305,14 +312,14 @@ def _find_agents_to_destroy(
     agent_identifiers: list[str],
     destroy_all: bool,
     mngr_ctx: MngrContext,
-) -> DestroyTargets:
+) -> _DestroyTargets:
     """Find all agents to destroy.
 
-    Returns DestroyTargets containing online agents and offline hosts to destroy.
+    Returns _DestroyTargets containing online agents and offline hosts to destroy.
     Raises AgentNotFoundError if any specified identifier does not match an agent.
     """
     online_agents: list[tuple[AgentInterface, OnlineHostInterface]] = []
-    offline_hosts: list[OfflineHostToDestroy] = []
+    offline_hosts: list[_OfflineHostToDestroy] = []
     matched_identifiers: set[str] = set()
     seen_offline_hosts: set[str] = set()
 
@@ -358,7 +365,7 @@ def _find_agents_to_destroy(
                     if all_targeted:
                         # Collect the host for destruction (don't destroy yet)
                         offline_hosts.append(
-                            OfflineHostToDestroy(
+                            _OfflineHostToDestroy(
                                 host=offline_host,
                                 provider=provider,
                                 agent_names=[ref.agent_name for ref in all_agent_refs],
@@ -383,10 +390,10 @@ def _find_agents_to_destroy(
             unmatched_list = ", ".join(sorted(unmatched_identifiers))
             raise AgentNotFoundError(f"No agent(s) found matching: {unmatched_list}")
 
-    return DestroyTargets(online_agents=online_agents, offline_hosts=offline_hosts)
+    return _DestroyTargets(online_agents=online_agents, offline_hosts=offline_hosts)
 
 
-def _confirm_destruction(targets: DestroyTargets) -> None:
+def _confirm_destruction(targets: _DestroyTargets) -> None:
     """Prompt user to confirm destruction of agents."""
     logger.info("\nThe following agents will be destroyed:")
     for agent, _ in targets.online_agents:
@@ -402,7 +409,7 @@ def _confirm_destruction(targets: DestroyTargets) -> None:
 
 
 def _output_targets(
-    targets: DestroyTargets,
+    targets: _DestroyTargets,
     prefix: str,
     output_opts: OutputOptions,
 ) -> None:

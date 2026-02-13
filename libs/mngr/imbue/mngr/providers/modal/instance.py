@@ -28,7 +28,6 @@ from typing import ParamSpec
 from typing import Sequence
 from typing import TypeVar
 from typing import cast
-from uuid import uuid4
 
 import modal
 import modal.exception
@@ -375,7 +374,7 @@ class ModalProviderInstance(BaseProviderInstance):
         data = host_record.model_dump_json(indent=2)
 
         _volume_batch_upload_file(volume, data.encode("utf-8"), path)
-        logger.trace("Wrote host record to volume: {}", path)
+        logger.trace("Wrote host record to volume: {}", path, host_data=data)
 
         # Update the cache with the new host record
         self._host_record_cache_by_id[host_id] = host_record
@@ -427,7 +426,7 @@ class ModalProviderInstance(BaseProviderInstance):
         try:
             data = _volume_read_file(volume, path)
             host_record = HostRecord.model_validate_json(data)
-            logger.trace("Read host record from volume: {}", path)
+            logger.trace("Read host record from volume: {}", path, host_data=data.decode("utf-8"))
             # Cache the result
             self._host_record_cache_by_id[host_id] = host_record
             return host_record
@@ -865,8 +864,9 @@ class ModalProviderInstance(BaseProviderInstance):
         # The stop_reason parameter indicates why the host stopped:
         # - PAUSED: Host became idle (called by activity_watcher.sh)
         # - STOPPED: User explicitly stopped the host
-        # FIXME: update this script so that it has set -euo pipefail (and will still work properly)
         script_content = f'''#!/bin/bash
+set -euo pipefail
+
 # Auto-generated shutdown script for mngr Modal host
 # This script snapshots and shuts down the host by calling the deployed Modal function
 # It also gathers agent data to persist to the volume so agents show up in mngr list
@@ -923,9 +923,13 @@ log "Agents: $AGENTS"
 # Send the shutdown request with agent data and stop reason
 # Use --max-time to prevent hanging if the endpoint is slow
 log "Sending shutdown request to $SNAPSHOT_URL"
-RESPONSE=$(curl -s --max-time 30 -w "\\n%{{http_code}}" -X POST "$SNAPSHOT_URL" \\
+if ! RESPONSE=$(curl -s --max-time 30 -w "\\n%{{http_code}}" -X POST "$SNAPSHOT_URL" \\
     -H "Content-Type: application/json" \\
-    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}')
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}'); then
+    log "curl request failed"
+    log "=== Shutdown script completed with error ==="
+    exit 1
+fi
 
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 BODY=$(echo "$RESPONSE" | sed '$d')
@@ -1881,10 +1885,8 @@ log "=== Shutdown script completed ==="
 
         # Generate snapshot name if not provided
         if name is None:
-            # FIXME: this is a dumb default--use the creation time instead
-            # Use first 8 characters of a random UUID as a short identifier
-            short_id = uuid4().hex[:8]
-            name = SnapshotName(f"snapshot-{short_id}")
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
+            name = SnapshotName(f"snapshot-{timestamp}")
 
         with log_span("Creating snapshot for Modal sandbox", host_id=str(host_id)):
             snapshot_id = self._record_snapshot(sandbox, host_id, name)
