@@ -1735,7 +1735,7 @@ class Host(BaseHost, OnlineHostInterface):
         """
         commands = self._build_source_env_commands(agent)
         # Note: no quotes, because the saved command may have multiple words
-        commands.append('exec ${MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash}')
+        commands.append("exec ${MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash}")
         return "bash -c " + shlex.quote("; ".join(commands))
 
     def _get_host_tmux_config_path(self) -> Path:
@@ -2091,13 +2091,10 @@ def _build_start_agent_shell_command(
         f"U=$(tmux show-option -t {quoted_session} -Aqv default-command 2>/dev/null); "
         f'[ -z "$U" ] && U=$(tmux show-option -t {quoted_session} -Aqv default-shell 2>/dev/null) || true; '
         '[ -z "$U" ] && U=bash; '
-        f"tmux set-environment -t {quoted_session} MNGR_SAVED_DEFAULT_TMUX_COMMAND \"$U\""
+        f'tmux set-environment -t {quoted_session} MNGR_SAVED_DEFAULT_TMUX_COMMAND "$U"'
     )
     steps.append("bash -c " + shlex.quote(save_user_shell_script))
-    steps.append(
-        f"tmux set-option -t {quoted_session} default-command"
-        f" {shlex.quote(env_shell_cmd)}"
-    )
+    steps.append(f"tmux set-option -t {quoted_session} default-command {shlex.quote(env_shell_cmd)}")
 
     # Send the agent command as literal keys, then Enter to execute
     steps.append(f"tmux send-keys -t {shlex.quote(session_name)} -l {shlex.quote(command)}")
