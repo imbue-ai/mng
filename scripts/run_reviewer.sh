@@ -165,7 +165,7 @@ cache_results() {
 # Tries two methods (both allowed to fail):
 #   1. Direct copy to a mounted volume path + sync (works inside Modal sandbox)
 #   2. Upload via `modal volume put` CLI (works when running locally)
-UPLOAD_VOLUME_NAME="code-reviews"
+UPLOAD_VOLUME_NAME="code-review-json"
 UPLOAD_VOLUME_MOUNT="/code_reviews"
 
 upload_reviewer_output() {
