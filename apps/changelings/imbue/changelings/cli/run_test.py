@@ -344,27 +344,37 @@ def _isolated_changeling_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     """Set up an isolated HOME with a changeling registered in config."""
     monkeypatch.setenv("HOME", str(tmp_path))
     runner = CliRunner()
-    runner.invoke(add, _REQUIRED_ADD_ARGS)
+    result = runner.invoke(add, _REQUIRED_ADD_ARGS)
+    assert result.exit_code == 0, result.output
 
 
 @pytest.mark.usefixtures("_isolated_changeling_config")
-def test_run_cli_local_exercises_full_path() -> None:
-    """Running a changeling locally exercises the full local code path:
-    run() -> _run_changeling_locally() -> _execute_mngr_command().
+def test_run_cli_local_invokes_mngr_create() -> None:
+    """Running locally should dispatch to _run_changeling_locally and invoke mngr create.
+
+    Verifies the full local path: run() reads the changeling from config,
+    _run_changeling_locally() builds the command via build_mngr_create_command(),
+    and _execute_mngr_command() runs the subprocess. A zero exit code confirms
+    the entire chain succeeded -- if the command was built incorrectly, mngr
+    create would fail with a non-zero exit code.
     """
     runner = CliRunner()
     result = runner.invoke(run, ["test-guardian", "--local"])
 
-    # The command should complete (success or failure depending on environment)
-    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert result.exit_code == 0
 
 
 @pytest.mark.usefixtures("_isolated_changeling_config")
-def test_run_cli_modal_exercises_full_path_with_cleanup() -> None:
-    """Running a changeling on Modal exercises the full modal code path:
-    run() -> _run_changeling_on_modal() -> write env file, execute, cleanup.
+def test_run_cli_modal_invokes_mngr_create_with_env_file() -> None:
+    """Running on Modal should write a secrets env file, invoke mngr create with
+    --in modal, and clean up the env file afterward.
+
+    Verifies the full modal path: run() reads the changeling, _run_changeling_on_modal()
+    writes a secrets env file, builds the command with --in modal and --host-env-file,
+    executes it, and cleans up the env file in a finally block. A zero exit code
+    confirms the entire chain succeeded.
     """
     runner = CliRunner()
     result = runner.invoke(run, ["test-guardian"])
 
-    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert result.exit_code == 0
