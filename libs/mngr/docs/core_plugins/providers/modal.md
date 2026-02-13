@@ -59,7 +59,11 @@ mngr create my-agent --in modal -b offline
 
 ### Restricting Network Access
 
-The `--offline` and `--cidr-allowlist` build arguments restrict outbound network access from the sandbox. When using these options, the sandbox cannot install packages at runtime (e.g., via `apt-get`), so you must provide a pre-configured image that includes all required packages.
+The `--offline` and `--cidr-allowlist` build arguments restrict **outbound** network access from the sandbox. Inbound connections (including the SSH tunnel that mngr uses to communicate with the sandbox) are unaffected.
+
+Note: Modal's SDK also offers a `block_network` parameter that blocks all network access (both inbound and outbound), but it is incompatible with the SSH tunneling that mngr requires. If Modal adds support for combining `block_network` with port tunneling in the future, we can expose that as a stronger isolation option.
+
+When using `--offline` or `--cidr-allowlist`, the sandbox cannot install packages at runtime (e.g., via `apt-get`), so you must provide a pre-configured image that includes all required packages.
 
 At minimum, the image must include `openssh-server`, `tmux`, `curl`, `rsync`, `git`, and `jq`. For example:
 

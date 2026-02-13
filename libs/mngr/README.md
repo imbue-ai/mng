@@ -57,10 +57,10 @@ mngr create example-task --in modal
 # you (or your agent) can do whatever bad ideas you want in that container without fear
 mngr exec example-task "rm -rf /"
 
-# you can completely block internet access
+# you can block all outgoing internet access
 mngr create --in modal -b offline
 
-# or restrict it to certain IPs
+# or restrict outgoing traffic to certain IPs
 mngr create --in modal -b cidr-allowlist=203.0.113.0/24
 ```
 
