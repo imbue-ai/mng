@@ -28,7 +28,7 @@ from imbue.mngr.providers.docker.config import DockerProviderConfig
 
 # Cache for registered backends
 _backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
-# Cache for registered config classes (may include configs without backends, like docker)
+# Cache for registered config classes (may include configs for backends not currently loaded)
 _config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
 # Use a mutable container to track state without 'global' keyword
 _registry_state: dict[str, bool] = {"backends_loaded": False}
