@@ -18,8 +18,8 @@ from typing import Any
 from typing import Final
 from typing import Mapping
 from typing import Sequence
-from uuid import uuid4
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import docker
 import docker.errors
@@ -778,12 +778,12 @@ kill -TERM 1
                 build_log="",
             )
             raise MngrError(f"Failed to create Docker container: {e}") from e
-        except MngrError:
+        except MngrError as e:
             self._save_failed_host_record(
                 host_id=host_id,
                 host_name=name,
                 tags=tags,
-                failure_reason=str(MngrError),
+                failure_reason=str(e),
                 build_log="",
             )
             raise
@@ -950,9 +950,7 @@ kill -TERM 1
             )
 
         # Use most recent snapshot
-        sorted_snapshots = sorted(
-            host_record.certified_host_data.snapshots, key=lambda s: s.created_at, reverse=True
-        )
+        sorted_snapshots = sorted(host_record.certified_host_data.snapshots, key=lambda s: s.created_at, reverse=True)
         return self._start_from_snapshot(host_id, SnapshotId(sorted_snapshots[0].id), host_record)
 
     def _start_from_snapshot(
