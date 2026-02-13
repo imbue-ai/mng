@@ -83,7 +83,18 @@ def test_prevent_inline_imports() -> None:
 
     assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
         rule_name="inline imports",
-        rule_description="Imports should be at the top of the file, not inline within functions",
+        rule_description="Imports should be at the top of the file, not inline within functions. In particular, _never_ use inline imports to permit circular dependencies--instead, take this as an opportunity to rethink how the code is organized and separate concerns properly.",
+        chunks=chunks,
+    )
+
+
+def test_prevent_importlib_usage() -> None:
+    pattern = RegexPattern(r"\bimport\s+importlib\b|\bfrom\s+importlib\b")
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
+
+    assert len(chunks) <= snapshot(3), format_ratchet_failure_message(
+        rule_name="importlib usage",
+        rule_description="importlib should not be used. Prefer direct imports and explicit resource handling instead",
         chunks=chunks,
     )
 
@@ -504,7 +515,10 @@ def test_prevent_code_in_init_files() -> None:
 
         if init_file == root_init:
             # Root __init__.py is allowed to have pluggy hookimpl marker only
-            allowed_lines = {"import pluggy", 'hookimpl = pluggy.HookimplMarker("mngr")'}
+            allowed_lines = {
+                "import pluggy",
+                'hookimpl = pluggy.HookimplMarker("mngr")',
+            }
             actual_lines = {line.strip() for line in content.splitlines() if line.strip()}
             if actual_lines - allowed_lines:
                 disallowed = actual_lines - allowed_lines
