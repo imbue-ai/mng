@@ -358,14 +358,13 @@ class BaseAgent(AgentInterface):
         Implementations that override this should raise AgentStartError if the agent
         doesn't signal readiness within the timeout.
         """
+        start_action()
+
         if is_creating:
             # Wait for TUI to be ready if an indicator is configured
             tui_indicator = self.get_tui_ready_indicator()
             if tui_indicator is not None:
                 self._wait_for_tui_ready(self.session_name, tui_indicator)
-
-        # then actually start
-        start_action()
 
     def _send_message_simple(self, session_name: str, message: str) -> None:
         """Send a message without marker-based synchronization."""
