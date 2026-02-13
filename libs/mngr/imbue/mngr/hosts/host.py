@@ -1100,8 +1100,8 @@ class Host(BaseHost, OnlineHostInterface):
             else:
                 result = source_host.execute_command("git submodule status", cwd=source_path, timeout_seconds=10)
                 submodule_output = result.stdout.strip() if result.success else ""
-        except (ProcessError, Exception):
-            # If we can't check for submodules, just skip the warning
+        except ProcessError:
+            logger.trace("Failed to check for submodules, skipping warning")
             return
 
         if submodule_output:

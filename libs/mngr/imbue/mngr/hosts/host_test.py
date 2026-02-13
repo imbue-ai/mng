@@ -1,11 +1,14 @@
 """Unit tests for Host implementation."""
 
+import io
 import json
+import subprocess
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 
 import pytest
+from loguru import logger
 
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import AgentTypeConfig
@@ -23,6 +26,7 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.testing import get_short_random_string
+from imbue.mngr.utils.testing import init_git_repo
 
 
 class _TestableAgent(BaseAgent):
@@ -594,3 +598,80 @@ def test_parse_boot_time_output_empty() -> None:
 def test_parse_boot_time_output_non_numeric() -> None:
     """Test parsing non-numeric output returns None."""
     assert _parse_boot_time_output("not_a_number\n") is None
+
+
+# =========================================================================
+# Tests for _warn_if_submodules_detected
+# =========================================================================
+
+
+def test_warn_if_submodules_detected_no_submodules(
+    local_provider: LocalProviderInstance,
+    temp_git_repo: Path,
+) -> None:
+    """No warning is logged when the source repo has no submodules."""
+    host = local_provider.create_host(HostName("test"))
+    assert isinstance(host, Host)
+
+    log_output = io.StringIO()
+    handler_id = logger.add(log_output, level="WARNING")
+    try:
+        host._warn_if_submodules_detected(host, temp_git_repo)
+    finally:
+        logger.remove(handler_id)
+
+    assert "submodule" not in log_output.getvalue().lower()
+
+
+def test_warn_if_submodules_detected_with_submodule(
+    local_provider: LocalProviderInstance,
+    temp_git_repo: Path,
+    tmp_path: Path,
+    setup_git_config: None,
+) -> None:
+    """A warning is logged when the source repo contains submodules."""
+    host = local_provider.create_host(HostName("test"))
+    assert isinstance(host, Host)
+
+    # Create a separate repo to use as a submodule
+    sub_repo = tmp_path / "sub_repo"
+    sub_repo.mkdir()
+    init_git_repo(sub_repo)
+
+    # Add it as a submodule to the main repo
+    subprocess.run(
+        ["git", "-c", "protocol.file.allow=always", "submodule", "add", str(sub_repo), "my_submodule"],
+        cwd=temp_git_repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "Add submodule"],
+        cwd=temp_git_repo,
+        check=True,
+        capture_output=True,
+    )
+
+    log_output = io.StringIO()
+    handler_id = logger.add(log_output, level="WARNING")
+    try:
+        host._warn_if_submodules_detected(host, temp_git_repo)
+    finally:
+        logger.remove(handler_id)
+
+    assert "submodules are not supported" in log_output.getvalue().lower()
+
+
+def test_warn_if_submodules_detected_not_a_git_repo(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+) -> None:
+    """No error is raised when the source path is not a git repo."""
+    host = local_provider.create_host(HostName("test"))
+    assert isinstance(host, Host)
+
+    non_git_dir = tmp_path / "not_a_repo"
+    non_git_dir.mkdir()
+
+    # Should not raise - ProcessError is caught internally
+    host._warn_if_submodules_detected(host, non_git_dir)
