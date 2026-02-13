@@ -865,8 +865,9 @@ class ModalProviderInstance(BaseProviderInstance):
         # The stop_reason parameter indicates why the host stopped:
         # - PAUSED: Host became idle (called by activity_watcher.sh)
         # - STOPPED: User explicitly stopped the host
-        # FIXME: update this script so that it has set -euo pipefail (and will still work properly)
         script_content = f'''#!/bin/bash
+set -euo pipefail
+
 # Auto-generated shutdown script for mngr Modal host
 # This script snapshots and shuts down the host by calling the deployed Modal function
 # It also gathers agent data to persist to the volume so agents show up in mngr list
@@ -923,9 +924,13 @@ log "Agents: $AGENTS"
 # Send the shutdown request with agent data and stop reason
 # Use --max-time to prevent hanging if the endpoint is slow
 log "Sending shutdown request to $SNAPSHOT_URL"
-RESPONSE=$(curl -s --max-time 30 -w "\\n%{{http_code}}" -X POST "$SNAPSHOT_URL" \\
+if ! RESPONSE=$(curl -s --max-time 30 -w "\\n%{{http_code}}" -X POST "$SNAPSHOT_URL" \\
     -H "Content-Type: application/json" \\
-    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}')
+    -d '{{"sandbox_id": "'"$SANDBOX_ID"'", "host_id": "'"$HOST_ID"'", "stop_reason": "'"$STOP_REASON"'", "agents": '"$AGENTS"'}}'); then
+    log "curl request failed"
+    log "=== Shutdown script completed with error ==="
+    exit 1
+fi
 
 HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
 BODY=$(echo "$RESPONSE" | sed '$d')
