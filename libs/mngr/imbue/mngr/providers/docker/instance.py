@@ -986,8 +986,8 @@ kill -TERM 1
         if old_container is not None:
             try:
                 old_container.remove(force=True)
-            except docker.errors.DockerException:
-                pass
+            except docker.errors.DockerException as e:
+                logger.warning("Error removing old container before snapshot restore: {}", e)
 
         # Create new container from snapshot image
         image_id = snapshot_data.id
