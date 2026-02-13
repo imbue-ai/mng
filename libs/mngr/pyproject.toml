@@ -12,7 +12,7 @@ dependencies = [
     "coolname>=3.0.0",
     "cryptography>=42.0",
     "dockerfile-parse>=2.0.0",
-    "modal>=1.3.3",
+    "modal==1.3.1",
     "pydantic>=2.0",
     "psutil>=5.9",
     "python-dotenv>=1.0",
