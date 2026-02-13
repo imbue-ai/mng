@@ -1019,8 +1019,6 @@ class Host(BaseHost, OnlineHostInterface):
                 if not result.success:
                     raise MngrError(f"Failed to configure git repo on target: {result.stderr}")
 
-    # FIXME: we should probably warn if we detect any submodules (eg, .git folders inside of here)
-    #  Submodules are *not* supported right now, and we wouldn't want the user thinking they were
     def _git_push_to_target(
         self,
         source_host: OnlineHostInterface,
@@ -1028,6 +1026,7 @@ class Host(BaseHost, OnlineHostInterface):
         target_path: Path,
     ) -> None:
         """Push git repo from source to target using git push --mirror."""
+        self._warn_if_submodules_detected(source_host, source_path)
         target_ssh_info = self._get_ssh_connection_info()
 
         if target_ssh_info is None:
@@ -1083,6 +1082,33 @@ class Host(BaseHost, OnlineHostInterface):
                 result = source_host.execute_command(push_cmd, cwd=source_path)
                 if not result.success:
                     raise MngrError(f"Failed to push git repo from remote source: {result.stderr}")
+
+    def _warn_if_submodules_detected(
+        self,
+        source_host: OnlineHostInterface,
+        source_path: Path,
+    ) -> None:
+        """Warn the user if git submodules are detected in the source repo."""
+        try:
+            if source_host.is_local:
+                result_obj = self.mngr_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "submodule", "status"],
+                    cwd=source_path,
+                    timeout=10,
+                )
+                submodule_output = result_obj.stdout.strip()
+            else:
+                result = source_host.execute_command("git submodule status", cwd=source_path, timeout_seconds=10)
+                submodule_output = result.stdout.strip() if result.success else ""
+        except (ProcessError, Exception):
+            # If we can't check for submodules, just skip the warning
+            return
+
+        if submodule_output:
+            logger.warning(
+                "Detected git submodules in source repository. "
+                "Submodules are not supported and will not be transferred correctly."
+            )
 
     def _transfer_extra_files(
         self,
