@@ -9,13 +9,15 @@ from imbue.imbue_common.ratchet_testing.core import _get_chunk_commit_date
 from imbue.imbue_common.ratchet_testing.core import _get_non_ignored_files_with_extension
 from imbue.imbue_common.ratchet_testing.core import _parse_file_ast
 
+TEST_FILE_PATTERNS: tuple[str, ...] = ("*_test.py", "test_*.py")
+
 
 def find_if_elif_without_else(
     source_dir: Path,
-    excluded_file: Path | None = None,
+    excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[RatchetMatchChunk, ...]:
     """Find all if/elif chains without else clauses using AST analysis."""
-    file_paths = _get_non_ignored_files_with_extension(source_dir, FileExtension(".py"), excluded_file)
+    file_paths = _get_non_ignored_files_with_extension(source_dir, FileExtension(".py"), excluded_path_patterns)
     chunks: list[RatchetMatchChunk] = []
 
     for file_path in file_paths:
@@ -137,20 +139,19 @@ def _is_exception_or_error_class(
 
 def find_init_methods_in_non_exception_classes(
     source_dir: Path,
-    excluded_file: Path | None = None,
+    excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[RatchetMatchChunk, ...]:
-    """Find __init__ method definitions in non-Exception/Error classes.
+    """Find __init__ method definitions in non-Exception/Error classes, excluding test files.
 
     Most classes should use Pydantic models which don't need __init__ methods.
     Only Exception/Error classes should define __init__ since they can't use Pydantic.
     """
-    file_paths = _get_non_ignored_files_with_extension(source_dir, FileExtension(".py"), excluded_file)
+    file_paths = _get_non_ignored_files_with_extension(
+        source_dir, FileExtension(".py"), TEST_FILE_PATTERNS + excluded_path_patterns
+    )
     chunks: list[RatchetMatchChunk] = []
 
     for file_path in file_paths:
-        if _is_test_file(file_path):
-            continue
-
         tree = _parse_file_ast(file_path)
         if tree is None:
             continue
@@ -221,20 +222,19 @@ def _has_functools_wraps_decorator(func_node: ast.FunctionDef) -> bool:
 
 def find_inline_functions(
     source_dir: Path,
-    excluded_file: Path | None = None,
+    excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[RatchetMatchChunk, ...]:
     """Find functions defined inside other functions using AST analysis, excluding test files.
 
     Excludes decorator wrapper functions that use @functools.wraps, as these are
     a standard pattern for implementing decorators.
     """
-    file_paths = _get_non_ignored_files_with_extension(source_dir, FileExtension(".py"), excluded_file)
+    file_paths = _get_non_ignored_files_with_extension(
+        source_dir, FileExtension(".py"), TEST_FILE_PATTERNS + excluded_path_patterns
+    )
     chunks: list[RatchetMatchChunk] = []
 
     for file_path in file_paths:
-        if _is_test_file(file_path):
-            continue
-
         tree = _parse_file_ast(file_path)
         if tree is None:
             continue
@@ -267,16 +267,15 @@ def find_inline_functions(
 
 def find_underscore_imports(
     source_dir: Path,
-    excluded_file: Path | None = None,
+    excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[RatchetMatchChunk, ...]:
     """Find imports of underscore-prefixed names using AST analysis, excluding test files."""
-    file_paths = _get_non_ignored_files_with_extension(source_dir, FileExtension(".py"), excluded_file)
+    file_paths = _get_non_ignored_files_with_extension(
+        source_dir, FileExtension(".py"), TEST_FILE_PATTERNS + excluded_path_patterns
+    )
     chunks: list[RatchetMatchChunk] = []
 
     for file_path in file_paths:
-        if _is_test_file(file_path):
-            continue
-
         tree = _parse_file_ast(file_path)
         if tree is None:
             continue
@@ -317,7 +316,7 @@ def find_underscore_imports(
 
 def find_cast_usages(
     source_dir: Path,
-    excluded_file: Path | None = None,
+    excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[RatchetMatchChunk, ...]:
     """Find usages of cast() from typing in non-test files using AST analysis.
 
@@ -325,13 +324,12 @@ def find_cast_usages(
     cast() usage should be avoided in favor of type: ignore comments when there's
     no other way to satisfy the type checker.
     """
-    file_paths = _get_non_ignored_files_with_extension(source_dir, FileExtension(".py"), excluded_file)
+    file_paths = _get_non_ignored_files_with_extension(
+        source_dir, FileExtension(".py"), TEST_FILE_PATTERNS + excluded_path_patterns
+    )
     chunks: list[RatchetMatchChunk] = []
 
     for file_path in file_paths:
-        if _is_test_file(file_path):
-            continue
-
         tree = _parse_file_ast(file_path)
         if tree is None:
             continue
@@ -375,7 +373,7 @@ def find_cast_usages(
 
 def find_assert_isinstance_usages(
     source_dir: Path,
-    excluded_file: Path | None = None,
+    excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[RatchetMatchChunk, ...]:
     """Find usages of 'assert isinstance(...)' in non-test files using AST analysis.
 
@@ -384,13 +382,12 @@ def find_assert_isinstance_usages(
     match constructs that exhaustively handle all cases using
     'case _ as unreachable: assert_never(unreachable)'.
     """
-    file_paths = _get_non_ignored_files_with_extension(source_dir, FileExtension(".py"), excluded_file)
+    file_paths = _get_non_ignored_files_with_extension(
+        source_dir, FileExtension(".py"), TEST_FILE_PATTERNS + excluded_path_patterns
+    )
     chunks: list[RatchetMatchChunk] = []
 
     for file_path in file_paths:
-        if _is_test_file(file_path):
-            continue
-
         tree = _parse_file_ast(file_path)
         if tree is None:
             continue
