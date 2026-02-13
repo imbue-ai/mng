@@ -198,7 +198,9 @@ class ClaudeAgent(BaseAgent):
         """
         return "Claude Code"
 
-    def wait_for_ready_signal(self, start_action: Callable[[], None], timeout: float | None = None) -> None:
+    def wait_for_ready_signal(
+        self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
+    ) -> None:
         """Wait for the agent to become ready, executing start_action then polling.
 
         Polls for the 'session_started' file that the SessionStart hook creates.
@@ -209,16 +211,13 @@ class ClaudeAgent(BaseAgent):
         if timeout is None:
             timeout = _READY_SIGNAL_TIMEOUT_SECONDS
 
+        # this file is removed when we start the agent, see assemble_command, and created by the SessionStart hook when the session is ready
         session_started_path = self._get_agent_dir() / "session_started"
 
         with log_span("Waiting for session_started file (timeout={}s)", timeout):
-            # Remove any stale marker file
-            rm_cmd = f"rm -f {shlex.quote(str(session_started_path))}"
-            self.host.execute_command(rm_cmd, timeout_seconds=1.0)
-
             # Run the start action (e.g., start the agent)
             with log_span("Calling start_action..."):
-                start_action()
+                super().wait_for_ready_signal(is_creating, start_action, timeout)
 
             # Poll for the session_started file (created by SessionStart hook)
             success, poll_count, poll_elapsed = poll_until_counted(
