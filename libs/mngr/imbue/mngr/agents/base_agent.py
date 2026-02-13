@@ -154,12 +154,12 @@ class BaseAgent(AgentInterface):
         try:
             session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
 
-            # Get pane state and pid in one command using tmux format variables
+            # Get pane state and pid in one command using tmux format variables (for the main window, :0, where the agent is assumed to be running)
             # pane_dead: 0 if alive, 1 if dead
             # pane_current_command: basename of the foreground process
             # pane_pid: PID of the pane's shell process
             result = self.host.execute_command(
-                f"tmux list-panes -t '{session_name}' "
+                f"tmux list-panes -t '{session_name}:0' "
                 f"-F '#{{pane_dead}}|#{{pane_current_command}}|#{{pane_pid}}' 2>/dev/null | head -n 1",
                 timeout_seconds=5.0,
             )
