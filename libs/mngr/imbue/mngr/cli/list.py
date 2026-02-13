@@ -944,38 +944,29 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
         return ""
 
 
-_TEMPLATE_ESCAPE_MAP: Final[dict[str, str]] = {
-    "t": "\t",
-    "n": "\n",
-    "r": "\r",
-    "\\": "\\",
-}
-
-
 @pure
 def _process_template_escapes(template: str) -> str:
     """Interpret common backslash escape sequences in a template string.
 
     The shell passes \\t, \\n, etc. as literal characters. This function converts
     them to actual tab, newline, etc. -- matching the behavior of tools like awk
-    and printf. Uses a single-pass scanner so that \\\\ followed by t produces a
-    literal backslash + t, not a tab.
+    and printf. Uses a single-pass scanner to correctly handle sequences like
+    \\\\t (literal backslash + t) without re-processing.
     """
-    parts: list[str] = []
+    escape_map = {"t": "\t", "n": "\n", "r": "\r", "\\": "\\"}
+    result: list[str] = []
     idx = 0
-    length = len(template)
-    while idx < length:
+    while idx < len(template):
         char = template[idx]
-        if char == "\\" and idx + 1 < length:
+        if char == "\\" and idx + 1 < len(template):
             next_char = template[idx + 1]
-            replacement = _TEMPLATE_ESCAPE_MAP.get(next_char)
-            if replacement is not None:
-                parts.append(replacement)
+            if next_char in escape_map:
+                result.append(escape_map[next_char])
                 idx += 2
                 continue
-        parts.append(char)
+        result.append(char)
         idx += 1
-    return "".join(parts)
+    return "".join(result)
 
 
 @pure

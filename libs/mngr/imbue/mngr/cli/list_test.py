@@ -731,31 +731,6 @@ def test_streaming_renderer_tty_erases_status_on_finish(monkeypatch) -> None:
 
 
 # =============================================================================
-# Tests for _is_streaming_eligible
-# =============================================================================
-
-
-def test_is_streaming_eligible_all_conditions_met() -> None:
-    """_is_streaming_eligible should return True when no watch, no sort, no limit."""
-    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=False, limit=None) is True
-
-
-def test_is_streaming_eligible_watch_disables() -> None:
-    """_is_streaming_eligible should return False when watch is active."""
-    assert _is_streaming_eligible(is_watch=True, is_sort_explicit=False, limit=None) is False
-
-
-def test_is_streaming_eligible_explicit_sort_disables() -> None:
-    """_is_streaming_eligible should return False when sort is explicit."""
-    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=True, limit=None) is False
-
-
-def test_is_streaming_eligible_limit_disables() -> None:
-    """_is_streaming_eligible should return False when limit is set."""
-    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=False, limit=5) is False
-
-
-# =============================================================================
 # Tests for _should_use_streaming_mode
 # =============================================================================
 
@@ -826,6 +801,31 @@ def test_should_use_streaming_mode_json_format_uses_batch() -> None:
 
 
 # =============================================================================
+# Tests for _is_streaming_eligible
+# =============================================================================
+
+
+def test_is_streaming_eligible_all_conditions_met() -> None:
+    """_is_streaming_eligible should return True when no watch, no sort, no limit."""
+    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=False, limit=None) is True
+
+
+def test_is_streaming_eligible_watch_disables() -> None:
+    """_is_streaming_eligible should return False when watch is active."""
+    assert _is_streaming_eligible(is_watch=True, is_sort_explicit=False, limit=None) is False
+
+
+def test_is_streaming_eligible_explicit_sort_disables() -> None:
+    """_is_streaming_eligible should return False when sort is explicit."""
+    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=True, limit=None) is False
+
+
+def test_is_streaming_eligible_limit_disables() -> None:
+    """_is_streaming_eligible should return False when limit is set."""
+    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=False, limit=5) is False
+
+
+# =============================================================================
 # Tests for _process_template_escapes
 # =============================================================================
 
@@ -857,8 +857,6 @@ def test_process_template_escapes_no_escapes() -> None:
 
 def test_process_template_escapes_literal_backslash_before_t() -> None:
     """_process_template_escapes should treat \\\\t as literal backslash + t, not as tab."""
-    # Input "\\\\t" is Python string \\t (backslash-backslash-t).
-    # The user intended a literal backslash followed by 't', not a tab.
     assert _process_template_escapes("\\\\t") == "\\t"
 
 
