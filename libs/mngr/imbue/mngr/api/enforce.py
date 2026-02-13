@@ -4,6 +4,7 @@ from typing import assert_never
 from loguru import logger
 from pydantic import Field
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
@@ -53,6 +54,7 @@ def enforce(
     stopping_timeout_seconds: int,
     is_dry_run: bool,
     error_behavior: ErrorBehavior,
+    cg: ConcurrencyGroup | None = None,
 ) -> EnforceResult:
     """Enforce host idle timeouts and detect stuck state transitions.
 
@@ -68,9 +70,11 @@ def enforce(
         is_dry_run,
     )
 
+    effective_cg = cg if cg is not None else ConcurrencyGroup(name="enforce")
+
     for provider in providers:
         try:
-            hosts = provider.list_hosts(include_destroyed=False)
+            hosts = provider.list_hosts(include_destroyed=False, cg=effective_cg)
         except MngrError as e:
             error_msg = f"Failed to list hosts for provider {provider.name}: {e}"
             result.errors.append(error_msg)

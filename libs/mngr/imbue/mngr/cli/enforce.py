@@ -205,6 +205,7 @@ def _run_enforce_iteration(mngr_ctx: MngrContext, opts: EnforceCliOptions, outpu
         stopping_timeout_seconds=opts.stopping_timeout,
         is_dry_run=opts.dry_run,
         error_behavior=error_behavior,
+        cg=mngr_ctx.concurrency_group,
     )
 
     # Emit events for each action
