@@ -414,10 +414,11 @@ class MngrConfig(FrozenModel):
         default_factory=LoggingConfig,
         description="Logging configuration",
     )
-    is_remote_agent_installation_allowed: bool = Field(
-        default=True,
+    is_remote_agent_installation_allowed: bool | None = Field(
+        default=None,
         description="Whether to allow automatic installation of agents (e.g. Claude) on remote hosts. "
-        "When False, raises an error if the agent is not already installed on the remote host.",
+        "When False, raises an error if the agent is not already installed on the remote host. "
+        "Defaults to True (allowed) when not explicitly set.",
     )
     is_allowed_in_pytest: bool = Field(
         default=True,
