@@ -515,10 +515,7 @@ def test_prevent_code_in_init_files() -> None:
 
         if init_file == root_init:
             # Root __init__.py is allowed to have pluggy hookimpl marker only
-            allowed_lines = {
-                "import pluggy",
-                'hookimpl = pluggy.HookimplMarker("mngr")',
-            }
+            allowed_lines = {"import pluggy", 'hookimpl = pluggy.HookimplMarker("mngr")'}
             actual_lines = {line.strip() for line in content.splitlines() if line.strip()}
             if actual_lines - allowed_lines:
                 disallowed = actual_lines - allowed_lines
