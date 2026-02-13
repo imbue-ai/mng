@@ -10,7 +10,6 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.docker.config import DockerProviderConfig
-from imbue.mngr.providers.docker.conftest import make_docker_provider
 from imbue.mngr.providers.docker.host_store import ContainerConfig
 from imbue.mngr.providers.docker.instance import DockerProviderInstance
 from imbue.mngr.providers.docker.instance import LABEL_HOST_ID
@@ -20,6 +19,7 @@ from imbue.mngr.providers.docker.instance import LABEL_TAGS
 from imbue.mngr.providers.docker.instance import _get_ssh_host_from_docker_config
 from imbue.mngr.providers.docker.instance import build_container_labels
 from imbue.mngr.providers.docker.instance import parse_container_labels
+from imbue.mngr.providers.docker.testing import make_docker_provider
 
 HOST_ID_A = "host-00000000000000000000000000000001"
 HOST_ID_B = "host-00000000000000000000000000000002"

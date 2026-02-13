@@ -13,8 +13,8 @@ from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
-from imbue.mngr.providers.docker.conftest import make_docker_provider
 from imbue.mngr.providers.docker.instance import DockerProviderInstance
+from imbue.mngr.providers.docker.testing import make_docker_provider
 
 
 @pytest.fixture

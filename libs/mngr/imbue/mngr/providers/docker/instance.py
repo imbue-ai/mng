@@ -1446,4 +1446,4 @@ kill -TERM 1
             try:
                 self._docker_client.close()
             except (OSError, docker.errors.DockerException) as e:
-                logger.trace("Ignored error closing Docker client: {}", e)
+                logger.warning("Ignored error closing Docker client: {}", e)
