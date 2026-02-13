@@ -339,8 +339,8 @@ class ClaudeAgent(BaseAgent):
 
         For worktree mode on non-interactive runs: validates that the
         source directory is trusted in Claude's config (~/.claude.json)
-        so we fail early with a clear message. Interactive runs skip
-        this check because provision() will prompt the user if needed.
+        so we fail early with a clear message. Interactive and auto-approve
+        runs skip this check because provision() will handle trust.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             if not host.is_local:
@@ -349,7 +349,7 @@ class ClaudeAgent(BaseAgent):
                     "Claude trust extension requires local filesystem access. "
                     "Use --copy or --clone instead."
                 )
-            if not mngr_ctx.is_interactive:
+            if not mngr_ctx.is_interactive and not mngr_ctx.is_auto_approve:
                 git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.concurrency_group)
                 if git_common_dir is not None:
                     source_path = git_common_dir.parent
