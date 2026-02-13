@@ -1,3 +1,5 @@
+import sys
+
 import click
 from loguru import logger
 
@@ -75,15 +77,27 @@ def run(
         _run_changeling_on_modal(changeling)
 
 
+def _forward_output(line: str, is_stderr: bool) -> None:
+    """Forward subprocess output to the parent's stdout/stderr in real time."""
+    stream = sys.stderr if is_stderr else sys.stdout
+    stream.write(line)
+    stream.flush()
+
+
 def _execute_mngr_command(changeling: ChangelingDefinition, cmd: list[str]) -> None:
-    """Execute an mngr create command via ConcurrencyGroup and handle the result."""
+    """Execute an mngr create command and handle the result."""
     logger.debug("Command: {}", " ".join(cmd))
 
     with ConcurrencyGroup(name=f"changeling-{changeling.name}") as cg:
-        result = cg.run_process_to_completion(cmd, is_checked_after=False)
+        result = cg.run_process_to_completion(
+            cmd,
+            is_checked_after=False,
+            on_output=_forward_output,
+        )
 
     if result.returncode != 0:
-        raise ChangelingRunError(f"Changeling '{changeling.name}' exited with code {result.returncode}")
+        output = (result.stdout + "\n" + result.stderr).strip()
+        raise ChangelingRunError(f"Changeling '{changeling.name}' exited with code {result.returncode}:\n{output}")
 
     logger.info("Changeling '{}' completed successfully", changeling.name)
 

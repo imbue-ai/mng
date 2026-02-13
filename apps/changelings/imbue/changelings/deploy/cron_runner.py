@@ -126,13 +126,29 @@ def run_changeling() -> None:
     if not changeling.is_enabled:
         return
 
+    def _log_output(line: str, is_stderr: bool) -> None:
+        """Forward subprocess output to Modal logs via print."""
+        import sys
+
+        stream = sys.stderr if is_stderr else sys.stdout
+        stream.write(line)
+        stream.flush()
+
     env_file_path = write_secrets_env_file(changeling)
     try:
         cmd = build_cron_mngr_command(changeling, env_file_path)
         with ConcurrencyGroup(name=f"cron-{changeling.name}") as cg:
-            result = cg.run_process_to_completion(cmd, is_checked_after=False, cwd=Path("/repo"))
+            result = cg.run_process_to_completion(
+                cmd,
+                is_checked_after=False,
+                cwd=Path("/repo"),
+                on_output=_log_output,
+            )
 
         if result.returncode != 0:
-            raise ChangelingRunError(f"Changeling '{changeling.name}' failed with exit code {result.returncode}")
+            output = (result.stdout + "\n" + result.stderr).strip()
+            raise ChangelingRunError(
+                f"Changeling '{changeling.name}' failed with exit code {result.returncode}:\n{output}"
+            )
     finally:
         env_file_path.unlink(missing_ok=True)

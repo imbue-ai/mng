@@ -353,12 +353,20 @@ def test_execute_mngr_command_succeeds_on_zero_exit() -> None:
 
 
 def test_execute_mngr_command_raises_on_nonzero() -> None:
-    """A failing command should raise ChangelingRunError."""
+    """A failing command should raise ChangelingRunError with output."""
     changeling = make_test_changeling()
 
     # "false" is a real Unix command that always exits with 1
     with pytest.raises(ChangelingRunError, match="exited with code"):
         _execute_mngr_command(changeling, ["false"])
+
+
+def test_execute_mngr_command_includes_output_in_error() -> None:
+    """A failing command's error should include stdout/stderr."""
+    changeling = make_test_changeling()
+
+    with pytest.raises(ChangelingRunError, match="something went wrong"):
+        _execute_mngr_command(changeling, ["sh", "-c", "echo 'something went wrong' >&2; exit 1"])
 
 
 # -- run CLI command tests (loading from config) --
