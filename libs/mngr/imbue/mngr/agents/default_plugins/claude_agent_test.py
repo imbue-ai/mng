@@ -8,8 +8,10 @@ from typing import cast
 from unittest.mock import patch
 from uuid import UUID
 
+import pluggy
 import pytest
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mngr.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
@@ -18,7 +20,9 @@ from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTr
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import EnvVar
+from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.conftest import make_mngr_ctx
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import PluginMngrError
 from imbue.mngr.hosts.host import Host
@@ -745,6 +749,42 @@ def test_provision_configures_readiness_hooks(
     settings = json.loads(settings_path.read_text())
     assert "hooks" in settings
     assert "SessionStart" in settings["hooks"]
+
+
+def test_provision_raises_when_remote_installation_disabled(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_host_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: "pluggy.PluginManager",
+    mngr_test_prefix: str,
+) -> None:
+    """provision should raise when claude is not installed on remote host and allow_remote_agent_installation is False."""
+    config = MngrConfig(
+        prefix=mngr_test_prefix,
+        default_host_dir=temp_host_dir,
+        allow_remote_agent_installation=False,
+    )
+    with ConcurrencyGroup(name="test-remote-install") as cg:
+        ctx = make_mngr_ctx(config, plugin_manager, temp_profile_dir, concurrency_group=cg)
+        agent, _ = make_claude_agent(
+            local_provider,
+            tmp_path,
+            ctx,
+            agent_config=ClaudeAgentConfig(check_installation=True),
+        )
+
+        # Simulate a non-local host where claude is not installed
+        non_local_host = cast(OnlineHostInterface, SimpleNamespace(is_local=False))
+
+        options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+
+        with patch(
+            "imbue.mngr.agents.default_plugins.claude_agent._check_claude_installed",
+            return_value=False,
+        ):
+            with pytest.raises(PluginMngrError, match="automatic remote installation is disabled"):
+                agent.provision(host=non_local_host, options=options, mngr_ctx=ctx)
 
 
 # =============================================================================

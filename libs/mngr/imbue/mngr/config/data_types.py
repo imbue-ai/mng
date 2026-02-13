@@ -414,6 +414,11 @@ class MngrConfig(FrozenModel):
         default_factory=LoggingConfig,
         description="Logging configuration",
     )
+    allow_remote_agent_installation: bool = Field(
+        default=True,
+        description="Whether to allow automatic installation of agents (e.g. Claude) on remote hosts. "
+        "When False, raises an error if the agent is not already installed on the remote host.",
+    )
     is_allowed_in_pytest: bool = Field(
         default=True,
         description="Set this to False to prevent loading this config in pytest runs",
@@ -521,6 +526,13 @@ class MngrConfig(FrozenModel):
         # Merge pre_command_scripts (dict - override keys take precedence)
         merged_pre_command_scripts = merge_dict_fields(self.pre_command_scripts, override.pre_command_scripts)
 
+        # Merge allow_remote_agent_installation (scalar - override wins if not None)
+        merged_allow_remote_agent_installation = (
+            override.allow_remote_agent_installation
+            if override.allow_remote_agent_installation is not None
+            else self.allow_remote_agent_installation
+        )
+
         is_allowed_in_pytest = self.is_allowed_in_pytest
         if override.is_allowed_in_pytest is not None:
             is_allowed_in_pytest = override.is_allowed_in_pytest
@@ -543,6 +555,7 @@ class MngrConfig(FrozenModel):
             commands=merged_commands,
             create_templates=merged_create_templates,
             pre_command_scripts=merged_pre_command_scripts,
+            allow_remote_agent_installation=merged_allow_remote_agent_installation,
             logging=merged_logging,
             is_allowed_in_pytest=is_allowed_in_pytest,
         )

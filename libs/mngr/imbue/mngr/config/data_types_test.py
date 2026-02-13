@@ -701,3 +701,22 @@ def test_mngr_config_merge_enabled_backends_keeps_base_when_override_empty(mngr_
     )
     merged = base.merge_with(override)
     assert merged.enabled_backends == [ProviderBackendName("local")]
+
+
+# =============================================================================
+# Tests for MngrConfig.allow_remote_agent_installation
+# =============================================================================
+
+
+def test_mngr_config_allow_remote_agent_installation_defaults_true(mngr_test_prefix: str) -> None:
+    """MngrConfig.allow_remote_agent_installation should default to True."""
+    config = MngrConfig(prefix=mngr_test_prefix)
+    assert config.allow_remote_agent_installation is True
+
+
+def test_mngr_config_merge_allow_remote_agent_installation_override_wins(mngr_test_prefix: str) -> None:
+    """MngrConfig merge should use override's allow_remote_agent_installation."""
+    base = MngrConfig(prefix=mngr_test_prefix, allow_remote_agent_installation=True)
+    override = MngrConfig(prefix=mngr_test_prefix, allow_remote_agent_installation=False)
+    merged = base.merge_with(override)
+    assert merged.allow_remote_agent_installation is False
