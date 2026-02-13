@@ -40,11 +40,11 @@ def test_run_code_guardian_changeling_on_modal(
 
     # Write secrets to a temp env file (same flow as _run_changeling_on_modal)
     env_file_path = write_secrets_env_file(changeling)
-    try:
-        # Build the command (already starts with "uv run mngr create ...")
-        cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
-        agent_name = get_agent_name_from_command(cmd)
+    # Build the command and extract agent name before try/finally so cleanup always has the name
+    cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
+    agent_name = get_agent_name_from_command(cmd)
 
+    try:
         with ConcurrencyGroup(name="test-modal-run") as cg:
             result = cg.run_process_to_completion(
                 cmd,

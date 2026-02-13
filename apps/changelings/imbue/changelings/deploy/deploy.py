@@ -111,15 +111,9 @@ def build_cron_mngr_command(
 ) -> list[str]:
     """Build the mngr create command for use inside the cron runner.
 
-    Uses build_mngr_create_command to construct the base command, then replaces
-    everything before 'create' with `uv run mngr` for running in the deployed
-    Modal image where mngr is installed as a CLI tool.
-
     Not pure: delegates to build_mngr_create_command which reads datetime.now().
     """
-    base_cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
-    # The command already starts with `uv run mngr create ...`, so just return it
-    return base_cmd
+    return build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
 
 
 def find_repo_root() -> Path:
