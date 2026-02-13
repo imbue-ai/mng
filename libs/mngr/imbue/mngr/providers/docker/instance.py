@@ -1453,5 +1453,5 @@ kill -TERM 1
         if "_docker_client" in self.__dict__:
             try:
                 self._docker_client.close()
-            except (OSError, docker.errors.DockerException):
-                pass
+            except (OSError, docker.errors.DockerException) as e:
+                logger.trace("Ignored error closing Docker client: {}", e)
