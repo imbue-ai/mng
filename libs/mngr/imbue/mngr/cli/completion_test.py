@@ -1,4 +1,5 @@
 import json
+from collections.abc import Generator
 from pathlib import Path
 
 import click
@@ -7,6 +8,18 @@ from click.shell_completion import CompletionItem
 
 from imbue.mngr.cli.completion import _read_agent_names_from_disk
 from imbue.mngr.cli.completion import complete_agent_name
+
+
+@pytest.fixture()
+def completion_agents_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[Path, None, None]:
+    """Set up a temporary MNGR_HOST_DIR and return the agents directory path."""
+    host_dir = tmp_path / ".mngr"
+    agents_dir = host_dir / "agents"
+    monkeypatch.setenv("MNGR_HOST_DIR", str(host_dir))
+    yield agents_dir
 
 
 def _create_agent_data_file(agents_dir: Path, agent_id: str, name: str) -> None:
@@ -18,15 +31,10 @@ def _create_agent_data_file(agents_dir: Path, agent_id: str, name: str) -> None:
 
 
 def test_read_agent_names_from_disk_returns_names(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    completion_agents_dir: Path,
 ) -> None:
-    host_dir = tmp_path / ".mngr"
-    agents_dir = host_dir / "agents"
-    monkeypatch.setenv("MNGR_HOST_DIR", str(host_dir))
-
-    _create_agent_data_file(agents_dir, "agent-aaa", "alpha-agent")
-    _create_agent_data_file(agents_dir, "agent-bbb", "beta-agent")
+    _create_agent_data_file(completion_agents_dir, "agent-aaa", "alpha-agent")
+    _create_agent_data_file(completion_agents_dir, "agent-bbb", "beta-agent")
 
     result = _read_agent_names_from_disk()
 
@@ -34,16 +42,11 @@ def test_read_agent_names_from_disk_returns_names(
 
 
 def test_read_agent_names_from_disk_returns_sorted(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    completion_agents_dir: Path,
 ) -> None:
-    host_dir = tmp_path / ".mngr"
-    agents_dir = host_dir / "agents"
-    monkeypatch.setenv("MNGR_HOST_DIR", str(host_dir))
-
-    _create_agent_data_file(agents_dir, "agent-ccc", "zebra")
-    _create_agent_data_file(agents_dir, "agent-aaa", "alpha")
-    _create_agent_data_file(agents_dir, "agent-bbb", "middle")
+    _create_agent_data_file(completion_agents_dir, "agent-ccc", "zebra")
+    _create_agent_data_file(completion_agents_dir, "agent-aaa", "alpha")
+    _create_agent_data_file(completion_agents_dir, "agent-bbb", "middle")
 
     result = _read_agent_names_from_disk()
 
@@ -62,17 +65,12 @@ def test_read_agent_names_from_disk_returns_empty_when_dir_missing(
 
 
 def test_read_agent_names_from_disk_skips_malformed_json(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    completion_agents_dir: Path,
 ) -> None:
-    host_dir = tmp_path / ".mngr"
-    agents_dir = host_dir / "agents"
-    monkeypatch.setenv("MNGR_HOST_DIR", str(host_dir))
-
-    _create_agent_data_file(agents_dir, "agent-aaa", "good-agent")
+    _create_agent_data_file(completion_agents_dir, "agent-aaa", "good-agent")
 
     # Create malformed data.json
-    bad_dir = agents_dir / "agent-bad"
+    bad_dir = completion_agents_dir / "agent-bad"
     bad_dir.mkdir(parents=True, exist_ok=True)
     (bad_dir / "data.json").write_text("not valid json {{{")
 
@@ -82,17 +80,12 @@ def test_read_agent_names_from_disk_skips_malformed_json(
 
 
 def test_read_agent_names_from_disk_skips_missing_name_field(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    completion_agents_dir: Path,
 ) -> None:
-    host_dir = tmp_path / ".mngr"
-    agents_dir = host_dir / "agents"
-    monkeypatch.setenv("MNGR_HOST_DIR", str(host_dir))
-
-    _create_agent_data_file(agents_dir, "agent-aaa", "good-agent")
+    _create_agent_data_file(completion_agents_dir, "agent-aaa", "good-agent")
 
     # Create data.json without "name" field
-    no_name_dir = agents_dir / "agent-noname"
+    no_name_dir = completion_agents_dir / "agent-noname"
     no_name_dir.mkdir(parents=True, exist_ok=True)
     (no_name_dir / "data.json").write_text(json.dumps({"id": "agent-noname", "type": "generic"}))
 
@@ -102,17 +95,12 @@ def test_read_agent_names_from_disk_skips_missing_name_field(
 
 
 def test_read_agent_names_from_disk_skips_empty_name(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    completion_agents_dir: Path,
 ) -> None:
-    host_dir = tmp_path / ".mngr"
-    agents_dir = host_dir / "agents"
-    monkeypatch.setenv("MNGR_HOST_DIR", str(host_dir))
-
-    _create_agent_data_file(agents_dir, "agent-aaa", "good-agent")
+    _create_agent_data_file(completion_agents_dir, "agent-aaa", "good-agent")
 
     # Create data.json with empty name
-    empty_dir = agents_dir / "agent-empty"
+    empty_dir = completion_agents_dir / "agent-empty"
     empty_dir.mkdir(parents=True, exist_ok=True)
     (empty_dir / "data.json").write_text(json.dumps({"id": "agent-empty", "name": "", "type": "generic"}))
 
@@ -122,18 +110,14 @@ def test_read_agent_names_from_disk_skips_empty_name(
 
 
 def test_read_agent_names_from_disk_skips_non_dir_entries(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    completion_agents_dir: Path,
 ) -> None:
-    host_dir = tmp_path / ".mngr"
-    agents_dir = host_dir / "agents"
-    agents_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("MNGR_HOST_DIR", str(host_dir))
+    completion_agents_dir.mkdir(parents=True, exist_ok=True)
 
-    _create_agent_data_file(agents_dir, "agent-aaa", "good-agent")
+    _create_agent_data_file(completion_agents_dir, "agent-aaa", "good-agent")
 
     # Create a non-directory file in the agents directory
-    (agents_dir / "some-file.txt").write_text("not a directory")
+    (completion_agents_dir / "some-file.txt").write_text("not a directory")
 
     result = _read_agent_names_from_disk()
 
@@ -158,16 +142,11 @@ def test_read_agent_names_from_disk_uses_default_host_dir(
 
 
 def test_complete_agent_name_filters_by_prefix(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    completion_agents_dir: Path,
 ) -> None:
-    host_dir = tmp_path / ".mngr"
-    agents_dir = host_dir / "agents"
-    monkeypatch.setenv("MNGR_HOST_DIR", str(host_dir))
-
-    _create_agent_data_file(agents_dir, "agent-aaa", "alpha-agent")
-    _create_agent_data_file(agents_dir, "agent-bbb", "beta-agent")
-    _create_agent_data_file(agents_dir, "agent-ccc", "alpha-other")
+    _create_agent_data_file(completion_agents_dir, "agent-aaa", "alpha-agent")
+    _create_agent_data_file(completion_agents_dir, "agent-bbb", "beta-agent")
+    _create_agent_data_file(completion_agents_dir, "agent-ccc", "alpha-other")
 
     ctx = click.Context(click.Command("test"))
     param = click.Argument(["agent"])
@@ -181,15 +160,10 @@ def test_complete_agent_name_filters_by_prefix(
 
 
 def test_complete_agent_name_returns_all_when_incomplete_is_empty(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    completion_agents_dir: Path,
 ) -> None:
-    host_dir = tmp_path / ".mngr"
-    agents_dir = host_dir / "agents"
-    monkeypatch.setenv("MNGR_HOST_DIR", str(host_dir))
-
-    _create_agent_data_file(agents_dir, "agent-aaa", "alpha")
-    _create_agent_data_file(agents_dir, "agent-bbb", "beta")
+    _create_agent_data_file(completion_agents_dir, "agent-aaa", "alpha")
+    _create_agent_data_file(completion_agents_dir, "agent-bbb", "beta")
 
     ctx = click.Context(click.Command("test"))
     param = click.Argument(["agent"])
@@ -202,14 +176,9 @@ def test_complete_agent_name_returns_all_when_incomplete_is_empty(
 
 
 def test_complete_agent_name_returns_empty_when_no_match(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    completion_agents_dir: Path,
 ) -> None:
-    host_dir = tmp_path / ".mngr"
-    agents_dir = host_dir / "agents"
-    monkeypatch.setenv("MNGR_HOST_DIR", str(host_dir))
-
-    _create_agent_data_file(agents_dir, "agent-aaa", "alpha")
+    _create_agent_data_file(completion_agents_dir, "agent-aaa", "alpha")
 
     ctx = click.Context(click.Command("test"))
     param = click.Argument(["agent"])
