@@ -108,6 +108,18 @@ def _prompt_user_for_trust(source_path: Path) -> bool:
     return click.confirm("Would you like to trust this directory?", default=False)
 
 
+def _claude_json_has_primary_api_key() -> bool:
+    """Check if ~/.claude.json contains a non-empty primaryApiKey."""
+    claude_json_path = Path.home() / ".claude.json"
+    if not claude_json_path.exists():
+        return False
+    try:
+        config_data = json.loads(claude_json_path.read_text())
+        return bool(config_data.get("primaryApiKey"))
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
 def _has_api_credentials_available(
     host: OnlineHostInterface,
     options: CreateAgentOptions,
@@ -116,7 +128,8 @@ def _has_api_credentials_available(
     """Check whether API credentials appear to be available for Claude Code.
 
     Checks environment variables (process env for local hosts, agent env vars,
-    host env vars) and local credentials file (~/.claude/.credentials.json).
+    host env vars), local credentials file (~/.claude/.credentials.json), and
+    primaryApiKey in ~/.claude.json.
 
     Returns True if any credential source is detected, False otherwise.
     """
@@ -136,6 +149,13 @@ def _has_api_credentials_available(
         if host.is_local:
             return True
         if config.sync_claude_credentials:
+            return True
+
+    # Check for primaryApiKey in ~/.claude.json
+    if _claude_json_has_primary_api_key():
+        if host.is_local:
+            return True
+        if config.sync_claude_json:
             return True
 
     return False
@@ -221,7 +241,7 @@ class ClaudeAgent(BaseAgent):
 
         The activity updater continuously updates the agent's activity file
         ($MNGR_AGENT_STATE_DIR/activity/agent) as long as the tmux session exists
-        AND the .claude/active file is present (indicating the agent is actively
+        AND the $MNGR_AGENT_STATE_DIR/active file is present (indicating the agent is actively
         processing, not idle). Uses a pidfile to prevent duplicate instances for
         the same session.
         """
@@ -235,7 +255,7 @@ class ClaudeAgent(BaseAgent):
             """trap 'rm -f "$_MNGR_ACT_LOCK"' EXIT;""",
             'mkdir -p "$MNGR_AGENT_STATE_DIR/activity";',
             f"while tmux has-session -t '{session_name}' 2>/dev/null; do",
-            "if [ -f .claude/active ]; then",
+            'if [ -f "$MNGR_AGENT_STATE_DIR/active" ]; then',
             """printf '{"time": %d, "source": "activity_updater"}'""",
             '"$(($(date +%s) * 1000))" > "$MNGR_AGENT_STATE_DIR/activity/agent";',
             "fi;",
@@ -253,9 +273,11 @@ class ClaudeAgent(BaseAgent):
     ) -> CommandString:
         """Assemble command with --resume || --session-id format for session resumption.
 
-        The command format is: 'claude --resume UUID args || claude --session-id UUID args'
+        The command format is: 'claude --resume $SID args || claude --session-id UUID args'
         This allows users to hit 'up' and 'enter' in tmux to resume the session (--resume)
-        or create it with that ID (--session-id).
+        or create it with that ID (--session-id). The resume path uses $MAIN_CLAUDE_SESSION_ID,
+        resolved at runtime from the session tracking file (falling back to the agent UUID on
+        first run).
 
         An activity updater is started in the background to keep the agent's activity
         timestamp up-to-date while the tmux session is alive.
@@ -282,8 +304,17 @@ class ClaudeAgent(BaseAgent):
         if agent_args:
             args_str = (args_str + " ").lstrip() + " ".join(agent_args)
 
-        # Build both command variants
-        resume_cmd = f"( find ~/.claude/ -name '{agent_uuid}' | grep . ) && {base} --resume {agent_uuid}"
+        # Read the latest session ID from the tracking file written by the SessionStart hook.
+        # This handles session replacement (e.g., exit plan mode, /clear, compaction) where
+        # Claude Code creates a new session with a different UUID. Falls back to the agent UUID
+        # if the tracking file doesn't exist (first run) or is empty (crash during write).
+        sid_export = (
+            f'_MNGR_READ_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || true);'
+            f' export MAIN_CLAUDE_SESSION_ID="${{_MNGR_READ_SID:-{agent_uuid}}}"'
+        )
+
+        # Build both command variants using the dynamic session ID
+        resume_cmd = f'( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && {base} --resume "$MAIN_CLAUDE_SESSION_ID"'
         create_cmd = f"{base} --session-id {agent_uuid}"
 
         # Append additional args to both commands if present
@@ -293,15 +324,13 @@ class ClaudeAgent(BaseAgent):
 
         # Build the environment exports
         # IS_SANDBOX is only set for remote hosts (not local)
-        env_exports = f"export MAIN_CLAUDE_SESSION_ID={agent_uuid}"
-        if not host.is_local:
-            env_exports = f"export IS_SANDBOX=1 && {env_exports}"
+        env_exports = f"export IS_SANDBOX=1 && {sid_export}" if not host.is_local else sid_export
 
         # Build the activity updater background command
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
         activity_cmd = self._build_activity_updater_command(session_name)
 
-        # Combine: start activity updater in background, then run the main command
+        # Combine: start activity updater, export env (including session ID), then run the main command
         return CommandString(f"{activity_cmd} {env_exports} && ( {resume_cmd} ) || {create_cmd}")
 
     def on_before_provisioning(
@@ -387,8 +416,8 @@ class ClaudeAgent(BaseAgent):
         """Configure Claude hooks for readiness signaling in the agent's work_dir.
 
         This writes hooks to .claude/settings.local.json in the agent's work_dir.
-        The hooks signal when Claude is ready for input by creating/removing a
-        'waiting' file in the agent's state directory.
+        The hooks signal when Claude is actively processing by creating/removing an
+        'active' file in the agent's state directory.
 
         Skips if hooks already exist.
         """

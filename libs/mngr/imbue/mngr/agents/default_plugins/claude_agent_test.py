@@ -6,11 +6,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
+from uuid import UUID
 
 import pytest
 
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mngr.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
 from imbue.mngr.agents.default_plugins.claude_agent import _has_api_credentials_available
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
@@ -70,6 +72,14 @@ def make_claude_agent(
         host=host,
     )
     return agent, host
+
+
+def _sid_export_for(uuid: UUID) -> str:
+    """Build the expected MAIN_CLAUDE_SESSION_ID export string for a given agent UUID."""
+    return (
+        f'_MNGR_READ_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null || true);'
+        f' export MAIN_CLAUDE_SESSION_ID="${{_MNGR_READ_SID:-{uuid}}}"'
+    )
 
 
 def _init_git_with_gitignore(work_dir: Path) -> None:
@@ -225,9 +235,10 @@ def test_claude_agent_assemble_command_with_no_args(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_export = _sid_export_for(uuid)
     # Local hosts should NOT have IS_SANDBOX set
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
+        f'{activity_cmd} {sid_export} && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
     )
 
 
@@ -243,8 +254,9 @@ def test_claude_agent_assemble_command_with_agent_args(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --model opus ) || claude --session-id {uuid} --model opus"
+        f'{activity_cmd} {sid_export} && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || claude --session-id {uuid} --model opus'
     )
 
 
@@ -265,8 +277,9 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus"
+        f'{activity_cmd} {sid_export} && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus'
     )
 
 
@@ -286,8 +299,9 @@ def test_claude_agent_assemble_command_with_command_override(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f"{activity_cmd} export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && custom-claude --resume {uuid} --model opus ) || custom-claude --session-id {uuid} --model opus"
+        f'{activity_cmd} {sid_export} && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && custom-claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || custom-claude --session-id {uuid} --model opus'
     )
 
 
@@ -324,9 +338,10 @@ def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
     activity_cmd = agent._build_activity_updater_command(session_name)
+    sid_export = _sid_export_for(uuid)
     # Remote hosts SHOULD have IS_SANDBOX set
     assert command == CommandString(
-        f"{activity_cmd} export IS_SANDBOX=1 && export MAIN_CLAUDE_SESSION_ID={uuid} && ( ( find ~/.claude/ -name '{uuid}' | grep . ) && claude --resume {uuid} ) || claude --session-id {uuid}"
+        f'{activity_cmd} export IS_SANDBOX=1 && {sid_export} && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
     )
 
 
@@ -358,8 +373,8 @@ def test_build_activity_updater_command(
     # Should update the activity file
     assert "MNGR_AGENT_STATE_DIR/activity/agent" in cmd
 
-    # Should only update activity when .claude/active exists
-    assert ".claude/active" in cmd
+    # Should only update activity when $MNGR_AGENT_STATE_DIR/active exists
+    assert "MNGR_AGENT_STATE_DIR/active" in cmd
 
     # Should check for existing instances via pidfile
     assert "kill -0" in cmd
@@ -497,41 +512,62 @@ def test_get_provision_file_transfers_with_sync_repo_settings_disabled(
 
 
 def test_build_readiness_hooks_config_has_session_start_hook() -> None:
-    """build_readiness_hooks_config should include SessionStart hook that creates session_started file."""
+    """build_readiness_hooks_config should include SessionStart hooks for readiness and session tracking."""
     config = build_readiness_hooks_config()
 
     assert "hooks" in config
     assert "SessionStart" in config["hooks"]
     assert len(config["hooks"]["SessionStart"]) == 1
-    hook = config["hooks"]["SessionStart"][0]["hooks"][0]
-    assert hook["type"] == "command"
-    # SessionStart creates session_started file for polling-based detection
-    assert "touch" in hook["command"]
-    assert "session_started" in hook["command"]
+    hooks = config["hooks"]["SessionStart"][0]["hooks"]
+    assert len(hooks) == 2
+
+    # First hook: creates session_started file for polling-based detection
+    assert hooks[0]["type"] == "command"
+    assert "touch" in hooks[0]["command"]
+    assert "session_started" in hooks[0]["command"]
+
+    # Second hook: tracks current session ID for session replacement detection
+    session_id_hook = hooks[1]["command"]
+    assert hooks[1]["type"] == "command"
+    assert "claude_session_id" in session_id_hook
+    assert "session_id" in session_id_hook
+    assert "MNGR_AGENT_STATE_DIR" in session_id_hook
+    # Should fail loudly on missing session_id, not silently swallow
+    assert "exit 1" in session_id_hook
+    assert ">&2" in session_id_hook
+    # Should append to history file for tracking old session IDs
+    assert "claude_session_id_history" in session_id_hook
+    # Should use atomic write (write to .tmp then mv) to prevent torn reads
+    assert "claude_session_id.tmp" in session_id_hook
+    assert "mv" in session_id_hook
 
 
 def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:
-    """build_readiness_hooks_config should include UserPromptSubmit hook."""
+    """build_readiness_hooks_config should include UserPromptSubmit hook that creates active file."""
     config = build_readiness_hooks_config()
 
     assert "UserPromptSubmit" in config["hooks"]
     assert len(config["hooks"]["UserPromptSubmit"]) == 1
     hook = config["hooks"]["UserPromptSubmit"][0]["hooks"][0]
     assert hook["type"] == "command"
-    assert "rm -f" in hook["command"]
-    assert "MNGR_AGENT_STATE_DIR" in hook["command"]
-
-
-def test_build_readiness_hooks_config_has_stop_hook() -> None:
-    """build_readiness_hooks_config should include Stop hook."""
-    config = build_readiness_hooks_config()
-
-    assert "Stop" in config["hooks"]
-    assert len(config["hooks"]["Stop"]) == 1
-    hook = config["hooks"]["Stop"][0]["hooks"][0]
-    assert hook["type"] == "command"
     assert "touch" in hook["command"]
     assert "MNGR_AGENT_STATE_DIR" in hook["command"]
+    assert "active" in hook["command"]
+
+
+def test_build_readiness_hooks_config_has_notification_idle_hook() -> None:
+    """build_readiness_hooks_config should include Notification idle_prompt hook that removes active file."""
+    config = build_readiness_hooks_config()
+
+    assert "Notification" in config["hooks"]
+    assert len(config["hooks"]["Notification"]) == 1
+    hook_group = config["hooks"]["Notification"][0]
+    assert hook_group["matcher"] == "idle_prompt"
+    hook = hook_group["hooks"][0]
+    assert hook["type"] == "command"
+    assert "rm" in hook["command"]
+    assert "MNGR_AGENT_STATE_DIR" in hook["command"]
+    assert "active" in hook["command"]
 
 
 def test_get_expected_process_name_returns_claude(
@@ -641,7 +677,7 @@ def test_configure_readiness_hooks_creates_settings_file(
     assert "hooks" in settings
     assert "SessionStart" in settings["hooks"]
     assert "UserPromptSubmit" in settings["hooks"]
-    assert "Stop" in settings["hooks"]
+    assert "Notification" in settings["hooks"]
 
 
 def test_configure_readiness_hooks_merges_with_existing_settings(
@@ -684,7 +720,7 @@ def test_configure_readiness_hooks_merges_with_existing_settings(
     # Should add new hooks
     assert "SessionStart" in settings["hooks"]
     assert "UserPromptSubmit" in settings["hooks"]
-    assert "Stop" in settings["hooks"]
+    assert "Notification" in settings["hooks"]
 
 
 def test_provision_configures_readiness_hooks(
@@ -1054,6 +1090,81 @@ def test_has_api_credentials_returns_false_when_no_credentials(credential_check_
 def test_has_api_credentials_returns_false_remote_no_sync() -> None:
     """_has_api_credentials_available returns False for remote host when credentials exist but sync is disabled."""
     config = ClaudeAgentConfig(check_installation=False, sync_claude_credentials=False)
+
+    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
+
+
+# =============================================================================
+# primaryApiKey in ~/.claude.json Tests
+# =============================================================================
+
+
+def _write_claude_json_with_primary_api_key(api_key: str = "sk-ant-test-key") -> None:
+    """Write ~/.claude.json with a primaryApiKey entry."""
+    claude_json_path = Path.home() / ".claude.json"
+    config = {"primaryApiKey": api_key}
+    claude_json_path.write_text(json.dumps(config))
+
+
+def test_claude_json_has_primary_api_key_returns_true_when_key_exists() -> None:
+    """_claude_json_has_primary_api_key returns True when primaryApiKey is set."""
+    _write_claude_json_with_primary_api_key()
+
+    assert _claude_json_has_primary_api_key() is True
+
+
+def test_claude_json_has_primary_api_key_returns_false_when_no_file() -> None:
+    """_claude_json_has_primary_api_key returns False when ~/.claude.json does not exist."""
+    assert _claude_json_has_primary_api_key() is False
+
+
+def test_claude_json_has_primary_api_key_returns_false_when_key_missing() -> None:
+    """_claude_json_has_primary_api_key returns False when primaryApiKey is not in the config."""
+    claude_json_path = Path.home() / ".claude.json"
+    claude_json_path.write_text(json.dumps({"projects": {}}))
+
+    assert _claude_json_has_primary_api_key() is False
+
+
+def test_claude_json_has_primary_api_key_returns_false_when_key_empty() -> None:
+    """_claude_json_has_primary_api_key returns False when primaryApiKey is empty string."""
+    claude_json_path = Path.home() / ".claude.json"
+    claude_json_path.write_text(json.dumps({"primaryApiKey": ""}))
+
+    assert _claude_json_has_primary_api_key() is False
+
+
+def test_claude_json_has_primary_api_key_returns_false_when_invalid_json() -> None:
+    """_claude_json_has_primary_api_key returns False when ~/.claude.json contains invalid JSON."""
+    claude_json_path = Path.home() / ".claude.json"
+    claude_json_path.write_text("not valid json {{{")
+
+    assert _claude_json_has_primary_api_key() is False
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_has_api_credentials_detects_primary_api_key_local(credential_check_host: Host) -> None:
+    """_has_api_credentials_available returns True when primaryApiKey exists in ~/.claude.json on local host."""
+    _write_claude_json_with_primary_api_key()
+    config = ClaudeAgentConfig(check_installation=False)
+
+    assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_has_api_credentials_detects_primary_api_key_remote_with_sync() -> None:
+    """_has_api_credentials_available returns True when primaryApiKey exists and sync_claude_json is enabled."""
+    _write_claude_json_with_primary_api_key()
+    config = ClaudeAgentConfig(check_installation=False, sync_claude_json=True)
+
+    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env")
+def test_has_api_credentials_returns_false_primary_api_key_remote_no_sync() -> None:
+    """_has_api_credentials_available returns False when primaryApiKey exists but sync_claude_json is disabled."""
+    _write_claude_json_with_primary_api_key()
+    config = ClaudeAgentConfig(check_installation=False, sync_claude_json=False)
 
     assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
 
