@@ -526,7 +526,13 @@ class ModalProviderInstance(BaseProviderInstance):
 
         agent_records: list[dict[str, Any]] = []
         host_dir = f"/{host_id}"
-        for entry in _volume_listdir(volume, host_dir):
+        try:
+            entries = _volume_listdir(volume, host_dir)
+        except (NotFoundError, FileNotFoundError):
+            # Host directory doesn't exist yet (no agents persisted for this host)
+            return agent_records
+
+        for entry in entries:
             filename = entry.path
             if filename.endswith(".json"):
                 # Read the agent record
