@@ -1,5 +1,3 @@
-"""Unit tests for enforce CLI helpers."""
-
 import json
 
 from imbue.mngr.api.enforce import EnforceAction

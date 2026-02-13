@@ -1,5 +1,3 @@
-"""Unit tests for error handling utilities."""
-
 import pytest
 
 from imbue.mngr.errors import MngrError
