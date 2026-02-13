@@ -1,11 +1,3 @@
-"""Docker provider instance implementation.
-
-Manages Docker containers as hosts with SSH access via pyinfra.
-
-Host metadata (SSH info, config, snapshots) is stored in a local JSON file
-store. Container labels are used for discovery and immutable tag storage.
-"""
-
 import argparse
 import json
 import socket

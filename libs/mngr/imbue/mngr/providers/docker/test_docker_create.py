@@ -1,12 +1,3 @@
-"""Acceptance and release tests for Docker provider via CLI.
-
-End-to-end tests that use the mngr CLI as a subprocess, verifying the full
-user-facing flow. Requires a running Docker daemon.
-
-To run these tests:
-    just test libs/mngr/imbue/mngr/providers/docker/test_docker_create.py
-"""
-
 import subprocess
 from pathlib import Path
 
@@ -266,9 +257,7 @@ def test_mngr_create_stop_start_destroy_lifecycle(
         timeout=60,
         env=docker_subprocess_env,
     )
-    assert stop_result.returncode == 0, (
-        f"Stop failed with stderr: {stop_result.stderr}\nstdout: {stop_result.stdout}"
-    )
+    assert stop_result.returncode == 0, f"Stop failed with stderr: {stop_result.stderr}\nstdout: {stop_result.stdout}"
 
     # Start
     start_result = subprocess.run(

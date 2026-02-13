@@ -1,10 +1,3 @@
-"""JSON file-based host record storage for the Docker provider.
-
-Stores host records (SSH info, config, snapshots, certified_host_data)
-as JSON files on the local filesystem, under the mngr profile directory.
-This mirrors the Modal provider's volume-based storage but uses local files.
-"""
-
 import json
 from pathlib import Path
 from typing import Any

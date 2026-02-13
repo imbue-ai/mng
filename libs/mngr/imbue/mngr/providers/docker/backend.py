@@ -1,9 +1,3 @@
-"""Docker provider backend.
-
-Stateless factory registered via the register_provider_backend pluggy hook.
-Creates DockerProviderInstance objects from configuration.
-"""
-
 from pathlib import Path
 
 from imbue.mngr import hookimpl

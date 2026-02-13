@@ -1,13 +1,3 @@
-"""Integration tests for Docker provider lifecycle.
-
-These tests require a running Docker daemon. They test the provider instance
-methods directly with real Docker containers. Each test cleans up its
-containers on teardown.
-
-Since these require Docker, they are marked as acceptance tests and will run
-in CI environments where Docker is available.
-"""
-
 from collections.abc import Generator
 
 import docker.errors

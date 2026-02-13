@@ -1,5 +1,3 @@
-"""Configuration for the Docker provider backend."""
-
 from pathlib import Path
 
 from pydantic import Field
@@ -20,8 +18,7 @@ class DockerProviderConfig(ProviderInstanceConfig):
     host: str = Field(
         default="",
         description=(
-            "Docker host URL (e.g., 'ssh://user@server', 'tcp://host:2376'). "
-            "Empty string means local Docker daemon."
+            "Docker host URL (e.g., 'ssh://user@server', 'tcp://host:2376'). Empty string means local Docker daemon."
         ),
     )
     host_dir: Path | None = Field(

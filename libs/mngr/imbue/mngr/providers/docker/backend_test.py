@@ -1,5 +1,3 @@
-"""Unit tests for DockerProviderBackend."""
-
 from pathlib import Path
 
 from imbue.mngr.config.data_types import MngrContext

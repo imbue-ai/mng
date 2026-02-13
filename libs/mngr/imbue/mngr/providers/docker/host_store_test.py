@@ -1,5 +1,3 @@
-"""Unit tests for DockerHostStore."""
-
 from pathlib import Path
 
 import pytest

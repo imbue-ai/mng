@@ -1,9 +1,3 @@
-"""Unit tests for DockerProviderInstance.
-
-These tests do NOT require a Docker daemon. They test pure functions,
-capability properties, build args parsing, label helpers, and tag methods.
-"""
-
 import json
 from pathlib import Path
 
