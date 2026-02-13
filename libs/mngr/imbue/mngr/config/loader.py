@@ -1,5 +1,4 @@
 import os
-import shlex
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
@@ -24,6 +23,7 @@ from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.config.data_types import ROOT_CONFIG_FILENAME
+from imbue.mngr.config.data_types import split_cli_args_string
 from imbue.mngr.config.plugin_registry import get_plugin_config_class
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
@@ -174,6 +174,7 @@ def load_config(
     if config.logging is not None:
         config_dict["logging"] = config.logging
 
+    config_dict["is_nested_tmux_allowed"] = config.is_nested_tmux_allowed
     config_dict["is_allowed_in_pytest"] = config.is_allowed_in_pytest
     config_dict["pre_command_scripts"] = config.pre_command_scripts
 
@@ -343,7 +344,7 @@ def _normalize_cli_args_for_construct(raw_config: dict[str, Any]) -> dict[str, A
         return raw_config
     cli_args = raw_config["cli_args"]
     if isinstance(cli_args, str):
-        normalized = tuple(shlex.split(cli_args)) if cli_args else ()
+        normalized = split_cli_args_string(cli_args) if cli_args else ()
     elif isinstance(cli_args, (list, tuple)):
         normalized = tuple(cli_args)
     else:
@@ -496,6 +497,9 @@ def _parse_config(raw: dict[str, Any]) -> MngrConfig:
         _parse_create_templates(raw.pop("create_templates", {})) if "create_templates" in raw else {}
     )
     kwargs["logging"] = _parse_logging_config(raw.pop("logging", {})) if "logging" in raw else None
+    kwargs["is_nested_tmux_allowed"] = (
+        raw.pop("is_nested_tmux_allowed", None) if "is_nested_tmux_allowed" in raw else None
+    )
     kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", {}) if "is_allowed_in_pytest" in raw else None
     kwargs["pre_command_scripts"] = raw.pop("pre_command_scripts", {}) if "pre_command_scripts" in raw else None
 

@@ -9,6 +9,7 @@ from imbue.imbue_common.pure import pure
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
+from imbue.mngr.errors import NestedTmuxError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.utils.interactive_subprocess import run_interactive_subprocess
@@ -153,7 +154,15 @@ def connect_to_agent(
     session_name = f"{mngr_ctx.config.prefix}{agent.name}"
 
     if host.is_local:
-        os.execvp("tmux", ["tmux", "attach", "-t", session_name])
+        # Detect nested tmux: if $TMUX is set, we're inside a tmux session
+        env = os.environ
+        if os.environ.get("TMUX"):
+            if not mngr_ctx.config.is_nested_tmux_allowed:
+                raise NestedTmuxError(session_name)
+            # Copy and remove TMUX so tmux allows the nested attachment
+            env = dict(os.environ)
+            del env["TMUX"]
+        os.execvpe("tmux", ["tmux", "attach", "-t", session_name], env)
     else:
         ssh_args = _build_ssh_args(host, connection_opts)
 
