@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from datetime import datetime
 from datetime import timezone
@@ -18,6 +19,7 @@ from imbue.mngr.agents.default_plugins.claude_agent import _claude_json_has_prim
 from imbue.mngr.agents.default_plugins.claude_agent import _has_api_credentials_available
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
+from imbue.mngr.agents.default_plugins.claude_config import encode_claude_project_dir_name
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrConfig
@@ -1247,3 +1249,207 @@ def test_on_before_provisioning_succeeds_with_credentials(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
 
     agent.on_before_provisioning(host=host, options=_DEFAULT_CREDENTIAL_CHECK_OPTIONS, mngr_ctx=temp_mngr_ctx)
+
+
+# =============================================================================
+# Claude Session Transfer Tests
+# =============================================================================
+
+
+def _create_source_project_dir(source_work_dir: Path) -> Path:
+    """Create a fake Claude project directory for source_work_dir with session data.
+
+    Returns the created project directory path.
+    """
+    dir_name = encode_claude_project_dir_name(source_work_dir)
+    project_dir = Path.home() / ".claude" / "projects" / dir_name
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create a session .jsonl file
+    session_file = project_dir / "abc123-def456.jsonl"
+    session_file.write_text('{"type":"message"}\n')
+
+    # Create a memory directory
+    memory_dir = project_dir / "memory"
+    memory_dir.mkdir()
+    (memory_dir / "MEMORY.md").write_text("# Test memory\n")
+
+    # Create a session companion directory
+    companion_dir = project_dir / "abc123-def456"
+    companion_dir.mkdir()
+    (companion_dir / "subagent.jsonl").write_text('{"type":"subagent"}\n')
+
+    return project_dir
+
+
+def test_transfer_claude_session_copies_project_dir_locally(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_transfer_claude_session should copy the entire project directory for local hosts."""
+    source_work_dir = tmp_path / "source-agent-work"
+    source_work_dir.mkdir()
+    _create_source_project_dir(source_work_dir)
+
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    agent._transfer_claude_session(host, source_work_dir)
+
+    # Verify the destination project directory was created with all content
+    dest_dir_name = encode_claude_project_dir_name(agent.work_dir)
+    dest_project_dir = Path.home() / ".claude" / "projects" / dest_dir_name
+
+    assert dest_project_dir.exists()
+    assert (dest_project_dir / "abc123-def456.jsonl").exists()
+    assert (dest_project_dir / "abc123-def456.jsonl").read_text() == '{"type":"message"}\n'
+    assert (dest_project_dir / "memory" / "MEMORY.md").read_text() == "# Test memory\n"
+    assert (dest_project_dir / "abc123-def456" / "subagent.jsonl").read_text() == '{"type":"subagent"}\n'
+
+
+def test_transfer_claude_session_writes_session_id(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_transfer_claude_session should write the latest session ID to the agent state dir."""
+    source_work_dir = tmp_path / "source-agent-work"
+    source_work_dir.mkdir()
+    _create_source_project_dir(source_work_dir)
+
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    # Create the agent state dir (normally created by host.create_agent_state)
+    agent_state_dir = agent._get_agent_dir()
+    agent_state_dir.mkdir(parents=True, exist_ok=True)
+
+    agent._transfer_claude_session(host, source_work_dir)
+
+    session_id_file = agent_state_dir / "claude_session_id"
+    assert session_id_file.exists()
+    assert session_id_file.read_text() == "abc123-def456"
+
+
+def test_transfer_claude_session_uses_most_recent_jsonl(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_transfer_claude_session should pick the most recently modified .jsonl as the session ID."""
+    source_work_dir = tmp_path / "source-agent-work"
+    source_work_dir.mkdir()
+
+    dir_name = encode_claude_project_dir_name(source_work_dir)
+    project_dir = Path.home() / ".claude" / "projects" / dir_name
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create an older session file with an explicit older mtime
+    old_session = project_dir / "old-session-111.jsonl"
+    old_session.write_text('{"old": true}\n')
+    os.utime(old_session, (1000.0, 1000.0))
+
+    # Create a newer session file with a newer mtime
+    new_session = project_dir / "new-session-222.jsonl"
+    new_session.write_text('{"new": true}\n')
+    os.utime(new_session, (2000.0, 2000.0))
+
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    agent_state_dir = agent._get_agent_dir()
+    agent_state_dir.mkdir(parents=True, exist_ok=True)
+
+    agent._transfer_claude_session(host, source_work_dir)
+
+    session_id = (agent_state_dir / "claude_session_id").read_text()
+    assert session_id == "new-session-222"
+
+
+def test_transfer_claude_session_skips_when_no_source_dir(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_transfer_claude_session should skip gracefully when source project dir does not exist."""
+    source_work_dir = tmp_path / "nonexistent-source"
+    source_work_dir.mkdir()
+
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    # Should not raise
+    agent._transfer_claude_session(host, source_work_dir)
+
+
+def test_transfer_claude_session_skips_session_id_when_no_jsonl(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_transfer_claude_session should skip session ID write when no .jsonl files exist."""
+    source_work_dir = tmp_path / "source-agent-work"
+    source_work_dir.mkdir()
+
+    # Create project dir with only memory (no .jsonl files)
+    dir_name = encode_claude_project_dir_name(source_work_dir)
+    project_dir = Path.home() / ".claude" / "projects" / dir_name
+    project_dir.mkdir(parents=True, exist_ok=True)
+    memory_dir = project_dir / "memory"
+    memory_dir.mkdir()
+    (memory_dir / "MEMORY.md").write_text("# Memory only\n")
+
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    agent_state_dir = agent._get_agent_dir()
+    agent_state_dir.mkdir(parents=True, exist_ok=True)
+
+    agent._transfer_claude_session(host, source_work_dir)
+
+    # Session ID should NOT have been written
+    session_id_file = agent_state_dir / "claude_session_id"
+    assert not session_id_file.exists()
+
+    # But the project dir should still be copied
+    dest_dir_name = encode_claude_project_dir_name(agent.work_dir)
+    dest_project_dir = Path.home() / ".claude" / "projects" / dest_dir_name
+    assert (dest_project_dir / "memory" / "MEMORY.md").read_text() == "# Memory only\n"
+
+
+def test_provision_calls_transfer_when_source_work_dir_set(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """provision should call _transfer_claude_session when source_work_dir is set."""
+    source_work_dir = tmp_path / "source-agent-work"
+    source_work_dir.mkdir()
+    _create_source_project_dir(source_work_dir)
+
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    _init_git_with_gitignore(agent.work_dir)
+
+    # Create agent state dir
+    agent_state_dir = agent._get_agent_dir()
+    agent_state_dir.mkdir(parents=True, exist_ok=True)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        source_work_dir=source_work_dir,
+    )
+
+    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
+
+    # Verify session was transferred
+    dest_dir_name = encode_claude_project_dir_name(agent.work_dir)
+    dest_project_dir = Path.home() / ".claude" / "projects" / dest_dir_name
+    assert dest_project_dir.exists()
+    assert (dest_project_dir / "abc123-def456.jsonl").exists()
+
+    # Verify session ID was written
+    session_id = (agent_state_dir / "claude_session_id").read_text()
+    assert session_id == "abc123-def456"
+
+
+def test_provision_does_not_transfer_when_source_work_dir_is_none(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """provision should not transfer session when source_work_dir is None."""
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    _init_git_with_gitignore(agent.work_dir)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        source_work_dir=None,
+    )
+
+    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
+
+    # No project directory should have been created for the agent's work_dir
+    # (there's no source to copy from)
+    dest_dir_name = encode_claude_project_dir_name(agent.work_dir)
+    dest_project_dir = Path.home() / ".claude" / "projects" / dest_dir_name
+    assert not dest_project_dir.exists()

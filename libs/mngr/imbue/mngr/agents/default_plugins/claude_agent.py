@@ -20,6 +20,7 @@ from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTr
 from imbue.mngr.agents.default_plugins.claude_config import add_claude_trust_for_path
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
+from imbue.mngr.agents.default_plugins.claude_config import encode_claude_project_dir_name
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.agents.default_plugins.claude_config import merge_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
@@ -569,6 +570,58 @@ class ClaudeAgent(BaseAgent):
 
         # Configure readiness hooks (for both local and remote hosts)
         self._configure_readiness_hooks(host)
+
+        # Transfer Claude session data from source agent (if cloning)
+        if options.source_work_dir is not None:
+            self._transfer_claude_session(host, options.source_work_dir)
+
+    def _transfer_claude_session(
+        self,
+        host: OnlineHostInterface,
+        source_work_dir: Path,
+    ) -> None:
+        """Transfer Claude Code session data from a source agent's project directory.
+
+        Copies the entire ~/.claude/projects/<encoded-source-path>/ directory
+        to ~/.claude/projects/<encoded-dest-path>/ so that session transcripts,
+        subagent data, and auto-memory are preserved. Also writes the latest
+        session ID to the new agent's state dir so --resume picks it up.
+        """
+        source_dir_name = encode_claude_project_dir_name(source_work_dir)
+        dest_dir_name = encode_claude_project_dir_name(self.work_dir)
+
+        source_project_dir = Path.home() / ".claude" / "projects" / source_dir_name
+        if not source_project_dir.exists():
+            logger.debug(
+                "No Claude project directory found at {}, skipping session transfer",
+                source_project_dir,
+            )
+            return
+
+        with log_span("Transferring Claude session from {} to {}", source_dir_name, dest_dir_name):
+            if host.is_local:
+                dest_project_dir = Path.home() / ".claude" / "projects" / dest_dir_name
+                host.execute_command(
+                    f"cp -a {shlex.quote(str(source_project_dir))} {shlex.quote(str(dest_project_dir))}",
+                    timeout_seconds=60.0,
+                )
+            else:
+                dest_project_dir = Path("~/.claude/projects") / dest_dir_name
+                for file_path in source_project_dir.rglob("*"):
+                    if file_path.is_file():
+                        relative_path = file_path.relative_to(source_project_dir)
+                        remote_path = dest_project_dir / relative_path
+                        host.write_text_file(remote_path, file_path.read_text())
+
+            # Find the latest session ID from the most recently modified .jsonl file
+            jsonl_files = sorted(source_project_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
+            if jsonl_files:
+                latest_session_id = jsonl_files[-1].stem
+                agent_state_dir = self._get_agent_dir()
+                host.write_text_file(agent_state_dir / "claude_session_id", latest_session_id)
+                logger.debug("Wrote session ID {} to agent state dir", latest_session_id)
+            else:
+                logger.debug("No .jsonl session files found in source project dir")
 
     def on_destroy(self, host: OnlineHostInterface) -> None:
         """Clean up Claude trust entries for this agent's work directory."""

@@ -1282,6 +1282,10 @@ def _parse_agent_opts(
         # Automatically use the "generic" agent type when --agent-cmd is provided
         resolved_agent_type = "generic"
 
+    # When cloning from an existing agent, pass the source work_dir so that
+    # agent plugins (e.g. ClaudeAgent) can transfer session state.
+    parsed_source_work_dir = source_location.path if opts.source_agent is not None else None
+
     agent_opts = CreateAgentOptions(
         agent_type=AgentTypeName(resolved_agent_type) if resolved_agent_type else None,
         name=parsed_agent_name,
@@ -1300,6 +1304,7 @@ def _parse_agent_opts(
         lifecycle=lifecycle,
         permissions=permissions,
         provisioning=provisioning,
+        source_work_dir=parsed_source_work_dir,
     )
     return agent_opts
 

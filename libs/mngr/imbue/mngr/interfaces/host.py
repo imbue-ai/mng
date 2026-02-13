@@ -728,3 +728,7 @@ class CreateAgentOptions(FrozenModel):
         default_factory=AgentProvisioningOptions,
         description="Simple provisioning options",
     )
+    source_work_dir: Path | None = Field(
+        default=None,
+        description="Source agent work_dir path (set when cloning via --from-agent, used to transfer Claude session)",
+    )
