@@ -264,7 +264,7 @@ def _write_completion_cache(mngr_ctx: MngrContext, result: ListResult) -> None:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(cache_data))
     except OSError:
-        logger.trace("Failed to write completion cache")
+        logger.debug("Failed to write completion cache")
 
 
 def _list_agents_batch(
