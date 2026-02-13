@@ -29,6 +29,7 @@ from imbue.mngr.primitives import Permission
 from imbue.mngr.primitives import PluginName
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.primitives import UserId
 
 USER_ID_FILENAME = "user_id"
 PROFILES_DIRNAME = "profiles"
@@ -589,7 +590,7 @@ class MngrContext(FrozenModel):
         description="Top-level concurrency group for managing spawned processes",
     )
 
-    def get_profile_user_id(self) -> str:
+    def get_profile_user_id(self) -> UserId:
         return get_or_create_user_id(self.profile_dir)
 
 
@@ -626,8 +627,7 @@ class OutputOptions(FrozenModel):
     )
 
 
-# FIXME: this should obviously this should return a concrete type, not a str
-def get_or_create_user_id(profile_dir: Path) -> str:
+def get_or_create_user_id(profile_dir: Path) -> UserId:
     """Get or create a unique user ID for this mngr profile.
 
     The user ID is stored in a file in the profile directory. This ID is used
@@ -649,4 +649,4 @@ def get_or_create_user_id(profile_dir: Path) -> str:
             # Generate a new user ID
             user_id = uuid4().hex
         user_id_file.write_text(user_id)
-    return user_id
+    return UserId(user_id)
