@@ -41,6 +41,24 @@ T = TypeVar("T")
 
 
 @pure
+def split_cli_args_string(cli_args: str) -> tuple[str, ...]:
+    """Split a CLI args string into individual argument tokens, preserving quoting.
+
+    Uses shlex in non-POSIX mode so that quote characters (both single and double)
+    are kept as part of the resulting tokens. This ensures that when the arguments
+    are later joined with spaces (e.g. in assemble_command), the quoting is
+    maintained and the resulting shell command is correct.
+
+    Example:
+        >>> split_cli_args_string("--settings '{\"key\": \"value\"}'")
+        ('--settings', '\\'{"key": "value"}\\'')
+    """
+    lexer = shlex.shlex(cli_args, posix=False)
+    lexer.whitespace_split = True
+    return tuple(lexer)
+
+
+@pure
 def merge_cli_args(base: tuple[str, ...], override: tuple[str, ...]) -> tuple[str, ...]:
     """Merge CLI arguments, concatenating if both present."""
     if override:
@@ -135,7 +153,7 @@ class AgentTypeConfig(FrozenModel):
     @classmethod
     def _normalize_cli_args(cls, value: str | list[str] | tuple[str, ...]) -> tuple[str, ...]:
         if isinstance(value, str):
-            return tuple(shlex.split(value)) if value else ()
+            return split_cli_args_string(value) if value else ()
         return tuple(value)
 
     def merge_with(self, override: Self) -> Self:

@@ -1,5 +1,4 @@
 import os
-import shlex
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
@@ -24,6 +23,7 @@ from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.config.data_types import PluginConfig
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.config.data_types import ROOT_CONFIG_FILENAME
+from imbue.mngr.config.data_types import split_cli_args_string
 from imbue.mngr.config.plugin_registry import get_plugin_config_class
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
@@ -343,7 +343,7 @@ def _normalize_cli_args_for_construct(raw_config: dict[str, Any]) -> dict[str, A
         return raw_config
     cli_args = raw_config["cli_args"]
     if isinstance(cli_args, str):
-        normalized = tuple(shlex.split(cli_args)) if cli_args else ()
+        normalized = split_cli_args_string(cli_args) if cli_args else ()
     elif isinstance(cli_args, (list, tuple)):
         normalized = tuple(cli_args)
     else:

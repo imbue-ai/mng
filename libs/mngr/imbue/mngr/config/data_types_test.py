@@ -18,6 +18,7 @@ from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.config.data_types import merge_cli_args
 from imbue.mngr.config.data_types import merge_dict_fields
 from imbue.mngr.config.data_types import merge_list_fields
+from imbue.mngr.config.data_types import split_cli_args_string
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import LifecycleHook
@@ -714,3 +715,66 @@ def test_mngr_config_merge_is_remote_agent_installation_allowed_override_wins(mn
     override = MngrConfig(prefix=mngr_test_prefix, is_remote_agent_installation_allowed=False)
     merged = base.merge_with(override)
     assert merged.is_remote_agent_installation_allowed is False
+
+
+# =============================================================================
+# Tests for split_cli_args_string
+# =============================================================================
+
+
+def test_split_cli_args_string_simple_args() -> None:
+    """split_cli_args_string should split simple arguments on whitespace."""
+    result = split_cli_args_string("--verbose --model gpt-4")
+    assert result == ("--verbose", "--model", "gpt-4")
+
+
+def test_split_cli_args_string_preserves_single_quotes() -> None:
+    """split_cli_args_string should preserve single-quoted values."""
+    result = split_cli_args_string('--settings \'{"key": "value"}\'')
+    assert result == ("--settings", '\'{"key": "value"}\'')
+    assert " ".join(result) == '--settings \'{"key": "value"}\''
+
+
+def test_split_cli_args_string_preserves_double_quotes() -> None:
+    """split_cli_args_string should preserve double-quoted values."""
+    result = split_cli_args_string('--flag "value with spaces"')
+    assert result == ("--flag", '"value with spaces"')
+    assert " ".join(result) == '--flag "value with spaces"'
+
+
+def test_split_cli_args_string_empty_string() -> None:
+    """split_cli_args_string should return empty tuple for empty string."""
+    result = split_cli_args_string("")
+    assert result == ()
+
+
+def test_split_cli_args_string_complex_json_with_single_quotes() -> None:
+    """split_cli_args_string should preserve complex JSON wrapped in single quotes."""
+    cli_args = (
+        """--settings '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "./scripts/check.sh"}]}]}}'"""
+    )
+    result = split_cli_args_string(cli_args)
+    assert len(result) == 2
+    assert result[0] == "--settings"
+    # The JSON value should still be wrapped in single quotes
+    assert result[1].startswith("'")
+    assert result[1].endswith("'")
+    # Round-trip: joining should produce the original string
+    assert " ".join(result) == cli_args
+
+
+def test_split_cli_args_string_single_arg() -> None:
+    """split_cli_args_string should handle a single argument."""
+    result = split_cli_args_string("--verbose")
+    assert result == ("--verbose",)
+
+
+def test_split_cli_args_string_preserves_quoting_for_assemble_command() -> None:
+    """Verify that cli_args parsed from a string produce correct commands when joined.
+
+    This is the end-to-end scenario: TOML string -> split -> tuple -> join -> command.
+    """
+    cli_args_str = """--settings '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "./scripts/check_commit_status.sh"}]}, {"hooks": [{"type": "command", "timeout": 600, "command": "./scripts/main_claude_stop_hook.sh"}]}]}}'"""
+    parts = split_cli_args_string(cli_args_str)
+    reassembled = " ".join(parts)
+    assert reassembled == cli_args_str
