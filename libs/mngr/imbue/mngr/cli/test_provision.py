@@ -1,15 +1,17 @@
-"""Integration tests for the provision CLI command."""
-
+import subprocess
 import time
 from pathlib import Path
 
 import pluggy
+import pytest
 from click.testing import CliRunner
 
 from imbue.mngr.cli.create import create
 from imbue.mngr.cli.provision import provision
 from imbue.mngr.cli.stop import stop
+from imbue.mngr.conftest import ModalSubprocessTestEnv
 from imbue.mngr.utils.testing import create_test_agent_via_cli
+from imbue.mngr.utils.testing import get_short_random_string
 from imbue.mngr.utils.testing import tmux_session_cleanup
 
 
@@ -372,3 +374,143 @@ def test_provision_stopped_agent_with_user_command(
         assert result.exit_code == 0, f"Provision stopped agent failed with: {result.output}"
         assert marker_file.exists(), "User command should have created the marker file"
         assert marker_file.read_text().strip() == "provisioned-while-stopped"
+
+
+# =============================================================================
+# Acceptance tests for provisioning stopped Modal agents
+# =============================================================================
+
+
+def _create_modal_agent(
+    agent_name: str,
+    source_dir: Path,
+    env: dict[str, str],
+) -> None:
+    """Create a Modal agent via subprocess. Asserts success."""
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "mngr",
+            "create",
+            agent_name,
+            "generic",
+            "--in",
+            "modal",
+            "--no-connect",
+            "--await-ready",
+            "--no-ensure-clean",
+            "--no-copy-work-dir",
+            "--source",
+            str(source_dir),
+            "--agent-cmd",
+            "sleep 999999",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+    )
+    assert result.returncode == 0, f"Create failed with stderr: {result.stderr}\nstdout: {result.stdout}"
+
+
+def _stop_modal_agent(
+    agent_name: str,
+    env: dict[str, str],
+) -> None:
+    """Stop a Modal agent via subprocess. Asserts success."""
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "mngr",
+            "stop",
+            agent_name,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
+    )
+    assert result.returncode == 0, f"Stop failed with stderr: {result.stderr}\nstdout: {result.stdout}"
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(600)
+def test_provision_stopped_modal_agent(
+    tmp_path: Path,
+    modal_subprocess_env: ModalSubprocessTestEnv,
+) -> None:
+    """Provisioning a stopped Modal agent should succeed.
+
+    Regression test: previously, `mngr provision` failed on stopped Modal
+    agents because (1) agents on destroyed/offline hosts were not included
+    in the search, and (2) the agent lookup required the agent process to
+    be running.
+    """
+    agent_name = f"test-modal-prov-stopped-{get_short_random_string()}"
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "test.txt").write_text("test content")
+    env = modal_subprocess_env.env
+
+    _create_modal_agent(agent_name, source_dir, env)
+    _stop_modal_agent(agent_name, env)
+
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "mngr",
+            "provision",
+            agent_name,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+    )
+    assert result.returncode == 0, (
+        f"Provision stopped Modal agent failed with stderr: {result.stderr}\nstdout: {result.stdout}"
+    )
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(600)
+def test_provision_stopped_modal_agent_with_user_command(
+    tmp_path: Path,
+    modal_subprocess_env: ModalSubprocessTestEnv,
+) -> None:
+    """Provisioning a stopped Modal agent should execute user commands.
+
+    Verifies that user commands run even when the agent process is stopped,
+    since provisioning operates on the host, not the agent process.
+    """
+    agent_name = f"test-modal-prov-cmd-{get_short_random_string()}"
+    unique_marker = f"provision-marker-{get_short_random_string()}"
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "test.txt").write_text("test content")
+    env = modal_subprocess_env.env
+
+    _create_modal_agent(agent_name, source_dir, env)
+    _stop_modal_agent(agent_name, env)
+
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "mngr",
+            "provision",
+            agent_name,
+            "--user-command",
+            f"echo '{unique_marker}' > /tmp/provision_test_marker.txt",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+    )
+    assert result.returncode == 0, (
+        f"Provision stopped Modal agent with user command failed with stderr: {result.stderr}\nstdout: {result.stdout}"
+    )

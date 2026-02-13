@@ -42,6 +42,7 @@ class MessageCliOptions(CommonCliOptions):
     stdin: bool
     message_content: str | None
     on_error: str
+    start: bool
 
 
 @click.command(name="message")
@@ -75,6 +76,12 @@ class MessageCliOptions(CommonCliOptions):
     "--stdin",
     is_flag=True,
     help="Read agent and host IDs or names from stdin (one per line)",
+)
+@optgroup.option(
+    "--start/--no-start",
+    default=False,
+    show_default=True,
+    help="Automatically start offline hosts and stopped agents before sending",
 )
 @optgroup.group("Message Content")
 @optgroup.option(
@@ -169,6 +176,7 @@ def _message_impl(ctx: click.Context, **kwargs) -> None:
             exclude_filters=opts.exclude,
             all_agents=opts.all_agents,
             error_behavior=error_behavior,
+            is_start_desired=opts.start,
             on_success=lambda agent_name: _emit_jsonl_success(agent_name),
             on_error=lambda agent_name, error: _emit_jsonl_error(agent_name, error),
         )
@@ -184,6 +192,7 @@ def _message_impl(ctx: click.Context, **kwargs) -> None:
         exclude_filters=opts.exclude,
         all_agents=opts.all_agents,
         error_behavior=error_behavior,
+        is_start_desired=opts.start,
     )
 
     _emit_output(result, output_opts)

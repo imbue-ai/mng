@@ -422,6 +422,11 @@ class OnlineHostInterface(HostInterface, ABC):
         ...
 
     @abstractmethod
+    def rename_agent(self, agent: AgentInterface, new_name: AgentName) -> AgentInterface:
+        """Rename an agent and return the updated agent object."""
+        ...
+
+    @abstractmethod
     def destroy_agent(self, agent: AgentInterface) -> None:
         """Remove an agent and all its associated state from this host."""
         ...

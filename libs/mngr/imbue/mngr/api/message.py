@@ -7,6 +7,8 @@ from pydantic import Field
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mngr.api.find import ensure_agent_started
+from imbue.mngr.api.find import ensure_host_started
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundOnHostError
@@ -44,6 +46,8 @@ def send_message_to_agents(
     all_agents: bool = False,
     # How to handle errors (abort or continue)
     error_behavior: ErrorBehavior = ErrorBehavior.CONTINUE,
+    # If True, automatically start offline hosts and stopped agents before sending
+    is_start_desired: bool = False,
     # Optional callback invoked when message is sent successfully
     on_success: Callable[[str], None] | None = None,
     # Optional callback invoked when message fails (agent_name, error)
@@ -78,20 +82,22 @@ def send_message_to_agents(
 
             host_interface = provider.get_host(host_ref.host_id)
 
-            # FIXME: much like how the connect command has an option for bringing a host online, we should have a similar option here (to bring online any specified host so that it can be messaged)
-            #  Then this whole next block should be updated (to have a similar "ensure_host_online" and "ensure_agent_running" functions, and use that second one below)
-            # Check if host is online - can't send messages to offline hosts
+            # If host is offline, optionally start it or report an error
             if not isinstance(host_interface, OnlineHostInterface):
-                exception = HostOfflineError(f"Host '{host_ref.host_id}' is offline. Cannot send messages.")
-                if error_behavior == ErrorBehavior.ABORT:
-                    raise exception
-                logger.warning("Host is offline: {}", host_ref.host_id)
-                for agent_ref in agent_refs:
-                    result.failed_agents.append((str(agent_ref.agent_name), str(exception)))
-                    if on_error:
-                        on_error(str(agent_ref.agent_name), str(exception))
-                continue
-            host = host_interface
+                if is_start_desired:
+                    host, _was_started = ensure_host_started(host_interface, is_start_desired=True, provider=provider)
+                else:
+                    exception = HostOfflineError(f"Host '{host_ref.host_id}' is offline. Cannot send messages.")
+                    if error_behavior == ErrorBehavior.ABORT:
+                        raise exception
+                    logger.warning("Host is offline: {}", host_ref.host_id)
+                    for agent_ref in agent_refs:
+                        result.failed_agents.append((str(agent_ref.agent_name), str(exception)))
+                        if on_error:
+                            on_error(str(agent_ref.agent_name), str(exception))
+                    continue
+            else:
+                host = host_interface
 
             # Get all agents on this host
             agents = host.get_agents()
@@ -129,9 +135,11 @@ def send_message_to_agents(
                     # Send the message
                     _send_message_to_agent(
                         agent=agent,
+                        host=host,
                         message_content=message_content,
                         result=result,
                         error_behavior=error_behavior,
+                        is_start_desired=is_start_desired,
                         on_success=on_success,
                         on_error=on_error,
                     )
@@ -154,9 +162,11 @@ def send_message_to_agents(
 
 def _send_message_to_agent(
     agent: AgentInterface,
+    host: OnlineHostInterface,
     message_content: str,
     result: MessageResult,
     error_behavior: ErrorBehavior,
+    is_start_desired: bool,
     on_success: Callable[[str], None] | None,
     on_error: Callable[[str, str], None] | None,
 ) -> None:
@@ -166,13 +176,16 @@ def _send_message_to_agent(
     # Check if agent has a tmux session (only STOPPED agents cannot receive messages)
     lifecycle_state = agent.get_lifecycle_state()
     if lifecycle_state == AgentLifecycleState.STOPPED:
-        error_msg = f"Agent has no tmux session (state: {lifecycle_state.value})"
-        if error_behavior == ErrorBehavior.ABORT:
-            raise MngrError(f"Cannot send message to {agent_name}: {error_msg}")
-        result.failed_agents.append((agent_name, error_msg))
-        if on_error:
-            on_error(agent_name, error_msg)
-        return
+        if is_start_desired:
+            ensure_agent_started(agent, host, is_start_desired=True)
+        else:
+            error_msg = f"Agent has no tmux session (state: {lifecycle_state.value})"
+            if error_behavior == ErrorBehavior.ABORT:
+                raise MngrError(f"Cannot send message to {agent_name}: {error_msg}")
+            result.failed_agents.append((agent_name, error_msg))
+            if on_error:
+                on_error(agent_name, error_msg)
+            return
 
     try:
         with log_span("Sending message to agent {}", agent_name):
