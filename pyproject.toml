@@ -135,6 +135,8 @@ omit = [
     "libs/imbue_common/imbue/imbue_common/ratchet_testing/ratchets.py",
     # Modal provider requires network access for testing
     "libs/mngr/imbue/mngr/providers/modal/*",
+    # Docker provider requires a Docker daemon for testing
+    "libs/mngr/imbue/mngr/providers/docker/instance.py",
     # don't bother with anything in scripts
     "scripts/*",
 ]
