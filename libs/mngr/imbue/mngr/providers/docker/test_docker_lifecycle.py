@@ -11,6 +11,7 @@ in CI environments where Docker is available.
 from collections.abc import Generator
 from pathlib import Path
 
+import docker.errors
 import pytest
 
 from imbue.mngr.config.data_types import MngrContext
@@ -51,9 +52,9 @@ def docker_provider(temp_mngr_ctx: MngrContext) -> Generator[DockerProviderInsta
         for host in hosts:
             try:
                 provider.destroy_host(host, delete_snapshots=True)
-            except Exception:
+            except (MngrError, docker.errors.DockerException, OSError):
                 pass
-    except Exception:
+    except (MngrError, docker.errors.DockerException, OSError):
         pass
 
     provider.close()
@@ -182,9 +183,7 @@ def test_get_host_not_found_raises_error(docker_provider: DockerProviderInstance
 
 
 @pytest.mark.acceptance
-def test_list_hosts_includes_created_host(
-    docker_provider: DockerProviderInstance, temp_mngr_ctx: MngrContext
-) -> None:
+def test_list_hosts_includes_created_host(docker_provider: DockerProviderInstance, temp_mngr_ctx: MngrContext) -> None:
     host = docker_provider.create_host(HostName("test-list"))
     hosts = docker_provider.list_hosts(temp_mngr_ctx.concurrency_group)
     host_ids = {h.id for h in hosts}
