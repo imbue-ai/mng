@@ -269,12 +269,13 @@ class BaseAgent(AgentInterface):
 
     def _check_waiting_state(self) -> AgentLifecycleState:
         """Check if the agent is waiting and return WAITING or RUNNING state."""
-        waiting_path = self._get_agent_dir() / "waiting"
-        if self._check_file_exists(waiting_path):
+        active_path = self._get_agent_dir() / "active"
+        if self._check_file_exists(active_path):
+            logger.trace("Determined agent {} lifecycle state: RUNNING", self.name)
+            return AgentLifecycleState.RUNNING
+        else:
             logger.trace("Determined agent {} lifecycle state: WAITING", self.name)
             return AgentLifecycleState.WAITING
-        logger.trace("Determined agent {} lifecycle state: RUNNING (no waiting file)", self.name)
-        return AgentLifecycleState.RUNNING
 
     def _command_basename_matches(self, current: str, expected: str) -> bool:
         """Check if current command basename matches expected command."""

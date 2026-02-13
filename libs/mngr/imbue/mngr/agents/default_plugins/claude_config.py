@@ -317,14 +317,14 @@ def build_readiness_hooks_config() -> dict[str, Any]:
 
     - SessionStart: creates 'session_started' file AND tracks the current session ID
       (writes to claude_session_id and appends to claude_session_id_history)
-    - UserPromptSubmit: removes 'waiting' file AND signals tmux wait-for channel
-    - Stop: creates 'waiting' file (Claude finished processing, waiting for input)
+    - UserPromptSubmit: creates 'active' file AND signals tmux wait-for channel
+    - Notification (idle_prompt): removes 'active' file (Claude finished processing, waiting for input)
 
     File semantics:
     - session_started: Claude Code session has started (for initial message timing)
     - claude_session_id: current session UUID (atomically written via .tmp + mv)
     - claude_session_id_history: append-only log of all session UUIDs (one per line)
-    - waiting: Claude is waiting for user input (WAITING lifecycle state)
+    - active: Claude is processing user input (RUNNING lifecycle state, WAITING otherwise)
 
     The tmux wait-for signal on UserPromptSubmit allows instant detection of
     message submission without polling.
@@ -360,7 +360,7 @@ def build_readiness_hooks_config() -> dict[str, Any]:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": 'rm -f "$MNGR_AGENT_STATE_DIR/waiting"',
+                            "command": 'touch "$MNGR_AGENT_STATE_DIR/active"',
                         },
                         {
                             "type": "command",
@@ -369,14 +369,15 @@ def build_readiness_hooks_config() -> dict[str, Any]:
                     ]
                 }
             ],
-            "Stop": [
+            "Notification": [
                 {
+                    "matcher": "idle_prompt",
                     "hooks": [
                         {
                             "type": "command",
-                            "command": 'touch "$MNGR_AGENT_STATE_DIR/waiting"',
-                        }
-                    ]
+                            "command": 'rm -f "$MNGR_AGENT_STATE_DIR/active"',
+                        },
+                    ],
                 }
             ],
         }
