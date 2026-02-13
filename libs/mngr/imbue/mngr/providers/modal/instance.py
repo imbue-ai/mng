@@ -28,7 +28,6 @@ from typing import ParamSpec
 from typing import Sequence
 from typing import TypeVar
 from typing import cast
-from uuid import uuid4
 
 import modal
 import modal.exception
@@ -1886,10 +1885,8 @@ log "=== Shutdown script completed ==="
 
         # Generate snapshot name if not provided
         if name is None:
-            # FIXME: this is a dumb default--use the creation time instead
-            # Use first 8 characters of a random UUID as a short identifier
-            short_id = uuid4().hex[:8]
-            name = SnapshotName(f"snapshot-{short_id}")
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
+            name = SnapshotName(f"snapshot-{timestamp}")
 
         with log_span("Creating snapshot for Modal sandbox", host_id=str(host_id)):
             snapshot_id = self._record_snapshot(sandbox, host_id, name)
