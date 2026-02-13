@@ -522,6 +522,8 @@ def test_mngr_clone_transfers_claude_session_to_modal(
             "--no-connect",
             "--await-agent-stopped",
             "--no-ensure-clean",
+            "--project",
+            "session-transfer-test",
             "--",
             f"bash -c '{verify_cmd}'",
         ],
