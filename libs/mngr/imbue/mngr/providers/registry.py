@@ -11,6 +11,7 @@
 # Another candidate for lazy loading: celpy (~45ms) in api/list.py. It's only
 # needed when CEL filters are used (--include/--exclude), but is currently
 # imported at the top level via imbue.mngr.utils.cel_utils.
+import imbue.mngr.providers.docker.backend as docker_backend_module
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
@@ -22,7 +23,6 @@ from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
-from imbue.mngr.providers.docker.config import DockerProviderConfig
 
 # Cache for registered backends
 _backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
@@ -63,6 +63,7 @@ def _load_backends(pm, *, include_modal: bool) -> None:
 
     pm.register(local_backend_module)
     pm.register(ssh_backend_module)
+    pm.register(docker_backend_module)
     if include_modal:
         pm.register(modal_backend_module)
 
@@ -74,9 +75,6 @@ def _load_backends(pm, *, include_modal: bool) -> None:
             backend_name = backend_class.get_name()
             _backend_registry[backend_name] = backend_class
             _config_registry[backend_name] = config_class
-
-    # Register docker config (no backend implementation yet)
-    _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
 
     _registry_state["backends_loaded"] = True
 
