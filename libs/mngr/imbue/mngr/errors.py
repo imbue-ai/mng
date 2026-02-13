@@ -332,8 +332,18 @@ class UnknownBackendError(ConfigError):
     """Unknown provider backend."""
 
 
-class MissingConcurrencyGroupError(BaseMngrError, RuntimeError):
-    """Raised when a ConcurrencyGroup is required but not available on MngrContext."""
+class NestedTmuxError(MngrError):
+    """Cannot attach to tmux session from inside another tmux session."""
+
+    def __init__(self, session_name: str) -> None:
+        self.session_name = session_name
+        super().__init__(
+            f"You're already in a tmux session. You can attach to the agent with:\n  tmux attach -t {session_name}"
+        )
+        self.user_help_text = (
+            "To allow mngr to attach automatically inside tmux, run:\n"
+            "  mngr config set --scope user is_nested_tmux_allowed true"
+        )
 
 
 class UnisonNotInstalledError(MngrError):

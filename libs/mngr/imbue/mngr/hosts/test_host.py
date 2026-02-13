@@ -10,6 +10,8 @@ import os
 import stat
 import subprocess
 import threading
+from collections.abc import Callable
+from collections.abc import Generator
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -58,6 +60,42 @@ def host_with_temp_dir(local_provider: LocalProviderInstance, temp_host_dir: Pat
     host = local_provider.create_host(HostName("test"))
     assert isinstance(host, Host)
     return host, temp_host_dir
+
+
+@pytest.fixture
+def ssh_host_factory(
+    host_with_temp_dir: tuple[Host, Path],
+    temp_mngr_ctx: MngrContext,
+    tmp_path: Path,
+) -> Generator[Callable[[str], Host], None, None]:
+    """Create SSH host instances backed by a local sshd.
+
+    Yields a factory function that creates SSH hosts by name.
+    All hosts connect to the same local sshd process.
+    """
+    _local_host, temp_dir = host_with_temp_dir
+    private_key, public_key = generate_ssh_keypair(tmp_path)
+    public_key_content = public_key.read_text()
+
+    with local_sshd(public_key_content, tmp_path) as (port, _host_key):
+        current_user = os.environ.get("USER", "root")
+        ssh_config = SSHHostConfig(
+            address="127.0.0.1",
+            port=port,
+            user=current_user,
+            key_file=private_key,
+        )
+
+        def create_ssh_host(name: str) -> Host:
+            provider = SSHProviderInstance(
+                name=ProviderInstanceName(f"ssh-{name}"),
+                host_dir=temp_dir,
+                mngr_ctx=temp_mngr_ctx,
+                hosts={name: ssh_config},
+            )
+            return provider.get_host(HostName(name))
+
+        yield create_ssh_host
 
 
 # =============================================================================
@@ -243,9 +281,14 @@ def test_set_and_get_activity_config(host_with_temp_dir: tuple[Host, Path]) -> N
     """Test setting and getting activity config."""
     host, _ = host_with_temp_dir
     config = ActivityConfig(
-        idle_mode=IdleMode.USER,
         idle_timeout_seconds=7200,
-        activity_sources=(ActivitySource.USER, ActivitySource.AGENT),
+        activity_sources=(
+            ActivitySource.USER,
+            ActivitySource.SSH,
+            ActivitySource.CREATE,
+            ActivitySource.START,
+            ActivitySource.BOOT,
+        ),
     )
     host.set_activity_config(config)
 
@@ -321,6 +364,55 @@ def test_acquire_and_release_lock(host_with_temp_dir: tuple[Host, Path]) -> None
     with host.lock_cooperatively(timeout_seconds=5.0):
         lock_time = host.get_reported_lock_time()
         assert lock_time is not None
+
+
+def test_is_lock_held_returns_false_when_no_lock_file(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that is_lock_held returns False when the lock file does not exist."""
+    host, temp_dir = host_with_temp_dir
+    lock_path = temp_dir / "host_lock"
+    assert not lock_path.exists()
+    assert host.is_lock_held() is False
+
+
+def test_is_lock_held_returns_false_after_lock_released(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that is_lock_held returns False after a lock has been acquired and released.
+
+    On local hosts the lock file persists after flock release, so this verifies
+    that is_lock_held correctly distinguishes 'file exists' from 'lock held'.
+    """
+    host, temp_dir = host_with_temp_dir
+    with host.lock_cooperatively(timeout_seconds=5.0):
+        pass
+    # Lock file still exists after release
+    assert (temp_dir / "host_lock").exists()
+    # But is_lock_held correctly reports it is not held
+    assert host.is_lock_held() is False
+
+
+def test_is_lock_held_returns_true_while_lock_held(host_with_temp_dir: tuple[Host, Path]) -> None:
+    """Test that is_lock_held returns True while another process holds the lock."""
+    host, temp_dir = host_with_temp_dir
+    lock_path = temp_dir / "host_lock"
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+
+    def hold_lock():
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            lock_held.set()
+            release_lock.wait()
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+    thread = threading.Thread(target=hold_lock)
+    thread.start()
+    lock_held.wait()
+
+    try:
+        assert host.is_lock_held() is True
+    finally:
+        release_lock.set()
+        thread.join()
 
 
 def test_lock_timeout(host_with_temp_dir: tuple[Host, Path]) -> None:
@@ -1871,8 +1963,8 @@ def test_new_tmux_window_inherits_env_vars(
 ) -> None:
     """Test that new tmux windows created by the user also have env vars.
 
-    This verifies that the default-command is set on the tmux session so that
-    any new window/pane created by the user will automatically source the env files.
+    This verifies that the default-command sources env files so that any new
+    window/pane created by the user will have the agent's env vars available.
     """
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
@@ -1906,7 +1998,7 @@ def test_new_tmux_window_inherits_env_vars(
 
     try:
         # Create a new window in the session (simulating what a user would do)
-        # This window should inherit the default-command which sources env files
+        # This window should inherit env vars via tmux set-environment
         subprocess.run(
             ["tmux", "new-window", "-t", session_name, "-n", "user-window"],
             check=True,
@@ -2102,7 +2194,7 @@ def test_transfer_extra_files_with_many_files(
 @pytest.mark.timeout(60)
 def test_rsync_files_remote_files_from_handling(
     host_with_temp_dir: tuple[Host, Path],
-    temp_mngr_ctx: MngrContext,
+    ssh_host_factory: Callable[[str], Host],
     tmp_path: Path,
 ) -> None:
     """Test that files_from is copied to remote host when rsync runs remotely.
@@ -2111,7 +2203,7 @@ def test_rsync_files_remote_files_from_handling(
     files-from list to be available there. We use a real SSH connection via
     a local sshd to verify the actual behavior.
     """
-    local_host, temp_dir = host_with_temp_dir
+    local_host, _temp_dir = host_with_temp_dir
 
     # Create source files on the local filesystem
     source_path = tmp_path / "source_remote"
@@ -2127,51 +2219,100 @@ def test_rsync_files_remote_files_from_handling(
     files_from_path = tmp_path / "files_from.txt"
     files_from_path.write_text("file1.txt\nfile2.txt\n")
 
-    private_key, public_key = generate_ssh_keypair(tmp_path)
-    public_key_content = public_key.read_text()
+    ssh_host = ssh_host_factory("localhost")
+    assert not ssh_host.is_local
 
-    with local_sshd(public_key_content, tmp_path) as (port, _host_key):
-        current_user = os.environ.get("USER", "root")
-        ssh_provider = SSHProviderInstance(
-            name=ProviderInstanceName("ssh-test"),
-            host_dir=temp_dir,
-            mngr_ctx=temp_mngr_ctx,
-            hosts={
-                "localhost": SSHHostConfig(
-                    address="127.0.0.1",
-                    port=port,
-                    user=current_user,
-                    key_file=private_key,
-                ),
-            },
-        )
+    # Call _rsync_files with the SSH host as source
+    # Since source and target are local paths but source_host is remote,
+    # this tests the code path where the files_from file is copied to the remote
+    local_host._rsync_files(
+        source_host=ssh_host,
+        source_path=source_path,
+        target_path=target_path,
+        files_from=files_from_path,
+    )
 
-        # Get the SSH host
-        ssh_host = ssh_provider.get_host(HostName("localhost"))
+    # Verify only the files listed in files_from were transferred
+    assert (target_path / "file1.txt").read_text() == "content1"
+    assert (target_path / "file2.txt").read_text() == "content2"
+    # file3.txt should NOT have been transferred since it wasn't in files_from
+    assert not (target_path / "file3.txt").exists()
 
-        # Verify the SSH host is not local (is_local should be False)
-        assert not ssh_host.is_local
+    # Verify the temporary files_from file was cleaned up from the remote
+    # by checking that no files matching the pattern exist
+    result = ssh_host.execute_command("ls /tmp/rsync_files_from_*.txt 2>/dev/null || true")
+    assert "rsync_files_from_" not in result.stdout
 
-        # Call _rsync_files with the SSH host as source
-        # Since source and target are local paths but source_host is remote,
-        # this tests the code path where the files_from file is copied to the remote
-        local_host._rsync_files(
-            source_host=ssh_host,
-            source_path=source_path,
-            target_path=target_path,
-            files_from=files_from_path,
-        )
 
-        # Verify only the files listed in files_from were transferred
-        assert (target_path / "file1.txt").read_text() == "content1"
-        assert (target_path / "file2.txt").read_text() == "content2"
-        # file3.txt should NOT have been transferred since it wasn't in files_from
-        assert not (target_path / "file3.txt").exists()
+@pytest.mark.acceptance
+@pytest.mark.timeout(60)
+def test_rsync_files_remote_to_remote(
+    ssh_host_factory: Callable[[str], Host],
+    tmp_path: Path,
+) -> None:
+    """Test rsync between two remote hosts via local intermediary.
 
-        # Verify the temporary files_from file was cleaned up from the remote
-        # by checking that no files matching the pattern exist
-        result = ssh_host.execute_command("ls /tmp/rsync_files_from_*.txt 2>/dev/null || true")
-        assert "rsync_files_from_" not in result.stdout
+    Uses a single local sshd to simulate two different remote hosts.
+    The source SSH host syncs to a local temp dir, then syncs to the target SSH host.
+    """
+    # Create source files
+    source_path = tmp_path / "source_r2r"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("content1")
+    (source_path / "file2.txt").write_text("content2")
+    (source_path / "subdir").mkdir()
+    (source_path / "subdir" / "nested.txt").write_text("nested content")
+
+    target_path = tmp_path / "target_r2r"
+    target_path.mkdir()
+
+    source_host = ssh_host_factory("source-host")
+    target_host = ssh_host_factory("target-host")
+
+    assert not source_host.is_local
+    assert not target_host.is_local
+
+    target_host._rsync_files(
+        source_host=source_host,
+        source_path=source_path,
+        target_path=target_path,
+    )
+
+    assert (target_path / "file1.txt").read_text() == "content1"
+    assert (target_path / "file2.txt").read_text() == "content2"
+    assert (target_path / "subdir" / "nested.txt").read_text() == "nested content"
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(60)
+def test_rsync_files_remote_to_remote_with_files_from(
+    ssh_host_factory: Callable[[str], Host],
+    tmp_path: Path,
+) -> None:
+    """Test rsync between two remote hosts with files_from filtering."""
+    source_path = tmp_path / "source_r2r_ff"
+    source_path.mkdir()
+    (source_path / "include_me.txt").write_text("included")
+    (source_path / "exclude_me.txt").write_text("excluded")
+
+    target_path = tmp_path / "target_r2r_ff"
+    target_path.mkdir()
+
+    files_from_path = tmp_path / "files_from_r2r.txt"
+    files_from_path.write_text("include_me.txt\n")
+
+    source_host = ssh_host_factory("source-ff")
+    target_host = ssh_host_factory("target-ff")
+
+    target_host._rsync_files(
+        source_host=source_host,
+        source_path=source_path,
+        target_path=target_path,
+        files_from=files_from_path,
+    )
+
+    assert (target_path / "include_me.txt").read_text() == "included"
+    assert not (target_path / "exclude_me.txt").exists()
 
 
 def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tuple[Host, Path]) -> None:

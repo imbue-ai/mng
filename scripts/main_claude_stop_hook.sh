@@ -11,12 +11,6 @@ set -euo pipefail
 # Read hook input JSON from stdin (must be done before anything else consumes stdin)
 HOOK_INPUT=$(cat 2>/dev/null || echo '{}')
 
-# Remove the active session marker file on exit (regardless of success/failure)
-cleanup_active_file() {
-    rm -f .claude/active
-}
-trap cleanup_active_file EXIT
-
 # Check if we're in a tmux session
 if [ -z "${TMUX:-}" ]; then
     exit 0
@@ -28,9 +22,20 @@ if [ -z "${MAIN_CLAUDE_SESSION_ID:-}" ]; then
     exit 0
 fi
 
+# Use the latest session ID from the tracking file if available. Claude Code can
+# replace its session (e.g., exit plan mode, /clear, compaction), creating a new
+# session with a different UUID. The SessionStart hook writes the current session
+# ID to $MNGR_AGENT_STATE_DIR/claude_session_id so we can track it here.
+if [ -n "${MNGR_AGENT_STATE_DIR:-}" ] && [ -f "$MNGR_AGENT_STATE_DIR/claude_session_id" ]; then
+    _MNGR_READ_SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id")
+    if [ -n "$_MNGR_READ_SID" ]; then
+        MAIN_CLAUDE_SESSION_ID="$_MNGR_READ_SID"
+    fi
+fi
+
 # make the session id accessible to the reviewers
 mkdir -p .claude
-echo $MAIN_CLAUDE_SESSION_ID > .claude/sessionid
+echo "$MAIN_CLAUDE_SESSION_ID" > .claude/sessionid
 
 # Verify that all changes are committed (fail if not)
 untracked=$(git ls-files --others --exclude-standard)
@@ -93,8 +98,8 @@ fi
 # Push merge commits (if any were created)
 log_info "Pushing any merge commits..."
 if ! retry_command 3 git push origin HEAD; then
-    log_error "Failed to push merge commits after retries"
-    exit 1
+    log_error "Failed to push merge commits after retries. Perhaps you forgot to commit something? Or pre-commit hooks changed something? Or you made a mistake and modified a previous commit?"
+    exit 2
 fi
 
 # Check if there are any non-markdown file changes compared to the base branch
@@ -121,6 +126,7 @@ fi
 if [[ "$IS_INFORMATIONAL_ONLY" == "true" ]]; then
     log_info "No code changes detected compared to $BASE_BRANCH - this is an informational session. Exiting cleanly."
     notify_user || echo "No notify_user function defined, skipping."
+    rm -f "$MNGR_AGENT_STATE_DIR/active"
     exit 0
 fi
 
@@ -217,6 +223,7 @@ if [[ $REVIEWER_EXIT -ne 0 ]]; then
 fi
 
 # Call local notification script if it exists
+rm -f "$MNGR_AGENT_STATE_DIR/active"
 notify_user || echo "No notify_user function defined, skipping."
 
 exit 0

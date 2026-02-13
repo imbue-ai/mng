@@ -55,6 +55,7 @@ mngr config [OPTIONS] COMMAND [ARGS]...
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mngr/profiles/<profile_id>/), project (.mngr/), or local (.mngr/settings.local.toml) | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mngr config list
 
