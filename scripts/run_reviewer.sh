@@ -161,6 +161,48 @@ cache_results() {
     echo "$exit_code" > "$CACHE_EXIT_CODE_FILE"
 }
 
+# Upload reviewer output to a Modal volume for data collection (best-effort).
+# Tries two methods (both allowed to fail):
+#   1. Direct copy to a mounted volume path + sync (works inside Modal sandbox)
+#   2. Upload via `modal volume put` CLI (works when running locally)
+UPLOAD_VOLUME_NAME="code-reviews"
+UPLOAD_VOLUME_MOUNT="/code_reviews"
+
+upload_reviewer_output() {
+    local output_file="$1"
+    local commit="$2"
+
+    # Extract reviewer number from window name (e.g., "reviewer_0" -> "0")
+    local reviewer_num="${WINDOW#reviewer_}"
+
+    # Build nested directory path from commit hash to work around per-directory
+    # file limits on Modal volumes.  First 4 chunks of 4 hex chars become
+    # directory levels; the remaining 24 chars become the final directory.
+    # e.g. 63dced2455b3a9a54942169b02273ac568757f8e
+    #   -> 63dc/ed24/55b3/a9a5/4942169b02273ac568757f8e/
+    local nested_path="${commit:0:4}/${commit:4:4}/${commit:8:4}/${commit:12:4}/${commit:16}"
+    local filename="${reviewer_num}.jsonl"
+
+    # Method 1: Copy to mounted volume + sync (Modal sandbox)
+    local mount_dir="${UPLOAD_VOLUME_MOUNT}/${nested_path}"
+    if mkdir -p "${mount_dir}" 2>/dev/null && cp "$output_file" "${mount_dir}/${filename}" 2>/dev/null; then
+        if sync "${UPLOAD_VOLUME_MOUNT}" 2>/dev/null; then
+            log_info "Uploaded reviewer output to mounted volume at ${mount_dir}/${filename}"
+        else
+            log_warn "Copied to mounted volume but sync failed"
+        fi
+    else
+        log_warn "Direct volume copy failed (expected if not running in Modal)"
+    fi
+
+    # Method 2: Upload via modal CLI (local machine with Modal credentials)
+    if uv run modal volume put "${UPLOAD_VOLUME_NAME}" "$output_file" "/${nested_path}/${filename}" --force 2>/dev/null; then
+        log_info "Uploaded reviewer output via modal volume put"
+    else
+        log_warn "modal volume put failed (expected if not running locally with Modal credentials)"
+    fi
+}
+
 if [[ "$BLOCKING_ISSUES" -gt 0 ]]; then
     log_error "Found $BLOCKING_ISSUES blocking issues (CRITICAL/MAJOR with confidence >= 0.7)"
     cache_results 2
@@ -168,5 +210,6 @@ if [[ "$BLOCKING_ISSUES" -gt 0 ]]; then
 fi
 
 log_info "Reviewer $WINDOW completed successfully (no blocking issues)"
+upload_reviewer_output "$REVIEW_OUTPUT_FILE" "$CURRENT_COMMIT"
 cache_results 0
 exit 0
