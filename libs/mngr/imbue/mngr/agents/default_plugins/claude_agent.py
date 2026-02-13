@@ -480,7 +480,7 @@ class ClaudeAgent(BaseAgent):
                 try:
                     extend_claude_trust_to_worktree(source_path, self.work_dir)
                 except ClaudeDirectoryNotTrustedError:
-                    if mngr_ctx.is_interactive and _prompt_user_for_trust(source_path):
+                    if mngr_ctx.is_auto_approve or (mngr_ctx.is_interactive and _prompt_user_for_trust(source_path)):
                         add_claude_trust_for_path(source_path)
                         extend_claude_trust_to_worktree(source_path, self.work_dir)
                     else:
@@ -497,8 +497,10 @@ class ClaudeAgent(BaseAgent):
                 logger.warning("Claude is not installed on the host")
 
                 if host.is_local:
-                    # For local hosts, prompt the user for consent (if interactive)
-                    if mngr_ctx.is_interactive:
+                    # For local hosts, auto-approve or prompt the user for consent
+                    if mngr_ctx.is_auto_approve:
+                        logger.debug("Auto-approving claude installation (--yes)")
+                    elif mngr_ctx.is_interactive:
                         if _prompt_user_for_installation():
                             logger.debug("User consented to install claude locally")
                         else:
