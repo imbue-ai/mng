@@ -61,6 +61,7 @@ from imbue.mngr.providers.modal.instance import TAG_HOST_ID
 from imbue.mngr.providers.modal.instance import TAG_HOST_NAME
 from imbue.mngr.providers.modal.instance import TAG_USER_PREFIX
 from imbue.mngr.providers.modal.instance import _build_modal_secrets_from_env
+from imbue.mngr.providers.modal.instance import _parse_volume_spec
 from imbue.mngr.providers.modal.instance import build_sandbox_tags
 from imbue.mngr.providers.modal.instance import parse_sandbox_tags
 from imbue.mngr.utils.testing import TEST_ENV_PREFIX
@@ -850,6 +851,87 @@ def test_parse_build_args_secrets_with_other_args(modal_provider: ModalProviderI
     assert config.cpu == 2.0
     assert config.memory == 4.0
     assert config.secrets == ("TOKEN1", "TOKEN2")
+
+
+# =============================================================================
+# Tests for volume build args
+# =============================================================================
+
+
+def test_parse_build_args_single_volume(modal_provider: ModalProviderInstance) -> None:
+    """Should parse a single --volume argument."""
+    config = modal_provider._parse_build_args(["--volume=my-data:/data"])
+    assert config.volumes == (("my-data", "/data"),)
+
+
+def test_parse_build_args_single_volume_key_value_format(modal_provider: ModalProviderInstance) -> None:
+    """Should parse volume=name:/path key-value format."""
+    config = modal_provider._parse_build_args(["volume=my-data:/data"])
+    assert config.volumes == (("my-data", "/data"),)
+
+
+def test_parse_build_args_multiple_volumes(modal_provider: ModalProviderInstance) -> None:
+    """Should parse multiple --volume arguments."""
+    config = modal_provider._parse_build_args(["--volume=cache:/cache", "--volume=results:/results"])
+    assert config.volumes == (("cache", "/cache"), ("results", "/results"))
+
+
+def test_parse_build_args_volume_invalid_format_no_colon(modal_provider: ModalProviderInstance) -> None:
+    """Missing ':' separator in volume spec should raise MngrError."""
+    with pytest.raises(MngrError) as exc_info:
+        modal_provider._parse_build_args(["--volume=nodatapath"])
+    assert "Invalid volume spec" in str(exc_info.value)
+
+
+def test_parse_build_args_volume_invalid_format_empty_name(modal_provider: ModalProviderInstance) -> None:
+    """Empty volume name should raise MngrError."""
+    with pytest.raises(MngrError) as exc_info:
+        modal_provider._parse_build_args(["--volume=:/data"])
+    assert "Invalid volume spec" in str(exc_info.value)
+
+
+def test_parse_build_args_volume_invalid_format_empty_path(modal_provider: ModalProviderInstance) -> None:
+    """Empty mount path should raise MngrError."""
+    with pytest.raises(MngrError) as exc_info:
+        modal_provider._parse_build_args(["--volume=name:"])
+    assert "Invalid volume spec" in str(exc_info.value)
+
+
+def test_parse_build_args_volume_default_is_empty(modal_provider: ModalProviderInstance) -> None:
+    """volumes should default to empty tuple."""
+    config = modal_provider._parse_build_args([])
+    assert config.volumes == ()
+
+    config = modal_provider._parse_build_args(["cpu=2"])
+    assert config.volumes == ()
+
+
+def test_parse_build_args_volumes_with_other_args(modal_provider: ModalProviderInstance) -> None:
+    """Should parse volumes alongside other build args."""
+    config = modal_provider._parse_build_args(["cpu=2", "--volume=data:/data", "memory=4", "--volume=logs:/logs"])
+    assert config.cpu == 2.0
+    assert config.memory == 4.0
+    assert config.volumes == (("data", "/data"), ("logs", "/logs"))
+
+
+def test_parse_volume_spec_valid() -> None:
+    """Should parse valid volume specs."""
+    assert _parse_volume_spec("my-vol:/mount") == ("my-vol", "/mount")
+    assert _parse_volume_spec("name:/path/to/dir") == ("name", "/path/to/dir")
+
+
+def test_parse_volume_spec_invalid_no_colon() -> None:
+    """Should raise on missing colon."""
+    with pytest.raises(MngrError):
+        _parse_volume_spec("nopath")
+
+
+def test_parse_volume_spec_invalid_empty_parts() -> None:
+    """Should raise on empty name or path."""
+    with pytest.raises(MngrError):
+        _parse_volume_spec(":/path")
+    with pytest.raises(MngrError):
+        _parse_volume_spec("name:")
 
 
 # =============================================================================
