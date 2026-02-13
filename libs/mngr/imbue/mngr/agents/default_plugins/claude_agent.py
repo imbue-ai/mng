@@ -513,10 +513,10 @@ class ClaudeAgent(BaseAgent):
                             "  curl -fsSL https://claude.ai/install.sh | bash"
                         )
                 else:
-                    if not mngr_ctx.config.allow_remote_agent_installation:
+                    if not mngr_ctx.config.is_remote_agent_installation_allowed:
                         raise PluginMngrError(
                             "Claude is not installed on the remote host and automatic remote installation is disabled. "
-                            "Set allow_remote_agent_installation = true in your mngr config to enable automatic installation, "
+                            "Set is_remote_agent_installation_allowed = true in your mngr config to enable automatic installation, "
                             "or install Claude manually on the remote host."
                         )
                     else:

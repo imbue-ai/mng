@@ -759,11 +759,11 @@ def test_provision_raises_when_remote_installation_disabled(
     plugin_manager: "pluggy.PluginManager",
     mngr_test_prefix: str,
 ) -> None:
-    """provision should raise when claude is not installed on remote host and allow_remote_agent_installation is False."""
+    """provision should raise when claude is not installed on remote host and is_remote_agent_installation_allowed is False."""
     config = MngrConfig(
         prefix=mngr_test_prefix,
         default_host_dir=temp_host_dir,
-        allow_remote_agent_installation=False,
+        is_remote_agent_installation_allowed=False,
     )
     with ConcurrencyGroup(name="test-remote-install") as cg:
         ctx = make_mngr_ctx(config, plugin_manager, temp_profile_dir, concurrency_group=cg)

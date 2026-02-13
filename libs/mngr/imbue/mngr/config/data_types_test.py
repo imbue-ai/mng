@@ -704,19 +704,19 @@ def test_mngr_config_merge_enabled_backends_keeps_base_when_override_empty(mngr_
 
 
 # =============================================================================
-# Tests for MngrConfig.allow_remote_agent_installation
+# Tests for MngrConfig.is_remote_agent_installation_allowed
 # =============================================================================
 
 
-def test_mngr_config_allow_remote_agent_installation_defaults_true(mngr_test_prefix: str) -> None:
-    """MngrConfig.allow_remote_agent_installation should default to True."""
+def test_mngr_config_is_remote_agent_installation_allowed_defaults_true(mngr_test_prefix: str) -> None:
+    """MngrConfig.is_remote_agent_installation_allowed should default to True."""
     config = MngrConfig(prefix=mngr_test_prefix)
-    assert config.allow_remote_agent_installation is True
+    assert config.is_remote_agent_installation_allowed is True
 
 
-def test_mngr_config_merge_allow_remote_agent_installation_override_wins(mngr_test_prefix: str) -> None:
-    """MngrConfig merge should use override's allow_remote_agent_installation."""
-    base = MngrConfig(prefix=mngr_test_prefix, allow_remote_agent_installation=True)
-    override = MngrConfig(prefix=mngr_test_prefix, allow_remote_agent_installation=False)
+def test_mngr_config_merge_is_remote_agent_installation_allowed_override_wins(mngr_test_prefix: str) -> None:
+    """MngrConfig merge should use override's is_remote_agent_installation_allowed."""
+    base = MngrConfig(prefix=mngr_test_prefix, is_remote_agent_installation_allowed=True)
+    override = MngrConfig(prefix=mngr_test_prefix, is_remote_agent_installation_allowed=False)
     merged = base.merge_with(override)
-    assert merged.allow_remote_agent_installation is False
+    assert merged.is_remote_agent_installation_allowed is False
