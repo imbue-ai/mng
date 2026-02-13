@@ -13,16 +13,19 @@ from imbue.mngr.errors import UserInputError
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
 
-# Prevent all tests in this module from opening a real browser.
-# Each test that calls open_agent_url (with a URL) needs this.
+
+@pytest.fixture(autouse=True)
+def _reset_intercepted_urls() -> None:
+    """Clear the intercepted URL list before each test."""
+    _intercepted_urls.clear()
+
+
 _intercepted_urls: list[str] = []
 
 
-@pytest.fixture(autouse=True)
-def _suppress_browser(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Intercept webbrowser.open to prevent browser launches during tests."""
-    _intercepted_urls.clear()
-    monkeypatch.setattr("imbue.mngr.api.open.webbrowser.open", lambda url: _intercepted_urls.append(url))
+def _capture_url(url: str) -> None:
+    """Test replacement for webbrowser.open that captures URLs."""
+    _intercepted_urls.append(url)
 
 
 def test_open_agent_url_opens_browser(
@@ -34,7 +37,7 @@ def test_open_agent_url_opens_browser(
     agent = create_test_base_agent(
         local_provider, temp_host_dir, temp_work_dir, reported_urls={"default": "https://example.com/agent"}
     )
-    open_agent_url(agent=agent, is_wait=False, is_active=False)
+    open_agent_url(agent=agent, is_wait=False, is_active=False, open_url=_capture_url)
 
     assert len(_intercepted_urls) == 1
     assert _intercepted_urls[0] == "https://example.com/agent"
@@ -49,7 +52,7 @@ def test_open_agent_url_raises_when_no_url(
     agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
 
     with pytest.raises(UserInputError, match="has no URL"):
-        open_agent_url(agent=agent, is_wait=False, is_active=False)
+        open_agent_url(agent=agent, is_wait=False, is_active=False, open_url=_capture_url)
 
 
 def test_open_agent_url_wait_exits_when_stop_event_set(
@@ -66,7 +69,7 @@ def test_open_agent_url_wait_exits_when_stop_event_set(
     stop_event = threading.Event()
     stop_event.set()
 
-    open_agent_url(agent=agent, is_wait=True, is_active=False, stop_event=stop_event)
+    open_agent_url(agent=agent, is_wait=True, is_active=False, stop_event=stop_event, open_url=_capture_url)
 
 
 def test_record_activity_loop_records_until_stopped(
@@ -126,6 +129,7 @@ def test_open_agent_url_active_records_activity(
             "is_active": True,
             "stop_event": stop_event,
             "activity_interval_seconds": 0.01,
+            "open_url": _capture_url,
         },
         daemon=True,
     )
@@ -229,7 +233,7 @@ def test_open_agent_url_with_type_opens_typed_url(
         temp_work_dir,
         reported_urls={"default": "https://example.com/default", "terminal": "https://example.com/ttyd"},
     )
-    open_agent_url(agent=agent, is_wait=False, is_active=False, url_type="terminal")
+    open_agent_url(agent=agent, is_wait=False, is_active=False, url_type="terminal", open_url=_capture_url)
 
     assert len(_intercepted_urls) == 1
     assert _intercepted_urls[0] == "https://example.com/ttyd"

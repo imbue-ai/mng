@@ -102,7 +102,7 @@ def test_prevent_broad_exception_catch() -> None:
     pattern = RegexPattern(r"except\s+Exception\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
-    assert len(chunks) <= snapshot(3), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
         rule_name="except Exception catches",
         rule_description="Catching 'Exception' is too broad. Use specific exception types instead",
         chunks=chunks,
@@ -652,7 +652,7 @@ def test_prevent_monkeypatch_setattr() -> None:
     pattern = RegexPattern(r"monkeypatch\.setattr")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
 
-    assert len(chunks) <= snapshot(33), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(32), format_ratchet_failure_message(
         rule_name="monkeypatch.setattr usages",
         rule_description=(
             "Do not use monkeypatch.setattr to replace attributes or functions at runtime. "

@@ -15,6 +15,7 @@ from starlette.responses import Response
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import list_agents as _list_agents
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
+from imbue.mngr.errors import BaseMngrError
 from imbue.mngr.plugins.api_server.web_ui import generate_web_ui_html
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import ErrorBehavior
@@ -86,8 +87,8 @@ def list_agents_endpoint(
         )
         agents_data = [_agent_info_to_dict(a) for a in result.agents]
         errors = [e.model_dump() for e in result.errors]
-    except Exception as e:
-        # Provider initialization failures (e.g. Modal auth) can crash before
+    except BaseMngrError as e:
+        # Provider initialization failures (e.g. ModalAuthError) can crash before
         # error_behavior takes effect. Return partial results with the error.
         logger.warning("Error loading agents: {}", e)
         agents_data = []

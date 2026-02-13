@@ -22,6 +22,7 @@ from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import ConfigStructureError
+from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -420,12 +421,7 @@ Supported build arguments for the modal provider:
                 get_output_callback=lambda: context_handle.output_buffer.getvalue(),
             )
         except modal.exception.AuthError as e:
-            if True:
-                raise
-            raise MngrError(
-                "Modal is not authorized: run 'modal token set' to authenticate, or disable this provider with "
-                f"'mngr config set --scope local providers.{name}.is_enabled false'. (original error: {e})",
-            ) from e
+            raise ModalAuthError() from e
 
         return ModalProviderInstance(
             name=name,
