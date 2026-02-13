@@ -144,6 +144,30 @@ def _volume_batch_upload_file(volume: modal.Volume, file_data: bytes, path: str)
         batch.put_file(io.BytesIO(file_data), path)
 
 
+def _parse_volume_spec(spec: str) -> tuple[str, str]:
+    """Parse a volume mount spec of the form 'volume_name:mount_path'."""
+    parts = spec.split(":", 1)
+    if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+        raise MngrError(f"Invalid volume spec '{spec}': expected format 'volume_name:/mount/path'")
+    return (parts[0].strip(), parts[1].strip())
+
+
+def _build_modal_volumes(
+    volume_specs: tuple[tuple[str, str], ...],
+    environment_name: str,
+) -> dict[str | os.PathLike[str], modal.Volume | modal.CloudBucketMount]:
+    """Build a dict of mount_path -> modal.Volume for Sandbox.create()."""
+    volumes: dict[str | os.PathLike[str], modal.Volume | modal.CloudBucketMount] = {}
+    for volume_name, mount_path in volume_specs:
+        with log_span("Ensuring volume: {} at {}", volume_name, mount_path):
+            volumes[mount_path] = modal.Volume.from_name(
+                volume_name,
+                create_if_missing=True,
+                environment_name=environment_name,
+            )
+    return volumes
+
+
 def build_sandbox_tags(
     host_id: HostId,
     name: HostName,
@@ -218,6 +242,10 @@ class SandboxConfig(HostConfig):
     secrets: tuple[str, ...] = Field(
         default_factory=tuple,
         description="Environment variable names to pass as secrets during image build",
+    )
+    volumes: tuple[tuple[str, str], ...] = Field(
+        default_factory=tuple,
+        description="Volume mounts as (volume_name, mount_path) pairs",
     )
 
 
@@ -982,6 +1010,7 @@ log "=== Shutdown script completed ==="
         parser.add_argument("--region", type=str, default=self.config.default_region)
         parser.add_argument("--context-dir", type=str, default=None)
         parser.add_argument("--secret", type=str, action="append", default=[])
+        parser.add_argument("--volume", type=str, action="append", default=[])
 
         try:
             parsed, unknown = parser.parse_known_args(normalized_args)
@@ -1001,6 +1030,7 @@ log "=== Shutdown script completed ==="
             region=parsed.region,
             context_dir=parsed.context_dir,
             secrets=tuple(parsed.secret),
+            volumes=tuple(_parse_volume_spec(v) for v in parsed.volume),
         )
 
     # =========================================================================
@@ -1286,6 +1316,10 @@ log "=== Shutdown script completed ==="
             # Add shutdown buffer to the timeout sent to Modal so the activity watcher can
             # trigger a clean shutdown before Modal's hard timeout kills the host
             modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
+
+            # Build volume mounts from build args
+            sandbox_volumes = _build_modal_volumes(config.volumes, self.environment_name)
+
             with log_span(
                 "Creating Modal sandbox",
                 timeout=config.timeout,
@@ -1307,6 +1341,7 @@ log "=== Shutdown script completed ==="
                     unencrypted_ports=[CONTAINER_SSH_PORT],
                     gpu=config.gpu,
                     region=config.region,
+                    volumes=sandbox_volumes,
                 )
                 logger.trace("Created Modal sandbox", sandbox_id=sandbox.object_id)
         except (modal.exception.Error, MngrError) as e:
@@ -1545,6 +1580,10 @@ log "=== Shutdown script completed ==="
             # trigger a clean shutdown before Modal's hard timeout kills the host
             modal_timeout = config.timeout + self.config.shutdown_buffer_seconds
             memory_mb = int(config.memory * 1024)
+
+            # Build volume mounts from the stored config
+            sandbox_volumes = _build_modal_volumes(config.volumes, self.environment_name)
+
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
@@ -1556,6 +1595,7 @@ log "=== Shutdown script completed ==="
                 unencrypted_ports=[CONTAINER_SSH_PORT],
                 gpu=config.gpu,
                 region=config.region,
+                volumes=sandbox_volumes,
             )
         logger.info("Created sandbox from snapshot", sandbox_id=new_sandbox.object_id)
 

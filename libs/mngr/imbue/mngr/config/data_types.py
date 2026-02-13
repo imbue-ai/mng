@@ -452,6 +452,10 @@ class MngrConfig(FrozenModel):
         "When False, raises an error if the agent is not already installed on the remote host. "
         "Defaults to True (allowed).",
     )
+    is_nested_tmux_allowed: bool = Field(
+        default=False,
+        description="Allow attaching to tmux sessions from within an existing tmux session by unsetting $TMUX",
+    )
     is_allowed_in_pytest: bool = Field(
         default=True,
         description="Set this to False to prevent loading this config in pytest runs",
@@ -565,6 +569,11 @@ class MngrConfig(FrozenModel):
         if override.is_remote_agent_installation_allowed is not None:
             is_remote_agent_installation_allowed = override.is_remote_agent_installation_allowed
 
+        # Merge is_nested_tmux_allowed (scalar - override wins if not None)
+        merged_is_nested_tmux_allowed = self.is_nested_tmux_allowed
+        if override.is_nested_tmux_allowed is not None:
+            merged_is_nested_tmux_allowed = override.is_nested_tmux_allowed
+
         is_allowed_in_pytest = self.is_allowed_in_pytest
         if override.is_allowed_in_pytest is not None:
             is_allowed_in_pytest = override.is_allowed_in_pytest
@@ -589,6 +598,7 @@ class MngrConfig(FrozenModel):
             pre_command_scripts=merged_pre_command_scripts,
             is_remote_agent_installation_allowed=is_remote_agent_installation_allowed,
             logging=merged_logging,
+            is_nested_tmux_allowed=merged_is_nested_tmux_allowed,
             is_allowed_in_pytest=is_allowed_in_pytest,
         )
 

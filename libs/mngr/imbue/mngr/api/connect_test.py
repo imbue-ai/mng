@@ -26,6 +26,7 @@ from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
+from imbue.mngr.errors import NestedTmuxError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.primitives import AgentId
@@ -477,3 +478,56 @@ def test_ssh_wrapper_script_is_correctly_quoted_for_bash_c() -> None:
     # the full wrapper script as a single -c argument
     parsed = shlex.split(remote_command)
     assert parsed == ["bash", "-c", wrapper_script]
+
+
+# =========================================================================
+# Tests for nested tmux detection in connect_to_agent (local host)
+# =========================================================================
+
+
+def _make_local_host_and_agent(
+    local_provider: LocalProviderInstance,
+    mngr_ctx: MngrContext,
+    agent_name: str = "test-agent",
+) -> tuple[Host, _TestAgent]:
+    """Create a local host and agent for testing connect_to_agent."""
+    host = Host(
+        id=HostId(f"host-{uuid4().hex}"),
+        connector=PyinfraConnector(local_provider._create_local_pyinfra_host()),
+        provider_instance=local_provider,
+        mngr_ctx=mngr_ctx,
+    )
+    agent = _TestAgent(
+        id=AgentId(f"agent-{uuid4().hex}"),
+        name=AgentName(agent_name),
+        agent_type=AgentTypeName("test"),
+        work_dir=Path("/tmp/work"),
+        create_time=datetime.now(timezone.utc),
+        host_id=host.id,
+        mngr_ctx=mngr_ctx,
+        agent_config=AgentTypeConfig(),
+        host=host,
+    )
+    return host, agent
+
+
+def test_connect_to_agent_local_raises_nested_tmux_error_when_tmux_is_set(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that connect_to_agent raises NestedTmuxError when $TMUX is set and is_nested_tmux_allowed is False."""
+    host, agent = _make_local_host_and_agent(local_provider, temp_mngr_ctx)
+    opts = ConnectionOptions(is_unknown_host_allowed=False)
+
+    # Simulate being inside a tmux session
+    monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+
+    with pytest.raises(NestedTmuxError) as exc_info:
+        connect_to_agent(agent, host, temp_mngr_ctx, opts)
+
+    expected_session = f"{temp_mngr_ctx.config.prefix}test-agent"
+    assert exc_info.value.session_name == expected_session
+    assert expected_session in str(exc_info.value)
+    assert exc_info.value.user_help_text is not None
+    assert "is_nested_tmux_allowed" in exc_info.value.user_help_text
