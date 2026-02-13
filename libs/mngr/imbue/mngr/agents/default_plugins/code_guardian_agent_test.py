@@ -2,6 +2,9 @@
 
 from pathlib import Path
 
+import pluggy
+
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.agents.agent_registry import get_agent_class
 from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.agents.agent_registry import list_registered_agent_types
@@ -14,6 +17,7 @@ from imbue.mngr.agents.default_plugins.code_guardian_agent import _SKILL_NAME
 from imbue.mngr.agents.default_plugins.code_guardian_agent import _install_skill_locally
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.conftest import make_mngr_ctx
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 
@@ -126,3 +130,43 @@ def test_install_skill_locally_overwrites_existing_skill_in_non_interactive_mode
     _install_skill_locally(temp_mngr_ctx)
 
     assert skill_path.read_text() == _CODE_GUARDIAN_SKILL_CONTENT
+
+
+def test_install_skill_locally_skips_when_content_unchanged(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """When skill content is already up to date, installation should be skipped."""
+    skill_path = Path.home() / ".claude" / "skills" / _SKILL_NAME / "SKILL.md"
+    skill_path.parent.mkdir(parents=True, exist_ok=True)
+    skill_path.write_text(_CODE_GUARDIAN_SKILL_CONTENT)
+    original_mtime = skill_path.stat().st_mtime
+
+    _install_skill_locally(temp_mngr_ctx)
+
+    # File should not have been rewritten (mtime unchanged)
+    assert skill_path.stat().st_mtime == original_mtime
+
+
+def test_install_skill_locally_auto_approve_installs_without_prompting(
+    temp_config: MngrConfig,
+    temp_profile_dir: Path,
+    plugin_manager: "pluggy.PluginManager",
+) -> None:
+    """With is_auto_approve=True and is_interactive=True, skill should install without prompting."""
+    with ConcurrencyGroup(name="test-auto-approve") as cg:
+        auto_approve_ctx = make_mngr_ctx(
+            temp_config,
+            plugin_manager,
+            temp_profile_dir,
+            is_interactive=True,
+            is_auto_approve=True,
+            concurrency_group=cg,
+        )
+        skill_path = Path.home() / ".claude" / "skills" / _SKILL_NAME / "SKILL.md"
+        assert not skill_path.exists()
+
+        # This would hang if prompting occurred, but auto_approve bypasses it
+        _install_skill_locally(auto_approve_ctx)
+
+        assert skill_path.exists()
+        assert skill_path.read_text() == _CODE_GUARDIAN_SKILL_CONTENT
