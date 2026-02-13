@@ -129,8 +129,8 @@ def build_definition_from_cli(
         kwargs["branch"] = branch
     if message is not None:
         kwargs["initial_message"] = message
-    if agent_type is not None:
-        kwargs["agent_type"] = agent_type
+    # Default agent_type to the changeling name (per design.md)
+    kwargs["agent_type"] = agent_type if agent_type is not None else name
     if secrets:
         kwargs["secrets"] = secrets
     if parsed_env_vars:

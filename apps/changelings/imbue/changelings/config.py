@@ -110,6 +110,10 @@ def _parse_config(raw: dict) -> ChangelingConfig:
         definition_data = dict(fields)
         definition_data["name"] = changeling_name
 
+        # Default agent_type to the changeling name (per design.md)
+        if "agent_type" not in definition_data:
+            definition_data["agent_type"] = str(changeling_name)
+
         # Parse typed fields
         if "schedule" in definition_data:
             definition_data["schedule"] = CronSchedule(definition_data["schedule"])
