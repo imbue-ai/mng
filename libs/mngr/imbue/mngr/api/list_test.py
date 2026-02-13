@@ -17,6 +17,33 @@ from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import ProviderInstanceName
 
 # =============================================================================
+# Helpers
+# =============================================================================
+
+
+def _make_host_info() -> HostInfo:
+    return HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("local"),
+    )
+
+
+def _make_agent_info(name: str, host_info: HostInfo) -> AgentInfo:
+    return AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName(name),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        state=AgentLifecycleState.RUNNING,
+        host=host_info,
+    )
+
+
+# =============================================================================
 # Completion Cache Write Tests
 # =============================================================================
 
@@ -26,35 +53,11 @@ def test_write_completion_cache_writes_agent_names(
     temp_mngr_ctx: MngrContext,
 ) -> None:
     """Test that _write_completion_cache writes sorted agent names to the cache file."""
-    host_info = HostInfo(
-        id=HostId.generate(),
-        name="test-host",
-        provider_name=ProviderInstanceName("local"),
-    )
+    host_info = _make_host_info()
     result = ListResult(
         agents=[
-            AgentInfo(
-                id=AgentId.generate(),
-                name=AgentName("beta-agent"),
-                type="claude",
-                command=CommandString("sleep 100"),
-                work_dir=Path("/work"),
-                create_time=datetime.now(timezone.utc),
-                start_on_boot=False,
-                state=AgentLifecycleState.RUNNING,
-                host=host_info,
-            ),
-            AgentInfo(
-                id=AgentId.generate(),
-                name=AgentName("alpha-agent"),
-                type="claude",
-                command=CommandString("sleep 100"),
-                work_dir=Path("/work"),
-                create_time=datetime.now(timezone.utc),
-                start_on_boot=False,
-                state=AgentLifecycleState.RUNNING,
-                host=host_info,
-            ),
+            _make_agent_info("beta-agent", host_info),
+            _make_agent_info("alpha-agent", host_info),
         ]
     )
 
@@ -87,35 +90,11 @@ def test_write_completion_cache_deduplicates_names(
     temp_mngr_ctx: MngrContext,
 ) -> None:
     """Test that _write_completion_cache deduplicates agent names."""
-    host_info = HostInfo(
-        id=HostId.generate(),
-        name="test-host",
-        provider_name=ProviderInstanceName("local"),
-    )
+    host_info = _make_host_info()
     result = ListResult(
         agents=[
-            AgentInfo(
-                id=AgentId.generate(),
-                name=AgentName("same-name"),
-                type="claude",
-                command=CommandString("sleep 100"),
-                work_dir=Path("/work"),
-                create_time=datetime.now(timezone.utc),
-                start_on_boot=False,
-                state=AgentLifecycleState.RUNNING,
-                host=host_info,
-            ),
-            AgentInfo(
-                id=AgentId.generate(),
-                name=AgentName("same-name"),
-                type="claude",
-                command=CommandString("sleep 100"),
-                work_dir=Path("/work"),
-                create_time=datetime.now(timezone.utc),
-                start_on_boot=False,
-                state=AgentLifecycleState.RUNNING,
-                host=host_info,
-            ),
+            _make_agent_info("same-name", host_info),
+            _make_agent_info("same-name", host_info),
         ]
     )
 
