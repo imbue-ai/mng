@@ -10,9 +10,9 @@ _SHELL_CLASSES = {
 }
 
 _SETUP_INSTRUCTIONS = {
-    "bash": 'Add this to ~/.bashrc:\n\n  eval "$(_MNGR_COMPLETE=bash_source mngr)"',
-    "zsh": 'Add this to ~/.zshrc:\n\n  eval "$(_MNGR_COMPLETE=zsh_source mngr)"',
-    "fish": "Save the output to ~/.config/fish/completions/mngr.fish:\n\n  _MNGR_COMPLETE=fish_source mngr > ~/.config/fish/completions/mngr.fish",
+    "bash": 'Add this to ~/.bashrc:\n\n  eval "$(mngr completion bash)"',
+    "zsh": 'Add this to ~/.zshrc:\n\n  eval "$(mngr completion zsh)"',
+    "fish": "Save the output to ~/.config/fish/completions/mngr.fish:\n\n  mngr completion fish > ~/.config/fish/completions/mngr.fish",
 }
 
 
@@ -42,3 +42,7 @@ def completion_command(shell: str) -> None:
     source = comp.source()
     click.echo(source)
     click.echo(f"\n# Setup instructions:\n# {_SETUP_INSTRUCTIONS[shell]}", err=True)
+    click.echo(
+        "# Note: mngr must be installed on your PATH (not invoked via 'uv run').",
+        err=True,
+    )
