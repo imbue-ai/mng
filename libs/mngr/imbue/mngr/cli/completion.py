@@ -62,6 +62,9 @@ def _trigger_background_cache_refresh() -> None:
         if mngr_path is None:
             return
 
+        # Uses subprocess.Popen directly (not ConcurrencyGroup) because this module
+        # runs in the shell completion context and intentionally avoids importing
+        # mngr internals to keep TAB completion fast and lightweight.
         devnull = subprocess.DEVNULL
         subprocess.Popen(
             [mngr_path, "list", "--format", "json", "-q"],
