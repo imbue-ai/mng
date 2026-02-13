@@ -108,6 +108,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     ('PAUSED' for idle shutdown, 'STOPPED' for user-requested stop).
     """
     logger = logging.getLogger("snapshot_and_shutdown")
+    were_snapshots_missing = False
 
     try:
         try:
@@ -124,6 +125,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
 
             # Verify host record exists BEFORE creating snapshot to avoid orphaned images
             host_record = _read_host_record(host_id)
+            host_record_for_debugging = str(host_record)
             if host_record is None:
                 raise HTTPException(
                     status_code=404,
@@ -157,6 +159,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
             certified_data = host_record.get("certified_host_data", {})
             if "snapshots" not in certified_data:
                 certified_data["snapshots"] = []
+                were_snapshots_missing = True
             certified_data["snapshots"].append(new_snapshot)
 
             # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
@@ -171,6 +174,14 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
 
             # Terminate the sandbox
             sandbox.terminate()
+
+            if were_snapshots_missing:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        f"Host record was missing 'snapshots' field. Original data was: {host_record_for_debugging}"
+                    ),
+                )
 
             return {
                 "success": True,
