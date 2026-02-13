@@ -778,3 +778,14 @@ def test_split_cli_args_string_preserves_quoting_for_assemble_command() -> None:
     parts = split_cli_args_string(cli_args_str)
     reassembled = " ".join(parts)
     assert reassembled == cli_args_str
+
+
+def test_split_cli_args_string_does_not_treat_hash_as_comment() -> None:
+    """split_cli_args_string should not treat '#' as a comment character."""
+    hash_token = "#channel"
+    cli_args = f"--flag {hash_token} --other"
+    result = split_cli_args_string(cli_args)
+    assert len(result) == 3
+    assert result[0] == "--flag"
+    assert result[1] == hash_token
+    assert result[2] == "--other"

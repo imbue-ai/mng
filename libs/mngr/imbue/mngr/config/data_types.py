@@ -55,6 +55,7 @@ def split_cli_args_string(cli_args: str) -> tuple[str, ...]:
     """
     lexer = shlex.shlex(cli_args, posix=False)
     lexer.whitespace_split = True
+    lexer.commenters = ""
     return tuple(lexer)
 
 
