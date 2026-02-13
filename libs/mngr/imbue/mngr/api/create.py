@@ -109,6 +109,7 @@ def create(
             logger.info("Starting agent {} ...", agent.name)
             timeout = agent_options.ready_timeout_seconds
             agent.wait_for_ready_signal(
+                is_creating=True,
                 start_action=lambda: host.start_agents([agent.id]),
                 timeout=timeout,
             )

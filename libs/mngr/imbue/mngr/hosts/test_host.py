@@ -1963,8 +1963,8 @@ def test_new_tmux_window_inherits_env_vars(
 ) -> None:
     """Test that new tmux windows created by the user also have env vars.
 
-    This verifies that the default-command is set on the tmux session so that
-    any new window/pane created by the user will automatically source the env files.
+    This verifies that the default-command sources env files so that any new
+    window/pane created by the user will have the agent's env vars available.
     """
     config = MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
@@ -1998,7 +1998,7 @@ def test_new_tmux_window_inherits_env_vars(
 
     try:
         # Create a new window in the session (simulating what a user would do)
-        # This window should inherit the default-command which sources env files
+        # This window should inherit env vars via tmux set-environment
         subprocess.run(
             ["tmux", "new-window", "-t", session_name, "-n", "user-window"],
             check=True,
