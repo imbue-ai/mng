@@ -547,7 +547,7 @@ def test_build_start_agent_shell_command_default_command_uses_user_shell(
     assert "MNGR_SAVED_DEFAULT_TMUX_COMMAND" in result
 
     # The default-command should exec into the saved user shell, not hardcoded bash
-    assert 'MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash' in result
+    assert "MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash" in result
 
 
 # =========================================================================
