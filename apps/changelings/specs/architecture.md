@@ -5,7 +5,7 @@
 Changelings is a thin orchestration layer on top of mngr:
 
 - **mngr** handles: agent creation, process management, git operations, host lifecycle, idle detection
-- **changelings** handles: scheduling, deployment to Modal, template management, config management
+- **changelings** handles: scheduling, deployment to Modal, agent type configuration, config management
 
 Changelings does NOT duplicate any mngr functionality. It simply calls `mngr create` with the right arguments.
 

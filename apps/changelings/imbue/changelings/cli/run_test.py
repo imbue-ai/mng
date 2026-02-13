@@ -145,6 +145,17 @@ def test_build_command_includes_extra_mngr_args() -> None:
     assert "300" in cmd
 
 
+def test_build_command_includes_mngr_options() -> None:
+    """Custom mngr options should be passed as --key value pairs."""
+    changeling = make_test_changeling(mngr_options={"gpu": "a10g", "timeout": "600"})
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
+
+    assert "--gpu" in cmd
+    assert "a10g" in cmd
+    assert "--timeout" in cmd
+    assert "600" in cmd
+
+
 def test_build_command_local_does_not_include_modal_flag() -> None:
     """Local execution should not include --in modal."""
     changeling = make_test_changeling()
@@ -329,12 +340,8 @@ def test_execute_mngr_command_exits_on_nonzero() -> None:
 
 _REQUIRED_ADD_ARGS = [
     "test-guardian",
-    "--template",
+    "--agent-type",
     "code-guardian",
-    "--repo",
-    "git@github.com:org/repo.git",
-    "--schedule",
-    "0 3 * * *",
     "--disabled",
 ]
 

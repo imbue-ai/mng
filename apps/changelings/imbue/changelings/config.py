@@ -11,7 +11,6 @@ from imbue.changelings.errors import ChangelingAlreadyExistsError
 from imbue.changelings.errors import ChangelingConfigError
 from imbue.changelings.errors import ChangelingNotFoundError
 from imbue.changelings.primitives import ChangelingName
-from imbue.changelings.primitives import ChangelingTemplateName
 from imbue.changelings.primitives import CronSchedule
 from imbue.changelings.primitives import GitRepoUrl
 
@@ -112,8 +111,6 @@ def _parse_config(raw: dict) -> ChangelingConfig:
         definition_data["name"] = changeling_name
 
         # Parse typed fields
-        if "template" in definition_data:
-            definition_data["template"] = ChangelingTemplateName(definition_data["template"])
         if "schedule" in definition_data:
             definition_data["schedule"] = CronSchedule(definition_data["schedule"])
         if "repo" in definition_data and definition_data["repo"] is not None:
@@ -139,7 +136,6 @@ def _serialize_config(config: ChangelingConfig) -> dict:
 
     for name, definition in config.changeling_by_name.items():
         entry = tomlkit.table()
-        entry.add("template", str(definition.template))
         entry.add("agent_type", definition.agent_type)
         entry.add("schedule", str(definition.schedule))
         entry.add("branch", definition.branch)
@@ -155,6 +151,8 @@ def _serialize_config(config: ChangelingConfig) -> dict:
             entry.add("extra_mngr_args", definition.extra_mngr_args)
         if definition.env_vars:
             entry.add("env_vars", dict(definition.env_vars))
+        if definition.mngr_options:
+            entry.add("mngr_options", dict(definition.mngr_options))
 
         changelings_table.add(str(name), entry)
 

@@ -4,8 +4,11 @@ import sys
 import click
 from loguru import logger
 
+from imbue.changelings.cli.options import build_definition_from_cli
+from imbue.changelings.cli.options import changeling_definition_options
 from imbue.changelings.config import get_changeling
 from imbue.changelings.data_types import ChangelingDefinition
+from imbue.changelings.errors import ChangelingNotFoundError
 from imbue.changelings.mngr_commands import build_mngr_create_command
 from imbue.changelings.mngr_commands import write_secrets_env_file
 from imbue.changelings.primitives import ChangelingName
@@ -13,24 +16,59 @@ from imbue.changelings.primitives import ChangelingName
 
 @click.command(name="run")
 @click.argument("name")
+@changeling_definition_options
 @click.option(
     "--local",
     is_flag=True,
     help="Run locally instead of on Modal (useful for testing)",
 )
-def run(name: str, local: bool) -> None:
+def run(
+    name: str,
+    local: bool,
+    schedule: str | None,
+    repo: str | None,
+    branch: str | None,
+    message: str | None,
+    agent_type: str | None,
+    secrets: tuple[str, ...],
+    env_vars: tuple[str, ...],
+    extra_mngr_args: str | None,
+    mngr_options: tuple[str, ...],
+    enabled: bool | None,
+) -> None:
     """Run a changeling immediately (for testing or one-off execution).
 
     This bypasses the cron schedule and runs the changeling right now.
-    Useful for testing a new changeling before deploying it.
+    If the changeling exists in config, its settings are used as defaults
+    and any CLI options override them. If it does not exist in config,
+    a definition is created from the CLI options.
 
     Examples:
 
-      changeling run my-fairy
-
       changeling run my-fairy --local
+
+      changeling run my-test --local --agent-type code-guardian --message "Review the code"
     """
-    changeling = get_changeling(ChangelingName(name))
+    # Try to load from config as a base; if not found, build from scratch
+    try:
+        base = get_changeling(ChangelingName(name))
+    except ChangelingNotFoundError:
+        base = None
+
+    changeling = build_definition_from_cli(
+        name=name,
+        schedule=schedule,
+        repo=repo,
+        branch=branch,
+        message=message,
+        agent_type=agent_type,
+        secrets=secrets,
+        env_vars=env_vars,
+        extra_mngr_args=extra_mngr_args,
+        mngr_options=mngr_options,
+        enabled=enabled,
+        base=base,
+    )
 
     if local:
         _run_changeling_locally(changeling)

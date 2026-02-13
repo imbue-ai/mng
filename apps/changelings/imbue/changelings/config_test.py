@@ -15,7 +15,6 @@ from imbue.changelings.errors import ChangelingAlreadyExistsError
 from imbue.changelings.errors import ChangelingConfigError
 from imbue.changelings.errors import ChangelingNotFoundError
 from imbue.changelings.primitives import ChangelingName
-from imbue.changelings.primitives import ChangelingTemplateName
 from imbue.changelings.primitives import CronSchedule
 
 
@@ -27,13 +26,11 @@ def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _make_test_definition(
     name: str = "test-guardian",
-    template: str = "code-guardian",
     agent_type: str = "code-guardian",
 ) -> ChangelingDefinition:
     """Create a ChangelingDefinition for testing."""
     return ChangelingDefinition(
         name=ChangelingName(name),
-        template=ChangelingTemplateName(template),
         agent_type=agent_type,
     )
 
@@ -57,7 +54,6 @@ def test_save_and_load_config_roundtrips_single_changeling() -> None:
     assert len(loaded.changeling_by_name) == 1
     loaded_def = loaded.changeling_by_name[ChangelingName("test-guardian")]
     assert loaded_def.name == ChangelingName("test-guardian")
-    assert loaded_def.template == ChangelingTemplateName("code-guardian")
     assert loaded_def.agent_type == "code-guardian"
     assert loaded_def.branch == "main"
     assert loaded_def.is_enabled is True
@@ -65,8 +61,8 @@ def test_save_and_load_config_roundtrips_single_changeling() -> None:
 
 def test_save_and_load_config_roundtrips_multiple_changelings() -> None:
     """Saving and loading a config with multiple changelings should roundtrip correctly."""
-    guardian = _make_test_definition(name="my-guardian", template="code-guardian")
-    fairy = _make_test_definition(name="my-fairy", template="fixme-fairy", agent_type="claude")
+    guardian = _make_test_definition(name="my-guardian", agent_type="code-guardian")
+    fairy = _make_test_definition(name="my-fairy", agent_type="claude")
 
     config = ChangelingConfig(
         changeling_by_name={guardian.name: guardian, fairy.name: fairy},
@@ -84,13 +80,13 @@ def test_save_and_load_config_preserves_optional_fields() -> None:
     """Optional fields like initial_message, secrets, and env_vars should survive roundtrip."""
     definition = ChangelingDefinition(
         name=ChangelingName("detailed-changeling"),
-        template=ChangelingTemplateName("code-guardian"),
         schedule=CronSchedule("0 4 * * 1"),
         initial_message="Custom analysis instructions",
         agent_type="code-guardian",
         secrets=("CUSTOM_KEY", "OTHER_SECRET"),
         extra_mngr_args="--verbose",
         env_vars={"MY_VAR": "my_value"},
+        mngr_options={"gpu": "a10g", "timeout": "600"},
         is_enabled=False,
     )
     config = ChangelingConfig(
@@ -106,6 +102,7 @@ def test_save_and_load_config_preserves_optional_fields() -> None:
     assert loaded_def.secrets == ("CUSTOM_KEY", "OTHER_SECRET")
     assert loaded_def.extra_mngr_args == "--verbose"
     assert loaded_def.env_vars == {"MY_VAR": "my_value"}
+    assert loaded_def.mngr_options == {"gpu": "a10g", "timeout": "600"}
     assert loaded_def.is_enabled is False
 
 
@@ -156,7 +153,7 @@ def test_get_changeling_returns_definition() -> None:
     result = get_changeling(ChangelingName("test-guardian"))
 
     assert result.name == ChangelingName("test-guardian")
-    assert result.template == ChangelingTemplateName("code-guardian")
+    assert result.agent_type == "code-guardian"
 
 
 def test_get_changeling_raises_when_not_found() -> None:

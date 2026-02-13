@@ -18,7 +18,7 @@ import click
 def list_command(show_all: bool, output_format: str) -> None:
     """List all registered changelings.
 
-    Shows each changeling's name, template, schedule, target repo, and status.
+    Shows each changeling's name, agent type, schedule, target repo, and status.
 
     Examples:
 

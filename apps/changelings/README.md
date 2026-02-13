@@ -31,10 +31,10 @@ changeling remove fixme-fairy
 changeling --help
 ```
 
-## Built-in templates
+## Built-in agent types
 
-| Template | Description |
-|----------|-------------|
+| Agent type | Description |
+|------------|-------------|
 | `fixme-fairy` | Finds all FIXMEs in the codebase and fixes them, one commit per fix, then creates a PR |
 | `test-troll` | Improves tests: speeds them up, removes pointless ones, fixes flakes, increases coverage |
 | `coverage-hunter` | Focused specifically on increasing test coverage without sacrificing speed |

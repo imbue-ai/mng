@@ -16,7 +16,6 @@ from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.deploy.deploy import deploy_changeling
 from imbue.changelings.deploy.deploy import get_modal_app_name
 from imbue.changelings.primitives import ChangelingName
-from imbue.changelings.primitives import ChangelingTemplateName
 from imbue.changelings.primitives import CronSchedule
 from imbue.mngr.conftest import ModalSubprocessTestEnv
 
@@ -36,7 +35,6 @@ def test_deploy_code_guardian_changeling_to_modal(
     """
     changeling = ChangelingDefinition(
         name=ChangelingName("code-guardian-deploy-test"),
-        template=ChangelingTemplateName("code-guardian"),
         schedule=CronSchedule("0 3 * * *"),
         agent_type="code-guardian",
         secrets=("ANTHROPIC_API_KEY",),

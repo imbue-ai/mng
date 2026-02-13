@@ -5,7 +5,7 @@ Each changeling is deployed as a Modal App with a cron-scheduled function. When 
 # Design principles
 
 1. **Simplicity**: The system should be as simple as possible, both in terms of user experience and internal architecture. Each changeling corresponds to one Modal App and one scheduled function, with minimal moving parts. Each invocation results in one new `mngr` agent that runs to completion and then exits, making it easy to connect and debug.
-2. **Modularity**: Each changeling is independent and self-contained. This allows users to mix and match different templates, settings, and schedules without them interfering with each other. It also makes it easier to reason about and debug individual changelings.
+2. **Modularity**: Each changeling is independent and self-contained. This allows users to mix and match different agent types, settings, and schedules without them interfering with each other. It also makes it easier to reason about and debug individual changelings.
 3. **Native**: The agents operate directly in GitHub and the user's codebase, creating real commits, PRs, and issues. This ensures that the work they do is visible, actionable, and integrated into the user's existing workflows.
 4. **Personal**: Changelings are designed to serve an *individual* user. There are no team features or shared data. Each user's changelings are private, and are intended to act as extensions of themselves. A user should be able to use `changelings` without their boss even knowing, and just look super-productive!
 

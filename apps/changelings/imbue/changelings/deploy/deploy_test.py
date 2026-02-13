@@ -21,7 +21,6 @@ from imbue.changelings.deploy.deploy import get_modal_secret_name
 from imbue.changelings.deploy.deploy import serialize_changeling_config
 from imbue.changelings.errors import ChangelingDeployError
 from imbue.changelings.primitives import ChangelingName
-from imbue.changelings.primitives import ChangelingTemplateName
 
 # -- get_modal_app_name tests --
 
@@ -207,7 +206,6 @@ def test_collect_secret_values_empty_names() -> None:
 def test_serialize_changeling_config_produces_valid_json() -> None:
     changeling = ChangelingDefinition(
         name=ChangelingName("test"),
-        template=ChangelingTemplateName("code-guardian"),
         agent_type="code-guardian",
     )
 
@@ -215,19 +213,18 @@ def test_serialize_changeling_config_produces_valid_json() -> None:
     parsed = json.loads(config_json)
 
     assert parsed["name"] == "test"
-    assert parsed["template"] == "code-guardian"
     assert parsed["agent_type"] == "code-guardian"
 
 
 def test_serialize_changeling_config_includes_all_fields() -> None:
     changeling = ChangelingDefinition(
         name=ChangelingName("my-fairy"),
-        template=ChangelingTemplateName("fixme-fairy"),
         agent_type="claude",
         branch="develop",
         initial_message="Fix all the things",
         extra_mngr_args="--verbose",
         env_vars={"DEBUG": "true"},
+        mngr_options={"gpu": "a10g"},
         secrets=("MY_TOKEN",),
     )
 
@@ -235,12 +232,12 @@ def test_serialize_changeling_config_includes_all_fields() -> None:
     parsed = json.loads(config_json)
 
     assert parsed["name"] == "my-fairy"
-    assert parsed["template"] == "fixme-fairy"
     assert parsed["agent_type"] == "claude"
     assert parsed["branch"] == "develop"
     assert parsed["initial_message"] == "Fix all the things"
     assert parsed["extra_mngr_args"] == "--verbose"
     assert parsed["env_vars"] == {"DEBUG": "true"}
+    assert parsed["mngr_options"] == {"gpu": "a10g"}
     assert parsed["secrets"] == ["MY_TOKEN"]
 
 
@@ -248,7 +245,6 @@ def test_serialize_changeling_config_roundtrip_preserves_defaults() -> None:
     """Serialized config should include default values for completeness."""
     changeling = ChangelingDefinition(
         name=ChangelingName("test"),
-        template=ChangelingTemplateName("code-guardian"),
     )
 
     config_json = serialize_changeling_config(changeling)

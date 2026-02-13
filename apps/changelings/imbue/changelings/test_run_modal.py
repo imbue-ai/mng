@@ -16,7 +16,6 @@ from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.mngr_commands import build_mngr_create_command
 from imbue.changelings.mngr_commands import write_secrets_env_file
 from imbue.changelings.primitives import ChangelingName
-from imbue.changelings.primitives import ChangelingTemplateName
 from imbue.mngr.conftest import ModalSubprocessTestEnv
 
 
@@ -36,7 +35,6 @@ def test_run_code_guardian_changeling_on_modal(
     """
     changeling = ChangelingDefinition(
         name=ChangelingName("code-guardian-test"),
-        template=ChangelingTemplateName("code-guardian"),
         agent_type="code-guardian",
     )
 

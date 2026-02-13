@@ -62,6 +62,10 @@ def build_mngr_create_command(
     for key, value in changeling.env_vars.items():
         cmd.extend(["--host-env", f"{key}={value}"])
 
+    # Pass custom mngr options
+    for key, value in changeling.mngr_options.items():
+        cmd.extend([f"--{key}", value])
+
     # Append any extra mngr args
     if changeling.extra_mngr_args:
         cmd.extend(shlex.split(changeling.extra_mngr_args))

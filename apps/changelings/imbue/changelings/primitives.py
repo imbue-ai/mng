@@ -13,12 +13,6 @@ class CronSchedule(NonEmptyStr):
     ...
 
 
-class ChangelingTemplateName(NonEmptyStr):
-    """The name of a built-in changeling template (e.g., 'fixme-fairy', 'coverage-hunter')."""
-
-    ...
-
-
 class GitRepoUrl(NonEmptyStr):
     """A git repository URL (HTTPS or SSH) that a changeling targets."""
 

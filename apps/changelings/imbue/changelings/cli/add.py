@@ -1,64 +1,29 @@
 import click
 from loguru import logger
 
+from imbue.changelings.cli.options import build_definition_from_cli
+from imbue.changelings.cli.options import changeling_definition_options
 from imbue.changelings.config import add_changeling
-from imbue.changelings.data_types import ChangelingDefinition
-from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.deploy.deploy import deploy_changeling
 from imbue.changelings.errors import ChangelingAlreadyExistsError
 from imbue.changelings.errors import ChangelingDeployError
-from imbue.changelings.primitives import ChangelingName
-from imbue.changelings.primitives import ChangelingTemplateName
-from imbue.changelings.primitives import CronSchedule
-from imbue.changelings.primitives import GitRepoUrl
 
 
 @click.command(name="add")
 @click.argument("name")
-@click.option(
-    "--template",
-    required=True,
-    help="Built-in template to use (e.g., fixme-fairy, test-troll, coverage-hunter)",
-)
-@click.option(
-    "--repo",
-    required=True,
-    help="Git repository URL to operate on",
-)
-@click.option(
-    "--schedule",
-    required=True,
-    help="Cron expression for when this changeling runs (e.g., '0 3 * * *' for 3am daily)",
-)
-@click.option(
-    "--branch",
-    default="main",
-    help="Base branch to work from [default: main]",
-)
-@click.option(
-    "--message",
-    default=None,
-    help="Custom initial message to send to the agent (overrides template default)",
-)
-@click.option(
-    "--agent-type",
-    default="claude",
-    help="The mngr agent type to use [default: claude]",
-)
-@click.option(
-    "--enabled/--disabled",
-    default=True,
-    help="Whether this changeling should be active immediately [default: enabled]",
-)
+@changeling_definition_options
 def add(
     name: str,
-    template: str,
-    repo: str,
-    schedule: str,
-    branch: str,
+    schedule: str | None,
+    repo: str | None,
+    branch: str | None,
     message: str | None,
-    agent_type: str,
-    enabled: bool,
+    agent_type: str | None,
+    secrets: tuple[str, ...],
+    env_vars: tuple[str, ...],
+    extra_mngr_args: str | None,
+    mngr_options: tuple[str, ...],
+    enabled: bool | None,
 ) -> None:
     """Register a new changeling and deploy it to Modal.
 
@@ -71,19 +36,23 @@ def add(
 
     Examples:
 
-      changeling add my-fairy --template fixme-fairy --repo git@github.com:org/repo.git --schedule "0 3 * * *"
+      changeling add my-fairy --agent-type fixme-fairy --repo git@github.com:org/repo.git --schedule "0 3 * * *"
 
-      changeling add test-bot --template test-troll --repo git@github.com:org/repo.git --schedule "0 4 * * 1"
+      changeling add test-bot --agent-type test-troll --repo git@github.com:org/repo.git --schedule "0 4 * * 1"
     """
-    definition = ChangelingDefinition(
-        name=ChangelingName(name),
-        template=ChangelingTemplateName(template),
-        repo=GitRepoUrl(repo),
-        schedule=CronSchedule(schedule),
+    definition = build_definition_from_cli(
+        name=name,
+        schedule=schedule,
+        repo=repo,
         branch=branch,
-        initial_message=message or DEFAULT_INITIAL_MESSAGE,
+        message=message,
         agent_type=agent_type,
-        is_enabled=enabled,
+        secrets=secrets,
+        env_vars=env_vars,
+        extra_mngr_args=extra_mngr_args,
+        mngr_options=mngr_options,
+        enabled=enabled,
+        base=None,
     )
 
     try:

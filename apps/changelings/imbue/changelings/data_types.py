@@ -3,7 +3,6 @@ from typing import Final
 from pydantic import Field
 
 from imbue.changelings.primitives import ChangelingName
-from imbue.changelings.primitives import ChangelingTemplateName
 from imbue.changelings.primitives import CronSchedule
 from imbue.changelings.primitives import GitRepoUrl
 from imbue.imbue_common.frozen_model import FrozenModel
@@ -17,7 +16,6 @@ class ChangelingDefinition(FrozenModel):
     """A configured changeling -- an autonomous agent that runs on a schedule."""
 
     name: ChangelingName = Field(description="Unique name for this changeling")
-    template: ChangelingTemplateName = Field(description="Which built-in template to use")
     schedule: CronSchedule = Field(
         default=CronSchedule(DEFAULT_SCHEDULE),
         description="Cron expression for when this changeling runs",
@@ -37,6 +35,9 @@ class ChangelingDefinition(FrozenModel):
         description="Environment variable names to forward from the local shell to the agent (e.g., API keys, tokens)",
     )
     env_vars: dict[str, str] = Field(default_factory=dict, description="Environment variables to set for the agent")
+    mngr_options: dict[str, str] = Field(
+        default_factory=dict, description="Custom mngr options passed as --key value args"
+    )
     is_enabled: bool = Field(default=True, description="Whether this changeling is currently active")
 
 
