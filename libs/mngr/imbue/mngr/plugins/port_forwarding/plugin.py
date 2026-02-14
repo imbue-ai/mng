@@ -5,7 +5,9 @@ import click
 from imbue.mngr import hookimpl
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.plugins.port_forwarding.cli import auth_command
 from imbue.mngr.plugins.port_forwarding.data_types import PortForwardingConfig
+from imbue.mngr.plugins.port_forwarding.provisioning import install_frpc_on_host
 
 
 @hookimpl
@@ -15,8 +17,6 @@ def on_agent_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
     This is idempotent -- if frpc is already installed, the provisioning step
     checks for it and skips the install.
     """
-    from imbue.mngr.plugins.port_forwarding.provisioning import install_frpc_on_host
-
     config = _get_plugin_config_or_none()
     if config is None:
         return
@@ -27,8 +27,6 @@ def on_agent_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
 @hookimpl
 def register_cli_commands() -> Sequence[click.Command] | None:
     """Register the 'auth' CLI command for port forwarding authentication."""
-    from imbue.mngr.plugins.port_forwarding.cli import auth_command
-
     return [auth_command]
 
 

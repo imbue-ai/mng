@@ -13,6 +13,8 @@ from imbue.mngr.plugins.ttyd.data_types import PLUGIN_NAME
 from imbue.mngr.plugins.ttyd.data_types import TtydConfig
 from imbue.mngr.plugins.ttyd.plugin import _allocate_port
 from imbue.mngr.plugins.ttyd.plugin import _get_ttyd_config
+from imbue.mngr.plugins.ttyd.plugin import on_agent_created
+from imbue.mngr.plugins.ttyd.plugin import on_agent_destroyed
 from imbue.mngr.primitives import PluginName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
@@ -100,8 +102,6 @@ def test_on_agent_created_stores_plugin_data(
     temp_work_dir: Path,
 ) -> None:
     """Test that on_agent_created stores the port and token in plugin data."""
-    from imbue.mngr.plugins.ttyd.plugin import on_agent_created
-
     agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     host = agent.get_host()
 
@@ -123,8 +123,6 @@ def test_on_agent_destroyed_is_noop_without_plugin_data(
     temp_work_dir: Path,
 ) -> None:
     """Test that on_agent_destroyed does nothing when no plugin data exists."""
-    from imbue.mngr.plugins.ttyd.plugin import on_agent_destroyed
-
     agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
     host = agent.get_host()
 
