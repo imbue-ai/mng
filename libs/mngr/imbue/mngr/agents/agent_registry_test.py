@@ -93,32 +93,32 @@ def test_agent_type_config_merge_keeps_base_command_when_override_none() -> None
 
 def test_agent_type_config_merge_concatenates_cli_args() -> None:
     """Merge should concatenate cli_args from base and override."""
-    base = AgentTypeConfig(cli_args="--verbose")
-    override = AgentTypeConfig(cli_args="--debug")
+    base = AgentTypeConfig(cli_args=("--verbose",))
+    override = AgentTypeConfig(cli_args=("--debug",))
 
     merged = base.merge_with(override)
 
-    assert merged.cli_args == "--verbose --debug"
+    assert merged.cli_args == ("--verbose", "--debug")
 
 
 def test_agent_type_config_merge_cli_args_with_empty_base() -> None:
     """Merge should use override cli_args when base is empty."""
     base = AgentTypeConfig()
-    override = AgentTypeConfig(cli_args="--debug")
+    override = AgentTypeConfig(cli_args=("--debug",))
 
     merged = base.merge_with(override)
 
-    assert merged.cli_args == "--debug"
+    assert merged.cli_args == ("--debug",)
 
 
 def test_agent_type_config_merge_cli_args_with_empty_override() -> None:
     """Merge should keep base cli_args when override is empty."""
-    base = AgentTypeConfig(cli_args="--verbose")
+    base = AgentTypeConfig(cli_args=("--verbose",))
     override = AgentTypeConfig()
 
     merged = base.merge_with(override)
 
-    assert merged.cli_args == "--verbose"
+    assert merged.cli_args == ("--verbose",)
 
 
 def test_get_agent_class_returns_claude_agent_for_claude_type() -> None:
@@ -169,7 +169,7 @@ def _resolve_custom_claude_type(**config_overrides: Any) -> ResolvedAgentType:
 
 def test_resolve_agent_type_with_custom_type_uses_parent_class() -> None:
     """A custom type with parent_type should use the parent's agent class."""
-    resolved = _resolve_custom_claude_type(cli_args="--model opus")
+    resolved = _resolve_custom_claude_type(cli_args=("--model", "opus"))
 
     assert resolved.agent_class == ClaudeAgent
     assert isinstance(resolved.agent_config, ClaudeAgentConfig)
@@ -177,9 +177,9 @@ def test_resolve_agent_type_with_custom_type_uses_parent_class() -> None:
 
 def test_resolve_agent_type_with_custom_type_merges_cli_args() -> None:
     """A custom type should merge its cli_args onto the parent config."""
-    resolved = _resolve_custom_claude_type(cli_args="--model opus")
+    resolved = _resolve_custom_claude_type(cli_args=("--model", "opus"))
 
-    assert resolved.agent_config.cli_args == "--model opus"
+    assert resolved.agent_config.cli_args == ("--model", "opus")
 
 
 def test_resolve_agent_type_with_custom_type_overrides_command() -> None:
@@ -191,7 +191,7 @@ def test_resolve_agent_type_with_custom_type_overrides_command() -> None:
 
 def test_resolve_agent_type_with_custom_type_preserves_parent_specific_fields() -> None:
     """Custom type config should retain parent-specific fields like sync_home_settings."""
-    resolved = _resolve_custom_claude_type(cli_args="--model opus")
+    resolved = _resolve_custom_claude_type(cli_args=("--model", "opus"))
 
     # ClaudeAgentConfig has sync_home_settings=True by default
     assert isinstance(resolved.agent_config, ClaudeAgentConfig)
@@ -209,7 +209,7 @@ def test_resolve_agent_type_with_custom_type_overrides_permissions() -> None:
 
 def test_resolve_agent_type_with_custom_type_empty_permissions_keeps_parent() -> None:
     """Custom type with no permissions should keep the parent's default permissions."""
-    resolved = _resolve_custom_claude_type(cli_args="--model opus")
+    resolved = _resolve_custom_claude_type(cli_args=("--model", "opus"))
 
     assert resolved.agent_config.permissions == []
 
@@ -217,7 +217,7 @@ def test_resolve_agent_type_with_custom_type_empty_permissions_keeps_parent() ->
 def test_resolve_agent_type_with_override_for_registered_type() -> None:
     """A config override for a registered type (no parent_type) uses registered class."""
     custom_config = AgentTypeConfig(
-        cli_args="--extra-flag",
+        cli_args=("--extra-flag",),
     )
     config = MngrConfig(
         agent_types={AgentTypeName("claude"): custom_config},
@@ -227,7 +227,7 @@ def test_resolve_agent_type_with_override_for_registered_type() -> None:
 
     assert resolved.agent_class == ClaudeAgent
     # Since there's no parent_type, the custom_config is used directly
-    assert resolved.agent_config.cli_args == "--extra-flag"
+    assert resolved.agent_config.cli_args == ("--extra-flag",)
 
 
 def test_resolve_agent_type_custom_type_without_parent_uses_base_agent() -> None:

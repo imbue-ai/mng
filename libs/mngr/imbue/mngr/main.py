@@ -4,6 +4,7 @@ import click
 import pluggy
 from click_option_group import OptionGroup
 
+from imbue.mngr.cli.ask import ask
 from imbue.mngr.cli.clone import clone
 from imbue.mngr.cli.common_opts import TCommand
 from imbue.mngr.cli.common_opts import create_group_title_option
@@ -21,6 +22,7 @@ from imbue.mngr.cli.migrate import migrate
 from imbue.mngr.cli.pair import pair
 from imbue.mngr.cli.pull import pull
 from imbue.mngr.cli.push import push
+from imbue.mngr.cli.rename import rename
 from imbue.mngr.cli.start import start
 from imbue.mngr.cli.stop import stop
 from imbue.mngr.cli.transcript import transcript
@@ -41,6 +43,7 @@ COMMAND_ALIASES: dict[str, list[str]] = {
     "list": ["ls"],
     "connect": ["conn"],
     "stop": ["s"],
+    "rename": ["mv"],
 }
 
 # Build reverse mapping: alias -> canonical name
@@ -226,6 +229,7 @@ def reset_plugin_manager() -> None:
 
 # Add built-in commands to the CLI group
 BUILTIN_COMMANDS: list[click.Command] = [
+    ask,
     create,
     destroy,
     list_command,
@@ -234,6 +238,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     pair,
     pull,
     push,
+    rename,
     start,
     stop,
     transcript,
@@ -251,6 +256,7 @@ cli.add_command(destroy, name="rm")
 cli.add_command(message, name="msg")
 cli.add_command(list_command, name="ls")
 cli.add_command(connect, name="conn")
+cli.add_command(rename, name="mv")
 
 # Add clone as a standalone command (not in BUILTIN_COMMANDS since it uses
 # UNPROCESSED args and delegates to create, which already has plugin options applied)

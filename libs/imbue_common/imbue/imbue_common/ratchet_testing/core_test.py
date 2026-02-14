@@ -113,7 +113,7 @@ def test_get_non_ignored_files_returns_matching_files(git_repo: Path) -> None:
     assert all(path.suffix == ".py" for path in result)
 
 
-def test_get_non_ignored_files_excludes_specified_file(git_repo: Path) -> None:
+def test_get_non_ignored_files_excludes_by_pattern(git_repo: Path) -> None:
     # Create test files
     file1 = git_repo / "file1.py"
     file2 = git_repo / "file2.py"
@@ -133,10 +133,31 @@ def test_get_non_ignored_files_excludes_specified_file(git_repo: Path) -> None:
     result_without_exclusion = _get_non_ignored_files_with_extension(git_repo, FileExtension(".py"))
     assert len(result_without_exclusion) == 2
 
-    # Call with exclusion - should get only one file
-    result_with_exclusion = _get_non_ignored_files_with_extension(git_repo, FileExtension(".py"), file1)
+    # Call with exclusion pattern - should get only one file
+    result_with_exclusion = _get_non_ignored_files_with_extension(git_repo, FileExtension(".py"), ("file1.py",))
     assert len(result_with_exclusion) == 1
     assert result_with_exclusion[0].resolve() == file2.resolve()
+
+
+def test_get_non_ignored_files_excludes_by_glob_pattern(git_repo: Path) -> None:
+    # Create test files and a non-test file
+    (git_repo / "foo_test.py").write_text("test code")
+    (git_repo / "test_bar.py").write_text("test code")
+    (git_repo / "main.py").write_text("main code")
+
+    # Add files to git
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial commit"],
+        cwd=git_repo,
+        check=True,
+        capture_output=True,
+    )
+
+    # Exclude test files using patterns
+    result = _get_non_ignored_files_with_extension(git_repo, FileExtension(".py"), ("*_test.py", "test_*.py"))
+    assert len(result) == 1
+    assert result[0].name == "main.py"
 
 
 def test_read_file_contents_caches_results(tmp_path: Path) -> None:
