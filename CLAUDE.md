@@ -51,7 +51,7 @@ Only after doing all of the above should you begin writing code.
 - Before finishing your response, if you have made any changes, then you must ensure that you have run ALL tests in the project(s) you modified, and that they all pass. DO NOT just run a subset of the tests!
 - Use this command **from the root of the git checkout** to run all tests: "uv run pytest". Never change directories to run tests! Just run the command from the root of the git checkout.
 - Running pytest in this way will produce files in .claude/tests_outputs/ (and tell you about their paths) for things like slow tests and coverage failure.
-- Note that "uv run pytest" defaults to running all "unit" and "integration" tests, but the "acceptance" and "release" tests also run in CI. Do *not* run the acceptance or release tests locally to validate changes--always allow CI to run them (it's faster than running them locally).
+- Note that "uv run pytest" defaults to running all "unit" and "integration" tests, but the "acceptance" tests also run in CI. Do *not* run the acceptance tests locally to validate changes--always allow CI to run them (it's faster than running them locally).
 - If you need to run a specific acceptance or release test to write or fix it, iterate on that specific test locally by calling "just test <full_path>::<test_name>" from the root of the git checkout. Do this rather than re-running all tests in CI.
 - Note that tasks are *not* be allowed to finish without A) all tests passing in CI, and B) fixing all MAJOR and CRITICAL issues (flagged by a separate reviewer agent).
 - A PR will be made automatically for you when you finish your reply--do NOT create one yourself.
