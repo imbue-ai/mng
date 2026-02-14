@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from datetime import datetime
 from datetime import timezone
@@ -14,7 +15,11 @@ import pytest
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mngr.agents.default_plugins.claude_agent import _adopt_claude_session
 from imbue.mngr.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
+from imbue.mngr.agents.default_plugins.claude_agent import _encode_path_for_claude_project
+from imbue.mngr.agents.default_plugins.claude_agent import _find_most_recent_session
+from imbue.mngr.agents.default_plugins.claude_agent import _get_claude_project_dir
 from imbue.mngr.agents.default_plugins.claude_agent import _has_api_credentials_available
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
@@ -25,6 +30,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.conftest import make_mngr_ctx
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import PluginMngrError
+from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.host import AgentEnvironmentOptions
 from imbue.mngr.interfaces.host import AgentGitOptions
@@ -1247,3 +1253,325 @@ def test_on_before_provisioning_succeeds_with_credentials(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
 
     agent.on_before_provisioning(host=host, options=_DEFAULT_CREDENTIAL_CHECK_OPTIONS, mngr_ctx=temp_mngr_ctx)
+
+
+# =============================================================================
+# Session Adoption Helper Tests
+# =============================================================================
+
+
+def test_encode_path_for_claude_project() -> None:
+    """_encode_path_for_claude_project should replace slashes with dashes."""
+    assert _encode_path_for_claude_project(Path("/Users/ev/foo")) == "-Users-ev-foo"
+    assert _encode_path_for_claude_project(Path("/a/b/c")) == "-a-b-c"
+
+
+def test_get_claude_project_dir() -> None:
+    """_get_claude_project_dir should return the correct path under ~/.claude/projects/."""
+    result = _get_claude_project_dir(Path("/Users/ev/foo"))
+    expected = Path.home() / ".claude" / "projects" / "-Users-ev-foo"
+    assert result == expected
+
+
+def test_find_most_recent_session_from_index(tmp_path: Path) -> None:
+    """_find_most_recent_session should find session from sessions-index.json."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    index = {
+        "entries": [
+            {"sessionId": "old-session", "fullPath": str(project_dir / "old-session.jsonl"), "fileMtime": 100},
+            {"sessionId": "new-session", "fullPath": str(project_dir / "new-session.jsonl"), "fileMtime": 200},
+            {"sessionId": "agent-session", "fullPath": str(project_dir / "agent-session.jsonl"), "fileMtime": 300},
+        ]
+    }
+    (project_dir / "sessions-index.json").write_text(json.dumps(index))
+
+    result = _find_most_recent_session(project_dir)
+    assert result == "new-session"
+
+
+def test_find_most_recent_session_from_files(tmp_path: Path) -> None:
+    """_find_most_recent_session should fall back to .jsonl file mtime."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    # Create .jsonl files with different mtimes (use os.utime to set explicit times)
+    old_file = project_dir / "old-session.jsonl"
+    old_file.write_text("")
+    os.utime(old_file, (1000.0, 1000.0))
+
+    new_file = project_dir / "new-session.jsonl"
+    new_file.write_text("")
+    os.utime(new_file, (2000.0, 2000.0))
+
+    result = _find_most_recent_session(project_dir)
+    assert result == "new-session"
+
+
+def test_find_most_recent_session_no_sessions_raises(tmp_path: Path) -> None:
+    """_find_most_recent_session should raise UserInputError when no sessions found."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    with pytest.raises(UserInputError, match="No sessions found"):
+        _find_most_recent_session(project_dir)
+
+
+def test_find_most_recent_session_filters_agent_sessions_from_index(tmp_path: Path) -> None:
+    """_find_most_recent_session should exclude agent-* sessions from the index."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    # Only agent sessions in index -- should fall back to files
+    index = {
+        "entries": [
+            {"sessionId": "agent-123", "fullPath": str(project_dir / "agent-123.jsonl"), "fileMtime": 300},
+        ]
+    }
+    (project_dir / "sessions-index.json").write_text(json.dumps(index))
+
+    # Create a non-agent .jsonl file for the fallback
+    user_file = project_dir / "user-session.jsonl"
+    user_file.write_text("")
+
+    result = _find_most_recent_session(project_dir)
+    assert result == "user-session"
+
+
+def test_find_most_recent_session_filters_agent_sessions_from_files(tmp_path: Path) -> None:
+    """_find_most_recent_session should exclude agent-* .jsonl files from fallback."""
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    # Create an agent file and a user file with explicit mtimes
+    agent_file = project_dir / "agent-abc.jsonl"
+    agent_file.write_text("")
+    os.utime(agent_file, (2000.0, 2000.0))
+
+    user_file = project_dir / "user-session.jsonl"
+    user_file.write_text("")
+    os.utime(user_file, (1000.0, 1000.0))
+
+    result = _find_most_recent_session(project_dir)
+    assert result == "user-session"
+
+
+def test_adopt_claude_session_copies_file_and_writes_state(tmp_path: Path) -> None:
+    """_adopt_claude_session should copy session file and write agent state."""
+    source_dir = tmp_path / "source_project"
+    source_dir.mkdir()
+    target_dir = tmp_path / "target_project"
+    state_dir = tmp_path / "agent_state"
+    state_dir.mkdir()
+
+    # Create source session file
+    session_id = "test-session-id"
+    source_file = source_dir / f"{session_id}.jsonl"
+    source_file.write_text('{"type":"message"}\n')
+
+    _adopt_claude_session(session_id, source_dir, target_dir, state_dir)
+
+    # Verify file was copied
+    target_file = target_dir / f"{session_id}.jsonl"
+    assert target_file.exists()
+    assert target_file.read_text() == '{"type":"message"}\n'
+
+    # Verify session ID was written to agent state
+    sid_path = state_dir / "claude_session_id"
+    assert sid_path.exists()
+    assert sid_path.read_text() == session_id
+
+    # Verify history was appended
+    history_path = state_dir / "claude_session_id_history"
+    assert history_path.exists()
+    assert session_id in history_path.read_text()
+
+
+def test_adopt_claude_session_updates_sessions_index(tmp_path: Path) -> None:
+    """_adopt_claude_session should update sessions-index.json in target."""
+    source_dir = tmp_path / "source_project"
+    source_dir.mkdir()
+    target_dir = tmp_path / "target_project"
+    state_dir = tmp_path / "agent_state"
+    state_dir.mkdir()
+
+    session_id = "test-session-id"
+    source_file = source_dir / f"{session_id}.jsonl"
+    source_file.write_text('{"type":"message"}\n')
+
+    # Create source index with an entry for this session
+    source_index = {
+        "entries": [
+            {
+                "sessionId": session_id,
+                "fullPath": str(source_file),
+                "projectPath": "/original/path",
+                "fileMtime": 12345,
+            }
+        ]
+    }
+    (source_dir / "sessions-index.json").write_text(json.dumps(source_index))
+
+    _adopt_claude_session(session_id, source_dir, target_dir, state_dir)
+
+    # Verify target index was created
+    target_index_path = target_dir / "sessions-index.json"
+    assert target_index_path.exists()
+    target_index = json.loads(target_index_path.read_text())
+    assert len(target_index["entries"]) == 1
+    entry = target_index["entries"][0]
+    assert entry["sessionId"] == session_id
+    # fullPath should point to the target
+    assert entry["fullPath"] == str(target_dir / f"{session_id}.jsonl")
+
+
+def test_adopt_claude_session_raises_when_source_file_missing(tmp_path: Path) -> None:
+    """_adopt_claude_session should raise UserInputError when source session file is missing."""
+    source_dir = tmp_path / "source_project"
+    source_dir.mkdir()
+    target_dir = tmp_path / "target_project"
+    state_dir = tmp_path / "agent_state"
+    state_dir.mkdir()
+
+    with pytest.raises(UserInputError, match="Session file not found"):
+        _adopt_claude_session("nonexistent-session", source_dir, target_dir, state_dir)
+
+
+# =============================================================================
+# on_after_provisioning Session Adoption Tests
+# =============================================================================
+
+
+def test_on_after_provisioning_skips_when_no_adopt_session(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """on_after_provisioning should do nothing when adopt_session_id is None."""
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+
+    # Should complete without error
+    agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
+
+
+def test_on_after_provisioning_adopts_specific_session(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """on_after_provisioning should adopt a specific session when ID is provided."""
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    # Set up the source project directory
+    source_path = tmp_path / "source_work"
+    source_path.mkdir()
+    source_project_dir = _get_claude_project_dir(source_path)
+    source_project_dir.mkdir(parents=True)
+
+    session_id = "adopt-test-session-id"
+    (source_project_dir / f"{session_id}.jsonl").write_text('{"type":"message"}\n')
+
+    # Create the agent state dir so it exists
+    agent_state_dir = agent._get_agent_dir()
+    agent_state_dir.mkdir(parents=True, exist_ok=True)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        adopt_session_id=session_id,
+        adopt_session_source_path=source_path,
+    )
+
+    agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
+
+    # Verify session was adopted
+    target_project_dir = _get_claude_project_dir(agent.work_dir)
+    assert (target_project_dir / f"{session_id}.jsonl").exists()
+    assert (agent_state_dir / "claude_session_id").read_text() == session_id
+
+
+def test_on_after_provisioning_auto_detects_session(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """on_after_provisioning should auto-detect the most recent session when ID is empty string."""
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    # Set up the source project directory
+    source_path = tmp_path / "source_work"
+    source_path.mkdir()
+    source_project_dir = _get_claude_project_dir(source_path)
+    source_project_dir.mkdir(parents=True)
+
+    session_id = "auto-detect-session"
+    (source_project_dir / f"{session_id}.jsonl").write_text('{"type":"message"}\n')
+
+    # Create the agent state dir
+    agent_state_dir = agent._get_agent_dir()
+    agent_state_dir.mkdir(parents=True, exist_ok=True)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        adopt_session_id="",
+        adopt_session_source_path=source_path,
+    )
+
+    agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
+
+    # Verify the auto-detected session was adopted
+    target_project_dir = _get_claude_project_dir(agent.work_dir)
+    assert (target_project_dir / f"{session_id}.jsonl").exists()
+    assert (agent_state_dir / "claude_session_id").read_text() == session_id
+
+
+def test_on_after_provisioning_raises_when_source_path_missing(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """on_after_provisioning should raise PluginMngrError when adopt_session_source_path is None."""
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        adopt_session_id="some-id",
+        adopt_session_source_path=None,
+    )
+
+    with pytest.raises(PluginMngrError, match="adopt_session_source_path is required"):
+        agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
+
+
+def test_on_after_provisioning_raises_when_project_dir_not_found(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """on_after_provisioning should raise UserInputError when Claude project dir doesn't exist."""
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    # Source path exists but no Claude project dir for it
+    source_path = tmp_path / "no_claude_project"
+    source_path.mkdir()
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        adopt_session_id="some-id",
+        adopt_session_source_path=source_path,
+    )
+
+    with pytest.raises(UserInputError, match="No Claude project directory found"):
+        agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
+
+
+def test_on_after_provisioning_raises_when_session_not_found(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """on_after_provisioning should raise UserInputError when session file doesn't exist."""
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    source_path = tmp_path / "source_work"
+    source_path.mkdir()
+    source_project_dir = _get_claude_project_dir(source_path)
+    source_project_dir.mkdir(parents=True)
+
+    options = CreateAgentOptions(
+        agent_type=AgentTypeName("claude"),
+        adopt_session_id="nonexistent-session",
+        adopt_session_source_path=source_path,
+    )
+
+    with pytest.raises(UserInputError, match="Session nonexistent-session not found"):
+        agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)

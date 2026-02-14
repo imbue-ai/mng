@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import PluginMngrError
+from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.data_types import RelativePath
@@ -159,6 +161,108 @@ def _has_api_credentials_available(
             return True
 
     return False
+
+
+def _encode_path_for_claude_project(path: Path) -> str:
+    """Encode a filesystem path to Claude's project directory name."""
+    return str(path).replace("/", "-")
+
+
+def _get_claude_project_dir(path: Path) -> Path:
+    """Get the Claude project directory for a given filesystem path."""
+    encoded = _encode_path_for_claude_project(path.resolve())
+    return Path.home() / ".claude" / "projects" / encoded
+
+
+def _find_most_recent_session(project_dir: Path) -> str:
+    """Find the most recent session ID in a Claude project directory.
+
+    Reads sessions-index.json and returns the session ID of the most
+    recently modified session. Falls back to finding the most recently
+    modified .jsonl file if sessions-index.json doesn't exist.
+
+    Raises UserInputError if no sessions are found.
+    """
+    # Try sessions-index.json first
+    index_path = project_dir / "sessions-index.json"
+    if index_path.exists():
+        index_data = json.loads(index_path.read_text())
+        entries = index_data.get("entries", [])
+        # Filter out agent sessions
+        user_entries = [e for e in entries if not Path(e.get("fullPath", "")).name.startswith("agent-")]
+        if user_entries:
+            # Sort by modified time (descending), then return the most recent
+            user_entries.sort(key=lambda e: e.get("fileMtime", 0), reverse=True)
+            return user_entries[0]["sessionId"]
+
+    # Fallback: find most recently modified .jsonl file
+    jsonl_files = [f for f in project_dir.glob("*.jsonl") if not f.name.startswith("agent-")]
+    if not jsonl_files:
+        raise UserInputError(f"No sessions found in {project_dir}")
+    jsonl_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    return jsonl_files[0].stem
+
+
+def _adopt_claude_session(
+    session_id: str,
+    source_project_dir: Path,
+    target_project_dir: Path,
+    agent_state_dir: Path,
+) -> None:
+    """Transfer a Claude session from source to target project directory.
+
+    1. Copy the session .jsonl file
+    2. Create/update sessions-index.json in the target dir
+    3. Write session ID to agent state dir for resume
+    """
+    # Copy session file
+    source_file = source_project_dir / f"{session_id}.jsonl"
+    if not source_file.exists():
+        raise UserInputError(f"Session file not found: {source_file}")
+
+    target_project_dir.mkdir(parents=True, exist_ok=True)
+    target_file = target_project_dir / f"{session_id}.jsonl"
+    shutil.copy2(source_file, target_file)
+
+    # Update sessions-index.json
+    source_index_path = source_project_dir / "sessions-index.json"
+    source_entry: dict[str, Any] | None = None
+    if source_index_path.exists():
+        source_index = json.loads(source_index_path.read_text())
+        for entry in source_index.get("entries", []):
+            if entry.get("sessionId") == session_id:
+                source_entry = dict(entry)
+                break
+
+    if source_entry is not None:
+        # Rewrite paths in the entry
+        source_entry["fullPath"] = str(target_file)
+
+        # Read or create target index
+        target_index_path = target_project_dir / "sessions-index.json"
+        target_entries: list[dict[str, Any]]
+        if target_index_path.exists():
+            target_index_data = json.loads(target_index_path.read_text())
+            target_entries = target_index_data.get("entries", [])
+        else:
+            target_entries = []
+
+        # Add/replace entry
+        filtered_entries = [e for e in target_entries if e.get("sessionId") != session_id]
+        filtered_entries.append(source_entry)
+        updated_index = {"version": 1, "entries": filtered_entries}
+        target_index_path.write_text(json.dumps(updated_index, indent=4) + "\n")
+
+    # Write session ID to agent state dir
+    sid_path = agent_state_dir / "claude_session_id"
+    sid_tmp = agent_state_dir / "claude_session_id.tmp"
+    sid_tmp.write_text(session_id)
+    sid_tmp.rename(sid_path)
+
+    # Append to history
+    history_path = agent_state_dir / "claude_session_id_history"
+    with open(history_path, "a") as f:
+        f.write(session_id + "\n")
 
 
 class ClaudeAgent(BaseAgent):
@@ -569,6 +673,48 @@ class ClaudeAgent(BaseAgent):
 
         # Configure readiness hooks (for both local and remote hosts)
         self._configure_readiness_hooks(host)
+
+    def on_after_provisioning(
+        self,
+        host: OnlineHostInterface,
+        options: CreateAgentOptions,
+        mngr_ctx: MngrContext,
+    ) -> None:
+        """Adopt a Claude session if --adopt-session was specified."""
+        if options.adopt_session_id is None:
+            return
+
+        if options.adopt_session_source_path is None:
+            raise PluginMngrError("adopt_session_source_path is required when adopt_session_id is set")
+
+        source_project_dir = _get_claude_project_dir(options.adopt_session_source_path)
+        if not source_project_dir.exists():
+            raise UserInputError(
+                f"No Claude project directory found for {options.adopt_session_source_path}. "
+                f"Expected: {source_project_dir}"
+            )
+
+        # Auto-detect session if empty string
+        session_id = options.adopt_session_id
+        if session_id == "":
+            session_id = _find_most_recent_session(source_project_dir)
+            logger.info("Auto-detected session: {}", session_id)
+
+        # Verify session exists in source
+        source_file = source_project_dir / f"{session_id}.jsonl"
+        if not source_file.exists():
+            raise UserInputError(
+                f"Session {session_id} not found in {source_project_dir}. "
+                f"Available sessions: {[f.stem for f in source_project_dir.glob('*.jsonl')]}"
+            )
+
+        target_project_dir = _get_claude_project_dir(self.work_dir)
+        agent_state_dir = self._get_agent_dir()
+
+        with log_span("Adopting session {} from {} to {}", session_id, source_project_dir, target_project_dir):
+            _adopt_claude_session(session_id, source_project_dir, target_project_dir, agent_state_dir)
+
+        logger.info("Adopted session {}", session_id)
 
     def on_destroy(self, host: OnlineHostInterface) -> None:
         """Clean up Claude trust entries for this agent's work directory."""

@@ -728,3 +728,13 @@ class CreateAgentOptions(FrozenModel):
         default_factory=AgentProvisioningOptions,
         description="Simple provisioning options",
     )
+    adopt_session_id: str | None = Field(
+        default=None,
+        description="Session ID to adopt from a plain Claude Code session. "
+        "Empty string means auto-detect the most recent session.",
+    )
+    adopt_session_source_path: Path | None = Field(
+        default=None,
+        description="Source directory path for resolving the Claude project directory "
+        "when adopting a session. Captured from CLI invocation context.",
+    )
