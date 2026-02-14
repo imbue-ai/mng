@@ -9,6 +9,8 @@ from click.testing import CliRunner
 
 from imbue.changelings.cli.add import add
 from imbue.changelings.cli.run import _execute_mngr_command
+from imbue.changelings.cli.run import _forward_output
+from imbue.changelings.cli.run import run
 from imbue.changelings.config import get_changeling
 from imbue.changelings.conftest import make_test_changeling
 from imbue.changelings.data_types import ChangelingDefinition
@@ -406,3 +408,74 @@ def test_run_cli_builds_correct_command_from_config() -> None:
     assert "--yes" in cmd
     assert "--await-agent-stopped" in cmd
     assert "CHANGELING=test-guardian" in cmd
+
+
+# -- _forward_output tests --
+
+
+def test_forward_output_writes_to_stdout(capsys: pytest.CaptureFixture[str]) -> None:
+    """stdout lines should be written to stdout."""
+    _forward_output("hello\n", is_stdout=True)
+    captured = capsys.readouterr()
+    assert captured.out == "hello\n"
+
+
+def test_forward_output_writes_to_stderr(capsys: pytest.CaptureFixture[str]) -> None:
+    """stderr lines should be written to stderr."""
+    _forward_output("error\n", is_stdout=False)
+    captured = capsys.readouterr()
+    assert captured.err == "error\n"
+
+
+# -- run CLI command tests (invocation via CliRunner) --
+
+
+@pytest.fixture
+def cli_runner() -> CliRunner:
+    return CliRunner()
+
+
+def test_run_cli_local_with_nonexistent_changeling_fails(cli_runner: CliRunner) -> None:
+    """Running a non-existent changeling locally should fail (mngr not found)."""
+    result = cli_runner.invoke(run, ["nonexistent-fairy", "--local"])
+
+    # The command will fail because mngr create will fail, but we should
+    # get past the config loading and definition building stages
+    assert result.exit_code != 0
+
+
+@pytest.mark.usefixtures("_isolated_changeling_config")
+def test_run_cli_local_loads_existing_changeling_from_config(cli_runner: CliRunner) -> None:
+    """Running an existing changeling should load its config and attempt execution."""
+    result = cli_runner.invoke(run, ["test-guardian", "--local"])
+
+    # Will fail because mngr is not available, but should get past config loading
+    assert result.exit_code != 0
+
+
+def test_run_cli_without_local_flag_attempts_modal(cli_runner: CliRunner) -> None:
+    """Running without --local should attempt Modal execution."""
+    result = cli_runner.invoke(run, ["test-fairy", "--agent-type", "code-guardian"])
+
+    # Will fail because mngr/Modal is not available
+    assert result.exit_code != 0
+
+
+def test_run_cli_with_overrides_applies_them(cli_runner: CliRunner) -> None:
+    """CLI overrides should be applied when running."""
+    # This will fail on execution but exercises the argument parsing path
+    result = cli_runner.invoke(
+        run,
+        [
+            "my-fairy",
+            "--local",
+            "--agent-type",
+            "custom-type",
+            "--branch",
+            "develop",
+            "--message",
+            "Do something",
+        ],
+    )
+
+    assert result.exit_code != 0

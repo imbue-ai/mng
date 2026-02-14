@@ -9,6 +9,7 @@ from imbue.changelings.conftest import make_test_changeling
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.data_types import DEFAULT_SECRETS
+from imbue.changelings.deploy.deploy import _forward_output
 from imbue.changelings.deploy.deploy import build_cron_mngr_command
 from imbue.changelings.deploy.deploy import build_deploy_env
 from imbue.changelings.deploy.deploy import build_modal_deploy_command
@@ -50,6 +51,21 @@ def test_get_modal_secret_name_includes_changeling_name() -> None:
 def test_get_modal_secret_name_uses_secrets_suffix() -> None:
     result = get_modal_secret_name("test")
     assert result.endswith("-secrets")
+
+
+# -- _forward_output tests --
+
+
+def test_forward_output_writes_to_stdout(capsys: pytest.CaptureFixture[str]) -> None:
+    _forward_output("hello\n", is_stdout=True)
+    captured = capsys.readouterr()
+    assert captured.out == "hello\n"
+
+
+def test_forward_output_writes_to_stderr(capsys: pytest.CaptureFixture[str]) -> None:
+    _forward_output("error\n", is_stdout=False)
+    captured = capsys.readouterr()
+    assert captured.err == "error\n"
 
 
 # -- get_modal_volume_name tests --
