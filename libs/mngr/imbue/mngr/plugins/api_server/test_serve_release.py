@@ -18,8 +18,9 @@ from imbue.mngr.plugins.api_server.test_serve_acceptance import _serve_subproces
 def test_serve_lists_agents_with_all_providers(tmp_path: Path) -> None:
     """mngr serve with all providers enabled returns a valid agent list.
 
-    Unlike acceptance tests which use --disable-plugin modal, this test
-    starts the server with the full provider stack (local + modal + ssh).
+    This release test uses a longer startup timeout to account for provider
+    initialization. It verifies that the API server handles all providers
+    gracefully, returning errors for any that fail to authenticate.
     """
     with _serve_subprocess(tmp_path, root_name="mngr-serve-release", startup_timeout=30.0) as server:
         token = read_or_create_api_token(server.config_dir)
