@@ -71,6 +71,10 @@ def build_mngr_create_command(
     if changeling.extra_mngr_args:
         cmd.extend(shlex.split(changeling.extra_mngr_args))
 
+    # finally, the agent should run without any security prompts if in modal
+    if is_modal:
+        cmd.extend(["--", "--dangerously-skip-permissions"])
+
     return cmd
 
 
