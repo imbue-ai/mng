@@ -80,17 +80,15 @@ Once you have smoke tested a feature and confirmed it works correctly, crystalli
 - If the behavior is important but more comprehensive or slow to verify, write a release test (`@pytest.mark.release`).
 - The smoke test tells you *what* to assert in the formal test. Don't just assert "no exception" -- assert the specific correct behavior you observed during the smoke test.
 
-## Testing interactive components with tmux
+## Smoke testing interactive components with tmux
 
-For interactive components (TUIs, interactive prompts, etc.), it often doesn't make sense to have a test that runs unattended in CI. These components can be tested locally using `tmux send-keys` and `capture-pane`:
+For interactive components (TUIs, interactive prompts, etc.), use `tmux send-keys` and `capture-pane` to smoke test them. This is a special case: unlike other features, interactive components should NOT have their smoke tests crystallized into formal test files. The tmux-based verification is the test.
 
 - Use `tmux send-keys` to simulate user input to an interactive process.
 - Use `tmux capture-pane` (via the existing `capture_tmux_pane_contents` helper in `utils/testing.py`) to read what the process displayed.
-- Assert on the captured output to verify correct behavior.
+- Critically evaluate the captured output: does it show what a user should actually see?
 
-These tmux-based tests are inherently flaky due to timing dependencies and should NOT be relied upon as part of a scored CI test suite. However, they are highly valuable as a tool for providing information to agents working on the code. Mark them with `@pytest.mark.release` and note in the docstring that they test interactive behavior and may be flaky.
-
-The key insight: a test that provides useful information to an agent during development is valuable even if it's too flaky to score mindlessly as part of a CI run. The purpose of these tests is to give the agent a way to programmatically verify "does this interactive thing actually work?" rather than requiring a human to manually check.
+Do not write these up as pytest tests. They are inherently flaky due to timing dependencies and are useless when scored mindlessly as part of a CI run. But they are highly valuable as a way for agents to programmatically verify "does this interactive thing actually work?" during development, rather than requiring a human to manually check. Use them as a smoke testing tool, not as a test suite artifact.
 
 If desired, the user will explicitly instruct you not to commit.
 
