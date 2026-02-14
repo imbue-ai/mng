@@ -233,8 +233,6 @@ class ActivityConfig(FrozenModel):
 
 
 class HostConfig(FrozenModel):
-    """Configuration for a host instance."""
-
     pass
 
 
