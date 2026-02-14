@@ -5,12 +5,15 @@ from pathlib import Path
 import pluggy
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.model_update import to_update
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.conftest import create_test_base_agent
+from imbue.mngr.conftest import make_mngr_ctx
 from imbue.mngr.plugins.ttyd.data_types import PLUGIN_NAME
 from imbue.mngr.plugins.ttyd.data_types import TtydConfig
 from imbue.mngr.plugins.ttyd.plugin import _allocate_port
 from imbue.mngr.plugins.ttyd.plugin import _get_ttyd_config
+from imbue.mngr.primitives import PluginName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
@@ -35,14 +38,13 @@ def test_get_ttyd_config_returns_none_when_disabled(
     plugin_manager: pluggy.PluginManager,
 ) -> None:
     """Test that _get_ttyd_config returns None when the plugin is disabled."""
-    from imbue.mngr.conftest import make_mngr_ctx
-    from imbue.mngr.primitives import PluginName
-
     # Build a config with ttyd disabled
     disabled_config = TtydConfig(enabled=False)
     updated_plugins = dict(temp_config.plugins)
     updated_plugins[PluginName(PLUGIN_NAME)] = disabled_config
-    config_with_disabled_ttyd = temp_config.model_copy(update={"plugins": updated_plugins})
+    config_with_disabled_ttyd = temp_config.model_copy_update(
+        to_update(temp_config.field_ref().plugins, updated_plugins),
+    )
 
     cg = ConcurrencyGroup(name="test")
     with cg:
