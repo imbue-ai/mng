@@ -93,20 +93,30 @@ The volume is created automatically if it does not already exist. Data written t
 
 ## Snapshots
 
-Modal sandboxes support filesystem snapshots for preserving state:
+Modal sandboxes support native filesystem snapshots. Snapshots are fast and fully incremental (only changes since the last snapshot are captured).
 
 ```bash
 # Create a snapshot
-mngr snapshot create my-host
+mngr snapshot create my-agent
+
+# Create a named snapshot
+mngr snapshot create my-agent --name before-refactor
 
 # List snapshots
-mngr snapshot list my-host
+mngr snapshot list my-agent
 
-# Start from a snapshot (restores the sandbox state)
-mngr start my-host --snapshot <snapshot-id>
+# Destroy a specific snapshot
+mngr snapshot destroy my-agent --snapshot <id> --force
+
+# Start from a snapshot (restores the sandbox state) [future]
+mngr start my-agent --snapshot <id>
 ```
 
 Snapshots are stored as Modal images and persist even after the sandbox is terminated.
+
+Snapshot consistency semantics are "hard power off": in-flight writes may not be captured. For databases or other stateful applications, this is usually fine since they're designed to survive power loss.
+
+See [`mngr snapshot`](../../commands/secondary/snapshot.md) for all options.
 
 ## Limitations
 
