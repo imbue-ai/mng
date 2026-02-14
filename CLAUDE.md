@@ -70,15 +70,11 @@ Only after doing all of the above should you begin writing code.
 
 Before declaring any feature complete, you must smoke test it: run the feature as a user would and critically evaluate whether it *actually does the right thing* -- not just that it doesn't error. This means:
 
-- Actually exercise the feature end-to-end in a realistic way. For a CLI command, run it with real (or realistic) inputs. For a library change, call the modified code path and inspect the result.
+- Actually exercise the feature exactly as a real user would. For a CLI command, run it with real inputs. For a library change, call the modified code path and inspect the result.
 - Apply critical thinking to the output. Ask yourself: "Is what I'm observing what *ought* to be observed?" A command that exits 0 but produces wrong output is not working. A UI that renders without errors but shows the wrong data is not working.
 - Do not confuse "no errors" with "correct behavior." The bar is: does this do what a user would expect?
 
-Once you have smoke tested a feature and confirmed it works correctly, crystallize those informal observations into formal tests:
-
-- If the behavior is core functionality that must not regress, write an acceptance test (`@pytest.mark.acceptance`).
-- If the behavior is important but more comprehensive or slow to verify, write a release test (`@pytest.mark.release`).
-- The smoke test tells you *what* to assert in the formal test. Don't just assert "no exception" -- assert the specific correct behavior you observed during the smoke test.
+Once you have smoke tested a feature and confirmed it works correctly, crystallize the verified behavior into formal tests. The smoke test tells you *what* to assert -- but the formal test should capture a true invariant of the system, not just parrot back whatever the agent happened to observe on the first run. It is fine to use a different code path or assertion strategy than the original smoke test if it produces a more reliable and meaningful test.
 
 ## Smoke testing interactive components with tmux
 
@@ -89,6 +85,8 @@ For interactive components (TUIs, interactive prompts, etc.), use `tmux send-key
 - Critically evaluate the captured output: does it show what a user should actually see?
 
 Do not write these up as pytest tests. They are inherently flaky due to timing dependencies and are useless when scored mindlessly as part of a CI run. But they are highly valuable as a way for agents to programmatically verify "does this interactive thing actually work?" during development, rather than requiring a human to manually check. Use them as a smoke testing tool, not as a test suite artifact.
+
+# Git and committing
 
 If desired, the user will explicitly instruct you not to commit.
 
