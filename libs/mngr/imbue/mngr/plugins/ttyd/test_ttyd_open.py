@@ -170,10 +170,11 @@ def test_destroy_agent_cleans_up_terminal_url(
         url_file = agent_dir / "status" / "urls" / "terminal"
         assert url_file.exists()
 
-        # Destroy the agent (this triggers on_agent_destroyed hooks)
+        # Destroy the agent -- this removes the entire agent state directory,
+        # which includes the status/urls/ subdirectory
         local_host.destroy_agent(result.agent)
 
-        # The URL file should be cleaned up
+        # The URL file no longer exists because the agent state directory was removed
         assert not url_file.exists()
 
 

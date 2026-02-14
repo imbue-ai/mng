@@ -1,6 +1,9 @@
+from loguru import logger
+
 from imbue.mngr import hookimpl
 from imbue.mngr.config.plugin_registry import register_plugin_config
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.plugins.ttyd.data_types import PLUGIN_NAME
 from imbue.mngr.plugins.ttyd.data_types import TtydConfig
@@ -58,11 +61,15 @@ def on_agent_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
 
 
 @hookimpl
-def on_agent_destroyed(agent: AgentInterface, host: OnlineHostInterface) -> None:
+def on_agent_destroyed(agent: AgentInterface, host: HostInterface) -> None:
     """Stop ttyd when an agent is destroyed."""
     plugin_data = agent.get_plugin_data(PLUGIN_NAME)
     port = plugin_data.get(_DATA_KEY_PORT)
     if port is None:
+        return
+
+    if not isinstance(host, OnlineHostInterface):
+        logger.debug("Skipped ttyd cleanup for agent {} (host is not online)", agent.name)
         return
 
     stop_ttyd_for_agent(host=host, agent=agent, ttyd_port=int(port))
