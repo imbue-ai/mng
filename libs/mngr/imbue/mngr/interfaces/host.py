@@ -261,6 +261,11 @@ class OnlineHostInterface(HostInterface, ABC):
         """Return the last modification time of the host lock file, or None if not locked."""
         ...
 
+    @abstractmethod
+    def is_lock_held(self) -> bool:
+        """Check whether the host lock is currently held."""
+        ...
+
     # =========================================================================
     # Certified Data
     # =========================================================================
@@ -409,6 +414,11 @@ class OnlineHostInterface(HostInterface, ABC):
         mngr_ctx: MngrContext,
     ) -> None:
         """Install packages, create config files, and set up an agent."""
+        ...
+
+    @abstractmethod
+    def rename_agent(self, agent: AgentInterface, new_name: AgentName) -> AgentInterface:
+        """Rename an agent and return the updated agent object."""
         ...
 
     @abstractmethod

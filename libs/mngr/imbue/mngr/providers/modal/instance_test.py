@@ -38,7 +38,6 @@ from imbue.mngr.conftest import register_modal_test_volume
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
-from imbue.mngr.errors import ProviderNotAuthorizedError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import SnapshotRecord
@@ -48,6 +47,7 @@ from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
+from imbue.mngr.primitives import UserId
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.modal.backend import STATE_VOLUME_SUFFIX
 from imbue.mngr.providers.modal.config import ModalProviderConfig
@@ -61,6 +61,7 @@ from imbue.mngr.providers.modal.instance import TAG_HOST_ID
 from imbue.mngr.providers.modal.instance import TAG_HOST_NAME
 from imbue.mngr.providers.modal.instance import TAG_USER_PREFIX
 from imbue.mngr.providers.modal.instance import _build_modal_secrets_from_env
+from imbue.mngr.providers.modal.instance import _parse_volume_spec
 from imbue.mngr.providers.modal.instance import build_sandbox_tags
 from imbue.mngr.providers.modal.instance import parse_sandbox_tags
 from imbue.mngr.utils.testing import TEST_ENV_PREFIX
@@ -159,39 +160,12 @@ def test_build_and_parse_sandbox_tags_roundtrip() -> None:
     assert parsed_user_tags == user_tags
 
 
-class AuthorizedModalProviderInstance(ModalProviderInstance):
-    """Test subclass that always reports as authorized.
-
-    This is used for unit tests with mocked Modal dependencies where we don't
-    have real credentials but want to test the provider logic.
-    """
-
-    @property
-    def is_authorized(self) -> bool:
-        return True
-
-
-class UnauthorizedModalProviderInstance(ModalProviderInstance):
-    """Test subclass that always reports as unauthorized.
-
-    This is used for testing authorization-related behavior without mocking.
-    """
-
-    @property
-    def is_authorized(self) -> bool:
-        return False
-
-
 class ExpiredCredentialsModalProviderInstance(ModalProviderInstance):
-    """Test subclass that reports as authorized but fails on API calls.
+    """Test subclass that fails on API calls with AuthError.
 
     This simulates the case where credentials exist but are invalid/expired.
     Used for testing the @handle_modal_auth_error decorator behavior.
     """
-
-    @property
-    def is_authorized(self) -> bool:
-        return True
 
     def _get_modal_app(self) -> modal.App:
         raise modal.exception.AuthError("Token missing or expired")
@@ -248,20 +222,9 @@ def _make_modal_provider_with_mocks(
     return instance
 
 
-def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> AuthorizedModalProviderInstance:
-    """Create an AuthorizedModalProviderInstance with mocked Modal dependencies for unit tests.
-
-    Uses AuthorizedModalProviderInstance so that is_authorized returns True, allowing
-    the provider methods to be tested without real Modal credentials.
-    """
-    return _make_modal_provider_with_mocks(mngr_ctx, app_name, AuthorizedModalProviderInstance, "modal-test")
-
-
-def make_unauthorized_modal_provider(mngr_ctx: MngrContext, app_name: str) -> UnauthorizedModalProviderInstance:
-    """Create an UnauthorizedModalProviderInstance for testing authorization checks."""
-    return _make_modal_provider_with_mocks(
-        mngr_ctx, app_name, UnauthorizedModalProviderInstance, "modal-test-unauthorized"
-    )
+def make_modal_provider_with_mocks(mngr_ctx: MngrContext, app_name: str) -> ModalProviderInstance:
+    """Create a ModalProviderInstance with mocked Modal dependencies for unit tests."""
+    return _make_modal_provider_with_mocks(mngr_ctx, app_name, ModalProviderInstance, "modal-test")
 
 
 def make_expired_credentials_modal_provider(
@@ -303,24 +266,10 @@ def make_modal_provider_real(
 
 
 @pytest.fixture
-def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> AuthorizedModalProviderInstance:
-    """Create an AuthorizedModalProviderInstance with mocked Modal for unit/integration tests.
-
-    Uses AuthorizedModalProviderInstance so that is_authorized returns True, allowing
-    the provider methods to be tested without real Modal credentials.
-    """
+def modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProviderInstance:
+    """Create a ModalProviderInstance with mocked Modal for unit/integration tests."""
     app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     return make_modal_provider_with_mocks(temp_mngr_ctx, app_name)
-
-
-@pytest.fixture
-def unauthorized_modal_provider(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> UnauthorizedModalProviderInstance:
-    """Create an UnauthorizedModalProviderInstance for testing authorization checks.
-
-    This provider always reports is_authorized=False, simulating missing credentials.
-    """
-    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
-    return make_unauthorized_modal_provider(temp_mngr_ctx, app_name)
 
 
 @pytest.fixture
@@ -329,8 +278,8 @@ def expired_credentials_modal_provider(
 ) -> ExpiredCredentialsModalProviderInstance:
     """Create an ExpiredCredentialsModalProviderInstance for testing AuthError handling.
 
-    This provider reports is_authorized=True (credentials exist) but raises
-    modal.exception.AuthError when API calls are made (credentials invalid/expired).
+    This provider raises modal.exception.AuthError when API calls are made,
+    simulating invalid/expired credentials.
     """
     app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
     return make_expired_credentials_modal_provider(temp_mngr_ctx, app_name)
@@ -509,8 +458,8 @@ def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_err
     """The @handle_modal_auth_error decorator should convert modal.exception.AuthError to ModalAuthError.
 
     This tests the case where credentials are configured but invalid (e.g., expired token).
-    When is_authorized returns True but the actual API call fails with AuthError,
-    the decorator should convert it to ModalAuthError.
+    When the actual API call fails with AuthError, the decorator should convert it to
+    ModalAuthError.
 
     Note: We suppress PytestUnhandledThreadExceptionWarning because this test intentionally
     causes an exception in the fetch_sandboxes background thread. The ConcurrencyGroup
@@ -518,69 +467,17 @@ def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_err
     ModalAuthError. pytest still detects the thread exception as "unhandled" even though
     we properly handle it at the concurrency group level.
     """
-    # The expired_credentials_modal_provider returns is_authorized=True but raises
-    # AuthError when _get_modal_app is called, simulating expired/invalid credentials.
+    # The expired_credentials_modal_provider raises AuthError when _get_modal_app is
+    # called, simulating expired/invalid credentials.
     # list_hosts is decorated with @handle_modal_auth_error
     with pytest.raises(ModalAuthError) as exc_info:
-        expired_credentials_modal_provider.list_hosts()
+        expired_credentials_modal_provider.list_hosts(cg=expired_credentials_modal_provider.mngr_ctx.concurrency_group)
 
     # Verify the error message contains helpful information
     error_message = str(exc_info.value)
     assert "Modal authentication failed" in error_message
     assert "--disable-plugin modal" in error_message
     assert "https://modal.com/docs/reference/modal.config" in error_message
-
-
-def test_list_hosts_returns_empty_list_when_not_authorized(
-    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
-) -> None:
-    """When not authorized, list_hosts should return empty list (not raise error)."""
-    result = unauthorized_modal_provider.list_hosts()
-
-    # Should return empty list, not raise an error
-    assert result == []
-
-
-def test_create_host_raises_provider_not_authorized_error_when_not_authorized(
-    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
-) -> None:
-    """When not authorized, create_host should raise ProviderNotAuthorizedError."""
-    with pytest.raises(ProviderNotAuthorizedError) as exc_info:
-        unauthorized_modal_provider.create_host(HostName("test-host"))
-
-    assert "modal token set" in str(exc_info.value).lower()
-
-
-def test_stop_host_raises_provider_not_authorized_error_when_not_authorized(
-    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
-) -> None:
-    """When not authorized, stop_host should raise ProviderNotAuthorizedError."""
-    with pytest.raises(ProviderNotAuthorizedError):
-        unauthorized_modal_provider.stop_host(HostId.generate())
-
-
-def test_start_host_raises_provider_not_authorized_error_when_not_authorized(
-    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
-) -> None:
-    """When not authorized, start_host should raise ProviderNotAuthorizedError."""
-    with pytest.raises(ProviderNotAuthorizedError):
-        unauthorized_modal_provider.start_host(HostId.generate())
-
-
-def test_destroy_host_raises_provider_not_authorized_error_when_not_authorized(
-    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
-) -> None:
-    """When not authorized, destroy_host should raise ProviderNotAuthorizedError."""
-    with pytest.raises(ProviderNotAuthorizedError):
-        unauthorized_modal_provider.destroy_host(HostId.generate())
-
-
-def test_get_host_raises_provider_not_authorized_error_when_not_authorized(
-    unauthorized_modal_provider: UnauthorizedModalProviderInstance,
-) -> None:
-    """When not authorized, get_host should raise ProviderNotAuthorizedError."""
-    with pytest.raises(ProviderNotAuthorizedError):
-        unauthorized_modal_provider.get_host(HostId.generate())
 
 
 # =============================================================================
@@ -627,7 +524,7 @@ def test_list_all_host_records_returns_empty_when_volume_empty(
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = []
 
-    host_records = modal_provider._list_all_host_records()
+    host_records = modal_provider._list_all_host_records(modal_provider.mngr_ctx.concurrency_group)
 
     assert host_records == []
     mock_volume.listdir.assert_called_once_with("/")
@@ -648,10 +545,10 @@ def test_list_all_host_records_returns_records_from_volume(
 
     # Mock _read_host_record to return the host record
     with patch.object(modal_provider, "_read_host_record", return_value=host_record):
-        host_records = modal_provider._list_all_host_records()
+        host_records = modal_provider._list_all_host_records(modal_provider.mngr_ctx.concurrency_group)
 
     assert len(host_records) == 1
-    assert host_records[0].host_id == str(host_id)
+    assert host_records[0].certified_host_data.host_id == str(host_id)
 
 
 def test_list_all_host_records_skips_non_json_files(
@@ -671,7 +568,7 @@ def test_list_all_host_records_skips_non_json_files(
 
     # Mock _read_host_record - only called for .json files
     with patch.object(modal_provider, "_read_host_record", return_value=None) as mock_read:
-        modal_provider._list_all_host_records()
+        modal_provider._list_all_host_records(modal_provider.mngr_ctx.concurrency_group)
         # Should only have tried to read the .json file
         assert mock_read.call_count == 1
 
@@ -699,7 +596,7 @@ def test_list_hosts_includes_running_sandboxes_without_host_records(
         patch.object(modal_provider, "_list_all_host_records", return_value=[]),
         patch.object(modal_provider, "_create_host_from_sandbox", return_value=mock_host),
     ):
-        hosts = modal_provider.list_hosts()
+        hosts = modal_provider.list_hosts(cg=modal_provider.mngr_ctx.concurrency_group)
 
     assert len(hosts) == 1
     assert hosts[0].id == host_id
@@ -724,7 +621,7 @@ def test_list_hosts_returns_stopped_hosts_with_snapshots(
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
         patch.object(modal_provider, "_create_host_from_host_record", return_value=mock_host),
     ):
-        hosts = modal_provider.list_hosts()
+        hosts = modal_provider.list_hosts(cg=modal_provider.mngr_ctx.concurrency_group)
 
     assert len(hosts) == 1
     assert hosts[0].id == host_id
@@ -742,7 +639,7 @@ def test_list_hosts_excludes_destroyed_hosts_by_default(
         patch.object(modal_provider, "_list_sandboxes", return_value=[]),
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
     ):
-        hosts = modal_provider.list_hosts(include_destroyed=False)
+        hosts = modal_provider.list_hosts(cg=modal_provider.mngr_ctx.concurrency_group, include_destroyed=False)
 
     assert len(hosts) == 0
 
@@ -763,7 +660,7 @@ def test_list_hosts_includes_destroyed_hosts_when_requested(
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
         patch.object(modal_provider, "_create_host_from_host_record", return_value=mock_host),
     ):
-        hosts = modal_provider.list_hosts(include_destroyed=True)
+        hosts = modal_provider.list_hosts(cg=modal_provider.mngr_ctx.concurrency_group, include_destroyed=True)
 
     assert len(hosts) == 1
     assert hosts[0].id == host_id
@@ -793,7 +690,7 @@ def test_list_hosts_prefers_running_sandbox_over_host_record(
         patch.object(modal_provider, "_create_host_from_sandbox", return_value=mock_host) as mock_from_sandbox,
         patch.object(modal_provider, "_create_host_from_host_record") as mock_from_record,
     ):
-        hosts = modal_provider.list_hosts()
+        hosts = modal_provider.list_hosts(cg=modal_provider.mngr_ctx.concurrency_group)
 
     assert len(hosts) == 1
     # Should use sandbox, not host record
@@ -957,6 +854,87 @@ def test_parse_build_args_secrets_with_other_args(modal_provider: ModalProviderI
 
 
 # =============================================================================
+# Tests for volume build args
+# =============================================================================
+
+
+def test_parse_build_args_single_volume(modal_provider: ModalProviderInstance) -> None:
+    """Should parse a single --volume argument."""
+    config = modal_provider._parse_build_args(["--volume=my-data:/data"])
+    assert config.volumes == (("my-data", "/data"),)
+
+
+def test_parse_build_args_single_volume_key_value_format(modal_provider: ModalProviderInstance) -> None:
+    """Should parse volume=name:/path key-value format."""
+    config = modal_provider._parse_build_args(["volume=my-data:/data"])
+    assert config.volumes == (("my-data", "/data"),)
+
+
+def test_parse_build_args_multiple_volumes(modal_provider: ModalProviderInstance) -> None:
+    """Should parse multiple --volume arguments."""
+    config = modal_provider._parse_build_args(["--volume=cache:/cache", "--volume=results:/results"])
+    assert config.volumes == (("cache", "/cache"), ("results", "/results"))
+
+
+def test_parse_build_args_volume_invalid_format_no_colon(modal_provider: ModalProviderInstance) -> None:
+    """Missing ':' separator in volume spec should raise MngrError."""
+    with pytest.raises(MngrError) as exc_info:
+        modal_provider._parse_build_args(["--volume=nodatapath"])
+    assert "Invalid volume spec" in str(exc_info.value)
+
+
+def test_parse_build_args_volume_invalid_format_empty_name(modal_provider: ModalProviderInstance) -> None:
+    """Empty volume name should raise MngrError."""
+    with pytest.raises(MngrError) as exc_info:
+        modal_provider._parse_build_args(["--volume=:/data"])
+    assert "Invalid volume spec" in str(exc_info.value)
+
+
+def test_parse_build_args_volume_invalid_format_empty_path(modal_provider: ModalProviderInstance) -> None:
+    """Empty mount path should raise MngrError."""
+    with pytest.raises(MngrError) as exc_info:
+        modal_provider._parse_build_args(["--volume=name:"])
+    assert "Invalid volume spec" in str(exc_info.value)
+
+
+def test_parse_build_args_volume_default_is_empty(modal_provider: ModalProviderInstance) -> None:
+    """volumes should default to empty tuple."""
+    config = modal_provider._parse_build_args([])
+    assert config.volumes == ()
+
+    config = modal_provider._parse_build_args(["cpu=2"])
+    assert config.volumes == ()
+
+
+def test_parse_build_args_volumes_with_other_args(modal_provider: ModalProviderInstance) -> None:
+    """Should parse volumes alongside other build args."""
+    config = modal_provider._parse_build_args(["cpu=2", "--volume=data:/data", "memory=4", "--volume=logs:/logs"])
+    assert config.cpu == 2.0
+    assert config.memory == 4.0
+    assert config.volumes == (("data", "/data"), ("logs", "/logs"))
+
+
+def test_parse_volume_spec_valid() -> None:
+    """Should parse valid volume specs."""
+    assert _parse_volume_spec("my-vol:/mount") == ("my-vol", "/mount")
+    assert _parse_volume_spec("name:/path/to/dir") == ("name", "/path/to/dir")
+
+
+def test_parse_volume_spec_invalid_no_colon() -> None:
+    """Should raise on missing colon."""
+    with pytest.raises(MngrError):
+        _parse_volume_spec("nopath")
+
+
+def test_parse_volume_spec_invalid_empty_parts() -> None:
+    """Should raise on empty name or path."""
+    with pytest.raises(MngrError):
+        _parse_volume_spec(":/path")
+    with pytest.raises(MngrError):
+        _parse_volume_spec("name:")
+
+
+# =============================================================================
 # Tests for config-level defaults in _parse_build_args
 # =============================================================================
 
@@ -1105,8 +1083,8 @@ def test_modal_provider_config_user_id_defaults_to_none() -> None:
 
 def test_modal_provider_config_user_id_can_be_set() -> None:
     """ModalProviderConfig user_id can be set to override profile user_id."""
-    config = ModalProviderConfig(user_id="custom-user-id")
-    assert config.user_id == "custom-user-id"
+    config = ModalProviderConfig(user_id=UserId("custom-user-id"))
+    assert config.user_id == UserId("custom-user-id")
 
 
 # =============================================================================
@@ -1449,7 +1427,7 @@ def test_list_hosts_includes_created_host(real_modal_provider: ModalProviderInst
     try:
         host = real_modal_provider.create_host(HostName("test-host"))
 
-        hosts = real_modal_provider.list_hosts()
+        hosts = real_modal_provider.list_hosts(cg=real_modal_provider.mngr_ctx.concurrency_group)
         host_ids = [h.id for h in hosts]
         assert host.id in host_ids
 

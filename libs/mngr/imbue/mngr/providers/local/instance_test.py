@@ -124,7 +124,7 @@ def test_get_host_with_wrong_id_raises_error(local_provider: LocalProviderInstan
 
 
 def test_list_hosts_returns_single_host(local_provider: LocalProviderInstance) -> None:
-    hosts = local_provider.list_hosts()
+    hosts = local_provider.list_hosts(cg=local_provider.mngr_ctx.concurrency_group)
     assert len(hosts) == 1
 
 
