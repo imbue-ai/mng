@@ -363,13 +363,13 @@ def limit(ctx: click.Context, **kwargs: Any) -> None:
     \b
     Examples:
 
-      mngr limit my-agent --idle-timeout 300
+      mngr limit my-agent --idle-timeout 5m
 
       mngr limit my-agent --grant network --grant internet
 
       mngr limit --all --idle-mode disabled
 
-      mngr limit --host my-host --idle-timeout 600
+      mngr limit --host my-host --idle-timeout 1h
     """
     mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
