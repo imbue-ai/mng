@@ -1317,41 +1317,53 @@ def test_find_most_recent_session_no_sessions_raises(tmp_path: Path) -> None:
         _find_most_recent_session(project_dir)
 
 
-def test_adopt_claude_session_symlinks_and_writes_state(tmp_path: Path) -> None:
-    """_adopt_claude_session should symlink target project dir to source and write agent state."""
+def test_adopt_claude_session_creates_symlinks_and_index(tmp_path: Path) -> None:
+    """_adopt_claude_session should symlink session files and create index with rewritten projectPath."""
     source_dir = tmp_path / "source_project"
     source_dir.mkdir()
     target_dir = tmp_path / "target_project"
+    target_work_dir = tmp_path / "target_work"
+    target_work_dir.mkdir()
     state_dir = tmp_path / "agent_state"
     state_dir.mkdir()
 
-    # Create source session file
+    # Create source session file and companion directory
     session_id = "test-session-id"
     source_file = source_dir / f"{session_id}.jsonl"
     source_file.write_text('{"type":"message","cwd":"/original/path"}\n')
+    companion = source_dir / session_id
+    companion.mkdir()
+    (companion / "tool-results").mkdir()
+    (companion / "tool-results" / "result.json").write_text('{"ok":true}')
 
-    _adopt_claude_session(session_id, source_dir, target_dir, state_dir)
+    _adopt_claude_session(session_id, source_dir, target_dir, target_work_dir, state_dir)
 
-    # Verify target is a symlink to source
-    assert target_dir.is_symlink()
-    assert target_dir.resolve() == source_dir.resolve()
+    # Verify .jsonl is a symlink to the source
+    target_file = target_dir / f"{session_id}.jsonl"
+    assert target_file.is_symlink()
+    assert target_file.resolve() == source_file.resolve()
 
-    # Verify session file is accessible through the symlink
-    assert (target_dir / f"{session_id}.jsonl").exists()
+    # Verify companion directory is a symlink
+    target_companion = target_dir / session_id
+    assert target_companion.is_symlink()
+    assert target_companion.resolve() == companion.resolve()
+    assert (target_companion / "tool-results" / "result.json").exists()
 
-    # Verify session ID was written to agent state
-    sid_path = state_dir / "claude_session_id"
-    assert sid_path.exists()
-    assert sid_path.read_text() == session_id
+    # Verify sessions-index.json has rewritten projectPath
+    target_index = json.loads((target_dir / "sessions-index.json").read_text())
+    assert len(target_index["entries"]) == 1
+    entry = target_index["entries"][0]
+    assert entry["sessionId"] == session_id
+    assert entry["projectPath"] == str(target_work_dir.resolve())
+    assert entry["fullPath"] == str(target_file)
 
-    # Verify history was appended
-    history_path = state_dir / "claude_session_id_history"
-    assert history_path.exists()
-    assert session_id in history_path.read_text()
+    # Verify agent state
+    assert (state_dir / "claude_session_id").read_text() == session_id
+    assert session_id in (state_dir / "claude_session_id_history").read_text()
 
 
-def test_adopt_claude_session_skips_symlink_when_same_dir(tmp_path: Path) -> None:
-    """_adopt_claude_session should skip symlinking when source and target are the same directory."""
+def test_adopt_claude_session_skips_when_same_dir(tmp_path: Path) -> None:
+    """_adopt_claude_session should only write session ID when source and target are the same."""
     project_dir = tmp_path / "project"
     project_dir.mkdir()
     state_dir = tmp_path / "agent_state"
@@ -1360,31 +1372,12 @@ def test_adopt_claude_session_skips_symlink_when_same_dir(tmp_path: Path) -> Non
     session_id = "test-session-id"
     (project_dir / f"{session_id}.jsonl").write_text('{"type":"message"}\n')
 
-    _adopt_claude_session(session_id, project_dir, project_dir, state_dir)
+    _adopt_claude_session(session_id, project_dir, project_dir, project_dir, state_dir)
 
-    # Should NOT be a symlink (it's the same directory)
+    # Should NOT be a symlink or have a new sessions-index.json
     assert not project_dir.is_symlink()
+    assert not (project_dir / "sessions-index.json").exists()
     assert (state_dir / "claude_session_id").read_text() == session_id
-
-
-def test_adopt_claude_session_replaces_existing_target_dir(tmp_path: Path) -> None:
-    """_adopt_claude_session should replace an existing target directory with a symlink."""
-    source_dir = tmp_path / "source_project"
-    source_dir.mkdir()
-    target_dir = tmp_path / "target_project"
-    target_dir.mkdir()
-    (target_dir / "old_file.txt").write_text("old")
-    state_dir = tmp_path / "agent_state"
-    state_dir.mkdir()
-
-    session_id = "test-session-id"
-    (source_dir / f"{session_id}.jsonl").write_text('{"type":"message"}\n')
-
-    _adopt_claude_session(session_id, source_dir, target_dir, state_dir)
-
-    # Target should now be a symlink (old directory was replaced)
-    assert target_dir.is_symlink()
-    assert target_dir.resolve() == source_dir.resolve()
 
 
 def test_adopt_claude_session_raises_when_source_file_missing(tmp_path: Path) -> None:
@@ -1392,11 +1385,13 @@ def test_adopt_claude_session_raises_when_source_file_missing(tmp_path: Path) ->
     source_dir = tmp_path / "source_project"
     source_dir.mkdir()
     target_dir = tmp_path / "target_project"
+    target_work_dir = tmp_path / "target_work"
+    target_work_dir.mkdir()
     state_dir = tmp_path / "agent_state"
     state_dir.mkdir()
 
     with pytest.raises(UserInputError, match="Session file not found"):
-        _adopt_claude_session("nonexistent-session", source_dir, target_dir, state_dir)
+        _adopt_claude_session("nonexistent-session", source_dir, target_dir, target_work_dir, state_dir)
 
 
 # =============================================================================
@@ -1538,13 +1533,13 @@ def test_on_after_provisioning_raises_when_session_not_found(
         agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
 
-def test_on_after_provisioning_symlinks_project_dir_for_cross_worktree_adoption(
+def test_on_after_provisioning_creates_symlinks_for_cross_worktree_adoption(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
-    """on_after_provisioning should symlink the target Claude project dir to the source for cross-worktree resume."""
+    """on_after_provisioning should symlink session files and rewrite projectPath for cross-worktree resume."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
-    # Set up the source project directory with a session
+    # Set up the source project directory with a session and index
     source_path = tmp_path / "original_project"
     source_path.mkdir()
     source_project_dir = _get_claude_project_dir(source_path)
@@ -1553,6 +1548,19 @@ def test_on_after_provisioning_symlinks_project_dir_for_cross_worktree_adoption(
     session_id = "cross-worktree-session"
     source_jsonl = source_project_dir / f"{session_id}.jsonl"
     source_jsonl.write_text(json.dumps({"type": "user", "cwd": str(source_path), "message": "hello"}) + "\n")
+
+    source_index = {
+        "entries": [
+            {
+                "sessionId": session_id,
+                "fullPath": str(source_jsonl),
+                "projectPath": str(source_path),
+                "fileMtime": 12345,
+                "summary": "Test session",
+            }
+        ]
+    }
+    (source_project_dir / "sessions-index.json").write_text(json.dumps(source_index))
 
     # Create companion directory
     companion = source_project_dir / session_id
@@ -1572,14 +1580,23 @@ def test_on_after_provisioning_symlinks_project_dir_for_cross_worktree_adoption(
 
     agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
-    # Verify the target project dir is a symlink to the source
+    # Verify session .jsonl is a symlink to the source
     target_project_dir = _get_claude_project_dir(agent.work_dir)
-    assert target_project_dir.is_symlink()
-    assert target_project_dir.resolve() == source_project_dir.resolve()
+    target_jsonl = target_project_dir / f"{session_id}.jsonl"
+    assert target_jsonl.is_symlink()
+    assert target_jsonl.resolve() == source_jsonl.resolve()
 
-    # Verify session files are accessible through the symlink
-    assert (target_project_dir / f"{session_id}.jsonl").exists()
-    assert (target_project_dir / session_id / "tool-results" / "result.json").exists()
+    # Verify companion directory is symlinked
+    target_companion = target_project_dir / session_id
+    assert target_companion.is_symlink()
+    assert (target_companion / "tool-results" / "result.json").exists()
+
+    # Verify sessions-index.json has projectPath pointing to agent's work_dir
+    target_index = json.loads((target_project_dir / "sessions-index.json").read_text())
+    assert len(target_index["entries"]) == 1
+    entry = target_index["entries"][0]
+    assert entry["projectPath"] == str(agent.work_dir.resolve())
+    assert entry["summary"] == "Test session"
 
     # Verify session ID was written to agent state
     assert (agent_state_dir / "claude_session_id").read_text() == session_id
