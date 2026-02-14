@@ -68,7 +68,18 @@ def start_ttyd_for_agent(
             # For local hosts, write the URL directly (no port forwarding needed)
             _write_local_terminal_url(host, agent_state_dir, ttyd_port, token)
         else:
-            # For remote hosts, use forward-service to register via FRP
+            # For remote hosts, use forward-service to register via FRP.
+            # forward-service is installed by the port_forwarding plugin; if the
+            # plugin is not configured, forward-service won't be present and we
+            # skip URL registration (ttyd still runs, but no external URL).
+            check = host.execute_command("command -v forward-service", timeout_seconds=5.0)
+            if not check.success:
+                logger.debug(
+                    "forward-service not available on host {}; skipping terminal URL registration",
+                    host.get_name(),
+                )
+                return
+
             forward_cmd = f"forward-service add --name terminal --port {ttyd_port}"
             env = {
                 "MNGR_AGENT_STATE_DIR": str(agent_state_dir),
@@ -116,7 +127,11 @@ def stop_ttyd_for_agent(
         url_file = agent_state_dir / "status" / "urls" / "terminal"
         host.execute_command(f"rm -f '{url_file}'", timeout_seconds=5.0)
     else:
-        # For remote hosts, deregister from forward-service
+        # For remote hosts, deregister from forward-service (if available)
+        check = host.execute_command("command -v forward-service", timeout_seconds=5.0)
+        if not check.success:
+            return
+
         forward_cmd = "forward-service remove --name terminal"
         env = {
             "MNGR_AGENT_STATE_DIR": str(agent_state_dir),
