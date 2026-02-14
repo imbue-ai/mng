@@ -1318,7 +1318,7 @@ def test_find_most_recent_session_no_sessions_raises(tmp_path: Path) -> None:
 
 
 def test_adopt_claude_session_copies_file_and_writes_state(tmp_path: Path) -> None:
-    """_adopt_claude_session should copy session file and write agent state."""
+    """_adopt_claude_session should copy session file, create index, and write agent state."""
     source_dir = tmp_path / "source_project"
     source_dir.mkdir()
     target_dir = tmp_path / "target_project"
@@ -1336,6 +1336,16 @@ def test_adopt_claude_session_copies_file_and_writes_state(tmp_path: Path) -> No
     target_file = target_dir / f"{session_id}.jsonl"
     assert target_file.exists()
     assert target_file.read_text() == '{"type":"message"}\n'
+
+    # Verify sessions-index.json was created even without a source index
+    target_index_path = target_dir / "sessions-index.json"
+    assert target_index_path.exists()
+    target_index = json.loads(target_index_path.read_text())
+    assert len(target_index["entries"]) == 1
+    entry = target_index["entries"][0]
+    assert entry["sessionId"] == session_id
+    assert entry["fullPath"] == str(target_file)
+    assert "fileMtime" in entry
 
     # Verify session ID was written to agent state
     sid_path = state_dir / "claude_session_id"

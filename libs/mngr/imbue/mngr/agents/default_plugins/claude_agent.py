@@ -213,43 +213,53 @@ def _adopt_claude_session(
     2. Create/update sessions-index.json in the target dir
     3. Write session ID to agent state dir for resume
     """
-    # Copy session file
+    # Copy session file (skip if source and target are the same directory)
     source_file = source_project_dir / f"{session_id}.jsonl"
     if not source_file.exists():
         raise UserInputError(f"Session file not found: {source_file}")
 
     target_project_dir.mkdir(parents=True, exist_ok=True)
     target_file = target_project_dir / f"{session_id}.jsonl"
-    shutil.copy2(source_file, target_file)
+    is_same_project_dir = source_project_dir.resolve() == target_project_dir.resolve()
+    if not is_same_project_dir:
+        shutil.copy2(source_file, target_file)
 
-    # Update sessions-index.json
+    # Build the index entry for the target. Try to copy from the source index first;
+    # if the session isn't indexed, construct a minimal entry from the file metadata.
     source_index_path = source_project_dir / "sessions-index.json"
-    source_entry: dict[str, Any] | None = None
+    target_entry: dict[str, Any] | None = None
     if source_index_path.exists():
         source_index = json.loads(source_index_path.read_text())
         for entry in source_index.get("entries", []):
             if entry.get("sessionId") == session_id:
-                source_entry = dict(entry)
+                target_entry = dict(entry)
                 break
 
-    if source_entry is not None:
-        # Rewrite paths in the entry
-        source_entry["fullPath"] = str(target_file)
+    if target_entry is not None:
+        target_entry["fullPath"] = str(target_file)
+    else:
+        # Construct a minimal entry from the source file
+        source_mtime_ms = int(source_file.stat().st_mtime * 1000)
+        target_entry = {
+            "sessionId": session_id,
+            "fullPath": str(target_file),
+            "fileMtime": source_mtime_ms,
+        }
 
-        # Read or create target index
-        target_index_path = target_project_dir / "sessions-index.json"
-        target_entries: list[dict[str, Any]]
-        if target_index_path.exists():
-            target_index_data = json.loads(target_index_path.read_text())
-            target_entries = target_index_data.get("entries", [])
-        else:
-            target_entries = []
+    # Read or create target index
+    target_index_path = target_project_dir / "sessions-index.json"
+    target_entries: list[dict[str, Any]]
+    if target_index_path.exists():
+        target_index_data = json.loads(target_index_path.read_text())
+        target_entries = target_index_data.get("entries", [])
+    else:
+        target_entries = []
 
-        # Add/replace entry
-        filtered_entries = [e for e in target_entries if e.get("sessionId") != session_id]
-        filtered_entries.append(source_entry)
-        updated_index = {"version": 1, "entries": filtered_entries}
-        target_index_path.write_text(json.dumps(updated_index, indent=4) + "\n")
+    # Add/replace entry
+    filtered_entries = [e for e in target_entries if e.get("sessionId") != session_id]
+    filtered_entries.append(target_entry)
+    updated_index = {"version": 1, "entries": filtered_entries}
+    target_index_path.write_text(json.dumps(updated_index, indent=4) + "\n")
 
     # Write session ID to agent state dir
     sid_path = agent_state_dir / "claude_session_id"
