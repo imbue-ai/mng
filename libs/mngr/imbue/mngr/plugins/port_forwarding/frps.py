@@ -51,7 +51,7 @@ def start_frps(config: PortForwardingConfig, cg: ConcurrencyGroup) -> None:
     config_path = ensure_frps_config(config)
 
     with log_span("Starting frps on port {}", config.frps_bind_port):
-        cg.start_background_process(
+        cg.run_process_in_background(
             command=["frps", "-c", str(config_path)],
             is_checked_by_group=False,
         )
