@@ -1,13 +1,15 @@
 from imbue.mngr import hookimpl
 from imbue.mngr.config.plugin_registry import register_plugin_config
-from imbue.mngr.plugins.activity_tracking.data_types import PLUGIN_NAME
+from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.plugins.activity_tracking.data_types import ActivityTrackingConfig
+from imbue.mngr.plugins.activity_tracking.data_types import PLUGIN_NAME
 
 register_plugin_config(PLUGIN_NAME, ActivityTrackingConfig)
 
 
 @hookimpl
-def on_agent_created(agent, host) -> None:
+def on_agent_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
     """Store activity tracking config in agent plugin data for use by nginx.
 
     The actual script injection happens at the nginx layer. This hook stores
