@@ -240,7 +240,9 @@ def test_schedule_run_creates_agent(
     agent_name = f"sched-agent-{uuid4().hex}"
     session_name = f"{mngr_test_prefix}{agent_name}"
 
-    # Add a schedule that creates a short-lived agent using --agent-cmd
+    # Add a schedule that creates a local agent using --agent-cmd.
+    # Use --disable-plugin modal to ensure it runs locally (not on Modal in CI).
+    # Use a simple sleep command to avoid shell quoting issues with && in crontab.
     add_result = cli_runner.invoke(
         cli,
         [
@@ -255,7 +257,7 @@ def test_schedule_run_creates_agent(
             # Everything after this is passed through as create_args
             "--",
             "--agent-cmd",
-            f"echo 'scheduled agent {name}' && sleep 274918",
+            "sleep 274918",
             "--name",
             agent_name,
             "--source",
@@ -263,6 +265,8 @@ def test_schedule_run_creates_agent(
             "--no-copy-work-dir",
             "--no-ensure-clean",
             "--await-ready",
+            "--disable-plugin",
+            "modal",
         ],
     )
     assert add_result.exit_code == 0, add_result.output
