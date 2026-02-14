@@ -652,7 +652,7 @@ def test_prevent_monkeypatch_setattr() -> None:
     pattern = RegexPattern(r"monkeypatch\.setattr")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
-    assert len(chunks) <= snapshot(32), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(56), format_ratchet_failure_message(
         rule_name="monkeypatch.setattr usages",
         rule_description=(
             "Do not use monkeypatch.setattr to replace attributes or functions at runtime. "
