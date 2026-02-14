@@ -1,6 +1,5 @@
 import shlex
 import shutil
-import subprocess
 import sys
 import tempfile
 from collections.abc import Sequence
@@ -13,6 +12,7 @@ from croniter import croniter
 from loguru import logger
 from pydantic import Field
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.pure import pure
@@ -150,39 +150,39 @@ def _build_crontab_command(schedule: ScheduleDefinition, mngr_path: str) -> str:
     return f"{schedule.cron} {full_command} {_crontab_marker(schedule.name)}"
 
 
-def _read_current_crontab() -> str:
+def _read_current_crontab(cg: ConcurrencyGroup) -> str:
     """Read the current user's crontab. Returns empty string if none exists."""
-    result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    result = cg.run_process_to_completion(["crontab", "-l"], is_checked_after=False)
     if result.returncode != 0:
         # crontab -l returns non-zero when no crontab exists
         return ""
     return result.stdout
 
 
-def _write_crontab(content: str) -> None:
+def _write_crontab(content: str, cg: ConcurrencyGroup) -> None:
     """Write new crontab content via a temporary file."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".crontab", delete=False) as f:
         f.write(content)
         temp_path = f.name
     try:
-        result = subprocess.run(["crontab", temp_path], capture_output=True, text=True)
+        result = cg.run_process_to_completion(["crontab", temp_path], is_checked_after=False)
         if result.returncode != 0:
             raise CrontabError(f"Failed to write crontab: {result.stderr}")
     finally:
         Path(temp_path).unlink(missing_ok=True)
 
 
-def _add_crontab_entry(line: str) -> None:
+def _add_crontab_entry(line: str, cg: ConcurrencyGroup) -> None:
     """Add a line to the user's crontab."""
-    current = _read_current_crontab()
+    current = _read_current_crontab(cg)
     current_with_newline = current + "\n" if current and not current.endswith("\n") else current
     new_content = current_with_newline + line + "\n"
-    _write_crontab(new_content)
+    _write_crontab(new_content, cg)
 
 
-def _remove_crontab_entry(name: ScheduleName) -> None:
+def _remove_crontab_entry(name: ScheduleName, cg: ConcurrencyGroup) -> None:
     """Remove crontab entries matching the schedule name marker."""
-    current = _read_current_crontab()
+    current = _read_current_crontab(cg)
     if not current:
         return
     marker = _crontab_marker(name)
@@ -190,7 +190,7 @@ def _remove_crontab_entry(name: ScheduleName) -> None:
     filtered_lines = [line for line in lines if not line.rstrip().endswith(marker)]
     joined_content = "\n".join(filtered_lines)
     final_content = joined_content + "\n" if joined_content else joined_content
-    _write_crontab(final_content)
+    _write_crontab(final_content, cg)
 
 
 # === Public API Functions ===
@@ -237,7 +237,7 @@ def add_schedule(
     crontab_line = _build_crontab_command(schedule, mngr_path)
 
     logger.debug("Installing crontab entry: {}", crontab_line)
-    _add_crontab_entry(crontab_line)
+    _add_crontab_entry(crontab_line, mngr_ctx.concurrency_group)
 
     return ScheduleAddResult(schedule=schedule, crontab_line=crontab_line)
 
@@ -264,7 +264,7 @@ def remove_schedule(
 
     # Remove crontab entry
     logger.debug("Removing crontab entry for schedule: {}", name)
-    _remove_crontab_entry(name)
+    _remove_crontab_entry(name, mngr_ctx.concurrency_group)
 
     return ScheduleRemoveResult(name=name)
 
