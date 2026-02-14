@@ -14,6 +14,7 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.pure import pure
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import CrontabError
@@ -109,11 +110,11 @@ def _save_schedules(path: Path, schedules: Sequence[ScheduleDefinition]) -> None
 
 
 def _get_mngr_executable_path() -> str:
-    """Discover the mngr executable path."""
+    """Discover the absolute path to the mngr executable."""
     which_result = shutil.which("mngr")
     if which_result is not None:
-        return which_result
-    return sys.argv[0]
+        return str(Path(which_result).resolve())
+    return str(Path(sys.argv[0]).resolve())
 
 
 @pure
@@ -195,6 +196,7 @@ def _remove_crontab_entry(name: ScheduleName) -> None:
 # === Public API Functions ===
 
 
+@log_call
 def add_schedule(
     name: ScheduleName,
     message: str,
@@ -240,6 +242,7 @@ def add_schedule(
     return ScheduleAddResult(schedule=schedule, crontab_line=crontab_line)
 
 
+@log_call
 def remove_schedule(
     name: ScheduleName,
     mngr_ctx: MngrContext,
@@ -266,6 +269,7 @@ def remove_schedule(
     return ScheduleRemoveResult(name=name)
 
 
+@log_call
 def list_schedules(
     mngr_ctx: MngrContext,
 ) -> ScheduleListResult:
@@ -275,6 +279,7 @@ def list_schedules(
     return ScheduleListResult(schedules=tuple(schedules))
 
 
+@log_call
 def run_schedule_now(
     name: ScheduleName,
     mngr_ctx: MngrContext,

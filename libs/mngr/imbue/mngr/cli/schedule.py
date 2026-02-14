@@ -16,6 +16,9 @@ from imbue.mngr.api.schedule import run_schedule_now
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.primitives import OutputFormat
@@ -254,3 +257,39 @@ def _schedule_definition_to_dict(
     if crontab_line is not None:
         result["crontab_line"] = crontab_line
     return result
+
+
+_SCHEDULE_HELP_METADATA = CommandHelpMetadata(
+    name="mngr-schedule",
+    one_line_description="Manage scheduled agents",
+    synopsis="mngr schedule <subcommand> [OPTIONS]",
+    description="""Manage cron-based schedules that periodically run 'mngr create' to spin up agents.
+
+Schedules are stored in ~/.mngr/profiles/<id>/schedules.toml and executed
+via the system crontab. Each schedule installs a crontab entry that runs
+'mngr create' with the specified arguments.
+
+Output from scheduled runs is logged to $HOME/.mngr/logs/schedule-<name>.log.""",
+    examples=(
+        (
+            "Add an hourly schedule using a template",
+            'mngr schedule add --cron "0 * * * *" --template my-hook "fix flaky tests" --name hourly-fixer',
+        ),
+        (
+            "Add a weekday morning schedule",
+            'mngr schedule add --cron "0 9 * * 1-5" "review open PRs" --name pr-reviewer',
+        ),
+        ("List all schedules", "mngr schedule list"),
+        ("List schedules in JSON format", "mngr schedule list --format json"),
+        ("Remove a schedule", "mngr schedule remove hourly-fixer"),
+        ("Run a schedule immediately", "mngr schedule run hourly-fixer"),
+    ),
+    see_also=(
+        ("create", "Create a new agent"),
+        ("config", "Configure create templates used by schedules"),
+    ),
+)
+
+register_help_metadata("schedule", _SCHEDULE_HELP_METADATA)
+
+add_pager_help_option(schedule)
