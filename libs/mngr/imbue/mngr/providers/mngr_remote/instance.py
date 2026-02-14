@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from loguru import logger
 from pydantic import Field
 from pydantic import SecretStr
+from pyinfra.api.host import Host as PyinfraHost
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.data_types import HostLifecycleOptions
@@ -154,5 +155,5 @@ class MngrRemoteProviderInstance(BaseProviderInstance):
     def rename_host(self, host: HostInterface | HostId, name: HostName) -> HostInterface:
         raise ProviderError("Cannot rename hosts through mngr remote provider.")
 
-    def get_connector(self, host: HostInterface | HostId):
+    def get_connector(self, host: HostInterface | HostId) -> PyinfraHost:
         raise ProviderError("Cannot get connectors through mngr remote provider.")
