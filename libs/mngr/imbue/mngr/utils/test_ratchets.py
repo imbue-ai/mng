@@ -103,7 +103,7 @@ def test_prevent_broad_exception_catch() -> None:
     pattern = RegexPattern(r"except\s+Exception\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
-    assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="except Exception catches",
         rule_description="Catching 'Exception' is too broad. Use specific exception types instead",
         chunks=chunks,
