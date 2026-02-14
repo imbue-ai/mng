@@ -8,10 +8,10 @@ Acceptance tests verify the flow on Modal (requires credentials + network).
 
 import shutil
 import subprocess
-import time
 from pathlib import Path
 from typing import Generator
 from typing import cast
+from uuid import uuid4
 
 import pluggy
 import pytest
@@ -91,7 +91,7 @@ def test_create_agent_writes_terminal_url_for_local_host(
     3. For local hosts, URL is written directly to status/urls/terminal
     4. get_reported_urls() returns the terminal URL
     """
-    agent_name = AgentName(f"test-ttyd-url-{int(time.time())}")
+    agent_name = AgentName(f"test-ttyd-url-{uuid4().hex}")
     session_name = f"{ttyd_mngr_ctx.config.prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
@@ -140,7 +140,7 @@ def test_destroy_agent_cleans_up_terminal_url(
     temp_host_dir: Path,
 ) -> None:
     """Test that destroying an agent removes the terminal URL file."""
-    agent_name = AgentName(f"test-ttyd-cleanup-{int(time.time())}")
+    agent_name = AgentName(f"test-ttyd-cleanup-{uuid4().hex}")
     session_name = f"{ttyd_mngr_ctx.config.prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
