@@ -693,8 +693,8 @@ kill -TERM 1
 
         config = self._parse_build_args(build_args)
         base_image = str(image) if image else config.image
-        dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
-        context_dir_path = Path(config.context_dir) if config.context_dir else None
+        dockerfile_path = Path(config.dockerfile).resolve() if config.dockerfile else None
+        context_dir_path = Path(config.context_dir).resolve() if config.context_dir else None
 
         try:
             image_name = self._build_or_pull_image(base_image, dockerfile_path, context_dir_path)
