@@ -20,15 +20,6 @@ from pathlib import Path
 
 import modal
 
-from imbue.changelings.errors import ChangelingError
-
-
-class _ConfigurationError(ChangelingError, RuntimeError):
-    """Raised when required configuration is missing at deploy time."""
-
-    ...
-
-
 # --- Deploy-time configuration ---
 # When modal.is_local() is True, we are running at deploy time on the user's machine.
 # We read configuration from environment variables and write it to build files that
@@ -40,7 +31,7 @@ def _require_env(name: str) -> str:
     """Read a required environment variable, raising if missing."""
     value = os.environ.get(name)
     if value is None:
-        raise _ConfigurationError(f"{name} must be set")
+        raise Exception(f"{name} must be set")
     return value
 
 
