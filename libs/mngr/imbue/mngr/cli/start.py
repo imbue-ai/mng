@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any
 from typing import assert_never
 
@@ -51,7 +52,7 @@ def _output(message: str, output_opts: OutputOptions) -> None:
         logger.info(message)
 
 
-def _output_result(started_agents: list[str], output_opts: OutputOptions) -> None:
+def _output_result(started_agents: Sequence[str], output_opts: OutputOptions) -> None:
     """Output the final result."""
     result_data = {"started_agents": started_agents, "count": len(started_agents)}
     match output_opts.output_format:
