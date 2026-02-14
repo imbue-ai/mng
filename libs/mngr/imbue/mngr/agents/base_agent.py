@@ -592,8 +592,8 @@ class BaseAgent(AgentInterface):
                             url_by_type[url_type] = url_value
                     except FileNotFoundError:
                         continue
-        except (OSError, HostConnectionError):
-            pass
+        except (OSError, HostConnectionError) as e:
+            logger.trace("Failed to read reported URLs for agent {}: {}", self.name, e)
 
         return url_by_type
 
