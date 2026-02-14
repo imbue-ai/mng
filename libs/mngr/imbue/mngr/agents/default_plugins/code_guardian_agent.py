@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shlex
 from pathlib import Path
 from typing import Final
 
@@ -80,8 +79,11 @@ _CODE_GUARDIAN_AGENT_DEFINITION: Final[dict] = {
 
 _CODE_GUARDIAN_AGENTS_JSON: Final[str] = json.dumps(_CODE_GUARDIAN_AGENT_DEFINITION, separators=(",", ":"))
 
-_CODE_GUARDIAN_CLI_ARGS: Final[tuple[str, ...]] = tuple(
-    shlex.split(f"--agents '{_CODE_GUARDIAN_AGENTS_JSON}' --agent {_SKILL_NAME}")
+_CODE_GUARDIAN_CLI_ARGS: Final[tuple[str, ...]] = (
+    "--agents",
+    f"'{_CODE_GUARDIAN_AGENTS_JSON}'",
+    "--agent",
+    _SKILL_NAME,
 )
 
 
