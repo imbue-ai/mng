@@ -1,15 +1,3 @@
-"""SSH provider backend for static host pools.
-
-This provider allows managing hosts by SSH connection. The hosts are statically
-configured - the provider does not create or destroy hosts, it simply connects
-to pre-existing hosts via SSH.
-
-This is useful for:
-- Testing SSH connectivity without cloud providers
-- Managing on-premise servers
-- Development with local sshd instances
-"""
-
 from __future__ import annotations
 
 from pathlib import Path

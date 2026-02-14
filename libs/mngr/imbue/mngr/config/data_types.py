@@ -4,6 +4,7 @@ import os
 import shlex
 from pathlib import Path
 from typing import Any
+from typing import Final
 from typing import Self
 from typing import TypeVar
 from uuid import uuid4
@@ -31,9 +32,9 @@ from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import UserId
 
-USER_ID_FILENAME = "user_id"
-PROFILES_DIRNAME = "profiles"
-ROOT_CONFIG_FILENAME = "config.toml"
+USER_ID_FILENAME: Final[str] = "user_id"
+PROFILES_DIRNAME: Final[str] = "profiles"
+ROOT_CONFIG_FILENAME: Final[str] = "config.toml"
 
 # === Helper Functions ===
 

@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import auto
 from pathlib import Path
 from typing import Any
+from typing import Final
 from typing import Mapping
 from typing import Self
 
@@ -219,7 +220,7 @@ class ProviderInstanceName(NonEmptyStr):
     """Name of a provider instance."""
 
 
-LOCAL_PROVIDER_NAME = ProviderInstanceName("local")
+LOCAL_PROVIDER_NAME: Final[ProviderInstanceName] = ProviderInstanceName("local")
 
 
 class ProviderBackendName(NonEmptyStr):

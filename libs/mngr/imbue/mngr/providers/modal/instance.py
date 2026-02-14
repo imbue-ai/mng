@@ -1,13 +1,3 @@
-"""Modal provider instance implementation.
-
-Manages Modal sandboxes as hosts with SSH access via pyinfra.
-
-Host metadata (SSH info, config, snapshots) is stored on a Modal Volume rather
-than in sandbox tags. This allows multiple mngr instances to share state and
-enables restoration from snapshots even after the original sandbox is gone.
-Only host_id and host_name are stored as sandbox tags for discovery purposes.
-"""
-
 import argparse
 import io
 import json
@@ -95,11 +85,11 @@ from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_com
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
 
 # Constants
-CONTAINER_SSH_PORT = 22
+CONTAINER_SSH_PORT: Final[int] = 22
 # 2 minutes default sandbox lifetime (so that we don't just leave tons of them running--we're not doing a good job of cleaning them up yet)
-DEFAULT_SANDBOX_TIMEOUT = 2 * 60
+DEFAULT_SANDBOX_TIMEOUT: Final[int] = 2 * 60
 # Seconds to wait for sshd to be ready
-SSH_CONNECT_TIMEOUT = 60
+SSH_CONNECT_TIMEOUT: Final[int] = 60
 
 # Tag key constants for sandbox metadata stored in Modal tags.
 # Only host_id and host_name are stored as tags (for discovery). All other

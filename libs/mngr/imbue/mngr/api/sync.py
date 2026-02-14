@@ -1,5 +1,3 @@
-"""Unified sync API for push and pull operations between local and agent repositories."""
-
 import shlex
 from abc import ABC
 from abc import abstractmethod

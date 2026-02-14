@@ -1,16 +1,3 @@
-"""Modal function to snapshot and shut down a host.
-
-This function is deployed as a Modal web endpoint and can be invoked to:
-1. Snapshot a running Modal sandbox
-2. Store the snapshot ID in the host's volume record
-3. Terminate the sandbox
-
-All code is self-contained in this file - no imports from the mngr codebase.
-
-Required environment variable (must be set when deploying):
-- MNGR_MODAL_APP_NAME: The Modal app name (e.g., "mngr-<user_id>-modal")
-"""
-
 import json
 import logging
 import os

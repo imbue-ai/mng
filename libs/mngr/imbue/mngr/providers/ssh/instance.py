@@ -1,8 +1,3 @@
-"""SSH provider instance implementation.
-
-Manages connections to pre-configured SSH hosts.
-"""
-
 from __future__ import annotations
 
 import uuid

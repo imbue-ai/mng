@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Final
 
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
@@ -11,7 +12,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.config import LocalProviderConfig
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
-LOCAL_BACKEND_NAME = ProviderBackendName("local")
+LOCAL_BACKEND_NAME: Final[ProviderBackendName] = ProviderBackendName("local")
 
 
 class LocalProviderBackend(ProviderBackendInterface):
