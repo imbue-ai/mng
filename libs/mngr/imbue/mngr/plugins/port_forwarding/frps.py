@@ -1,15 +1,16 @@
 import shutil
-import subprocess
+import socket
 from pathlib import Path
 
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.mngr.plugins.port_forwarding.config_generation import generate_frps_config
-from imbue.mngr.plugins.port_forwarding.data_types import PortForwardingConfig
+from imbue.mngr.plugins.port_forwarding.data_types import ResolvedPortForwardingConfig
 
 
-def ensure_frps_config(config: PortForwardingConfig) -> Path:
+def ensure_frps_config(config: ResolvedPortForwardingConfig) -> Path:
     """Write the frps config file to disk and return its path."""
     config_path = Path(config.frps_config_path).expanduser()
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -24,17 +25,22 @@ def is_frps_installed() -> bool:
     return shutil.which("frps") is not None
 
 
-def is_frps_running(config: PortForwardingConfig) -> bool:
+def is_frps_running(config: ResolvedPortForwardingConfig) -> bool:
     """Check if frps is already listening on the configured bind port."""
-    result = subprocess.run(
-        ["lsof", "-i", f":{config.frps_bind_port}", "-sTCP:LISTEN"],
-        capture_output=True,
-        timeout=5,
-    )
-    return result.returncode == 0
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("127.0.0.1", int(config.frps_bind_port)))
+        return False
+    except OSError:
+        return True
+    finally:
+        sock.close()
 
 
-def start_frps(config: PortForwardingConfig) -> None:
+def start_frps(
+    config: ResolvedPortForwardingConfig,
+    concurrency_group: ConcurrencyGroup,
+) -> None:
     """Start frps as a background daemon process."""
     if not is_frps_installed():
         logger.warning("frps is not installed; port forwarding will not work")
@@ -47,11 +53,9 @@ def start_frps(config: PortForwardingConfig) -> None:
     config_path = ensure_frps_config(config)
 
     with log_span("Starting frps on port {}", config.frps_bind_port):
-        subprocess.Popen(
-            ["frps", "-c", str(config_path)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
+        concurrency_group.run_process_in_background(
+            command=["frps", "-c", str(config_path)],
+            is_checked_by_group=True,
         )
 
     logger.debug("Started frps (bind={}, vhost={})", config.frps_bind_port, config.vhost_http_port)

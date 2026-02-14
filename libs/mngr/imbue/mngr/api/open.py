@@ -20,7 +20,7 @@ def _resolve_agent_url(agent: AgentInterface, url_type: str | None) -> str:
     When url_type is specified, looks it up in get_reported_urls().
     """
     if url_type is None:
-        # Try the legacy single-URL first, then fall back to the first typed URL
+        # Try the default URL first, then fall back to the first typed URL
         url = agent.get_reported_url()
         if url is not None:
             return url
@@ -28,7 +28,8 @@ def _resolve_agent_url(agent: AgentInterface, url_type: str | None) -> str:
         if reported_urls:
             return next(iter(reported_urls.values()))
         raise UserInputError(
-            f"Agent '{agent.name}' has no URL. The agent may not have reported a URL yet, or it may not support URLs."
+            f"Agent '{agent.name}' has no URL. "
+            "The agent may not have reported a URL yet, or it may not support URLs."
         )
 
     reported_urls = agent.get_reported_urls()

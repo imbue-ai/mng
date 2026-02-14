@@ -1,9 +1,18 @@
 """Unit tests for the port forwarding plugin module."""
 
-from imbue.mngr.plugins.port_forwarding.plugin import _get_plugin_config_or_none
+from pathlib import Path
+
+from imbue.mngr.conftest import create_test_base_agent
+from imbue.mngr.plugins.port_forwarding.plugin import _resolve_config_from_agent
+from imbue.mngr.providers.local.instance import LocalProviderInstance
 
 
-def test_get_plugin_config_or_none_returns_none() -> None:
-    """Test that _get_plugin_config_or_none returns None (not yet wired to config system)."""
-    config = _get_plugin_config_or_none()
+def test_resolve_config_from_agent_returns_none_when_not_configured(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that _resolve_config_from_agent returns None when no plugin config exists."""
+    agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
+    config = _resolve_config_from_agent(agent)
     assert config is None
