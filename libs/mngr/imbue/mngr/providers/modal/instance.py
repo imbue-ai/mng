@@ -604,7 +604,7 @@ class ModalProviderInstance(BaseProviderInstance):
         with log_span("Updating certified host data on volume", host_id=str(host_id)):
             host_record = self._read_host_record(host_id, use_cache=False)
             if host_record is None:
-                raise Exception(f"Host record not found on volume for {host_id}")
+                raise MngrError(f"Host record not found on volume for {host_id}")
             updated_host_record = host_record.model_copy_update(
                 to_update(host_record.field_ref().certified_host_data, certified_data),
             )
@@ -1458,7 +1458,7 @@ log "=== Shutdown script completed ==="
             except modal.exception.Error as e:
                 logger.warning("Error terminating sandbox: {}", e)
         else:
-            logger.debug("Failed to fins sandbox (may already be terminated)", host_id=str(host_id))
+            logger.debug("Failed to find sandbox (may already be terminated)", host_id=str(host_id))
 
         # Record stop_reason=STOPPED to distinguish user-initiated stops from idle pauses
         # Note that we are explicitly avoiding going through the normal host.set_certified_data(host_data) call here

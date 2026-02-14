@@ -449,7 +449,7 @@ def on_agent_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
     """We need to snapshot the sandbox after the agents are created and initial messages are delivered."""
 
     if not isinstance(host, Host):
-        raise Exception("Host is not an instance of Host class")
+        raise MngrError("Host is not an instance of Host class")
 
     provider_instance = host.provider_instance
     if isinstance(provider_instance, ModalProviderInstance):
