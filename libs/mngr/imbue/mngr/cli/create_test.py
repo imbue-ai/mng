@@ -3,13 +3,18 @@
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from imbue.imbue_common.model_update import to_update
 from imbue.mngr.cli.create import CreateCliOptions
 from imbue.mngr.cli.create import _parse_host_lifecycle_options
+from imbue.mngr.cli.create import _parse_project_name
 from imbue.mngr.cli.create import _resolve_source_location
 from imbue.mngr.cli.create import _resolve_target_host
 from imbue.mngr.cli.create import _try_reuse_existing_agent
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import UserInputError
+from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ActivitySource
@@ -370,3 +375,115 @@ def test_resolve_target_host_with_host_reference(
     )
 
     assert isinstance(result, OnlineHostInterface)
+
+
+# =============================================================================
+# Tests for _parse_project_name project mismatch validation
+# =============================================================================
+
+
+def test_parse_project_name_returns_explicit_project(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """When --project is specified, return it directly without validation."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    source_location = HostLocation(host=local_host, path=temp_work_dir)
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().project, "explicit-project"),
+        to_update(default_create_cli_opts.field_ref().source_agent, "some-agent"),
+        to_update(default_create_cli_opts.field_ref().new_host, "docker"),
+    )
+
+    result = _parse_project_name(source_location, opts, temp_mngr_ctx)
+
+    assert result == "explicit-project"
+
+
+def test_parse_project_name_raises_on_mismatch_with_new_host_and_source_agent(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    tmp_path: Path,
+) -> None:
+    """Raises UserInputError when source agent project differs from local and creating a new host."""
+    # Create a source directory with a different name than the CWD project
+    different_project_dir = tmp_path / "totally-different-project"
+    different_project_dir.mkdir()
+
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    source_location = HostLocation(host=local_host, path=different_project_dir)
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().source_agent, "some-agent"),
+        to_update(default_create_cli_opts.field_ref().new_host, "docker"),
+    )
+
+    with pytest.raises(UserInputError, match="Project mismatch"):
+        _parse_project_name(source_location, opts, temp_mngr_ctx)
+
+
+def test_parse_project_name_raises_on_mismatch_with_new_host_and_source_host(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    tmp_path: Path,
+) -> None:
+    """Raises UserInputError when source host project differs from local and creating a new host."""
+    different_project_dir = tmp_path / "another-different-project"
+    different_project_dir.mkdir()
+
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    source_location = HostLocation(host=local_host, path=different_project_dir)
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().source_host, "some-host"),
+        to_update(default_create_cli_opts.field_ref().new_host, "modal"),
+    )
+
+    with pytest.raises(UserInputError, match="Project mismatch"):
+        _parse_project_name(source_location, opts, temp_mngr_ctx)
+
+
+def test_parse_project_name_no_error_without_new_host(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    tmp_path: Path,
+) -> None:
+    """No error when source project differs but no new host is being created."""
+    different_project_dir = tmp_path / "yet-another-project"
+    different_project_dir.mkdir()
+
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    source_location = HostLocation(host=local_host, path=different_project_dir)
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().source_agent, "some-agent"),
+    )
+
+    # Should not raise - no new host means project tag doesn't matter
+    result = _parse_project_name(source_location, opts, temp_mngr_ctx)
+
+    assert result == "yet-another-project"
+
+
+def test_parse_project_name_no_error_without_external_source(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    tmp_path: Path,
+) -> None:
+    """No error when creating a new host without an external source reference."""
+    some_dir = tmp_path / "some-project"
+    some_dir.mkdir()
+
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    source_location = HostLocation(host=local_host, path=some_dir)
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().new_host, "docker"),
+    )
+
+    # Should not raise - no source_agent/source_host means no external source
+    result = _parse_project_name(source_location, opts, temp_mngr_ctx)
+
+    assert result == "some-project"

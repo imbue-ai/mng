@@ -1,0 +1,22 @@
+slowest 20 durations
+
+20.8386s libs/mngr/imbue/mngr/hosts/test_host.py::test_create_work_dir_copy_with_renamed_file
+9.0791s libs/mngr/imbue/mngr/utils/test_ratchets.py::test_prevent_direct_subprocess_usage
+4.7967s libs/mngr/imbue/mngr/cli/test_destroy.py::test_destroy_multiple_agents
+3.4521s libs/mngr/imbue/mngr/cli/test_create.py::test_cli_create_via_subprocess
+3.2680s libs/mngr/imbue/mngr/api/message_test.py::test_send_message_to_agents_with_include_filter
+3.1508s libs/mngr/imbue/mngr/hosts/test_host.py::test_stop_agent_kills_multi_pane_processes
+3.0191s libs/mngr/imbue/mngr/cli/test_destroy.py::test_destroy_single_agent
+2.9652s libs/mngr/imbue/mngr/utils/test_ratchets.py::test_prevent_importing_underscore_prefixed_names_in_non_test_code
+2.9571s libs/mngr/imbue/mngr/hosts/test_host.py::test_transfer_extra_files_with_many_files
+2.8041s libs/mngr/imbue/mngr/cli/test_migrate.py::test_migrate_clones_and_destroys_source
+2.6904s libs/mngr/imbue/mngr/hosts/test_host.py::test_create_work_dir_generates_new_branch
+2.6846s libs/mngr/imbue/mngr/cli/test_list.py::test_list_command_with_running_filter_alias
+2.5475s libs/mngr/imbue/mngr/cli/test_list.py::test_list_command_with_limit
+2.5339s libs/mngr/imbue/mngr/cli/test_list.py::test_list_command_with_limit_json_format
+2.3794s libs/mngr/imbue/mngr/utils/test_ratchets.py::test_prevent_cast_usage
+2.3119s libs/mngr/imbue/mngr/cli/test_destroy.py::test_destroy_with_confirmation
+2.2097s libs/mngr/imbue/mngr/cli/test_connect.py::test_connect_cli_non_interactive_selects_most_recent_agent
+2.1952s libs/mngr/imbue/mngr/cli/test_destroy.py::test_destroy_single_agent_via_session
+2.1592s libs/mngr/imbue/mngr/hosts/test_host.py::test_create_work_dir_copy_with_gitignored_files
+2.1310s libs/mngr/imbue/mngr/agents/base_agent_test.py::test_send_enter_and_wait_for_signal_returns_false_on_timeout

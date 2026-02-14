@@ -119,15 +119,18 @@ def _get_all_files_with_extension(
 def _get_non_ignored_files_with_extension(
     folder_path: Path,
     extension: FileExtension,
-    excluded_file: Path | None = None,
+    excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[Path, ...]:
-    """Get all non-git-ignored files with the specified extension in a folder."""
+    """Get all non-git-ignored files with the specified extension in a folder.
+
+    Each pattern in excluded_path_patterns is matched against file paths using Path.match(),
+    which matches from the right for relative patterns (e.g., "test_*.py" matches any file
+    whose name starts with "test_" regardless of directory depth).
+    """
     file_paths = _get_all_files_with_extension(folder_path, extension)
 
-    # Filter out the excluded file if provided
-    if excluded_file is not None:
-        resolved_excluded = excluded_file.resolve()
-        file_paths = tuple(fp for fp in file_paths if fp.resolve() != resolved_excluded)
+    if excluded_path_patterns:
+        file_paths = tuple(fp for fp in file_paths if not any(fp.match(pattern) for pattern in excluded_path_patterns))
 
     return file_paths
 
@@ -198,7 +201,7 @@ def get_ratchet_failures(
     folder_path: Path,
     extension: FileExtension,
     pattern: RegexPattern,
-    excluded_file: Path | None = None,
+    excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[RatchetMatchChunk, ...]:
     """Find all regex matches in git-tracked files and return them sorted by modification date.
 
@@ -210,7 +213,7 @@ def get_ratchet_failures(
     File contents are transparently cached to avoid repeated reads when called multiple times.
     """
     # Get all relevant files
-    file_paths = _get_non_ignored_files_with_extension(folder_path, extension, excluded_file)
+    file_paths = _get_non_ignored_files_with_extension(folder_path, extension, excluded_path_patterns)
 
     chunks: list[RatchetMatchChunk] = []
 
@@ -334,7 +337,7 @@ def check_regex_ratchet(
     source_dir: Path,
     extension: FileExtension,
     pattern: RegexPattern,
-    excluded_file: Path | None = None,
+    excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[RatchetMatchChunk, ...]:
     """Check a regex-based ratchet and return all matching chunks."""
-    return get_ratchet_failures(source_dir, extension, pattern, excluded_file)
+    return get_ratchet_failures(source_dir, extension, pattern, excluded_path_patterns)

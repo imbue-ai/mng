@@ -1,0 +1,22 @@
+slowest 20 durations
+
+10.0335s libs/mngr/imbue/mngr/utils/test_ratchets.py::test_prevent_direct_subprocess_usage
+6.5288s libs/mngr/imbue/mngr/cli/test_destroy.py::test_destroy_multiple_agents
+5.9804s libs/mngr/imbue/mngr/cli/test_create.py::test_cli_create_via_subprocess
+4.8018s libs/mngr/imbue/mngr/cli/test_migrate.py::test_migrate_clones_and_destroys_source
+3.3851s libs/mngr/imbue/mngr/hosts/test_host.py::test_stop_agent_kills_multi_pane_processes
+3.2849s libs/mngr/imbue/mngr/cli/test_destroy.py::test_destroy_with_confirmation
+3.1973s libs/mngr/imbue/mngr/cli/test_destroy.py::test_destroy_single_agent
+3.1375s libs/mngr/imbue/mngr/utils/test_ratchets.py::test_prevent_inline_functions_in_non_test_code
+3.1356s libs/mngr/imbue/mngr/hosts/test_host.py::test_stop_agent_kills_single_pane_processes
+3.1242s libs/mngr/imbue/mngr/api/message_test.py::test_send_message_to_agents_with_include_filter
+2.9861s libs/mngr/imbue/mngr/hosts/test_host.py::test_start_agent_additional_windows_run_commands
+2.8864s libs/mngr/imbue/mngr/utils/test_ratchets.py::test_prevent_if_elif_without_else
+2.8842s libs/mngr/imbue/mngr/utils/test_ratchets.py::test_prevent_monkeypatch_setattr
+2.7015s libs/mngr/imbue/mngr/cli/test_clone.py::test_clone_creates_agent_from_source
+2.6358s libs/mngr/imbue/mngr/cli/test_destroy.py::test_destroy_single_agent_via_session
+2.5930s libs/mngr/imbue/mngr/hosts/test_host.py::test_create_work_dir_copy_with_untracked_files
+2.4593s libs/mngr/imbue/mngr/cli/test_list.py::test_list_command_with_sort_by_name
+2.4105s libs/mngr/imbue/mngr/cli/test_list.py::test_list_command_with_include_filter
+2.3810s libs/mngr/imbue/mngr/cli/test_destroy.py::test_destroy_prints_errors_if_any_identifier_not_found
+2.3745s libs/mngr/imbue/mngr/cli/test_connect.py::test_connect_cli_non_interactive_selects_most_recent_agent

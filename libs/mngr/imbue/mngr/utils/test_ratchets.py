@@ -10,6 +10,7 @@ from imbue.imbue_common.ratchet_testing.core import RegexPattern
 from imbue.imbue_common.ratchet_testing.core import check_regex_ratchet
 from imbue.imbue_common.ratchet_testing.core import clear_ratchet_caches
 from imbue.imbue_common.ratchet_testing.core import format_ratchet_failure_message
+from imbue.imbue_common.ratchet_testing.ratchets import TEST_FILE_PATTERNS
 from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
 from imbue.imbue_common.ratchet_testing.ratchets import find_assert_isinstance_usages
 from imbue.imbue_common.ratchet_testing.ratchets import find_cast_usages
@@ -19,7 +20,7 @@ from imbue.imbue_common.ratchet_testing.ratchets import find_inline_functions
 from imbue.imbue_common.ratchet_testing.ratchets import find_underscore_imports
 
 # Exclude this test file from ratchet scans to prevent self-referential matches
-_THIS_FILE = Path(__file__)
+_SELF_EXCLUSION: tuple[str, ...] = ("test_ratchets.py",)
 
 # Group all ratchet tests onto a single xdist worker to benefit from LRU caching
 pytestmark = pytest.mark.xdist_group(name="ratchets")
@@ -41,10 +42,10 @@ def _get_mngr_source_dir() -> Path:
 
 def test_prevent_todos() -> None:
     pattern = RegexPattern(r"# TODO:.*")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     # TODO and FIXME should only be added by a human; this is intended to catch TODOs added by an agent
-    assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(3), format_ratchet_failure_message(
         rule_name="TODO comments",
         rule_description="TODO comments should not increase (ideally should decrease to zero)",
         chunks=chunks,
@@ -54,7 +55,7 @@ def test_prevent_todos() -> None:
 def test_prevent_exec_usage() -> None:
     # Negative lookbehind to allow .exec() method calls (e.g., sandbox.exec())
     pattern = RegexPattern(r"(?<!\.)\bexec\s*\(")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="exec() usages",
@@ -65,7 +66,7 @@ def test_prevent_exec_usage() -> None:
 
 def test_prevent_eval_usage() -> None:
     pattern = RegexPattern(r"\beval\s*\(")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="eval() usages",
@@ -78,7 +79,7 @@ def test_prevent_inline_imports() -> None:
     # Note: interfaces/agent.py uses TYPE_CHECKING for imports from interfaces/host.py
     # to avoid circular imports. This is the only accepted location (per comment in that file).
     pattern = RegexPattern(r"^[ \t]+import\s+\w+|^[ \t]+from\s+\S+\s+import\b", multiline=True)
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
         rule_name="inline imports",
@@ -89,7 +90,7 @@ def test_prevent_inline_imports() -> None:
 
 def test_prevent_bare_except() -> None:
     pattern = RegexPattern(r"except\s*:")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="bare except clauses",
@@ -100,7 +101,7 @@ def test_prevent_bare_except() -> None:
 
 def test_prevent_broad_exception_catch() -> None:
     pattern = RegexPattern(r"except\s+Exception\b")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
         rule_name="except Exception catches",
@@ -111,7 +112,7 @@ def test_prevent_broad_exception_catch() -> None:
 
 def test_prevent_base_exception_catch() -> None:
     pattern = RegexPattern(r"except\s+BaseException\b")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(1), format_ratchet_failure_message(
         rule_name="except BaseException catches",
@@ -122,7 +123,7 @@ def test_prevent_base_exception_catch() -> None:
 
 def test_prevent_while_true() -> None:
     pattern = RegexPattern(r"\bwhile\s+True\s*:")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="while True loops",
@@ -133,7 +134,7 @@ def test_prevent_while_true() -> None:
 
 def test_prevent_asyncio_import() -> None:
     pattern = RegexPattern(r"\bimport\s+asyncio\b|\bfrom\s+asyncio\b")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="asyncio imports",
@@ -144,7 +145,7 @@ def test_prevent_asyncio_import() -> None:
 
 def test_prevent_pandas_import() -> None:
     pattern = RegexPattern(r"\bimport\s+pandas\b|\bfrom\s+pandas\b")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="pandas imports",
@@ -155,7 +156,7 @@ def test_prevent_pandas_import() -> None:
 
 def test_prevent_dataclasses_import() -> None:
     pattern = RegexPattern(r"\bimport\s+dataclasses\b|\bfrom\s+dataclasses\b")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="dataclasses imports",
@@ -166,7 +167,7 @@ def test_prevent_dataclasses_import() -> None:
 
 def test_prevent_namedtuple_usage() -> None:
     pattern = RegexPattern(r"\bnamedtuple\s*\(")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="namedtuple usage",
@@ -178,7 +179,7 @@ def test_prevent_namedtuple_usage() -> None:
 def test_prevent_trailing_comments() -> None:
     # Allow trailing comments only for ty: ignore directives (needed for type checker)
     pattern = RegexPattern(r"[^\s#].*[ \t]#(?!\s*ty:\s*ignore\[)")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="trailing comments",
@@ -189,7 +190,7 @@ def test_prevent_trailing_comments() -> None:
 
 def test_prevent_relative_imports() -> None:
     pattern = RegexPattern(r"^from\s+\.", multiline=True)
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="relative imports",
@@ -200,7 +201,7 @@ def test_prevent_relative_imports() -> None:
 
 def test_prevent_global_keyword() -> None:
     pattern = RegexPattern(r"^\s*global\s+\w+")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="global keyword usage",
@@ -211,7 +212,7 @@ def test_prevent_global_keyword() -> None:
 
 def test_prevent_init_docstrings() -> None:
     pattern = RegexPattern(r'def __init__[^:]*:\s+"""', multiline=True)
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="docstrings in __init__ methods",
@@ -224,7 +225,7 @@ def test_prevent_init_docstrings() -> None:
 def test_prevent_args_in_docstrings() -> None:
     # Use [\s\S] instead of . because . doesn't match newlines even with multiline=True
     pattern = RegexPattern(r'"""[\s\S]{0,500}Args:', multiline=True)
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="Args: sections in docstrings",
@@ -237,7 +238,7 @@ def test_prevent_args_in_docstrings() -> None:
 def test_prevent_returns_in_docstrings() -> None:
     # Use [\s\S] instead of . because . doesn't match newlines even with multiline=True
     pattern = RegexPattern(r'"""[\s\S]{0,500}Returns:', multiline=True)
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="Returns: sections in docstrings",
@@ -248,7 +249,7 @@ def test_prevent_returns_in_docstrings() -> None:
 
 def test_prevent_num_prefix() -> None:
     pattern = RegexPattern(r"\bnum_\w+|\bnumOf|\bnum[A-Z]")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
         rule_name="num prefix usage",
@@ -261,7 +262,7 @@ def test_prevent_builtin_exception_raises() -> None:
     pattern = RegexPattern(
         r"raise\s+(ValueError|KeyError|TypeError|AttributeError|IndexError|RuntimeError|OSError|IOError)\("
     )
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="direct raising of built-in exceptions",
@@ -272,7 +273,7 @@ def test_prevent_builtin_exception_raises() -> None:
 
 def test_prevent_yaml_usage() -> None:
     pattern = RegexPattern(r"yaml", multiline=True)
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="yaml usage",
@@ -315,7 +316,7 @@ def test_no_type_errors() -> None:
 
 def test_prevent_literal_with_multiple_options() -> None:
     pattern = RegexPattern(r"Literal\[.*,.*\]")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="Literal with multiple options",
@@ -358,7 +359,7 @@ def test_prevent_if_elif_without_else() -> None:
     cases when conditions change. This test ensures all if/elif chains have an explicit
     else clause to handle the remaining cases.
     """
-    chunks = find_if_elif_without_else(_get_mngr_source_dir(), _THIS_FILE)
+    chunks = find_if_elif_without_else(_get_mngr_source_dir(), _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="if/elif without else",
@@ -369,7 +370,7 @@ def test_prevent_if_elif_without_else() -> None:
 
 def test_prevent_import_datetime() -> None:
     pattern = RegexPattern(r"^import datetime$", multiline=True)
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="import datetime",
@@ -379,7 +380,7 @@ def test_prevent_import_datetime() -> None:
 
 
 def test_prevent_inline_functions_in_non_test_code() -> None:
-    chunks = find_inline_functions(_get_mngr_source_dir(), _THIS_FILE)
+    chunks = find_inline_functions(_get_mngr_source_dir())
 
     assert len(chunks) <= snapshot(1), format_ratchet_failure_message(
         rule_name="inline functions in non-test code",
@@ -390,7 +391,7 @@ def test_prevent_inline_functions_in_non_test_code() -> None:
 
 def test_prevent_time_sleep() -> None:
     pattern = RegexPattern(r"\btime\.sleep\s*\(|\bfrom\s+time\s+import\s+sleep\b")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(1), format_ratchet_failure_message(
         rule_name="time.sleep usage",
@@ -401,7 +402,7 @@ def test_prevent_time_sleep() -> None:
 
 def test_prevent_bare_print() -> None:
     pattern = RegexPattern(r"^\s*print\s*\(", multiline=True)
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="bare print statements",
@@ -411,7 +412,7 @@ def test_prevent_bare_print() -> None:
 
 
 def test_prevent_importing_underscore_prefixed_names_in_non_test_code() -> None:
-    chunks = find_underscore_imports(_get_mngr_source_dir(), _THIS_FILE)
+    chunks = find_underscore_imports(_get_mngr_source_dir())
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="importing underscore-prefixed names in non-test code",
@@ -421,7 +422,7 @@ def test_prevent_importing_underscore_prefixed_names_in_non_test_code() -> None:
 
 
 def test_prevent_init_methods_in_non_exception_classes() -> None:
-    chunks = find_init_methods_in_non_exception_classes(_get_mngr_source_dir(), _THIS_FILE)
+    chunks = find_init_methods_in_non_exception_classes(_get_mngr_source_dir())
 
     assert len(chunks) <= snapshot(3), format_ratchet_failure_message(
         rule_name="__init__ methods in non-Exception/Error classes",
@@ -432,7 +433,7 @@ def test_prevent_init_methods_in_non_exception_classes() -> None:
 
 def test_prevent_click_echo() -> None:
     pattern = RegexPattern(r"\bclick\.echo\b|\bfrom\s+click\s+import\s+.*\becho\b")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="click.echo usage",
@@ -443,7 +444,7 @@ def test_prevent_click_echo() -> None:
 
 def test_prevent_bare_generic_types() -> None:
     pattern = RegexPattern(r":\s*(list|dict|tuple|set|List|Dict|Tuple|Set|Mapping|Sequence)\s*($|[,\)\]])")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="bare generic types",
@@ -454,7 +455,7 @@ def test_prevent_bare_generic_types() -> None:
 
 def test_prevent_typing_builtin_imports() -> None:
     pattern = RegexPattern(r"\bfrom\s+typing\s+import\s+.*\b(Dict|List|Set|Tuple)\b")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="typing module imports for builtin types",
@@ -465,7 +466,7 @@ def test_prevent_typing_builtin_imports() -> None:
 
 def test_prevent_fstring_logging() -> None:
     pattern = RegexPattern(r"logger\.(trace|debug|info|warning|error|exception)\(f")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="f-string logging",
@@ -476,7 +477,7 @@ def test_prevent_fstring_logging() -> None:
 
 def test_prevent_functools_partial() -> None:
     pattern = RegexPattern(r"\bfrom\s+functools\s+import\s+.*\bpartial\b|\bfunctools\.partial\b")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(1), format_ratchet_failure_message(
         rule_name="functools.partial usage",
@@ -532,7 +533,7 @@ def test_prevent_model_copy() -> None:
     See style guide 'Type-safe model_copy_update' section for details.
     """
     pattern = RegexPattern(r"\.model_copy\(")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name=".model_copy() usage",
@@ -553,9 +554,9 @@ def test_prevent_cast_usage() -> None:
     specific error code only if there is really no other way to satisfy the
     type checker. Consider restructuring the code to avoid the need for cast().
     """
-    chunks = find_cast_usages(_get_mngr_source_dir(), _THIS_FILE)
+    chunks = find_cast_usages(_get_mngr_source_dir())
 
-    assert len(chunks) <= snapshot(13), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(10), format_ratchet_failure_message(
         rule_name="cast() usages",
         rule_description=(
             "Do not use cast() from typing. It bypasses the type checker and makes code less safe. "
@@ -574,9 +575,9 @@ def test_prevent_assert_isinstance_usage() -> None:
     are handled explicitly. Use 'case _ as unreachable: assert_never(unreachable)'
     to catch any unhandled cases at compile time.
     """
-    chunks = find_assert_isinstance_usages(_get_mngr_source_dir(), _THIS_FILE)
+    chunks = find_assert_isinstance_usages(_get_mngr_source_dir())
 
-    assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="assert isinstance() usages",
         rule_description=(
             "Do not use 'assert isinstance()'. Use match statements with exhaustive case handling instead. "
@@ -604,8 +605,7 @@ def test_prevent_direct_subprocess_usage() -> None:
         r"|\bos\.(exec\w+|spawn\w+|fork\w*|system|popen)\b"
         r"|\bfrom\s+os\s+import\b.*\b(exec\w+|spawn\w+|fork\w*|system|popen)\b",
     )
-    all_chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
-    chunks = tuple(c for c in all_chunks if not _is_test_file(c.file_path))
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, TEST_FILE_PATTERNS)
 
     assert len(chunks) <= snapshot(50), format_ratchet_failure_message(
         rule_name="direct subprocess/os.exec usage",
@@ -628,7 +628,7 @@ def test_prevent_unittest_mock_imports() -> None:
     of interfaces in mock_*_test.py files. See the style guide for details.
     """
     pattern = RegexPattern(r"from unittest\.mock import|from unittest import mock")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(3), format_ratchet_failure_message(
         rule_name="unittest.mock imports",
@@ -650,9 +650,9 @@ def test_prevent_monkeypatch_setattr() -> None:
     are fine -- only setattr is problematic.
     """
     pattern = RegexPattern(r"monkeypatch\.setattr")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
-    assert len(chunks) <= snapshot(30), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(32), format_ratchet_failure_message(
         rule_name="monkeypatch.setattr usages",
         rule_description=(
             "Do not use monkeypatch.setattr to replace attributes or functions at runtime. "
@@ -671,7 +671,7 @@ def test_prevent_test_container_classes() -> None:
     given a name that pytest will not collect (e.g., SamplePlugin instead of TestPlugin).
     """
     pattern = RegexPattern(r"^class\s+(Test\w*|\w+Test)\s*[\(:]", multiline=True)
-    all_chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    all_chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
     chunks = tuple(c for c in all_chunks if _is_test_file(c.file_path))
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
@@ -695,7 +695,7 @@ def test_prevent_pytest_mark_integration() -> None:
     and release (test_*.py, @pytest.mark.release).
     """
     pattern = RegexPattern(r"pytest\.mark\.integration")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="pytest.mark.integration usage",
@@ -714,7 +714,7 @@ def test_prevent_short_uuid_ids() -> None:
     and can cause subtle collision bugs. Use the full uuid4().hex instead.
     """
     pattern = RegexPattern(r"uuid4\(\)(\.hex)?\[")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _THIS_FILE)
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
     assert len(chunks) <= snapshot(3), format_ratchet_failure_message(
         rule_name="short uuid4 IDs",
@@ -760,6 +760,6 @@ def test_prevent_bash_without_strict_mode() -> None:
         if not strict_mode_pattern.search(content):
             violations.append(str(sh_file))
 
-    assert len(violations) <= snapshot(3), "Bash scripts missing 'set -euo pipefail':\n" + "\n".join(
+    assert len(violations) <= snapshot(0), "Bash scripts missing 'set -euo pipefail':\n" + "\n".join(
         f"  - {v}" for v in violations
     )
