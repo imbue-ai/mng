@@ -1,5 +1,6 @@
 import threading
 import webbrowser
+from collections.abc import Callable
 from typing import Final
 
 from loguru import logger
@@ -45,6 +46,7 @@ def open_agent_url(
     # Injectable for testing; production callers should omit these
     stop_event: threading.Event | None = None,
     activity_interval_seconds: float = _ACTIVITY_INTERVAL_SECONDS,
+    browser_open: Callable[[str], object] = webbrowser.open,
 ) -> None:
     """Open an agent's URL in the default web browser.
 
@@ -54,7 +56,7 @@ def open_agent_url(
     url = _resolve_agent_url(agent, url_type)
 
     logger.info("Opening URL for agent {}: {}", agent.name, url)
-    webbrowser.open(url)
+    browser_open(url)
 
     if not is_wait:
         return
