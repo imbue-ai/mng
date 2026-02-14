@@ -60,6 +60,6 @@ class MngrRemoteProviderBackend(ProviderBackendInterface):
 
 
 @hookimpl
-def register_provider_backend():
+def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]:
     """Register the mngr remote provider backend."""
     return MngrRemoteProviderBackend, MngrRemoteProviderConfig
