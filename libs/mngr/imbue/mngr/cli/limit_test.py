@@ -197,14 +197,32 @@ def test_build_updated_permissions_grant_and_revoke() -> None:
 
 
 def test_build_updated_activity_config_idle_timeout() -> None:
-    """Test changing just the idle timeout."""
+    """Test changing just the idle timeout with a plain integer string."""
     current = ActivityConfig(
         idle_timeout_seconds=3600,
         activity_sources=(ActivitySource.CREATE, ActivitySource.BOOT),
     )
     result = _build_updated_activity_config(
         current=current,
-        idle_timeout=300,
+        idle_timeout_str="300",
+        idle_mode_str=None,
+        activity_sources_str=None,
+        add_activity_source=(),
+        remove_activity_source=(),
+    )
+    assert result.idle_timeout_seconds == 300
+    assert set(result.activity_sources) == {ActivitySource.CREATE, ActivitySource.BOOT}
+
+
+def test_build_updated_activity_config_idle_timeout_duration_string() -> None:
+    """Test changing idle timeout with a duration string like '5m'."""
+    current = ActivityConfig(
+        idle_timeout_seconds=3600,
+        activity_sources=(ActivitySource.CREATE, ActivitySource.BOOT),
+    )
+    result = _build_updated_activity_config(
+        current=current,
+        idle_timeout_str="5m",
         idle_mode_str=None,
         activity_sources_str=None,
         add_activity_source=(),
@@ -222,7 +240,7 @@ def test_build_updated_activity_config_idle_mode() -> None:
     )
     result = _build_updated_activity_config(
         current=current,
-        idle_timeout=None,
+        idle_timeout_str=None,
         idle_mode_str="disabled",
         activity_sources_str=None,
         add_activity_source=(),
@@ -241,7 +259,7 @@ def test_build_updated_activity_config_idle_mode_ssh() -> None:
     )
     result = _build_updated_activity_config(
         current=current,
-        idle_timeout=None,
+        idle_timeout_str=None,
         idle_mode_str="ssh",
         activity_sources_str=None,
         add_activity_source=(),
@@ -264,7 +282,7 @@ def test_build_updated_activity_config_replace_sources() -> None:
     )
     result = _build_updated_activity_config(
         current=current,
-        idle_timeout=None,
+        idle_timeout_str=None,
         idle_mode_str=None,
         activity_sources_str="ssh,agent",
         add_activity_source=(),
@@ -281,7 +299,7 @@ def test_build_updated_activity_config_add_remove_source() -> None:
     )
     result = _build_updated_activity_config(
         current=current,
-        idle_timeout=None,
+        idle_timeout_str=None,
         idle_mode_str=None,
         activity_sources_str=None,
         add_activity_source=("ssh",),

@@ -89,6 +89,7 @@ from imbue.mngr.utils.logging import remove_console_handlers
 from imbue.mngr.utils.name_generator import generate_agent_name
 from imbue.mngr.utils.name_generator import generate_host_name
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.time_utils import parse_duration_seconds
 
 
 @pure
@@ -198,7 +199,7 @@ class CreateCliOptions(CommonCliOptions):
     retry: int
     retry_delay: str
     attach_command: str | None
-    idle_timeout: int | None
+    idle_timeout: str | None
     idle_mode: str | None
     activity_sources: str | None
     start_on_boot: bool | None
@@ -438,7 +439,11 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("-s", "--start", "--start-arg", "start_arg", multiple=True, help="Argument for start [repeatable]")
 @optgroup.option("--start-args", help="Space-separated start arguments (alternative to -s)")
 @optgroup.group("New Host Lifecycle")
-@optgroup.option("--idle-timeout", type=int, help="Shutdown after idle for N seconds [default: none]")
+@optgroup.option(
+    "--idle-timeout",
+    type=str,
+    help="Shutdown after idle for specified duration (e.g., 30s, 5m, 1h, or plain seconds) [default: none]",
+)
 @optgroup.option(
     "--idle-mode",
     type=click.Choice(_make_idle_mode_choices(), case_sensitive=False),
@@ -1316,8 +1321,9 @@ def _parse_host_lifecycle_options(opts: CreateCliOptions) -> HostLifecycleOption
         if opts.activity_sources
         else None
     )
+    parsed_idle_timeout = parse_duration_seconds(opts.idle_timeout) if opts.idle_timeout is not None else None
     return HostLifecycleOptions(
-        idle_timeout_seconds=opts.idle_timeout,
+        idle_timeout_seconds=parsed_idle_timeout,
         idle_mode=parsed_idle_mode,
         activity_sources=parsed_activity_sources,
     )

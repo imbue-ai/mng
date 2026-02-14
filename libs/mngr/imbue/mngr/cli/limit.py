@@ -36,6 +36,7 @@ from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import Permission
+from imbue.mngr.utils.time_utils import parse_duration_seconds
 
 
 class LimitCliOptions(CommonCliOptions):
@@ -52,7 +53,7 @@ class LimitCliOptions(CommonCliOptions):
     stdin: bool
     # Lifecycle
     start_on_boot: bool | None
-    idle_timeout: int | None
+    idle_timeout: str | None
     idle_mode: str | None
     activity_sources: str | None
     add_activity_source: tuple[str, ...]
@@ -103,7 +104,7 @@ def _output_result(
 @pure
 def _build_updated_activity_config(
     current: ActivityConfig,
-    idle_timeout: int | None,
+    idle_timeout_str: str | None,
     idle_mode_str: str | None,
     activity_sources_str: str | None,
     add_activity_source: tuple[str, ...],
@@ -115,7 +116,9 @@ def _build_updated_activity_config(
     so when --idle-mode is specified we convert it to the corresponding activity sources
     via get_activity_sources_for_idle_mode.
     """
-    new_idle_timeout = idle_timeout if idle_timeout is not None else current.idle_timeout_seconds
+    new_idle_timeout = (
+        parse_duration_seconds(idle_timeout_str) if idle_timeout_str is not None else current.idle_timeout_seconds
+    )
 
     if activity_sources_str is not None:
         # Explicit --activity-sources replaces everything
@@ -185,7 +188,7 @@ def _apply_activity_config_to_host(
     current_config = online_host.get_activity_config()
     new_config = _build_updated_activity_config(
         current=current_config,
-        idle_timeout=opts.idle_timeout,
+        idle_timeout_str=opts.idle_timeout,
         idle_mode_str=opts.idle_mode,
         activity_sources_str=opts.activity_sources,
         add_activity_source=opts.add_activity_source,
@@ -291,9 +294,9 @@ def _resolve_host_identifiers(
 )
 @optgroup.option(
     "--idle-timeout",
-    type=int,
+    type=str,
     default=None,
-    help="Shutdown after idle for specified number of seconds",
+    help="Shutdown after idle for specified duration (e.g., 30s, 5m, 1h, or plain seconds)",
 )
 @optgroup.option(
     "--idle-mode",

@@ -19,7 +19,7 @@ mngr limit [[--agent] AGENT ...] [options]
 Agent IDs can be specified as positional arguments for convenience. The following are equivalent:
 
 ```
-mngr limit my-agent --idle-timeout 1800
+mngr limit my-agent --idle-timeout 30m
 mngr limit --agent my-agent --idle-timeout 1800
 mngr limit my-agent another-agent --idle-timeout 1800
 mngr limit --agent my-agent --agent another-agent --idle-timeout 1800
@@ -38,7 +38,7 @@ mngr limit --agent my-agent --agent another-agent --idle-timeout 1800
 ## Lifecycle
 
 - `--[no-]start-on-boot`: Automatically restart agent when host restarts. When adding the persist bit to a local agent, you may be prompted to install the post-boot-handler [default: no-persist for local, persist otherwise]
-- `--idle-timeout SECONDS`: Shutdown after idle for the specified number of seconds (e.g., `300`, `1800`, `3600`)
+- `--idle-timeout DURATION`: Shutdown after idle for specified duration (e.g., `30s`, `5m`, `1h`, or plain seconds like `300`)
 - `--idle-mode MODE`: When to consider host idle [default: `io` (remote) or `disabled` (local), choices: `io`, `user`, `agent`, `ssh`, `create`, `boot`, `start`, `run`, `disabled`]
 - `--activity-sources SOURCES`: Set activity sources for idle detection (comma-separated). Available sources: `create`, `boot`, `start`, `ssh`, `process`, `agent`, `user` [default: everything except process]
 - `--add-activity-source SOURCE`: Add an activity source for idle detection [repeatable]
