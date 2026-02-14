@@ -1,45 +1,24 @@
-import secrets
 from pathlib import Path
 from typing import Final
 
 from pydantic import SecretStr
 
 from imbue.imbue_common.pure import pure
+from imbue.mngr.utils.auth import read_or_create_token_file
 
-AUTH_TOKEN_BYTES: Final[int] = 32
 AUTH_TOKEN_FILE_NAME: Final[str] = "auth_token"
 FRPS_TOKEN_FILE_NAME: Final[str] = "frps_token"
 AUTH_COOKIE_NAME: Final[str] = "mngr_auth"
 
 
-def generate_auth_token() -> SecretStr:
-    """Generate a cryptographically secure auth token."""
-    return SecretStr(secrets.token_urlsafe(AUTH_TOKEN_BYTES))
-
-
-def _read_or_create_token(config_dir: Path, filename: str) -> SecretStr:
-    """Read a token from disk, or create and persist one if it doesn't exist."""
-    token_path = config_dir / filename
-    if token_path.exists():
-        token_value = token_path.read_text().strip()
-        if token_value:
-            return SecretStr(token_value)
-
-    token = generate_auth_token()
-    config_dir.mkdir(parents=True, exist_ok=True)
-    token_path.write_text(token.get_secret_value())
-    token_path.chmod(0o600)
-    return token
-
-
 def read_or_create_auth_token(config_dir: Path) -> SecretStr:
     """Read the auth token from disk, or create one if it doesn't exist."""
-    return _read_or_create_token(config_dir, AUTH_TOKEN_FILE_NAME)
+    return read_or_create_token_file(config_dir, AUTH_TOKEN_FILE_NAME)
 
 
 def read_or_create_frps_token(config_dir: Path) -> SecretStr:
     """Read the frps token from disk, or create one if it doesn't exist."""
-    return _read_or_create_token(config_dir, FRPS_TOKEN_FILE_NAME)
+    return read_or_create_token_file(config_dir, FRPS_TOKEN_FILE_NAME)
 
 
 @pure
