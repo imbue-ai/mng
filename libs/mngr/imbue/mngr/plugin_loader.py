@@ -9,6 +9,8 @@
 #
 # By placing load_all_registries here (a "leaf" module imported only by main.py
 # and tests), the cycle is eliminated.
+import pluggy
+
 import imbue.mngr.plugins.activity_tracking.plugin as activity_tracking_plugin_module
 import imbue.mngr.plugins.api_server.plugin as api_server_plugin_module
 import imbue.mngr.plugins.port_forwarding.plugin as port_forwarding_plugin_module
@@ -17,7 +19,7 @@ from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.providers.registry import load_backends_from_plugins
 
 
-def _load_utility_plugins(pm) -> None:
+def _load_utility_plugins(pm: pluggy.PluginManager) -> None:
     """Register built-in utility plugins (non-agent, non-provider)."""
     pm.register(port_forwarding_plugin_module)
     pm.register(ttyd_plugin_module)
@@ -25,7 +27,7 @@ def _load_utility_plugins(pm) -> None:
     pm.register(activity_tracking_plugin_module)
 
 
-def load_all_registries(pm) -> None:
+def load_all_registries(pm: pluggy.PluginManager) -> None:
     """Load all registries from plugins.
 
     This is the main entry point for loading all pluggy-based registries.
