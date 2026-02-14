@@ -70,11 +70,11 @@ Only after doing all of the above should you begin writing code.
 
 Before declaring any feature complete, smoke test it: exercise the feature exactly as a real user would, with real inputs, and critically evaluate whether it *actually does the right thing*. Do not confuse "no errors" with "correct behavior" -- a command that exits 0 but produces wrong output is not working.
 
-Then crystallize the verified behavior into formal tests. The formal test should capture a true invariant of the system, not just parrot back whatever the agent observed on the first run. A different code path or assertion strategy is fine if it produces a more reliable test.
+Then crystallize the verified behavior into formal tests that assert true invariants of the system.
 
 ## Smoke testing interactive components with tmux
 
-For interactive components (TUIs, interactive prompts, etc.), use `tmux send-keys` and `capture-pane` (via the `capture_tmux_pane_contents` helper in `utils/testing.py`) to smoke test them. This is a special case: do NOT crystallize these into pytest tests. They are inherently flaky due to timing and useless in CI, but valuable for agents to programmatically verify interactive behavior during development.
+For interactive components (TUIs, interactive prompts, etc.), use `tmux send-keys` and `tmux capture-pane` to smoke test them. This is a special case: do NOT crystallize these into pytest tests. They are inherently flaky due to timing and useless in CI, but valuable for agents to programmatically verify interactive behavior during development.
 
 # Git and committing
 
