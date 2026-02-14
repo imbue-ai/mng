@@ -1301,6 +1301,10 @@ def _parse_agent_opts(
     # Capture the source path for session adoption (the directory where `mngr create` was invoked)
     adopt_session_source_path = source_location.path if opts.adopt_session is not None else None
 
+    # When cloning from an existing agent, pass the source work_dir so that
+    # agent plugins (e.g. ClaudeAgent) can transfer session state.
+    parsed_source_work_dir = source_location.path if opts.source_agent is not None else None
+
     agent_opts = CreateAgentOptions(
         agent_type=AgentTypeName(resolved_agent_type) if resolved_agent_type else None,
         name=parsed_agent_name,
@@ -1321,6 +1325,7 @@ def _parse_agent_opts(
         provisioning=provisioning,
         adopt_session_id=opts.adopt_session,
         adopt_session_source_path=adopt_session_source_path,
+        source_work_dir=parsed_source_work_dir,
     )
     return agent_opts
 
