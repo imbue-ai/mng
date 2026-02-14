@@ -1,8 +1,11 @@
 # Tests for the changeling add CLI command.
 
+from pathlib import Path
+
 import pytest
 from click.testing import CliRunner
 
+from imbue.changelings.cli.add import _resolve_mngr_profile
 from imbue.changelings.cli.add import add
 from imbue.changelings.config import get_changeling
 from imbue.changelings.config import load_config
@@ -184,3 +187,39 @@ def test_add_update_overwrites_existing_changeling(cli_runner: CliRunner) -> Non
     assert result.exit_code == 0
     changeling = get_changeling(ChangelingName("test-guardian"))
     assert changeling.branch == "updated"
+
+
+def test_add_with_mngr_profile_stores_it(cli_runner: CliRunner) -> None:
+    """A changeling with --mngr-profile should have it stored in the config."""
+    cli_runner.invoke(
+        add,
+        ["my-fairy", "--disabled", "--mngr-profile", "abc123"],
+    )
+
+    changeling = get_changeling(ChangelingName("my-fairy"))
+    assert changeling.mngr_profile == "abc123"
+
+
+# -- _resolve_mngr_profile tests --
+
+
+def test_resolve_mngr_profile_returns_explicit_profile() -> None:
+    """When an explicit profile is provided, it should be returned as-is."""
+    result = _resolve_mngr_profile("my-explicit-profile")
+    assert result == "my-explicit-profile"
+
+
+def test_resolve_mngr_profile_auto_selects_single_profile(tmp_path: Path) -> None:
+    """When exactly one profile exists, it should be auto-selected."""
+    profiles_dir = tmp_path / ".mngr" / "profiles"
+    (profiles_dir / "only-profile").mkdir(parents=True)
+
+    result = _resolve_mngr_profile(None)
+
+    assert result == "only-profile"
+
+
+def test_resolve_mngr_profile_exits_when_no_profiles() -> None:
+    """When no profiles exist, SystemExit should be raised."""
+    with pytest.raises(SystemExit):
+        _resolve_mngr_profile(None)

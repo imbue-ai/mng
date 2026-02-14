@@ -55,6 +55,12 @@ def test_code_guardian_config_inherits_claude_cli_args() -> None:
     assert config.cli_args == ClaudeAgentConfig().cli_args
 
 
+def test_code_guardian_config_has_no_custom_cli_args() -> None:
+    """CodeGuardianAgentConfig should not add any custom cli_args beyond ClaudeAgentConfig."""
+    config = CodeGuardianAgentConfig()
+    assert config.cli_args == ()
+
+
 def test_resolve_code_guardian_type_returns_code_guardian_agent_and_config() -> None:
     """Resolving code-guardian should return CodeGuardianAgent with CodeGuardianAgentConfig."""
     mngr_config = MngrConfig()

@@ -168,6 +168,24 @@ def test_upsert_changeling_updates_when_exists() -> None:
     assert result.branch == "updated"
 
 
+def test_save_and_load_config_preserves_mngr_profile() -> None:
+    """The mngr_profile field should survive a save/load roundtrip."""
+    definition = ChangelingDefinition(
+        name=ChangelingName("profiled-changeling"),
+        agent_type="code-guardian",
+        mngr_profile="abc123def456",
+    )
+    config = ChangelingConfig(
+        changeling_by_name={definition.name: definition},
+    )
+
+    save_config(config)
+    loaded = load_config()
+
+    loaded_def = loaded.changeling_by_name[ChangelingName("profiled-changeling")]
+    assert loaded_def.mngr_profile == "abc123def456"
+
+
 def test_load_config_raises_on_malformed_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """load_config should raise ChangelingConfigError for malformed TOML."""
     config_dir = tmp_path / ".changelings"
