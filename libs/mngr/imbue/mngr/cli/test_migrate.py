@@ -61,3 +61,54 @@ def test_migrate_clones_and_destroys_source(
         assert list_result.exit_code == 0
         assert target_name in list_result.output, f"Expected target agent in list output: {list_result.output}"
         assert source_name not in list_result.output, f"Expected source agent NOT in list output: {list_result.output}"
+
+
+def test_migrate_same_name_does_not_destroy_clone(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Migrate without a new name should destroy only the source, not the clone.
+
+    When no target name is specified, the clone inherits the source name.
+    The destroy step must target the source by ID (not name) to avoid
+    destroying the newly cloned agent that shares the same name.
+    """
+    agent_name = f"test-migrate-same-{uuid4().hex}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
+
+        # Migrate without specifying a new name -- clone inherits the source name
+        migrate_result = cli_runner.invoke(
+            migrate,
+            [
+                agent_name,
+                "--agent-cmd",
+                "sleep 573819",
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert migrate_result.exit_code == 0, f"Migrate failed with: {migrate_result.output}"
+
+        # The cloned agent (same name) should still exist
+        assert tmux_session_exists(session_name), (
+            f"Expected session {session_name} to exist after migrate -- "
+            "destroy likely matched by name and killed the clone too"
+        )
+
+        # Verify via list: agent should still appear exactly once
+        list_result = cli_runner.invoke(
+            list_command,
+            [],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert list_result.exit_code == 0
+        assert agent_name in list_result.output, f"Expected agent in list output: {list_result.output}"

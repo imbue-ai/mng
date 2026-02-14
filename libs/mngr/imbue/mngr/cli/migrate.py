@@ -6,16 +6,18 @@ from loguru import logger
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.list import list_agents
+from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.clone import args_before_dd_count
 from imbue.mngr.cli.clone import has_name_in_remaining_args
 from imbue.mngr.cli.clone import parse_source_and_invoke_create
 from imbue.mngr.cli.connect import connect as connect_cmd
-from imbue.mngr.cli.destroy import destroy as destroy_cmd
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.config.loader import load_config
+from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import UserInputError
+from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentId
 
 
@@ -31,34 +33,59 @@ def _user_specified_quiet(args: tuple[str, ...]) -> bool:
     return "--quiet" in args or "-q" in args
 
 
-def _resolve_source_agent_id(ctx: click.Context, source_agent: str) -> AgentId:
-    """Resolve the source agent name or ID to a unique AgentId.
+def _resolve_and_stop_source_agent(ctx: click.Context, source_agent: str) -> AgentId:
+    """Resolve the source agent name or ID to a unique AgentId, then stop it.
 
-    Loads config and lists all agents to find a match by name or ID.
-    This ensures destroy targets only the specific source agent, avoiding
-    collisions when the cloned agent shares the same name.
+    Loads config, lists all agents to find a match, and stops the source
+    agent's tmux session before returning. Stopping the source is necessary
+    because tmux session names are derived from agent names (not IDs). If
+    the clone inherits the same name, it needs the session name to be free
+    so it can create its own session.
+
+    The source's data/config remains intact for the clone to copy from.
     """
     pm = ctx.obj
     with ConcurrencyGroup(name="mngr-migrate-resolve") as cg:
         mngr_ctx = load_config(pm, cg)
         result = list_agents(mngr_ctx, is_streaming=False)
 
-    for agent_info in result.agents:
-        if str(agent_info.name) == source_agent or str(agent_info.id) == source_agent:
-            return agent_info.id
+        for agent_info in result.agents:
+            if str(agent_info.name) == source_agent or str(agent_info.id) == source_agent:
+                # Stop the source agent so the clone can create its own
+                # tmux session with the same name
+                provider = get_provider_instance(agent_info.host.provider_name, mngr_ctx)
+                host = provider.get_host(agent_info.host.id)
+                if isinstance(host, OnlineHostInterface):
+                    host.stop_agents([agent_info.id])
+                return agent_info.id
 
     raise UserInputError(f"Source agent '{source_agent}' not found")
 
 
-@pure
-def _build_destroy_args(source_agent_id: AgentId) -> list[str]:
-    """Build the argument list for destroying the source agent during migrate.
+def _destroy_source_agent_data(ctx: click.Context, source_agent_id: AgentId) -> None:
+    """Destroy the source agent's data without killing its tmux session.
 
-    Uses the agent ID (not name) to avoid destroying a newly cloned agent
-    that shares the same name. Always passes --quiet and --no-gc to suppress
-    alarming destroy output during migrate.
+    Uses skip_stop=True on destroy_agent because the source was already stopped
+    before cloning, and the clone may now own a tmux session with the same name.
+    Calling stop_agents would kill the clone's session due to name-based lookup.
     """
-    return [str(source_agent_id), "--force", "--quiet", "--no-gc"]
+    pm = ctx.obj
+    with ConcurrencyGroup(name="mngr-migrate-destroy") as cg:
+        mngr_ctx = load_config(pm, cg)
+        result = list_agents(mngr_ctx, is_streaming=False)
+
+        for agent_info in result.agents:
+            if agent_info.id == source_agent_id:
+                provider = get_provider_instance(agent_info.host.provider_name, mngr_ctx)
+                host = provider.get_host(agent_info.host.id)
+                if isinstance(host, OnlineHostInterface):
+                    for agent in host.get_agents():
+                        if agent.id == source_agent_id:
+                            host.destroy_agent(agent, skip_stop=True)
+                            return
+                raise AgentNotFoundError(str(source_agent_id))
+
+    raise AgentNotFoundError(str(source_agent_id))
 
 
 @pure
@@ -126,10 +153,13 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
     wants_connect = not _user_specified_no_connect(args)
     is_quiet = _user_specified_quiet(args)
 
-    # Resolve the source agent's unique ID before cloning, so that
-    # destroy targets only this specific agent (not a newly cloned agent
-    # that may share the same name).
-    source_agent_id = _resolve_source_agent_id(ctx, source_agent)
+    # Resolve the source agent's unique ID and stop its tmux session before
+    # cloning. This ensures: (1) destroy targets only this specific agent,
+    # not a newly cloned agent with the same name, and (2) the clone can
+    # create its own tmux session (session names are name-based, not ID-based).
+    if not is_quiet:
+        logger.info("Stopping source agent...")
+    source_agent_id = _resolve_and_stop_source_agent(ctx, source_agent)
 
     if wants_connect:
         create_args = args + ("--no-connect", "--await-ready")
@@ -138,18 +168,16 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
 
     parse_source_and_invoke_create(ctx, create_args, command_name="migrate")
 
-    # Destroy the source agent by ID with --force.
-    # Always pass --quiet and --no-gc to suppress alarming destroy output
-    # during migrate (users see migrate-appropriate messages instead).
+    # Destroy the source agent's data. We use skip_stop=True because:
+    # (1) the source was already stopped before cloning, and
+    # (2) the clone may now own a tmux session with the same name
+    #     (session names are name-based), so stop_agents would kill it.
     if not is_quiet:
         logger.info("Cleaning up source agent...")
 
-    destroy_args = _build_destroy_args(source_agent_id)
     try:
-        destroy_ctx = destroy_cmd.make_context("migrate-destroy", destroy_args, parent=ctx)
-        with destroy_ctx:
-            destroy_cmd.invoke(destroy_ctx)
-    except (click.Abort, click.ClickException):
+        _destroy_source_agent_data(ctx, source_agent_id)
+    except click.ClickException:
         logger.error(
             "Clone succeeded but destroy of '{}' failed. "
             "Please manually destroy the source agent:\n"
