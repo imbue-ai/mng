@@ -5,6 +5,7 @@ from typing import Final
 
 from loguru import logger
 
+from imbue.mngr.api.list import compute_default_url
 from imbue.mngr.errors import BaseMngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -17,22 +18,23 @@ _ACTIVITY_INTERVAL_SECONDS: Final[float] = 30.0
 def _resolve_agent_url(agent: AgentInterface, url_type: str | None) -> str:
     """Resolve the URL to open for an agent, optionally filtered by type.
 
-    When url_type is None, returns the default URL (from get_reported_url).
-    When url_type is specified, looks it up in get_reported_urls().
+    When url_type is None, returns the default URL, then falls back to the
+    first available URL.  When url_type is specified, looks it up directly.
+    Only calls get_reported_urls() once to avoid redundant SSH I/O.
     """
+    reported_urls = agent.get_reported_urls()
+
     if url_type is None:
         # Try the default URL first, then fall back to the first typed URL
-        url = agent.get_reported_url()
-        if url is not None:
-            return url
-        reported_urls = agent.get_reported_urls()
+        default_url = compute_default_url(reported_urls)
+        if default_url is not None:
+            return default_url
         if reported_urls:
             return next(iter(reported_urls.values()))
         raise UserInputError(
             f"Agent '{agent.name}' has no URL. The agent may not have reported a URL yet, or it may not support URLs."
         )
 
-    reported_urls = agent.get_reported_urls()
     if not reported_urls:
         raise UserInputError(
             f"Agent '{agent.name}' has no URLs. "

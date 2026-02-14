@@ -49,7 +49,7 @@ from imbue.mngr.utils.cel_utils import compile_cel_filters
 
 
 @pure
-def _compute_default_url(url_by_type: dict[str, str]) -> str | None:
+def compute_default_url(url_by_type: dict[str, str]) -> str | None:
     """Extract the default URL from a dict of URLs keyed by type.
 
     Returns the "default" key if present, or the only value if exactly one URL
@@ -495,7 +495,7 @@ def _assemble_host_info(
                     start_on_boot=agent.get_is_start_on_boot(),
                     state=agent.get_lifecycle_state(),
                     status=agent_status,
-                    url=_compute_default_url(reported_urls),
+                    url=compute_default_url(reported_urls),
                     urls=reported_urls,
                     start_time=agent.get_reported_start_time(),
                     runtime_seconds=agent.runtime_seconds,
