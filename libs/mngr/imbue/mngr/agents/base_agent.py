@@ -33,7 +33,9 @@ from imbue.mngr.utils.polling import poll_until
 
 # Constants for send_message marker-based synchronization
 _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
-_TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
+# TODO: put this back!!! just debugging
+# _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
+_TUI_READY_TIMEOUT_SECONDS: Final[float] = 3600.0
 _CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
 
 # Constants for signal-based synchronization
