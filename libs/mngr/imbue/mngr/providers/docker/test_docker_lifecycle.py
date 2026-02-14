@@ -310,13 +310,14 @@ def test_create_host_with_dockerfile(docker_provider: DockerProviderInstance, tm
 def test_persist_and_list_agent_data(docker_provider: DockerProviderInstance) -> None:
     """Verify agent data can be persisted and listed for a host."""
     host = docker_provider.create_host(HostName("test-agent-data"))
-    agent_data = {"id": "agent-001", "name": "test-agent", "status": "running"}
+    agent_id = str(AgentId.generate())
+    agent_data = {"id": agent_id, "name": "test-agent", "status": "running"}
 
     docker_provider.persist_agent_data(host.id, agent_data)
     records = docker_provider.list_persisted_agent_data_for_host(host.id)
 
     assert len(records) == 1
-    assert records[0]["id"] == "agent-001"
+    assert records[0]["id"] == agent_id
     assert records[0]["name"] == "test-agent"
 
 
@@ -325,10 +326,11 @@ def test_persist_and_list_agent_data(docker_provider: DockerProviderInstance) ->
 def test_remove_persisted_agent_data(docker_provider: DockerProviderInstance) -> None:
     """Verify agent data can be removed after persisting."""
     host = docker_provider.create_host(HostName("test-rm-agent"))
-    agent_data = {"id": "agent-to-remove", "name": "ephemeral"}
+    agent_id = AgentId.generate()
+    agent_data = {"id": str(agent_id), "name": "ephemeral"}
 
     docker_provider.persist_agent_data(host.id, agent_data)
-    docker_provider.remove_persisted_agent_data(host.id, AgentId("agent-to-remove"))
+    docker_provider.remove_persisted_agent_data(host.id, agent_id)
 
     records = docker_provider.list_persisted_agent_data_for_host(host.id)
     assert len(records) == 0
@@ -460,11 +462,13 @@ def test_multiple_hosts_isolated(
 def test_persist_multiple_agents_for_same_host(docker_provider: DockerProviderInstance) -> None:
     """Verify multiple agent data records can be persisted for one host."""
     host = docker_provider.create_host(HostName("test-multi-agent"))
+    agent_id_1 = str(AgentId.generate())
+    agent_id_2 = str(AgentId.generate())
 
-    docker_provider.persist_agent_data(host.id, {"id": "agent-1", "type": "claude"})
-    docker_provider.persist_agent_data(host.id, {"id": "agent-2", "type": "codex"})
+    docker_provider.persist_agent_data(host.id, {"id": agent_id_1, "type": "claude"})
+    docker_provider.persist_agent_data(host.id, {"id": agent_id_2, "type": "codex"})
 
     records = docker_provider.list_persisted_agent_data_for_host(host.id)
     assert len(records) == 2
     agent_ids = {r["id"] for r in records}
-    assert agent_ids == {"agent-1", "agent-2"}
+    assert agent_ids == {agent_id_1, agent_id_2}
