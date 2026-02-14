@@ -2,7 +2,6 @@ import os
 import shlex
 import sys
 from collections.abc import Callable
-from functools import lru_cache
 from pathlib import Path
 from typing import assert_never
 from typing import cast
@@ -15,6 +14,7 @@ from pydantic import Field
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.create import create as api_create
@@ -89,6 +89,20 @@ from imbue.mngr.utils.logging import remove_console_handlers
 from imbue.mngr.utils.name_generator import generate_agent_name
 from imbue.mngr.utils.name_generator import generate_host_name
 from imbue.mngr.utils.polling import wait_for
+
+
+class _CachedAgentHostLoader(MutableModel):
+    """Lazy loader that caches agents grouped by host on first access."""
+
+    mngr_ctx: MngrContext = Field(frozen=True, description="Manager context for loading agents")
+    cached_result: dict[HostReference, list[AgentReference]] | None = Field(
+        default=None, description="Cached loading result"
+    )
+
+    def __call__(self) -> dict[HostReference, list[AgentReference]]:
+        if self.cached_result is None:
+            self.cached_result = load_all_agents_grouped_by_host(self.mngr_ctx)[0]
+        return self.cached_result
 
 
 @pure
@@ -576,10 +590,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
         initial_message = initial_message_content
 
     # Create a lazy loader for agents grouped by host (only loads if needed)
-    @lru_cache
-    def agent_and_host_loader() -> dict[HostReference, list[AgentReference]]:
-        """Lazily load all agents grouped by host, caching the result."""
-        return load_all_agents_grouped_by_host(mngr_ctx)[0]
+    agent_and_host_loader = _CachedAgentHostLoader(mngr_ctx=mngr_ctx)
 
     # figure out where the source data is coming from
     source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx, is_start_desired=opts.start_host)

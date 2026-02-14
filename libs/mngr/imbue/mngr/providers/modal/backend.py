@@ -22,8 +22,8 @@ from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import ConfigStructureError
-from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import MngrError
+from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface

@@ -151,7 +151,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `host.name` - Host name
 - `host.id` - Host ID
 - `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
-- `host.provider` - Host provider (local, docker, modal, etc.)
+- `host.provider_name` - Host provider (local, docker, modal, etc.) (in CEL filters, use `host.provider`)
 - `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host

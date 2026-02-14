@@ -493,14 +493,14 @@ def test_list_command_with_nested_fields(
         assert "local" in result.output
 
 
-def test_list_command_with_field_aliases(
+def test_list_command_with_host_and_provider_fields(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test list command with field aliases."""
-    agent_name = f"test-list-fields-aliases-{int(time.time())}"
+    """Test list command with host.name and host.provider_name fields."""
+    agent_name = f"test-list-fields-host-provider-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
@@ -524,10 +524,10 @@ def test_list_command_with_field_aliases(
         )
         assert create_result.exit_code == 0
 
-        # List with field aliases
+        # List with host.name and host.provider_name fields
         result = cli_runner.invoke(
             list_command,
-            ["--fields", "name,host.state,state,host,provider"],
+            ["--fields", "name,host.state,state,host.name,host.provider_name"],
             obj=plugin_manager,
             catch_exceptions=False,
         )
@@ -536,8 +536,8 @@ def test_list_command_with_field_aliases(
         assert "NAME" in result.output
         assert "HOST_STATE" in result.output
         assert "STATE" in result.output
-        assert "HOST" in result.output
-        assert "PROVIDER" in result.output
+        assert "HOST_NAME" in result.output
+        assert "HOST_PROVIDER_NAME" in result.output
         assert agent_name in result.output
         # States should show in uppercase
         assert AgentLifecycleState.RUNNING.value in result.output or AgentLifecycleState.STOPPED.value in result.output

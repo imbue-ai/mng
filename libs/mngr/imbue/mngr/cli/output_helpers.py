@@ -1,5 +1,6 @@
 import json
 import sys
+from collections.abc import Mapping
 from typing import Any
 from typing import assert_never
 
@@ -12,7 +13,7 @@ from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import SyncMode
 
 
-def _write_json_line(data: dict[str, Any]) -> None:
+def _write_json_line(data: Mapping[str, Any]) -> None:
     """Write a JSON object as a line to stdout.
 
     This is used for JSON and JSONL output formats where we need raw JSON
@@ -59,7 +60,7 @@ def emit_event(
     # The type of event (e.g., "destroyed", "created")
     event_type: str,
     # Event data dictionary. For HUMAN format, should include "message" key.
-    data: dict[str, Any],
+    data: Mapping[str, Any],
     output_format: OutputFormat,
 ) -> None:
     """Emit an event in the appropriate format."""
@@ -104,7 +105,7 @@ def on_error(
         raise AbortError(error_msg, original_exception=exc)
 
 
-def emit_final_json(data: dict[str, Any]) -> None:
+def emit_final_json(data: Mapping[str, Any]) -> None:
     """Emit final JSON output (for JSON format only)."""
     _write_json_line(data)
 
