@@ -6,7 +6,6 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Generator
-from typing import NamedTuple
 from uuid import uuid4
 
 import pluggy
@@ -14,10 +13,12 @@ import psutil
 import pytest
 import toml
 from click.testing import CliRunner
+from pydantic import Field
 from urwid.widget.listbox import SimpleFocusListWalker
 
 import imbue.mngr.main
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -532,12 +533,12 @@ def register_modal_test_environment(environment_name: str) -> None:
 # =============================================================================
 
 
-class ModalSubprocessTestEnv(NamedTuple):
+class ModalSubprocessTestEnv(FrozenModel):
     """Environment configuration for Modal subprocess tests."""
 
-    env: dict[str, str]
-    prefix: str
-    host_dir: Path
+    env: dict[str, str] = Field(description="Environment variables for the subprocess")
+    prefix: str = Field(description="The mngr prefix for test isolation")
+    host_dir: Path = Field(description="Path to the temporary host directory")
 
 
 @pytest.fixture(scope="session")
