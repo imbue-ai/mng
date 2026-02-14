@@ -66,6 +66,32 @@ Only after doing all of the above should you begin writing code.
 - Do not add TODO or FIXME unless explicitly asked to do so
 - To reiterate: code correctness and quality is the most important concern when writing code.
 
+# Smoke testing and verification
+
+Before declaring any feature complete, you must smoke test it: run the feature as a user would and critically evaluate whether it *actually does the right thing* -- not just that it doesn't error. This means:
+
+- Actually exercise the feature end-to-end in a realistic way. For a CLI command, run it with real (or realistic) inputs. For a library change, call the modified code path and inspect the result.
+- Apply critical thinking to the output. Ask yourself: "Is what I'm observing what *ought* to be observed?" A command that exits 0 but produces wrong output is not working. A UI that renders without errors but shows the wrong data is not working.
+- Do not confuse "no errors" with "correct behavior." The bar is: does this do what a user would expect?
+
+Once you have smoke tested a feature and confirmed it works correctly, crystallize those informal observations into formal tests:
+
+- If the behavior is core functionality that must not regress, write an acceptance test (`@pytest.mark.acceptance`).
+- If the behavior is important but more comprehensive or slow to verify, write a release test (`@pytest.mark.release`).
+- The smoke test tells you *what* to assert in the formal test. Don't just assert "no exception" -- assert the specific correct behavior you observed during the smoke test.
+
+## Testing interactive components with tmux
+
+For interactive components (TUIs, interactive prompts, etc.), it often doesn't make sense to have a test that runs unattended in CI. These components can be tested locally using `tmux send-keys` and `capture-pane`:
+
+- Use `tmux send-keys` to simulate user input to an interactive process.
+- Use `tmux capture-pane` (via the existing `capture_tmux_pane_contents` helper in `utils/testing.py`) to read what the process displayed.
+- Assert on the captured output to verify correct behavior.
+
+These tmux-based tests are inherently flaky due to timing dependencies and should NOT be relied upon as part of a scored CI test suite. However, they are highly valuable as a tool for providing information to agents working on the code. Mark them with `@pytest.mark.release` and note in the docstring that they test interactive behavior and may be flaky.
+
+The key insight: a test that provides useful information to an agent during development is valuable even if it's too flaky to score mindlessly as part of a CI run. The purpose of these tests is to give the agent a way to programmatically verify "does this interactive thing actually work?" rather than requiring a human to manually check.
+
 If desired, the user will explicitly instruct you not to commit.
 
 By default, or if instructed to commit:
