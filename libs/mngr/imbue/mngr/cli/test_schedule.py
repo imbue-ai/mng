@@ -7,6 +7,8 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.mngr.main import cli
+from imbue.mngr.utils.testing import tmux_session_cleanup
+from imbue.mngr.utils.testing import tmux_session_exists
 
 
 def _read_system_crontab() -> str:
@@ -223,6 +225,57 @@ def test_schedule_add_json_format(
     assert "crontab_line" in data
 
     # Clean up
+    cli_runner.invoke(cli, ["schedule", "remove", name])
+
+
+@pytest.mark.acceptance
+def test_schedule_run_creates_agent(
+    cli_runner: CliRunner,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+) -> None:
+    """Test that 'schedule run' actually creates and runs an agent."""
+    name = f"sched-run-{uuid4().hex}"
+    agent_name = f"sched-agent-{uuid4().hex}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    # Add a schedule that creates a short-lived agent using --agent-cmd
+    add_result = cli_runner.invoke(
+        cli,
+        [
+            "schedule",
+            "add",
+            "--cron",
+            "0 * * * *",
+            "--name",
+            name,
+            # The message is the positional argument
+            "scheduled task running",
+            # Everything after this is passed through as create_args
+            "--",
+            "--agent-cmd",
+            f"echo 'scheduled agent {name}' && sleep 274918",
+            "--name",
+            agent_name,
+            "--source",
+            str(temp_work_dir),
+            "--no-copy-work-dir",
+            "--no-ensure-clean",
+            "--await-ready",
+        ],
+    )
+    assert add_result.exit_code == 0, add_result.output
+
+    # Run the schedule, which should spawn mngr create and create an agent
+    with tmux_session_cleanup(session_name):
+        run_result = cli_runner.invoke(cli, ["schedule", "run", name])
+        assert run_result.exit_code == 0, run_result.output
+
+        # Verify the agent's tmux session was created
+        assert tmux_session_exists(session_name), f"Expected tmux session '{session_name}' to exist after schedule run"
+
+    # Clean up the schedule
     cli_runner.invoke(cli, ["schedule", "remove", name])
 
 
