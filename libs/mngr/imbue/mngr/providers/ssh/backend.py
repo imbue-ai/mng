@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
@@ -14,7 +15,7 @@ from imbue.mngr.providers.ssh.config import SSHHostConfig
 from imbue.mngr.providers.ssh.config import SSHProviderConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
 
-SSH_BACKEND_NAME = ProviderBackendName("ssh")
+SSH_BACKEND_NAME: Final[ProviderBackendName] = ProviderBackendName("ssh")
 
 
 class SSHProviderBackend(ProviderBackendInterface):

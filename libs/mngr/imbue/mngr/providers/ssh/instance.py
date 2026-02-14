@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
+from typing import Final
 from typing import Mapping
 from typing import Sequence
 
@@ -31,7 +32,7 @@ from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.ssh.config import SSHHostConfig
 
 # Fixed UUID namespace for generating deterministic host IDs from names
-_SSH_PROVIDER_NAMESPACE = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+_SSH_PROVIDER_NAMESPACE: Final[uuid.UUID] = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 
 
 class SSHProviderInstance(BaseProviderInstance):
