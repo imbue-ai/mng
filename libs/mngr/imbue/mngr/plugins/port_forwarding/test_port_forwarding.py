@@ -7,7 +7,6 @@ These tests verify the full chain locally:
 
 import shutil
 import signal
-import socket
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,20 +26,14 @@ from imbue.mngr.plugins.port_forwarding.frps import ensure_frps_config
 from imbue.mngr.plugins.port_forwarding.frps import is_frps_running
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.polling import wait_for
-
-
-def _find_free_port() -> int:
-    """Find an available port on localhost."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+from imbue.mngr.utils.testing import find_free_port
 
 
 def _make_resolved_config(tmp_path: Path) -> ResolvedPortForwardingConfig:
     """Create a ResolvedPortForwardingConfig with unique ports for test isolation."""
     plugin_config = PortForwardingConfig(
-        frps_bind_port=PositiveInt(_find_free_port()),
-        vhost_http_port=PositiveInt(_find_free_port()),
+        frps_bind_port=PositiveInt(find_free_port()),
+        vhost_http_port=PositiveInt(find_free_port()),
     )
     return resolve_port_forwarding_config(plugin_config, config_dir=tmp_path / "config")
 
