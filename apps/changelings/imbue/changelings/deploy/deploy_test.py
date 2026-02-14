@@ -394,6 +394,17 @@ def test_build_cron_mngr_command_includes_extra_mngr_args() -> None:
     assert "300" in cmd
 
 
+def test_build_cron_mngr_command_includes_dangerously_skip_permissions() -> None:
+    """The cron command should pass --dangerously-skip-permissions after -- to the agent."""
+    changeling = make_test_changeling()
+    env_file = Path("/tmp/test.env")
+    cmd = build_cron_mngr_command(changeling, env_file)
+
+    assert "--" in cmd
+    separator_idx = cmd.index("--")
+    assert "--dangerously-skip-permissions" in cmd[separator_idx:]
+
+
 # -- find_repo_root tests (using real git) --
 
 
