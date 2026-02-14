@@ -27,7 +27,7 @@ app = FastAPI(title="mngr API", docs_url=None, redoc_url=None)
 
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception) -> Response:
+def global_exception_handler(request: Request, exc: Exception) -> Response:
     """Return provider/backend errors as structured JSON instead of raw 500s."""
     logger.error("Unhandled exception in {}: {}", request.url.path, exc)
     return JSONResponse(
