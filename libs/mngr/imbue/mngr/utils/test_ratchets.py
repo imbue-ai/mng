@@ -479,7 +479,7 @@ def test_prevent_functools_partial() -> None:
     pattern = RegexPattern(r"\bfrom\s+functools\s+import\s+.*\bpartial\b|\bfunctools\.partial\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
-    assert len(chunks) <= snapshot(1), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="functools.partial usage",
         rule_description="functools.partial is banned. It leads to confusing code and makes debugging difficult. Use explicit wrapper functions or lambdas instead",
         chunks=chunks,
