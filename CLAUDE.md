@@ -68,23 +68,13 @@ Only after doing all of the above should you begin writing code.
 
 # Smoke testing and verification
 
-Before declaring any feature complete, you must smoke test it: run the feature as a user would and critically evaluate whether it *actually does the right thing* -- not just that it doesn't error. This means:
+Before declaring any feature complete, smoke test it: exercise the feature exactly as a real user would, with real inputs, and critically evaluate whether it *actually does the right thing*. Do not confuse "no errors" with "correct behavior" -- a command that exits 0 but produces wrong output is not working.
 
-- Actually exercise the feature exactly as a real user would. For a CLI command, run it with real inputs. For a library change, call the modified code path and inspect the result.
-- Apply critical thinking to the output. Ask yourself: "Is what I'm observing what *ought* to be observed?" A command that exits 0 but produces wrong output is not working. A UI that renders without errors but shows the wrong data is not working.
-- Do not confuse "no errors" with "correct behavior." The bar is: does this do what a user would expect?
-
-Once you have smoke tested a feature and confirmed it works correctly, crystallize the verified behavior into formal tests. The smoke test tells you *what* to assert -- but the formal test should capture a true invariant of the system, not just parrot back whatever the agent happened to observe on the first run. It is fine to use a different code path or assertion strategy than the original smoke test if it produces a more reliable and meaningful test.
+Then crystallize the verified behavior into formal tests. The formal test should capture a true invariant of the system, not just parrot back whatever the agent observed on the first run. A different code path or assertion strategy is fine if it produces a more reliable test.
 
 ## Smoke testing interactive components with tmux
 
-For interactive components (TUIs, interactive prompts, etc.), use `tmux send-keys` and `capture-pane` to smoke test them. This is a special case: unlike other features, interactive components should NOT have their smoke tests crystallized into formal test files. The tmux-based verification is the test.
-
-- Use `tmux send-keys` to simulate user input to an interactive process.
-- Use `tmux capture-pane` (via the existing `capture_tmux_pane_contents` helper in `utils/testing.py`) to read what the process displayed.
-- Critically evaluate the captured output: does it show what a user should actually see?
-
-Do not write these up as pytest tests. They are inherently flaky due to timing dependencies and are useless when scored mindlessly as part of a CI run. But they are highly valuable as a way for agents to programmatically verify "does this interactive thing actually work?" during development, rather than requiring a human to manually check. Use them as a smoke testing tool, not as a test suite artifact.
+For interactive components (TUIs, interactive prompts, etc.), use `tmux send-keys` and `capture-pane` (via the `capture_tmux_pane_contents` helper in `utils/testing.py`) to smoke test them. This is a special case: do NOT crystallize these into pytest tests. They are inherently flaky due to timing and useless in CI, but valuable for agents to programmatically verify interactive behavior during development.
 
 # Git and committing
 
