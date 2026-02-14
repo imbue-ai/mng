@@ -9,6 +9,7 @@ from loguru import logger
 
 from imbue.mngr.cli.conftest import make_test_agent_info
 from imbue.mngr.cli.list import _StreamingHumanRenderer
+from imbue.mngr.cli.list import _StreamingTemplateEmitter
 from imbue.mngr.cli.list import _compute_column_widths
 from imbue.mngr.cli.list import _emit_template_output
 from imbue.mngr.cli.list import _format_streaming_agent_row
@@ -949,3 +950,55 @@ def test_emit_template_output() -> None:
     assert lines[0] == "agent-alpha"
     assert lines[1] == "agent-bravo"
     assert lines[2] == "agent-charlie"
+
+
+# =============================================================================
+# Tests for _StreamingTemplateEmitter
+# =============================================================================
+
+
+def test_streaming_template_emitter_writes_formatted_line() -> None:
+    """_StreamingTemplateEmitter should write one template-expanded line per agent."""
+    captured = StringIO()
+    emitter = _StreamingTemplateEmitter(format_template="{name}\t{state}", output=captured)
+
+    agent = make_test_agent_info(name="my-agent", state=AgentLifecycleState.RUNNING)
+    emitter(agent)
+
+    output = captured.getvalue()
+    assert output == "my-agent\tRUNNING\n"
+
+
+def test_streaming_template_emitter_multiple_agents() -> None:
+    """_StreamingTemplateEmitter should write one line per agent call."""
+    captured = StringIO()
+    emitter = _StreamingTemplateEmitter(format_template="{name}", output=captured)
+
+    emitter(make_test_agent_info(name="agent-one"))
+    emitter(make_test_agent_info(name="agent-two"))
+    emitter(make_test_agent_info(name="agent-three"))
+
+    lines = captured.getvalue().strip().split("\n")
+    assert len(lines) == 3
+    assert lines[0] == "agent-one"
+    assert lines[1] == "agent-two"
+    assert lines[2] == "agent-three"
+
+
+def test_streaming_template_emitter_thread_safety() -> None:
+    """_StreamingTemplateEmitter should handle concurrent calls without data corruption."""
+    captured = StringIO()
+    emitter = _StreamingTemplateEmitter(format_template="{name}", output=captured)
+
+    agent_count = 50
+    agents = [make_test_agent_info(name=f"agent-{i}") for i in range(agent_count)]
+
+    threads = [threading.Thread(target=emitter, args=(agent,)) for agent in agents]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    output = captured.getvalue()
+    lines = [line for line in output.strip().split("\n") if line]
+    assert len(lines) == agent_count
