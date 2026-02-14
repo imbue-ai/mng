@@ -18,12 +18,6 @@ from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import CronSchedule
 
 
-@pytest.fixture(autouse=True)
-def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isolate config operations to a temporary home directory."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-
-
 def _make_test_definition(
     name: str = "test-guardian",
     agent_type: str = "code-guardian",

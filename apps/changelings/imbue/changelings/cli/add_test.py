@@ -1,7 +1,5 @@
 # Tests for the changeling add CLI command.
 
-from pathlib import Path
-
 import pytest
 from click.testing import CliRunner
 
@@ -10,12 +8,6 @@ from imbue.changelings.config import get_changeling
 from imbue.changelings.config import load_config
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.primitives import ChangelingName
-
-
-@pytest.fixture(autouse=True)
-def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isolate config operations to a temporary home directory."""
-    monkeypatch.setenv("HOME", str(tmp_path))
 
 
 @pytest.fixture

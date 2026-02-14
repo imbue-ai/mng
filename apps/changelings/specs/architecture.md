@@ -15,55 +15,64 @@ Changelings does NOT duplicate any mngr functionality. It simply calls `mngr cre
 apps/changelings/
   pyproject.toml
   README.md
+  conftest.py                      # App-level pytest configuration
   docs/
-    design.md                    # User-facing design document
+    design.md                      # User-facing design document
   specs/
-    architecture.md              # This file
-  imbue/                         # Implicit namespace package (no __init__.py)
+    architecture.md                # This file
+  imbue/                           # Implicit namespace package (no __init__.py)
     changelings/
       __init__.py
-      main.py                    # Click CLI group, entry point
-      errors.py                  # Exception hierarchy
-      primitives.py              # Domain-specific types
-      data_types.py              # Frozen models (ChangelingDefinition, etc.)
-      config.py                  # Config read/write (TOML persistence) [future]
+      main.py                      # Click CLI group, entry point
+      errors.py                    # Exception hierarchy
+      primitives.py                # Domain-specific types
+      data_types.py                # Frozen models (ChangelingDefinition, etc.)
+      config.py                    # Config read/write (TOML persistence)
+      mngr_commands.py             # Shared helpers for building mngr create commands
+      conftest.py                  # Shared test fixtures
       cli/
         __init__.py
-        add.py                   # changeling add
-        remove.py                # changeling remove
-        list.py                  # changeling list
-        update.py                # changeling update
-        run.py                   # changeling run
-        status.py                # changeling status
-      deploy/                    # Modal deployment logic
+        options.py                 # Shared Click options decorator
+        add.py                     # changeling add
+        remove.py                  # changeling remove [stub]
+        list.py                    # changeling list [stub]
+        update.py                  # changeling update [stub]
+        run.py                     # changeling run
+        status.py                  # changeling status [stub]
+      deploy/                      # Modal deployment logic
+        __init__.py
+        deploy.py                  # Pure helpers + deploy_changeling orchestration
+        verification.py            # Deployment verification (modal run, poll, cleanup)
+        cron_runner.py             # Modal app for cron-scheduled execution
 ```
 
 ## Sequencing / implementation plan
 
-### Phase 1: Foundation (current)
+### Phase 1: Foundation (done)
 
 - Project structure, CLI skeleton, data types, README, specs
 - All commands raise `NotImplementedError`
 
-### Phase 2: Config management
+### Phase 2: Config management (done)
 
 - Implement config read/write (`config.py`)
 
-### Phase 3: Local execution
+### Phase 3: Local execution (done)
 
 - Implement `changeling run` (runs mngr create locally)
 - Allow end-to-end testing of the agent flow without Modal
 
-### Phase 4: Modal execution
+### Phase 4: Modal execution (done)
 
 - Implement `changeling run` where we run on Modal
 
-### Phase 5: Modal deployment
+### Phase 5: Modal deployment (done)
 
-- Implement `changeling add` to create the scheduled Modal Function for a given changeling definition (see how we deploy a modal function in `mngr` for reference)
+- Implement `changeling add` to create the scheduled Modal Function
+- Deploy verification: invoke function, poll for agent, destroy/stop
 
 ### Phase 6: Management commands
-- 
+
 - Implement `changeling list`
 - Implement `changeling status` (basically just calls `mngr list` for the configured profile and filters down to those agents that were created by `changelings`)
 

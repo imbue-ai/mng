@@ -1,6 +1,16 @@
+from pathlib import Path
+
+import pytest
+
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.primitives import ChangelingName
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate config operations to a temporary home directory."""
+    monkeypatch.setenv("HOME", str(tmp_path))
 
 
 def make_test_changeling(
