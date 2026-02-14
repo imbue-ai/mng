@@ -15,8 +15,6 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 
 AGENT_POLL_TIMEOUT_SECONDS: float = 300.0
-# FIXME: remove, just for debugging
-# AGENT_POLL_TIMEOUT_SECONDS: float = 3600.0
 AGENT_POLL_INTERVAL_SECONDS: float = 10.0
 
 
@@ -259,7 +257,7 @@ def read_profile_user_id(profile_id: str) -> str:
     if not user_id_path.exists():
         raise ChangelingDeployError(
             f"user_id file not found at {user_id_path}. Make sure the mngr profile is set up correctly."
-        ) from None
+        )
     return user_id_path.read_text().strip()
 
 
@@ -330,7 +328,7 @@ def deploy_changeling(
     if changeling.mngr_profile is None:
         raise ChangelingDeployError(
             "mngr_profile must be set before deploying. Use 'changeling add' to auto-detect it."
-        ) from None
+        )
 
     # Derive Modal environment name from the profile's user_id
     user_id = read_profile_user_id(changeling.mngr_profile)
