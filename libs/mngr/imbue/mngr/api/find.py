@@ -315,7 +315,11 @@ def ensure_agent_started(agent: AgentInterface, host: OnlineHostInterface, is_st
     if lifecycle_state not in (AgentLifecycleState.RUNNING, AgentLifecycleState.REPLACED, AgentLifecycleState.WAITING):
         if is_start_desired:
             logger.info("Agent {} is stopped, starting it", agent.name)
-            host.start_agents([agent.id])
+            agent.wait_for_ready_signal(
+                is_creating=False,
+                start_action=lambda: host.start_agents([agent.id]),
+                timeout=10.0,
+            )
         else:
             raise UserInputError(
                 f"Agent '{agent.name}' is stopped and automatic starting is disabled. "
