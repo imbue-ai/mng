@@ -1453,3 +1453,160 @@ def test_provision_does_not_transfer_when_source_work_dir_is_none(
     dest_dir_name = encode_claude_project_dir_name(agent.work_dir)
     dest_project_dir = Path.home() / ".claude" / "projects" / dest_dir_name
     assert not dest_project_dir.exists()
+
+
+# =============================================================================
+# Sessions Index Rewrite Tests
+# =============================================================================
+
+
+def test_rewrite_sessions_index_content_rewrites_paths(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_rewrite_sessions_index_content should rewrite fullPath and projectPath."""
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    source_project_dir = "/Users/local/.claude/projects/-Users-local-src"
+    dest_project_dir = "/root/.claude/projects/-Users-local-src"
+    source_work_dir = Path("/Users/local/src")
+
+    content = json.dumps(
+        {
+            "version": 1,
+            "entries": [
+                {
+                    "sessionId": "abc-123",
+                    "fullPath": f"{source_project_dir}/abc-123.jsonl",
+                    "projectPath": str(source_work_dir),
+                    "firstPrompt": "hello",
+                },
+                {
+                    "sessionId": "def-456",
+                    "fullPath": f"{source_project_dir}/def-456.jsonl",
+                    "projectPath": str(source_work_dir),
+                    "firstPrompt": "world",
+                },
+            ],
+        }
+    )
+
+    result = agent._rewrite_sessions_index_content(content, source_project_dir, dest_project_dir, source_work_dir)
+
+    parsed = json.loads(result)
+    assert parsed["version"] == 1
+    assert len(parsed["entries"]) == 2
+
+    entry_0 = parsed["entries"][0]
+    assert entry_0["fullPath"] == f"{dest_project_dir}/abc-123.jsonl"
+    assert entry_0["projectPath"] == str(agent.work_dir)
+    assert entry_0["sessionId"] == "abc-123"
+    assert entry_0["firstPrompt"] == "hello"
+
+    entry_1 = parsed["entries"][1]
+    assert entry_1["fullPath"] == f"{dest_project_dir}/def-456.jsonl"
+    assert entry_1["projectPath"] == str(agent.work_dir)
+
+
+def test_rewrite_sessions_index_content_handles_empty_entries(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_rewrite_sessions_index_content should handle index with no entries."""
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    content = json.dumps({"version": 1, "entries": []})
+
+    result = agent._rewrite_sessions_index_content(content, "/old/path", "/new/path", Path("/old/work"))
+
+    parsed = json.loads(result)
+    assert parsed["entries"] == []
+
+
+def test_rewrite_sessions_index_content_returns_invalid_json_as_is(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_rewrite_sessions_index_content should return invalid JSON unchanged."""
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    content = "{ not valid json"
+
+    result = agent._rewrite_sessions_index_content(content, "/old/path", "/new/path", Path("/old/work"))
+
+    assert result == content
+
+
+def test_rewrite_sessions_index_content_preserves_extra_fields(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_rewrite_sessions_index_content should preserve fields it does not rewrite."""
+    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+
+    content = json.dumps(
+        {
+            "version": 1,
+            "entries": [
+                {
+                    "sessionId": "abc-123",
+                    "fullPath": "/old/project/abc-123.jsonl",
+                    "projectPath": "/old/work",
+                    "fileMtime": 1234567890,
+                    "messageCount": 42,
+                    "gitBranch": "main",
+                    "isSidechain": False,
+                },
+            ],
+        }
+    )
+
+    result = agent._rewrite_sessions_index_content(content, "/old/project", "/new/project", Path("/old/work"))
+
+    parsed = json.loads(result)
+    entry = parsed["entries"][0]
+    assert entry["fileMtime"] == 1234567890
+    assert entry["messageCount"] == 42
+    assert entry["gitBranch"] == "main"
+    assert entry["isSidechain"] is False
+
+
+def test_transfer_claude_session_rewrites_sessions_index_locally(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
+) -> None:
+    """_transfer_claude_session should rewrite sessions-index.json when source and dest dirs differ."""
+    source_work_dir = tmp_path / "source-agent-work"
+    source_work_dir.mkdir()
+
+    # Create project dir with a sessions-index.json
+    source_dir_name = encode_claude_project_dir_name(source_work_dir)
+    project_dir = Path.home() / ".claude" / "projects" / source_dir_name
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    session_file = project_dir / "abc-123.jsonl"
+    session_file.write_text('{"type":"message"}\n')
+
+    index_content = json.dumps(
+        {
+            "version": 1,
+            "entries": [
+                {
+                    "sessionId": "abc-123",
+                    "fullPath": str(project_dir / "abc-123.jsonl"),
+                    "projectPath": str(source_work_dir),
+                },
+            ],
+        }
+    )
+    (project_dir / "sessions-index.json").write_text(index_content)
+
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    agent_state_dir = agent._get_agent_dir()
+    agent_state_dir.mkdir(parents=True, exist_ok=True)
+
+    agent._transfer_claude_session(host, source_work_dir)
+
+    # Read the rewritten sessions-index.json from the dest project dir
+    dest_dir_name = encode_claude_project_dir_name(agent.work_dir)
+    dest_project_dir = Path.home() / ".claude" / "projects" / dest_dir_name
+    dest_index = json.loads((dest_project_dir / "sessions-index.json").read_text())
+
+    entry = dest_index["entries"][0]
+    assert str(dest_project_dir) in entry["fullPath"]
+    assert entry["projectPath"] == str(agent.work_dir)
