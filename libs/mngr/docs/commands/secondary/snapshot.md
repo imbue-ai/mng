@@ -1,79 +1,267 @@
-# mngr snapshot - CLI Options Reference
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
 
-Create, destroy, and list snapshots of agents.
+# mngr snapshot
 
-Snapshots capture the complete state of the agent's host, allowing it to be restored later. Because the snapshot includes the filesystem, the state of all agents on the host will be saved.
+**Synopsis:**
 
-Useful for checkpointing work, creating restore points, or managing disk space.
-
-**Alias:** `snap`
-
-## Usage
-
-```
-mngr snapshot [create|list|destroy] [args]
+```text
+mngr [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]
 ```
 
-See [multi-target](../generic/multi_target.md) options for behavior when some agents cannot be snapshotted.
 
-## create
+Create, list, and destroy host snapshots.
 
-Agent IDs can be specified as positional arguments for convenience:
+Snapshots capture the complete state of an agent's host, allowing it
+to be restored later. Because the snapshot is at the host level, the
+state of all agents on the host is saved.
 
-```
-mngr snapshot create my-agent
-mngr snapshot create --agent my-agent
-mngr snapshot create my-agent another-agent
-mngr snapshot create --agent my-agent --agent another-agent
-```
+Alias: snap
 
-- `--agent AGENT`: Agent(s) to snapshot. Positional arguments are also accepted as a shorthand. [repeatable]
-- `--host HOST`: Host(s) to snapshot. [repeatable]
-- `-a, --all, --all-agents`: Snapshot all running agents
-- `--name NAME`: Custom name for the snapshot
-- `--dry-run`: Show what would be snapshotted without actually creating snapshots
-- `--stdin`: Read agents and hosts (ids or names) from stdin (one per line) [future]
-- `--include FILTER`: Filter agents to snapshot by tags, names, types, hosts, etc. [future]
-- `--exclude FILTER`: Exclude agents matching filter from snapshotting [future]
-- `--description DESC`: Description or notes for the snapshot [future]
-- `--tag KEY=VALUE`: Metadata tag for the snapshot [repeatable] [future]
-- `--restart-if-larger-than SIZE`: Automatically restart the host if snapshot is larger than specified size (e.g., `5G`, `500M`). Useful for preventing Docker snapshots from growing too large. [future]
-- `--[no-]pause-during`: Pause the agent during snapshot creation (more consistent state) [default: pause] [future]
-- `--[no-]wait`: Wait for snapshot to complete before returning [default: wait] [future]
+Examples:
 
-## list
+  mngr snapshot create my-agent
 
-Agent IDs can be specified as positional arguments for convenience:
+  mngr snapshot list my-agent
 
-```
-mngr snapshot list my-agent
-mngr snapshot list --agent my-agent
+  mngr snapshot destroy my-agent --all-snapshots --force
+
+**Usage:**
+
+```text
+mngr snapshot [OPTIONS] COMMAND [ARGS]...
 ```
 
-- `--agent AGENT`: Agent(s) to list snapshots for. Positional arguments are also accepted as a shorthand. [repeatable]
-- `-a, --all, --all-agents`: List snapshots for all agents
-- `--limit N`: Limit number of results
-- `--include FILTER`: Filter snapshots by name, tag, or date [future]
-- `--exclude FILTER`: Exclude snapshots matching filter [future]
-- `--after DATE`: Show only snapshots created after this date [future]
-- `--before DATE`: Show only snapshots created before this date [future]
+**Options:**
 
-See [common options](../generic/common.md) for output format options (`--format`).
+## Common
 
-## destroy
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
-Agent IDs can be specified as positional arguments for convenience:
+## Other Options
 
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## mngr snapshot create
+
+Create a snapshot of agent host(s).
+
+Snapshots capture the complete filesystem state of a host. When multiple
+agents share a host, the host is snapshotted once (capturing all agents).
+
+Examples:
+
+  mngr snapshot create my-agent
+
+  mngr snapshot create my-agent --name before-refactor
+
+  mngr snapshot create --all --dry-run
+
+**Usage:**
+
+```text
+mngr snapshot create [OPTIONS] [AGENTS]...
 ```
-mngr snapshot destroy my-agent --snapshot snap-abc123 --force
-mngr snapshot destroy --agent my-agent --all-snapshots --force
+
+**Options:**
+
+## Target Selection
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--agent` | text | Agent name or ID to snapshot (can be specified multiple times) | None |
+| `--host` | text | Host ID or name to snapshot directly (can be specified multiple times) | None |
+| `-a`, `--all`, `--all-agents` | boolean | Snapshot all running agents | `False` |
+
+## Snapshot Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--name` | text | Custom name for the snapshot | None |
+| `--dry-run` | boolean | Show what would be snapshotted without actually creating snapshots | `False` |
+| `--include` | text | Filter agents by CEL expression (repeatable) [future] | None |
+| `--exclude` | text | Exclude agents matching CEL expression (repeatable) [future] | None |
+| `--stdin` | boolean | Read agent/host names from stdin [future] | `False` |
+| `--tag` | text | Metadata tag for the snapshot (KEY=VALUE) [future] | None |
+| `--description` | text | Description for the snapshot [future] | None |
+| `--restart-if-larger-than` | text | Restart host if snapshot exceeds size (e.g., 5G) [future] | None |
+| `--pause-during`, `--no-pause-during` | boolean | Pause agent during snapshot creation [future] | `True` |
+| `--wait`, `--no-wait` | boolean | Wait for snapshot to complete [future] | `True` |
+
+## Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## mngr snapshot list
+
+List snapshots for agent host(s).
+
+Shows snapshot ID, name, creation time, size, and host for each snapshot.
+
+Examples:
+
+  mngr snapshot list my-agent
+
+  mngr snapshot list --all
+
+  mngr snapshot list my-agent --limit 5
+
+  mngr snapshot list my-agent --format json
+
+**Usage:**
+
+```text
+mngr snapshot list [OPTIONS] [AGENTS]...
 ```
 
-- `--agent AGENT`: Agent(s) whose snapshots to destroy. Positional arguments are also accepted as a shorthand. [repeatable]
-- `--snapshot SNAPSHOT_ID`: ID of the snapshot to destroy. [repeatable]
-- `--all-snapshots`: Destroy all snapshots for the specified agent(s)
-- `-f, --force`: Skip confirmation prompts
-- `--dry-run`: Show which snapshots would be destroyed without actually deleting them
-- `--stdin`: Read agents and hosts (ids or names) from stdin (one per line) [future]
-- `--include FILTER`: Filter snapshots to destroy by name, tag, or date [future]
-- `--exclude FILTER`: Exclude snapshots matching filter from destruction [future]
+**Options:**
+
+## Target Selection
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--agent` | text | Agent name or ID to list snapshots for (can be specified multiple times) | None |
+| `-a`, `--all`, `--all-agents` | boolean | List snapshots for all running agents | `False` |
+
+## Filtering
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--limit` | integer | Maximum number of snapshots to show | None |
+| `--include` | text | Filter snapshots by CEL expression (repeatable) [future] | None |
+| `--exclude` | text | Exclude snapshots matching CEL expression (repeatable) [future] | None |
+| `--after` | text | Show only snapshots created after this date [future] | None |
+| `--before` | text | Show only snapshots created before this date [future] | None |
+
+## Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## mngr snapshot destroy
+
+Destroy snapshots for agent host(s).
+
+Requires either --snapshot (to delete specific snapshots) or --all-snapshots
+(to delete all snapshots for the resolved hosts). A confirmation prompt is
+shown unless --force is specified.
+
+Examples:
+
+  mngr snapshot destroy my-agent --snapshot snap-abc123 --force
+
+  mngr snapshot destroy my-agent --all-snapshots --force
+
+  mngr snapshot destroy my-agent --all-snapshots --dry-run
+
+**Usage:**
+
+```text
+mngr snapshot destroy [OPTIONS] [AGENTS]...
+```
+
+**Options:**
+
+## Target Selection
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--agent` | text | Agent name or ID whose snapshots to destroy (can be specified multiple times) | None |
+| `--snapshot` | text | Snapshot ID to destroy (can be specified multiple times) | None |
+| `--all-snapshots` | boolean | Destroy all snapshots for the specified agent(s) | `False` |
+
+## Safety
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-f`, `--force` | boolean | Skip confirmation prompt | `False` |
+| `--dry-run` | boolean | Show what would be destroyed without actually deleting | `False` |
+| `--include` | text | Filter snapshots by CEL expression (repeatable) [future] | None |
+| `--exclude` | text | Exclude snapshots matching CEL expression (repeatable) [future] | None |
+| `--stdin` | boolean | Read agent/host names from stdin [future] | `False` |
+
+## Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## See Also
+
+- [mngr create](../primary/create.md) - Create a new agent (supports --snapshot to restore from snapshot)
+- [mngr gc](./gc.md) - Garbage collect unused resources including snapshots
+
+## Examples
+
+**Create a snapshot of an agent's host**
+
+```bash
+$ mngr snapshot create my-agent
+```
+
+**Create a named snapshot**
+
+```bash
+$ mngr snapshot create my-agent --name before-refactor
+```
+
+**List snapshots for an agent**
+
+```bash
+$ mngr snapshot list my-agent
+```
+
+**Destroy all snapshots for an agent**
+
+```bash
+$ mngr snapshot destroy my-agent --all-snapshots --force
+```
+
+**Preview what would be destroyed**
+
+```bash
+$ mngr snapshot destroy my-agent --all-snapshots --dry-run
+```
