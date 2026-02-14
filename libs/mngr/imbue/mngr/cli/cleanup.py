@@ -390,8 +390,8 @@ def _refresh_cleanup_list(state: _CleanupSelectorState) -> None:
 
 def _handle_cleanup_input(state: _CleanupSelectorState, key: str) -> bool:
     """Handle keyboard input for the cleanup selector. Returns True if handled."""
-    # Space or 'd' toggles selection on the focused item
-    if key in (" ", "d"):
+    # Tab toggles selection on the focused item
+    if key == "tab":
         if state.list_walker and state.filtered_agents:
             _, focus_index = state.list_walker.get_focus()
             if focus_index is not None and 0 <= focus_index < len(state.filtered_agents):
@@ -403,15 +403,15 @@ def _handle_cleanup_input(state: _CleanupSelectorState, key: str) -> bool:
                 _refresh_cleanup_list(state)
         return True
 
-    # 'a' selects all visible agents
-    if key == "a":
+    # Ctrl+A selects all visible agents
+    if key == "ctrl a":
         for agent in state.filtered_agents:
             state.selected_ids.add(str(agent.id))
         _refresh_cleanup_list(state)
         return True
 
-    # 'n' deselects all
-    if key == "n":
+    # Ctrl+N deselects all
+    if key == "ctrl n":
         state.selected_ids.clear()
         _refresh_cleanup_list(state)
         return True
@@ -510,9 +510,9 @@ def _run_cleanup_selector(agents: list[AgentInfo], action: CleanupAction) -> lis
 
     instructions_text = (
         "Instructions:\n"
-        "  Space/d - Toggle selection on focused agent\n"
-        "  a - Select all visible agents\n"
-        "  n - Deselect all\n"
+        "  Tab - Toggle selection on focused agent\n"
+        "  Ctrl+A - Select all visible agents\n"
+        "  Ctrl+N - Deselect all\n"
         "  Enter - Confirm selection\n"
         "  Type - Search agents by name\n"
         "  Up/Down - Navigate the list\n"
