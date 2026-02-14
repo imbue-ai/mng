@@ -10,7 +10,6 @@ They run by default in the standard test suite.
 
 from collections.abc import Generator
 from pathlib import Path
-from uuid import uuid4
 
 import docker
 import docker.errors
@@ -32,6 +31,7 @@ from imbue.mngr.providers.docker.instance import LABEL_PROVIDER
 from imbue.mngr.providers.docker.instance import LABEL_TAGS
 from imbue.mngr.providers.docker.instance import build_container_labels
 from imbue.mngr.providers.docker.testing import make_docker_provider
+from imbue.mngr.utils.testing import get_short_random_string
 
 pytestmark = pytest.mark.docker
 
@@ -47,7 +47,7 @@ TEST_IMAGE = "busybox:latest"
 @pytest.fixture
 def docker_provider(temp_mngr_ctx: MngrContext) -> Generator[DockerProviderInstance, None, None]:
     """Create a Docker provider instance with a unique name per test and clean up on teardown."""
-    unique_name = f"integ-{uuid4().hex[:8]}"
+    unique_name = f"integ-{get_short_random_string()}"
     provider = make_docker_provider(temp_mngr_ctx, unique_name)
     yield provider
 
@@ -74,8 +74,7 @@ def _create_test_container(
     if host_id is None:
         host_id = HostId.generate()
     labels = build_container_labels(host_id, HostName(name), str(provider.name), tags)
-    short_id = uuid4().hex[:12]
-    container_name = f"mngr-integ-{short_id}"
+    container_name = f"mngr-integ-{get_short_random_string()}"
     container = provider._docker_client.containers.run(
         image=TEST_IMAGE,
         name=container_name,

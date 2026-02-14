@@ -1211,8 +1211,7 @@ kill -TERM 1
             raise MngrError(f"Cannot snapshot stopped container {host_id}")
 
         if name is None:
-            short_id = uuid4().hex[:8]
-            name = SnapshotName(f"snapshot-{short_id}")
+            name = SnapshotName(f"snapshot-{uuid4().hex}")
 
         # Warn about volume mounts
         host_record = self._host_store.read_host_record(host_id)
