@@ -14,14 +14,16 @@ from pydantic import SecretStr
 from starlette.responses import Response
 
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
+from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import list_agents as _list_agents
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
+from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import BaseMngrError
 from imbue.mngr.plugins.api_server.web_ui import generate_web_ui_html
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import ErrorBehavior
 
-_app_state: dict[str, Any] = {"mngr_ctx": None, "api_token": None}
+_app_state: dict[str, MngrContext | SecretStr | None] = {"mngr_ctx": None, "api_token": None}
 
 app = FastAPI(title="mngr API", docs_url=None, redoc_url=None)
 
@@ -36,7 +38,7 @@ def global_exception_handler(request: Request, exc: Exception) -> Response:
     )
 
 
-def configure_app(mngr_ctx: Any, api_token: SecretStr) -> None:
+def configure_app(mngr_ctx: MngrContext, api_token: SecretStr) -> None:
     """Configure the app with a MngrContext and API token. Called at startup."""
     _app_state["mngr_ctx"] = mngr_ctx
     _app_state["api_token"] = api_token
@@ -44,9 +46,10 @@ def configure_app(mngr_ctx: Any, api_token: SecretStr) -> None:
 
 def _verify_token(request: Request) -> None:
     """Verify the Bearer token in the Authorization header."""
-    api_token: SecretStr | None = _app_state["api_token"]
-    if api_token is None:
+    raw_token = _app_state["api_token"]
+    if raw_token is None or not isinstance(raw_token, SecretStr):
         raise HTTPException(status_code=500, detail="API server not configured")
+    api_token = raw_token
 
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
@@ -57,10 +60,11 @@ def _verify_token(request: Request) -> None:
     raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-def _get_mngr_ctx() -> Any:
-    if _app_state["mngr_ctx"] is None:
+def _get_mngr_ctx() -> MngrContext:
+    mngr_ctx = _app_state["mngr_ctx"]
+    if mngr_ctx is None or not isinstance(mngr_ctx, MngrContext):
         raise HTTPException(status_code=500, detail="API server not configured")
-    return _app_state["mngr_ctx"]
+    return mngr_ctx
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -147,7 +151,7 @@ def record_activity(agent_id: str) -> JSONResponse:
     return JSONResponse(content={"status": "recorded"})
 
 
-def _agent_info_to_dict(agent_info: Any) -> dict[str, Any]:
+def _agent_info_to_dict(agent_info: AgentInfo) -> dict[str, Any]:
     """Convert an AgentInfo to a JSON-serializable dict."""
     data = agent_info.model_dump(mode="json")
     if "host" in data and isinstance(data["host"], dict):
