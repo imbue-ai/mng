@@ -11,7 +11,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 
 
 @pure
-def _has_name_in_remaining_args(
+def has_name_in_remaining_args(
     remaining: list[str],
     before_dd_count: int | None,
 ) -> bool:
@@ -54,8 +54,8 @@ def _build_create_args(
     name is forwarded via ``--name`` so that clone/migrate preserve the
     original name by default.
     """
-    before_dd_count = _args_before_dd_count(remaining, original_argv)
-    has_name = _has_name_in_remaining_args(remaining, before_dd_count)
+    before_dd_count = args_before_dd_count(remaining, original_argv)
+    has_name = has_name_in_remaining_args(remaining, before_dd_count)
 
     prefix = ["--from-agent", source_agent]
     if not has_name:
@@ -76,7 +76,7 @@ def _build_create_args(
     return prefix + remaining + ["--"]
 
 
-def _args_before_dd_count(remaining: list[str], original_argv: list[str]) -> int | None:
+def args_before_dd_count(remaining: list[str], original_argv: list[str]) -> int | None:
     """Return the number of items in *remaining* that came before ``--``.
 
     Returns ``None`` when ``--`` was not present in *original_argv*.
@@ -116,7 +116,7 @@ def parse_source_and_invoke_create(
     if original_argv is None:
         original_argv = sys.argv
 
-    before_dd = _args_before_dd_count(remaining, original_argv)
+    before_dd = args_before_dd_count(remaining, original_argv)
     _reject_source_agent_options(remaining, ctx, before_dd)
 
     create_args = _build_create_args(source_agent, remaining, original_argv)

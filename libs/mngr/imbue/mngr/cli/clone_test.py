@@ -5,11 +5,11 @@ import pluggy
 import pytest
 from click.testing import CliRunner
 
-from imbue.mngr.cli.clone import _args_before_dd_count
 from imbue.mngr.cli.clone import _build_create_args
-from imbue.mngr.cli.clone import _has_name_in_remaining_args
 from imbue.mngr.cli.clone import _reject_source_agent_options
+from imbue.mngr.cli.clone import args_before_dd_count
 from imbue.mngr.cli.clone import clone
+from imbue.mngr.cli.clone import has_name_in_remaining_args
 from imbue.mngr.main import cli
 
 
@@ -170,26 +170,26 @@ def test_build_create_args_preserves_explicit_name_flag() -> None:
     assert result == ["--from-agent", "my-agent", "--name", "custom-name", "--in", "modal"]
 
 
-# --- _args_before_dd_count tests ---
+# --- args_before_dd_count tests ---
 
 
-def test_args_before_dd_count_no_dd() -> None:
+def testargs_before_dd_count_no_dd() -> None:
     """Returns None when -- is not in original_argv."""
-    assert _args_before_dd_count(["--in", "docker"], ["mngr", "clone", "a", "--in", "docker"]) is None
+    assert args_before_dd_count(["--in", "docker"], ["mngr", "clone", "a", "--in", "docker"]) is None
 
 
-def test_args_before_dd_count_with_dd() -> None:
+def testargs_before_dd_count_with_dd() -> None:
     """Returns count of args before -- boundary."""
-    count = _args_before_dd_count(
+    count = args_before_dd_count(
         ["--in", "docker", "--model", "opus"],
         ["mngr", "clone", "a", "--in", "docker", "--", "--model", "opus"],
     )
     assert count == 2
 
 
-def test_args_before_dd_count_trailing_dd() -> None:
+def testargs_before_dd_count_trailing_dd() -> None:
     """Returns full length when -- has nothing after it."""
-    count = _args_before_dd_count(
+    count = args_before_dd_count(
         ["--in", "docker"],
         ["mngr", "clone", "a", "--in", "docker", "--"],
     )
@@ -213,39 +213,39 @@ def test_reject_source_agent_options_rejects_from_agent_before_dd() -> None:
         _reject_source_agent_options(["--from-agent", "x", "--model", "opus"], ctx, before_dd=2)
 
 
-# --- _has_name_in_remaining_args tests ---
+# --- has_name_in_remaining_args tests ---
 
 
 def test_has_name_detects_positional_name() -> None:
     """A leading non-option string is treated as a positional name."""
-    assert _has_name_in_remaining_args(["new-agent", "--in", "docker"], before_dd_count=None) is True
+    assert has_name_in_remaining_args(["new-agent", "--in", "docker"], before_dd_count=None) is True
 
 
 def test_has_name_detects_name_flag() -> None:
     """The --name flag indicates a name is provided."""
-    assert _has_name_in_remaining_args(["--name", "custom", "--in", "docker"], before_dd_count=None) is True
+    assert has_name_in_remaining_args(["--name", "custom", "--in", "docker"], before_dd_count=None) is True
 
 
 def test_has_name_detects_short_name_flag() -> None:
     """The -n flag indicates a name is provided."""
-    assert _has_name_in_remaining_args(["-n", "custom", "--in", "docker"], before_dd_count=None) is True
+    assert has_name_in_remaining_args(["-n", "custom", "--in", "docker"], before_dd_count=None) is True
 
 
 def test_has_name_detects_name_equals_form() -> None:
     """The --name=value form indicates a name is provided."""
-    assert _has_name_in_remaining_args(["--name=custom", "--in", "docker"], before_dd_count=None) is True
+    assert has_name_in_remaining_args(["--name=custom", "--in", "docker"], before_dd_count=None) is True
 
 
 def test_has_name_returns_false_when_only_options() -> None:
     """All args starting with - means no positional name."""
-    assert _has_name_in_remaining_args(["--in", "docker"], before_dd_count=None) is False
+    assert has_name_in_remaining_args(["--in", "docker"], before_dd_count=None) is False
 
 
 def test_has_name_returns_false_for_empty_remaining() -> None:
     """Empty remaining means no name."""
-    assert _has_name_in_remaining_args([], before_dd_count=None) is False
+    assert has_name_in_remaining_args([], before_dd_count=None) is False
 
 
 def test_has_name_ignores_positional_after_dd() -> None:
     """A positional arg that appears only after -- is not a name."""
-    assert _has_name_in_remaining_args(["--in", "docker", "some-arg"], before_dd_count=2) is False
+    assert has_name_in_remaining_args(["--in", "docker", "some-arg"], before_dd_count=2) is False

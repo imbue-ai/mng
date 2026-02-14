@@ -1,11 +1,59 @@
+import sys
+
 import click
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
+from imbue.mngr.cli.clone import args_before_dd_count
+from imbue.mngr.cli.clone import has_name_in_remaining_args
 from imbue.mngr.cli.clone import parse_source_and_invoke_create
+from imbue.mngr.cli.connect import connect as connect_cmd
 from imbue.mngr.cli.destroy import destroy as destroy_cmd
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
+
+
+@pure
+def _user_specified_no_connect(args: tuple[str, ...]) -> bool:
+    """Check if the user explicitly passed --no-connect in their args."""
+    return "--no-connect" in args
+
+
+@pure
+def _determine_new_agent_name(
+    source_agent: str,
+    remaining: list[str],
+    original_argv: list[str],
+) -> str:
+    """Determine the new agent's name from the args.
+
+    Uses the same logic as _build_create_args: if a name is present in
+    remaining args (positional or --name), the create command will use it.
+    Otherwise, the source agent name is forwarded.
+    """
+    before_dd_count = args_before_dd_count(remaining, original_argv)
+    has_name = has_name_in_remaining_args(remaining, before_dd_count)
+
+    if not has_name:
+        return source_agent
+
+    check = remaining if before_dd_count is None else remaining[:before_dd_count]
+
+    # Check for --name or -n flag
+    for i, arg in enumerate(check):
+        if arg in ("--name", "-n") and i + 1 < len(check):
+            return check[i + 1]
+        if arg.startswith("--name="):
+            return arg.split("=", 1)[1]
+        if arg.startswith("-n="):
+            return arg.split("=", 1)[1]
+
+    # First positional arg (not starting with -)
+    if check and not check[0].startswith("-"):
+        return check[0]
+
+    return source_agent
 
 
 @click.command(
@@ -20,8 +68,28 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
     This is equivalent to running `mngr clone` followed by `mngr destroy --force`.
     All create options are supported. The source agent is force-destroyed after
     a successful clone (including running agents).
+
+    When connecting (the default), the source agent is destroyed as soon as
+    the clone is ready, before attaching to the new agent's session.
     """
-    source_agent = parse_source_and_invoke_create(ctx, args, command_name="migrate")
+    if len(args) == 0:
+        raise click.UsageError("Missing required argument: SOURCE_AGENT", ctx=ctx)
+
+    source_agent = args[0]
+    remaining = list(args[1:])
+    original_argv = sys.argv
+
+    # Determine if the user wants to connect (the default).
+    # If they do, we inject --no-connect so that create returns after the
+    # agent is ready, then we destroy the source, then connect manually.
+    wants_connect = not _user_specified_no_connect(args)
+
+    if wants_connect:
+        create_args = args + ("--no-connect", "--await-ready")
+    else:
+        create_args = args
+
+    parse_source_and_invoke_create(ctx, create_args, command_name="migrate")
 
     # Destroy the source agent with --force
     destroy_args = [source_agent, "--force"]
@@ -38,6 +106,13 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
             source_agent,
         )
         raise
+
+    # Connect to the new agent if the user wanted to connect
+    if wants_connect:
+        new_agent_name = _determine_new_agent_name(source_agent, remaining, original_argv)
+        connect_ctx = connect_cmd.make_context("migrate-connect", [new_agent_name], parent=ctx)
+        with connect_ctx:
+            connect_cmd.invoke(connect_ctx)
 
 
 _MIGRATE_HELP_METADATA = CommandHelpMetadata(
