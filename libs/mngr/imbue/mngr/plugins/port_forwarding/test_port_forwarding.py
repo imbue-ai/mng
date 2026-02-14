@@ -17,10 +17,12 @@ import pytest
 from pydantic import SecretStr
 
 from imbue.imbue_common.primitives import PositiveInt
+from imbue.mngr.api.open import _resolve_agent_url
 from imbue.mngr.conftest import create_test_base_agent
 from imbue.mngr.plugins.port_forwarding.config_resolution import resolve_port_forwarding_config
 from imbue.mngr.plugins.port_forwarding.data_types import PortForwardingConfig
 from imbue.mngr.plugins.port_forwarding.data_types import ResolvedPortForwardingConfig
+from imbue.mngr.plugins.port_forwarding.forward_service_script import generate_forward_service_script
 from imbue.mngr.plugins.port_forwarding.frps import ensure_frps_config
 from imbue.mngr.plugins.port_forwarding.frps import is_frps_running
 from imbue.mngr.providers.local.instance import LocalProviderInstance
@@ -200,8 +202,6 @@ def test_forward_service_registers_and_removes_url(tmp_path: Path) -> None:
     """Test the forward-service script: add -> URL file written -> remove -> URL file cleaned up."""
     resolved = _make_resolved_config(tmp_path)
 
-    from imbue.mngr.plugins.port_forwarding.forward_service_script import generate_forward_service_script
-
     script_content = generate_forward_service_script(
         domain_suffix=resolved.domain_suffix,
         vhost_port=int(resolved.vhost_http_port),
@@ -217,9 +217,7 @@ def test_forward_service_registers_and_removes_url(tmp_path: Path) -> None:
     frpc_config_dir = tmp_path / "frpc"
     frpc_config_dir.mkdir(exist_ok=True)
     (frpc_config_dir / "proxies").mkdir(exist_ok=True)
-    (frpc_config_dir / "frpc.toml").write_text(
-        f'serverAddr = "127.0.0.1"\nserverPort = {resolved.frps_bind_port}\n'
-    )
+    (frpc_config_dir / "frpc.toml").write_text(f'serverAddr = "127.0.0.1"\nserverPort = {resolved.frps_bind_port}\n')
 
     env = {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
@@ -278,8 +276,6 @@ def test_forward_service_url_picked_up_by_agent(
     resolved = _make_resolved_config(tmp_path)
     agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
 
-    from imbue.mngr.plugins.port_forwarding.forward_service_script import generate_forward_service_script
-
     script_content = generate_forward_service_script(
         domain_suffix=resolved.domain_suffix,
         vhost_port=int(resolved.vhost_http_port),
@@ -317,8 +313,6 @@ def test_forward_service_url_picked_up_by_agent(
     assert f".{resolved.domain_suffix}:{resolved.vhost_http_port}" in urls["web"]
 
     # Verify _resolve_agent_url can find it by type
-    from imbue.mngr.api.open import _resolve_agent_url
-
     resolved_url = _resolve_agent_url(agent, url_type="web")
     assert resolved_url == urls["web"]
 
