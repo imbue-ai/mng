@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import click
@@ -67,4 +68,5 @@ def show_token_command(config_dir: Path) -> None:
     """Print the API server authentication token."""
     expanded_config_dir = config_dir.expanduser()
     token = read_or_create_api_token(expanded_config_dir)
-    click.echo(token.get_secret_value())
+    # Write directly to stdout to avoid persisting the secret token in log files
+    sys.stdout.write(token.get_secret_value() + "\n")
