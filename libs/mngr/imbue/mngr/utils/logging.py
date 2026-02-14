@@ -87,7 +87,7 @@ def _format_user_message(record: Any) -> str:
     return "{message}\n"
 
 
-def suppress_warnings():
+def suppress_warnings() -> None:
     # Silence pyinfra's warnings. Pyinfra uses Python's standard logging module
     # and logs warnings during file upload retries (e.g., when the remote directory
     # doesn't exist). Mngr already handles these cases gracefully, so the warnings
