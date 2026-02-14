@@ -1,3 +1,5 @@
+from typing import Final
+
 from loguru import logger
 
 from imbue.mngr import hookimpl
@@ -16,8 +18,8 @@ from imbue.mngr.primitives import PluginName
 register_plugin_config(PLUGIN_NAME, TtydConfig)
 
 # Plugin data keys
-_DATA_KEY_PORT: str = "ttyd_port"
-_DATA_KEY_TOKEN: str = "ttyd_token"
+_DATA_KEY_PORT: Final[str] = "ttyd_port"
+_DATA_KEY_TOKEN: Final[str] = "ttyd_token"
 
 
 def _get_ttyd_config(agent: AgentInterface) -> TtydConfig | None:
