@@ -51,7 +51,6 @@ def serve_command(ctx: click.Context, port: int, host: str, config_dir: Path) ->
     configure_app(mngr_ctx=mngr_ctx, api_token=api_token)
 
     logger.info("Starting mngr API server on {}:{}", host, port)
-    logger.info("API token configured (use 'mngr token' to view)")
     logger.info("Web UI: http://{}:{}", host, port)
 
     uvicorn.run(app, host=host, port=port, log_level="warning")
@@ -68,4 +67,4 @@ def show_token_command(config_dir: Path) -> None:
     """Print the API server authentication token."""
     expanded_config_dir = config_dir.expanduser()
     token = read_or_create_api_token(expanded_config_dir)
-    logger.info("{}", token.get_secret_value())
+    click.echo(token.get_secret_value())
