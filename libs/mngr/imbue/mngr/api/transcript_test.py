@@ -50,13 +50,13 @@ def test_get_agent_transcript_raises_transcript_not_found_when_no_session_file(
     local_provider: LocalProviderInstance,
 ) -> None:
     """Test that get_agent_transcript raises TranscriptNotFoundError when there is no JSONL session file."""
-    host = local_provider.create_host(HostName("test-no-transcript-" + uuid4().hex[:8]))
+    host = local_provider.create_host(HostName("test-no-transcript-" + uuid4().hex))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
-            name=AgentName("no-transcript-agent-" + uuid4().hex[:8]),
+            name=AgentName("no-transcript-agent-" + uuid4().hex),
             agent_type=AgentTypeName("generic"),
             command=CommandString("sleep 928374"),
         ),
@@ -76,13 +76,13 @@ def test_get_agent_transcript_returns_single_session_from_uuid(
     local_provider: LocalProviderInstance,
 ) -> None:
     """Test that get_agent_transcript finds the session file by agent UUID when no history exists."""
-    host = local_provider.create_host(HostName("test-transcript-" + uuid4().hex[:8]))
+    host = local_provider.create_host(HostName("test-transcript-" + uuid4().hex))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
-            name=AgentName("transcript-agent-" + uuid4().hex[:8]),
+            name=AgentName("transcript-agent-" + uuid4().hex),
             agent_type=AgentTypeName("generic"),
             command=CommandString("sleep 928375"),
         ),
@@ -115,13 +115,13 @@ def test_get_agent_transcript_returns_multiple_sessions_from_history(
     local_provider: LocalProviderInstance,
 ) -> None:
     """Test that get_agent_transcript reads all sessions from the history file."""
-    host = local_provider.create_host(HostName("test-multi-session-" + uuid4().hex[:8]))
+    host = local_provider.create_host(HostName("test-multi-session-" + uuid4().hex))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
-            name=AgentName("multi-session-agent-" + uuid4().hex[:8]),
+            name=AgentName("multi-session-agent-" + uuid4().hex),
             agent_type=AgentTypeName("generic"),
             command=CommandString("sleep 928376"),
         ),
