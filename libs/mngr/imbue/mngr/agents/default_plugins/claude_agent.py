@@ -339,8 +339,8 @@ class ClaudeAgent(BaseAgent):
 
         For worktree mode on non-interactive runs: validates that the
         source directory is trusted in Claude's config (~/.claude.json)
-        so we fail early with a clear message. Interactive runs skip
-        this check because provision() will prompt the user if needed.
+        so we fail early with a clear message. Interactive and auto-approve
+        runs skip this check because provision() will handle trust.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             if not host.is_local:
@@ -349,7 +349,7 @@ class ClaudeAgent(BaseAgent):
                     "Claude trust extension requires local filesystem access. "
                     "Use --copy or --clone instead."
                 )
-            if not mngr_ctx.is_interactive:
+            if not mngr_ctx.is_interactive and not mngr_ctx.is_auto_approve:
                 git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.concurrency_group)
                 if git_common_dir is not None:
                     source_path = git_common_dir.parent
@@ -480,7 +480,7 @@ class ClaudeAgent(BaseAgent):
                 try:
                     extend_claude_trust_to_worktree(source_path, self.work_dir)
                 except ClaudeDirectoryNotTrustedError:
-                    if mngr_ctx.is_interactive and _prompt_user_for_trust(source_path):
+                    if mngr_ctx.is_auto_approve or (mngr_ctx.is_interactive and _prompt_user_for_trust(source_path)):
                         add_claude_trust_for_path(source_path)
                         extend_claude_trust_to_worktree(source_path, self.work_dir)
                     else:
@@ -497,8 +497,10 @@ class ClaudeAgent(BaseAgent):
                 logger.warning("Claude is not installed on the host")
 
                 if host.is_local:
-                    # For local hosts, prompt the user for consent (if interactive)
-                    if mngr_ctx.is_interactive:
+                    # For local hosts, auto-approve or prompt the user for consent
+                    if mngr_ctx.is_auto_approve:
+                        logger.debug("Auto-approving claude installation (--yes)")
+                    elif mngr_ctx.is_interactive:
                         if _prompt_user_for_installation():
                             logger.debug("User consented to install claude locally")
                         else:
