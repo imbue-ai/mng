@@ -59,7 +59,7 @@ The `secret` build argument allows passing environment variables as secrets to t
 mngr create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN
 
 # Pass multiple secrets
-mngr create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN -b secret=GITHUB_TOKEN
+mngr create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN -b secret=GH_TOKEN
 ```
 
 In your Dockerfile, access the secret using `--mount=type=secret`:
@@ -72,9 +72,9 @@ RUN --mount=type=secret,id=NPM_TOKEN \
     npm config set //registry.npmjs.org/:_authToken=$(cat /run/secrets/NPM_TOKEN) && \
     npm install -g @myorg/private-package
 
-# Install a private pip package using GITHUB_TOKEN
-RUN --mount=type=secret,id=GITHUB_TOKEN \
-    pip install git+https://$(cat /run/secrets/GITHUB_TOKEN)@github.com/myorg/private-repo.git
+# Install a private pip package using GH_TOKEN
+RUN --mount=type=secret,id=GH_TOKEN \
+    pip install git+https://$(cat /run/secrets/GH_TOKEN)@github.com/myorg/private-repo.git
 ```
 
 ### Mounting Persistent Volumes

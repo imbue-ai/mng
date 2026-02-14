@@ -49,7 +49,7 @@ There are a few different ways that `changelings` can get the codebase into the 
 
 The main options are:
 
-1. **fresh clone from GitHub** (default): the Modal Sandbox (where the agent runs) will use the GITHUB_TOKEN to clone the repo directly from GitHub when the agent starts up. This is simple and ensures that the agent always has the latest code, but it can be slow (especially for large repos) and may run into rate limits or other issues with GitHub. It also does not do anything to install dependencies, so each agent may need to figure that process out for itself, which can be slow and expensive.
+1. **fresh clone from GitHub** (default): the Modal Sandbox (where the agent runs) will use the GH_TOKEN to clone the repo directly from GitHub when the agent starts up. This is simple and ensures that the agent always has the latest code, but it can be slow (especially for large repos) and may run into rate limits or other issues with GitHub. It also does not do anything to install dependencies, so each agent may need to figure that process out for itself, which can be slow and expensive.
 2. **snapshot during deploy**: during deployment of the Modal App, we can create a snapshot of an agent container by creating a placeholder agent that simply immediately exits, then saving off that snapshot id. Then, when the agent starts up as a result of the Function invocation, the agent can start from that point and simply pull the latest code from GitHub. This can be much faster, though the agent can end up with an outdated version of the environment over time if there are changes to the dependencies or setup process. It also adds some complexity and latency to the deployment process.
 3. **commit-pinned Dockerfile**: this is the strategy used in the `mngr` repo: we create a .tar.gz file of a specific commit hash in the repo (via `make_tar_of_repo.sh`), then include that when we deploy our Modal Function. Then when the Function invokes `mngr create`, it can *also* point at that uploaded .tar.gz of the repo, which is referenced by the Dockerfile for building the image. This is the most complex to set up, but it is very fast, and always stays fully up-to-date. See [this blogpost](TK-link) for more details on this strategy.
 4. **custom**: users can also specify their own custom image building strategy if they want by setting the appropriate `mngr` config arguments.
@@ -76,7 +76,7 @@ branch = "main"
 enabled = true
 # if you want to specify extra secrets, use this to forward the value of those env vars to the agent
 # (these are forwarded by default, and if you change this setting, you'll probably want to continue including them) 
-secrets = ["GITHUB_TOKEN", "ANTHROPIC_API_KEY"]
+secrets = ["GH_TOKEN", "ANTHROPIC_API_KEY"]
 # the message sent to the agent when it starts. Defaults to "Please use your primary skill",
 # which triggers the agent's configured primary skill (set via the mngr agent type).
 # Override this to give the agent custom instructions instead.
@@ -97,7 +97,7 @@ Below are some specific details about generally required secrets for most agents
 
 ## GitHub access
 
-Most changelings need access to GitHub. This is generally done by requiring a `GITHUB_TOKEN` with permissions to do whatever the agent needs to do, eg:
+Most changelings need access to GitHub. This is generally done by requiring a `GH_TOKEN` with permissions to do whatever the agent needs to do, eg:
 - Clone private repos
 - Create branches and push commits
 - Create pull requests

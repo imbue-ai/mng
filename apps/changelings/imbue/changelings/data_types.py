@@ -9,7 +9,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 
 DEFAULT_SCHEDULE: Final[str] = "0 3 * * *"
 DEFAULT_INITIAL_MESSAGE: Final[str] = "Please use your primary skill"
-DEFAULT_SECRETS: Final[tuple[str, ...]] = ("GITHUB_TOKEN", "ANTHROPIC_API_KEY")
+DEFAULT_SECRETS: Final[tuple[str, ...]] = ("GH_TOKEN", "ANTHROPIC_API_KEY")
 
 
 class ChangelingDefinition(FrozenModel):
