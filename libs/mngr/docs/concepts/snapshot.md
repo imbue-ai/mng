@@ -4,7 +4,7 @@ Snapshots capture the complete filesystem state of a [host](./hosts.md). They en
 
 - **Stop/start**: State is saved when stopping, restored when starting
 - **Backups**: Create manual checkpoints via `mngr snapshot`
-- **Forking**: Create a new agent from an existing one's snapshot via `mngr create --snapshot` [future]
+- **Forking**: Create a new agent from an existing one via `mngr clone` (snapshots the source first for remote agents)
 
 ## Creating Snapshots
 
