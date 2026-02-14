@@ -19,8 +19,11 @@ from imbue.changelings.deploy.deploy import find_repo_root
 from imbue.changelings.deploy.deploy import get_imbue_commit_hash
 from imbue.changelings.deploy.deploy import get_imbue_repo_url
 from imbue.changelings.deploy.deploy import get_modal_app_name
+from imbue.changelings.deploy.deploy import get_modal_environment_name
 from imbue.changelings.deploy.deploy import get_modal_secret_name
+from imbue.changelings.deploy.deploy import list_mngr_profiles
 from imbue.changelings.deploy.deploy import parse_agent_name_from_list_json
+from imbue.changelings.deploy.deploy import read_profile_user_id
 from imbue.changelings.deploy.deploy import serialize_changeling_config
 from imbue.changelings.errors import ChangelingDeployError
 from imbue.changelings.primitives import ChangelingName
@@ -459,6 +462,66 @@ def test_get_imbue_repo_url_raises_outside_git_repo(
 
     with pytest.raises(ChangelingDeployError, match="Could not get repository clone URL"):
         get_imbue_repo_url()
+
+
+# -- list_mngr_profiles tests --
+
+
+def test_list_mngr_profiles_returns_empty_when_no_profiles_dir() -> None:
+    result = list_mngr_profiles()
+    assert result == []
+
+
+def test_list_mngr_profiles_returns_profile_ids(tmp_path: Path) -> None:
+    profiles_dir = tmp_path / ".mngr" / "profiles"
+    (profiles_dir / "abc123").mkdir(parents=True)
+    (profiles_dir / "def456").mkdir(parents=True)
+
+    result = list_mngr_profiles()
+
+    assert result == ["abc123", "def456"]
+
+
+def test_list_mngr_profiles_ignores_files(tmp_path: Path) -> None:
+    """Only directories should be listed as profiles."""
+    profiles_dir = tmp_path / ".mngr" / "profiles"
+    profiles_dir.mkdir(parents=True)
+    (profiles_dir / "real-profile").mkdir()
+    (profiles_dir / "not-a-profile.txt").write_text("ignored")
+
+    result = list_mngr_profiles()
+
+    assert result == ["real-profile"]
+
+
+# -- read_profile_user_id tests --
+
+
+def test_read_profile_user_id_returns_user_id(tmp_path: Path) -> None:
+    profile_dir = tmp_path / ".mngr" / "profiles" / "my-profile"
+    profile_dir.mkdir(parents=True)
+    (profile_dir / "user_id").write_text("abc123def456\n")
+
+    result = read_profile_user_id("my-profile")
+
+    assert result == "abc123def456"
+
+
+def test_read_profile_user_id_raises_when_file_missing() -> None:
+    with pytest.raises(ChangelingDeployError, match="user_id file not found"):
+        read_profile_user_id("nonexistent-profile")
+
+
+# -- get_modal_environment_name tests --
+
+
+def test_get_modal_environment_name_formats_correctly() -> None:
+    assert get_modal_environment_name("abc123") == "mngr-abc123"
+
+
+def test_get_modal_environment_name_uses_full_user_id() -> None:
+    result = get_modal_environment_name("8caed3bc40df435fae5817ea0afdbf77")
+    assert result == "mngr-8caed3bc40df435fae5817ea0afdbf77"
 
 
 # -- parse_agent_name_from_list_json tests --

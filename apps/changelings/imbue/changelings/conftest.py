@@ -22,6 +22,7 @@ def make_test_changeling(
     env_vars: dict[str, str] | None = None,
     secrets: tuple[str, ...] | None = None,
     mngr_options: dict[str, str] | None = None,
+    mngr_profile: str | None = None,
 ) -> ChangelingDefinition:
     """Create a ChangelingDefinition for testing."""
     kwargs: dict = {
@@ -35,4 +36,6 @@ def make_test_changeling(
     }
     if secrets is not None:
         kwargs["secrets"] = secrets
+    if mngr_profile is not None:
+        kwargs["mngr_profile"] = mngr_profile
     return ChangelingDefinition(**kwargs)

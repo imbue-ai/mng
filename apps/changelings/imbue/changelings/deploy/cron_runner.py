@@ -123,6 +123,18 @@ _image = (
     )
 )
 
+# Copy user config files needed by mngr at runtime (claude config, mngr config
+# and profiles). These are baked into the image so mngr can find them when
+# it runs inside the Modal container.
+if modal.is_local():
+    _user_home = str(Path.home())
+    _image = (
+        _image.add_local_file(f"{_user_home}/.claude.json", "/root/.claude.json", copy=True)
+        .add_local_file(f"{_user_home}/.claude/settings.json", "/root/.claude/settings.json", copy=True)
+        .add_local_file(f"{_user_home}/.mngr/config.toml", "/root/.mngr/config.toml", copy=True)
+        .add_local_dir(f"{_user_home}/.mngr/profiles", "/root/.mngr/profiles", copy=True)
+    )
+
 # Add deployment config files (these are the only layers that change per deployment)
 _image = (
     _image.add_local_file(".changelings/build/app_name", "/deployment/app_name", copy=True)

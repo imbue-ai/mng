@@ -39,6 +39,10 @@ class ChangelingDefinition(FrozenModel):
         default_factory=dict, description="Custom mngr options passed as --key value args"
     )
     is_enabled: bool = Field(default=True, description="Whether this changeling is currently active")
+    mngr_profile: str | None = Field(
+        default=None,
+        description="The mngr profile ID to use for Modal deployment (auto-detected if not set)",
+    )
 
 
 class ChangelingConfig(FrozenModel):

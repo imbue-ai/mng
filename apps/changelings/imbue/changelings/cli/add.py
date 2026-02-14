@@ -6,8 +6,38 @@ from imbue.changelings.cli.options import changeling_definition_options
 from imbue.changelings.config import add_changeling
 from imbue.changelings.config import upsert_changeling
 from imbue.changelings.deploy.deploy import deploy_changeling
+from imbue.changelings.deploy.deploy import list_mngr_profiles
 from imbue.changelings.errors import ChangelingAlreadyExistsError
 from imbue.changelings.errors import ChangelingDeployError
+
+
+def _resolve_mngr_profile(explicit_profile: str | None) -> str:
+    """Resolve the mngr profile to use for deployment.
+
+    If an explicit profile is provided, returns it. Otherwise auto-detects
+    from ~/.mngr/profiles/: if exactly one profile exists, uses it; if
+    multiple exist, prompts the user to choose.
+    """
+    if explicit_profile is not None:
+        return explicit_profile
+
+    profiles = list_mngr_profiles()
+    if len(profiles) == 0:
+        logger.error("No mngr profiles found. Run 'mngr create' first to set up a profile.")
+        raise SystemExit(1)
+    elif len(profiles) == 1:
+        profile_id = profiles[0]
+        logger.info("Auto-selected mngr profile: {}", profile_id)
+        return profile_id
+    else:
+        click.echo("Multiple mngr profiles found:")
+        for i, p in enumerate(profiles, 1):
+            click.echo(f"  {i}. {p}")
+        choice = click.prompt(
+            "Select a profile",
+            type=click.IntRange(1, len(profiles)),
+        )
+        return profiles[choice - 1]
 
 
 @click.command(name="add")
@@ -37,6 +67,7 @@ def add(
     extra_mngr_args: str | None,
     mngr_options: tuple[str, ...],
     enabled: bool | None,
+    mngr_profile: str | None,
     update: bool,
     finish_initial_run: bool,
 ) -> None:
@@ -70,9 +101,11 @@ def add(
         extra_mngr_args=extra_mngr_args,
         mngr_options=mngr_options,
         enabled=enabled,
+        mngr_profile=mngr_profile,
         base=None,
     )
 
+    # Save the definition to config first (so it persists even if deploy fails)
     if update:
         upsert_changeling(definition)
     else:
@@ -85,6 +118,12 @@ def add(
     if not definition.is_enabled:
         click.echo(f"Changeling '{name}' saved to config (disabled, not deployed to Modal)")
         return
+
+    # Resolve the mngr profile (auto-detect or prompt) for deployment.
+    # Re-save the definition with the resolved profile so it persists.
+    resolved_profile = _resolve_mngr_profile(definition.mngr_profile)
+    definition = definition.model_copy(update={"mngr_profile": resolved_profile})
+    upsert_changeling(definition)
 
     try:
         app_name = deploy_changeling(definition, is_finish_initial_run=finish_initial_run)

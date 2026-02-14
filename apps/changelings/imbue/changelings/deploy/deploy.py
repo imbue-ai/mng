@@ -239,6 +239,36 @@ def get_imbue_repo_url() -> str:
     return url
 
 
+def list_mngr_profiles() -> list[str]:
+    """List available mngr profile IDs from ~/.mngr/profiles/.
+
+    Returns the profile directory names (UUID hex strings) sorted alphabetically.
+    """
+    profiles_dir = Path.home() / ".mngr" / "profiles"
+    if not profiles_dir.is_dir():
+        return []
+    return sorted(p.name for p in profiles_dir.iterdir() if p.is_dir())
+
+
+def read_profile_user_id(profile_id: str) -> str:
+    """Read the user_id from a mngr profile directory.
+
+    Raises ChangelingDeployError if the user_id file does not exist.
+    """
+    user_id_path = Path.home() / ".mngr" / "profiles" / profile_id / "user_id"
+    if not user_id_path.exists():
+        raise ChangelingDeployError(
+            f"user_id file not found at {user_id_path}. Make sure the mngr profile is set up correctly."
+        ) from None
+    return user_id_path.read_text().strip()
+
+
+@pure
+def get_modal_environment_name(user_id: str) -> str:
+    """Compute the Modal environment name from a mngr user_id."""
+    return f"mngr-{user_id}"
+
+
 def create_modal_secret(
     changeling: ChangelingDefinition,
     environment_name: str | None = None,
@@ -278,10 +308,12 @@ def create_modal_secret(
 
 def deploy_changeling(
     changeling: ChangelingDefinition,
-    environment_name: str | None = None,
     is_finish_initial_run: bool = False,
 ) -> str:
     """Deploy a changeling to Modal as a cron-scheduled function.
+
+    The Modal environment name is derived from the changeling's mngr_profile.
+    The profile must be set before calling this function (see cli/add.py).
 
     This performs the full deployment and verification:
     1. Creates/updates a Modal secret with the changeling's API keys
@@ -294,6 +326,16 @@ def deploy_changeling(
     Raises ChangelingDeployError if deployment or verification fails.
     """
     from imbue.changelings.deploy.verification import verify_deployment
+
+    if changeling.mngr_profile is None:
+        raise ChangelingDeployError(
+            "mngr_profile must be set before deploying. Use 'changeling add' to auto-detect it."
+        ) from None
+
+    # Derive Modal environment name from the profile's user_id
+    user_id = read_profile_user_id(changeling.mngr_profile)
+    environment_name = get_modal_environment_name(user_id)
+    logger.info("Using Modal environment '{}' (profile: {})", environment_name, changeling.mngr_profile)
 
     app_name = get_modal_app_name(str(changeling.name))
 

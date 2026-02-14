@@ -78,6 +78,11 @@ def changeling_definition_options(f: Callable) -> Callable:
             default=None,
             help="Whether this changeling should be active",
         ),
+        click.option(
+            "--mngr-profile",
+            default=None,
+            help="The mngr profile ID to use for Modal deployment (auto-detected if not set)",
+        ),
     ]
     for decorator in reversed(decorators):
         f = decorator(f)
@@ -96,6 +101,7 @@ def build_definition_from_cli(
     extra_mngr_args: str | None,
     mngr_options: tuple[str, ...],
     enabled: bool | None,
+    mngr_profile: str | None,
     # If provided, CLI args are merged onto this base definition
     base: ChangelingDefinition | None,
 ) -> ChangelingDefinition:
@@ -117,6 +123,7 @@ def build_definition_from_cli(
             extra_mngr_args=extra_mngr_args if extra_mngr_args is not None else base.extra_mngr_args,
             mngr_options=parsed_mngr_options if parsed_mngr_options is not None else base.mngr_options,
             is_enabled=enabled if enabled is not None else base.is_enabled,
+            mngr_profile=mngr_profile if mngr_profile is not None else base.mngr_profile,
         )
 
     # Create from scratch, relying on model defaults for unspecified fields
@@ -141,4 +148,6 @@ def build_definition_from_cli(
         kwargs["mngr_options"] = parsed_mngr_options
     if enabled is not None:
         kwargs["is_enabled"] = enabled
+    if mngr_profile is not None:
+        kwargs["mngr_profile"] = mngr_profile
     return ChangelingDefinition(**kwargs)

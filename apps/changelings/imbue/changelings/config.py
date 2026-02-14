@@ -170,6 +170,8 @@ def _serialize_config(config: ChangelingConfig) -> dict:
             entry.add("env_vars", dict(definition.env_vars))
         if definition.mngr_options:
             entry.add("mngr_options", dict(definition.mngr_options))
+        if definition.mngr_profile is not None:
+            entry.add("mngr_profile", definition.mngr_profile)
 
         changelings_table.add(str(name), entry)
 

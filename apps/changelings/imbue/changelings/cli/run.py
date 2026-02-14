@@ -36,6 +36,7 @@ def run(
     extra_mngr_args: str | None,
     mngr_options: tuple[str, ...],
     enabled: bool | None,
+    mngr_profile: str | None,
 ) -> None:
     """Run a changeling immediately (for testing or one-off execution).
 
@@ -68,6 +69,7 @@ def run(
         extra_mngr_args=extra_mngr_args,
         mngr_options=mngr_options,
         enabled=enabled,
+        mngr_profile=mngr_profile,
         base=base,
     )
 

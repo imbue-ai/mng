@@ -64,6 +64,7 @@ def test_build_definition_defaults_agent_type_to_name() -> None:
         extra_mngr_args=None,
         mngr_options=(),
         enabled=None,
+        mngr_profile=None,
         base=None,
     )
 
@@ -84,6 +85,7 @@ def test_build_definition_uses_explicit_agent_type() -> None:
         extra_mngr_args=None,
         mngr_options=(),
         enabled=None,
+        mngr_profile=None,
         base=None,
     )
 
@@ -104,6 +106,7 @@ def test_build_definition_from_scratch_uses_model_defaults() -> None:
         extra_mngr_args=None,
         mngr_options=(),
         enabled=None,
+        mngr_profile=None,
         base=None,
     )
 
@@ -133,6 +136,7 @@ def test_build_definition_from_scratch_with_all_fields() -> None:
         extra_mngr_args="--verbose",
         mngr_options=("gpu=a10g",),
         enabled=False,
+        mngr_profile="test-profile-id",
         base=None,
     )
 
@@ -173,6 +177,7 @@ def test_build_definition_with_base_keeps_base_values_when_no_overrides() -> Non
         extra_mngr_args=None,
         mngr_options=(),
         enabled=None,
+        mngr_profile=None,
         base=base,
     )
 
@@ -201,6 +206,7 @@ def test_build_definition_with_base_overrides_specified_fields() -> None:
         extra_mngr_args=None,
         mngr_options=(),
         enabled=None,
+        mngr_profile=None,
         base=base,
     )
 
@@ -226,6 +232,7 @@ def test_build_definition_with_base_overrides_secrets_when_specified() -> None:
         extra_mngr_args=None,
         mngr_options=(),
         enabled=None,
+        mngr_profile=None,
         base=base,
     )
 
@@ -248,6 +255,7 @@ def test_build_definition_with_base_overrides_mngr_options_when_specified() -> N
         extra_mngr_args=None,
         mngr_options=("new_key=new_value",),
         enabled=None,
+        mngr_profile=None,
         base=base,
     )
 
