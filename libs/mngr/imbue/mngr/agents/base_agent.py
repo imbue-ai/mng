@@ -30,6 +30,7 @@ from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import Permission
 from imbue.mngr.utils.env_utils import parse_env_file
 from imbue.mngr.utils.polling import poll_until
+from imbue.mngr.utils.url_utils import compute_default_url
 
 # Constants for send_message marker-based synchronization
 _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
@@ -570,14 +571,7 @@ class BaseAgent(AgentInterface):
     # =========================================================================
 
     def get_reported_url(self) -> str | None:
-        urls = self.get_reported_urls()
-        default_url = urls.get("default")
-        if default_url is not None:
-            return default_url
-        # Fall back to the only URL if there is exactly one
-        if len(urls) == 1:
-            return next(iter(urls.values()))
-        return None
+        return compute_default_url(self.get_reported_urls())
 
     def get_reported_urls(self) -> dict[str, str]:
         """Return all self-reported URLs from status/urls/.

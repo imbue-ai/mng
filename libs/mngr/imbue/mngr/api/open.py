@@ -5,11 +5,11 @@ from typing import Final
 
 from loguru import logger
 
-from imbue.mngr.api.list import compute_default_url
 from imbue.mngr.errors import BaseMngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.primitives import ActivitySource
+from imbue.mngr.utils.url_utils import compute_default_url
 
 # How often to record user activity when --active is used (seconds)
 _ACTIVITY_INTERVAL_SECONDS: Final[float] = 30.0
