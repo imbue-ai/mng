@@ -70,7 +70,7 @@ Only after doing all of the above should you begin writing code.
 
 Before declaring any feature complete, smoke test it: exercise the feature exactly as a real user would, with real inputs, and critically evaluate whether it *actually does the right thing*. Do not confuse "no errors" with "correct behavior" -- a command that exits 0 but produces wrong output is not working.
 
-Then crystallize the verified behavior into formal tests that assert true invariants of the system.
+Then crystallize the verified behavior into formal tests. Assert on things that are true if and only if the feature worked correctly -- this ensures tests are both reliable and meaningful.
 
 ## Smoke testing interactive components with tmux
 
