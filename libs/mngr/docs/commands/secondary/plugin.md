@@ -45,6 +45,12 @@ mngr plugin [OPTIONS] COMMAND [ARGS]...
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
 
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
 ## mngr plugin list
 
 List discovered plugins.

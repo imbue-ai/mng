@@ -20,7 +20,9 @@ from imbue.mngr.cli.config import load_config_file_tomlkit
 from imbue.mngr.cli.config import save_config_file
 from imbue.mngr.cli.config import set_nested_value
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
+from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
+from imbue.mngr.cli.help_formatter import show_help_with_pager
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.config.data_types import MngrConfig
@@ -202,7 +204,7 @@ def plugin(ctx: click.Context, **kwargs: Any) -> None:
       mngr plugin list --fields name,enabled
     """
     if ctx.invoked_subcommand is None:
-        logger.info(ctx.get_help())
+        show_help_with_pager(ctx, ctx.command, None)
 
 
 @plugin.command(name="list")
@@ -448,3 +450,5 @@ agent types, provider backends, CLI commands, and lifecycle hooks.""",
 register_help_metadata("plugin", _PLUGIN_HELP_METADATA)
 for alias in _PLUGIN_HELP_METADATA.aliases:
     register_help_metadata(alias, _PLUGIN_HELP_METADATA)
+
+add_pager_help_option(plugin)
