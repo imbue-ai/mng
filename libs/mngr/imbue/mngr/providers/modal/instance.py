@@ -1678,10 +1678,7 @@ log "=== Shutdown script completed ==="
                 try:
                     host_obj = self._create_host_from_sandbox(sandbox)
                 except HostConnectionError as e:
-                    # FIXME: Error swallowed at debug level. A running sandbox that we can't
-                    # connect to is a notable failure that should be logged at warning level
-                    # so the user is aware their host may have connectivity issues.
-                    logger.debug("Failed to create host from sandbox {}: {}", host, e)
+                    logger.debug("Failed to create host from sandbox {}, assuming it is offline: {}", host, e)
 
             if host_obj is None:
                 # No sandbox or couldn't connect - try host record (for stopped hosts)
@@ -1695,10 +1692,7 @@ log "=== Shutdown script completed ==="
                 try:
                     host_obj = self._create_host_from_sandbox(sandbox)
                 except HostConnectionError as e:
-                    # FIXME: Error swallowed at debug level. A running sandbox that we can't
-                    # connect to is a notable failure that should be logged at warning level
-                    # so the user is aware their host may have connectivity issues.
-                    logger.debug("Failed to create host from sandbox {}: {}", host, e)
+                    logger.debug("Failed to create host from sandbox {}, assuming it is offline: {}", host, e)
 
             # No sandbox or couldn't connect - search host records by name (for stopped hosts)
             if host_obj is None:

@@ -1123,22 +1123,16 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_unclean = options.git.is_include_unclean if options.git else True
         if is_include_unclean:
             if source_host.is_local:
-                try:
-                    result = self.mngr_ctx.concurrency_group.run_process_to_completion(
-                        ["git", "-C", str(source_path), "status", "--porcelain"],
-                    )
-                    for line in result.stdout.split("\n"):
-                        if line:
-                            # git status --porcelain format: "XY filename" (2 status chars + space + filename)
-                            filename = line[3:]
-                            if " -> " in filename:
-                                filename = filename.split(" -> ")[1]
-                            files_to_include.append(filename)
-                except ProcessError as e:
-                    # FIXME: Error swallowed at trace level. If git status fails, we silently skip
-                    # transferring modified/untracked files, which could cause data loss. Should log
-                    # at warning level so the user knows their unclean files were not transferred.
-                    logger.trace("git status --porcelain failed, skipping unclean files: {}", e)
+                result = self.mngr_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "-C", str(source_path), "status", "--porcelain"],
+                )
+                for line in result.stdout.split("\n"):
+                    if line:
+                        # git status --porcelain format: "XY filename" (2 status chars + space + filename)
+                        filename = line[3:]
+                        if " -> " in filename:
+                            filename = filename.split(" -> ")[1]
+                        files_to_include.append(filename)
             else:
                 result = source_host.execute_command("git status --porcelain", cwd=source_path)
                 if result.success:
@@ -1153,18 +1147,12 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_gitignored = options.git.is_include_gitignored if options.git else False
         if is_include_gitignored:
             if source_host.is_local:
-                try:
-                    result = self.mngr_ctx.concurrency_group.run_process_to_completion(
-                        ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
-                    )
-                    for line in result.stdout.split("\n"):
-                        if line:
-                            files_to_include.append(line)
-                except ProcessError as e:
-                    # FIXME: Error swallowed at trace level. If git ls-files fails, we silently skip
-                    # transferring gitignored files that the user requested to include. Should log at
-                    # warning level so the user knows their files were not transferred.
-                    logger.trace("git ls-files failed, skipping gitignored files: {}", e)
+                result = self.mngr_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
+                )
+                for line in result.stdout.split("\n"):
+                    if line:
+                        files_to_include.append(line)
             else:
                 result = source_host.execute_command(
                     "git ls-files --others --ignored --exclude-standard",
