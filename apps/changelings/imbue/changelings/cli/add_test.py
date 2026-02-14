@@ -26,7 +26,7 @@ def test_add_disabled_saves_to_config_without_deploying(cli_runner: CliRunner) -
     result = cli_runner.invoke(add, _REQUIRED_ARGS)
 
     assert result.exit_code == 0
-    assert "added to config (disabled, not deployed to Modal)" in result.output
+    assert "saved to config (disabled, not deployed to Modal)" in result.output
 
 
 def test_add_disabled_changeling_is_in_config(cli_runner: CliRunner) -> None:
@@ -164,3 +164,23 @@ def test_add_with_extra_mngr_args_stores_them(cli_runner: CliRunner) -> None:
 
     changeling = get_changeling(ChangelingName("my-fairy"))
     assert changeling.extra_mngr_args == "--verbose --timeout 300"
+
+
+def test_add_update_creates_new_changeling(cli_runner: CliRunner) -> None:
+    """--update should create a new changeling if it doesn't exist."""
+    result = cli_runner.invoke(add, ["test-guardian", "--disabled", "--update"])
+
+    assert result.exit_code == 0
+    changeling = get_changeling(ChangelingName("test-guardian"))
+    assert changeling.name == ChangelingName("test-guardian")
+
+
+def test_add_update_overwrites_existing_changeling(cli_runner: CliRunner) -> None:
+    """--update should overwrite an existing changeling without error."""
+    cli_runner.invoke(add, ["test-guardian", "--disabled", "--branch", "original"])
+
+    result = cli_runner.invoke(add, ["test-guardian", "--disabled", "--update", "--branch", "updated"])
+
+    assert result.exit_code == 0
+    changeling = get_changeling(ChangelingName("test-guardian"))
+    assert changeling.branch == "updated"

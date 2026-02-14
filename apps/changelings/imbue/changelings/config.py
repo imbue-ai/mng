@@ -73,6 +73,19 @@ def add_changeling(definition: ChangelingDefinition) -> ChangelingConfig:
     return updated
 
 
+def upsert_changeling(definition: ChangelingDefinition) -> ChangelingConfig:
+    """Add or update a changeling in the config and save it.
+
+    Creates the changeling if it doesn't exist, or replaces it if it does.
+    """
+    config = load_config()
+    updated = ChangelingConfig(
+        changeling_by_name={**config.changeling_by_name, definition.name: definition},
+    )
+    save_config(updated)
+    return updated
+
+
 def remove_changeling(name: ChangelingName) -> ChangelingConfig:
     """Remove a changeling from the config and save it.
 

@@ -9,6 +9,7 @@
 # It is exercised by the release test in test_deploy_modal.py.
 
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Mapping
@@ -47,6 +48,14 @@ def _find_changeling_agent(changeling_name: str) -> str | None:
     return agent_name
 
 
+def _destroy_agent_if_exists(changeling_name: str) -> None:
+    """Try to find and destroy any agent created by this changeling."""
+    agent_name = _find_changeling_agent(changeling_name)
+    if agent_name is not None:
+        logger.info("Destroying agent '{}' during cleanup", agent_name)
+        _run_mngr_command(["uv", "run", "mngr", "destroy", "--force", agent_name])
+
+
 def _run_mngr_command(cmd: list[str]) -> None:
     """Run an mngr command, logging the result."""
     logger.info("Running: {}", " ".join(cmd))
@@ -60,14 +69,19 @@ def _run_mngr_command(cmd: list[str]) -> None:
 def _stream_process_output(
     process: subprocess.Popen[str],
     error_event: threading.Event,
+    error_lines: list[str],
 ) -> None:
-    """Read process stdout line by line, logging each line and flagging errors."""
+    """Read process stdout line by line, forwarding to console and flagging errors."""
     assert process.stdout is not None
     for line in process.stdout:
+        # Write directly to stdout for immediate visibility
+        sys.stdout.write(line)
+        sys.stdout.flush()
+
         stripped = line.rstrip()
-        logger.info("[modal run] {}", stripped)
         lower = stripped.lower()
-        if "traceback" in lower or "error" in lower or "exception" in lower:
+        if "traceback" in lower or "exception" in lower:
+            error_lines.append(stripped)
             error_event.set()
 
 
@@ -81,7 +95,7 @@ def _poll_for_agent(
     """Poll mngr list until an agent created by the changeling is found.
 
     Returns the agent name if found within the timeout, None otherwise.
-    Also returns None early if the modal run process exits.
+    Returns None early if the modal run process exits or an error is detected.
     """
     deadline = time.monotonic() + timeout_seconds
     logger.info(
@@ -97,11 +111,9 @@ def _poll_for_agent(
             logger.warning("modal run process exited with code {} before agent was detected", process.returncode)
             return None
 
-        # Check for errors in the log stream
+        # Fail immediately if an error (traceback/exception) is detected in the output
         if error_event.is_set():
-            logger.warning("Error detected in modal run output")
-            # Don't return immediately - the error might be transient.
-            # Continue polling to see if the agent still starts.
+            return None
 
         agent_name = _find_changeling_agent(changeling_name)
         if agent_name is not None:
@@ -130,6 +142,7 @@ def verify_deployment(
     2. Streams logs from the modal run process
     3. Polls `mngr list` for the changeling agent to appear
     4. Once detected, destroys or stops the agent depending on is_finish_initial_run
+    5. Raises ChangelingDeployError if an error is detected or agent fails to start
     """
     cmd = build_modal_run_command(cron_runner_path, environment_name)
     logger.info("Invoking deployed function to verify deployment: {}", " ".join(cmd))
@@ -140,13 +153,15 @@ def verify_deployment(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        bufsize=1,
         env=dict(env),
     )
 
     error_event = threading.Event()
+    error_lines: list[str] = []
     log_thread = threading.Thread(
         target=_stream_process_output,
-        args=(process, error_event),
+        args=(process, error_event, error_lines),
         daemon=True,
     )
     log_thread.start()
@@ -163,13 +178,23 @@ def verify_deployment(
             process=process,
         )
 
+        # If error detected, clean up and fail
+        if error_event.is_set():
+            _destroy_agent_if_exists(changeling_name)
+            process.kill()
+            process.wait()
+            error_detail = "\n".join(error_lines) if error_lines else "See output above"
+            raise ChangelingDeployError(
+                f"Error detected during deployment verification of '{changeling_name}':\n{error_detail}"
+            )
+
         if agent_name is None:
-            # Agent was not found within timeout
+            # Agent was not found within timeout (no error detected either)
             process.kill()
             process.wait()
             raise ChangelingDeployError(
                 f"Changeling '{changeling_name}' agent failed to start within "
-                f"{agent_poll_timeout_seconds}s. Check the modal run logs above for errors."
+                f"{agent_poll_timeout_seconds}s. Check the logs above for errors."
             )
 
         if is_finish_initial_run:

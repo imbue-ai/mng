@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from collections.abc import Mapping
 from collections.abc import Sequence
 from pathlib import Path
@@ -143,6 +144,13 @@ def parse_agent_name_from_list_json(
     return None
 
 
+def _forward_output(line: str, is_stdout: bool) -> None:
+    """Forward subprocess output to the console in real time."""
+    stream = sys.stdout if is_stdout else sys.stderr
+    stream.write(line)
+    stream.flush()
+
+
 def build_cron_mngr_command(
     changeling: ChangelingDefinition,
     env_file_path: Path,
@@ -200,7 +208,7 @@ def create_modal_secret(
 
     cmd = build_modal_secret_command(secret_name, secret_values, environment_name)
     with ConcurrencyGroup(name=f"modal-secret-{changeling.name}") as cg:
-        result = cg.run_process_to_completion(cmd, is_checked_after=False)
+        result = cg.run_process_to_completion(cmd, is_checked_after=False, on_output=_forward_output)
 
     if result.returncode != 0:
         raise ChangelingDeployError(f"Failed to create Modal secret '{secret_name}': {result.stderr}") from None
@@ -251,7 +259,9 @@ def deploy_changeling(
         cmd = build_modal_deploy_command(cron_runner_path, environment_name)
 
         with ConcurrencyGroup(name=f"modal-deploy-{changeling.name}") as cg:
-            result = cg.run_process_to_completion(cmd, timeout=600.0, env=env, is_checked_after=False)
+            result = cg.run_process_to_completion(
+                cmd, timeout=600.0, env=env, is_checked_after=False, on_output=_forward_output
+            )
 
         if result.returncode != 0:
             output = (result.stdout + "\n" + result.stderr).strip()

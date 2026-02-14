@@ -4,6 +4,7 @@ from loguru import logger
 from imbue.changelings.cli.options import build_definition_from_cli
 from imbue.changelings.cli.options import changeling_definition_options
 from imbue.changelings.config import add_changeling
+from imbue.changelings.config import upsert_changeling
 from imbue.changelings.deploy.deploy import deploy_changeling
 from imbue.changelings.errors import ChangelingAlreadyExistsError
 from imbue.changelings.errors import ChangelingDeployError
@@ -12,6 +13,12 @@ from imbue.changelings.errors import ChangelingDeployError
 @click.command(name="add")
 @click.argument("name")
 @changeling_definition_options
+@click.option(
+    "--update",
+    is_flag=True,
+    default=False,
+    help="Update the changeling if it already exists (idempotent create/update)",
+)
 @click.option(
     "--finish-initial-run",
     is_flag=True,
@@ -30,6 +37,7 @@ def add(
     extra_mngr_args: str | None,
     mngr_options: tuple[str, ...],
     enabled: bool | None,
+    update: bool,
     finish_initial_run: bool,
 ) -> None:
     """Register a new changeling and deploy it to Modal.
@@ -42,11 +50,13 @@ def add(
     on the specified schedule. After deployment, it invokes the function once
     to verify it works (creates an agent, then destroys it).
 
+    Use --update to idempotently create or update a changeling.
+
     Examples:
 
-      changeling add my-fairy --agent-type fixme-fairy --repo git@github.com:org/repo.git --schedule "0 3 * * *"
+      changeling add my-fairy --agent-type fixme-fairy --schedule "0 3 * * *"
 
-      changeling add test-bot --agent-type test-troll --repo git@github.com:org/repo.git --schedule "0 4 * * 1"
+      changeling add --update my-fairy --agent-type fixme-fairy --schedule "0 3 * * *"
     """
     definition = build_definition_from_cli(
         name=name,
@@ -63,14 +73,17 @@ def add(
         base=None,
     )
 
-    try:
-        add_changeling(definition)
-    except ChangelingAlreadyExistsError:
-        logger.error("Changeling '{}' already exists. Use 'changeling update' to modify it.", name)
-        raise SystemExit(1) from None
+    if update:
+        upsert_changeling(definition)
+    else:
+        try:
+            add_changeling(definition)
+        except ChangelingAlreadyExistsError:
+            logger.error("Changeling '{}' already exists. Use --update to modify it.", name)
+            raise SystemExit(1) from None
 
     if not definition.is_enabled:
-        click.echo(f"Changeling '{name}' added to config (disabled, not deployed to Modal)")
+        click.echo(f"Changeling '{name}' saved to config (disabled, not deployed to Modal)")
         return
 
     try:
@@ -79,4 +92,4 @@ def add(
         logger.error("Failed to deploy changeling '{}': {}", name, e)
         raise SystemExit(1) from None
 
-    click.echo(f"Changeling '{name}' added and deployed to Modal app '{app_name}'")
+    click.echo(f"Changeling '{name}' deployed to Modal app '{app_name}'")

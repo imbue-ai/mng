@@ -9,6 +9,7 @@ from imbue.changelings.config import get_changeling
 from imbue.changelings.config import load_config
 from imbue.changelings.config import remove_changeling
 from imbue.changelings.config import save_config
+from imbue.changelings.config import upsert_changeling
 from imbue.changelings.conftest import make_test_changeling
 from imbue.changelings.data_types import ChangelingConfig
 from imbue.changelings.data_types import ChangelingDefinition
@@ -144,6 +145,27 @@ def test_get_changeling_raises_when_not_found() -> None:
     """get_changeling should raise ChangelingNotFoundError if the name doesn't exist."""
     with pytest.raises(ChangelingNotFoundError, match="nonexistent"):
         get_changeling(ChangelingName("nonexistent"))
+
+
+def test_upsert_changeling_creates_when_not_exists() -> None:
+    """upsert_changeling should create a new changeling if it doesn't exist."""
+    definition = make_test_changeling(name="new-guardian")
+    upsert_changeling(definition)
+
+    result = get_changeling(ChangelingName("new-guardian"))
+    assert result.name == ChangelingName("new-guardian")
+
+
+def test_upsert_changeling_updates_when_exists() -> None:
+    """upsert_changeling should overwrite an existing changeling."""
+    original = make_test_changeling(name="test-guardian", branch="original")
+    add_changeling(original)
+
+    updated = make_test_changeling(name="test-guardian", branch="updated")
+    upsert_changeling(updated)
+
+    result = get_changeling(ChangelingName("test-guardian"))
+    assert result.branch == "updated"
 
 
 def test_load_config_raises_on_malformed_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
