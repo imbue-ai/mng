@@ -23,6 +23,8 @@ from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.docker.config import DockerProviderConfig
+from imbue.mngr.providers.mngr_remote.backend import MngrRemoteProviderBackend
+from imbue.mngr.providers.mngr_remote.config import MngrRemoteProviderConfig
 
 # Cache for registered backends
 _backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
@@ -67,6 +69,14 @@ def _load_backends(pm, *, include_modal: bool) -> None:
 
     # Register docker config (no backend implementation yet)
     _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
+
+    # Register the mngr remote provider directly (not via pm.register) since
+    # it requires explicit config (url + token) and cannot be auto-instantiated.
+    # Only add to config_registry so TOML parsing works; the backend is
+    # registered separately so build_provider_instance can find it.
+    mngr_remote_name = MngrRemoteProviderBackend.get_name()
+    _backend_registry[mngr_remote_name] = MngrRemoteProviderBackend
+    _config_registry[mngr_remote_name] = MngrRemoteProviderConfig
 
     _registry_state["backends_loaded"] = True
 

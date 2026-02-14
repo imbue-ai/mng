@@ -1,6 +1,7 @@
 import atexit
 
 from loguru import logger
+from pydantic import ValidationError
 
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
@@ -151,7 +152,13 @@ def get_all_provider_instances(
             continue
         if backend_name not in seen_names:
             provider_name = ProviderInstanceName(backend_name)
-            providers.append(get_provider_instance(provider_name, mngr_ctx))
+            try:
+                providers.append(get_provider_instance(provider_name, mngr_ctx))
+            except (ValidationError, MngrError):
+                # Some backends (e.g. mngr_remote) require explicit config
+                # and cannot be auto-instantiated with defaults. Skip them.
+                logger.trace("Skipped backend {} (requires explicit configuration)", backend_name)
+                continue
             seen_names.add(backend_name)
 
     logger.trace("Loaded {} total provider instances", len(providers))
