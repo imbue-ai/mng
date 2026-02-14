@@ -161,24 +161,29 @@ class ModalAppContextHandle(FrozenModel):
 
 
 def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
-    """Exit a Modal app context and its output capture context."""
-    with log_span("Exiting Modal app context: {}", handle.app_name):
-        # Log any captured output for debugging
-        captured_output = handle.output_buffer.getvalue()
-        if captured_output:
-            logger.trace("Captured Modal output ({} chars): {}", len(captured_output), captured_output[:500])
+    """Exit a Modal app context and its output capture context.
 
-        # Exit the app context first
-        try:
-            if handle.run_context is not None:
-                handle.run_context.__exit__(None, None, None)
-        except modal.exception.Error as e:
-            logger.warning("Modal error exiting app context {}: {}", handle.app_name, e)
+    This is a cleanup operation, so all errors are suppressed to avoid noisy
+    output during test teardown or normal shutdown.
+    """
+    # Exit the app context first
+    try:
+        if handle.run_context is not None:
+            handle.run_context.__exit__(None, None, None)
+    except modal.exception.Error:
+        # Modal errors during cleanup are expected (e.g., environment already
+        # deleted, app already stopped). Suppress silently since this is cleanup.
+        pass
+    except Exception:
+        # Catch-all for unexpected errors during cleanup (e.g., network issues,
+        # loguru handlers with closed streams). Don't let cleanup failures
+        # obscure the real test failure.
+        pass
 
-        # Exit the output capture context - this is a cleanup operation so we just
-        # suppress any errors
-        with contextlib.suppress(OSError, RuntimeError):
-            handle.output_capture_context.__exit__(None, None, None)
+    # Exit the output capture context - this is a cleanup operation so we just
+    # suppress any errors
+    with contextlib.suppress(OSError, RuntimeError, ValueError):
+        handle.output_capture_context.__exit__(None, None, None)
 
 
 class ModalProviderBackend(ProviderBackendInterface):
@@ -329,11 +334,14 @@ class ModalProviderBackend(ProviderBackendInterface):
         Closes all open app contexts and clears the registry. This is primarily used
         for test isolation to ensure a clean state between tests.
         """
-        for app_name, (_, context_handle) in list(cls._app_registry.items()):
+        for _app_name, (_, context_handle) in list(cls._app_registry.items()):
             try:
                 _exit_modal_app_context(context_handle)
-            except modal.exception.Error as e:
-                logger.warning("Modal error closing app {} during reset: {}", app_name, e)
+            except Exception:
+                # Suppress all errors during registry reset (cleanup operation).
+                # _exit_modal_app_context already handles errors internally,
+                # but catch anything unexpected to avoid masking real test failures.
+                pass
         cls._app_registry.clear()
 
     @staticmethod

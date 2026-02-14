@@ -79,7 +79,15 @@ class ModalLoguruWriter:
         stripped = text.strip()
         if stripped == "":
             return len(text)
-        logger.log(LogLevel.BUILD.value, "{}", stripped, source="modal", app_id=self.app_id, app_name=self.app_name)
+        try:
+            logger.log(
+                LogLevel.BUILD.value, "{}", stripped, source="modal", app_id=self.app_id, app_name=self.app_name
+            )
+        except ValueError:
+            # Suppress "I/O operation on closed file" from loguru handlers whose
+            # stream has been closed (e.g., during test teardown when pytest's
+            # capture mechanism swaps stderr/stdout between tests).
+            pass
         return len(text)
 
     def flush(self) -> None:

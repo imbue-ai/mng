@@ -243,24 +243,26 @@ class Host(BaseHost, OnlineHostInterface):
                     if "No such file or directory" in error_msg or "cannot stat" in error_msg:
                         raise FileNotFoundError(f"File not found: {remote_filename}") from e
                     elif "Socket is closed" in str(e):
-                        # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
+                        logger.warning("Socket closed during get_file, reconnecting and retrying")
+                        self.connector.host.disconnect()
+                        self._ensure_connected()
                         try:
-                            self.connector.host.disconnect()
-                            self._ensure_connected()
-                            _result = self.connector.host.get_file(
+                            return self.connector.host.get_file(
                                 remote_filename,
                                 filename_or_io,
                                 remote_temp_filename=remote_temp_filename,
                             )
-                        # note: do NOT change this--this is just here temporarily while we are debugging the intermittent "Socket is closed" errors in tests. We want to catch all exceptions here to see if the retry works
-                        except Exception as retry_exception:
+                        except (EOFError, SSHException) as retry_err:
                             raise HostConnectionError(
-                                "Connection was closed while reading file (and our retry failed)"
-                            ) from retry_exception
-                        else:
-                            raise HostConnectionError(
-                                "Connection was closed while reading file (but the retry worked!)"
-                            ) from e
+                                "Connection was closed while reading file (and reconnect retry also failed)"
+                            ) from retry_err
+                        except OSError as retry_err:
+                            if "Socket is closed" in str(retry_err):
+                                raise HostConnectionError(
+                                    "Connection was closed while reading file (socket closed again on retry)"
+                                ) from retry_err
+                            # Non-connection errors should propagate normally
+                            raise
                     else:
                         raise
             except (EOFError, SSHException) as e:
@@ -288,24 +290,30 @@ class Host(BaseHost, OnlineHostInterface):
                 )
             except OSError as e:
                 if "Socket is closed" in str(e):
-                    # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
+                    logger.warning("Socket closed during put_file, reconnecting and retrying")
+                    self.connector.host.disconnect()
+                    self._ensure_connected()
+                    # Reset position for seekable IO objects in case data was partially consumed
+                    if not isinstance(filename_or_io, str) and filename_or_io.seekable():
+                        filename_or_io.seek(0)
                     try:
-                        self.connector.host.disconnect()
-                        self._ensure_connected()
-                        _result = self.connector.host.put_file(
+                        return self.connector.host.put_file(
                             filename_or_io,
                             remote_filename,
                             remote_temp_filename=remote_temp_filename,
                         )
-                    # note: do NOT change this--this is just here temporarily while we are debugging the intermittent "Socket is closed" errors in tests. We want to catch all exceptions here to see if the retry works
-                    except Exception as retry_exception:
+                    except (EOFError, SSHException) as retry_err:
                         raise HostConnectionError(
-                            "Connection was closed while writing file (and our retry failed)"
-                        ) from retry_exception
-                    else:
-                        raise HostConnectionError(
-                            "Connection was closed while writing file (but the retry worked!)"
-                        ) from e
+                            "Connection was closed while writing file (and reconnect retry also failed)"
+                        ) from retry_err
+                    except OSError as retry_err:
+                        if "Socket is closed" in str(retry_err):
+                            raise HostConnectionError(
+                                "Connection was closed while writing file (socket closed again on retry)"
+                            ) from retry_err
+                        # Non-connection errors (e.g., FileNotFoundError for missing parent dir)
+                        # should propagate normally so callers like write_file can handle them
+                        raise
                 else:
                     raise
             except (EOFError, SSHException) as e:
