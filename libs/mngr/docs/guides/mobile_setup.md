@@ -69,23 +69,15 @@ See [config](../commands/secondary/config.md) for more on configuration scopes a
 
 If you run `mngr serve` on your local machine, it is only reachable from your local network. To access it from a phone on a different network, you need to expose it.
 
-### Option 1: Tailscale (recommended for personal use)
+The recommended approach is to deploy the API server to Modal, which gives you an always-on HTTPS endpoint accessible from anywhere. See [Deploying to Modal](#deploying-to-modal) below.
 
-Install [Tailscale](https://tailscale.com/) on your machine and your phone. Access the server via your machine's Tailscale IP. No additional config needed -- Tailscale handles authentication and encryption.
-
-### Option 2: Port forwarding plugin (FRP + nginx)
-
-The [port forwarding plugin](../core_plugins/local_port_forwarding_via_frp_and_nginx.md) uses FRP and nginx to expose services via subdomain URLs:
+Alternatively, the [port forwarding plugin](../core_plugins/local_port_forwarding_via_frp_and_nginx.md) uses FRP and nginx to expose services via subdomain URLs:
 
 ```
 <service>.<agent>.<host>.mngr.localhost:8080
 ```
 
-This is primarily used for exposing agent services (like ttyd terminals), not the API server itself. See the plugin docs for setup details.
-
-### Option 3: Deploy to Modal
-
-Running the API server on [Modal](https://modal.com) gives you an always-on HTTPS endpoint accessible from anywhere. See [Deploying to Modal](#deploying-to-modal) below.
+This is primarily used for exposing individual agent services (like ttyd terminals) rather than the API server itself. See the plugin docs for setup details.
 
 ## Web Terminal Access (ttyd)
 
@@ -138,7 +130,7 @@ See [providers](../concepts/providers.md) for more on provider configuration.
 
 ## Deploying to Modal
 
-For always-on access without keeping your laptop running, you can deploy the API server to Modal. Modal provides HTTPS automatically and has low cold-start times.
+Deploying the API server to Modal is the recommended way to get always-on mobile access. Modal provides HTTPS automatically, has low cold-start times, and `mngr` already has deep Modal integration (provider, volumes, secrets).
 
 The architecture looks like this:
 
@@ -192,7 +184,7 @@ See [Modal provider](../core_plugins/providers/modal.md) for general Modal usage
 The security model is designed for single-user personal use:
 
 - **API token**: 256-bit random token generated via `secrets.token_urlsafe(32)`. Stored at `~/.config/mngr/api_token` with `0600` permissions.
-- **HTTPS**: Provided automatically when deployed to Modal. For local use, add your own TLS termination or use Tailscale.
+- **HTTPS**: Provided automatically when deployed to Modal. For local-only use, add your own TLS termination or rely on network-level security.
 - **ttyd tokens**: Each agent's web terminal URL contains a per-agent security token. Only someone with the URL can access the terminal.
 - **SSH key isolation**: When deployed to Modal, SSH keys are stored in Modal secrets and never leave the Modal environment.
 - **No credentials in responses**: API responses never include tokens, keys, or other sensitive data.
