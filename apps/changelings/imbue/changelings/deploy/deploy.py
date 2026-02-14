@@ -43,21 +43,25 @@ def build_deploy_env(
     config_json: str,
     cron_schedule: str,
     secret_name: str,
-    repo_clone_url: str,
-    commit_hash: str,
+    imbue_repo_url: str,
+    imbue_commit_hash: str,
 ) -> dict[str, str]:
     """Build the environment variables needed for deploying the cron runner.
 
     These variables are read by cron_runner.py at deploy time and baked into the
     Modal image so the cron function has access to its configuration at runtime.
+
+    The imbue_repo_url and imbue_commit_hash identify the monorepo containing the
+    changeling/mngr tooling. This is distinct from the target repo (the repo the
+    changeling operates on, which is specified in the changeling config).
     """
     return {
         "CHANGELING_MODAL_APP_NAME": app_name,
         "CHANGELING_CONFIG_JSON": config_json,
         "CHANGELING_CRON_SCHEDULE": cron_schedule,
         "CHANGELING_SECRET_NAME": secret_name,
-        "CHANGELING_REPO_CLONE_URL": repo_clone_url,
-        "CHANGELING_COMMIT_HASH": commit_hash,
+        "CHANGELING_IMBUE_REPO_URL": imbue_repo_url,
+        "CHANGELING_IMBUE_COMMIT_HASH": imbue_commit_hash,
     }
 
 
@@ -182,8 +186,12 @@ def find_repo_root() -> Path:
     return Path(result.stdout.strip())
 
 
-def get_current_commit_hash() -> str:
-    """Get the current HEAD commit hash.
+def get_imbue_commit_hash() -> str:
+    """Get the commit hash of the imbue monorepo (the repo containing changeling/mngr).
+
+    This is used to pin the exact version of the tooling that gets cloned on
+    Modal at runtime. This is a development convenience -- once the changeling
+    package is published, the tooling will be installed via pip instead.
 
     Raises ChangelingDeployError if not inside a git repository.
     """
@@ -198,8 +206,16 @@ def get_current_commit_hash() -> str:
     return result.stdout.strip()
 
 
-def get_repo_clone_url() -> str:
-    """Get the HTTPS clone URL for the current git repository.
+def get_imbue_repo_url() -> str:
+    """Get the HTTPS clone URL for the imbue monorepo (changeling/mngr tooling).
+
+    This URL is used to clone the tooling onto Modal at runtime so that
+    the changeling and mngr packages are available. This is a development
+    convenience -- once the changeling package is published, the tooling
+    will be installed via pip instead and this will no longer be needed.
+
+    This is distinct from the *target* repo (changeling.repo) which is the
+    repo the changeling operates on.
 
     Converts SSH URLs to HTTPS format since gh auth setup-git works with HTTPS.
     Raises ChangelingDeployError if the remote URL cannot be determined.
@@ -278,8 +294,13 @@ def deploy_changeling(
     from imbue.changelings.deploy.verification import verify_deployment
 
     app_name = get_modal_app_name(str(changeling.name))
-    repo_clone_url = get_repo_clone_url()
-    commit_hash = get_current_commit_hash()
+
+    # The imbue repo URL and commit hash identify where the changeling/mngr
+    # tooling lives. This is cloned on Modal at runtime so the tooling is
+    # available. This is separate from the target repo (changeling.repo)
+    # which is the repo the changeling operates on.
+    imbue_repo_url = get_imbue_repo_url()
+    imbue_commit_hash = get_imbue_commit_hash()
 
     with log_span("Creating Modal secret for changeling '{}'", changeling.name):
         secret_name = create_modal_secret(changeling, environment_name)
@@ -292,8 +313,8 @@ def deploy_changeling(
         config_json=config_json,
         cron_schedule=str(changeling.schedule),
         secret_name=secret_name,
-        repo_clone_url=repo_clone_url,
-        commit_hash=commit_hash,
+        imbue_repo_url=imbue_repo_url,
+        imbue_commit_hash=imbue_commit_hash,
     )
 
     env = {**os.environ, **deploy_env_vars}

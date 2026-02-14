@@ -16,10 +16,10 @@ from imbue.changelings.deploy.deploy import build_modal_run_command
 from imbue.changelings.deploy.deploy import build_modal_secret_command
 from imbue.changelings.deploy.deploy import collect_secret_values
 from imbue.changelings.deploy.deploy import find_repo_root
-from imbue.changelings.deploy.deploy import get_current_commit_hash
+from imbue.changelings.deploy.deploy import get_imbue_commit_hash
+from imbue.changelings.deploy.deploy import get_imbue_repo_url
 from imbue.changelings.deploy.deploy import get_modal_app_name
 from imbue.changelings.deploy.deploy import get_modal_secret_name
-from imbue.changelings.deploy.deploy import get_repo_clone_url
 from imbue.changelings.deploy.deploy import parse_agent_name_from_list_json
 from imbue.changelings.deploy.deploy import serialize_changeling_config
 from imbue.changelings.errors import ChangelingDeployError
@@ -57,16 +57,16 @@ def test_build_deploy_env_includes_all_required_vars() -> None:
         config_json='{"name": "test"}',
         cron_schedule="0 3 * * *",
         secret_name="changeling-test-secrets",
-        repo_clone_url="https://github.com/org/repo.git",
-        commit_hash="abc123",
+        imbue_repo_url="https://github.com/org/imbue.git",
+        imbue_commit_hash="abc123",
     )
 
     assert env["CHANGELING_MODAL_APP_NAME"] == "changeling-test"
     assert env["CHANGELING_CONFIG_JSON"] == '{"name": "test"}'
     assert env["CHANGELING_CRON_SCHEDULE"] == "0 3 * * *"
     assert env["CHANGELING_SECRET_NAME"] == "changeling-test-secrets"
-    assert env["CHANGELING_REPO_CLONE_URL"] == "https://github.com/org/repo.git"
-    assert env["CHANGELING_COMMIT_HASH"] == "abc123"
+    assert env["CHANGELING_IMBUE_REPO_URL"] == "https://github.com/org/imbue.git"
+    assert env["CHANGELING_IMBUE_COMMIT_HASH"] == "abc123"
 
 
 def test_build_deploy_env_returns_exactly_six_keys() -> None:
@@ -75,8 +75,8 @@ def test_build_deploy_env_returns_exactly_six_keys() -> None:
         config_json="{}",
         cron_schedule="* * * * *",
         secret_name="s",
-        repo_clone_url="https://github.com/org/repo.git",
-        commit_hash="abc",
+        imbue_repo_url="https://github.com/org/imbue.git",
+        imbue_commit_hash="abc",
     )
 
     assert len(env) == 6
@@ -413,52 +413,52 @@ def test_find_repo_root_raises_outside_git_repo(
         find_repo_root()
 
 
-# -- get_current_commit_hash tests --
+# -- get_imbue_commit_hash tests --
 
 
-def test_get_current_commit_hash_returns_hex_string() -> None:
+def test_get_imbue_commit_hash_returns_hex_string() -> None:
     """The commit hash should be a 40-character hex string."""
-    result = get_current_commit_hash()
+    result = get_imbue_commit_hash()
 
     assert len(result) == 40
     assert all(c in "0123456789abcdef" for c in result)
 
 
-def test_get_current_commit_hash_raises_outside_git_repo(
+def test_get_imbue_commit_hash_raises_outside_git_repo(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(ChangelingDeployError, match="Could not get current commit hash"):
-        get_current_commit_hash()
+        get_imbue_commit_hash()
 
 
-# -- get_repo_clone_url tests --
+# -- get_imbue_repo_url tests --
 
 
-def test_get_repo_clone_url_returns_non_empty_string() -> None:
-    """The clone URL should be a non-empty string."""
-    result = get_repo_clone_url()
+def test_get_imbue_repo_url_returns_non_empty_string() -> None:
+    """The imbue repo URL should be a non-empty string."""
+    result = get_imbue_repo_url()
 
     assert len(result) > 0
 
 
-def test_get_repo_clone_url_returns_https_url() -> None:
-    """The clone URL should be an HTTPS URL (SSH URLs are converted)."""
-    result = get_repo_clone_url()
+def test_get_imbue_repo_url_returns_https_url() -> None:
+    """The imbue repo URL should be HTTPS (SSH URLs are converted)."""
+    result = get_imbue_repo_url()
 
     assert result.startswith("https://")
 
 
-def test_get_repo_clone_url_raises_outside_git_repo(
+def test_get_imbue_repo_url_raises_outside_git_repo(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(ChangelingDeployError, match="Could not get repository clone URL"):
-        get_repo_clone_url()
+        get_imbue_repo_url()
 
 
 # -- parse_agent_name_from_list_json tests --

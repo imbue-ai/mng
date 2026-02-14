@@ -1,9 +1,12 @@
-# Entry point for running a changeling inside a cloned repo on Modal.
+# Entry point for running a changeling inside the cloned imbue repo on Modal.
 #
-# This script is invoked by cron_runner.py after the monorepo has been cloned
-# and dependencies installed via `uv sync --all-packages`. It uses the full
-# changelings/mngr stack to deserialize the changeling config, write secrets,
-# build the mngr create command, and execute it.
+# This script is invoked by cron_runner.py after the imbue monorepo (containing
+# changeling/mngr tooling) has been cloned and dependencies installed via
+# `uv sync --all-packages`. It uses the full imbue stack to deserialize the
+# changeling config, write secrets, build the mngr create command, and execute it.
+#
+# The mngr create command is responsible for cloning and operating on the
+# *target* repo (the user's project), which is distinct from the imbue repo.
 #
 # Usage:
 #     uv run python -m imbue.changelings.deploy.remote_runner '<config_json>'
