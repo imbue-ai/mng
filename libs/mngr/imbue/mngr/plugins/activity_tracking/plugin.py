@@ -4,6 +4,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.plugins.activity_tracking.data_types import ActivityTrackingConfig
 from imbue.mngr.plugins.activity_tracking.data_types import PLUGIN_NAME
+from imbue.mngr.primitives import PluginName
 
 register_plugin_config(PLUGIN_NAME, ActivityTrackingConfig)
 
@@ -17,7 +18,7 @@ def on_agent_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
     appropriate sub_filter directives when generating nginx config.
     """
     plugin_configs = agent.mngr_ctx.config.plugins
-    config = plugin_configs.get(PLUGIN_NAME)
+    config = plugin_configs.get(PluginName(PLUGIN_NAME))
     if config is not None and not config.enabled:
         return
 
