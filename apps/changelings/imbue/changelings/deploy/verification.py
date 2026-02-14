@@ -118,6 +118,10 @@ def _poll_for_agent(
         agent_name = _find_changeling_agent(changeling_name)
         if agent_name is not None:
             logger.info("Detected changeling agent: {}", agent_name)
+
+            # TODO: remove this!!! it's just here so I can attach and see what is going on
+            time.sleep(3600)
+
             return agent_name
 
         logger.debug("Agent not found yet, waiting {}s before next poll...", poll_interval_seconds)
