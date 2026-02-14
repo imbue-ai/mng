@@ -1,8 +1,8 @@
 import json
 import os
 import stat
-from collections.abc import Generator
 from pathlib import Path
+from typing import Generator
 from uuid import uuid4
 
 import pytest
