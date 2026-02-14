@@ -9,6 +9,7 @@ from pathlib import Path
 
 import imbue.mngr.resources as mngr_resources
 from imbue.mngr.providers.ssh_host_setup import WARNING_PREFIX
+from imbue.mngr.providers.ssh_host_setup import _build_package_check_snippet
 from imbue.mngr.providers.ssh_host_setup import _load_activity_watcher_script
 from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
@@ -35,6 +36,23 @@ def test_valid_shell_command() -> None:
     cmd = build_check_and_install_packages_command("/mngr/hosts/test")
     assert isinstance(cmd, str)
     assert len(cmd) > 0
+
+
+def test_build_package_check_snippet_default_check() -> None:
+    """When no check_cmd is given, should use 'command -v <binary>' and reference the package."""
+    snippet = _build_package_check_snippet(binary="tmux", package="tmux", check_cmd=None)
+    assert "command -v tmux >/dev/null 2>&1" in snippet
+    assert f"{WARNING_PREFIX}tmux is not pre-installed" in snippet
+    assert 'PKGS_TO_INSTALL="$PKGS_TO_INSTALL tmux"' in snippet
+
+
+def test_build_package_check_snippet_custom_check() -> None:
+    """When check_cmd is provided, should use that instead of the default."""
+    snippet = _build_package_check_snippet(binary="sshd", package="openssh-server", check_cmd="test -x /usr/sbin/sshd")
+    assert "test -x /usr/sbin/sshd" in snippet
+    assert "command -v" not in snippet
+    assert f"{WARNING_PREFIX}openssh-server is not pre-installed" in snippet
+    assert 'PKGS_TO_INSTALL="$PKGS_TO_INSTALL openssh-server"' in snippet
 
 
 def test_valid_configure_ssh_command() -> None:
@@ -195,13 +213,13 @@ def _create_test_script(script_path: str, host_data_dir: str, function_call: str
     """
     lines = [
         "#!/bin/bash",
-        "set -e",
+        "set -euo pipefail",
         "",
         f'HOST_DATA_DIR="{host_data_dir}"',
         "",
     ]
 
-    # Read the script and extract everything between 'set -e' and 'main' (exclusive)
+    # Read the script and extract everything between 'set -euo pipefail' and 'main' (exclusive)
     with open(script_path) as f:
         script_lines = f.readlines()
 
@@ -325,5 +343,7 @@ def test_has_running_agent_sessions_returns_false_when_agents_exist_but_no_sessi
     os.utime(str(agent_dir), (old_time, old_time))
 
     script_path = _get_activity_watcher_script_path()
-    result = _run_bash_function(script_path, str(tmp_path), "has_running_agent_sessions")
+    # Override AGENT_SESSION_GRACE_PERIOD to 0 so the container uptime check
+    # doesn't cause a false positive on freshly started CI runners.
+    result = _run_bash_function(script_path, str(tmp_path), "AGENT_SESSION_GRACE_PERIOD=0\nhas_running_agent_sessions")
     assert result.returncode != 0

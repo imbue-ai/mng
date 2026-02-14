@@ -6,6 +6,7 @@ from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderBackendName
+from imbue.mngr.primitives import UserId
 
 
 class ModalProviderConfig(ProviderInstanceConfig):
@@ -15,7 +16,7 @@ class ModalProviderConfig(ProviderInstanceConfig):
         default=ProviderBackendName("modal"),
         description="Provider backend (always 'modal' for this type)",
     )
-    user_id: str | None = Field(
+    user_id: UserId | None = Field(
         default=None,
         description=(
             "Override the profile user_id for this provider instance. When set, this "

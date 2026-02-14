@@ -5,12 +5,12 @@
 Agent metadata is stored as Docker container labels. When an agent is created, mngr sets labels on the container:
 
 ```
-com.imgue.mngr.agent-id=<agent-id>
-com.imgue.mngr.agent-name=<name>
-com.imgue.mngr.agent-type=<type>
-com.imgue.mngr.tags=<json-encoded-tags>
-com.imgue.mngr.parent-id=<parent-agent-id>
-com.imgue.mngr.created-at=<iso-timestamp>
+com.imbue.mngr.agent-id=<agent-id>
+com.imbue.mngr.agent-name=<name>
+com.imbue.mngr.agent-type=<type>
+com.imbue.mngr.tags=<json-encoded-tags>
+com.imbue.mngr.parent-id=<parent-agent-id>
+com.imbue.mngr.created-at=<iso-timestamp>
 ```
 
 Labels are preserved across container stop/start cycles and are included in committed images (for snapshots).

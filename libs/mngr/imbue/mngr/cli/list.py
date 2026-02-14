@@ -36,6 +36,16 @@ from imbue.mngr.primitives import OutputFormat
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = ("name", "host", "provider", "host.state", "state", "status")
 
+# FIXME: remove this entirely--just use the unaliased names everywhere necessary, and then remove this, and anything that uses it
+# Display field aliases: map user-facing shorthand field names to their actual
+# data model paths. Used by both _get_field_value and _get_sortable_value so that
+# --fields and --sort accept the same shorthand names.
+_FIELD_ALIASES: Final[dict[str, str]] = {
+    "host": "host.name",
+    "provider": "host.provider_name",
+    "host.provider": "host.provider_name",
+}
+
 
 @pure
 def _should_use_streaming_mode(
@@ -191,7 +201,6 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         command_name="list",
         command_class=ListCliOptions,
     )
-    logger.debug("Started list command")
 
     # --format-template FORMAT: Output format as a string template, mutually exclusive with --format
     # Template can reference any field from the Available Fields list (see CommandHelpMetadata)
@@ -725,19 +734,12 @@ def _get_sortable_value(agent: AgentInfo, field: str) -> Any:
     Returns the raw value (not string-formatted) for proper sorting behavior.
     Supports nested fields like "host.name" and field aliases.
     """
-    # FIXME: remove these aliases here and below. If anything must remain, make it a proper on AgentInfo
-    # Handle special field aliases for backward compatibility and convenience
-    field_aliases = {
-        "host": "host.name",
-        "provider": "host.provider_name",
-        "host.provider": "host.provider_name",
-    }
-
-    # Apply alias if it exists
-    if field in field_aliases:
-        field = field_aliases[field]
+    # Apply display field alias if it exists
+    if field in _FIELD_ALIASES:
+        field = _FIELD_ALIASES[field]
 
     # Handle nested fields (e.g., "host.name")
+    # Also supports dict key access for plugin fields (e.g., "host.plugin.aws.iam_user")
     parts = field.split(".")
     value: Any = agent
 
@@ -747,6 +749,8 @@ def _get_sortable_value(agent: AgentInfo, field: str) -> Any:
             base_part = part.split("[")[0]
             if hasattr(value, base_part):
                 value = getattr(value, base_part)
+            elif isinstance(value, dict) and base_part in value:
+                value = value[base_part]
             else:
                 return None
         return value
@@ -781,19 +785,12 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
     Supports nested fields like "host.name", handles field aliases, and supports
     list slicing syntax like "host.snapshots[0]" or "host.snapshots[:3]".
     """
-    # Handle special field aliases for backward compatibility and convenience
-    # Note: host.provider maps to host.provider_name for consistency with CEL filters
-    field_aliases = {
-        "host": "host.name",
-        "provider": "host.provider_name",
-        "host.provider": "host.provider_name",
-    }
-
-    # Apply alias if it exists
-    if field in field_aliases:
-        field = field_aliases[field]
+    # Apply display field alias if it exists
+    if field in _FIELD_ALIASES:
+        field = _FIELD_ALIASES[field]
 
     # Handle nested fields (e.g., "host.name") with optional bracket notation
+    # Also supports dict key access for plugin fields (e.g., "host.plugin.aws.iam_user")
     parts = field.split(".")
     value: Any = agent
 
@@ -808,9 +805,11 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
             # bracket_spec may be None if no brackets present in the part
             bracket_spec = match.group(2)
 
-            # Get the field value
+            # Get the field value: try object attribute first, then dict key
             if hasattr(value, field_name):
                 value = getattr(value, field_name)
+            elif isinstance(value, dict) and field_name in value:
+                value = value[field_name]
             else:
                 return ""
 
@@ -939,6 +938,8 @@ All agent fields from the "Available Fields" section can be used in filter expre
   - `host.ssh.user` - SSH username
   - `host.ssh.key_path` - Path to SSH private key
 - `host.snapshots` - List of available snapshots
+- `host.is_locked` - Whether the host is currently locked for an operation
+- `host.locked_time` - When the host was locked
 - `host.plugin.$PLUGIN_NAME.*` - Host plugin fields (e.g., `host.plugin.aws.iam_user`)
 
 **Notes:**
@@ -958,10 +959,6 @@ All agent fields from the "Available Fields" section can be used in filter expre
     ),
 )
 
-
-# FIXME: Remaining host fields that need additional infrastructure:
-# - host.is_locked, host.locked_time - Lock status (needs lock file inspection logic)
-# - host.plugin.$PLUGIN_NAME.* - Plugin-defined fields (requires plugin field evaluation)
 
 register_help_metadata("list", _LIST_HELP_METADATA)
 # Also register under alias for consistent help output

@@ -11,7 +11,6 @@ from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ConcurrencyGroupError
-from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import BaseMngrError
@@ -93,13 +92,9 @@ def _search_issues_via_github_api(search_text: str, cg: ConcurrencyGroup) -> Exi
         result = cg.run_process_to_completion(
             ["curl", "-s", "-f", "-H", "Accept: application/vnd.github+json", url],
             timeout=10,
-            is_checked_after=False,
         )
-    except (ProcessSetupError, ConcurrencyGroupError) as e:
+    except ConcurrencyGroupError as e:
         raise IssueSearchError(f"GitHub API request failed: {e}") from e
-
-    if result.returncode != 0:
-        raise IssueSearchError(f"GitHub API request failed (exit code {result.returncode})")
 
     try:
         data = json.loads(result.stdout)
@@ -137,13 +132,9 @@ def _search_issues_via_gh_cli(search_text: str, cg: ConcurrencyGroup) -> Existin
                 "1",
             ],
             timeout=10,
-            is_checked_after=False,
         )
-    except (ProcessSetupError, ConcurrencyGroupError) as e:
+    except ConcurrencyGroupError as e:
         raise IssueSearchError(f"gh CLI search failed: {e}") from e
-
-    if result.returncode != 0:
-        raise IssueSearchError(f"gh CLI search failed (exit code {result.returncode})")
 
     try:
         items = json.loads(result.stdout)
