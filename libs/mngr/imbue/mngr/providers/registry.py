@@ -11,12 +11,9 @@
 # Another candidate for lazy loading: celpy (~45ms) in api/list.py. It's only
 # needed when CEL filters are used (--include/--exclude), but is currently
 # imported at the top level via imbue.mngr.utils.cel_utils.
-import imbue.mngr.plugins.port_forwarding.plugin as port_forwarding_plugin_module
-import imbue.mngr.plugins.ttyd.plugin as ttyd_plugin_module
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
-from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import ConfigStructureError
@@ -33,23 +30,6 @@ _backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {
 _config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
 # Use a mutable container to track state without 'global' keyword
 _registry_state: dict[str, bool] = {"backends_loaded": False}
-
-
-def load_all_registries(pm) -> None:
-    """Load all registries from plugins.
-
-    This is the main entry point for loading all pluggy-based registries.
-    Call this once during application startup, before using any registry lookups.
-    """
-    load_backends_from_plugins(pm)
-    load_agents_from_plugins(pm)
-    _load_utility_plugins(pm)
-
-
-def _load_utility_plugins(pm) -> None:
-    """Register built-in utility plugins (non-agent, non-provider)."""
-    pm.register(port_forwarding_plugin_module)
-    pm.register(ttyd_plugin_module)
 
 
 def reset_backend_registry() -> None:
