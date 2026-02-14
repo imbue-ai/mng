@@ -74,7 +74,7 @@ Then crystallize the verified behavior into formal tests that assert true invari
 
 ## Smoke testing interactive components with tmux
 
-For interactive components (TUIs, interactive prompts, etc.), use `tmux send-keys` and `tmux capture-pane` to smoke test them. This is a special case: do NOT crystallize these into pytest tests. They are inherently flaky due to timing and useless in CI, but valuable for agents to programmatically verify interactive behavior during development.
+For interactive components (TUIs, interactive prompts, etc.), use `tmux send-keys` and `tmux capture-pane` to smoke test them. This is a special case: do NOT crystallize these into pytest tests. They are inherently flaky due to timing and useless in CI, but valuable for agents to verify that interactive behavior looks right during development.
 
 # Git and committing
 
