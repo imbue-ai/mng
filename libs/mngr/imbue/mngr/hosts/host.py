@@ -535,7 +535,7 @@ class Host(BaseHost, OnlineHostInterface):
             # this is obviously not yet right--we're just making the host lock so that the shutdown script doesnt trigger while creating a host
             self.write_text_file(lock_file_path, str(time.time()))
             yield
-            self.execute_command("rm -f '{}'".format(str(lock_file_path)))
+            self.execute_command(f"rm -f '{lock_file_path}'")
             return
 
         lock_file_path.parent.mkdir(parents=True, exist_ok=True)
