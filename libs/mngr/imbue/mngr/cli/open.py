@@ -18,7 +18,6 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import OnlineHostInterface
 
 
 class OpenCliOptions(CommonCliOptions):
@@ -88,13 +87,12 @@ def open_command(ctx: click.Context, **kwargs: Any) -> None:
     if opts.active and not opts.wait:
         raise UserInputError("--active requires --wait")
 
-    agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx)
+    agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
 
     agent: AgentInterface
-    host: OnlineHostInterface
 
     if opts.agent is not None:
-        agent, host = find_and_maybe_start_agent_by_name_or_id(
+        agent, _ = find_and_maybe_start_agent_by_name_or_id(
             opts.agent, agents_by_host, mngr_ctx, "open", is_start_desired=opts.start
         )
     elif not sys.stdin.isatty():
@@ -106,7 +104,7 @@ def open_command(ctx: click.Context, **kwargs: Any) -> None:
         sorted_agents = sorted(list_result.agents, key=lambda a: a.create_time, reverse=True)
         most_recent = sorted_agents[0]
         logger.info("No agent specified, opening most recently created: {}", most_recent.name)
-        agent, host = find_and_maybe_start_agent_by_name_or_id(
+        agent, _ = find_and_maybe_start_agent_by_name_or_id(
             str(most_recent.id), agents_by_host, mngr_ctx, "open", is_start_desired=opts.start
         )
     else:
@@ -119,7 +117,7 @@ def open_command(ctx: click.Context, **kwargs: Any) -> None:
             logger.info("No agent selected")
             return
 
-        agent, host = find_and_maybe_start_agent_by_name_or_id(
+        agent, _ = find_and_maybe_start_agent_by_name_or_id(
             str(selected.id), agents_by_host, mngr_ctx, "open", is_start_desired=opts.start
         )
 
