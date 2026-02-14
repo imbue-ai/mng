@@ -422,7 +422,7 @@ def _list_streaming_human(
     fields: list[str],
 ) -> None:
     """Streaming human output path: display agents as each provider completes."""
-    renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty())
+    renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty(), output=sys.stdout)
     renderer.start()
     try:
         result = api_list_agents(
@@ -453,7 +453,7 @@ def _list_streaming_template(
     format_template: str,
 ) -> None:
     """Streaming template output path: write one template-expanded line per agent."""
-    emitter = _StreamingTemplateEmitter(format_template=format_template)
+    emitter = _StreamingTemplateEmitter(format_template=format_template, output=sys.stdout)
 
     result = api_list_agents(
         mngr_ctx=mngr_ctx,
@@ -487,16 +487,17 @@ class _LimitedJsonlEmitter(MutableModel):
 
 
 class _StreamingTemplateEmitter(MutableModel):
-    """Callable that writes one template-expanded line per agent to stdout."""
+    """Callable that writes one template-expanded line per agent."""
 
     format_template: str
+    output: Any
     _lock: Lock = PrivateAttr(default_factory=Lock)
 
     def __call__(self, agent: AgentInfo) -> None:
         line = _render_format_template(self.format_template, agent)
         with self._lock:
-            sys.stdout.write(line + "\n")
-            sys.stdout.flush()
+            self.output.write(line + "\n")
+            self.output.flush()
 
 
 # Minimum column widths for streaming output (left-justified, not truncated)
@@ -532,6 +533,7 @@ class _StreamingHumanRenderer(MutableModel):
 
     fields: list[str]
     is_tty: bool
+    output: Any
     _lock: Lock = PrivateAttr(default_factory=Lock)
     _count: int = PrivateAttr(default=0)
     _is_header_written: bool = PrivateAttr(default=False)
@@ -544,41 +546,41 @@ class _StreamingHumanRenderer(MutableModel):
 
         if self.is_tty:
             status = f"{_ANSI_DIM_GRAY}Searching...{_ANSI_RESET}"
-            sys.stdout.write(status)
-            sys.stdout.flush()
+            self.output.write(status)
+            self.output.flush()
 
     def __call__(self, agent: AgentInfo) -> None:
         """Handle a single agent result (on_agent callback)."""
         with self._lock:
             if self.is_tty:
                 # Erase the current status line
-                sys.stdout.write(_ANSI_ERASE_LINE)
+                self.output.write(_ANSI_ERASE_LINE)
 
             # Write header on first agent
             if not self._is_header_written:
                 header_line = _format_streaming_header_row(self.fields, self._column_widths)
-                sys.stdout.write(header_line + "\n")
+                self.output.write(header_line + "\n")
                 self._is_header_written = True
 
             # Write the agent row
             row_line = _format_streaming_agent_row(agent, self.fields, self._column_widths)
-            sys.stdout.write(row_line + "\n")
+            self.output.write(row_line + "\n")
             self._count += 1
 
             if self.is_tty:
                 # Write updated status line
                 status = f"{_ANSI_DIM_GRAY}Searching... ({self._count} found){_ANSI_RESET}"
-                sys.stdout.write(status)
+                self.output.write(status)
 
-            sys.stdout.flush()
+            self.output.flush()
 
     def finish(self) -> None:
         """Clean up the status line after all providers have completed."""
         with self._lock:
             if self.is_tty:
                 # Erase the final status line
-                sys.stdout.write(_ANSI_ERASE_LINE)
-                sys.stdout.flush()
+                self.output.write(_ANSI_ERASE_LINE)
+                self.output.flush()
 
             if self._count == 0:
                 logger.info("No agents found")
@@ -700,7 +702,7 @@ def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> Non
 
     # Template output takes precedence over format-based dispatch
     if params.format_template is not None:
-        _emit_template_output(agents_to_display, params.format_template)
+        _emit_template_output(agents_to_display, params.format_template, output=sys.stdout)
     elif params.output_opts.output_format == OutputFormat.HUMAN:
         _emit_human_output(agents_to_display, params.fields)
     elif params.output_opts.output_format == OutputFormat.JSON:
@@ -770,12 +772,12 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
     logger.info("\n" + table)
 
 
-def _emit_template_output(agents: list[AgentInfo], template: str) -> None:
+def _emit_template_output(agents: list[AgentInfo], template: str, output: Any) -> None:
     """Emit template-formatted output, one line per agent."""
     for agent in agents:
         line = _render_format_template(template, agent)
-        sys.stdout.write(line + "\n")
-    sys.stdout.flush()
+        output.write(line + "\n")
+    output.flush()
 
 
 def _parse_slice_spec(spec: str) -> int | slice | None:

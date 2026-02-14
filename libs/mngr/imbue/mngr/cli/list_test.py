@@ -605,17 +605,16 @@ def test_compute_column_widths_expands_expandable_columns() -> None:
 def _create_streaming_renderer(
     fields: list[str],
     is_tty: bool,
+    output: StringIO,
 ) -> _StreamingHumanRenderer:
     """Create and initialize a streaming renderer for tests."""
-    return _StreamingHumanRenderer(fields=fields, is_tty=is_tty)
+    return _StreamingHumanRenderer(fields=fields, is_tty=is_tty, output=output)
 
 
-def test_streaming_renderer_non_tty_no_ansi_codes(monkeypatch) -> None:
+def test_streaming_renderer_non_tty_no_ansi_codes() -> None:
     """Non-TTY streaming output should contain no ANSI escape codes."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name", "state"], is_tty=False)
+    renderer = _create_streaming_renderer(fields=["name", "state"], is_tty=False, output=captured)
     renderer.start()
     renderer(make_test_agent_info())
     renderer.finish()
@@ -626,24 +625,20 @@ def test_streaming_renderer_non_tty_no_ansi_codes(monkeypatch) -> None:
     assert "NAME" in output
 
 
-def test_streaming_renderer_tty_includes_status_line(monkeypatch) -> None:
+def test_streaming_renderer_tty_includes_status_line() -> None:
     """TTY streaming output should include status line with ANSI codes."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name"], is_tty=True)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
     renderer.start()
 
     output = captured.getvalue()
     assert "Searching..." in output
 
 
-def test_streaming_renderer_tty_shows_count_after_agent(monkeypatch) -> None:
+def test_streaming_renderer_tty_shows_count_after_agent() -> None:
     """TTY streaming should update status line with count after agent is received."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name"], is_tty=True)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
     renderer.start()
     renderer(make_test_agent_info())
 
@@ -651,15 +646,14 @@ def test_streaming_renderer_tty_shows_count_after_agent(monkeypatch) -> None:
     assert "(1 found)" in output
 
 
-def test_streaming_renderer_finish_no_agents_shows_no_agents_found(monkeypatch) -> None:
+def test_streaming_renderer_finish_no_agents_shows_no_agents_found() -> None:
     """Streaming renderer should indicate no agents when finishing with zero results."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
 
     # Capture loguru output to the same StringIO by adding a temporary sink
     sink_id = logger.add(captured, format="{message}", level="INFO")
     try:
-        renderer = _create_streaming_renderer(fields=["name"], is_tty=False)
+        renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
         renderer.start()
         renderer.finish()
     finally:
@@ -669,12 +663,10 @@ def test_streaming_renderer_finish_no_agents_shows_no_agents_found(monkeypatch) 
     assert "No agents found" in output
 
 
-def test_streaming_renderer_thread_safety(monkeypatch) -> None:
+def test_streaming_renderer_thread_safety() -> None:
     """Streaming renderer should handle concurrent calls without data corruption."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name"], is_tty=False)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
     renderer.start()
 
     # Send agents from multiple threads concurrently
@@ -699,12 +691,10 @@ def test_streaming_renderer_thread_safety(monkeypatch) -> None:
     assert len(lines) == agent_count + 1
 
 
-def test_streaming_renderer_custom_fields(monkeypatch) -> None:
+def test_streaming_renderer_custom_fields() -> None:
     """Streaming renderer should respect custom field selection."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name", "type"], is_tty=False)
+    renderer = _create_streaming_renderer(fields=["name", "type"], is_tty=False, output=captured)
     renderer.start()
     renderer(make_test_agent_info())
     renderer.finish()
@@ -715,12 +705,10 @@ def test_streaming_renderer_custom_fields(monkeypatch) -> None:
     assert "generic" in output
 
 
-def test_streaming_renderer_tty_erases_status_on_finish(monkeypatch) -> None:
+def test_streaming_renderer_tty_erases_status_on_finish() -> None:
     """TTY streaming should erase the status line on finish."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name"], is_tty=True)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
     renderer.start()
     renderer(make_test_agent_info())
     renderer.finish()
@@ -940,14 +928,12 @@ def test_render_format_template_tab_separator() -> None:
 # =============================================================================
 
 
-def test_emit_template_output(monkeypatch) -> None:
+def test_emit_template_output() -> None:
     """_emit_template_output should produce one line per agent, and nothing for empty list."""
-    captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
     # Empty list produces no output
-    _emit_template_output([], "{name}")
-    assert captured.getvalue() == ""
+    empty_output = StringIO()
+    _emit_template_output([], "{name}", output=empty_output)
+    assert empty_output.getvalue() == ""
 
     # Multiple agents produce one line each
     agents = [
@@ -955,10 +941,10 @@ def test_emit_template_output(monkeypatch) -> None:
         make_test_agent_info(name="agent-bravo"),
         make_test_agent_info(name="agent-charlie"),
     ]
-    _emit_template_output(agents, "{name}")
+    captured = StringIO()
+    _emit_template_output(agents, "{name}", output=captured)
 
-    output = captured.getvalue()
-    lines = output.strip().split("\n")
+    lines = captured.getvalue().strip().split("\n")
     assert len(lines) == 3
     assert lines[0] == "agent-alpha"
     assert lines[1] == "agent-bravo"
