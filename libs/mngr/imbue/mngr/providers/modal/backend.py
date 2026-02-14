@@ -21,6 +21,7 @@ from imbue.imbue_common.logging import log_span
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.errors import ConfigStructureError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -361,6 +362,10 @@ Supported build arguments for the modal provider:
   --secret VAR      Pass an environment variable as a secret to the image build. The value of
                     VAR is read from your current environment and made available during Dockerfile
                     RUN commands via --mount=type=secret,id=VAR. Can be specified multiple times.
+  --volume NAME:PATH
+                    Mount a persistent Modal Volume at PATH inside the sandbox. NAME is the
+                    volume name on Modal (created if it doesn't exist). Can be specified
+                    multiple times.
 """
 
     @staticmethod
@@ -374,7 +379,8 @@ Supported build arguments for the modal provider:
         mngr_ctx: MngrContext,
     ) -> ProviderInstanceInterface:
         """Build a Modal provider instance."""
-        assert isinstance(config, ModalProviderConfig)
+        if not isinstance(config, ModalProviderConfig):
+            raise ConfigStructureError(f"Expected ModalProviderConfig, got {type(config).__name__}")
 
         # Use prefix + user_id for the environment name, ensuring isolation
         # between different mngr installations sharing the same Modal account.

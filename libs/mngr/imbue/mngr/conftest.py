@@ -6,6 +6,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Generator
 from typing import NamedTuple
@@ -21,11 +23,19 @@ from urwid.widget.listbox import SimpleFocusListWalker
 import imbue.mngr.main
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
+from imbue.mngr.agents.base_agent import BaseAgent
+from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.plugins import hookspecs
+from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentTypeName
+from imbue.mngr.primitives import CommandString
+from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.primitives import UserId
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
@@ -375,6 +385,58 @@ def local_provider(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> LocalProv
     )
 
 
+def create_test_base_agent(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    reported_urls: dict[str, str] | None = None,
+) -> BaseAgent:
+    """Create a real BaseAgent on a local host for testing.
+
+    Shared helper used across test files to avoid duplicating BaseAgent
+    construction logic. Creates the agent directory, data.json, and optionally
+    reported URL files in status/urls/<type>.
+    """
+    host = local_provider.create_host(HostName("test"))
+
+    agent_id = AgentId.generate()
+    agent_name = AgentName(f"test-agent-{uuid4().hex}")
+
+    # Create agent directory and data.json
+    agent_dir = temp_host_dir / "agents" / str(agent_id)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+
+    data = {
+        "id": str(agent_id),
+        "name": str(agent_name),
+        "type": "test",
+        "command": "sleep 1000",
+        "work_dir": str(temp_work_dir),
+        "create_time": datetime.now(timezone.utc).isoformat(),
+        "start_on_boot": False,
+    }
+    (agent_dir / "data.json").write_text(json.dumps(data, indent=2))
+
+    # Write URL types to status/urls/<type>
+    if reported_urls is not None:
+        urls_dir = agent_dir / "status" / "urls"
+        urls_dir.mkdir(parents=True, exist_ok=True)
+        for url_type, url_value in reported_urls.items():
+            (urls_dir / url_type).write_text(url_value)
+
+    return BaseAgent(
+        id=agent_id,
+        name=agent_name,
+        agent_type=AgentTypeName("test"),
+        work_dir=temp_work_dir,
+        create_time=datetime.now(timezone.utc),
+        host_id=host.id,
+        host=host,
+        mngr_ctx=local_provider.mngr_ctx,
+        agent_config=AgentTypeConfig(command=CommandString("sleep 1000")),
+    )
+
+
 @pytest.fixture
 def cli_runner() -> CliRunner:
     """Create a Click CLI runner for testing CLI commands."""
@@ -565,7 +627,7 @@ def modal_test_session_host_dir(tmp_path_factory: pytest.TempPathFactory) -> Pat
 
 
 @pytest.fixture(scope="session")
-def modal_test_session_user_id() -> str:
+def modal_test_session_user_id() -> UserId:
     """Generate a deterministic user ID for the test session.
 
     This user ID is shared across all subprocess Modal tests in a session
@@ -573,13 +635,13 @@ def modal_test_session_user_id() -> str:
     the cleanup fixture can construct the exact environment name without
     needing to find the user_id file in the profile directory structure.
     """
-    return uuid4().hex
+    return UserId(uuid4().hex)
 
 
 @pytest.fixture(scope="session")
 def modal_test_session_cleanup(
     modal_test_session_env_name: str,
-    modal_test_session_user_id: str,
+    modal_test_session_user_id: UserId,
 ) -> Generator[None, None, None]:
     """Session-scoped fixture that cleans up the Modal environment at session end.
 
@@ -609,7 +671,7 @@ def modal_subprocess_env(
     modal_test_session_env_name: str,
     modal_test_session_host_dir: Path,
     modal_test_session_cleanup: None,
-    modal_test_session_user_id: str,
+    modal_test_session_user_id: UserId,
 ) -> Generator[ModalSubprocessTestEnv, None, None]:
     """Create a subprocess test environment with session-scoped Modal environment.
 

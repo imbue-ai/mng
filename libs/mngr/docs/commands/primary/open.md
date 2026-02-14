@@ -1,31 +1,108 @@
-# mngr open [future] - CLI Options Reference
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
 
-Opens a URL associated with an agent in a web browser.
+# mngr open
 
-Agents can have a variety of different URLs associated with them. If the URL type is unspecified (and there is more than one URL), this command opens a little TUI that lets you pick from the available URLs.
+**Synopsis:**
+
+```text
+mngr open [OPTIONS] [AGENT] [URL_TYPE]
+```
+
+
+Open an agent's URL in a web browser.
+
+Opens the URL associated with an agent. Agents can have multiple URLs
+of different types (e.g., default, terminal, chat). Use --type to open
+a specific URL type. If no type is specified, the default URL is opened.
 
 Use `mngr connect` to attach to an agent via the terminal instead.
 
-## Usage
+If no agent is specified, shows an interactive selector to choose from
+available agents.
 
-```
-mngr open [[--agent] AGENT] [[--type] URL_TYPE]
+**Usage:**
+
+```text
+mngr open [OPTIONS] [AGENT] [URL_TYPE]
 ```
 
-The agent and url type can be specified as positional arguments for convenience. The following are equivalent:
+## Arguments
 
-```
-mngr open my-agent terminal
-mngr open --agent my-agent --type terminal
-```
+- `AGENT`: The agent to open (by name or ID). If not specified, opens the most recently created agent
+- `URL_TYPE`: The type of URL to open (e.g., `default`, `terminal`, `chat`)
+
+**Options:**
 
 ## General
 
-- `--agent AGENT`: The agent to open. A positional argument is also accepted as a shorthand. If not specified, opens the most recently created agent.
-- `-t, --type URL_TYPE`: The type of URL to open (e.g., `chat`, `terminal`, `diff`, etc.). If not specified, and there are multiple URL types, a TUI will be shown to select from the available URLs.
-- `--[no-]start`: Automatically start the agent if it is currently stopped [default: start]
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--agent` | text | The agent to open (by name or ID) | None |
+| `-t`, `--type` | text | The type of URL to open (e.g., default, terminal, chat) | None |
+| `--start`, `--no-start` | boolean | Automatically start the agent if stopped | `True` |
 
 ## Options
 
-- `--[no-]wait`: Wait for the browser to be closed before exiting [default: no-wait]
-- `--active`: Continually update the active timestamp while connected (prevents idle shutdown). Only makes sense with `--wait`
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--wait`, `--no-wait` | boolean | Keep running after opening (press Ctrl+C to exit) | `False` |
+| `--active` | boolean | Continually update active timestamp while connected (prevents idle shutdown, only with --wait) | `False` |
+
+## Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## See Also
+
+- [mngr connect](./connect.md) - Connect to an agent via the terminal
+- [mngr list](./list.md) - List available agents
+
+## Examples
+
+**Open an agent's URL by name**
+
+```bash
+$ mngr open my-agent
+```
+
+**Open a specific URL type**
+
+```bash
+$ mngr open my-agent terminal
+```
+
+**Open without auto-starting if stopped**
+
+```bash
+$ mngr open my-agent --no-start
+```
+
+**Open and keep running**
+
+```bash
+$ mngr open my-agent --wait
+```
+
+**Open and keep agent active**
+
+```bash
+$ mngr open my-agent --wait --active
+```

@@ -294,6 +294,13 @@ def test_parse_providers_raises_on_missing_backend() -> None:
         _parse_providers(raw)
 
 
+def test_parse_providers_raises_on_unknown_fields() -> None:
+    """_parse_providers should raise ConfigParseError for unknown fields."""
+    raw = {"my-local": {"backend": "local", "typo_field": "value"}}
+    with pytest.raises(ConfigParseError, match="Unknown fields in providers.my-local.*typo_field"):
+        _parse_providers(raw)
+
+
 # =============================================================================
 # Tests for _parse_agent_types
 # =============================================================================
@@ -304,13 +311,20 @@ def test_parse_agent_types_parses_valid_agent() -> None:
     raw = {"claude": {"cli_args": "--verbose"}}
     result = _parse_agent_types(raw)
     assert AgentTypeName("claude") in result
-    assert result[AgentTypeName("claude")].cli_args == "--verbose"
+    assert result[AgentTypeName("claude")].cli_args == ("--verbose",)
 
 
 def test_parse_agent_types_handles_empty_dict() -> None:
     """_parse_agent_types should handle empty dict."""
     result = _parse_agent_types({})
     assert result == {}
+
+
+def test_parse_agent_types_raises_on_unknown_fields() -> None:
+    """_parse_agent_types should raise ConfigParseError for unknown fields."""
+    raw = {"claude": {"cli_args": "--verbose", "bogus_option": True}}
+    with pytest.raises(ConfigParseError, match="Unknown fields in agent_types.claude.*bogus_option"):
+        _parse_agent_types(raw)
 
 
 # =============================================================================
@@ -330,6 +344,13 @@ def test_parse_plugins_handles_empty_dict() -> None:
     """_parse_plugins should handle empty dict."""
     result = _parse_plugins({})
     assert result == {}
+
+
+def test_parse_plugins_raises_on_unknown_fields() -> None:
+    """_parse_plugins should raise ConfigParseError for unknown fields."""
+    raw = {"my-plugin": {"enabled": True, "nonexistent_setting": "abc"}}
+    with pytest.raises(ConfigParseError, match="Unknown fields in plugins.my-plugin.*nonexistent_setting"):
+        _parse_plugins(raw)
 
 
 # =============================================================================
@@ -403,6 +424,13 @@ def test_parse_logging_config_handles_empty_dict() -> None:
     """_parse_logging_config should handle empty dict."""
     result = _parse_logging_config({})
     assert isinstance(result, LoggingConfig)
+
+
+def test_parse_logging_config_raises_on_unknown_fields() -> None:
+    """_parse_logging_config should raise ConfigParseError for unknown fields."""
+    raw = {"file_level": "DEBUG", "unknown_log_option": 42}
+    with pytest.raises(ConfigParseError, match="Unknown fields in logging.*unknown_log_option"):
+        _parse_logging_config(raw)
 
 
 # =============================================================================
@@ -511,6 +539,22 @@ def test_parse_config_handles_empty_config() -> None:
     assert result.logging is None
 
 
+def test_parse_config_raises_on_unknown_top_level_field() -> None:
+    """_parse_config should raise ConfigParseError for unknown top-level fields."""
+    raw = {"prefix": "test-", "nonexistent_top_level": "value"}
+    with pytest.raises(ConfigParseError, match="Unknown configuration fields.*nonexistent_top_level"):
+        _parse_config(raw)
+
+
+def test_parse_config_raises_on_unknown_nested_field() -> None:
+    """_parse_config should raise ConfigParseError for unknown fields in nested config sections."""
+    raw = {
+        "logging": {"file_level": "DEBUG", "bad_field": True},
+    }
+    with pytest.raises(ConfigParseError, match="Unknown fields in logging.*bad_field"):
+        _parse_config(raw)
+
+
 # =============================================================================
 # Tests for on_load_config hook
 # =============================================================================
@@ -609,7 +653,7 @@ def test_on_load_config_hook_can_add_new_fields(
 
     # Verify the agent type was added
     assert AgentTypeName("custom-agent") in mngr_ctx.config.agent_types
-    assert mngr_ctx.config.agent_types[AgentTypeName("custom-agent")].cli_args == "--custom"
+    assert mngr_ctx.config.agent_types[AgentTypeName("custom-agent")].cli_args == ("--custom",)
 
 
 # =============================================================================

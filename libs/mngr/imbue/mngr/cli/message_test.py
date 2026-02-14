@@ -19,6 +19,7 @@ def test_message_cli_options_has_expected_fields() -> None:
         stdin=False,
         message_content="Hello",
         on_error="continue",
+        start=False,
         output_format="human",
         quiet=False,
         verbose=0,

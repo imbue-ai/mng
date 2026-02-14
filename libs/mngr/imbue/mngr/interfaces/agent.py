@@ -80,6 +80,15 @@ class AgentInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
+    def get_expected_process_name(self) -> str:
+        """Get the expected process name for lifecycle state detection.
+
+        Subclasses can override this to return a hardcoded process name
+        when the command is complex (e.g., shell wrappers with exports).
+        """
+        ...
+
+    @abstractmethod
     def get_permissions(self) -> list[Permission]:
         """Return the list of permissions assigned to this agent."""
         ...
@@ -133,7 +142,9 @@ class AgentInterface(MutableModel, ABC):
         """Send a message to the running agent via its stdin."""
         ...
 
-    def wait_for_ready_signal(self, start_action: Callable[[], None], timeout: float | None = None) -> None:
+    def wait_for_ready_signal(
+        self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
+    ) -> None:
         """Wait for the agent to become ready, executing start_action while listening.
 
         Can be overridden by agent implementations that support signal-based readiness
@@ -150,8 +161,8 @@ class AgentInterface(MutableModel, ABC):
     # =========================================================================
 
     @abstractmethod
-    def get_reported_url(self) -> str | None:
-        """Return the agent's self-reported URL, or None if not set."""
+    def get_reported_urls(self) -> dict[str, str]:
+        """Return all self-reported URLs keyed by type (e.g. 'terminal', 'chat')."""
         ...
 
     @abstractmethod
