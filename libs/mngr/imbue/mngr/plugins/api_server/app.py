@@ -1,3 +1,4 @@
+import hmac
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +51,7 @@ def _verify_token(request: Request) -> None:
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         token = auth[7:]
-        if token == api_token.get_secret_value():
+        if hmac.compare_digest(token, api_token.get_secret_value()):
             return
 
     raise HTTPException(status_code=401, detail="Unauthorized")
@@ -106,7 +107,11 @@ def send_message(agent_id: str, request_body: dict[str, Any]) -> JSONResponse:
 
     agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
     agent, _host = find_and_maybe_start_agent_by_name_or_id(
-        agent_id, agents_by_host, mngr_ctx, "api-message", is_start_desired=True,
+        agent_id,
+        agents_by_host,
+        mngr_ctx,
+        "api-message",
+        is_start_desired=True,
     )
     agent.send_message(message)
     return JSONResponse(content={"status": "sent"})
@@ -118,7 +123,10 @@ def stop_agent(agent_id: str) -> JSONResponse:
     mngr_ctx = _get_mngr_ctx()
     agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
     agent, host = find_and_maybe_start_agent_by_name_or_id(
-        agent_id, agents_by_host, mngr_ctx, "api-stop",
+        agent_id,
+        agents_by_host,
+        mngr_ctx,
+        "api-stop",
     )
     host.stop_agents([agent.id])
     return JSONResponse(content={"status": "stopped"})
@@ -130,7 +138,10 @@ def record_activity(agent_id: str) -> JSONResponse:
     mngr_ctx = _get_mngr_ctx()
     agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
     agent, _host = find_and_maybe_start_agent_by_name_or_id(
-        agent_id, agents_by_host, mngr_ctx, "api-activity",
+        agent_id,
+        agents_by_host,
+        mngr_ctx,
+        "api-activity",
     )
     agent.record_activity(ActivitySource.USER)
     return JSONResponse(content={"status": "recorded"})
