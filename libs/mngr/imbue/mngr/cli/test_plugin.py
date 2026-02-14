@@ -1,5 +1,3 @@
-"""Integration tests for the plugin CLI command."""
-
 import json
 from pathlib import Path
 

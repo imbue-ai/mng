@@ -1,5 +1,3 @@
-"""Unit tests for plugin CLI helpers."""
-
 import json
 from pathlib import Path
 
