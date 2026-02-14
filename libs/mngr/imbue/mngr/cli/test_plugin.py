@@ -237,6 +237,36 @@ def test_plugin_enable_default_scope_is_project(
     assert output["scope"] == "project"
 
 
+def test_plugin_enable_registered_plugin_does_not_warn(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    temp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that enabling a registered plugin does not produce an unregistered warning.
+
+    Built-in plugins are registered with short names (e.g. "local", "claude")
+    so that 'mngr plugin enable <name>' works without warnings. This test
+    verifies the names used in the docs examples resolve correctly.
+    """
+    monkeypatch.chdir(temp_git_repo)
+
+    # These are the built-in plugin names that are registered by the test fixture
+    # (local, ssh from load_local_backend_only; claude, codex from load_agents_from_plugins)
+    for name in ("local", "ssh", "claude", "codex"):
+        result = cli_runner.invoke(
+            plugin,
+            ["enable", name],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert "not currently registered" not in result.output, (
+            f"Plugin '{name}' should be registered but got warning: {result.output}"
+        )
+
+
 def test_plugin_enable_unknown_plugin_warns_but_succeeds(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,

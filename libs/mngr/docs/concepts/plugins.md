@@ -129,9 +129,9 @@ Called when collecting data for hosts and agents. These allow plugins to compute
 
 And for the basic provider backends:
 
-- **local-provider**: Local host backend
-- **docker-provider** [future]: Docker-based host backend
-- **modal-provider**: Modal cloud host backend
+- **local**: Local host backend
+- **docker** [future]: Docker-based host backend
+- **modal**: Modal cloud host backend
 
 Utility plugins [future] for additional features:
 

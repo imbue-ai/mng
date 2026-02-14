@@ -26,14 +26,24 @@ _agent_config_registry: dict[AgentTypeName, type[AgentTypeConfig]] = {}
 _registry_state: dict[str, bool] = {"agents_loaded": False}
 
 
+def reset_agent_registry() -> None:
+    """Reset the agent registry to its initial state.
+
+    This is primarily used for test isolation to ensure a clean state between tests.
+    """
+    _agent_class_registry.clear()
+    _agent_config_registry.clear()
+    _registry_state["agents_loaded"] = False
+
+
 def load_agents_from_plugins(pm) -> None:
     """Load agent types from plugins via the register_agent_type hook."""
     if _registry_state["agents_loaded"]:
         return
 
     # Register built-in agent type classes (each has a hookimpl static method)
-    pm.register(claude_agent)
-    pm.register(codex_agent)
+    pm.register(claude_agent, name="claude")
+    pm.register(codex_agent, name="codex")
 
     # Call the hook to get all agent type registrations
     # Each implementation returns a single tuple
