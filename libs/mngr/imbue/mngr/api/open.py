@@ -56,7 +56,7 @@ def open_agent_url(
     # Injectable for testing; production callers should omit these
     stop_event: threading.Event | None = None,
     activity_interval_seconds: float = _ACTIVITY_INTERVAL_SECONDS,
-    open_url: Callable[[str], None] = webbrowser.open,
+    open_url: Callable[[str], object] = webbrowser.open,
 ) -> None:
     """Open an agent's URL in the default web browser.
 
