@@ -12,7 +12,6 @@
 # needed when CEL filters are used (--include/--exclude), but is currently
 # imported at the top level via imbue.mngr.utils.cel_utils.
 import imbue.mngr.providers.local.backend as local_backend_module
-import imbue.mngr.providers.mngr_remote.backend as mngr_remote_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
 from imbue.mngr.config.data_types import MngrContext
@@ -54,7 +53,6 @@ def _load_backends(pm, *, include_modal: bool) -> None:
 
     pm.register(local_backend_module)
     pm.register(ssh_backend_module)
-    pm.register(mngr_remote_backend_module)
     if include_modal:
         pm.register(modal_backend_module)
 
