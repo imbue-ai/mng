@@ -1,67 +1,146 @@
-# mngr limit - CLI Options Reference
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
 
-Configure limits for agents and hosts: idle timeout, permissions, port forwarding, etc.
+# mngr limit
 
-Agents effectively have permissions that are equivalent to the *union* of all permissions on the same host.
+**Synopsis:**
 
-Changing permissions for agents requires them to be restarted.
-
-Changes to some limits for hosts (e.g. CPU, RAM, disk space, network, etc.) are handled by the provider.
-
-**Alias:** `lim`
-
-## Usage
-
-```
-mngr limit [[--agent] AGENT ...] [options]
+```text
+mngr [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-timeout <DURATION>] [--idle-mode <MODE>] [--grant <PERM>] [--revoke <PERM>]
 ```
 
-Agent IDs can be specified as positional arguments for convenience. The following are equivalent:
 
+Configure limits for agents and hosts.
+
+Configures settings on existing agents and hosts: idle timeout, idle mode,
+activity sources, permissions, and start-on-boot.
+
+Alias: lim
+
+Examples:
+
+  mngr limit my-agent --idle-timeout 300
+
+  mngr limit my-agent --grant network --grant internet
+
+  mngr limit --all --idle-mode disabled
+
+  mngr limit --host my-host --idle-timeout 600
+
+**Usage:**
+
+```text
+mngr limit [OPTIONS] [AGENTS]...
 ```
-mngr limit my-agent --idle-timeout 30m
-mngr limit --agent my-agent --idle-timeout 1800
-mngr limit my-agent another-agent --idle-timeout 1800
-mngr limit --agent my-agent --agent another-agent --idle-timeout 1800
-```
 
-## General
+## Arguments
 
-- `--agent AGENT`: Agent(s) to configure. Positional arguments are also accepted as a shorthand. [repeatable]
-- `--host HOST`: Host(s) to configure. [repeatable]
-- `-a, --all, --all-agents`: Apply limits to all agents
-- `--include FILTER`: Filter agents to configure by tags, names, types, hosts, etc. [future]
-- `--exclude FILTER`: Exclude agents matching filter from configuration [future]
-- `--stdin`: Read agents and hosts (ids or names) from stdin (one per line) [future]
-- `--dry-run`: Show what limits would be changed without actually changing them
+- `AGENTS`: Agent name(s) or ID(s) to configure (can also be specified via `--agent`)
+
+**Options:**
+
+## Target Selection
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--agent` | text | Agent name or ID to configure (can be specified multiple times) | None |
+| `--host` | text | Host name or ID to configure (can be specified multiple times) | None |
+| `-a`, `--all`, `--all-agents` | boolean | Apply limits to all agents | `False` |
+| `--include` | text | Filter agents to configure by CEL expression (repeatable) [future] | None |
+| `--exclude` | text | Exclude agents matching CEL expression (repeatable) [future] | None |
+| `--stdin` | boolean | Read agent and host names/IDs from stdin, one per line [future] | `False` |
+
+## Behavior
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--dry-run` | boolean | Show what limits would be changed without actually changing them | `False` |
 
 ## Lifecycle
 
-- `--[no-]start-on-boot`: Automatically restart agent when host restarts. When adding the persist bit to a local agent, you may be prompted to install the post-boot-handler [default: no-persist for local, persist otherwise]
-- `--idle-timeout DURATION`: Shutdown after idle for specified duration (e.g., `30s`, `5m`, `1h`, or plain seconds like `300`)
-- `--idle-mode MODE`: When to consider host idle [default: `io` (remote) or `disabled` (local), choices: `io`, `user`, `agent`, `ssh`, `create`, `boot`, `start`, `run`, `disabled`]
-- `--activity-sources SOURCES`: Set activity sources for idle detection (comma-separated). Available sources: `create`, `boot`, `start`, `ssh`, `process`, `agent`, `user` [default: everything except process]
-- `--add-activity-source SOURCE`: Add an activity source for idle detection [repeatable]
-- `--remove-activity-source SOURCE`: Remove an activity source from idle detection [repeatable]
-
-**Idle modes:**
-- `io` - Time since there was any activity (user, agent, ssh, etc.)
-- `user` - Time since the last user input or SSH activity
-- `agent` - Time since the last agent output or SSH activity
-- `ssh` - Time since an SSH connection was last active
-- `create` - Time since the agent was created
-- `boot` - Time since the host was booted
-- `start` - Time since the agent was started
-- `run` - Time since the agent process exited
-- `disabled` - Never automatically idle (manual shutdown only)
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--start-on-boot`, `--no-start-on-boot` | boolean | Automatically restart agent when host restarts | None |
+| `--idle-timeout` | text | Shutdown after idle for specified duration (e.g., 30s, 5m, 1h, or plain seconds) | None |
+| `--idle-mode` | choice (`io` &#x7C; `user` &#x7C; `agent` &#x7C; `ssh` &#x7C; `create` &#x7C; `boot` &#x7C; `start` &#x7C; `run` &#x7C; `disabled`) | When to consider host idle | None |
+| `--activity-sources` | text | Set activity sources for idle detection (comma-separated) | None |
+| `--add-activity-source` | choice (`create` &#x7C; `boot` &#x7C; `start` &#x7C; `ssh` &#x7C; `process` &#x7C; `agent` &#x7C; `user`) | Add an activity source for idle detection (repeatable) | None |
+| `--remove-activity-source` | choice (`create` &#x7C; `boot` &#x7C; `start` &#x7C; `ssh` &#x7C; `process` &#x7C; `agent` &#x7C; `user`) | Remove an activity source from idle detection (repeatable) | None |
 
 ## Permissions
 
-- `--grant PERMISSION`: Grant a permission to the agent [repeatable]
-- `--revoke PERMISSION`: Revoke a permission from the agent [repeatable]
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--grant` | text | Grant a permission to the agent (repeatable) | None |
+| `--revoke` | text | Revoke a permission from the agent (repeatable) | None |
 
 ## SSH Keys
 
-- `--refresh-ssh-keys`: Refresh the SSH keys for the host [future]
-- `--add-ssh-key FILE`: Add an SSH public key to the host for access [repeatable] [future]
-- `--remove-ssh-key FILE`: Remove an SSH public key from the host [repeatable] [future]
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--refresh-ssh-keys` | boolean | Refresh the SSH keys for the host [future] | `False` |
+| `--add-ssh-key` | text | Add an SSH public key to the host for access (repeatable) [future] | None |
+| `--remove-ssh-key` | text | Remove an SSH public key from the host (repeatable) [future] | None |
+
+## Common
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## Idle Modes
+
+See [Idle Detection](../../concepts/idle_detection.md) for details on idle modes and activity sources.
+
+## See Also
+
+- [mngr create](../primary/create.md) - Create a new agent
+- [mngr list](../primary/list.md) - List existing agents
+- [mngr stop](../primary/stop.md) - Stop running agents
+
+## Examples
+
+**Set idle timeout for an agent's host**
+
+```bash
+$ mngr limit my-agent --idle-timeout 5m
+```
+
+**Grant permissions to an agent**
+
+```bash
+$ mngr limit my-agent --grant network --grant internet
+```
+
+**Disable idle detection for all agents**
+
+```bash
+$ mngr limit --all --idle-mode disabled
+```
+
+**Update host idle settings directly**
+
+```bash
+$ mngr limit --host my-host --idle-timeout 1h
+```
+
+**Preview changes without applying**
+
+```bash
+$ mngr limit --all --idle-timeout 5m --dry-run
+```

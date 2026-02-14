@@ -614,9 +614,17 @@ def _apply_agent_changes(
 _LIMIT_HELP_METADATA = CommandHelpMetadata(
     name="mngr-limit",
     one_line_description="Configure limits for agents and hosts",
-    synopsis="mngr [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--grant <PERM>] [--revoke <PERM>]",
+    synopsis="mngr [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-timeout <DURATION>] [--idle-mode <MODE>] [--grant <PERM>] [--revoke <PERM>]",
+    arguments_description="- `AGENTS`: Agent name(s) or ID(s) to configure (can also be specified via `--agent`)",
     description="""Configure settings on existing agents and hosts: idle timeout,
 idle mode, activity sources, permissions, and start-on-boot.
+
+Agents effectively have permissions that are equivalent to the *union* of all
+permissions on the same host. Changing permissions for agents requires them
+to be restarted.
+
+Changes to some limits for hosts (e.g. CPU, RAM, disk space, network) are
+handled by the provider.
 
 When targeting agents, host-level settings (idle-timeout, idle-mode,
 activity-sources) are applied to each agent's underlying host.
@@ -625,16 +633,22 @@ Agent-level settings (start-on-boot, grant, revoke) require agent targeting
 and cannot be used with --host alone.""",
     aliases=("lim",),
     examples=(
-        ("Set idle timeout for an agent's host", "mngr limit my-agent --idle-timeout 300"),
+        ("Set idle timeout for an agent's host", "mngr limit my-agent --idle-timeout 5m"),
         ("Grant permissions to an agent", "mngr limit my-agent --grant network --grant internet"),
         ("Disable idle detection for all agents", "mngr limit --all --idle-mode disabled"),
-        ("Update host idle settings directly", "mngr limit --host my-host --idle-timeout 600"),
-        ("Preview changes without applying", "mngr limit --all --idle-timeout 300 --dry-run"),
+        ("Update host idle settings directly", "mngr limit --host my-host --idle-timeout 1h"),
+        ("Preview changes without applying", "mngr limit --all --idle-timeout 5m --dry-run"),
     ),
     see_also=(
         ("create", "Create a new agent"),
         ("list", "List existing agents"),
         ("stop", "Stop running agents"),
+    ),
+    additional_sections=(
+        (
+            "Idle Modes",
+            "See [Idle Detection](../../concepts/idle_detection.md) for details on idle modes and activity sources.",
+        ),
     ),
 )
 
