@@ -26,6 +26,8 @@ description: >
   produce a structured report. Use when asked to use your primary skill.
 ---
 
+Important: you are running in a remote sandbox and cannot communicate with the user while you are working through this skill--do NOT ask the user any questions or for any clarifications while compiling the report.  Instead, do your best to complete the task based on the information you have, and make reasonable assumptions if needed.
+
 # Code Guardian: Identify Inconsistencies
 
 Your task is to identify the most important code-level inconsistencies in this codebase.
@@ -65,7 +67,7 @@ Recommendation: <recommendation for fixing>
 Decision: Accept
 ```
 
-Then commit the file and create a PR titled "code-guardian: inconsistency report <date>".
+Then commit the file and either update (if it exists) or create (if it does not exist) a PR titled "code-guardian: inconsistency report".
 """
 
 
