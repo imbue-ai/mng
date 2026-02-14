@@ -21,6 +21,7 @@ repos:
         files: 'libs/mngr/imbue/mngr/cli/.*\.py$|libs/mngr/imbue/mngr/main\.py$|scripts/make_cli_docs\.py$|libs/mngr/docs/commands/.*\.md$'
         pass_filenames: false
     -   id: clean-stale-workspace-dirs
+#        Without this, when a workspace member is removed, its directory and contents remain, which causes uv to explode with a cryptic error message any time you run any uv command
         name: "Clean stale workspace member directories"
         entry: bash -c 'for dir in apps/* libs/*; do if [ -d "$dir" ] && [ ! -f "$dir/pyproject.toml" ]; then rm -rf "$dir"; fi; done'
         language: system
