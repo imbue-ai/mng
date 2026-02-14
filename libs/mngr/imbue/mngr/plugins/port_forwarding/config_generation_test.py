@@ -1,7 +1,5 @@
 """Unit tests for frps/frpc config generation."""
 
-from pathlib import Path
-
 from pydantic import SecretStr
 
 from imbue.imbue_common.primitives import PositiveInt
@@ -11,18 +9,13 @@ from imbue.mngr.plugins.port_forwarding.config_generation import generate_frpc_p
 from imbue.mngr.plugins.port_forwarding.config_generation import generate_frps_config
 from imbue.mngr.plugins.port_forwarding.data_types import ForwardedService
 from imbue.mngr.plugins.port_forwarding.data_types import ForwardedServiceName
-from imbue.mngr.plugins.port_forwarding.data_types import ResolvedPortForwardingConfig
+from imbue.mngr.plugins.port_forwarding.data_types import PortForwardingConfig
 
 
-def _make_resolved_config() -> ResolvedPortForwardingConfig:
-    return ResolvedPortForwardingConfig(
-        enabled=True,
-        frps_bind_port=PositiveInt(7000),
-        vhost_http_port=PositiveInt(8080),
-        domain_suffix="mngr.localhost",
+def _make_config() -> PortForwardingConfig:
+    return PortForwardingConfig(
         frps_token=SecretStr("test-frps-token"),
         auth_token=SecretStr("test-auth-token"),
-        frps_config_path=Path("~/.config/mngr/frps.toml"),
     )
 
 
@@ -44,19 +37,19 @@ def _make_service(
 
 
 def test_generate_frps_config_contains_bind_port() -> None:
-    config = _make_resolved_config()
+    config = _make_config()
     result = generate_frps_config(config)
     assert "bindPort = 7000" in result
 
 
 def test_generate_frps_config_contains_vhost_port() -> None:
-    config = _make_resolved_config()
+    config = _make_config()
     result = generate_frps_config(config)
     assert "vhostHTTPPort = 8080" in result
 
 
 def test_generate_frps_config_contains_auth_token() -> None:
-    config = _make_resolved_config()
+    config = _make_config()
     result = generate_frps_config(config)
     assert 'token = "test-frps-token"' in result
 

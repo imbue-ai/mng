@@ -7,7 +7,6 @@ from pydantic import SecretStr
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.primitives import NonEmptyStr
 from imbue.imbue_common.primitives import PositiveInt
-from imbue.mngr.config.data_types import PluginConfig
 
 PLUGIN_NAME: Final[str] = "port_forwarding"
 
@@ -22,13 +21,8 @@ class ForwardedServiceName(NonEmptyStr):
     ...
 
 
-class PortForwardingConfig(PluginConfig):
-    """Configuration for the port forwarding plugin.
-
-    Tokens are optional in the config file -- if not specified, they will be
-    auto-generated and persisted to the config directory on first use. See
-    resolve_port_forwarding_config() for the resolution logic.
-    """
+class PortForwardingConfig(FrozenModel):
+    """Configuration for the port forwarding plugin."""
 
     frps_bind_port: PositiveInt = Field(
         default=PositiveInt(DEFAULT_FRPS_BIND_PORT),
@@ -42,33 +36,16 @@ class PortForwardingConfig(PluginConfig):
         default=DEFAULT_DOMAIN_SUFFIX,
         description="Domain suffix for forwarded service URLs (e.g. 'mngr.localhost')",
     )
-    frps_token: SecretStr | None = Field(
-        default=None,
-        description="Shared secret token for frpc-to-frps authentication (auto-generated if not set)",
+    frps_token: SecretStr = Field(
+        description="Shared secret token for frpc-to-frps authentication",
     )
-    auth_token: SecretStr | None = Field(
-        default=None,
-        description="Token for authenticating browser/programmatic access (auto-generated if not set)",
+    auth_token: SecretStr = Field(
+        description="Token for authenticating browser and programmatic access to forwarded services",
     )
     frps_config_path: Path = Field(
         default=Path("~/.config/mngr/frps.toml"),
         description="Path to the frps configuration file",
     )
-
-
-class ResolvedPortForwardingConfig(FrozenModel):
-    """PortForwardingConfig with all optional fields resolved to concrete values.
-
-    This is the type used at runtime -- tokens are guaranteed to be present.
-    """
-
-    enabled: bool
-    frps_bind_port: PositiveInt
-    vhost_http_port: PositiveInt
-    domain_suffix: str
-    frps_token: SecretStr
-    auth_token: SecretStr
-    frps_config_path: Path
 
 
 class ForwardedService(FrozenModel):

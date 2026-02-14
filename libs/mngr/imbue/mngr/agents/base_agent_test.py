@@ -474,19 +474,19 @@ def test_get_reported_urls_returns_empty_dict_when_no_urls(
     assert test_agent.get_reported_urls() == {}
 
 
-def test_get_reported_urls_returns_default_url(
+def test_get_reported_urls_returns_default_from_legacy_url_file(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
     test_agent = create_test_base_agent(
-        local_provider, temp_host_dir, temp_work_dir, reported_urls={"default": "https://example.com/agent"}
+        local_provider, temp_host_dir, temp_work_dir, reported_url="https://example.com/agent"
     )
     urls = test_agent.get_reported_urls()
     assert urls == {"default": "https://example.com/agent"}
 
 
-def test_get_reported_urls_returns_multiple_typed_urls(
+def test_get_reported_urls_returns_typed_urls_from_urls_directory(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
@@ -501,7 +501,7 @@ def test_get_reported_urls_returns_multiple_typed_urls(
     assert urls == {"terminal": "https://example.com/ttyd", "chat": "https://example.com/chat"}
 
 
-def test_get_reported_urls_returns_default_and_typed_urls(
+def test_get_reported_urls_merges_legacy_url_and_typed_urls(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
@@ -510,38 +510,11 @@ def test_get_reported_urls_returns_default_and_typed_urls(
         local_provider,
         temp_host_dir,
         temp_work_dir,
-        reported_urls={"default": "https://example.com/default", "terminal": "https://example.com/ttyd"},
+        reported_url="https://example.com/default",
+        reported_urls={"terminal": "https://example.com/ttyd"},
     )
     urls = test_agent.get_reported_urls()
     assert urls == {
         "default": "https://example.com/default",
         "terminal": "https://example.com/ttyd",
     }
-
-
-def test_get_reported_url_returns_default_type(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> None:
-    test_agent = create_test_base_agent(
-        local_provider,
-        temp_host_dir,
-        temp_work_dir,
-        reported_urls={"default": "https://example.com/default", "terminal": "https://example.com/ttyd"},
-    )
-    assert test_agent.get_reported_url() == "https://example.com/default"
-
-
-def test_get_reported_url_returns_none_when_no_default(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> None:
-    test_agent = create_test_base_agent(
-        local_provider,
-        temp_host_dir,
-        temp_work_dir,
-        reported_urls={"terminal": "https://example.com/ttyd"},
-    )
-    assert test_agent.get_reported_url() is None

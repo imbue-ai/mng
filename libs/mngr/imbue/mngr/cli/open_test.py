@@ -59,6 +59,28 @@ def test_open_cli_options_with_all_fields() -> None:
     assert opts.active is True
 
 
+def test_open_type_is_passed_through_to_api(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that specifying a URL type does not raise NotImplementedError.
+
+    The --type flag is now implemented and passed through to the API layer.
+    With no agents available, this will fail with "No agents found" rather
+    than NotImplementedError.
+    """
+    result = cli_runner.invoke(
+        open_command,
+        ["my-agent", "terminal"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+
+    # Should fail because agent doesn't exist, not because --type is unimplemented
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, NotImplementedError)
+
+
 def test_open_active_without_wait_raises_error(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,

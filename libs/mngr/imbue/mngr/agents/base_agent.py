@@ -599,6 +599,40 @@ class BaseAgent(AgentInterface):
 
         return url_by_type
 
+    def get_reported_urls(self) -> dict[str, str]:
+        """Return all self-reported URLs from both status/url and status/urls/.
+
+        The legacy status/url file is included as the "default" type.
+        Additional types come from files in status/urls/ (each file is named
+        by type and contains the URL).
+        """
+        url_by_type: dict[str, str] = {}
+
+        # Read the legacy single-URL file as "default"
+        default_url = self.get_reported_url()
+        if default_url is not None:
+            url_by_type["default"] = default_url
+
+        # Read additional URL types from status/urls/ directory
+        urls_dir = self._get_agent_dir() / "status" / "urls"
+        try:
+            result = self.host.execute_command(f"ls -1 '{urls_dir}'", timeout_seconds=5.0)
+            if result.success:
+                for filename in result.stdout.split("\n"):
+                    url_type = filename.strip()
+                    if not url_type:
+                        continue
+                    try:
+                        url_value = self.host.read_text_file(urls_dir / url_type).strip()
+                        if url_value:
+                            url_by_type[url_type] = url_value
+                    except FileNotFoundError:
+                        continue
+        except (OSError, HostConnectionError):
+            pass
+
+        return url_by_type
+
     def get_reported_start_time(self) -> datetime | None:
         status_path = self._get_agent_dir() / "status" / "start_time"
         try:

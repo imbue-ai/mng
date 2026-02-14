@@ -6,7 +6,7 @@ from loguru import logger
 from imbue.imbue_common.logging import log_span
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.plugins.port_forwarding.config_generation import generate_frpc_base_config
-from imbue.mngr.plugins.port_forwarding.data_types import ResolvedPortForwardingConfig
+from imbue.mngr.plugins.port_forwarding.data_types import PortForwardingConfig
 from imbue.mngr.plugins.port_forwarding.forward_service_script import generate_forward_service_script
 
 FRPC_CONFIG_DIR: Final[str] = "/etc/frpc"
@@ -15,7 +15,7 @@ FORWARD_SERVICE_PATH: Final[str] = "/usr/local/bin/forward-service"
 
 def install_frpc_on_host(
     host: OnlineHostInterface,
-    config: ResolvedPortForwardingConfig,
+    config: PortForwardingConfig,
 ) -> None:
     """Install frpc and the forward-service script on a remote host."""
     with log_span("Installing frpc on host {}", host.get_name()):

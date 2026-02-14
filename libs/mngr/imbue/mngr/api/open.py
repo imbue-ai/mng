@@ -1,6 +1,5 @@
 import threading
 import webbrowser
-from collections.abc import Callable
 from typing import Final
 
 from loguru import logger
@@ -21,13 +20,16 @@ def _resolve_agent_url(agent: AgentInterface, url_type: str | None) -> str:
     When url_type is specified, looks it up in get_reported_urls().
     """
     if url_type is None:
+        # Try the legacy single-URL first, then fall back to the first typed URL
         url = agent.get_reported_url()
-        if url is None:
-            raise UserInputError(
-                f"Agent '{agent.name}' has no URL. "
-                "The agent may not have reported a URL yet, or it may not support URLs."
-            )
-        return url
+        if url is not None:
+            return url
+        reported_urls = agent.get_reported_urls()
+        if reported_urls:
+            return next(iter(reported_urls.values()))
+        raise UserInputError(
+            f"Agent '{agent.name}' has no URL. The agent may not have reported a URL yet, or it may not support URLs."
+        )
 
     reported_urls = agent.get_reported_urls()
     if not reported_urls:
@@ -39,8 +41,7 @@ def _resolve_agent_url(agent: AgentInterface, url_type: str | None) -> str:
     if url_type not in reported_urls:
         available_types = ", ".join(sorted(reported_urls.keys()))
         raise UserInputError(
-            f"Agent '{agent.name}' has no URL of type '{url_type}'. "
-            f"Available types: {available_types}"
+            f"Agent '{agent.name}' has no URL of type '{url_type}'. Available types: {available_types}"
         )
 
     return reported_urls[url_type]
@@ -54,7 +55,6 @@ def open_agent_url(
     # Injectable for testing; production callers should omit these
     stop_event: threading.Event | None = None,
     activity_interval_seconds: float = _ACTIVITY_INTERVAL_SECONDS,
-    open_url: Callable[[str], object] = webbrowser.open,
 ) -> None:
     """Open an agent's URL in the default web browser.
 
@@ -64,7 +64,7 @@ def open_agent_url(
     url = _resolve_agent_url(agent, url_type)
 
     logger.info("Opening URL for agent {}: {}", agent.name, url)
-    open_url(url)
+    webbrowser.open(url)
 
     if not is_wait:
         return
