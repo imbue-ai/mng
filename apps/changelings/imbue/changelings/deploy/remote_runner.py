@@ -11,25 +11,21 @@
 #      the changeling and mngr packages. This script runs from inside it.
 #
 #   2. The *target repo* (user's project) -- what the changeling operates on.
-#      If changeling.repo is set, this script clones it and runs mngr from
-#      there. If not set, mngr runs from the imbue repo cwd (development mode
-#      where imbue IS the target).
+#      If a target_repo_path is provided (by cron_runner.py), mngr runs from
+#      that directory. If not provided, mngr runs from the imbue repo cwd
+#      (development mode where imbue IS the target).
 #
 # Usage:
-#     uv run python -m imbue.changelings.deploy.remote_runner '<config_json>'
+#     uv run python -m imbue.changelings.deploy.remote_runner '<config_json>' [target_repo_path]
 
 import sys
 from pathlib import Path
-
-from loguru import logger
 
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.deploy.deploy import build_cron_mngr_command
 from imbue.changelings.errors import ChangelingRunError
 from imbue.changelings.mngr_commands import write_secrets_env_file
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-
-_TARGET_REPO_DIR = Path("/workspace/target")
 
 
 def _log_output(line: str, is_stdout: bool) -> None:
@@ -39,27 +35,12 @@ def _log_output(line: str, is_stdout: bool) -> None:
     stream.flush()
 
 
-def _clone_target_repo(repo_url: str, branch: str) -> Path:
-    """Clone the target repo and checkout the specified branch."""
-    logger.info("Cloning target repo from {} (branch: {})...", repo_url, branch)
-    with ConcurrencyGroup(name="clone-target-repo") as cg:
-        result = cg.run_process_to_completion(
-            ["git", "clone", "--branch", branch, repo_url, str(_TARGET_REPO_DIR)],
-            is_checked_after=False,
-            on_output=_log_output,
-        )
-    if result.returncode != 0:
-        output = (result.stdout + "\n" + result.stderr).strip()
-        raise ChangelingRunError(f"Failed to clone target repo '{repo_url}':\n{output}")
-    return _TARGET_REPO_DIR
-
-
-def run(config_json: str) -> None:
+def run(config_json: str, target_repo_path: str | None) -> None:
     """Deserialize the changeling config and run the mngr create command.
 
-    If the changeling has a target repo URL (changeling.repo), clones it and
-    runs mngr from that directory. Otherwise, runs mngr from the current
-    directory (the imbue repo clone -- development mode).
+    If target_repo_path is provided (already cloned by cron_runner.py onto
+    the persistent volume), mngr runs from that directory. Otherwise, mngr
+    runs from the current directory (the imbue repo clone -- development mode).
     """
     changeling = ChangelingDefinition.model_validate_json(config_json)
 
@@ -67,12 +48,7 @@ def run(config_json: str) -> None:
         print("Changeling is disabled, skipping")
         return
 
-    # Determine where to run mngr from. If a target repo is specified, clone
-    # it and run mngr from there. Otherwise, use the cwd (imbue repo clone).
-    if changeling.repo is not None:
-        target_cwd = _clone_target_repo(str(changeling.repo), changeling.branch)
-    else:
-        target_cwd = None
+    target_cwd = Path(target_repo_path) if target_repo_path is not None else None
 
     env_file_path = write_secrets_env_file(changeling)
     try:
@@ -95,11 +71,13 @@ def run(config_json: str) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if len(sys.argv) < 2 or len(sys.argv) > 3:
         print(
-            "Usage: python -m imbue.changelings.deploy.remote_runner '<config_json>'",
+            "Usage: python -m imbue.changelings.deploy.remote_runner '<config_json>' [target_repo_path]",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    run(sys.argv[1])
+    _config_json = sys.argv[1]
+    _target_path = sys.argv[2] if len(sys.argv) == 3 else None
+    run(_config_json, _target_path)

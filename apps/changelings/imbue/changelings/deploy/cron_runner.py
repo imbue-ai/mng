@@ -18,7 +18,8 @@
 #
 #   2. The *target repo* -- the repo the changeling operates on (e.g., the
 #      user's project). This is specified in the changeling config (or defaults
-#      to the current repo). The target repo is handled by mngr, not here.
+#      to the imbue repo in development mode). The target repo is cloned onto
+#      a persistent Modal Volume so it doesn't need to be re-cloned each run.
 #
 # The image includes system dependencies, GitHub CLI, uv, and Claude Code,
 # all cached as image layers. The imbue repo is cloned at runtime so that
@@ -173,11 +174,14 @@ app = modal.App(name=_APP_NAME, image=_image)
 # Persistent volume for target repo storage (reused across runs of the same changeling)
 _volume = modal.Volume.from_name(_VOLUME_NAME, create_if_missing=True)
 
-# Where the imbue monorepo (tooling) is cloned at runtime
+# Where the imbue monorepo (tooling) is cloned at runtime (ephemeral)
 _IMBUE_REPO_DIR = "/workspace/imbue"
 
-# Where the persistent volume is mounted (for target repo)
-_VOLUME_MOUNT_DIR = "/workspace/volume"
+# Where the persistent volume is mounted
+_VOLUME_DIR = "/volume"
+
+# Target repo code lives under /volume/code/<repo_name>
+_VOLUME_CODE_DIR = "/volume/code"
 
 
 def _run_and_stream(
@@ -234,11 +238,47 @@ def _install_user_config() -> None:
         shutil.copytree(mngr_profiles, Path.home() / ".mngr" / "profiles", dirs_exist_ok=True)
 
 
+def _repo_name_from_url(url: str) -> str:
+    """Extract the repository name from a clone URL.
+
+    e.g. "https://github.com/org/my-project.git" -> "my-project"
+    """
+    name = url.rstrip("/").rsplit("/", 1)[-1]
+    if name.endswith(".git"):
+        name = name[:-4]
+    return name
+
+
+def _clone_or_fetch_target_repo(repo_url: str, branch: str) -> str:
+    """Clone the target repo onto the volume, or fetch if it already exists.
+
+    Returns the path to the target repo directory.
+    """
+    repo_name = _repo_name_from_url(repo_url)
+    target_dir = f"{_VOLUME_CODE_DIR}/{repo_name}"
+    git_dir = f"{target_dir}/.git"
+
+    os.makedirs(_VOLUME_CODE_DIR, exist_ok=True)
+
+    if os.path.isdir(git_dir):
+        # Repo already exists on the volume -- just fetch and checkout
+        print(f"Target repo already on volume at {target_dir}, fetching updates...")
+        _run_and_stream(["git", "fetch", "--all"], cwd=target_dir)
+        _run_and_stream(["git", "checkout", branch], cwd=target_dir)
+        _run_and_stream(["git", "pull", "--ff-only"], cwd=target_dir, is_checked=False)
+    else:
+        # Fresh clone
+        print(f"Cloning target repo {repo_url} (branch: {branch}) to {target_dir}...")
+        _run_and_stream(["git", "clone", "--branch", branch, repo_url, target_dir])
+
+    return target_dir
+
+
 @app.function(
     secrets=[modal.Secret.from_name(_SECRET_NAME)],
     schedule=modal.Cron(_CRON_SCHEDULE),
     timeout=3600,
-    volumes={_VOLUME_MOUNT_DIR: _volume},
+    volumes={_VOLUME_DIR: _volume},
 )
 def run_changeling() -> None:
     """Run the changeling by cloning the imbue repo and invoking the remote runner.
@@ -247,10 +287,10 @@ def run_changeling() -> None:
     1. Checks if the changeling is enabled
     2. Installs user config files (claude, mngr) to their expected locations
     3. Sets up GitHub authentication via gh CLI
-    4. Clones the imbue monorepo (tooling) and checks out the pinned commit
-    5. Installs all dependencies via uv sync
-    6. Invokes remote_runner.py which handles the mngr create command
-       (mngr is responsible for cloning and operating on the target repo)
+    4. Clones/fetches the target repo onto the persistent volume
+    5. Clones the imbue monorepo (tooling) and checks out the pinned commit
+    6. Installs all dependencies via uv sync
+    7. Invokes remote_runner.py which handles the mngr create command
     """
     # Check if enabled without importing imbue
     config = json.loads(_CONFIG_JSON)
@@ -269,6 +309,17 @@ def run_changeling() -> None:
         is_shell=True,
     )
 
+    # Clone or fetch the target repo onto the persistent volume.
+    # If no target repo is configured, the imbue repo IS the target (dev mode).
+    target_repo_url = config.get("repo")
+    target_branch = config.get("branch", "main")
+    target_repo_path = None
+
+    if target_repo_url is not None:
+        target_repo_path = _clone_or_fetch_target_repo(target_repo_url, target_branch)
+        _volume.commit()
+        print(f"Target repo persisted to volume at {target_repo_path}")
+
     # Clone the imbue monorepo (contains changeling/mngr tooling) at the pinned commit
     print(f"Cloning imbue repo from {_IMBUE_REPO_URL} at commit {_IMBUE_COMMIT_HASH}...")
     _run_and_stream(["git", "clone", _IMBUE_REPO_URL, _IMBUE_REPO_DIR])
@@ -279,11 +330,22 @@ def run_changeling() -> None:
     _run_and_stream(["uv", "sync", "--all-packages"], cwd=_IMBUE_REPO_DIR)
 
     # Invoke the remote runner script (which has full access to the imbue stack).
-    # The remote runner will use mngr to create an agent that operates on the
-    # target repo (specified in the changeling config, not the imbue repo).
+    # Pass the target repo path if we cloned it; otherwise remote_runner uses
+    # the imbue repo cwd as the target (dev mode).
+    runner_cmd = [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "imbue.changelings.deploy.remote_runner",
+        _CONFIG_JSON,
+    ]
+    if target_repo_path is not None:
+        runner_cmd.append(target_repo_path)
+
     print("Running changeling via remote runner...")
     exit_code = _run_and_stream(
-        ["uv", "run", "python", "-m", "imbue.changelings.deploy.remote_runner", _CONFIG_JSON],
+        runner_cmd,
         cwd=_IMBUE_REPO_DIR,
         is_checked=False,
     )
