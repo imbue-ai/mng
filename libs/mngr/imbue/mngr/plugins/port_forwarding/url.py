@@ -7,9 +7,6 @@ from imbue.mngr.plugins.port_forwarding.data_types import DEFAULT_VHOST_HTTP_POR
 from imbue.mngr.plugins.port_forwarding.data_types import ForwardedService
 from imbue.mngr.plugins.port_forwarding.data_types import ForwardedServiceName
 
-# Subdomains must be valid DNS labels: lowercase alphanumeric + hyphens, no leading/trailing hyphens
-_DNS_LABEL_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
-
 
 @pure
 def sanitize_name_for_subdomain(name: str) -> str:
