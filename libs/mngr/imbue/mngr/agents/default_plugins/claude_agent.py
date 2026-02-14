@@ -165,7 +165,7 @@ def _has_api_credentials_available(
 
 def _get_claude_project_dir(path: Path) -> Path:
     """Get the Claude project directory for a given filesystem path."""
-    return Path.home() / ".claude" / "projects" / encode_claude_project_dir_name(path.resolve())
+    return Path.home() / ".claude" / "projects" / encode_claude_project_dir_name(path)
 
 
 def _find_most_recent_session(project_dir: Path) -> str:
