@@ -17,7 +17,7 @@ def generate_auth_token() -> SecretStr:
     return SecretStr(secrets.token_urlsafe(AUTH_TOKEN_BYTES))
 
 
-def _read_or_create_token(config_dir: Path, filename: str) -> SecretStr:
+def read_or_create_token(config_dir: Path, filename: str) -> SecretStr:
     """Read a token from disk, or create and persist one if it doesn't exist."""
     token_path = config_dir / filename
     if token_path.exists():
@@ -34,12 +34,12 @@ def _read_or_create_token(config_dir: Path, filename: str) -> SecretStr:
 
 def read_or_create_auth_token(config_dir: Path) -> SecretStr:
     """Read the auth token from disk, or create one if it doesn't exist."""
-    return _read_or_create_token(config_dir, AUTH_TOKEN_FILE_NAME)
+    return read_or_create_token(config_dir, AUTH_TOKEN_FILE_NAME)
 
 
 def read_or_create_frps_token(config_dir: Path) -> SecretStr:
     """Read the frps token from disk, or create one if it doesn't exist."""
-    return _read_or_create_token(config_dir, FRPS_TOKEN_FILE_NAME)
+    return read_or_create_token(config_dir, FRPS_TOKEN_FILE_NAME)
 
 
 @pure
