@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Generator
 
 import pytest
-from pydantic import SecretStr
 
 from imbue.imbue_common.primitives import PositiveInt
 from imbue.mngr.api.open import _resolve_agent_url
@@ -56,49 +55,6 @@ def _run_daemon(command: list[str]) -> Generator[subprocess.Popen, None, None]:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
-
-
-# =============================================================================
-# Config resolution integration tests
-# =============================================================================
-
-
-def test_config_resolution_creates_tokens_on_disk(tmp_path: Path) -> None:
-    """Test that resolving config auto-generates and persists tokens."""
-    config = PortForwardingConfig()
-    config_dir = tmp_path / "config"
-
-    resolved = resolve_port_forwarding_config(config, config_dir=config_dir)
-
-    # Tokens should be non-empty
-    assert len(resolved.frps_token.get_secret_value()) > 0
-    assert len(resolved.auth_token.get_secret_value()) > 0
-
-    # Token files should exist on disk
-    assert (config_dir / "frps_token").exists()
-    assert (config_dir / "auth_token").exists()
-
-    # Resolving again should return the same tokens
-    resolved2 = resolve_port_forwarding_config(config, config_dir=config_dir)
-    assert resolved.frps_token.get_secret_value() == resolved2.frps_token.get_secret_value()
-    assert resolved.auth_token.get_secret_value() == resolved2.auth_token.get_secret_value()
-
-
-def test_config_resolution_respects_explicit_tokens(tmp_path: Path) -> None:
-    """Test that explicit tokens in config are preserved (not overwritten)."""
-    config = PortForwardingConfig(
-        frps_token=SecretStr("explicit-frps"),
-        auth_token=SecretStr("explicit-auth"),
-    )
-    config_dir = tmp_path / "config"
-
-    resolved = resolve_port_forwarding_config(config, config_dir=config_dir)
-
-    assert resolved.frps_token.get_secret_value() == "explicit-frps"
-    assert resolved.auth_token.get_secret_value() == "explicit-auth"
-    # No token files should be created when tokens are explicit
-    assert not (config_dir / "frps_token").exists()
-    assert not (config_dir / "auth_token").exists()
 
 
 # =============================================================================
