@@ -241,39 +241,35 @@ def remove_claude_trust_for_path(path: Path) -> bool:
     """
     path = path.resolve()
 
-    try:
-        with _claude_config_lock() as config_path:
+    with _claude_config_lock() as config_path:
+        try:
             config = _read_claude_config(config_path)
-            if not config:
-                return False
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to remove Claude trust entry for {}: {}", path, e)
+            return False
+        if not config:
+            return False
 
-            projects = config.get("projects", {})
+        projects = config.get("projects", {})
 
-            path_str = str(path)
-            if path_str not in projects:
-                logger.trace("Failed to find Claude trust entry for {}", path)
-                return False
+        path_str = str(path)
+        if path_str not in projects:
+            logger.trace("Failed to find Claude trust entry for {}", path)
+            return False
 
-            # Only remove entries created by mngr to avoid removing user-created trust
-            project_config = projects[path_str]
-            if not project_config.get("_mngrCreated", False):
-                logger.trace("Skipped removal of non-mngr trust entry for {}", path)
-                return False
+        # Only remove entries created by mngr to avoid removing user-created trust
+        project_config = projects[path_str]
+        if not project_config.get("_mngrCreated", False):
+            logger.trace("Skipped removal of non-mngr trust entry for {}", path)
+            return False
 
-            del projects[path_str]
-            config["projects"] = projects
+        del projects[path_str]
+        config["projects"] = projects
 
-            _write_claude_config_atomic(config_path, config)
+        _write_claude_config_atomic(config_path, config)
 
-        logger.trace("Removed Claude trust entry for {}", path)
-        return True
-    except (OSError, json.JSONDecodeError, KeyError) as e:
-        logger.warning(
-            "Failed to remove Claude trust entry for {}: {}",
-            path,
-            e,
-        )
-        return False
+    logger.trace("Removed Claude trust entry for {}", path)
+    return True
 
 
 def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, Any] | None:

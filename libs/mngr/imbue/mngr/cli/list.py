@@ -34,17 +34,14 @@ from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
-_DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = ("name", "host", "provider", "host.state", "state", "status")
-
-# FIXME: remove this entirely--just use the unaliased names everywhere necessary, and then remove this, and anything that uses it
-# Display field aliases: map user-facing shorthand field names to their actual
-# data model paths. Used by both _get_field_value and _get_sortable_value so that
-# --fields and --sort accept the same shorthand names.
-_FIELD_ALIASES: Final[dict[str, str]] = {
-    "host": "host.name",
-    "provider": "host.provider_name",
-    "host.provider": "host.provider_name",
-}
+_DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
+    "name",
+    "host.name",
+    "host.provider_name",
+    "host.state",
+    "state",
+    "status",
+)
 
 
 @pure
@@ -411,17 +408,17 @@ class _LimitedJsonlEmitter(MutableModel):
 # Minimum column widths for streaming output (left-justified, not truncated)
 _MIN_COLUMN_WIDTHS: Final[dict[str, int]] = {
     "name": 20,
-    "host": 15,
-    "provider": 10,
+    "host.name": 15,
+    "host.provider_name": 10,
     "host.state": 10,
     "state": 10,
     "status": 30,
 }
 _DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 15
 # Columns that get extra space when the terminal is wider than the minimum
-_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "status", "host"}
+_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "status", "host.name"}
 _MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {
-    "host": 20,
+    "host.name": 20,
 }
 _COLUMN_SEPARATOR: Final[str] = "  "
 
@@ -732,12 +729,8 @@ def _get_sortable_value(agent: AgentInfo, field: str) -> Any:
     """Extract a field value from an AgentInfo object for sorting.
 
     Returns the raw value (not string-formatted) for proper sorting behavior.
-    Supports nested fields like "host.name" and field aliases.
+    Supports nested fields like "host.name".
     """
-    # Apply display field alias if it exists
-    if field in _FIELD_ALIASES:
-        field = _FIELD_ALIASES[field]
-
     # Handle nested fields (e.g., "host.name")
     # Also supports dict key access for plugin fields (e.g., "host.plugin.aws.iam_user")
     parts = field.split(".")
@@ -782,13 +775,9 @@ def _sort_agents(agents: list[AgentInfo], sort_field: str, reverse: bool) -> lis
 def _get_field_value(agent: AgentInfo, field: str) -> str:
     """Extract a field value from an AgentInfo object and return as string.
 
-    Supports nested fields like "host.name", handles field aliases, and supports
-    list slicing syntax like "host.snapshots[0]" or "host.snapshots[:3]".
+    Supports nested fields like "host.name" and list slicing syntax like
+    "host.snapshots[0]" or "host.snapshots[:3]".
     """
-    # Apply display field alias if it exists
-    if field in _FIELD_ALIASES:
-        field = _FIELD_ALIASES[field]
-
     # Handle nested fields (e.g., "host.name") with optional bracket notation
     # Also supports dict key access for plugin fields (e.g., "host.plugin.aws.iam_user")
     parts = field.split(".")
@@ -917,7 +906,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `host.name` - Host name
 - `host.id` - Host ID
 - `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
-- `host.provider` - Host provider (local, docker, modal, etc.)
+- `host.provider_name` - Host provider (local, docker, modal, etc.) (in CEL filters, use `host.provider`)
 - `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host

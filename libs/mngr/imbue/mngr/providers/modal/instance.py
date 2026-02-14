@@ -527,21 +527,29 @@ class ModalProviderInstance(BaseProviderInstance):
         agent_records: list[dict[str, Any]] = []
         host_dir = f"/{host_id}"
         try:
-            for entry in _volume_listdir(volume, host_dir):
-                filename = entry.path
-                if filename.endswith(".json"):
-                    # Read the agent record
-                    agent_path = filename.lstrip("/")
-                    try:
-                        content = _volume_read_file(volume, agent_path).decode("utf-8")
-                        agent_data = json.loads(content)
-                        agent_records.append(agent_data)
-                    except (OSError, IOError, json.JSONDecodeError) as e:
-                        logger.trace("Skipped invalid agent record file {}: {}", agent_path, e)
-                        continue
-        except (OSError, IOError, modal.exception.Error) as e:
-            # Host directory might not exist yet (no agents persisted)
-            logger.trace("Failed to find agent records for host {}: {}", host_id, e)
+            entries = _volume_listdir(volume, host_dir)
+        except (NotFoundError, FileNotFoundError):
+            # Host directory doesn't exist yet (no agents persisted for this host)
+            return agent_records
+
+        for entry in entries:
+            filename = entry.path
+            if filename.endswith(".json"):
+                # Read the agent record
+                agent_path = filename.lstrip("/")
+                try:
+                    content = _volume_read_file(volume, agent_path)
+                except (NotFoundError, FileNotFoundError):
+                    # File was deleted between listdir and read (TOCTOU race on distributed volume)
+                    continue
+                try:
+                    agent_data = json.loads(content.decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                    # Corrupted or partially written file. Log and skip it.
+                    logger.warning("Skipped invalid agent record file {}: {}", agent_path, e)
+                    continue
+                else:
+                    agent_records.append(agent_data)
 
         logger.trace("Listed agent records for host {} from volume", host_id)
         return agent_records
@@ -1670,7 +1678,7 @@ log "=== Shutdown script completed ==="
                 try:
                     host_obj = self._create_host_from_sandbox(sandbox)
                 except HostConnectionError as e:
-                    logger.debug("Failed to create host from sandbox {}: {}", host, e)
+                    logger.debug("Failed to create host from sandbox {}, assuming it is offline: {}", host, e)
 
             if host_obj is None:
                 # No sandbox or couldn't connect - try host record (for stopped hosts)
@@ -1684,7 +1692,7 @@ log "=== Shutdown script completed ==="
                 try:
                     host_obj = self._create_host_from_sandbox(sandbox)
                 except HostConnectionError as e:
-                    logger.debug("Failed to create host from sandbox {}: {}", host, e)
+                    logger.debug("Failed to create host from sandbox {}, assuming it is offline: {}", host, e)
 
             # No sandbox or couldn't connect - search host records by name (for stopped hosts)
             if host_obj is None:

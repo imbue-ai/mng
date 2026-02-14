@@ -252,6 +252,7 @@ class Host(BaseHost, OnlineHostInterface):
                                 filename_or_io,
                                 remote_temp_filename=remote_temp_filename,
                             )
+                        # note: do NOT change this--this is just here temporarily while we are debugging the intermittent "Socket is closed" errors in tests. We want to catch all exceptions here to see if the retry works
                         except Exception as retry_exception:
                             raise HostConnectionError(
                                 "Connection was closed while reading file (and our retry failed)"
@@ -296,6 +297,7 @@ class Host(BaseHost, OnlineHostInterface):
                             remote_filename,
                             remote_temp_filename=remote_temp_filename,
                         )
+                    # note: do NOT change this--this is just here temporarily while we are debugging the intermittent "Socket is closed" errors in tests. We want to catch all exceptions here to see if the retry works
                     except Exception as retry_exception:
                         raise HostConnectionError(
                             "Connection was closed while writing file (and our retry failed)"
@@ -535,7 +537,7 @@ class Host(BaseHost, OnlineHostInterface):
             # this is obviously not yet right--we're just making the host lock so that the shutdown script doesnt trigger while creating a host
             self.write_text_file(lock_file_path, str(time.time()))
             yield
-            self.execute_command("rm -f '{}'".format(str(lock_file_path)))
+            self.execute_command(f"rm -f '{lock_file_path}'")
             return
 
         lock_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1123,19 +1125,16 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_unclean = options.git.is_include_unclean if options.git else True
         if is_include_unclean:
             if source_host.is_local:
-                try:
-                    result = self.mngr_ctx.concurrency_group.run_process_to_completion(
-                        ["git", "-C", str(source_path), "status", "--porcelain"],
-                    )
-                    for line in result.stdout.split("\n"):
-                        if line:
-                            # git status --porcelain format: "XY filename" (2 status chars + space + filename)
-                            filename = line[3:]
-                            if " -> " in filename:
-                                filename = filename.split(" -> ")[1]
-                            files_to_include.append(filename)
-                except ProcessError as e:
-                    logger.trace("git status --porcelain failed, skipping unclean files: {}", e)
+                result = self.mngr_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "-C", str(source_path), "status", "--porcelain"],
+                )
+                for line in result.stdout.split("\n"):
+                    if line:
+                        # git status --porcelain format: "XY filename" (2 status chars + space + filename)
+                        filename = line[3:]
+                        if " -> " in filename:
+                            filename = filename.split(" -> ")[1]
+                        files_to_include.append(filename)
             else:
                 result = source_host.execute_command("git status --porcelain", cwd=source_path)
                 if result.success:
@@ -1150,15 +1149,12 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_gitignored = options.git.is_include_gitignored if options.git else False
         if is_include_gitignored:
             if source_host.is_local:
-                try:
-                    result = self.mngr_ctx.concurrency_group.run_process_to_completion(
-                        ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
-                    )
-                    for line in result.stdout.split("\n"):
-                        if line:
-                            files_to_include.append(line)
-                except ProcessError as e:
-                    logger.trace("git ls-files failed, skipping gitignored files: {}", e)
+                result = self.mngr_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
+                )
+                for line in result.stdout.split("\n"):
+                    if line:
+                        files_to_include.append(line)
             else:
                 result = source_host.execute_command(
                     "git ls-files --others --ignored --exclude-standard",

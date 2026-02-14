@@ -97,7 +97,7 @@ def _write_agent_records(host_id: str, agents: list[dict[str, Any]]) -> None:
     volume.commit()
 
 
-@app.function(volumes={"/vol": volume})
+@app.function(volumes={"/vol": volume}, enable_memory_snapshot=True)
 @modal.fastapi_endpoint(method="POST", docs=True)
 def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     """Snapshot a Modal sandbox and shut it down.
@@ -189,6 +189,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
                 "snapshot_name": snapshot_name,
             }
 
+        # note: do NOT change this--this is just here temporarily while we are debugging intermittent failures during snapshotting
         except BaseException as e:
             logger.error("Error in snapshot_and_shutdown: " + str(e), exc_info=True)
             raise
