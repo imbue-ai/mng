@@ -1,6 +1,5 @@
 import secrets
 from pathlib import Path
-from typing import Callable
 from typing import Final
 
 from pydantic import SecretStr
@@ -13,11 +12,7 @@ def generate_secure_token() -> str:
     return secrets.token_urlsafe(TOKEN_BYTES)
 
 
-def read_or_create_token_file(
-    config_dir: Path,
-    filename: str,
-    generate_fn: Callable[[], str] = generate_secure_token,
-) -> SecretStr:
+def read_or_create_token_file(config_dir: Path, filename: str) -> SecretStr:
     """Read a token from disk, or generate and persist a new one.
 
     Creates the config directory and sets file permissions to 0600.
@@ -28,7 +23,7 @@ def read_or_create_token_file(
         if token_value:
             return SecretStr(token_value)
 
-    token_value = generate_fn()
+    token_value = generate_secure_token()
     config_dir.mkdir(parents=True, exist_ok=True)
     token_path.write_text(token_value)
     token_path.chmod(0o600)
