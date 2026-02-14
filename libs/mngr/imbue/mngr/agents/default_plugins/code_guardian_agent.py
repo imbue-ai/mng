@@ -17,6 +17,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.primitives import CommandString
 
 _SKILL_NAME: Final[str] = "code-guardian"
 
@@ -79,12 +80,7 @@ _CODE_GUARDIAN_AGENT_DEFINITION: Final[dict] = {
 
 _CODE_GUARDIAN_AGENTS_JSON: Final[str] = json.dumps(_CODE_GUARDIAN_AGENT_DEFINITION, separators=(",", ":"))
 
-_CODE_GUARDIAN_CLI_ARGS: Final[tuple[str, ...]] = (
-    "--agents",
-    f"'{_CODE_GUARDIAN_AGENTS_JSON}'",
-    "--agent",
-    _SKILL_NAME,
-)
+_CODE_GUARDIAN_CLI_ARGS: Final[tuple[str, ...]] = ("--agents", f"'{_CODE_GUARDIAN_AGENTS_JSON}'")
 
 
 class CodeGuardianAgentConfig(ClaudeAgentConfig):
@@ -166,6 +162,15 @@ class CodeGuardianAgent(ClaudeAgent):
             _install_skill_locally(mngr_ctx)
         else:
             _install_skill_remotely(host)
+
+    def assemble_command(
+        self, host: OnlineHostInterface, agent_args: tuple[str, ...], command_override: CommandString | None
+    ) -> CommandString:
+        result = super().assemble_command(host, agent_args, command_override)
+        return CommandString(
+            f"""(cat .claude/settings.json 2>/dev/null || echo {{}}') | jq '.agent = "{_SKILL_NAME}"' > tmp.$$.json && mv tmp.$$.json .claude/settings.json && """
+            + str(result)
+        )
 
 
 @hookimpl
