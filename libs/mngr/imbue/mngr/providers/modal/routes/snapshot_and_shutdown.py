@@ -111,94 +111,90 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     were_snapshots_missing = False
 
     try:
-        try:
-            sandbox_id = request_body.get("sandbox_id")
-            host_id = request_body.get("host_id")
-            snapshot_name = request_body.get("snapshot_name")
-            agents = request_body.get("agents", [])
-            stop_reason = request_body.get("stop_reason", "PAUSED")
+        sandbox_id = request_body.get("sandbox_id")
+        host_id = request_body.get("host_id")
+        snapshot_name = request_body.get("snapshot_name")
+        agents = request_body.get("agents", [])
+        stop_reason = request_body.get("stop_reason", "PAUSED")
 
-            if not sandbox_id:
-                raise HTTPException(status_code=400, detail="sandbox_id is required")
-            if not host_id:
-                raise HTTPException(status_code=400, detail="host_id is required")
+        if not sandbox_id:
+            raise HTTPException(status_code=400, detail="sandbox_id is required")
+        if not host_id:
+            raise HTTPException(status_code=400, detail="host_id is required")
 
-            # Verify host record exists BEFORE creating snapshot to avoid orphaned images
-            host_record = _read_host_record(host_id)
-            host_record_for_debugging = str(host_record)
-            if host_record is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Host record not found for host_id: {host_id}",
-                )
+        # Verify host record exists BEFORE creating snapshot to avoid orphaned images
+        host_record = _read_host_record(host_id)
+        host_record_for_debugging = str(host_record)
+        if host_record is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Host record not found for host_id: {host_id}",
+            )
 
-            # Get the sandbox by ID
-            sandbox = modal.Sandbox.from_id(sandbox_id)
+        # Get the sandbox by ID
+        sandbox = modal.Sandbox.from_id(sandbox_id)
 
-            # Create the filesystem snapshot
-            # note that this can sometimes take quite a while kind of randomly, and it's sorta Modal's fault
-            # I've observed > 60-second delays even without tons of files (or large files)
-            # when there are lots of files (or the files are large), it can take even longer
-            # this is just a best-effort compromise between waiting forever and giving up too early - in practice, if it takes more than 5 minutes, something has probably gone pretty wrong
-            modal_image = sandbox.snapshot_filesystem(timeout=300)
-            # Use the Modal image ID directly as the snapshot ID
-            snapshot_id = modal_image.object_id
-            created_at = datetime.now(timezone.utc).isoformat()
+        # Create the filesystem snapshot
+        # note that this can sometimes take quite a while kind of randomly, and it's sorta Modal's fault
+        # I've observed > 60-second delays even without tons of files (or large files)
+        # when there are lots of files (or the files are large), it can take even longer
+        # this is just a best-effort compromise between waiting forever and giving up too early - in practice, if it takes more than 5 minutes, something has probably gone pretty wrong
+        modal_image = sandbox.snapshot_filesystem(timeout=300)
+        # Use the Modal image ID directly as the snapshot ID
+        snapshot_id = modal_image.object_id
+        created_at = datetime.now(timezone.utc).isoformat()
 
-            if snapshot_name is None:
-                short_id = snapshot_id[-8:]
-                snapshot_name = f"snapshot-{short_id}"
+        if snapshot_name is None:
+            short_id = snapshot_id[-8:]
+            snapshot_name = f"snapshot-{short_id}"
 
-            # Add the new snapshot to the certified_host_data (id is the Modal image ID)
-            new_snapshot = {
-                "id": snapshot_id,
-                "name": snapshot_name,
-                "created_at": created_at,
-            }
+        # Add the new snapshot to the certified_host_data (id is the Modal image ID)
+        new_snapshot = {
+            "id": snapshot_id,
+            "name": snapshot_name,
+            "created_at": created_at,
+        }
 
-            certified_data = host_record.get("certified_host_data", {})
-            if "snapshots" not in certified_data:
-                certified_data["snapshots"] = []
-                were_snapshots_missing = True
-            certified_data["snapshots"].append(new_snapshot)
+        certified_data = host_record.get("certified_host_data", {})
+        if "snapshots" not in certified_data:
+            certified_data["snapshots"] = []
+            were_snapshots_missing = True
+        certified_data["snapshots"].append(new_snapshot)
 
-            # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
-            certified_data["stop_reason"] = stop_reason
-            host_record["certified_host_data"] = certified_data
+        # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
+        certified_data["stop_reason"] = stop_reason
+        host_record["certified_host_data"] = certified_data
 
-            # Write updated host record
-            _write_host_record(host_record)
+        # Write updated host record
+        _write_host_record(host_record)
 
-            # Write agent records so they appear in mngr list for stopped hosts
-            _write_agent_records(host_id, agents)
+        # Write agent records so they appear in mngr list for stopped hosts
+        _write_agent_records(host_id, agents)
 
-            # Terminate the sandbox
-            sandbox.terminate()
+        # Terminate the sandbox
+        sandbox.terminate()
 
-            if were_snapshots_missing:
-                raise HTTPException(
-                    status_code=500,
-                    detail=(
-                        f"Host record was missing 'snapshots' field. Original data was: {host_record_for_debugging}"
-                    ),
-                )
+        if were_snapshots_missing:
+            raise HTTPException(
+                status_code=500,
+                detail=(f"Host record was missing 'snapshots' field. Original data was: {host_record_for_debugging}"),
+            )
 
-            return {
-                "success": True,
-                "snapshot_id": snapshot_id,
-                "snapshot_name": snapshot_name,
-            }
-
-        except BaseException as e:
-            logger.error("Error in snapshot_and_shutdown: " + str(e), exc_info=True)
-            raise
+        return {
+            "success": True,
+            "snapshot_id": snapshot_id,
+            "snapshot_name": snapshot_name,
+        }
 
     except HTTPException:
         raise
     except modal.exception.NotFoundError as e:
+        logger.error("Error in snapshot_and_shutdown: " + str(e), exc_info=True)
         raise HTTPException(status_code=404, detail=f"Sandbox not found: {e}") from None
     except modal.exception.InvalidError as e:
+        logger.error("Error in snapshot_and_shutdown: " + str(e), exc_info=True)
         # Invalid sandbox ID format also counts as "not found"
         raise HTTPException(status_code=404, detail=f"Invalid sandbox ID: {e}") from None
     except modal.exception.Error as e:
+        logger.error("Error in snapshot_and_shutdown: " + str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=f"Modal error: {e}") from None
