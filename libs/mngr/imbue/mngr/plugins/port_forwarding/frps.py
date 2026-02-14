@@ -1,9 +1,10 @@
 import shutil
-import subprocess
+import socket
 from pathlib import Path
 
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.mngr.plugins.port_forwarding.config_generation import generate_frps_config
 from imbue.mngr.plugins.port_forwarding.data_types import PortForwardingConfig
@@ -26,15 +27,18 @@ def is_frps_installed() -> bool:
 
 def is_frps_running(config: PortForwardingConfig) -> bool:
     """Check if frps is already listening on the configured bind port."""
-    result = subprocess.run(
-        ["lsof", "-i", f":{config.frps_bind_port}", "-sTCP:LISTEN"],
-        capture_output=True,
-        timeout=5,
-    )
-    return result.returncode == 0
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(1.0)
+        sock.connect(("127.0.0.1", int(config.frps_bind_port)))
+        return True
+    except (ConnectionRefusedError, socket.timeout, OSError):
+        return False
+    finally:
+        sock.close()
 
 
-def start_frps(config: PortForwardingConfig) -> None:
+def start_frps(config: PortForwardingConfig, cg: ConcurrencyGroup) -> None:
     """Start frps as a background daemon process."""
     if not is_frps_installed():
         logger.warning("frps is not installed; port forwarding will not work")
@@ -47,11 +51,9 @@ def start_frps(config: PortForwardingConfig) -> None:
     config_path = ensure_frps_config(config)
 
     with log_span("Starting frps on port {}", config.frps_bind_port):
-        subprocess.Popen(
-            ["frps", "-c", str(config_path)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
+        cg.start_background_process(
+            command=["frps", "-c", str(config_path)],
+            is_checked_by_group=False,
         )
 
     logger.debug("Started frps (bind={}, vhost={})", config.frps_bind_port, config.vhost_http_port)
