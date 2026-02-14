@@ -10,11 +10,12 @@ import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
-from typing import NamedTuple
 
 import httpx
 import pytest
+from pydantic import Field
 
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.plugins.api_server.auth import read_or_create_api_token
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import find_free_port
@@ -22,12 +23,12 @@ from imbue.mngr.utils.testing import get_subprocess_test_env
 from imbue.mngr.utils.testing import is_port_open
 
 
-class _RunningServeProcess(NamedTuple):
+class _RunningServeProcess(FrozenModel):
     """State for a running mngr serve subprocess."""
 
-    port: int
-    config_dir: Path
-    base_url: str
+    port: int = Field(description="Port the server is listening on")
+    config_dir: Path = Field(description="Path to the config directory")
+    base_url: str = Field(description="Base URL for HTTP requests")
 
 
 @contextmanager
