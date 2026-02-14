@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Final
 
 import click
 from loguru import logger
-from pydantic import Field
 
 from imbue.imbue_common.logging import log_span
 from imbue.mngr import hookimpl
@@ -70,35 +68,9 @@ Decision: Accept
 Then commit the file and create a PR titled "code-guardian: inconsistency report <date>".
 """
 
-_CODE_GUARDIAN_AGENT_DEFINITION: Final[dict] = {
-    _SKILL_NAME: {
-        "description": "Codebase health guardian that identifies inconsistencies and produces structured reports",
-        "prompt": (f"Your primary skill is {_SKILL_NAME}. When asked to use your primary skill, invoke it."),
-    },
-}
-
-_CODE_GUARDIAN_AGENTS_JSON: Final[str] = json.dumps(_CODE_GUARDIAN_AGENT_DEFINITION, separators=(",", ":"))
-
-_CODE_GUARDIAN_CLI_ARGS: Final[tuple[str, ...]] = (
-    "--agents",
-    f"'{_CODE_GUARDIAN_AGENTS_JSON}'",
-    "--agent",
-    _SKILL_NAME,
-)
-
 
 class CodeGuardianAgentConfig(ClaudeAgentConfig):
-    """Config for the code-guardian agent type.
-
-    Inherits all Claude agent defaults. Sets --agents and --agent flags so that
-    the Claude Code session uses the code-guardian agent persona, which knows
-    that its primary skill is the code-guardian skill.
-    """
-
-    cli_args: tuple[str, ...] = Field(
-        default=_CODE_GUARDIAN_CLI_ARGS,
-        description="CLI arguments including agent definition and selection",
-    )
+    """Config for the code-guardian agent type."""
 
 
 def _prompt_user_for_skill_install(skill_path: Path) -> bool:

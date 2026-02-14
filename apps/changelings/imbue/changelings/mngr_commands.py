@@ -29,6 +29,14 @@ def build_mngr_create_command(
     agent_name = f"{changeling.name}-{now_str}"
     branch_name = f"changelings/{changeling.name}-{now_str}"
 
+    # format the initial message
+    initial_message = changeling.initial_message.format(
+        NAME=changeling.name,
+        AGENT_TYPE=changeling.agent_type,
+        RUN_NAME=changeling.name,
+        BRANCH=changeling.branch,
+    )
+
     cmd = [
         "uv",
         "run",
@@ -50,7 +58,7 @@ def build_mngr_create_command(
         "--new-branch",
         branch_name,
         "--message",
-        changeling.initial_message,
+        initial_message,
     ]
 
     # When running on Modal, specify the provider and pass secrets via env file

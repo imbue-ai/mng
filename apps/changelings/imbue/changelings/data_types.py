@@ -8,7 +8,9 @@ from imbue.changelings.primitives import GitRepoUrl
 from imbue.imbue_common.frozen_model import FrozenModel
 
 DEFAULT_SCHEDULE: Final[str] = "0 3 * * *"
-DEFAULT_INITIAL_MESSAGE: Final[str] = "Please use your primary skill"
+# will be formatted, these variables will be filled in: NAME, AGENT_TYPE, RUN_NAME, BRANCH
+# by default agents should define a /command that matches their agent type name so that this works out
+DEFAULT_INITIAL_MESSAGE: Final[str] = "/{AGENT_TYPE}"
 DEFAULT_SECRETS: Final[tuple[str, ...]] = ("GH_TOKEN", "ANTHROPIC_API_KEY")
 
 

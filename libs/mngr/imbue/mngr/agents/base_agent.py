@@ -467,6 +467,8 @@ class BaseAgent(AgentInterface):
                 lambda: self._check_pane_contains(session_name, indicator),
                 timeout=_TUI_READY_TIMEOUT_SECONDS,
             ):
+                # FIXME: if we end up here, we really need to print out the remote pane content for debugging, since otherwise this is a really annoying error to debug
+                #  and we should log those contents as well, again, for easier debugging
                 raise SendMessageError(
                     str(self.name),
                     f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)",
