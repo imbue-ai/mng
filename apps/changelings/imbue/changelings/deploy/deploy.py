@@ -14,9 +14,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 
-# AGENT_POLL_TIMEOUT_SECONDS: float = 300.0
-# FIXME: remove, just for debugging
-AGENT_POLL_TIMEOUT_SECONDS: float = 3600.0
+AGENT_POLL_TIMEOUT_SECONDS: float = 300.0
 AGENT_POLL_INTERVAL_SECONDS: float = 10.0
 
 
