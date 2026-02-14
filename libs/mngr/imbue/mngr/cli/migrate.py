@@ -3,7 +3,9 @@ import sys
 import click
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.pure import pure
+from imbue.mngr.api.list import list_agents
 from imbue.mngr.cli.clone import args_before_dd_count
 from imbue.mngr.cli.clone import has_name_in_remaining_args
 from imbue.mngr.cli.clone import parse_source_and_invoke_create
@@ -12,12 +14,51 @@ from imbue.mngr.cli.destroy import destroy as destroy_cmd
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
+from imbue.mngr.config.loader import load_config
+from imbue.mngr.errors import UserInputError
+from imbue.mngr.primitives import AgentId
 
 
 @pure
 def _user_specified_no_connect(args: tuple[str, ...]) -> bool:
     """Check if the user explicitly passed --no-connect in their args."""
     return "--no-connect" in args
+
+
+@pure
+def _user_specified_quiet(args: tuple[str, ...]) -> bool:
+    """Check if the user explicitly passed --quiet or -q in their args."""
+    return "--quiet" in args or "-q" in args
+
+
+def _resolve_source_agent_id(ctx: click.Context, source_agent: str) -> AgentId:
+    """Resolve the source agent name or ID to a unique AgentId.
+
+    Loads config and lists all agents to find a match by name or ID.
+    This ensures destroy targets only the specific source agent, avoiding
+    collisions when the cloned agent shares the same name.
+    """
+    pm = ctx.obj
+    with ConcurrencyGroup(name="mngr-migrate-resolve") as cg:
+        mngr_ctx = load_config(pm, cg)
+        result = list_agents(mngr_ctx, is_streaming=False)
+
+    for agent_info in result.agents:
+        if str(agent_info.name) == source_agent or str(agent_info.id) == source_agent:
+            return agent_info.id
+
+    raise UserInputError(f"Source agent '{source_agent}' not found")
+
+
+@pure
+def _build_destroy_args(source_agent_id: AgentId) -> list[str]:
+    """Build the argument list for destroying the source agent during migrate.
+
+    Uses the agent ID (not name) to avoid destroying a newly cloned agent
+    that shares the same name. Always passes --quiet and --no-gc to suppress
+    alarming destroy output during migrate.
+    """
+    return [str(source_agent_id), "--force", "--quiet", "--no-gc"]
 
 
 @pure
@@ -83,6 +124,12 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
     # If they do, we inject --no-connect so that create returns after the
     # agent is ready, then we destroy the source, then connect manually.
     wants_connect = not _user_specified_no_connect(args)
+    is_quiet = _user_specified_quiet(args)
+
+    # Resolve the source agent's unique ID before cloning, so that
+    # destroy targets only this specific agent (not a newly cloned agent
+    # that may share the same name).
+    source_agent_id = _resolve_source_agent_id(ctx, source_agent)
 
     if wants_connect:
         create_args = args + ("--no-connect", "--await-ready")
@@ -91,8 +138,13 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
 
     parse_source_and_invoke_create(ctx, create_args, command_name="migrate")
 
-    # Destroy the source agent with --force
-    destroy_args = [source_agent, "--force"]
+    # Destroy the source agent by ID with --force.
+    # Always pass --quiet and --no-gc to suppress alarming destroy output
+    # during migrate (users see migrate-appropriate messages instead).
+    if not is_quiet:
+        logger.info("Cleaning up source agent...")
+
+    destroy_args = _build_destroy_args(source_agent_id)
     try:
         destroy_ctx = destroy_cmd.make_context("migrate-destroy", destroy_args, parent=ctx)
         with destroy_ctx:
