@@ -176,11 +176,13 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
             sandbox.terminate()
 
             if were_snapshots_missing:
+                logger.warning(
+                    "Host record was missing 'snapshots' field. Original data was: {}",
+                    host_record_for_debugging,
+                )
                 raise HTTPException(
                     status_code=500,
-                    detail=(
-                        f"Host record was missing 'snapshots' field. Original data was: {host_record_for_debugging}"
-                    ),
+                    detail="Host record was missing 'snapshots' field",
                 )
 
             return {
@@ -195,10 +197,9 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
 
     except HTTPException:
         raise
-    except modal.exception.NotFoundError as e:
-        raise HTTPException(status_code=404, detail=f"Sandbox not found: {e}") from None
-    except modal.exception.InvalidError as e:
-        # Invalid sandbox ID format also counts as "not found"
-        raise HTTPException(status_code=404, detail=f"Invalid sandbox ID: {e}") from None
-    except modal.exception.Error as e:
-        raise HTTPException(status_code=500, detail=f"Modal error: {e}") from None
+    except modal.exception.NotFoundError:
+        raise HTTPException(status_code=404, detail="Sandbox not found") from None
+    except modal.exception.InvalidError:
+        raise HTTPException(status_code=404, detail="Invalid sandbox ID") from None
+    except modal.exception.Error:
+        raise HTTPException(status_code=500, detail="Modal error") from None

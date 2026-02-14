@@ -25,16 +25,19 @@ from imbue.mngr.primitives import ErrorBehavior
 
 _app_state: dict[str, MngrContext | SecretStr | None] = {"mngr_ctx": None, "api_token": None}
 
+# Future improvement: add Content-Security-Policy headers (e.g. default-src 'self',
+# script-src 'self' 'unsafe-inline', frame-src * for ttyd iframes) as defense-in-depth
+# against XSS, even though the current UI uses esc() correctly.
 app = FastAPI(title="mngr API", docs_url=None, redoc_url=None)
 
 
 @app.exception_handler(Exception)
 def global_exception_handler(request: Request, exc: Exception) -> Response:
-    """Return provider/backend errors as structured JSON instead of raw 500s."""
+    """Return a generic error to the client; keep details server-side only."""
     logger.error("Unhandled exception in {}: {}", request.url.path, exc)
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc), "error_type": type(exc).__name__},
+        content={"detail": "Internal server error"},
     )
 
 
@@ -97,7 +100,7 @@ def list_agents_endpoint(
         # error_behavior takes effect. Return partial results with the error.
         logger.warning("Error loading agents: {}", e)
         agents_data = []
-        errors = [{"message": str(e), "error_type": type(e).__name__}]
+        errors = [{"message": "Failed to load agents", "error_type": type(e).__name__}]
     return JSONResponse(content={"agents": agents_data, "errors": errors})
 
 
