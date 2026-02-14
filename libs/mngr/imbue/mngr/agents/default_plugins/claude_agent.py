@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import shlex
-import shutil
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -200,106 +199,6 @@ def _find_most_recent_session(project_dir: Path) -> str:
         raise UserInputError(f"No sessions found in {project_dir}")
     jsonl_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
     return jsonl_files[0].stem
-
-
-def _adopt_claude_session(
-    session_id: str,
-    source_project_dir: Path,
-    target_project_dir: Path,
-    target_work_dir: Path,
-    agent_state_dir: Path,
-) -> None:
-    """Transfer a Claude session so it can be resumed from a different work directory.
-
-    Claude Code's --resume filters sessions by matching the projectPath in
-    sessions-index.json against the current working directory. To make a session
-    resumable from a new work_dir, we:
-
-    1. Create the target project directory
-    2. Symlink the session .jsonl file and companion directory (avoids copying large files)
-    3. Write a sessions-index.json with projectPath pointing to the new work_dir
-    4. Write the session ID to the agent state dir for the resume command
-
-    If source and target project directories are the same (--in-place), only
-    step 4 is needed.
-    """
-    source_file = source_project_dir / f"{session_id}.jsonl"
-    if not source_file.exists():
-        raise UserInputError(f"Session file not found: {source_file}")
-
-    is_same_project_dir = source_project_dir.resolve() == target_project_dir.resolve()
-    if not is_same_project_dir:
-        # Create the target project directory (remove if it's a stale symlink from a previous run)
-        if target_project_dir.is_symlink():
-            target_project_dir.unlink()
-        target_project_dir.mkdir(parents=True, exist_ok=True)
-
-        # Symlink the session .jsonl file
-        target_file = target_project_dir / f"{session_id}.jsonl"
-        if target_file.exists() or target_file.is_symlink():
-            target_file.unlink()
-        target_file.symlink_to(source_file.resolve())
-
-        # Symlink the companion directory (contains subagents, tool-results, etc.)
-        source_companion = source_project_dir / session_id
-        if source_companion.is_dir():
-            target_companion = target_project_dir / session_id
-            if target_companion.exists() or target_companion.is_symlink():
-                if target_companion.is_symlink():
-                    target_companion.unlink()
-                else:
-                    shutil.rmtree(target_companion)
-            target_companion.symlink_to(source_companion.resolve())
-
-        # Build sessions-index.json entry with projectPath matching the new work_dir.
-        # Try to copy the entry from the source index; construct a minimal one if absent.
-        source_index_path = source_project_dir / "sessions-index.json"
-        source_entry: dict[str, Any] | None = None
-        if source_index_path.exists():
-            source_index = json.loads(source_index_path.read_text())
-            for entry in source_index.get("entries", []):
-                if entry.get("sessionId") == session_id:
-                    source_entry = dict(entry)
-                    break
-
-        target_entry: dict[str, Any]
-        if source_entry is not None:
-            target_entry = source_entry
-        else:
-            source_mtime_ms = int(source_file.stat().st_mtime * 1000)
-            target_entry = {
-                "sessionId": session_id,
-                "fileMtime": source_mtime_ms,
-            }
-
-        # Rewrite paths to point to the target
-        target_entry["fullPath"] = str(target_file)
-        target_entry["projectPath"] = str(target_work_dir.resolve())
-
-        # Write sessions-index.json in the target directory
-        target_index_path = target_project_dir / "sessions-index.json"
-        target_entries: list[dict[str, Any]]
-        if target_index_path.exists():
-            target_index_data = json.loads(target_index_path.read_text())
-            target_entries = target_index_data.get("entries", [])
-        else:
-            target_entries = []
-
-        filtered_entries = [e for e in target_entries if e.get("sessionId") != session_id]
-        filtered_entries.append(target_entry)
-        updated_index = {"version": 1, "entries": filtered_entries}
-        target_index_path.write_text(json.dumps(updated_index, indent=4) + "\n")
-
-    # Write session ID to agent state dir
-    sid_path = agent_state_dir / "claude_session_id"
-    sid_tmp = agent_state_dir / "claude_session_id.tmp"
-    sid_tmp.write_text(session_id)
-    sid_tmp.rename(sid_path)
-
-    # Append to history
-    history_path = agent_state_dir / "claude_session_id_history"
-    with open(history_path, "a") as f:
-        f.write(session_id + "\n")
 
 
 class ClaudeAgent(BaseAgent):
@@ -721,7 +620,12 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
-        """Adopt a Claude session if --adopt-session was specified."""
+        """Adopt a Claude session if --adopt-session was specified.
+
+        Uses _transfer_claude_session to copy the entire Claude project directory
+        (with sessions-index.json path rewriting), then overwrites the session ID
+        in the agent state dir with the specific adopted session.
+        """
         if options.adopt_session_id is None:
             return
 
@@ -749,11 +653,17 @@ class ClaudeAgent(BaseAgent):
                 f"Available sessions: {[f.stem for f in source_project_dir.glob('*.jsonl')]}"
             )
 
-        target_project_dir = _get_claude_project_dir(self.work_dir)
-        agent_state_dir = self._get_agent_dir()
+        # Transfer the entire Claude project directory (copies files + rewrites sessions-index.json)
+        with log_span("Adopting session {}", session_id):
+            self._transfer_claude_session(host, options.adopt_session_source_path)
 
-        with log_span("Adopting session {} from {} to {}", session_id, source_project_dir, target_project_dir):
-            _adopt_claude_session(session_id, source_project_dir, target_project_dir, self.work_dir, agent_state_dir)
+        # Overwrite the session ID with the specific adopted session
+        # (_transfer_claude_session writes the most recent session, which may differ)
+        agent_state_dir = self._get_agent_dir()
+        sid_path = agent_state_dir / "claude_session_id"
+        sid_tmp = agent_state_dir / "claude_session_id.tmp"
+        sid_tmp.write_text(session_id)
+        sid_tmp.rename(sid_path)
 
         logger.info("Adopted session {}", session_id)
 
