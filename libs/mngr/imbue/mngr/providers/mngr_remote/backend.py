@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import ConfigStructureError
@@ -57,9 +56,3 @@ class MngrRemoteProviderBackend(ProviderBackendInterface):
             remote_url=config.url,
             remote_token=config.token,
         )
-
-
-@hookimpl
-def register_provider_backend() -> tuple[type[ProviderBackendInterface], type[ProviderInstanceConfig]]:
-    """Register the mngr remote provider backend."""
-    return MngrRemoteProviderBackend, MngrRemoteProviderConfig
