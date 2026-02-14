@@ -111,7 +111,9 @@ def create(
             agent.wait_for_ready_signal(
                 is_creating=True,
                 start_action=lambda: host.start_agents([agent.id]),
-                timeout=timeout,
+                # TODO: put this back!!!
+                # timeout=timeout,
+                timeout=3600.0,  # so that I can debug and see what happened
             )
             logger.info("Sending initial message...")
             agent.send_message(initial_message)
