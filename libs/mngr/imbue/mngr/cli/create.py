@@ -983,17 +983,41 @@ def _resolve_source_location(
             path=Path(source_path),
         )
     else:
-        # more complicated, have to figure out where the source is coming from
-        agents_by_host = agent_and_host_loader()
-        source_location = resolve_source_location(
-            opts.source,
-            opts.source_agent,
-            opts.source_host,
-            opts.source_path,
-            agents_by_host,
-            mngr_ctx,
-            is_start_desired=is_start_desired,
+        # Parse the source first to check if it's just a local path.
+        # When --source is a plain filesystem path (no agent or host component),
+        # we can resolve it locally without loading all providers. Loading all
+        # providers is expensive and can fail if a provider's external service
+        # (e.g. Docker daemon, Modal credentials) is unavailable.
+        parsed = _parse_source_string(opts.source) if opts.source else None
+        has_agent_or_host = (
+            (parsed is not None and (parsed.agent_name is not None or parsed.host_name is not None))
+            or opts.source_agent is not None
+            or opts.source_host is not None
         )
+        if not has_agent_or_host:
+            # Just a local path -- use the fast local-provider path
+            if parsed is not None and parsed.path is not None:
+                source_path = str(parsed.path)
+            elif opts.source_path is not None:
+                source_path = opts.source_path
+            else:
+                source_path = os.getcwd()
+            provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
+            host = provider.get_host(HostName("local"))
+            online_host, _ = ensure_host_started(host, is_start_desired=is_start_desired, provider=provider)
+            source_location = HostLocation(host=online_host, path=Path(source_path))
+        else:
+            # Need full resolution across providers
+            agents_by_host = agent_and_host_loader()
+            source_location = resolve_source_location(
+                opts.source,
+                opts.source_agent,
+                opts.source_host,
+                opts.source_path,
+                agents_by_host,
+                mngr_ctx,
+                is_start_desired=is_start_desired,
+            )
     return source_location
 
 

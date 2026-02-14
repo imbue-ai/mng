@@ -306,6 +306,7 @@ def test_create_host_with_dockerfile(docker_provider: DockerProviderInstance, tm
 
 
 @pytest.mark.acceptance
+@pytest.mark.timeout(120)
 def test_persist_and_list_agent_data(docker_provider: DockerProviderInstance) -> None:
     """Verify agent data can be persisted and listed for a host."""
     host = docker_provider.create_host(HostName("test-agent-data"))
@@ -320,6 +321,7 @@ def test_persist_and_list_agent_data(docker_provider: DockerProviderInstance) ->
 
 
 @pytest.mark.acceptance
+@pytest.mark.timeout(120)
 def test_remove_persisted_agent_data(docker_provider: DockerProviderInstance) -> None:
     """Verify agent data can be removed after persisting."""
     host = docker_provider.create_host(HostName("test-rm-agent"))
@@ -454,6 +456,7 @@ def test_multiple_hosts_isolated(
 
 
 @pytest.mark.release
+@pytest.mark.timeout(120)
 def test_persist_multiple_agents_for_same_host(docker_provider: DockerProviderInstance) -> None:
     """Verify multiple agent data records can be persisted for one host."""
     host = docker_provider.create_host(HostName("test-multi-agent"))
