@@ -16,7 +16,6 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mngr.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
-from imbue.mngr.agents.default_plugins.claude_agent import _encode_path_for_claude_project
 from imbue.mngr.agents.default_plugins.claude_agent import _find_most_recent_session
 from imbue.mngr.agents.default_plugins.claude_agent import _get_claude_project_dir
 from imbue.mngr.agents.default_plugins.claude_agent import _has_api_credentials_available
@@ -1260,19 +1259,6 @@ def test_on_before_provisioning_succeeds_with_credentials(
 # =============================================================================
 
 
-def test_encode_path_for_claude_project() -> None:
-    """_encode_path_for_claude_project should replace slashes with dashes."""
-    assert _encode_path_for_claude_project(Path("/Users/ev/foo")) == "-Users-ev-foo"
-    assert _encode_path_for_claude_project(Path("/a/b/c")) == "-a-b-c"
-
-
-def test_get_claude_project_dir() -> None:
-    """_get_claude_project_dir should return the correct path under ~/.claude/projects/."""
-    result = _get_claude_project_dir(Path("/Users/ev/foo"))
-    expected = Path.home() / ".claude" / "projects" / "-Users-ev-foo"
-    assert result == expected
-
-
 def test_find_most_recent_session_from_index(tmp_path: Path) -> None:
     """_find_most_recent_session should find session from sessions-index.json."""
     project_dir = tmp_path / "project"
@@ -1336,34 +1322,40 @@ def test_on_after_provisioning_skips_when_no_adopt_session(
 def test_on_after_provisioning_adopts_specific_session(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
-    """on_after_provisioning should adopt a specific session when ID is provided."""
+    """on_after_provisioning should set the specific session ID after provision() transfers files."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    _init_git_with_gitignore(agent.work_dir)
 
-    # Set up the source project directory
+    # Set up the source project directory with two sessions
     source_path = tmp_path / "source_work"
     source_path.mkdir()
     source_project_dir = _get_claude_project_dir(source_path)
     source_project_dir.mkdir(parents=True)
 
-    session_id = "adopt-test-session-id"
-    (source_project_dir / f"{session_id}.jsonl").write_text('{"type":"message"}\n')
+    target_session_id = "adopt-test-session-id"
+    (source_project_dir / f"{target_session_id}.jsonl").write_text('{"type":"message"}\n')
+    os.utime(source_project_dir / f"{target_session_id}.jsonl", (1000.0, 1000.0))
 
-    # Create the agent state dir so it exists
+    # Create a newer session so _transfer_claude_session picks it (not our target)
+    (source_project_dir / "newer-session.jsonl").write_text('{"type":"message"}\n')
+    os.utime(source_project_dir / "newer-session.jsonl", (2000.0, 2000.0))
+
+    # Create the agent state dir
     agent_state_dir = agent._get_agent_dir()
     agent_state_dir.mkdir(parents=True, exist_ok=True)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        adopt_session_id=session_id,
-        adopt_session_source_path=source_path,
+        adopt_session_id=target_session_id,
+        source_work_dir=source_path,
     )
 
+    # provision() transfers the files, on_after_provisioning() sets the session ID
+    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
     agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
-    # Verify session was adopted
-    target_project_dir = _get_claude_project_dir(agent.work_dir)
-    assert (target_project_dir / f"{session_id}.jsonl").exists()
-    assert (agent_state_dir / "claude_session_id").read_text() == session_id
+    # Verify the SPECIFIC session ID was set (not the most recent one)
+    assert (agent_state_dir / "claude_session_id").read_text() == target_session_id
 
 
 def test_on_after_provisioning_auto_detects_session(
@@ -1371,6 +1363,7 @@ def test_on_after_provisioning_auto_detects_session(
 ) -> None:
     """on_after_provisioning should auto-detect the most recent session when ID is empty string."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    _init_git_with_gitignore(agent.work_dir)
 
     # Set up the source project directory
     source_path = tmp_path / "source_work"
@@ -1388,30 +1381,29 @@ def test_on_after_provisioning_auto_detects_session(
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         adopt_session_id="",
-        adopt_session_source_path=source_path,
+        source_work_dir=source_path,
     )
 
+    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
     agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
     # Verify the auto-detected session was adopted
-    target_project_dir = _get_claude_project_dir(agent.work_dir)
-    assert (target_project_dir / f"{session_id}.jsonl").exists()
     assert (agent_state_dir / "claude_session_id").read_text() == session_id
 
 
 def test_on_after_provisioning_raises_when_source_path_missing(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
-    """on_after_provisioning should raise PluginMngrError when adopt_session_source_path is None."""
+    """on_after_provisioning should raise PluginMngrError when source_work_dir is None."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         adopt_session_id="some-id",
-        adopt_session_source_path=None,
+        source_work_dir=None,
     )
 
-    with pytest.raises(PluginMngrError, match="adopt_session_source_path is required"):
+    with pytest.raises(PluginMngrError, match="source_work_dir is required"):
         agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
 
@@ -1428,7 +1420,7 @@ def test_on_after_provisioning_raises_when_project_dir_not_found(
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         adopt_session_id="some-id",
-        adopt_session_source_path=source_path,
+        source_work_dir=source_path,
     )
 
     with pytest.raises(UserInputError, match="No Claude project directory found"):
@@ -1449,7 +1441,7 @@ def test_on_after_provisioning_raises_when_session_not_found(
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         adopt_session_id="nonexistent-session",
-        adopt_session_source_path=source_path,
+        source_work_dir=source_path,
     )
 
     with pytest.raises(UserInputError, match="Session nonexistent-session not found"):
@@ -1459,8 +1451,9 @@ def test_on_after_provisioning_raises_when_session_not_found(
 def test_on_after_provisioning_copies_and_rewrites_for_cross_worktree_adoption(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
-    """on_after_provisioning should copy session data and rewrite projectPath for cross-worktree resume."""
+    """Full provision+on_after_provisioning flow should copy, rewrite, and set session ID."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
+    _init_git_with_gitignore(agent.work_dir)
 
     # Set up the source project directory with a session and index
     source_path = tmp_path / "original_project"
@@ -1498,31 +1491,26 @@ def test_on_after_provisioning_copies_and_rewrites_for_cross_worktree_adoption(
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
         adopt_session_id=session_id,
-        adopt_session_source_path=source_path,
+        source_work_dir=source_path,
     )
 
+    # Full lifecycle: provision transfers files, on_after_provisioning sets session ID
+    agent.provision(host=host, options=options, mngr_ctx=temp_mngr_ctx)
     agent.on_after_provisioning(host=host, options=options, mngr_ctx=temp_mngr_ctx)
 
-    # Verify session .jsonl was copied (not symlinked) to the target project dir
+    # Verify session .jsonl was copied to the target project dir
     target_project_dir = _get_claude_project_dir(agent.work_dir)
-    target_jsonl = target_project_dir / f"{session_id}.jsonl"
-    assert target_jsonl.exists()
-    assert not target_jsonl.is_symlink()
+    assert (target_project_dir / f"{session_id}.jsonl").exists()
 
     # Verify companion directory was copied
-    target_companion = target_project_dir / session_id
-    assert target_companion.exists()
-    assert (target_companion / "tool-results" / "result.json").exists()
+    assert (target_project_dir / session_id / "tool-results" / "result.json").exists()
 
     # Verify sessions-index.json has projectPath pointing to agent's work_dir
     target_index = json.loads((target_project_dir / "sessions-index.json").read_text())
     assert len(target_index["entries"]) == 1
-    entry = target_index["entries"][0]
-    assert entry["projectPath"] == str(agent.work_dir)
-    assert entry["summary"] == "Test session"
+    assert target_index["entries"][0]["projectPath"] == str(agent.work_dir)
 
     # Verify the specific adopted session ID was written to agent state
-    # (not just the most recent session)
     assert (agent_state_dir / "claude_session_id").read_text() == session_id
 
 

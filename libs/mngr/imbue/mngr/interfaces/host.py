@@ -739,12 +739,8 @@ class CreateAgentOptions(FrozenModel):
         description="Session ID to adopt from a plain Claude Code session. "
         "Empty string means auto-detect the most recent session.",
     )
-    adopt_session_source_path: Path | None = Field(
-        default=None,
-        description="Source directory path for resolving the Claude project directory "
-        "when adopting a session. Captured from CLI invocation context.",
-    )
     source_work_dir: Path | None = Field(
         default=None,
-        description="Source agent work_dir path (set when cloning via --from-agent, used to transfer Claude session)",
+        description="Source work_dir path for transferring Claude session data "
+        "(set when cloning via --from-agent or adopting via --adopt-session)",
     )

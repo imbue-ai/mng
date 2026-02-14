@@ -1298,12 +1298,10 @@ def _parse_agent_opts(
         # Automatically use the "generic" agent type when --agent-cmd is provided
         resolved_agent_type = "generic"
 
-    # Capture the source path for session adoption (the directory where `mngr create` was invoked)
-    adopt_session_source_path = source_location.path if opts.adopt_session is not None else None
-
-    # When cloning from an existing agent, pass the source work_dir so that
-    # agent plugins (e.g. ClaudeAgent) can transfer session state.
-    parsed_source_work_dir = source_location.path if opts.source_agent is not None else None
+    # Pass the source work_dir so agent plugins (e.g. ClaudeAgent) can transfer session state.
+    # This is set when cloning from an existing agent (--source-agent) or adopting a session (--adopt-session).
+    is_session_transfer = opts.source_agent is not None or opts.adopt_session is not None
+    parsed_source_work_dir = source_location.path if is_session_transfer else None
 
     agent_opts = CreateAgentOptions(
         agent_type=AgentTypeName(resolved_agent_type) if resolved_agent_type else None,
@@ -1324,7 +1322,6 @@ def _parse_agent_opts(
         permissions=permissions,
         provisioning=provisioning,
         adopt_session_id=opts.adopt_session,
-        adopt_session_source_path=adopt_session_source_path,
         source_work_dir=parsed_source_work_dir,
     )
     return agent_opts

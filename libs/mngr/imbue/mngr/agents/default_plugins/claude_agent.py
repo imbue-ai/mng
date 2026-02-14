@@ -163,15 +163,9 @@ def _has_api_credentials_available(
     return False
 
 
-def _encode_path_for_claude_project(path: Path) -> str:
-    """Encode a filesystem path to Claude's project directory name."""
-    return str(path).replace("/", "-")
-
-
 def _get_claude_project_dir(path: Path) -> Path:
     """Get the Claude project directory for a given filesystem path."""
-    encoded = _encode_path_for_claude_project(path.resolve())
-    return Path.home() / ".claude" / "projects" / encoded
+    return Path.home() / ".claude" / "projects" / encode_claude_project_dir_name(path.resolve())
 
 
 def _find_most_recent_session(project_dir: Path) -> str:
@@ -620,23 +614,23 @@ class ClaudeAgent(BaseAgent):
         options: CreateAgentOptions,
         mngr_ctx: MngrContext,
     ) -> None:
-        """Adopt a Claude session if --adopt-session was specified.
+        """Set the specific adopted session ID if --adopt-session was specified.
 
-        Uses _transfer_claude_session to copy the entire Claude project directory
-        (with sessions-index.json path rewriting), then overwrites the session ID
-        in the agent state dir with the specific adopted session.
+        The session transfer itself is handled by provision() via source_work_dir.
+        This method resolves auto-detection, validates the session exists, and
+        overwrites the session ID (since _transfer_claude_session writes the
+        most recent session, which may differ from the one being adopted).
         """
         if options.adopt_session_id is None:
             return
 
-        if options.adopt_session_source_path is None:
-            raise PluginMngrError("adopt_session_source_path is required when adopt_session_id is set")
+        if options.source_work_dir is None:
+            raise PluginMngrError("source_work_dir is required when adopt_session_id is set")
 
-        source_project_dir = _get_claude_project_dir(options.adopt_session_source_path)
+        source_project_dir = _get_claude_project_dir(options.source_work_dir)
         if not source_project_dir.exists():
             raise UserInputError(
-                f"No Claude project directory found for {options.adopt_session_source_path}. "
-                f"Expected: {source_project_dir}"
+                f"No Claude project directory found for {options.source_work_dir}. Expected: {source_project_dir}"
             )
 
         # Auto-detect session if empty string
@@ -645,25 +639,18 @@ class ClaudeAgent(BaseAgent):
             session_id = _find_most_recent_session(source_project_dir)
             logger.info("Auto-detected session: {}", session_id)
 
-        # Verify session exists in source
-        source_file = source_project_dir / f"{session_id}.jsonl"
-        if not source_file.exists():
+        # Verify session exists in the transferred project dir
+        target_project_dir = _get_claude_project_dir(self.work_dir)
+        target_file = target_project_dir / f"{session_id}.jsonl"
+        if not target_file.exists():
             raise UserInputError(
-                f"Session {session_id} not found in {source_project_dir}. "
-                f"Available sessions: {[f.stem for f in source_project_dir.glob('*.jsonl')]}"
+                f"Session {session_id} not found after transfer. "
+                f"Available sessions: {[f.stem for f in target_project_dir.glob('*.jsonl')]}"
             )
 
-        # Transfer the entire Claude project directory (copies files + rewrites sessions-index.json)
-        with log_span("Adopting session {}", session_id):
-            self._transfer_claude_session(host, options.adopt_session_source_path)
-
         # Overwrite the session ID with the specific adopted session
-        # (_transfer_claude_session writes the most recent session, which may differ)
         agent_state_dir = self._get_agent_dir()
-        sid_path = agent_state_dir / "claude_session_id"
-        sid_tmp = agent_state_dir / "claude_session_id.tmp"
-        sid_tmp.write_text(session_id)
-        sid_tmp.rename(sid_path)
+        host.write_text_file(agent_state_dir / "claude_session_id", session_id)
 
         logger.info("Adopted session {}", session_id)
 
