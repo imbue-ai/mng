@@ -4,11 +4,11 @@ import click
 import uvicorn
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.config.loader import load_config
 from imbue.mngr.plugins.api_server.app import app
 from imbue.mngr.plugins.api_server.app import configure_app
 from imbue.mngr.plugins.api_server.auth import read_or_create_api_token
-from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
 
 @click.command(name="serve")
@@ -68,4 +68,4 @@ def show_token_command(config_dir: Path) -> None:
     """Print the API server authentication token."""
     expanded_config_dir = config_dir.expanduser()
     token = read_or_create_api_token(expanded_config_dir)
-    logger.info("{}", token.get_secret_value())
+    click.echo(token.get_secret_value())

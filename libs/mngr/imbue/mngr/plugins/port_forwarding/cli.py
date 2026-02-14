@@ -38,7 +38,7 @@ def auth_command(show_token: bool, config_dir: Path) -> None:
     token = read_or_create_auth_token(expanded_config_dir)
 
     if show_token:
-        logger.info("{}", token.get_secret_value())
+        click.echo(token.get_secret_value())
         return
 
     # Generate the auth page and open it in the browser
