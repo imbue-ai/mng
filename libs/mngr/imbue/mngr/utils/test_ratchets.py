@@ -435,7 +435,7 @@ def test_prevent_click_echo() -> None:
     pattern = RegexPattern(r"\bclick\.echo\b|\bfrom\s+click\s+import\s+.*\becho\b")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
-    assert len(chunks) <= snapshot(2), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="click.echo usage",
         rule_description="Do not use click.echo. Use logger.info() instead for consistent logging",
         chunks=chunks,
@@ -535,7 +535,7 @@ def test_prevent_model_copy() -> None:
     pattern = RegexPattern(r"\.model_copy\(")
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
 
-    assert len(chunks) <= snapshot(1), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name=".model_copy() usage",
         rule_description=(
             "Do not use .model_copy() directly. "
